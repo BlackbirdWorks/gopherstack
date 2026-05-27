@@ -337,46 +337,6 @@ func TestInMemoryBackend_ScalingActivities(t *testing.T) {
 	}
 }
 
-func TestInMemoryBackend_Persistence(t *testing.T) {
-	t.Parallel()
-
-	t.Run("snapshot_and_restore", func(t *testing.T) {
-		t.Parallel()
-
-		b := autoscaling.NewInMemoryBackend()
-		_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
-			AutoScalingGroupName: "persist-asg",
-			MinSize:              1,
-			MaxSize:              5,
-		})
-		require.NoError(t, err)
-
-		_, err = b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
-			LaunchConfigurationName: "persist-lc",
-			ImageID:                 "ami-12345678",
-			InstanceType:            "t2.micro",
-		})
-		require.NoError(t, err)
-
-		data := b.Snapshot()
-		require.NotNil(t, data)
-
-		b2 := autoscaling.NewInMemoryBackend()
-		err = b2.Restore(data)
-		require.NoError(t, err)
-
-		groups, err := b2.DescribeAutoScalingGroups(nil)
-		require.NoError(t, err)
-		require.Len(t, groups, 1)
-		assert.Equal(t, "persist-asg", groups[0].AutoScalingGroupName)
-
-		lcs, err := b2.DescribeLaunchConfigurations(nil)
-		require.NoError(t, err)
-		require.Len(t, lcs, 1)
-		assert.Equal(t, "persist-lc", lcs[0].LaunchConfigurationName)
-	})
-}
-
 func TestInMemoryBackend_AttachInstances(t *testing.T) {
 	t.Parallel()
 
@@ -1408,6 +1368,1151 @@ func TestInMemoryBackend_CapacityValidation(t *testing.T) {
 				tt.setup(b)
 			}
 
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_LaunchTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "create_asg_with_launch_template",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				lt := &autoscaling.LaunchTemplateSpecification{
+					LaunchTemplateID:   "lt-0123456789abcdef0",
+					LaunchTemplateName: "my-template",
+					Version:            "$Latest",
+				}
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lt-asg",
+					LaunchTemplate:       lt,
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, g.LaunchTemplate)
+				assert.Equal(t, "lt-0123456789abcdef0", g.LaunchTemplate.LaunchTemplateID)
+				assert.Equal(t, "my-template", g.LaunchTemplate.LaunchTemplateName)
+				assert.Equal(t, "$Latest", g.LaunchTemplate.Version)
+				assert.Empty(t, g.LaunchConfigurationName)
+			},
+		},
+		{
+			name: "update_asg_clears_lc_when_lt_set",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:    "lt-update-asg",
+					LaunchConfigurationName: "my-lc",
+					MinSize:                 1,
+					MaxSize:                 3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				lt := &autoscaling.LaunchTemplateSpecification{
+					LaunchTemplateID: "lt-abc",
+					Version:          "1",
+				}
+
+				g, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+					AutoScalingGroupName: "lt-update-asg",
+					LaunchTemplate:       lt,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, g.LaunchTemplate)
+				assert.Equal(t, "lt-abc", g.LaunchTemplate.LaunchTemplateID)
+				assert.Empty(t, g.LaunchConfigurationName)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_VPCZoneIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "create_with_vpc_zone_identifier",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "vpc-asg",
+					VPCZoneIdentifier:    "subnet-aaa,subnet-bbb",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "subnet-aaa,subnet-bbb", g.VPCZoneIdentifier)
+			},
+		},
+		{
+			name: "update_vpc_zone_identifier",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "vpc-update-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				g, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+					AutoScalingGroupName: "vpc-update-asg",
+					VPCZoneIdentifier:    "subnet-ccc",
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "subnet-ccc", g.VPCZoneIdentifier)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_TerminationPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid_termination_policies",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "tp-asg",
+					TerminationPolicies:  []string{"OldestInstance", "Default"},
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, []string{"OldestInstance", "Default"}, g.TerminationPolicies)
+			},
+		},
+		{
+			name: "closest_to_next_instance_hour_valid",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "closest-asg",
+					TerminationPolicies:  []string{"ClosestToNextInstanceHour"},
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "invalid_termination_policy",
+			wantErr: true,
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "bad-tp-asg",
+					TerminationPolicies:  []string{"ClosestToNextInstanceHourPrice"},
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.Error(t, err)
+			},
+		},
+		{
+			name:    "invalid_termination_policy_update",
+			wantErr: true,
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "tp-update-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+					AutoScalingGroupName: "tp-update-asg",
+					TerminationPolicies:  []string{"NotReal"},
+				})
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_HealthCheckTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		healthCheckType string
+		wantErr         bool
+	}{
+		{name: "ec2_valid", healthCheckType: "EC2", wantErr: false},
+		{name: "elb_valid", healthCheckType: "ELB", wantErr: false},
+		{name: "vpc_lattice_valid", healthCheckType: "VPC_LATTICE", wantErr: false},
+		{name: "empty_defaults_ec2", healthCheckType: "", wantErr: false},
+		{name: "invalid_type", healthCheckType: "UNKNOWN", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+				AutoScalingGroupName: "hct-asg",
+				HealthCheckType:      tt.healthCheckType,
+				MinSize:              1,
+				MaxSize:              3,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_NewInstancesProtectedFromScaleIn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "new_instances_protected_propagates_to_initial_instances",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:             "prot-asg",
+					MinSize:                          2,
+					MaxSize:                          5,
+					DesiredCapacity:                  2,
+					NewInstancesProtectedFromScaleIn: true,
+				})
+				require.NoError(t, err)
+				assert.True(t, g.NewInstancesProtectedFromScaleIn)
+				for _, inst := range g.Instances {
+					assert.True(t, inst.ProtectedFromScaleIn, "instance %s should be protected", inst.InstanceID)
+				}
+			},
+		},
+		{
+			name: "update_new_instances_protected",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "prot-update-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				prot := true
+				g, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+					AutoScalingGroupName:             "prot-update-asg",
+					NewInstancesProtectedFromScaleIn: &prot,
+				})
+				require.NoError(t, err)
+				assert.True(t, g.NewInstancesProtectedFromScaleIn)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_SuspendProcessesValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid_processes_succeed",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sp-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				err := b.SuspendProcesses("sp-asg", []string{"Launch", "Terminate", "HealthCheck"})
+				require.NoError(t, err)
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sp-asg"})
+				require.Len(t, groups, 1)
+				assert.Contains(t, groups[0].SuspendedProcesses, "Launch")
+				assert.Contains(t, groups[0].SuspendedProcesses, "Terminate")
+			},
+		},
+		{
+			name:    "unknown_process_returns_error",
+			wantErr: true,
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sp-bad-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				err := b.SuspendProcesses("sp-bad-asg", []string{"Launch", "NotAProcess"})
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "all_valid_processes",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sp-all-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				allProcesses := []string{
+					"Launch", "Terminate", "HealthCheck", "ReplaceUnhealthy",
+					"AZRebalance", "AlarmNotification", "ScheduledActions",
+					"AddToLoadBalancer", "InstanceRefresh",
+				}
+				err := b.SuspendProcesses("sp-all-asg", allProcesses)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "unhealthy_mark_honored_after_grace_period",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:   "sih-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
+					HealthCheckGracePeriod: 0, // no grace period
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-asg"})
+				require.Len(t, groups[0].Instances, 1)
+				instID := groups[0].Instances[0].InstanceID
+
+				err := b.SetInstanceHealth(instID, "Unhealthy", true)
+				require.NoError(t, err)
+
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-asg"})
+				assert.Equal(t, "Unhealthy", groups[0].Instances[0].HealthStatus)
+			},
+		},
+		{
+			name: "unhealthy_ignored_within_grace_period",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:   "sih-grace-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
+					HealthCheckGracePeriod: 3600, // 1 hour grace
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-grace-asg"})
+				require.Len(t, groups[0].Instances, 1)
+				instID := groups[0].Instances[0].InstanceID
+
+				// LaunchTime is just now, so we're within grace period
+				err := b.SetInstanceHealth(instID, "Unhealthy", true)
+				require.NoError(t, err)
+
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-grace-asg"})
+				// Should still be Healthy — grace period honored
+				assert.Equal(t, "Healthy", groups[0].Instances[0].HealthStatus)
+			},
+		},
+		{
+			name: "respect_grace_period_false_always_marks",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:   "sih-norespect-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
+					HealthCheckGracePeriod: 3600,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"})
+				instID := groups[0].Instances[0].InstanceID
+
+				// false = don't respect grace period
+				err := b.SetInstanceHealth(instID, "Unhealthy", false)
+				require.NoError(t, err)
+
+				groups, _ = b.DescribeAutoScalingGroups([]string{"sih-norespect-asg"})
+				assert.Equal(t, "Unhealthy", groups[0].Instances[0].HealthStatus)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_PutLifecycleHookValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *autoscaling.InMemoryBackend)
+		name    string
+		hook    autoscaling.LifecycleHook
+		wantErr bool
+	}{
+		{
+			name: "valid_hook",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lh-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			hook: autoscaling.LifecycleHook{
+				LifecycleHookName:    "my-hook",
+				AutoScalingGroupName: "lh-asg",
+				LifecycleTransition:  "autoscaling:EC2_INSTANCE_LAUNCHING",
+				DefaultResult:        "CONTINUE",
+				HeartbeatTimeout:     300,
+			},
+			wantErr: false,
+		},
+		{
+			name: "default_heartbeat_timeout_applied",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lh-default-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			hook: autoscaling.LifecycleHook{
+				LifecycleHookName:    "my-hook",
+				AutoScalingGroupName: "lh-default-asg",
+				DefaultResult:        "ABANDON",
+			},
+			wantErr: false,
+		},
+		{
+			name: "heartbeat_too_low",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lh-low-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			hook: autoscaling.LifecycleHook{
+				LifecycleHookName:    "my-hook",
+				AutoScalingGroupName: "lh-low-asg",
+				HeartbeatTimeout:     10, // below min of 30
+			},
+			wantErr: true,
+		},
+		{
+			name: "heartbeat_too_high",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lh-high-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			hook: autoscaling.LifecycleHook{
+				LifecycleHookName:    "my-hook",
+				AutoScalingGroupName: "lh-high-asg",
+				HeartbeatTimeout:     200000, // above max of 172800
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid_default_result",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "lh-dr-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			hook: autoscaling.LifecycleHook{
+				LifecycleHookName:    "my-hook",
+				AutoScalingGroupName: "lh-dr-asg",
+				DefaultResult:        "FAIL",
+				HeartbeatTimeout:     300,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.PutLifecycleHook(tt.hook)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "asg_arn_uses_config_region_account",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "arn-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				require.NoError(t, err)
+				assert.Contains(t, g.AutoScalingGroupARN, "arn:aws:autoscaling:us-east-1:000000000000")
+			},
+		},
+		{
+			name: "lc_arn_uses_config_region_account",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				lcs, err := b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName: "arn-lc",
+					ImageID:                 "ami-1234",
+					InstanceType:            "t2.micro",
+				})
+				require.NoError(t, err)
+				assert.Contains(t, lcs.LaunchConfigurationARN, "arn:aws:autoscaling:us-east-1:000000000000")
+			},
+		},
+		{
+			name: "policy_arn_uses_config_region_account",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "arn-policy-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+
+				p, err := b.PutScalingPolicy(autoscaling.ScalingPolicyInput{
+					PolicyName:           "my-policy",
+					AutoScalingGroupName: "arn-policy-asg",
+					PolicyType:           "TargetTrackingScaling",
+				})
+				require.NoError(t, err)
+				assert.Contains(t, p.PolicyARN, "arn:aws:autoscaling:us-east-1:000000000000")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_Persistence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		check func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "snapshot_restore_preserves_scaling_policies",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_, _ = b.PutScalingPolicy(autoscaling.ScalingPolicyInput{
+					PolicyName:           "my-policy",
+					AutoScalingGroupName: "persist-asg",
+					PolicyType:           "SimpleScaling",
+					AdjustmentType:       "ChangeInCapacity",
+					ScalingAdjustment:    2,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				policies, err := b.DescribePolicies("persist-asg", nil)
+				require.NoError(t, err)
+				require.Len(t, policies, 1)
+				assert.Equal(t, "my-policy", policies[0].PolicyName)
+				assert.Equal(t, int32(2), policies[0].ScalingAdjustment)
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_notification_configs",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "notif-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_ = b.PutNotificationConfiguration(
+					"notif-asg",
+					"arn:aws:sns:us-east-1:000000000000:my-topic",
+					[]string{"autoscaling:EC2_INSTANCE_LAUNCH"},
+				)
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				notifs, err := b.DescribeNotificationConfigurations([]string{"notif-asg"})
+				require.NoError(t, err)
+				require.Len(t, notifs, 1)
+				assert.Equal(t, "autoscaling:EC2_INSTANCE_LAUNCH", notifs[0].NotificationType)
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_warm_pools",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "warm-persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_ = b.PutWarmPool(autoscaling.WarmPoolInput{
+					AutoScalingGroupName:     "warm-persist-asg",
+					MinSize:                  2,
+					MaxGroupPreparedCapacity: 5,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				wp, err := b.DescribeWarmPool("warm-persist-asg")
+				require.NoError(t, err)
+				assert.Equal(t, int32(2), wp.MinSize)
+				assert.Equal(t, int32(5), wp.MaxGroupPreparedCapacity)
+			},
+		},
+		{
+			name: "snapshot_restore_rebuilds_instance_index",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "idx-asg",
+					MinSize:              1,
+					MaxSize:              3,
+					DesiredCapacity:      1,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-asg"})
+				require.Len(t, groups[0].Instances, 1)
+
+				instID := groups[0].Instances[0].InstanceID
+				// TerminateInstanceInAutoScalingGroup uses instanceIndex — it should work post-restore.
+				_, err := b.TerminateInstanceInAutoScalingGroup(instID, true)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := autoscaling.NewInMemoryBackend()
+			tt.setup(b1)
+
+			snap := b1.Snapshot()
+			require.NotNil(t, snap)
+
+			b2 := autoscaling.NewInMemoryBackend()
+			err := b2.Restore(snap)
+			require.NoError(t, err)
+
+			tt.check(t, b2)
+		})
+	}
+}
+
+func TestInMemoryBackend_InstanceIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "terminate_uses_index_not_linear_scan",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "idx-term-asg",
+					MinSize:              2,
+					MaxSize:              5,
+					DesiredCapacity:      2,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-term-asg"})
+				instID := groups[0].Instances[0].InstanceID
+
+				activity, err := b.TerminateInstanceInAutoScalingGroup(instID, true)
+				require.NoError(t, err)
+				assert.Contains(t, activity.Description, instID)
+			},
+		},
+		{
+			name: "terminate_unknown_instance_returns_error",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "idx-notfound-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.TerminateInstanceInAutoScalingGroup("i-notexist", false)
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_WarmPoolInstanceReusePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "reuse_on_scale_in_stored",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "wp-reuse-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				err := b.PutWarmPool(autoscaling.WarmPoolInput{
+					AutoScalingGroupName:     "wp-reuse-asg",
+					MinSize:                  1,
+					MaxGroupPreparedCapacity: 3,
+					InstanceReusePolicy:      autoscaling.InstanceReusePolicy{ReuseOnScaleIn: true},
+				})
+				require.NoError(t, err)
+
+				wp, err := b.DescribeWarmPool("wp-reuse-asg")
+				require.NoError(t, err)
+				assert.True(t, wp.InstanceReusePolicy.ReuseOnScaleIn)
+				assert.Equal(t, int32(3), wp.MaxGroupPreparedCapacity)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_ScalingPolicyStepAdjustments(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "step_adjustments_stored_and_retrieved",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "step-asg",
+					MinSize:              1,
+					MaxSize:              10,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				lower := float64(0)
+				upper := float64(10)
+
+				policy, err := b.PutScalingPolicy(autoscaling.ScalingPolicyInput{
+					PolicyName:            "step-policy",
+					AutoScalingGroupName:  "step-asg",
+					PolicyType:            "StepScaling",
+					AdjustmentType:        "ChangeInCapacity",
+					MetricAggregationType: "Average",
+					StepAdjustments: []autoscaling.StepAdjustment{
+						{MetricIntervalLowerBound: &lower, MetricIntervalUpperBound: &upper, ScalingAdjustment: 2},
+						{MetricIntervalLowerBound: &upper, ScalingAdjustment: 4},
+					},
+				})
+				require.NoError(t, err)
+				require.Len(t, policy.StepAdjustments, 2)
+				assert.Equal(t, int32(2), policy.StepAdjustments[0].ScalingAdjustment)
+				assert.Equal(t, int32(4), policy.StepAdjustments[1].ScalingAdjustment)
+				assert.Equal(t, "Average", policy.MetricAggregationType)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_InstanceRefreshFullPreferences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "full_preferences_stored",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "ir-full-asg",
+					MinSize:              2,
+					MaxSize:              5,
+					DesiredCapacity:      2,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				refresh, err := b.StartInstanceRefreshWithInput(autoscaling.StartInstanceRefreshInput{
+					AutoScalingGroupName: "ir-full-asg",
+					Strategy:             "Rolling",
+					Preferences: autoscaling.InstanceRefreshPreferences{
+						MinHealthyPercentage: 80,
+						MaxHealthyPercentage: 110,
+						InstanceWarmup:       300,
+						SkipMatching:         true,
+						AutoRollback:         true,
+					},
+				})
+				require.NoError(t, err)
+				assert.Equal(t, int32(80), refresh.Preferences.MinHealthyPercentage)
+				assert.Equal(t, int32(110), refresh.Preferences.MaxHealthyPercentage)
+				assert.Equal(t, int32(300), refresh.Preferences.InstanceWarmup)
+				assert.True(t, refresh.Preferences.SkipMatching)
+				assert.True(t, refresh.Preferences.AutoRollback)
+			},
+		},
+		{
+			name: "default_min_healthy_percentage",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "ir-default-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+			},
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				refresh, err := b.StartInstanceRefresh("ir-default-asg")
+				require.NoError(t, err)
+				assert.Equal(t, int32(90), refresh.Preferences.MinHealthyPercentage)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateLaunchConfigurationExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "spot_price_stored",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName: "spot-lc",
+					ImageID:                 "ami-abc",
+					InstanceType:            "t2.micro",
+					SpotPrice:               "0.05",
+				})
+				require.NoError(t, err)
+
+				lcs, err := b.DescribeLaunchConfigurations([]string{"spot-lc"})
+				require.NoError(t, err)
+				assert.Equal(t, "0.05", lcs[0].SpotPrice)
+			},
+		},
+		{
+			name: "block_device_mapping_with_ebs_stored",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				bdm := autoscaling.BlockDeviceMapping{
+					DeviceName: "/dev/sda1",
+					Ebs: &autoscaling.EbsBlockDevice{
+						VolumeType:          "gp3",
+						VolumeSize:          50,
+						Iops:                3000,
+						DeleteOnTermination: true,
+					},
+				}
+
+				_, err := b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName: "ebs-lc",
+					ImageID:                 "ami-abc",
+					InstanceType:            "t2.micro",
+					BlockDeviceMappings:     []autoscaling.BlockDeviceMapping{bdm},
+				})
+				require.NoError(t, err)
+
+				lcs, err := b.DescribeLaunchConfigurations([]string{"ebs-lc"})
+				require.NoError(t, err)
+				require.Len(t, lcs[0].BlockDeviceMappings, 1)
+				require.NotNil(t, lcs[0].BlockDeviceMappings[0].Ebs)
+				assert.Equal(t, "gp3", lcs[0].BlockDeviceMappings[0].Ebs.VolumeType)
+				assert.Equal(t, int32(50), lcs[0].BlockDeviceMappings[0].Ebs.VolumeSize)
+			},
+		},
+		{
+			name: "associate_public_ip_address_stored",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName:  "pubip-lc",
+					ImageID:                  "ami-abc",
+					InstanceType:             "t2.micro",
+					AssociatePublicIPAddress: true,
+					EbsOptimized:             true,
+					InstanceMonitoring:       true,
+				})
+				require.NoError(t, err)
+
+				lcs, err := b.DescribeLaunchConfigurations([]string{"pubip-lc"})
+				require.NoError(t, err)
+				assert.True(t, lcs[0].AssociatePublicIPAddress)
+				assert.True(t, lcs[0].EbsOptimized)
+				assert.True(t, lcs[0].InstanceMonitoring)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
 			tt.run(t, b)
 		})
 	}

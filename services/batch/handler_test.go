@@ -1385,7 +1385,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create compute environment.
-	ce, err := b.CreateComputeEnvironment("test-ce", "MANAGED", "ENABLED", nil, "", 0, 0, nil, nil, nil, "")
+	ce, err := b.CreateComputeEnvironment("test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ce.ComputeEnvironmentArn)
 
@@ -1393,17 +1393,32 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	ceOrder := []batch.ComputeEnvironmentOrder{
 		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
 	}
-	jq, err := b.CreateJobQueue("test-jq", 10, "ENABLED", ceOrder, nil, "")
+	jq, err := b.CreateJobQueue("test-jq", 10, "ENABLED", ceOrder, nil, "", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, jq.JobQueueArn)
 
 	// Register job definition.
-	jd, err := b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, nil, nil)
+	jd, err := b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, jd.JobDefinitionArn)
 
 	// Submit a job.
-	job, err := b.SubmitJob("test-job", jq.JobQueueName, jd.JobDefinitionArn, nil, nil, nil, nil, nil)
+	job, err := b.SubmitJob(
+		"test-job",
+		jq.JobQueueName,
+		jd.JobDefinitionArn,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		0,
+		false,
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, job.JobID)
 
@@ -1417,7 +1432,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, h2.Restore(snap))
 
 	// Compute environment is restored.
-	ces := b2.DescribeComputeEnvironments([]string{"test-ce"})
+	ces, _ := b2.DescribeComputeEnvironments([]string{"test-ce"}, 0, "")
 	require.Len(t, ces, 1)
 	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
 
@@ -1427,7 +1442,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
 
 	// Job definition is restored.
-	jds := b2.DescribeJobDefinitions([]string{"test-jd"}, "", "")
+	jds, _ := b2.DescribeJobDefinitions([]string{"test-jd"}, "", "", 0, "")
 	require.NotEmpty(t, jds)
 	assert.Equal(t, "test-jd", jds[0].JobDefinitionName)
 

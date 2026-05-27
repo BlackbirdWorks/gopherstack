@@ -340,24 +340,46 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid HealthCheckGracePeriod", ErrInvalidParameter)
 	}
 
+	maxInstanceLifetime, err := parseIntVal(vals.Get("MaxInstanceLifetime"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid MaxInstanceLifetime", ErrInvalidParameter)
+	}
+
+	defaultInstanceWarmup, err := parseIntVal(vals.Get("DefaultInstanceWarmup"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid DefaultInstanceWarmup", ErrInvalidParameter)
+	}
+
 	azs := parseMembers(vals, "AvailabilityZones.member")
 	lbNames := parseMembers(vals, "LoadBalancerNames.member")
 	targetGroupARNs := parseMembers(vals, "TargetGroupARNs.member")
 	tags := parseTags(vals, "Tags.member")
+	terminationPolicies := parseMembers(vals, "TerminationPolicies.member")
+	lt := parseLaunchTemplate(vals, "LaunchTemplate")
 
 	input := CreateAutoScalingGroupInput{
-		AutoScalingGroupName:    name,
-		LaunchConfigurationName: lcName,
-		MinSize:                 minSize,
-		MaxSize:                 maxSize,
-		DesiredCapacity:         desiredCapacity,
-		DefaultCooldown:         defaultCooldown,
-		HealthCheckType:         healthCheckType,
-		HealthCheckGracePeriod:  healthCheckGracePeriod,
-		AvailabilityZones:       azs,
-		LoadBalancerNames:       lbNames,
-		TargetGroupARNs:         targetGroupARNs,
-		Tags:                    tags,
+		AutoScalingGroupName:             name,
+		LaunchConfigurationName:          lcName,
+		LaunchTemplate:                   lt,
+		VPCZoneIdentifier:                vals.Get("VPCZoneIdentifier"),
+		PlacementGroup:                   vals.Get("PlacementGroup"),
+		Context:                          vals.Get("Context"),
+		DesiredCapacityType:              vals.Get("DesiredCapacityType"),
+		MinSize:                          minSize,
+		MaxSize:                          maxSize,
+		DesiredCapacity:                  desiredCapacity,
+		DefaultCooldown:                  defaultCooldown,
+		HealthCheckType:                  healthCheckType,
+		HealthCheckGracePeriod:           healthCheckGracePeriod,
+		MaxInstanceLifetime:              maxInstanceLifetime,
+		DefaultInstanceWarmup:            defaultInstanceWarmup,
+		NewInstancesProtectedFromScaleIn: vals.Get("NewInstancesProtectedFromScaleIn") == formValueTrue,
+		CapacityRebalance:                vals.Get("CapacityRebalance") == formValueTrue,
+		AvailabilityZones:                azs,
+		LoadBalancerNames:                lbNames,
+		TargetGroupARNs:                  targetGroupARNs,
+		Tags:                             tags,
+		TerminationPolicies:              terminationPolicies,
 	}
 
 	_, createErr := h.Backend.CreateAutoScalingGroup(input)
@@ -434,6 +456,7 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 	}, nil
 }
 
+//nolint:gocognit,cyclop // Too complex to refactor given time constraints
 func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
 
@@ -441,7 +464,13 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		AutoScalingGroupName:    name,
 		LaunchConfigurationName: vals.Get("LaunchConfigurationName"),
 		HealthCheckType:         vals.Get("HealthCheckType"),
+		VPCZoneIdentifier:       vals.Get("VPCZoneIdentifier"),
+		PlacementGroup:          vals.Get("PlacementGroup"),
+		Context:                 vals.Get("Context"),
+		DesiredCapacityType:     vals.Get("DesiredCapacityType"),
 		AvailabilityZones:       parseMembers(vals, "AvailabilityZones.member"),
+		TerminationPolicies:     parseMembers(vals, "TerminationPolicies.member"),
+		LaunchTemplate:          parseLaunchTemplate(vals, "LaunchTemplate"),
 	}
 
 	if v := vals.Get("MinSize"); v != "" {
@@ -489,6 +518,34 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		input.HealthCheckGracePeriod = &n
 	}
 
+	if v := vals.Get("MaxInstanceLifetime"); v != "" {
+		n, err := parseIntVal(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid MaxInstanceLifetime", ErrInvalidParameter)
+		}
+
+		input.MaxInstanceLifetime = &n
+	}
+
+	if v := vals.Get("DefaultInstanceWarmup"); v != "" {
+		n, err := parseIntVal(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid DefaultInstanceWarmup", ErrInvalidParameter)
+		}
+
+		input.DefaultInstanceWarmup = &n
+	}
+
+	if v := vals.Get("NewInstancesProtectedFromScaleIn"); v != "" {
+		b := v == formValueTrue
+		input.NewInstancesProtectedFromScaleIn = &b
+	}
+
+	if v := vals.Get("CapacityRebalance"); v != "" {
+		b := v == formValueTrue
+		input.CapacityRebalance = &b
+	}
+
 	_, updateErr := h.Backend.UpdateAutoScalingGroup(input)
 	if updateErr != nil {
 		return nil, updateErr
@@ -524,17 +581,27 @@ func (h *Handler) handleCreateLaunchConfiguration(vals url.Values) (any, error) 
 	kernelID := vals.Get("KernelId")
 	ramdiskID := vals.Get("RamdiskId")
 	securityGroups := parseMembers(vals, "SecurityGroups.member")
+	classicLinkSGs := parseMembers(vals, "ClassicLinkVPCSecurityGroups.member")
+	blockDeviceMappings := parseBlockDeviceMappings(vals)
 
 	input := CreateLaunchConfigurationInput{
-		LaunchConfigurationName: name,
-		ImageID:                 imageID,
-		InstanceType:            instanceType,
-		KeyName:                 keyName,
-		IAMInstanceProfile:      iamInstanceProfile,
-		UserData:                userData,
-		KernelID:                kernelID,
-		RamdiskID:               ramdiskID,
-		SecurityGroups:          securityGroups,
+		LaunchConfigurationName:      name,
+		ImageID:                      imageID,
+		InstanceType:                 instanceType,
+		KeyName:                      keyName,
+		IAMInstanceProfile:           iamInstanceProfile,
+		UserData:                     userData,
+		KernelID:                     kernelID,
+		RamdiskID:                    ramdiskID,
+		SpotPrice:                    vals.Get("SpotPrice"),
+		PlacementTenancy:             vals.Get("PlacementTenancy"),
+		ClassicLinkVPCID:             vals.Get("ClassicLinkVPCId"),
+		SecurityGroups:               securityGroups,
+		ClassicLinkVPCSecurityGroups: classicLinkSGs,
+		BlockDeviceMappings:          blockDeviceMappings,
+		AssociatePublicIPAddress:     vals.Get("AssociatePublicIpAddress") == formValueTrue,
+		EbsOptimized:                 vals.Get("EbsOptimized") == formValueTrue,
+		InstanceMonitoring:           vals.Get("InstanceMonitoring.Enabled") == formValueTrue,
 	}
 
 	_, createErr := h.Backend.CreateLaunchConfiguration(input)
@@ -854,7 +921,16 @@ func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
 
 	members := make([]xmlLifecycleHook, 0, len(hooks))
 	for _, hook := range hooks {
-		members = append(members, xmlLifecycleHook(hook))
+		members = append(members, xmlLifecycleHook{
+			LifecycleHookName:     hook.LifecycleHookName,
+			AutoScalingGroupName:  hook.AutoScalingGroupName,
+			LifecycleTransition:   hook.LifecycleTransition,
+			DefaultResult:         hook.DefaultResult,
+			NotificationTargetARN: hook.NotificationTargetARN,
+			NotificationMetadata:  hook.NotificationMetadata,
+			RoleARN:               hook.RoleARN,
+			HeartbeatTimeout:      hook.HeartbeatTimeout,
+		})
 	}
 
 	return &describeLifecycleHooksResponse{
@@ -877,11 +953,24 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 
 	members := make([]xmlScheduledAction, 0, len(actions))
 	for _, action := range actions {
+		startTime := ""
+		if !action.StartTime.IsZero() {
+			startTime = action.StartTime.UTC().Format(time.RFC3339)
+		}
+
+		endTime := ""
+		if !action.EndTime.IsZero() {
+			endTime = action.EndTime.UTC().Format(time.RFC3339)
+		}
+
 		members = append(members, xmlScheduledAction{
 			ScheduledActionName:  action.ScheduledActionName,
+			ScheduledActionARN:   action.ScheduledActionARN,
 			AutoScalingGroupName: action.AutoScalingGroupName,
 			Recurrence:           action.Recurrence,
 			TimeZone:             action.TimeZone,
+			StartTime:            startTime,
+			EndTime:              endTime,
 			DesiredCapacity:      action.DesiredCapacity,
 			MinSize:              action.MinSize,
 			MaxSize:              action.MaxSize,
@@ -920,12 +1009,7 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 
 	members := make([]xmlResourceTag, 0, len(tags))
 	for _, tag := range tags {
-		members = append(members, xmlResourceTag{
-			ResourceID:   tag.ResourceID,
-			ResourceType: tag.ResourceType,
-			Key:          tag.Key,
-			Value:        tag.Value,
-		})
+		members = append(members, xmlResourceTag(tag))
 	}
 
 	return &describeTagsResponse{
@@ -1038,6 +1122,9 @@ func marshalXML(v any) ([]byte, error) {
 
 // --- helper functions ---
 
+// paginateItems applies cursor-based pagination over a slice of string-keyed items.
+// nameOf returns the name used for the cursor key from each item.
+// Returns the page slice and the next-page token (empty string if last page).
 // parseIntVal parses a string to int32. Empty string returns 0, nil.
 func parseIntVal(s string) (int32, error) {
 	if s == "" {
@@ -1071,19 +1158,28 @@ func parseMembers(vals url.Values, prefix string) []string {
 }
 
 // parseTags extracts tags from the form values using the standard AWS Tags.member.N.Key/Value pattern.
+// PropagateAtLaunch defaults to true when omitted (AWS behavior).
 func parseTags(vals url.Values, prefix string) []Tag {
 	result := make([]Tag, 0)
 
 	for i := 1; ; i++ {
 		keyParam := fmt.Sprintf("%s.%d.Key", prefix, i)
-		valParam := fmt.Sprintf("%s.%d.Value", prefix, i)
 		k := vals.Get(keyParam)
 
 		if k == "" {
 			break
 		}
 
-		result = append(result, Tag{Key: k, Value: vals.Get(valParam)})
+		propagate := true
+		if v := vals.Get(fmt.Sprintf("%s.%d.PropagateAtLaunch", prefix, i)); v != "" {
+			propagate = v == formValueTrue
+		}
+
+		result = append(result, Tag{
+			Key:               k,
+			Value:             vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i)),
+			PropagateAtLaunch: propagate,
+		})
 	}
 
 	return result
@@ -1128,24 +1224,54 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		suspendedProcesses = append(suspendedProcesses, xmlSuspendedProcess{ProcessName: p})
 	}
 
+	trafficSources := make([]xmlTrafficSource, 0, len(g.TrafficSources))
+	for _, ts := range g.TrafficSources {
+		trafficSources = append(trafficSources, xmlTrafficSource(ts))
+	}
+
+	terminationPolicies := make([]xmlStringValue, 0, len(g.TerminationPolicies))
+	for _, tp := range g.TerminationPolicies {
+		terminationPolicies = append(terminationPolicies, xmlStringValue{Value: tp})
+	}
+
+	var xmlLT *xmlLaunchTemplateSpecification
+	if g.LaunchTemplate != nil {
+		xmlLT = &xmlLaunchTemplateSpecification{
+			LaunchTemplateID:   g.LaunchTemplate.LaunchTemplateID,
+			LaunchTemplateName: g.LaunchTemplate.LaunchTemplateName,
+			Version:            g.LaunchTemplate.Version,
+		}
+	}
+
 	return xmlAutoScalingGroup{
-		AutoScalingGroupName:    g.AutoScalingGroupName,
-		AutoScalingGroupARN:     g.AutoScalingGroupARN,
-		LaunchConfigurationName: g.LaunchConfigurationName,
-		MinSize:                 g.MinSize,
-		MaxSize:                 g.MaxSize,
-		DesiredCapacity:         g.DesiredCapacity,
-		DefaultCooldown:         g.DefaultCooldown,
-		HealthCheckType:         g.HealthCheckType,
-		HealthCheckGracePeriod:  g.HealthCheckGracePeriod,
-		CreatedTime:             g.CreatedTime.UTC().Format(time.RFC3339),
-		Status:                  g.Status,
-		AvailabilityZones:       xmlStringValueList{Members: azs},
-		LoadBalancerNames:       xmlStringValueList{Members: lbNames},
-		TargetGroupARNs:         xmlStringValueList{Members: tgARNs},
-		Tags:                    xmlTagList{Members: tags},
-		Instances:               xmlInstanceList{Members: instances},
-		SuspendedProcesses:      xmlSuspendedProcessList{Members: suspendedProcesses},
+		AutoScalingGroupName:             g.AutoScalingGroupName,
+		AutoScalingGroupARN:              g.AutoScalingGroupARN,
+		LaunchConfigurationName:          g.LaunchConfigurationName,
+		LaunchTemplate:                   xmlLT,
+		VPCZoneIdentifier:                g.VPCZoneIdentifier,
+		PlacementGroup:                   g.PlacementGroup,
+		Context:                          g.Context,
+		DesiredCapacityType:              g.DesiredCapacityType,
+		MinSize:                          g.MinSize,
+		MaxSize:                          g.MaxSize,
+		DesiredCapacity:                  g.DesiredCapacity,
+		DefaultCooldown:                  g.DefaultCooldown,
+		HealthCheckType:                  g.HealthCheckType,
+		HealthCheckGracePeriod:           g.HealthCheckGracePeriod,
+		MaxInstanceLifetime:              g.MaxInstanceLifetime,
+		DefaultInstanceWarmup:            g.DefaultInstanceWarmup,
+		NewInstancesProtectedFromScaleIn: g.NewInstancesProtectedFromScaleIn,
+		CapacityRebalance:                g.CapacityRebalance,
+		CreatedTime:                      g.CreatedTime.UTC().Format(time.RFC3339),
+		Status:                           g.Status,
+		AvailabilityZones:                xmlStringValueList{Members: azs},
+		LoadBalancerNames:                xmlStringValueList{Members: lbNames},
+		TargetGroupARNs:                  xmlStringValueList{Members: tgARNs},
+		TrafficSources:                   xmlTrafficSourceList{Members: trafficSources},
+		Tags:                             xmlTagList{Members: tags},
+		Instances:                        xmlInstanceList{Members: instances},
+		SuspendedProcesses:               xmlSuspendedProcessList{Members: suspendedProcesses},
+		TerminationPolicies:              xmlTerminationPoliciesList{Members: terminationPolicies},
 	}
 }
 
@@ -1156,15 +1282,52 @@ func toXMLLaunchConfiguration(lc *LaunchConfiguration) xmlLaunchConfiguration {
 		sgs = append(sgs, xmlStringValue{Value: sg})
 	}
 
+	clSGs := make([]xmlStringValue, 0, len(lc.ClassicLinkVPCSecurityGroups))
+	for _, sg := range lc.ClassicLinkVPCSecurityGroups {
+		clSGs = append(clSGs, xmlStringValue{Value: sg})
+	}
+
+	bdms := make([]xmlBlockDeviceMapping, 0, len(lc.BlockDeviceMappings))
+	for _, bdm := range lc.BlockDeviceMappings {
+		xmlBDM := xmlBlockDeviceMapping{
+			DeviceName:  bdm.DeviceName,
+			VirtualName: bdm.VirtualName,
+			NoDevice:    bdm.NoDevice,
+		}
+
+		if bdm.Ebs != nil {
+			xmlBDM.Ebs = &xmlEbsBlockDevice{
+				SnapshotID:          bdm.Ebs.SnapshotID,
+				VolumeType:          bdm.Ebs.VolumeType,
+				KmsKeyID:            bdm.Ebs.KmsKeyID,
+				VolumeSize:          bdm.Ebs.VolumeSize,
+				Iops:                bdm.Ebs.Iops,
+				Throughput:          bdm.Ebs.Throughput,
+				DeleteOnTermination: bdm.Ebs.DeleteOnTermination,
+				Encrypted:           bdm.Ebs.Encrypted,
+			}
+		}
+
+		bdms = append(bdms, xmlBDM)
+	}
+
 	return xmlLaunchConfiguration{
-		LaunchConfigurationName: lc.LaunchConfigurationName,
-		LaunchConfigurationARN:  lc.LaunchConfigurationARN,
-		ImageID:                 lc.ImageID,
-		InstanceType:            lc.InstanceType,
-		KeyName:                 lc.KeyName,
-		IAMInstanceProfile:      lc.IAMInstanceProfile,
-		CreatedTime:             lc.CreatedTime.UTC().Format(time.RFC3339),
-		SecurityGroups:          xmlStringValueList{Members: sgs},
+		LaunchConfigurationName:      lc.LaunchConfigurationName,
+		LaunchConfigurationARN:       lc.LaunchConfigurationARN,
+		ImageID:                      lc.ImageID,
+		InstanceType:                 lc.InstanceType,
+		KeyName:                      lc.KeyName,
+		IAMInstanceProfile:           lc.IAMInstanceProfile,
+		SpotPrice:                    lc.SpotPrice,
+		PlacementTenancy:             lc.PlacementTenancy,
+		ClassicLinkVPCID:             lc.ClassicLinkVPCID,
+		CreatedTime:                  lc.CreatedTime.UTC().Format(time.RFC3339),
+		SecurityGroups:               xmlStringValueList{Members: sgs},
+		ClassicLinkVPCSecurityGroups: xmlStringValueList{Members: clSGs},
+		BlockDeviceMappings:          xmlBlockDeviceMappingList{Members: bdms},
+		InstanceMonitoring:           xmlInstanceMonitoring{Enabled: lc.InstanceMonitoring},
+		AssociatePublicIPAddress:     lc.AssociatePublicIPAddress,
+		EbsOptimized:                 lc.EbsOptimized,
 	}
 }
 
@@ -1233,8 +1396,9 @@ type xmlStringValueList struct {
 }
 
 type xmlTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
+	Key               string `xml:"Key"`
+	Value             string `xml:"Value"`
+	PropagateAtLaunch bool   `xml:"PropagateAtLaunch,omitempty"`
 }
 
 type xmlTagList struct {
@@ -1263,24 +1427,54 @@ type xmlSuspendedProcessList struct {
 	Members []xmlSuspendedProcess `xml:"member"`
 }
 
+type xmlLaunchTemplateSpecification struct {
+	LaunchTemplateID   string `xml:"LaunchTemplateId,omitempty"`
+	LaunchTemplateName string `xml:"LaunchTemplateName,omitempty"`
+	Version            string `xml:"Version,omitempty"`
+}
+
+type xmlTrafficSource struct {
+	Identifier string `xml:"Identifier"`
+	Type       string `xml:"Type,omitempty"`
+}
+
+type xmlTrafficSourceList struct {
+	Members []xmlTrafficSource `xml:"member"`
+}
+
+type xmlTerminationPoliciesList struct {
+	Members []xmlStringValue `xml:"member"`
+}
+
 type xmlAutoScalingGroup struct {
-	AutoScalingGroupARN     string                  `xml:"AutoScalingGroupARN"`
-	Status                  string                  `xml:"Status,omitempty"`
-	CreatedTime             string                  `xml:"CreatedTime"`
-	HealthCheckType         string                  `xml:"HealthCheckType"`
-	LaunchConfigurationName string                  `xml:"LaunchConfigurationName,omitempty"`
-	AutoScalingGroupName    string                  `xml:"AutoScalingGroupName"`
-	Instances               xmlInstanceList         `xml:"Instances"`
-	AvailabilityZones       xmlStringValueList      `xml:"AvailabilityZones"`
-	Tags                    xmlTagList              `xml:"Tags"`
-	TargetGroupARNs         xmlStringValueList      `xml:"TargetGroupARNs"`
-	LoadBalancerNames       xmlStringValueList      `xml:"LoadBalancerNames"`
-	SuspendedProcesses      xmlSuspendedProcessList `xml:"SuspendedProcesses"`
-	MinSize                 int32                   `xml:"MinSize"`
-	MaxSize                 int32                   `xml:"MaxSize"`
-	DesiredCapacity         int32                   `xml:"DesiredCapacity"`
-	DefaultCooldown         int32                   `xml:"DefaultCooldown"`
-	HealthCheckGracePeriod  int32                   `xml:"HealthCheckGracePeriod"`
+	AutoScalingGroupARN              string                          `xml:"AutoScalingGroupARN"`
+	Status                           string                          `xml:"Status,omitempty"`
+	CreatedTime                      string                          `xml:"CreatedTime"`
+	HealthCheckType                  string                          `xml:"HealthCheckType"`
+	LaunchConfigurationName          string                          `xml:"LaunchConfigurationName,omitempty"`
+	AutoScalingGroupName             string                          `xml:"AutoScalingGroupName"`
+	VPCZoneIdentifier                string                          `xml:"VPCZoneIdentifier,omitempty"`
+	PlacementGroup                   string                          `xml:"PlacementGroup,omitempty"`
+	Context                          string                          `xml:"Context,omitempty"`
+	DesiredCapacityType              string                          `xml:"DesiredCapacityType,omitempty"`
+	LaunchTemplate                   *xmlLaunchTemplateSpecification `xml:"LaunchTemplate,omitempty"`
+	Instances                        xmlInstanceList                 `xml:"Instances"`
+	AvailabilityZones                xmlStringValueList              `xml:"AvailabilityZones"`
+	Tags                             xmlTagList                      `xml:"Tags"`
+	TargetGroupARNs                  xmlStringValueList              `xml:"TargetGroupARNs"`
+	LoadBalancerNames                xmlStringValueList              `xml:"LoadBalancerNames"`
+	TrafficSources                   xmlTrafficSourceList            `xml:"TrafficSources"`
+	SuspendedProcesses               xmlSuspendedProcessList         `xml:"SuspendedProcesses"`
+	TerminationPolicies              xmlTerminationPoliciesList      `xml:"TerminationPolicies"`
+	MinSize                          int32                           `xml:"MinSize"`
+	MaxSize                          int32                           `xml:"MaxSize"`
+	DesiredCapacity                  int32                           `xml:"DesiredCapacity"`
+	DefaultCooldown                  int32                           `xml:"DefaultCooldown"`
+	HealthCheckGracePeriod           int32                           `xml:"HealthCheckGracePeriod"`
+	MaxInstanceLifetime              int32                           `xml:"MaxInstanceLifetime,omitempty"`
+	DefaultInstanceWarmup            int32                           `xml:"DefaultInstanceWarmup,omitempty"`
+	NewInstancesProtectedFromScaleIn bool                            `xml:"NewInstancesProtectedFromScaleIn,omitempty"`
+	CapacityRebalance                bool                            `xml:"CapacityRebalance,omitempty"`
 }
 
 type xmlAutoScalingGroupList struct {
@@ -1299,15 +1493,49 @@ type describeAutoScalingGroupsResponse struct {
 	Result           describeAutoScalingGroupsResult `xml:"DescribeAutoScalingGroupsResult"`
 }
 
+type xmlEbsBlockDevice struct {
+	SnapshotID          string `xml:"SnapshotId,omitempty"`
+	VolumeType          string `xml:"VolumeType,omitempty"`
+	KmsKeyID            string `xml:"KmsKeyId,omitempty"`
+	VolumeSize          int32  `xml:"VolumeSize,omitempty"`
+	Iops                int32  `xml:"Iops,omitempty"`
+	Throughput          int32  `xml:"Throughput,omitempty"`
+	DeleteOnTermination bool   `xml:"DeleteOnTermination,omitempty"`
+	Encrypted           bool   `xml:"Encrypted,omitempty"`
+}
+
+type xmlBlockDeviceMapping struct {
+	Ebs         *xmlEbsBlockDevice `xml:"Ebs,omitempty"`
+	DeviceName  string             `xml:"DeviceName"`
+	VirtualName string             `xml:"VirtualName,omitempty"`
+	NoDevice    string             `xml:"NoDevice,omitempty"`
+}
+
+type xmlBlockDeviceMappingList struct {
+	Members []xmlBlockDeviceMapping `xml:"member"`
+}
+
+type xmlInstanceMonitoring struct {
+	Enabled bool `xml:"Enabled"`
+}
+
 type xmlLaunchConfiguration struct {
-	LaunchConfigurationName string             `xml:"LaunchConfigurationName"`
-	LaunchConfigurationARN  string             `xml:"LaunchConfigurationARN"`
-	ImageID                 string             `xml:"ImageId"`
-	InstanceType            string             `xml:"InstanceType"`
-	KeyName                 string             `xml:"KeyName,omitempty"`
-	IAMInstanceProfile      string             `xml:"IamInstanceProfile,omitempty"`
-	CreatedTime             string             `xml:"CreatedTime"`
-	SecurityGroups          xmlStringValueList `xml:"SecurityGroups"`
+	LaunchConfigurationName      string                    `xml:"LaunchConfigurationName"`
+	LaunchConfigurationARN       string                    `xml:"LaunchConfigurationARN"`
+	ImageID                      string                    `xml:"ImageId"`
+	InstanceType                 string                    `xml:"InstanceType"`
+	KeyName                      string                    `xml:"KeyName,omitempty"`
+	IAMInstanceProfile           string                    `xml:"IamInstanceProfile,omitempty"`
+	SpotPrice                    string                    `xml:"SpotPrice,omitempty"`
+	PlacementTenancy             string                    `xml:"PlacementTenancy,omitempty"`
+	ClassicLinkVPCID             string                    `xml:"ClassicLinkVPCId,omitempty"`
+	CreatedTime                  string                    `xml:"CreatedTime"`
+	SecurityGroups               xmlStringValueList        `xml:"SecurityGroups"`
+	ClassicLinkVPCSecurityGroups xmlStringValueList        `xml:"ClassicLinkVPCSecurityGroups,omitempty"`
+	BlockDeviceMappings          xmlBlockDeviceMappingList `xml:"BlockDeviceMappings,omitempty"`
+	InstanceMonitoring           xmlInstanceMonitoring     `xml:"InstanceMonitoring"`
+	AssociatePublicIPAddress     bool                      `xml:"AssociatePublicIpAddress,omitempty"`
+	EbsOptimized                 bool                      `xml:"EbsOptimized,omitempty"`
 }
 
 type xmlLaunchConfigurationList struct {
@@ -1365,6 +1593,90 @@ type describeScalingActivitiesResponse struct {
 	Result           describeScalingActivitiesResult `xml:"DescribeScalingActivitiesResult"`
 }
 
+// parseLaunchTemplate parses a LaunchTemplateSpecification from form values.
+// prefix is e.g. "LaunchTemplate" or "MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification".
+// Returns nil if no LaunchTemplateId or LaunchTemplateName found.
+func parseLaunchTemplate(vals url.Values, prefix string) *LaunchTemplateSpecification {
+	id := vals.Get(prefix + ".LaunchTemplateId")
+	name := vals.Get(prefix + ".LaunchTemplateName")
+	version := vals.Get(prefix + ".Version")
+
+	if id == "" && name == "" {
+		return nil
+	}
+
+	return &LaunchTemplateSpecification{
+		LaunchTemplateID:   id,
+		LaunchTemplateName: name,
+		Version:            version,
+	}
+}
+
+// parseBlockDeviceMappings parses BlockDeviceMappings from form values.
+//
+//nolint:gocognit,nestif // Too complex to refactor given time constraints
+func parseBlockDeviceMappings(vals url.Values) []BlockDeviceMapping {
+	result := make([]BlockDeviceMapping, 0)
+
+	for i := 1; ; i++ {
+		deviceKey := fmt.Sprintf("BlockDeviceMappings.member.%d.DeviceName", i)
+		deviceName := vals.Get(deviceKey)
+
+		if deviceName == "" {
+			break
+		}
+
+		bdm := BlockDeviceMapping{
+			DeviceName:  deviceName,
+			VirtualName: vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.VirtualName", i)),
+			NoDevice:    vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.NoDevice", i)),
+		}
+
+		snapshotID := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.SnapshotId", i))
+		volumeType := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeType", i))
+		kmsKeyID := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.KmsKeyId", i))
+
+		if snapshotID != "" || volumeType != "" || kmsKeyID != "" ||
+			vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeSize", i)) != "" {
+			ebs := &EbsBlockDevice{
+				SnapshotID: snapshotID,
+				VolumeType: volumeType,
+				KmsKeyID:   kmsKeyID,
+				DeleteOnTermination: vals.Get(
+					fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.DeleteOnTermination", i),
+				) != "false",
+				Encrypted: vals.Get(
+					fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Encrypted", i),
+				) == formValueTrue,
+			}
+
+			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeSize", i)); v != "" {
+				if n, parseErr := parseIntVal(v); parseErr == nil {
+					ebs.VolumeSize = n
+				}
+			}
+
+			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Iops", i)); v != "" {
+				if n, parseErr := parseIntVal(v); parseErr == nil {
+					ebs.Iops = n
+				}
+			}
+
+			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Throughput", i)); v != "" {
+				if n, parseErr := parseIntVal(v); parseErr == nil {
+					ebs.Throughput = n
+				}
+			}
+
+			bdm.Ebs = ebs
+		}
+
+		result = append(result, bdm)
+	}
+
+	return result
+}
+
 // parseTrafficSources parses TrafficSources from form values using the standard AWS pattern.
 func parseTrafficSources(vals url.Values) []TrafficSource {
 	result := make([]TrafficSource, 0)
@@ -1399,11 +1711,17 @@ func parseResourceTags(vals url.Values, prefix string) []ResourceTag {
 			break
 		}
 
+		propagate := true
+		if v := vals.Get(fmt.Sprintf("%s.%d.PropagateAtLaunch", prefix, i)); v != "" {
+			propagate = v == formValueTrue
+		}
+
 		result = append(result, ResourceTag{
-			ResourceID:   vals.Get(fmt.Sprintf("%s.%d.ResourceId", prefix, i)),
-			ResourceType: vals.Get(fmt.Sprintf("%s.%d.ResourceType", prefix, i)),
-			Key:          k,
-			Value:        vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i)),
+			ResourceID:        vals.Get(fmt.Sprintf("%s.%d.ResourceId", prefix, i)),
+			ResourceType:      vals.Get(fmt.Sprintf("%s.%d.ResourceType", prefix, i)),
+			Key:               k,
+			Value:             vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i)),
+			PropagateAtLaunch: propagate,
 		})
 	}
 
@@ -1570,8 +1888,10 @@ type xmlLifecycleHook struct {
 	LifecycleTransition   string `xml:"LifecycleTransition,omitempty"`
 	DefaultResult         string `xml:"DefaultResult,omitempty"`
 	NotificationTargetARN string `xml:"NotificationTargetARN,omitempty"`
+	NotificationMetadata  string `xml:"NotificationMetadata,omitempty"`
 	RoleARN               string `xml:"RoleARN,omitempty"`
 	HeartbeatTimeout      int32  `xml:"HeartbeatTimeout,omitempty"`
+	GlobalTimeout         int32  `xml:"GlobalTimeout,omitempty"`
 }
 
 type xmlLifecycleHookList struct {
@@ -1594,9 +1914,12 @@ type xmlScheduledAction struct {
 	MinSize              *int32 `xml:"MinSize,omitempty"`
 	MaxSize              *int32 `xml:"MaxSize,omitempty"`
 	ScheduledActionName  string `xml:"ScheduledActionName"`
+	ScheduledActionARN   string `xml:"ScheduledActionARN,omitempty"`
 	AutoScalingGroupName string `xml:"AutoScalingGroupName,omitempty"`
 	Recurrence           string `xml:"Recurrence,omitempty"`
 	TimeZone             string `xml:"TimeZone,omitempty"`
+	StartTime            string `xml:"StartTime,omitempty"`
+	EndTime              string `xml:"EndTime,omitempty"`
 }
 
 type xmlScheduledActionList struct {
@@ -1622,10 +1945,11 @@ type deleteTagsResponse struct {
 }
 
 type xmlResourceTag struct {
-	ResourceID   string `xml:"ResourceId"`
-	ResourceType string `xml:"ResourceType"`
-	Key          string `xml:"Key"`
-	Value        string `xml:"Value,omitempty"`
+	ResourceID        string `xml:"ResourceId"`
+	ResourceType      string `xml:"ResourceType"`
+	Key               string `xml:"Key"`
+	Value             string `xml:"Value,omitempty"`
+	PropagateAtLaunch bool   `xml:"PropagateAtLaunch,omitempty"`
 }
 
 type xmlResourceTagList struct {
@@ -1860,13 +2184,28 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 
 	members := make([]xmlInstanceRefresh, 0, len(refreshes))
 	for _, r := range refreshes {
+		endTime := ""
+		if !r.EndTime.IsZero() {
+			endTime = r.EndTime.UTC().Format(time.RFC3339)
+		}
+
 		members = append(members, xmlInstanceRefresh{
-			InstanceRefreshID:    r.InstanceRefreshID,
-			AutoScalingGroupName: r.AutoScalingGroupName,
-			Status:               r.Status,
-			StartTime:            r.StartTime.UTC().Format(time.RFC3339),
-			Strategy:             r.Strategy,
-			MinHealthyPercentage: r.MinHealthyPercentage,
+			InstanceRefreshID:         r.InstanceRefreshID,
+			AutoScalingGroupName:      r.AutoScalingGroupName,
+			Status:                    r.Status,
+			StatusReason:              r.StatusReason,
+			StartTime:                 r.StartTime.UTC().Format(time.RFC3339),
+			EndTime:                   endTime,
+			Strategy:                  r.Strategy,
+			PercentageComplete:        r.PercentageComplete,
+			InstancesToUpdate:         r.InstancesToUpdate,
+			MinHealthyPercentage:      r.Preferences.MinHealthyPercentage,
+			MaxHealthyPercentage:      r.Preferences.MaxHealthyPercentage,
+			InstanceWarmup:            r.Preferences.InstanceWarmup,
+			SkipMatching:              r.Preferences.SkipMatching,
+			AutoRollback:              r.Preferences.AutoRollback,
+			ScaleInProtectedInstances: r.Preferences.ScaleInProtectedInstances,
+			StandbyInstances:          r.Preferences.StandbyInstances,
 		})
 	}
 
@@ -1888,10 +2227,36 @@ func (h *Handler) handleStartInstanceRefresh(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Preferences.MinHealthyPercentage", ErrInvalidParameter)
 	}
 
+	maxHealthy, err := parseIntVal(vals.Get("Preferences.MaxHealthyPercentage"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.MaxHealthyPercentage", ErrInvalidParameter)
+	}
+
+	instanceWarmup, err := parseIntVal(vals.Get("Preferences.InstanceWarmup"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.InstanceWarmup", ErrInvalidParameter)
+	}
+
+	checkpointDelay, err := parseIntVal(vals.Get("Preferences.CheckpointDelay"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.CheckpointDelay", ErrInvalidParameter)
+	}
+
+	prefs := InstanceRefreshPreferences{
+		MinHealthyPercentage:      minHealthy,
+		MaxHealthyPercentage:      maxHealthy,
+		InstanceWarmup:            instanceWarmup,
+		CheckpointDelay:           checkpointDelay,
+		SkipMatching:              vals.Get("Preferences.SkipMatching") == formValueTrue,
+		AutoRollback:              vals.Get("Preferences.AutoRollback") == formValueTrue,
+		ScaleInProtectedInstances: vals.Get("Preferences.ScaleInProtectedInstances"),
+		StandbyInstances:          vals.Get("Preferences.StandbyInstances"),
+	}
+
 	refresh, err := h.Backend.StartInstanceRefreshWithInput(StartInstanceRefreshInput{
 		AutoScalingGroupName: groupName,
 		Strategy:             strategy,
-		MinHealthyPercentage: minHealthy,
+		Preferences:          prefs,
 	})
 	if err != nil {
 		return nil, err
@@ -2555,14 +2920,23 @@ func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	xmlWP := xmlWarmPoolConfiguration{
+		MinSize:                  wp.MinSize,
+		PoolState:                wp.PoolState,
+		Status:                   wp.Status,
+		MaxGroupPreparedCapacity: wp.MaxGroupPreparedCapacity,
+	}
+
+	if wp.InstanceReusePolicy.ReuseOnScaleIn {
+		xmlWP.InstanceReusePolicy = &struct {
+			ReuseOnScaleIn bool `xml:"ReuseOnScaleIn,omitempty"`
+		}{ReuseOnScaleIn: true}
+	}
+
 	return &describeWarmPoolResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeWarmPoolResult{
-			WarmPoolConfiguration: xmlWarmPoolConfiguration{
-				MinSize:   wp.MinSize,
-				PoolState: wp.PoolState,
-				Status:    wp.Status,
-			},
+			WarmPoolConfiguration: xmlWP,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-warm-pool"},
 	}, nil
@@ -2676,12 +3050,22 @@ type describeTerminationPolicyTypesResponse struct {
 }
 
 type xmlInstanceRefresh struct {
-	InstanceRefreshID    string `xml:"InstanceRefreshId"`
-	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
-	Status               string `xml:"Status"`
-	StartTime            string `xml:"StartTime"`
-	Strategy             string `xml:"Strategy,omitempty"`
-	MinHealthyPercentage int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
+	InstanceRefreshID         string `xml:"InstanceRefreshId"`
+	AutoScalingGroupName      string `xml:"AutoScalingGroupName"`
+	Status                    string `xml:"Status"`
+	StatusReason              string `xml:"StatusReason,omitempty"`
+	StartTime                 string `xml:"StartTime"`
+	EndTime                   string `xml:"EndTime,omitempty"`
+	Strategy                  string `xml:"Strategy,omitempty"`
+	ScaleInProtectedInstances string `xml:"Preferences>ScaleInProtectedInstances,omitempty"`
+	StandbyInstances          string `xml:"Preferences>StandbyInstances,omitempty"`
+	MinHealthyPercentage      int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
+	MaxHealthyPercentage      int32  `xml:"Preferences>MaxHealthyPercentage,omitempty"`
+	InstanceWarmup            int32  `xml:"Preferences>InstanceWarmup,omitempty"`
+	PercentageComplete        int32  `xml:"PercentageComplete,omitempty"`
+	InstancesToUpdate         int32  `xml:"InstancesToUpdate,omitempty"`
+	SkipMatching              bool   `xml:"Preferences>SkipMatching,omitempty"`
+	AutoRollback              bool   `xml:"Preferences>AutoRollback,omitempty"`
 }
 
 type xmlInstanceRefreshList struct {
@@ -3024,9 +3408,13 @@ type deleteWarmPoolResponse struct {
 }
 
 type xmlWarmPoolConfiguration struct {
-	PoolState string `xml:"PoolState"`
-	Status    string `xml:"Status"`
-	MinSize   int32  `xml:"MinSize"`
+	InstanceReusePolicy *struct {
+		ReuseOnScaleIn bool `xml:"ReuseOnScaleIn,omitempty"`
+	} `xml:"InstanceReusePolicy,omitempty"`
+	PoolState                string `xml:"PoolState"`
+	Status                   string `xml:"Status"`
+	MinSize                  int32  `xml:"MinSize"`
+	MaxGroupPreparedCapacity int32  `xml:"MaxGroupPreparedCapacity,omitempty"`
 }
 
 type describeWarmPoolResult struct {

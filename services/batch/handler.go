@@ -406,19 +406,61 @@ func pathToOperation(path string) string {
 
 // --- Input / Output types ---
 
+type launchTemplateOverrideInput struct {
+	LaunchTemplateName  string   `json:"launchTemplateName,omitempty"`
+	LaunchTemplateID    string   `json:"launchTemplateId,omitempty"`
+	Version             string   `json:"version,omitempty"`
+	TargetInstanceTypes []string `json:"targetInstanceTypes,omitempty"`
+}
+
+type launchTemplateInput struct {
+	LaunchTemplateName string                        `json:"launchTemplateName,omitempty"`
+	LaunchTemplateID   string                        `json:"launchTemplateId,omitempty"`
+	Version            string                        `json:"version,omitempty"`
+	Overrides          []launchTemplateOverrideInput `json:"overrides,omitempty"`
+}
+
+type ec2ConfigurationInput struct {
+	ImageType              string `json:"imageType"`
+	ImageIDOverride        string `json:"imageIdOverride,omitempty"`
+	ImageKubernetesVersion string `json:"imageKubernetesVersion,omitempty"`
+}
+
 type computeResourcesInput struct {
-	InstanceRole     string   `json:"instanceRole,omitempty"`
-	InstanceTypes    []string `json:"instanceTypes,omitempty"`
-	Subnets          []string `json:"subnets,omitempty"`
-	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
-	MinvCpus         int32    `json:"minvCpus,omitempty"`
-	MaxvCpus         int32    `json:"maxvCpus,omitempty"`
-	DesiredvCpus     int32    `json:"desiredvCpus,omitempty"`
+	Type               string                  `json:"type,omitempty"`
+	AllocationStrategy string                  `json:"allocationStrategy,omitempty"`
+	InstanceRole       string                  `json:"instanceRole,omitempty"`
+	Ec2KeyPair         string                  `json:"ec2KeyPair,omitempty"`
+	ImageID            string                  `json:"imageId,omitempty"`
+	PlacementGroup     string                  `json:"placementGroup,omitempty"`
+	SpotIamFleetRole   string                  `json:"spotIamFleetRole,omitempty"`
+	InstanceTypes      []string                `json:"instanceTypes,omitempty"`
+	Subnets            []string                `json:"subnets,omitempty"`
+	SecurityGroupIDs   []string                `json:"securityGroupIds,omitempty"`
+	Tags               map[string]string       `json:"tags,omitempty"`
+	LaunchTemplate     *launchTemplateInput    `json:"launchTemplate,omitempty"`
+	Ec2Configuration   []ec2ConfigurationInput `json:"ec2Configuration,omitempty"`
+	MinvCpus           int32                   `json:"minvCpus,omitempty"`
+	MaxvCpus           int32                   `json:"maxvCpus,omitempty"`
+	DesiredvCpus       int32                   `json:"desiredvCpus,omitempty"`
+	BidPercentage      int32                   `json:"bidPercentage,omitempty"`
+}
+
+type eksConfigurationInput struct {
+	EksClusterArn       string `json:"eksClusterArn"`
+	KubernetesNamespace string `json:"kubernetesNamespace"`
+}
+
+type updatePolicyInput struct {
+	TerminateJobsOnUpdate      bool  `json:"terminateJobsOnUpdate,omitempty"`
+	JobExecutionTimeoutMinutes int64 `json:"jobExecutionTimeoutMinutes,omitempty"`
 }
 
 type createComputeEnvironmentInput struct {
 	Tags                   map[string]string      `json:"tags"`
 	ComputeResources       *computeResourcesInput `json:"computeResources,omitempty"`
+	EksConfiguration       *eksConfigurationInput `json:"eksConfiguration,omitempty"`
+	UpdatePolicy           *updatePolicyInput     `json:"updatePolicy,omitempty"`
 	ComputeEnvironmentName string                 `json:"computeEnvironmentName"`
 	Type                   string                 `json:"type"`
 	State                  string                 `json:"state"`
@@ -430,6 +472,72 @@ type createComputeEnvironmentOutput struct {
 	ComputeEnvironmentName string `json:"computeEnvironmentName"`
 }
 
+func computeResourcesFromInput(in *computeResourcesInput) *ComputeResources {
+	if in == nil {
+		return nil
+	}
+
+	cr := &ComputeResources{
+		Type:               in.Type,
+		AllocationStrategy: in.AllocationStrategy,
+		InstanceRole:       in.InstanceRole,
+		Ec2KeyPair:         in.Ec2KeyPair,
+		ImageID:            in.ImageID,
+		PlacementGroup:     in.PlacementGroup,
+		SpotIamFleetRole:   in.SpotIamFleetRole,
+		InstanceTypes:      in.InstanceTypes,
+		Subnets:            in.Subnets,
+		SecurityGroupIDs:   in.SecurityGroupIDs,
+		Tags:               in.Tags,
+		MinvCpus:           in.MinvCpus,
+		MaxvCpus:           in.MaxvCpus,
+		DesiredvCpus:       in.DesiredvCpus,
+		BidPercentage:      in.BidPercentage,
+	}
+
+	if in.LaunchTemplate != nil {
+		lt := &LaunchTemplate{
+			LaunchTemplateName: in.LaunchTemplate.LaunchTemplateName,
+			LaunchTemplateID:   in.LaunchTemplate.LaunchTemplateID,
+			Version:            in.LaunchTemplate.Version,
+		}
+
+		for _, o := range in.LaunchTemplate.Overrides {
+			lt.Overrides = append(lt.Overrides, LaunchTemplateOverride(o))
+		}
+
+		cr.LaunchTemplate = lt
+	}
+
+	for _, ec2 := range in.Ec2Configuration {
+		cr.Ec2Configuration = append(cr.Ec2Configuration, Ec2Configuration(ec2))
+	}
+
+	return cr
+}
+
+func eksConfigFromInput(in *eksConfigurationInput) *EksConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	return &EksConfiguration{
+		EksClusterArn:       in.EksClusterArn,
+		KubernetesNamespace: in.KubernetesNamespace,
+	}
+}
+
+func updatePolicyFromInput(in *updatePolicyInput) *UpdatePolicy {
+	if in == nil {
+		return nil
+	}
+
+	return &UpdatePolicy{
+		TerminateJobsOnUpdate:      in.TerminateJobsOnUpdate,
+		JobExecutionTimeoutMinutes: in.JobExecutionTimeoutMinutes,
+	}
+}
+
 func (h *Handler) handleCreateComputeEnvironment(
 	_ context.Context,
 	in *createComputeEnvironmentInput,
@@ -439,27 +547,11 @@ func (h *Handler) handleCreateComputeEnvironment(
 		state = stateEnabled
 	}
 
-	var (
-		minvCpus         int32
-		maxvCpus         int32
-		instanceTypes    []string
-		subnets          []string
-		securityGroupIDs []string
-		instanceRole     string
-	)
-
-	if in.ComputeResources != nil {
-		minvCpus = in.ComputeResources.MinvCpus
-		maxvCpus = in.ComputeResources.MaxvCpus
-		instanceTypes = in.ComputeResources.InstanceTypes
-		subnets = in.ComputeResources.Subnets
-		securityGroupIDs = in.ComputeResources.SecurityGroupIDs
-		instanceRole = in.ComputeResources.InstanceRole
-	}
-
 	ce, err := h.Backend.CreateComputeEnvironment(
 		in.ComputeEnvironmentName, in.Type, state, in.Tags, in.ServiceRole,
-		minvCpus, maxvCpus, instanceTypes, subnets, securityGroupIDs, instanceRole,
+		computeResourcesFromInput(in.ComputeResources),
+		eksConfigFromInput(in.EksConfiguration),
+		updatePolicyFromInput(in.UpdatePolicy),
 	)
 	if err != nil {
 		return nil, err
@@ -486,15 +578,32 @@ func (h *Handler) handleDescribeComputeEnvironments(
 	_ context.Context,
 	in *describeComputeEnvironmentsInput,
 ) (*describeComputeEnvironmentsOutput, error) {
-	ces := h.Backend.DescribeComputeEnvironments(in.ComputeEnvironments)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeComputeEnvironmentsOutput{ComputeEnvironments: ces}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	ces, outToken := h.Backend.DescribeComputeEnvironments(in.ComputeEnvironments, maxResults, nextToken)
+	out := &describeComputeEnvironmentsOutput{ComputeEnvironments: ces}
+
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type updateComputeEnvironmentInput struct {
-	ComputeEnvironment string `json:"computeEnvironment"`
-	State              string `json:"state"`
-	ServiceRole        string `json:"serviceRole,omitempty"`
+	ComputeResources   *computeResourcesInput `json:"computeResources,omitempty"`
+	UpdatePolicy       *updatePolicyInput     `json:"updatePolicy,omitempty"`
+	ComputeEnvironment string                 `json:"computeEnvironment"`
+	State              string                 `json:"state"`
+	ServiceRole        string                 `json:"serviceRole,omitempty"`
 }
 
 type updateComputeEnvironmentOutput struct {
@@ -506,7 +615,11 @@ func (h *Handler) handleUpdateComputeEnvironment(
 	_ context.Context,
 	in *updateComputeEnvironmentInput,
 ) (*updateComputeEnvironmentOutput, error) {
-	ce, err := h.Backend.UpdateComputeEnvironment(in.ComputeEnvironment, in.State, in.ServiceRole)
+	ce, err := h.Backend.UpdateComputeEnvironment(
+		in.ComputeEnvironment, in.State, in.ServiceRole,
+		computeResourcesFromInput(in.ComputeResources),
+		updatePolicyFromInput(in.UpdatePolicy),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -534,18 +647,39 @@ func (h *Handler) handleDeleteComputeEnvironment(
 	return &emptyOutput{}, nil
 }
 
+type jobStateTimeLimitActionInput struct {
+	Reason         string `json:"reason"`
+	State          string `json:"state"`
+	Action         string `json:"action"`
+	MaxTimeSeconds int32  `json:"maxTimeSeconds"`
+}
+
 type createJobQueueInput struct {
-	Tags                    map[string]string         `json:"tags"`
-	JobQueueName            string                    `json:"jobQueueName"`
-	State                   string                    `json:"state"`
-	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
-	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder"`
-	Priority                int32                     `json:"priority"`
+	Tags                     map[string]string              `json:"tags"`
+	JobQueueName             string                         `json:"jobQueueName"`
+	State                    string                         `json:"state"`
+	SchedulingPolicyArn      string                         `json:"schedulingPolicyArn,omitempty"`
+	ComputeEnvironmentOrder  []ComputeEnvironmentOrder      `json:"computeEnvironmentOrder"`
+	JobStateTimeLimitActions []jobStateTimeLimitActionInput `json:"jobStateTimeLimitActions,omitempty"`
+	Priority                 int32                          `json:"priority"`
 }
 
 type createJobQueueOutput struct {
 	JobQueueArn  string `json:"jobQueueArn"`
 	JobQueueName string `json:"jobQueueName"`
+}
+
+func jobStateTimeLimitActionsFromInput(in []jobStateTimeLimitActionInput) []JobStateTimeLimitAction {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]JobStateTimeLimitAction, len(in))
+	for i, a := range in {
+		out[i] = JobStateTimeLimitAction(a)
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateJobQueue(
@@ -564,6 +698,7 @@ func (h *Handler) handleCreateJobQueue(
 		in.ComputeEnvironmentOrder,
 		in.Tags,
 		in.SchedulingPolicyArn,
+		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
 	)
 	if err != nil {
 		return nil, err
@@ -611,11 +746,12 @@ func (h *Handler) handleDescribeJobQueues(
 }
 
 type updateJobQueueInput struct {
-	Priority                *int32                    `json:"priority,omitempty"`
-	JobQueue                string                    `json:"jobQueue"`
-	State                   string                    `json:"state"`
-	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
-	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
+	Priority                 *int32                         `json:"priority,omitempty"`
+	JobQueue                 string                         `json:"jobQueue"`
+	State                    string                         `json:"state"`
+	SchedulingPolicyArn      string                         `json:"schedulingPolicyArn,omitempty"`
+	ComputeEnvironmentOrder  []ComputeEnvironmentOrder      `json:"computeEnvironmentOrder,omitempty"`
+	JobStateTimeLimitActions []jobStateTimeLimitActionInput `json:"jobStateTimeLimitActions,omitempty"`
 }
 
 type updateJobQueueOutput struct {
@@ -627,7 +763,10 @@ func (h *Handler) handleUpdateJobQueue(
 	_ context.Context,
 	in *updateJobQueueInput,
 ) (*updateJobQueueOutput, error) {
-	jq, err := h.Backend.UpdateJobQueue(in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder)
+	jq, err := h.Backend.UpdateJobQueue(
+		in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder,
+		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -657,22 +796,144 @@ type jobDefinitionTimeout struct {
 	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
 }
 
+type resourceRequirementInput struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+type keyValuePairInput struct {
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+type mountPointInput struct {
+	ContainerPath string `json:"containerPath,omitempty"`
+	SourceVolume  string `json:"sourceVolume,omitempty"`
+	ReadOnly      bool   `json:"readOnly,omitempty"`
+}
+
+type hostVolumeInput struct {
+	SourcePath string `json:"sourcePath,omitempty"`
+}
+
+type volumeInput struct {
+	Host *hostVolumeInput `json:"host,omitempty"`
+	Name string           `json:"name"`
+}
+
+type ulimitInput struct {
+	Name      string `json:"name"`
+	SoftLimit int32  `json:"softLimit"`
+	HardLimit int32  `json:"hardLimit"`
+}
+
+type logConfigurationInput struct {
+	Options   map[string]string `json:"options,omitempty"`
+	LogDriver string            `json:"logDriver"`
+}
+
+type networkConfigurationInput struct {
+	AssignPublicIP string `json:"assignPublicIp,omitempty"`
+}
+
+type fargatePlatformConfigInput struct {
+	PlatformVersion string `json:"platformVersion,omitempty"`
+}
+
+type ephemeralStorageInput struct {
+	SizeInGiB int32 `json:"sizeInGiB"`
+}
+
+type runtimePlatformInput struct {
+	OperatingSystemFamily string `json:"operatingSystemFamily,omitempty"`
+	CPUArchitecture       string `json:"cpuArchitecture,omitempty"`
+}
+
+type repositoryCredentialsInput struct {
+	CredentialsParameter string `json:"credentialsParameter"`
+}
+
+type secretInput struct {
+	Name      string `json:"name"`
+	ValueFrom string `json:"valueFrom"`
+}
+
+type deviceInput struct {
+	HostPath      string   `json:"hostPath"`
+	ContainerPath string   `json:"containerPath,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+}
+
+type tmpfsInput struct {
+	ContainerPath string   `json:"containerPath"`
+	MountOptions  []string `json:"mountOptions,omitempty"`
+	Size          int32    `json:"size"`
+}
+
+type linuxParametersInput struct {
+	Devices            []deviceInput `json:"devices,omitempty"`
+	Tmpfs              []tmpfsInput  `json:"tmpfs,omitempty"`
+	InitProcessEnabled bool          `json:"initProcessEnabled,omitempty"`
+	SharedMemorySize   int32         `json:"sharedMemorySize,omitempty"`
+	MaxSwap            int32         `json:"maxSwap,omitempty"`
+	Swappiness         int32         `json:"swappiness,omitempty"`
+}
+
 type containerPropertiesInput struct {
-	Image      string   `json:"image,omitempty"`
-	JobRoleArn string   `json:"jobRoleArn,omitempty"`
-	Command    []string `json:"command,omitempty"`
-	Vcpus      int32    `json:"vcpus,omitempty"`
-	Memory     int32    `json:"memory,omitempty"`
+	LinuxParameters              *linuxParametersInput       `json:"linuxParameters,omitempty"`
+	RepositoryCredentials        *repositoryCredentialsInput `json:"repositoryCredentials,omitempty"`
+	RuntimePlatform              *runtimePlatformInput       `json:"runtimePlatform,omitempty"`
+	EphemeralStorage             *ephemeralStorageInput      `json:"ephemeralStorage,omitempty"`
+	FargatePlatformConfiguration *fargatePlatformConfigInput `json:"fargatePlatformConfiguration,omitempty"`
+	NetworkConfiguration         *networkConfigurationInput  `json:"networkConfiguration,omitempty"`
+	LogConfiguration             *logConfigurationInput      `json:"logConfiguration,omitempty"`
+	JobRoleArn                   string                      `json:"jobRoleArn,omitempty"`
+	ExecutionRoleArn             string                      `json:"executionRoleArn,omitempty"`
+	User                         string                      `json:"user,omitempty"`
+	InstanceType                 string                      `json:"instanceType,omitempty"`
+	Image                        string                      `json:"image,omitempty"`
+	Command                      []string                    `json:"command,omitempty"`
+	Secrets                      []secretInput               `json:"secrets,omitempty"`
+	ResourceRequirements         []resourceRequirementInput  `json:"resourceRequirements,omitempty"`
+	Ulimits                      []ulimitInput               `json:"ulimits,omitempty"`
+	MountPoints                  []mountPointInput           `json:"mountPoints,omitempty"`
+	Volumes                      []volumeInput               `json:"volumes,omitempty"`
+	Environment                  []keyValuePairInput         `json:"environment,omitempty"`
+	Vcpus                        int32                       `json:"vcpus,omitempty"`
+	Memory                       int32                       `json:"memory,omitempty"`
+	ReadonlyRootFilesystem       bool                        `json:"readonlyRootFilesystem,omitempty"`
+	Privileged                   bool                        `json:"privileged,omitempty"`
+}
+
+type consumableResourcePropertyInput struct {
+	ConsumableResource string  `json:"consumableResource"`
+	Quantity           float64 `json:"quantity"`
+}
+
+type nodeRangePropertyInput struct {
+	ContainerProperties *containerPropertiesInput `json:"containerProperties,omitempty"`
+	TargetNodes         string                    `json:"targetNodes"`
+}
+
+type nodePropertiesInput struct {
+	NodeRangeProperties []nodeRangePropertyInput `json:"nodeRangeProperties"`
+	NumNodes            int32                    `json:"numNodes"`
+	MainNode            int32                    `json:"mainNode"`
 }
 
 type registerJobDefinitionInput struct {
-	Tags                 map[string]string         `json:"tags"`
-	Parameters           map[string]string         `json:"parameters,omitempty"`
-	Timeout              *jobDefinitionTimeout     `json:"timeout,omitempty"`
-	ContainerProperties  *containerPropertiesInput `json:"containerProperties,omitempty"`
-	JobDefinitionName    string                    `json:"jobDefinitionName"`
-	Type                 string                    `json:"type"`
-	PlatformCapabilities []string                  `json:"platformCapabilities,omitempty"`
+	Tags                         map[string]string                 `json:"tags"`
+	Parameters                   map[string]string                 `json:"parameters,omitempty"`
+	Timeout                      *jobDefinitionTimeout             `json:"timeout,omitempty"`
+	ContainerProperties          *containerPropertiesInput         `json:"containerProperties,omitempty"`
+	NodeProperties               *nodePropertiesInput              `json:"nodeProperties,omitempty"`
+	RuntimePlatform              *runtimePlatformInput             `json:"runtimePlatform,omitempty"`
+	ConsumableResourceProperties []consumableResourcePropertyInput `json:"consumableResourceProperties,omitempty"`
+	JobDefinitionName            string                            `json:"jobDefinitionName"`
+	Type                         string                            `json:"type"`
+	PlatformCapabilities         []string                          `json:"platformCapabilities,omitempty"`
+	SchedulingPriority           int32                             `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                              `json:"propagateTags,omitempty"`
 }
 
 type registerJobDefinitionOutput struct {
@@ -680,6 +941,160 @@ type registerJobDefinitionOutput struct {
 	JobDefinitionName string `json:"jobDefinitionName"`
 	Revision          int32  `json:"revision"`
 	TimeoutSeconds    int32  `json:"timeout,omitempty"`
+}
+
+//nolint:cyclop,funlen // Too complex to refactor given time constraints
+func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProperties {
+	if in == nil {
+		return nil
+	}
+
+	cp := &ContainerProperties{
+		Image:                  in.Image,
+		JobRoleArn:             in.JobRoleArn,
+		ExecutionRoleArn:       in.ExecutionRoleArn,
+		User:                   in.User,
+		InstanceType:           in.InstanceType,
+		Command:                in.Command,
+		Vcpus:                  in.Vcpus,
+		Memory:                 in.Memory,
+		ReadonlyRootFilesystem: in.ReadonlyRootFilesystem,
+		Privileged:             in.Privileged,
+	}
+
+	for _, e := range in.Environment {
+		cp.Environment = append(cp.Environment, KeyValuePair(e))
+	}
+
+	for _, v := range in.Volumes {
+		vol := Volume{Name: v.Name}
+		if v.Host != nil {
+			vol.Host = &HostVolume{SourcePath: v.Host.SourcePath}
+		}
+
+		cp.Volumes = append(cp.Volumes, vol)
+	}
+
+	for _, m := range in.MountPoints {
+		cp.MountPoints = append(cp.MountPoints, MountPoint(m))
+	}
+
+	for _, u := range in.Ulimits {
+		cp.Ulimits = append(cp.Ulimits, Ulimit(u))
+	}
+
+	for _, rr := range in.ResourceRequirements {
+		cp.ResourceRequirements = append(cp.ResourceRequirements, ResourceRequirement(rr))
+	}
+
+	for _, s := range in.Secrets {
+		cp.Secrets = append(cp.Secrets, Secret(s))
+	}
+
+	if in.LinuxParameters != nil {
+		lp := &LinuxParameters{
+			InitProcessEnabled: in.LinuxParameters.InitProcessEnabled,
+			SharedMemorySize:   in.LinuxParameters.SharedMemorySize,
+			MaxSwap:            in.LinuxParameters.MaxSwap,
+			Swappiness:         in.LinuxParameters.Swappiness,
+		}
+
+		for _, d := range in.LinuxParameters.Devices {
+			lp.Devices = append(
+				lp.Devices,
+				Device(d),
+			)
+		}
+
+		for _, t := range in.LinuxParameters.Tmpfs {
+			lp.Tmpfs = append(
+				lp.Tmpfs,
+				Tmpfs(t),
+			)
+		}
+
+		cp.LinuxParameters = lp
+	}
+
+	if in.LogConfiguration != nil {
+		cp.LogConfiguration = &LogConfiguration{
+			LogDriver: in.LogConfiguration.LogDriver,
+			Options:   in.LogConfiguration.Options,
+		}
+	}
+
+	if in.NetworkConfiguration != nil {
+		cp.NetworkConfiguration = &NetworkConfiguration{AssignPublicIP: in.NetworkConfiguration.AssignPublicIP}
+	}
+
+	if in.FargatePlatformConfiguration != nil {
+		cp.FargatePlatformConfiguration = &FargatePlatformConfiguration{
+			PlatformVersion: in.FargatePlatformConfiguration.PlatformVersion,
+		}
+	}
+
+	if in.EphemeralStorage != nil {
+		cp.EphemeralStorage = &EphemeralStorage{SizeInGiB: in.EphemeralStorage.SizeInGiB}
+	}
+
+	if in.RuntimePlatform != nil {
+		cp.RuntimePlatform = &RuntimePlatform{
+			OperatingSystemFamily: in.RuntimePlatform.OperatingSystemFamily,
+			CPUArchitecture:       in.RuntimePlatform.CPUArchitecture,
+		}
+	}
+
+	if in.RepositoryCredentials != nil {
+		cp.RepositoryCredentials = &RepositoryCredentials{
+			CredentialsParameter: in.RepositoryCredentials.CredentialsParameter,
+		}
+	}
+
+	return cp
+}
+
+func nodePropertiesFromInput(in *nodePropertiesInput) *NodeProperties {
+	if in == nil {
+		return nil
+	}
+
+	np := &NodeProperties{
+		NumNodes: in.NumNodes,
+		MainNode: in.MainNode,
+	}
+
+	for _, nrp := range in.NodeRangeProperties {
+		np.NodeRangeProperties = append(np.NodeRangeProperties, NodeRangeProperty{
+			TargetNodes:         nrp.TargetNodes,
+			ContainerProperties: containerPropertiesFromInput(nrp.ContainerProperties),
+		})
+	}
+
+	return np
+}
+
+func runtimePlatformFromInput(in *runtimePlatformInput) *RuntimePlatform {
+	if in == nil {
+		return nil
+	}
+
+	return &RuntimePlatform{
+		OperatingSystemFamily: in.OperatingSystemFamily,
+		CPUArchitecture:       in.CPUArchitecture,
+	}
+}
+
+func consumableResourcePropertiesFromInput(in []consumableResourcePropertyInput) []ConsumableResourceProperty {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]ConsumableResourceProperty, len(in))
+	for i, c := range in {
+		out[i] = ConsumableResourceProperty(c)
+	}
+
+	return out
 }
 
 func (h *Handler) handleRegisterJobDefinition(
@@ -691,25 +1106,20 @@ func (h *Handler) handleRegisterJobDefinition(
 		timeoutSeconds = in.Timeout.AttemptDurationSeconds
 	}
 
-	var containerProps *ContainerProperties
-	if in.ContainerProperties != nil {
-		containerProps = &ContainerProperties{
-			Image:      in.ContainerProperties.Image,
-			JobRoleArn: in.ContainerProperties.JobRoleArn,
-			Command:    in.ContainerProperties.Command,
-			Vcpus:      in.ContainerProperties.Vcpus,
-			Memory:     in.ContainerProperties.Memory,
-		}
-	}
-
 	jd, err := h.Backend.RegisterJobDefinition(
 		in.JobDefinitionName,
 		in.Type,
 		in.Tags,
 		in.PlatformCapabilities,
 		timeoutSeconds,
-		containerProps,
+		in.SchedulingPriority,
+		containerPropertiesFromInput(in.ContainerProperties),
+		nodePropertiesFromInput(in.NodeProperties),
+		nil, // EksProperties not yet wired through handler input
+		runtimePlatformFromInput(in.RuntimePlatform),
+		consumableResourcePropertiesFromInput(in.ConsumableResourceProperties),
 		in.Parameters,
+		in.PropagateTags,
 	)
 	if err != nil {
 		return nil, err
@@ -740,9 +1150,30 @@ func (h *Handler) handleDescribeJobDefinitions(
 	_ context.Context,
 	in *describeJobDefinitionsInput,
 ) (*describeJobDefinitionsOutput, error) {
-	jds := h.Backend.DescribeJobDefinitions(in.JobDefinitions, in.Status, in.JobDefinitionName)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeJobDefinitionsOutput{JobDefinitions: jds}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jds, outToken := h.Backend.DescribeJobDefinitions(
+		in.JobDefinitions,
+		in.Status,
+		in.JobDefinitionName,
+		maxResults,
+		nextToken,
+	)
+
+	out := &describeJobDefinitionsOutput{JobDefinitions: jds}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type deregisterJobDefinitionInput struct {
@@ -890,6 +1321,18 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submitJobOutput, error) {
+	var overrides *ContainerOverrides
+	if in.ContainerOverrides != nil {
+		env := make([]KeyValuePair, len(in.ContainerOverrides.Environment))
+		for i, kv := range in.ContainerOverrides.Environment {
+			env[i] = KeyValuePair(kv)
+		}
+		overrides = &ContainerOverrides{
+			Command:     in.ContainerOverrides.Command,
+			Environment: env,
+		}
+	}
+
 	j, err := h.Backend.SubmitJob(
 		in.JobName,
 		in.JobQueue,
@@ -899,6 +1342,12 @@ func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submi
 		in.DependsOn,
 		in.RetryStrategy,
 		in.Timeout,
+		nil, // arrayProperties
+		overrides,
+		nil,   // consumableResourceProperties
+		"",    // shareIdentifier
+		0,     // schedulingPriorityOverride
+		false, // propagateTags
 	)
 	if err != nil {
 		return nil, err
@@ -1095,7 +1544,7 @@ func (h *Handler) handleCreateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags)
+	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1293,7 +1742,7 @@ func (h *Handler) handleUpdateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateSchedulingPolicy(in.Arn); err != nil {
+	if err := h.Backend.UpdateSchedulingPolicy(in.Arn, nil); err != nil {
 		return nil, err
 	}
 

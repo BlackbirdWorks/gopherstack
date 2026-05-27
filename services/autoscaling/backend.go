@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -23,6 +23,8 @@ const completedProgress = int32(100)
 const maxDesiredCapacity = 100
 
 const (
+	lifecycleActionContinue = "CONTINUE"
+	lifecycleActionAbandon  = "ABANDON"
 	// healthStatusHealthy is the health status for a healthy instance.
 	healthStatusHealthy = "Healthy"
 	// lifecycleStateInService is the lifecycle state for a running, healthy instance.
@@ -191,45 +193,74 @@ type StorageBackend interface {
 
 // CreateAutoScalingGroupInput holds the input for CreateAutoScalingGroup.
 type CreateAutoScalingGroupInput struct {
-	AutoScalingGroupName    string
-	LaunchConfigurationName string
-	HealthCheckType         string
-	AvailabilityZones       []string
-	LoadBalancerNames       []string
-	TargetGroupARNs         []string
-	Tags                    []Tag
-	MinSize                 int32
-	MaxSize                 int32
-	DesiredCapacity         int32
-	DefaultCooldown         int32
-	HealthCheckGracePeriod  int32
+	MixedInstancesPolicy             *MixedInstancesPolicy
+	LaunchTemplate                   *LaunchTemplateSpecification
+	AutoScalingGroupName             string
+	LaunchConfigurationName          string
+	HealthCheckType                  string
+	VPCZoneIdentifier                string
+	PlacementGroup                   string
+	Context                          string
+	DesiredCapacityType              string
+	Tags                             []Tag
+	TargetGroupARNs                  []string
+	TerminationPolicies              []string
+	LoadBalancerNames                []string
+	AvailabilityZones                []string
+	DesiredCapacity                  int32
+	MaxSize                          int32
+	MinSize                          int32
+	DefaultCooldown                  int32
+	HealthCheckGracePeriod           int32
+	MaxInstanceLifetime              int32
+	DefaultInstanceWarmup            int32
+	NewInstancesProtectedFromScaleIn bool
+	CapacityRebalance                bool
 }
 
 // UpdateAutoScalingGroupInput holds the input for UpdateAutoScalingGroup.
 type UpdateAutoScalingGroupInput struct {
-	MinSize                 *int32
-	MaxSize                 *int32
-	DesiredCapacity         *int32
-	DefaultCooldown         *int32
-	HealthCheckGracePeriod  *int32
-	AutoScalingGroupName    string
-	LaunchConfigurationName string
-	HealthCheckType         string
-	AvailabilityZones       []string
+	LaunchTemplate                   *LaunchTemplateSpecification
+	MaxSize                          *int32
+	DesiredCapacity                  *int32
+	DefaultCooldown                  *int32
+	HealthCheckGracePeriod           *int32
+	MaxInstanceLifetime              *int32
+	DefaultInstanceWarmup            *int32
+	NewInstancesProtectedFromScaleIn *bool
+	CapacityRebalance                *bool
+	MixedInstancesPolicy             *MixedInstancesPolicy
+	MinSize                          *int32
+	LaunchConfigurationName          string
+	VPCZoneIdentifier                string
+	PlacementGroup                   string
+	Context                          string
+	DesiredCapacityType              string
+	HealthCheckType                  string
+	AutoScalingGroupName             string
+	AvailabilityZones                []string
+	TerminationPolicies              []string
 }
 
 // CreateLaunchConfigurationInput holds the input for CreateLaunchConfiguration.
 type CreateLaunchConfigurationInput struct {
-	LaunchConfigurationName string
-	ImageID                 string
-	InstanceType            string
-	KeyName                 string
-	IAMInstanceProfile      string
-	UserData                string
-	KernelID                string
-	RamdiskID               string
-	SecurityGroups          []string
-	BlockDeviceMappings     []BlockDeviceMapping
+	LaunchConfigurationName      string
+	ImageID                      string
+	InstanceType                 string
+	KeyName                      string
+	IAMInstanceProfile           string
+	UserData                     string
+	KernelID                     string
+	RamdiskID                    string
+	SpotPrice                    string
+	PlacementTenancy             string
+	ClassicLinkVPCID             string
+	SecurityGroups               []string
+	ClassicLinkVPCSecurityGroups []string
+	BlockDeviceMappings          []BlockDeviceMapping
+	AssociatePublicIPAddress     bool
+	EbsOptimized                 bool
+	InstanceMonitoring           bool
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -244,7 +275,9 @@ type InMemoryBackend struct {
 	notificationConfigs  map[string][]*NotificationConfiguration
 	warmPools            map[string]*WarmPool
 	pendingHookTokens    map[string]*pendingHookAction
-	mu                   *lockmetrics.RWMutex
+	// instanceIndex maps instanceID → groupName for O(1) lookup.
+	instanceIndex map[string]string
+	mu            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -260,6 +293,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		notificationConfigs:  make(map[string][]*NotificationConfiguration),
 		warmPools:            make(map[string]*WarmPool),
 		pendingHookTokens:    make(map[string]*pendingHookAction),
+		instanceIndex:        make(map[string]string),
 		mu:                   lockmetrics.New("autoscaling"),
 	}
 }
@@ -285,6 +319,7 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	instances := make([]Instance, 0)
 
+	now := time.Now()
 	for range n {
 		// Use full UUID (stripped of dashes) to generate a unique, collision-free instance ID.
 		id := "i-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
@@ -295,6 +330,7 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: launchConfigName,
 			InstanceType:            "t2.micro",
+			LaunchTime:              now,
 		})
 	}
 
@@ -322,6 +358,8 @@ func adjustInstances(existing []Instance, desired int32, azs []string, launchCon
 }
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
+//
+//nolint:funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
@@ -349,6 +387,14 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		healthCheckType = "EC2"
 	}
 
+	if err := validateHealthCheckType(healthCheckType); err != nil {
+		return nil, err
+	}
+
+	if err := validateTerminationPolicies(input.TerminationPolicies); err != nil {
+		return nil, err
+	}
+
 	azs := input.AvailabilityZones
 	if len(azs) == 0 {
 		azs = []string{defaultAvailabilityZone}
@@ -359,25 +405,48 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 
 	group := &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
-		AutoScalingGroupARN: "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:" +
-			uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName,
-		LaunchConfigurationName: input.LaunchConfigurationName,
-		MinSize:                 input.MinSize,
-		MaxSize:                 input.MaxSize,
-		DesiredCapacity:         desired,
-		DefaultCooldown:         input.DefaultCooldown,
-		HealthCheckType:         healthCheckType,
-		HealthCheckGracePeriod:  input.HealthCheckGracePeriod,
-		AvailabilityZones:       azs,
-		LoadBalancerNames:       input.LoadBalancerNames,
-		TargetGroupARNs:         input.TargetGroupARNs,
-		Tags:                    input.Tags,
-		Instances:               instances,
-		CreatedTime:             time.Now(),
-		Status:                  "Active",
+		AutoScalingGroupARN: fmt.Sprintf(
+			"arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
+			config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), input.AutoScalingGroupName,
+		),
+		LaunchConfigurationName:          input.LaunchConfigurationName,
+		LaunchTemplate:                   input.LaunchTemplate,
+		MixedInstancesPolicy:             input.MixedInstancesPolicy,
+		VPCZoneIdentifier:                input.VPCZoneIdentifier,
+		PlacementGroup:                   input.PlacementGroup,
+		Context:                          input.Context,
+		DesiredCapacityType:              input.DesiredCapacityType,
+		MinSize:                          input.MinSize,
+		MaxSize:                          input.MaxSize,
+		DesiredCapacity:                  desired,
+		DefaultCooldown:                  input.DefaultCooldown,
+		HealthCheckType:                  healthCheckType,
+		HealthCheckGracePeriod:           input.HealthCheckGracePeriod,
+		MaxInstanceLifetime:              input.MaxInstanceLifetime,
+		DefaultInstanceWarmup:            input.DefaultInstanceWarmup,
+		NewInstancesProtectedFromScaleIn: input.NewInstancesProtectedFromScaleIn,
+		CapacityRebalance:                input.CapacityRebalance,
+		AvailabilityZones:                azs,
+		LoadBalancerNames:                input.LoadBalancerNames,
+		TargetGroupARNs:                  input.TargetGroupARNs,
+		Tags:                             input.Tags,
+		TerminationPolicies:              input.TerminationPolicies,
+		Instances:                        instances,
+		CreatedTime:                      time.Now(),
+		Status:                           "Active",
+	}
+
+	if input.NewInstancesProtectedFromScaleIn {
+		for i := range group.Instances {
+			group.Instances[i].ProtectedFromScaleIn = true
+		}
 	}
 
 	b.groups[input.AutoScalingGroupName] = group
+
+	for _, inst := range group.Instances {
+		b.instanceIndex[inst.InstanceID] = input.AutoScalingGroupName
+	}
 
 	b.activities[input.AutoScalingGroupName] = append(
 		b.activities[input.AutoScalingGroupName],
@@ -431,6 +500,54 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string) ([]AutoScali
 	return result, nil
 }
 
+// isValidHealthCheckType checks if the type is AWS-supported.
+func isValidHealthCheckType(hct string) bool {
+	return hct == "EC2" || hct == "ELB" || hct == "VPC_LATTICE"
+}
+
+// isValidTerminationPolicy checks if the termination policy is AWS-supported.
+func isValidTerminationPolicy(p string) bool {
+	switch p {
+	case "Default", "AllocationStrategy", "ClosestToNextInstanceHour",
+		"NewestInstance", "OldestInstance", "OldestLaunchConfiguration", "OldestLaunchTemplate":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidScalingProcessType checks if the process name is AWS-supported.
+func isValidScalingProcessType(p string) bool {
+	switch p {
+	case "Launch", "Terminate", "HealthCheck", "ReplaceUnhealthy",
+		"AZRebalance", "AlarmNotification", "ScheduledActions",
+		"AddToLoadBalancer", "InstanceRefresh":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateHealthCheckType returns an error for unsupported HealthCheckType values.
+func validateHealthCheckType(hct string) error {
+	if hct == "" || isValidHealthCheckType(hct) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: HealthCheckType must be EC2, ELB, or VPC_LATTICE, got %q", ErrInvalidParameter, hct)
+}
+
+// validateTerminationPolicies returns an error if any policy name is unknown.
+func validateTerminationPolicies(policies []string) error {
+	for _, p := range policies {
+		if !isValidTerminationPolicy(p) {
+			return fmt.Errorf("%w: unknown TerminationPolicy %q", ErrInvalidParameter, p)
+		}
+	}
+
+	return nil
+}
+
 // validateCapacity checks that min ≤ desired ≤ max (when max > 0).
 func validateCapacity(minSize, maxSize, desired int32) error {
 	if minSize > desired {
@@ -449,6 +566,8 @@ func validateCapacity(minSize, maxSize, desired int32) error {
 }
 
 // UpdateAutoScalingGroup updates an existing Auto Scaling group.
+//
+//nolint:gocognit,cyclop,funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("UpdateAutoScalingGroup")
 	defer b.mu.Unlock()
@@ -495,14 +614,68 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 
 	if input.LaunchConfigurationName != "" {
 		g.LaunchConfigurationName = input.LaunchConfigurationName
+		g.LaunchTemplate = nil
+	}
+
+	if input.LaunchTemplate != nil {
+		g.LaunchTemplate = input.LaunchTemplate
+		g.LaunchConfigurationName = ""
+	}
+
+	if input.MixedInstancesPolicy != nil {
+		g.MixedInstancesPolicy = input.MixedInstancesPolicy
 	}
 
 	if input.HealthCheckType != "" {
+		if err := validateHealthCheckType(input.HealthCheckType); err != nil {
+			return nil, err
+		}
+
 		g.HealthCheckType = input.HealthCheckType
 	}
 
 	if len(input.AvailabilityZones) > 0 {
 		g.AvailabilityZones = input.AvailabilityZones
+	}
+
+	if input.VPCZoneIdentifier != "" {
+		g.VPCZoneIdentifier = input.VPCZoneIdentifier
+	}
+
+	if input.PlacementGroup != "" {
+		g.PlacementGroup = input.PlacementGroup
+	}
+
+	if input.Context != "" {
+		g.Context = input.Context
+	}
+
+	if input.DesiredCapacityType != "" {
+		g.DesiredCapacityType = input.DesiredCapacityType
+	}
+
+	if len(input.TerminationPolicies) > 0 {
+		if err := validateTerminationPolicies(input.TerminationPolicies); err != nil {
+			return nil, err
+		}
+
+		g.TerminationPolicies = input.TerminationPolicies
+	}
+
+	if input.MaxInstanceLifetime != nil {
+		g.MaxInstanceLifetime = *input.MaxInstanceLifetime
+	}
+
+	if input.DefaultInstanceWarmup != nil {
+		g.DefaultInstanceWarmup = *input.DefaultInstanceWarmup
+	}
+
+	if input.NewInstancesProtectedFromScaleIn != nil {
+		g.NewInstancesProtectedFromScaleIn = *input.NewInstancesProtectedFromScaleIn
+	}
+
+	if input.CapacityRebalance != nil {
+		g.CapacityRebalance = *input.CapacityRebalance
 	}
 
 	cp := *g
@@ -527,6 +700,10 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	b.cleanupHookTimers(name, "")
+
+	for _, inst := range g.Instances {
+		delete(b.instanceIndex, inst.InstanceID)
+	}
 
 	delete(b.groups, name)
 	delete(b.activities, name)
@@ -561,18 +738,27 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 
 	lc := &LaunchConfiguration{
 		LaunchConfigurationName: input.LaunchConfigurationName,
-		LaunchConfigurationARN: "arn:aws:autoscaling:us-east-1:000000000000:launchConfiguration:" +
-			uuid.NewString() + ":launchConfigurationName/" + input.LaunchConfigurationName,
-		ImageID:             input.ImageID,
-		InstanceType:        input.InstanceType,
-		KeyName:             input.KeyName,
-		IAMInstanceProfile:  input.IAMInstanceProfile,
-		UserData:            input.UserData,
-		KernelID:            input.KernelID,
-		RamdiskID:           input.RamdiskID,
-		SecurityGroups:      input.SecurityGroups,
-		BlockDeviceMappings: input.BlockDeviceMappings,
-		CreatedTime:         time.Now(),
+		LaunchConfigurationARN: fmt.Sprintf(
+			"arn:aws:autoscaling:%s:%s:launchConfiguration:%s:launchConfigurationName/%s",
+			config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), input.LaunchConfigurationName,
+		),
+		ImageID:                      input.ImageID,
+		InstanceType:                 input.InstanceType,
+		KeyName:                      input.KeyName,
+		IAMInstanceProfile:           input.IAMInstanceProfile,
+		UserData:                     input.UserData,
+		KernelID:                     input.KernelID,
+		RamdiskID:                    input.RamdiskID,
+		SpotPrice:                    input.SpotPrice,
+		PlacementTenancy:             input.PlacementTenancy,
+		ClassicLinkVPCID:             input.ClassicLinkVPCID,
+		SecurityGroups:               input.SecurityGroups,
+		ClassicLinkVPCSecurityGroups: input.ClassicLinkVPCSecurityGroups,
+		BlockDeviceMappings:          input.BlockDeviceMappings,
+		AssociatePublicIPAddress:     input.AssociatePublicIPAddress,
+		EbsOptimized:                 input.EbsOptimized,
+		InstanceMonitoring:           input.InstanceMonitoring,
+		CreatedTime:                  time.Now(),
 	}
 
 	b.launchConfigurations[input.LaunchConfigurationName] = lc
@@ -929,7 +1115,7 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 
 	// Validate LifecycleActionResult is CONTINUE or ABANDON (case-insensitive)
 	upper := strings.ToUpper(input.LifecycleActionResult)
-	if upper != "CONTINUE" && upper != "ABANDON" {
+	if upper != lifecycleActionContinue && upper != lifecycleActionAbandon {
 		return fmt.Errorf("%w: LifecycleActionResult must be CONTINUE or ABANDON, got %q",
 			ErrInvalidParameter, input.LifecycleActionResult)
 	}
@@ -1057,13 +1243,30 @@ func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDes
 	switch {
 	case newDesired < current:
 		if !suspendedSet["Terminate"] {
+			oldInstances := g.Instances
 			g.Instances = removeUnprotectedInstances(g.Instances, int(newDesired))
+			// Remove terminated instances from index.
+			surviving := make(map[string]bool, len(g.Instances))
+			for _, inst := range g.Instances {
+				surviving[inst.InstanceID] = true
+			}
+
+			for _, inst := range oldInstances {
+				if !surviving[inst.InstanceID] {
+					delete(b.instanceIndex, inst.InstanceID)
+				}
+			}
 		}
 	case newDesired > current:
 		if !suspendedSet["Launch"] {
+			oldLen := len(g.Instances)
 			g.Instances = adjustInstances(
 				g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
 			)
+			// Add newly launched instances to index.
+			for _, inst := range g.Instances[oldLen:] {
+				b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
+			}
 		}
 	}
 
@@ -1072,26 +1275,32 @@ func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDes
 
 // removeUnprotectedInstances removes instances from the end, skipping protected ones,
 // until the slice reaches targetCount. If all remaining instances are protected,
-// it stops short of the target.
+// it stops short of the target. O(N) via two-index compaction.
 func removeUnprotectedInstances(instances []Instance, targetCount int) []Instance {
-	result := make([]Instance, len(instances))
-	copy(result, instances)
+	toRemove := len(instances) - targetCount
+	if toRemove <= 0 {
+		return instances
+	}
 
-	for len(result) > targetCount {
-		// Find last unprotected instance and remove it
-		removed := false
+	// Collect indices of unprotected instances from the end.
+	removeSet := make(map[int]bool, toRemove)
 
-		for i, inst := range slices.Backward(result) {
-			if !inst.ProtectedFromScaleIn {
-				result = append(result[:i], result[i+1:]...)
-				removed = true
-
-				break
-			}
+	for i := len(instances) - 1; i >= 0 && len(removeSet) < toRemove; i-- {
+		if !instances[i].ProtectedFromScaleIn {
+			removeSet[i] = true
 		}
+	}
 
-		if !removed {
-			break // all remaining are protected, can't remove more
+	if len(removeSet) == 0 {
+		return instances
+	}
+
+	// Compact: keep instances not in removeSet.
+	result := instances[:0]
+
+	for i, inst := range instances {
+		if !removeSet[i] {
+			result = append(result, inst)
 		}
 	}
 
@@ -1133,22 +1342,12 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	b.mu.Lock("TerminateInstanceInAutoScalingGroup")
 	defer b.mu.Unlock()
 
-	var targetGroup *AutoScalingGroup
-
-	for _, g := range b.groups {
-		for _, inst := range g.Instances {
-			if inst.InstanceID == instanceID {
-				targetGroup = g
-
-				break
-			}
-		}
-
-		if targetGroup != nil {
-			break
-		}
+	groupName, ok := b.instanceIndex[instanceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
 
+	targetGroup := b.groups[groupName]
 	if targetGroup == nil {
 		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
@@ -1163,6 +1362,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	}
 
 	targetGroup.Instances = newInstances
+	delete(b.instanceIndex, instanceID)
 
 	if shouldDecrement {
 		if targetGroup.DesiredCapacity > 0 {
@@ -1226,9 +1426,34 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 		)
 	}
 
-	// Default HeartbeatTimeout to 3600 if not provided (matching AWS behavior)
+	// Default HeartbeatTimeout to 3600 if not provided (matching AWS behavior).
 	if hook.HeartbeatTimeout == 0 {
 		hook.HeartbeatTimeout = defaultHeartbeatTimeout
+	}
+
+	// AWS: HeartbeatTimeout must be 30..172800 (48 h).
+	const minHeartbeat = int32(30)
+	const maxHeartbeat = int32(172800)
+
+	if hook.HeartbeatTimeout < minHeartbeat || hook.HeartbeatTimeout > maxHeartbeat {
+		return fmt.Errorf(
+			"%w: HeartbeatTimeout must be between %d and %d seconds, got %d",
+			ErrInvalidParameter, minHeartbeat, maxHeartbeat, hook.HeartbeatTimeout,
+		)
+	}
+
+	// DefaultResult must be CONTINUE or ABANDON.
+	if hook.DefaultResult != "" && hook.DefaultResult != lifecycleActionContinue &&
+		hook.DefaultResult != lifecycleActionAbandon {
+		return fmt.Errorf(
+			"%w: DefaultResult must be CONTINUE or ABANDON, got %q",
+			ErrInvalidParameter, hook.DefaultResult,
+		)
+	}
+
+	// Default DefaultResult to ABANDON if not provided.
+	if hook.DefaultResult == "" {
+		hook.DefaultResult = lifecycleActionAbandon
 	}
 
 	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
@@ -1562,7 +1787,7 @@ func (b *InMemoryBackend) DescribeTerminationPolicyTypes() ([]string, error) {
 	return []string{
 		"Default",
 		"AllocationStrategy",
-		"ClosestToNextInstanceHourPrice",
+		"ClosestToNextInstanceHour",
 		"NewestInstance",
 		"OldestInstance",
 		"OldestLaunchConfiguration",
@@ -1574,7 +1799,7 @@ func (b *InMemoryBackend) DescribeTerminationPolicyTypes() ([]string, error) {
 type StartInstanceRefreshInput struct {
 	AutoScalingGroupName string
 	Strategy             string
-	MinHealthyPercentage int32
+	Preferences          InstanceRefreshPreferences
 }
 
 // StartInstanceRefresh creates a new instance refresh for the group.
@@ -1596,9 +1821,9 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 		strategy = "Rolling"
 	}
 
-	minHealthy := input.MinHealthyPercentage
-	if minHealthy == 0 {
-		minHealthy = 90
+	prefs := input.Preferences
+	if prefs.MinHealthyPercentage == 0 {
+		prefs.MinHealthyPercentage = 90
 	}
 
 	refresh := &InstanceRefresh{
@@ -1607,7 +1832,7 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 		Status:               statusInProgress,
 		StartTime:            time.Now(),
 		Strategy:             strategy,
-		MinHealthyPercentage: minHealthy,
+		Preferences:          prefs,
 	}
 
 	b.instanceRefreshes[input.AutoScalingGroupName] = append(b.instanceRefreshes[input.AutoScalingGroupName], refresh)
@@ -1950,6 +2175,12 @@ func (b *InMemoryBackend) SuspendProcesses(groupName string, processes []string)
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
+	for _, p := range processes {
+		if !isValidScalingProcessType(p) {
+			return fmt.Errorf("%w: unknown process %q", ErrInvalidParameter, p)
+		}
+	}
+
 	existing := make(map[string]bool, len(g.SuspendedProcesses))
 	for _, p := range g.SuspendedProcesses {
 		existing[p] = true
@@ -2091,7 +2322,15 @@ func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([
 }
 
 // SetInstanceHealth sets the health status of an instance across all ASGs.
-func (b *InMemoryBackend) SetInstanceHealth(instanceID string, healthStatus string, _ bool) error {
+// When shouldRespectGracePeriod is true and the instance launched within the group's
+// HealthCheckGracePeriod, the unhealthy mark is silently ignored (AWS behavior).
+//
+//nolint:gocognit
+func (b *InMemoryBackend) SetInstanceHealth(
+	instanceID string,
+	healthStatus string,
+	shouldRespectGracePeriod bool,
+) error {
 	b.mu.Lock("SetInstanceHealth")
 	defer b.mu.Unlock()
 
@@ -2102,11 +2341,23 @@ func (b *InMemoryBackend) SetInstanceHealth(instanceID string, healthStatus stri
 
 	for _, g := range b.groups {
 		for i := range g.Instances {
-			if g.Instances[i].InstanceID == instanceID {
-				g.Instances[i].HealthStatus = healthStatus
-
-				return nil
+			if g.Instances[i].InstanceID != instanceID {
+				continue
 			}
+
+			if shouldRespectGracePeriod && healthStatus == "Unhealthy" && g.HealthCheckGracePeriod > 0 {
+				launchTime := g.Instances[i].LaunchTime
+				if !launchTime.IsZero() {
+					grace := time.Duration(g.HealthCheckGracePeriod) * time.Second
+					if time.Since(launchTime) < grace {
+						return nil
+					}
+				}
+			}
+
+			g.Instances[i].HealthStatus = healthStatus
+
+			return nil
 		}
 	}
 
@@ -2358,7 +2609,7 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		b.scalingPolicies[input.AutoScalingGroupName] = make(map[string]*ScalingPolicy)
 	}
 
-	arn := "arn:aws:autoscaling:us-east-1:000000000000:scalingPolicy:" +
+	arn := "arn:aws:autoscaling:" + config.DefaultRegion + ":" + config.DefaultAccountID + ":scalingPolicy:" +
 		uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName + ":policyName/" + input.PolicyName
 
 	// Preserve ARN if policy already exists
@@ -2367,18 +2618,22 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 	}
 
 	policy := &ScalingPolicy{
-		PolicyName:           input.PolicyName,
-		PolicyARN:            arn,
-		AutoScalingGroupName: input.AutoScalingGroupName,
-		PolicyType:           input.PolicyType,
-		AdjustmentType:       input.AdjustmentType,
-		ScalingAdjustment:    input.ScalingAdjustment,
-		MinAdjustmentStep:    input.MinAdjustmentStep,
-		Cooldown:             input.Cooldown,
-		TargetValue:          input.TargetValue,
-		MetricType:           input.MetricType,
-		DisableScaleIn:       input.DisableScaleIn,
-		EstimatedWarmup:      input.EstimatedWarmup,
+		PolicyName:                    input.PolicyName,
+		PolicyARN:                     arn,
+		AutoScalingGroupName:          input.AutoScalingGroupName,
+		PolicyType:                    input.PolicyType,
+		AdjustmentType:                input.AdjustmentType,
+		MetricAggregationType:         input.MetricAggregationType,
+		CustomizedMetricSpecification: input.CustomizedMetricSpecification,
+		ScalingAdjustment:             input.ScalingAdjustment,
+		MinAdjustmentStep:             input.MinAdjustmentStep,
+		MinAdjustmentMagnitude:        input.MinAdjustmentMagnitude,
+		Cooldown:                      input.Cooldown,
+		TargetValue:                   input.TargetValue,
+		MetricType:                    input.MetricType,
+		DisableScaleIn:                input.DisableScaleIn,
+		EstimatedWarmup:               input.EstimatedWarmup,
+		StepAdjustments:               input.StepAdjustments,
 	}
 
 	b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName] = policy
@@ -2533,6 +2788,7 @@ func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
 		Status:                   "Active",
 		MinSize:                  input.MinSize,
 		MaxGroupPreparedCapacity: input.MaxGroupPreparedCapacity,
+		InstanceReusePolicy:      input.InstanceReusePolicy,
 	}
 
 	return nil

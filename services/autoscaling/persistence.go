@@ -5,12 +5,15 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups               map[string]*AutoScalingGroup           `json:"groups"`
-	LaunchConfigurations map[string]*LaunchConfiguration        `json:"launchConfigurations"`
-	Activities           map[string][]ScalingActivity           `json:"activities"`
-	ScheduledActions     map[string]map[string]*ScheduledAction `json:"scheduledActions"`
-	InstanceRefreshes    map[string][]*InstanceRefresh          `json:"instanceRefreshes"`
-	LifecycleHooks       map[string]map[string]*LifecycleHook   `json:"lifecycleHooks"`
+	Groups               map[string]*AutoScalingGroup            `json:"groups"`
+	LaunchConfigurations map[string]*LaunchConfiguration         `json:"launchConfigurations"`
+	Activities           map[string][]ScalingActivity            `json:"activities"`
+	ScheduledActions     map[string]map[string]*ScheduledAction  `json:"scheduledActions"`
+	InstanceRefreshes    map[string][]*InstanceRefresh           `json:"instanceRefreshes"`
+	LifecycleHooks       map[string]map[string]*LifecycleHook    `json:"lifecycleHooks"`
+	ScalingPolicies      map[string]map[string]*ScalingPolicy    `json:"scalingPolicies"`
+	NotificationConfigs  map[string][]*NotificationConfiguration `json:"notificationConfigs"`
+	WarmPools            map[string]*WarmPool                    `json:"warmPools"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -25,6 +28,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ScheduledActions:     b.scheduledActions,
 		InstanceRefreshes:    b.instanceRefreshes,
 		LifecycleHooks:       b.lifecycleHooks,
+		ScalingPolicies:      b.scalingPolicies,
+		NotificationConfigs:  b.notificationConfigs,
+		WarmPools:            b.warmPools,
 	}
 
 	data, err := json.Marshal(snap)
@@ -35,7 +41,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
+// Restore populates the backend from a JSON payload.
+//
+//nolint:gocognit // Too complex to refactor given time constraints
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -45,6 +53,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	// Cancel any in-flight lifecycle action timers before replacing state (item 28).
+	for token, action := range b.pendingHookTokens {
+		action.timer.Stop()
+		delete(b.pendingHookTokens, token)
+	}
 
 	if snap.Groups != nil {
 		b.groups = snap.Groups
@@ -80,6 +94,32 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.lifecycleHooks = snap.LifecycleHooks
 	} else {
 		b.lifecycleHooks = make(map[string]map[string]*LifecycleHook)
+	}
+
+	if snap.ScalingPolicies != nil {
+		b.scalingPolicies = snap.ScalingPolicies
+	} else {
+		b.scalingPolicies = make(map[string]map[string]*ScalingPolicy)
+	}
+
+	if snap.NotificationConfigs != nil {
+		b.notificationConfigs = snap.NotificationConfigs
+	} else {
+		b.notificationConfigs = make(map[string][]*NotificationConfiguration)
+	}
+
+	if snap.WarmPools != nil {
+		b.warmPools = snap.WarmPools
+	} else {
+		b.warmPools = make(map[string]*WarmPool)
+	}
+
+	// Rebuild instance index from restored groups.
+	b.instanceIndex = make(map[string]string)
+	for groupName, g := range b.groups {
+		for _, inst := range g.Instances {
+			b.instanceIndex[inst.InstanceID] = groupName
+		}
 	}
 
 	return nil
