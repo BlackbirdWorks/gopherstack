@@ -19,8 +19,6 @@ var ErrDynamicRefFailed = errors.New("dynamic reference resolution failed")
 var errJSONKeyNotFound = errors.New("json key not found in secret")
 
 const (
-	// splitTwo splits a string into at most 2 parts on ":".
-	splitTwo = 2
 	// smMaxParts is the maximum number of colon-separated parts in a secretsmanager reference.
 	// Format: secret-id:SecretString:json-key:version-stage:version-id (5 parts).
 	smMaxParts = 5
@@ -73,11 +71,11 @@ func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 		switch service {
 		case "ssm":
 			// Format: {{resolve:ssm:parameter-name}} or {{resolve:ssm:parameter-name:version}}
-			name := strings.SplitN(rest, ":", splitTwo)[0]
+			name, _, _ := strings.Cut(rest, ":")
 			resolved, err = resolver.ResolveSSMParameter(name)
 		case "ssm-secure":
 			// Format: {{resolve:ssm-secure:parameter-name}} or {{resolve:ssm-secure:parameter-name:version}}
-			name := strings.SplitN(rest, ":", splitTwo)[0]
+			name, _, _ := strings.Cut(rest, ":")
 			resolved, err = resolver.ResolveSSMSecureParameter(name)
 		case "secretsmanager":
 			// Format: {{resolve:secretsmanager:secret-id}}
