@@ -1819,7 +1819,7 @@ func (rc *ResourceCreator) createCloudWatchLogGroup(
 		name = "/aws/cfn/" + logicalID
 	}
 
-	_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(name)
+	_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(name, "", "")
 	if err != nil {
 		return "", fmt.Errorf("create CloudWatch Logs log group: %w", err)
 	}

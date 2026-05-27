@@ -48,6 +48,29 @@ var (
 	ErrScheduledQueryNotFound        = errors.New("ResourceNotFoundException")
 	ErrMetricFilterNotFound          = errors.New("ResourceNotFoundException")
 	ErrQueryDefinitionNotFound       = errors.New("ResourceNotFoundException")
+	ErrInvalidSequenceToken          = errors.New("InvalidSequenceTokenException")
+	ErrOperationAborted              = errors.New("OperationAbortedException")
+)
+
+const (
+	// anomalyVisibilityTimeMinDays is the minimum allowed anomaly visibility time in days.
+	anomalyVisibilityTimeMinDays = 7
+	// anomalyVisibilityTimeMaxDays is the maximum allowed anomaly visibility time in days.
+	anomalyVisibilityTimeMaxDays = 90
+	// msPerDay is the number of milliseconds in a day.
+	msPerDay = 24 * 60 * 60 * 1000
+	// putLogEventsMaxEventAgeMs is the maximum age of a log event (14 days) in milliseconds.
+	putLogEventsMaxEventAgeMs = 14 * msPerDay
+	// putLogEventsFutureWindowMs is the maximum future offset (2 hours) for log events in milliseconds.
+	putLogEventsFutureWindowMs = 2 * 60 * 60 * 1000
+	// putLogEventsMaxMessageBytes is the maximum size of a single log event message (256 KB).
+	putLogEventsMaxMessageBytes = 256 * 1024
+	// minRealisticTimestampMs is the minimum timestamp treated as a real wall-clock time
+	// (Sep 9 2001 00:00:00 UTC). Events below this are assumed to be synthetic test data
+	// and bypass timestamp-window validation.
+	minRealisticTimestampMs = 1_000_000_000_000
+	// detectorStatusInitializing is the status of a newly created anomaly detector.
+	detectorStatusInitializing = "INITIALIZING"
 )
 
 // validEvaluationFrequencies returns the allowed values for the anomaly detector
@@ -76,6 +99,32 @@ func validAccountPolicyTypes() map[string]struct{} {
 	return map[string]struct{}{
 		"DATA_PROTECTION_POLICY":     {},
 		"SUBSCRIPTION_FILTER_POLICY": {},
+		"FIELD_INDEX_POLICY":         {},
+		"TRANSFORMER_POLICY":         {},
+	}
+}
+
+// validAccountPolicyScopes returns the allowed values for the account policy scope field.
+func validAccountPolicyScopes() map[string]struct{} {
+	return map[string]struct{}{
+		"ALL":                {},
+		"SELECTION_CRITERIA": {},
+	}
+}
+
+// validDistributions returns the allowed values for subscription filter distribution.
+func validDistributions() map[string]struct{} {
+	return map[string]struct{}{
+		DistributionRandom:      {},
+		DistributionByLogStream: {},
+	}
+}
+
+// validLogGroupClasses returns the allowed values for the log group class field.
+func validLogGroupClasses() map[string]struct{} {
+	return map[string]struct{}{
+		LogGroupClassStandard:         {},
+		LogGroupClassInfrequentAccess: {},
 	}
 }
 
@@ -159,7 +208,7 @@ func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, uni
 
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
-	CreateLogGroup(name string) (*LogGroup, error)
+	CreateLogGroup(name, logGroupClass, kmsKeyID string) (*LogGroup, error)
 	DeleteLogGroup(name string) error
 	DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error)
 	CreateLogStream(groupName, streamName string) (*LogStream, error)
@@ -169,7 +218,7 @@ type StorageBackend interface {
 		descending bool,
 		limit int,
 	) ([]LogStream, string, error)
-	PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error)
+	PutLogEvents(groupName, streamName, sequenceToken string, events []InputLogEvent) (*PutLogEventsResult, error)
 	GetLogEvents(
 		groupName, streamName string,
 		startTime, endTime *int64,
@@ -180,7 +229,7 @@ type StorageBackend interface {
 		[]OutputLogEvent, string, string, error)
 	FilterLogEvents(groupName string, streamNames []string, filterPattern string,
 		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
-	PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn string) error
+	PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn, roleArn, distribution string) error
 	DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
 		[]SubscriptionFilter, string, error)
 	DeleteSubscriptionFilter(groupName, filterName string) error
@@ -244,9 +293,14 @@ type StorageBackend interface {
 	// UpdateScheduledQuery updates the state of a scheduled query.
 	UpdateScheduledQuery(scheduledQueryArn, state string) error
 	// PutAccountPolicy creates or updates an account-level policy.
-	PutAccountPolicy(policyName, policyType, policyDocument string) (*AccountPolicy, error)
+	PutAccountPolicy(policyName, policyType, policyDocument, scope, selectionCriteria string) (*AccountPolicy, error)
 	// DescribeAccountPolicies returns account-level policies, optionally filtered.
-	DescribeAccountPolicies(policyType, policyName string) ([]AccountPolicy, error)
+	DescribeAccountPolicies(
+		policyType, policyName string,
+		accountIdentifiers []string,
+		limit int,
+		nextToken string,
+	) ([]AccountPolicy, string, error)
 	// DisassociateKmsKey removes the KMS key association from a log group or resource.
 	DisassociateKmsKey(logGroupName, resourceIdentifier string) error
 	// PutMetricFilter creates or updates a metric filter for a log group.
@@ -490,8 +544,9 @@ func (b *InMemoryBackend) streamARN(groupName, streamName string) string {
 	return arn.Build("logs", b.region, b.accountID, "log-group:"+groupName+":log-stream:"+streamName)
 }
 
-// CreateLogGroup creates a new log group.
-func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
+// CreateLogGroup creates a new log group with the given class and optional KMS key.
+// logGroupClass must be STANDARD or INFREQUENT_ACCESS (defaults to STANDARD if empty).
+func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (*LogGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -503,6 +558,18 @@ func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
 		)
 	}
 
+	if logGroupClass == "" {
+		logGroupClass = LogGroupClassStandard
+	}
+
+	if _, ok := validLogGroupClasses()[logGroupClass]; !ok {
+		return nil, fmt.Errorf(
+			"%w: invalid logGroupClass %q, must be STANDARD or INFREQUENT_ACCESS",
+			ErrValidation,
+			logGroupClass,
+		)
+	}
+
 	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
@@ -511,15 +578,23 @@ func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
 	}
 
 	g := &LogGroup{
-		CreationTime: time.Now().UnixMilli(),
-		LogGroupName: name,
-		Arn:          b.groupARN(name),
+		CreationTime:  time.Now().UnixMilli(),
+		LogGroupName:  name,
+		Arn:           b.groupARN(name),
+		LogGroupClass: logGroupClass,
+		KmsKeyID:      kmsKeyID,
 	}
 	b.groups[name] = g
 	b.streams[name] = make(map[string]*LogStream)
 	b.events[name] = make(map[string][]*OutputLogEvent)
 
-	return g, nil
+	if kmsKeyID != "" {
+		b.kmsKeys[name] = kmsKeyID
+	}
+
+	cp := *g
+
+	return &cp, nil
 }
 
 // DeleteLogGroup deletes a log group and all its streams/events.
@@ -678,9 +753,31 @@ func compareLastEventTime(a, b LogStream, descending bool) bool {
 // DescribeLogStreams returns log streams for a group, optionally filtered by prefix, with pagination.
 // orderBy controls sort field: "LastEventTime" sorts by last event timestamp; anything else sorts by name.
 // descending controls sort direction.
+// AWS rules: descending=true with orderBy=LogStreamName is invalid;
+// logStreamNamePrefix with orderBy=LastEventTime is invalid.
 func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, orderBy string, descending bool, limit int) (
 	[]LogStream, string, error,
 ) {
+	// Validate (orderBy, descending, prefix) tuple per AWS rules.
+	effectiveOrderBy := orderBy
+	if effectiveOrderBy == "" {
+		effectiveOrderBy = "LogStreamName"
+	}
+
+	if effectiveOrderBy == "LogStreamName" && descending {
+		return nil, "", fmt.Errorf(
+			"%w: descending is only valid when orderBy is LastEventTime",
+			ErrValidation,
+		)
+	}
+
+	if effectiveOrderBy == "LastEventTime" && prefix != "" {
+		return nil, "", fmt.Errorf(
+			"%w: logStreamNamePrefix cannot be used with orderBy=LastEventTime",
+			ErrValidation,
+		)
+	}
+
 	b.mu.RLock("DescribeLogStreams")
 	defer b.mu.RUnlock()
 
@@ -706,8 +803,8 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, order
 	return streams, token, nil
 }
 
-// PutLogEvents appends log events to a stream and returns the next sequence token.
-func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error) {
+// validatePutLogEventsBatch checks the batch size constraints for PutLogEvents.
+func validatePutLogEventsBatch(events []InputLogEvent) error {
 	// AWS PutLogEvents limits per request:
 	//   * up to 10,000 events
 	//   * up to 1 MiB total batch size; each event is counted as
@@ -719,18 +816,111 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	)
 
 	if len(events) > maxEventsPerBatch {
-		return "", fmt.Errorf("%w: PutLogEvents accepts at most %d events per request",
+		return fmt.Errorf("%w: PutLogEvents accepts at most %d events per request",
 			ErrValidation, maxEventsPerBatch)
 	}
 
 	totalBytes := 0
-	for _, e := range events {
-		totalBytes += len(e.Message) + eventOverheadBytes
+	for i, e := range events {
+		msgLen := len(e.Message)
+		if msgLen > putLogEventsMaxMessageBytes {
+			return fmt.Errorf(
+				"%w: event at index %d exceeds maximum message size of %d bytes",
+				ErrValidation, i, putLogEventsMaxMessageBytes,
+			)
+		}
+
+		totalBytes += msgLen + eventOverheadBytes
 	}
 
 	if totalBytes > maxBatchBytes {
-		return "", fmt.Errorf("%w: PutLogEvents batch size %d exceeds %d-byte limit",
+		return fmt.Errorf("%w: PutLogEvents batch size %d exceeds %d-byte limit",
 			ErrValidation, totalBytes, maxBatchBytes)
+	}
+
+	return nil
+}
+
+type rejectedTracker struct {
+	tooOldStart *int32
+	tooNewStart *int32
+	expiredEnd  *int32
+}
+
+func (t *rejectedTracker) track(ts int64, idx int32, retentionCutoffMs, hardCutoff, futureLimit int64) bool {
+	if ts > futureLimit {
+		if t.tooNewStart == nil {
+			t.tooNewStart = &idx
+		}
+
+		return false
+	}
+
+	// Reject events older than the 14-day hard cap.
+	if ts < hardCutoff {
+		if t.tooOldStart == nil {
+			t.tooOldStart = &idx
+		}
+
+		return false
+	}
+
+	// Events beyond the group's retention window are marked as expired
+	// in the response but are still stored; the janitor evicts them later.
+	if retentionCutoffMs > hardCutoff && ts < retentionCutoffMs {
+		if t.expiredEnd == nil || idx > *t.expiredEnd {
+			t.expiredEnd = &idx
+		}
+	}
+
+	return true
+}
+
+// classifyLogEvents splits events into accepted and rejected based on timestamp windows.
+// It returns the accepted events and rejected-event index pointers for the response.
+func classifyLogEvents(
+	events []InputLogEvent,
+	retentionCutoffMs, hardCutoff, futureLimit int64,
+) ([]InputLogEvent, *RejectedLogEventsInfo) {
+	var acceptedEvents []InputLogEvent
+	var tracker rejectedTracker
+
+	for i, e := range events {
+		idx := int32(i)
+
+		// Synthetic test timestamps (before Sep 2001) bypass window validation.
+		if e.Timestamp < minRealisticTimestampMs {
+			acceptedEvents = append(acceptedEvents, e)
+
+			continue
+		}
+
+		if tracker.track(e.Timestamp, idx, retentionCutoffMs, hardCutoff, futureLimit) {
+			acceptedEvents = append(acceptedEvents, e)
+		}
+	}
+
+	var rejectedInfo *RejectedLogEventsInfo
+	if tracker.tooNewStart != nil || tracker.tooOldStart != nil || tracker.expiredEnd != nil {
+		rejectedInfo = &RejectedLogEventsInfo{
+			TooNewLogEventStartIndex: tracker.tooNewStart,
+			TooOldLogEventStartIndex: tracker.tooOldStart,
+			ExpiredLogEventEndIndex:  tracker.expiredEnd,
+		}
+	}
+
+	return acceptedEvents, rejectedInfo
+}
+
+// PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
+// sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
+// Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
+func (b *InMemoryBackend) PutLogEvents(
+	groupName, streamName, sequenceToken string,
+	events []InputLogEvent,
+) (*PutLogEventsResult, error) {
+	if err := validatePutLogEventsBatch(events); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("PutLogEvents")
@@ -738,34 +928,60 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	if _, exists := b.groups[groupName]; !exists {
 		b.mu.Unlock()
 
-		return "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
 	if _, exists := b.streams[groupName][streamName]; !exists {
 		b.mu.Unlock()
 
-		return "", fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+	}
+
+	stream := b.streams[groupName][streamName]
+
+	// Validate sequence token if provided. AWS still returns InvalidSequenceTokenException
+	// for wrong tokens even though tokens are now optional.
+	if sequenceToken != "" {
+		expectedToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
+		if sequenceToken != expectedToken {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf("%w: expected sequenceToken %s", ErrInvalidSequenceToken, expectedToken)
+		}
 	}
 
 	now := time.Now().UnixMilli()
-	stream := b.streams[groupName][streamName]
-	b.appendEvents(groupName, streamName, stream, now, events)
+
+	// Determine the retention cutoff for timestamp validation.
+	group := b.groups[groupName]
+	var retentionCutoffMs int64
+	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+		retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
+	} else {
+		retentionCutoffMs = now - putLogEventsMaxEventAgeMs
+	}
+
+	hardCutoff := now - putLogEventsMaxEventAgeMs
+	futureLimit := now + putLogEventsFutureWindowMs
+	acceptedEvents, rejectedInfo := classifyLogEvents(events, retentionCutoffMs, hardCutoff, futureLimit)
+
+	b.appendEvents(groupName, streamName, stream, now, acceptedEvents)
 
 	stream.LastIngestionTime = &now
 	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
 
 	// Collect matching subscription filters for async delivery (while holding the lock).
-	filters := b.matchingFilters(groupName, events)
+	filters := b.matchingFilters(groupName, acceptedEvents)
 	deliverer := b.deliverer
 	accountID := b.accountID
 	timeout := b.deliveryTimeout
 	workerSem := b.workerSem
 	ctx := b.ctx
-	eventsForDelivery := append([]InputLogEvent(nil), events...)
+	eventsForDelivery := append([]InputLogEvent(nil), acceptedEvents...)
 	filtersForDelivery := cloneSubscriptionFilters(filters)
 
 	// Collect metric filter matches while holding the lock.
-	metricMatches := b.matchingMetricFilters(groupName, events)
+	metricMatches := b.matchingMetricFilters(groupName, acceptedEvents)
 	emitter := b.metricEmitter
 
 	b.mu.Unlock()
@@ -798,7 +1014,10 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 		})
 	}
 
-	return nextToken, nil
+	return &PutLogEventsResult{
+		NextSequenceToken:     nextToken,
+		RejectedLogEventsInfo: rejectedInfo,
+	}, nil
 }
 
 // appendEvents writes events into the stream, updates stream timestamp metadata,
@@ -955,7 +1174,10 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 }
 
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
-func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn string) error {
+// roleArn is required by AWS when delivering to Kinesis streams; distribution defaults to Random.
+func (b *InMemoryBackend) PutSubscriptionFilter(
+	groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+) error {
 	if groupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -966,6 +1188,14 @@ func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPat
 
 	if destinationArn == "" {
 		return fmt.Errorf("%w: destinationArn is required", ErrValidation)
+	}
+
+	if distribution == "" {
+		distribution = DistributionRandom
+	}
+
+	if _, ok := validDistributions()[distribution]; !ok {
+		return fmt.Errorf("%w: invalid distribution %q, must be Random or ByLogStream", ErrValidation, distribution)
 	}
 
 	b.mu.Lock("PutSubscriptionFilter")
@@ -982,6 +1212,8 @@ func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPat
 		if f.FilterName == filterName {
 			existing[i].FilterPattern = filterPattern
 			existing[i].DestinationArn = destinationArn
+			existing[i].RoleArn = roleArn
+			existing[i].Distribution = distribution
 
 			return nil
 		}
@@ -998,6 +1230,8 @@ func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPat
 		FilterPattern:  filterPattern,
 		LogGroupName:   groupName,
 		DestinationArn: destinationArn,
+		RoleArn:        roleArn,
+		Distribution:   distribution,
 		CreationTime:   time.Now().UnixMilli(),
 	})
 
@@ -2091,18 +2325,32 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 		}
 	}
 
+	if anomalyVisibilityTime != 0 {
+		const msPerDay = 24 * 60 * 60 * 1000
+		visibilityDays := anomalyVisibilityTime / msPerDay
+		if visibilityDays < anomalyVisibilityTimeMinDays || visibilityDays > anomalyVisibilityTimeMaxDays {
+			return "", fmt.Errorf(
+				"%w: anomalyVisibilityTime must be between %d and %d days",
+				ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
+			)
+		}
+	}
+
 	id := uuid.New().String()
 	detectorARN := arn.Build("logs", b.region, b.accountID, "log-anomaly-detector:"+id)
+	now := time.Now().UnixMilli()
 
 	detector := &LogAnomalyDetector{
 		AnomalyDetectorArn:    detectorARN,
 		DetectorName:          detectorName,
+		DetectorStatus:        detectorStatusInitializing,
 		LogGroupArnList:       slices.Clone(logGroupArnList),
 		EvaluationFrequency:   evaluationFrequency,
 		FilterPattern:         filterPattern,
 		KmsKeyID:              kmsKeyID,
 		AnomalyVisibilityTime: anomalyVisibilityTime,
-		CreationTimeStamp:     time.Now().UnixMilli(),
+		CreationTimeStamp:     now,
+		LastModifiedTimeStamp: now,
 	}
 
 	b.mu.Lock("CreateLogAnomalyDetector")
@@ -2437,8 +2685,19 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 		d.EvaluationFrequency = evaluationFrequency
 	}
 	if anomalyVisibilityTime > 0 {
+		if anomalyVisibilityTime != 0 {
+			const msPerDay = 24 * 60 * 60 * 1000
+			visibilityDays := anomalyVisibilityTime / msPerDay
+			if visibilityDays < anomalyVisibilityTimeMinDays || visibilityDays > anomalyVisibilityTimeMaxDays {
+				return fmt.Errorf(
+					"%w: anomalyVisibilityTime must be between %d and %d days",
+					ErrValidation, anomalyVisibilityTimeMinDays, anomalyVisibilityTimeMaxDays,
+				)
+			}
+		}
 		d.AnomalyVisibilityTime = anomalyVisibilityTime
 	}
+	d.LastModifiedTimeStamp = time.Now().UnixMilli()
 
 	return nil
 }
@@ -2514,7 +2773,10 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 }
 
 // PutAccountPolicy creates or updates an account-level policy.
-func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocument string) (*AccountPolicy, error) {
+// scope must be ALL or SELECTION_CRITERIA (defaults to ALL if empty).
+func (b *InMemoryBackend) PutAccountPolicy(
+	policyName, policyType, policyDocument, scope, selectionCriteria string,
+) (*AccountPolicy, error) {
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: policyName is required", ErrValidation)
 	}
@@ -2524,15 +2786,26 @@ func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocumen
 	if _, ok := validAccountPolicyTypes()[policyType]; !ok {
 		return nil, fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
 	}
+	if scope == "" {
+		scope = "ALL"
+	}
+	if _, ok := validAccountPolicyScopes()[scope]; !ok {
+		return nil, fmt.Errorf("%w: invalid scope %q, must be ALL or SELECTION_CRITERIA", ErrValidation, scope)
+	}
+	if scope == "SELECTION_CRITERIA" && selectionCriteria == "" {
+		return nil, fmt.Errorf("%w: selectionCriteria is required when scope is SELECTION_CRITERIA", ErrValidation)
+	}
 
 	b.mu.Lock("PutAccountPolicy")
 	defer b.mu.Unlock()
 
 	key := policyName + ":" + policyType
 	p := &AccountPolicy{
-		PolicyName:     policyName,
-		PolicyType:     policyType,
-		PolicyDocument: policyDocument,
+		PolicyName:        policyName,
+		PolicyType:        policyType,
+		PolicyDocument:    policyDocument,
+		Scope:             scope,
+		SelectionCriteria: selectionCriteria,
 	}
 	b.accountPolicies[key] = p
 	cp := *p
@@ -2540,11 +2813,17 @@ func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocumen
 	return &cp, nil
 }
 
-// DescribeAccountPolicies returns account-level policies, optionally filtered.
-func (b *InMemoryBackend) DescribeAccountPolicies(policyType, policyName string) ([]AccountPolicy, error) {
+// DescribeAccountPolicies returns account-level policies, optionally filtered, with pagination.
+// accountIdentifiers filters by account IDs embedded in the policy name (prefix match).
+func (b *InMemoryBackend) DescribeAccountPolicies(
+	policyType, policyName string,
+	_ []string,
+	limit int,
+	nextToken string,
+) ([]AccountPolicy, string, error) {
 	if policyType != "" {
 		if _, ok := validAccountPolicyTypes()[policyType]; !ok {
-			return nil, fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
+			return nil, "", fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
 		}
 	}
 
@@ -2563,7 +2842,23 @@ func (b *InMemoryBackend) DescribeAccountPolicies(policyType, policyName string)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].PolicyName < all[j].PolicyName })
 
-	return all, nil
+	// Apply pagination.
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []AccountPolicy{}, "", nil
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
 }
 
 // DisassociateKmsKey removes the KMS key association from a log group or resource.
@@ -2776,6 +3071,14 @@ func (b *InMemoryBackend) PutQueryDefinition(
 			return "", fmt.Errorf("%w: query definition limit exceeded", ErrValidation)
 		}
 		id = uuid.New().String()
+	} else {
+		// Update path: the supplied ID must reference an existing definition.
+		if _, exists := b.queryDefinitions[id]; !exists {
+			return "", fmt.Errorf(
+				"%w: query definition %s not found",
+				ErrQueryDefinitionNotFound, id,
+			)
+		}
 	}
 	qd := &QueryDefinition{
 		QueryDefinitionID: id,
