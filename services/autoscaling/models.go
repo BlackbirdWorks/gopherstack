@@ -4,23 +4,23 @@ import "time"
 
 // ScalingPolicy represents a scaling policy for an Auto Scaling group.
 type ScalingPolicy struct {
-	PolicyName                     string           `json:"PolicyName"`
-	PolicyARN                      string           `json:"PolicyARN"`
-	AutoScalingGroupName           string           `json:"AutoScalingGroupName"`
-	PolicyType                     string           `json:"PolicyType,omitempty"`
-	AdjustmentType                 string           `json:"AdjustmentType,omitempty"`
-	MetricType                     string           `json:"MetricType,omitempty"`
-	CustomMetricSpec               string           `json:"CustomMetricSpec,omitempty"`
-	MetricAggregationType          string           `json:"MetricAggregationType,omitempty"`
-	CustomizedMetricSpecification  string           `json:"CustomizedMetricSpecification,omitempty"`
-	TargetValue                    float64          `json:"TargetValue,omitempty"`
-	ScalingAdjustment              int32            `json:"ScalingAdjustment,omitempty"`
-	MinAdjustmentStep              int32            `json:"MinAdjustmentStep,omitempty"`
-	MinAdjustmentMagnitude         int32            `json:"MinAdjustmentMagnitude,omitempty"`
-	Cooldown                       int32            `json:"Cooldown,omitempty"`
-	EstimatedWarmup                int32            `json:"EstimatedWarmup,omitempty"`
-	DisableScaleIn                 bool             `json:"DisableScaleIn,omitempty"`
-	StepAdjustments                []StepAdjustment `json:"StepAdjustments,omitempty"`
+	CustomizedMetricSpecification string           `json:"CustomizedMetricSpecification,omitempty"`
+	PolicyName                    string           `json:"PolicyName"`
+	AutoScalingGroupName          string           `json:"AutoScalingGroupName"`
+	PolicyType                    string           `json:"PolicyType,omitempty"`
+	AdjustmentType                string           `json:"AdjustmentType,omitempty"`
+	MetricType                    string           `json:"MetricType,omitempty"`
+	CustomMetricSpec              string           `json:"CustomMetricSpec,omitempty"`
+	MetricAggregationType         string           `json:"MetricAggregationType,omitempty"`
+	PolicyARN                     string           `json:"PolicyARN"`
+	StepAdjustments               []StepAdjustment `json:"StepAdjustments,omitempty"`
+	TargetValue                   float64          `json:"TargetValue,omitempty"`
+	MinAdjustmentStep             int32            `json:"MinAdjustmentStep,omitempty"`
+	MinAdjustmentMagnitude        int32            `json:"MinAdjustmentMagnitude,omitempty"`
+	Cooldown                      int32            `json:"Cooldown,omitempty"`
+	EstimatedWarmup               int32            `json:"EstimatedWarmup,omitempty"`
+	ScalingAdjustment             int32            `json:"ScalingAdjustment,omitempty"`
+	DisableScaleIn                bool             `json:"DisableScaleIn,omitempty"`
 }
 
 // StepAdjustment defines a scaling adjustment with a metric interval bound.
@@ -32,21 +32,21 @@ type StepAdjustment struct {
 
 // ScalingPolicyInput holds the input for PutScalingPolicy.
 type ScalingPolicyInput struct {
+	CustomizedMetricSpecification string
 	PolicyName                    string
-	AutoScalingGroupName          string
 	PolicyType                    string
 	AdjustmentType                string
 	MetricType                    string
 	MetricAggregationType         string
-	CustomizedMetricSpecification string
+	AutoScalingGroupName          string
+	StepAdjustments               []StepAdjustment
 	TargetValue                   float64
-	ScalingAdjustment             int32
 	MinAdjustmentStep             int32
-	MinAdjustmentMagnitude        int32
+	ScalingAdjustment             int32
 	Cooldown                      int32
 	EstimatedWarmup               int32
+	MinAdjustmentMagnitude        int32
 	DisableScaleIn                bool
-	StepAdjustments               []StepAdjustment
 }
 
 // NotificationConfiguration represents a notification configuration for an Auto Scaling group.
@@ -68,7 +68,7 @@ type WarmPool struct {
 	Status                   string              `json:"Status,omitempty"`
 	MinSize                  int32               `json:"MinSize,omitempty"`
 	MaxGroupPreparedCapacity int32               `json:"MaxGroupPreparedCapacity,omitempty"`
-	InstanceReusePolicy      InstanceReusePolicy `json:"InstanceReusePolicy,omitempty"`
+	InstanceReusePolicy      InstanceReusePolicy `json:"InstanceReusePolicy"`
 }
 
 // WarmPoolInput holds the input for PutWarmPool.
@@ -150,9 +150,9 @@ type LaunchTemplateSpecification struct {
 
 // LaunchTemplateOverride allows specifying per-instance-type overrides in a MixedInstancesPolicy.
 type LaunchTemplateOverride struct {
-	InstanceType                    string                       `json:"InstanceType,omitempty"`
-	LaunchTemplateSpecification     *LaunchTemplateSpecification `json:"LaunchTemplateSpecification,omitempty"`
-	WeightedCapacity                string                       `json:"WeightedCapacity,omitempty"`
+	InstanceType                string                       `json:"InstanceType,omitempty"`
+	LaunchTemplateSpecification *LaunchTemplateSpecification `json:"LaunchTemplateSpecification,omitempty"`
+	WeightedCapacity            string                       `json:"WeightedCapacity,omitempty"`
 }
 
 // MixedInstancesLaunchTemplate is the launch template component of MixedInstancesPolicy.
@@ -164,17 +164,17 @@ type MixedInstancesLaunchTemplate struct {
 // InstancesDistribution controls on-demand vs spot allocation in MixedInstancesPolicy.
 type InstancesDistribution struct {
 	OnDemandAllocationStrategy          string `json:"OnDemandAllocationStrategy,omitempty"`
+	SpotAllocationStrategy              string `json:"SpotAllocationStrategy,omitempty"`
+	SpotMaxPrice                        string `json:"SpotMaxPrice,omitempty"`
 	OnDemandBaseCapacity                int32  `json:"OnDemandBaseCapacity,omitempty"`
 	OnDemandPercentageAboveBaseCapacity int32  `json:"OnDemandPercentageAboveBaseCapacity,omitempty"`
-	SpotAllocationStrategy              string `json:"SpotAllocationStrategy,omitempty"`
 	SpotInstancePools                   int32  `json:"SpotInstancePools,omitempty"`
-	SpotMaxPrice                        string `json:"SpotMaxPrice,omitempty"`
 }
 
 // MixedInstancesPolicy allows combining on-demand and spot instances with multiple instance types.
 type MixedInstancesPolicy struct {
 	LaunchTemplate        MixedInstancesLaunchTemplate `json:"LaunchTemplate"`
-	InstancesDistribution InstancesDistribution        `json:"InstancesDistribution,omitempty"`
+	InstancesDistribution InstancesDistribution        `json:"InstancesDistribution"`
 }
 
 // AutoScalingGroup represents an EC2 Auto Scaling group.
@@ -216,56 +216,56 @@ type AutoScalingGroup struct {
 
 // EbsBlockDevice describes an EBS volume configuration in a block device mapping.
 type EbsBlockDevice struct {
-	SnapshotID            string `json:"SnapshotId,omitempty"`
-	VolumeType            string `json:"VolumeType,omitempty"`
-	KmsKeyID              string `json:"KmsKeyId,omitempty"`
-	VolumeSize            int32  `json:"VolumeSize,omitempty"`
-	Iops                  int32  `json:"Iops,omitempty"`
-	Throughput            int32  `json:"Throughput,omitempty"`
-	DeleteOnTermination   bool   `json:"DeleteOnTermination,omitempty"`
-	Encrypted             bool   `json:"Encrypted,omitempty"`
+	SnapshotID          string `json:"SnapshotId,omitempty"`
+	VolumeType          string `json:"VolumeType,omitempty"`
+	KmsKeyID            string `json:"KmsKeyId,omitempty"`
+	VolumeSize          int32  `json:"VolumeSize,omitempty"`
+	Iops                int32  `json:"Iops,omitempty"`
+	Throughput          int32  `json:"Throughput,omitempty"`
+	DeleteOnTermination bool   `json:"DeleteOnTermination,omitempty"`
+	Encrypted           bool   `json:"Encrypted,omitempty"`
 }
 
 // LaunchConfiguration represents an Auto Scaling launch configuration.
 type LaunchConfiguration struct {
-	CreatedTime                time.Time            `json:"CreatedTime"`
-	LaunchConfigurationName    string               `json:"LaunchConfigurationName"`
-	LaunchConfigurationARN     string               `json:"LaunchConfigurationARN"`
-	ImageID                    string               `json:"ImageID"`
-	InstanceType               string               `json:"InstanceType"`
-	KeyName                    string               `json:"KeyName,omitempty"`
-	IAMInstanceProfile         string               `json:"IAMInstanceProfile,omitempty"`
-	UserData                   string               `json:"UserData,omitempty"`
-	KernelID                   string               `json:"KernelID,omitempty"`
-	RamdiskID                  string               `json:"RamdiskID,omitempty"`
-	SpotPrice                  string               `json:"SpotPrice,omitempty"`
-	PlacementTenancy           string               `json:"PlacementTenancy,omitempty"`
-	ClassicLinkVPCID           string               `json:"ClassicLinkVpcId,omitempty"`
-	BlockDeviceMappings        []BlockDeviceMapping `json:"BlockDeviceMappings,omitempty"`
-	ClassicLinkVPCSecurityGroups []string           `json:"ClassicLinkVpcSecurityGroups,omitempty"`
-	SecurityGroups             []string             `json:"SecurityGroups,omitempty"`
-	AssociatePublicIPAddress   bool                 `json:"AssociatePublicIpAddress,omitempty"`
-	EbsOptimized               bool                 `json:"EbsOptimized,omitempty"`
-	InstanceMonitoring         bool                 `json:"InstanceMonitoring,omitempty"`
+	CreatedTime                  time.Time            `json:"CreatedTime"`
+	LaunchConfigurationName      string               `json:"LaunchConfigurationName"`
+	LaunchConfigurationARN       string               `json:"LaunchConfigurationARN"`
+	ImageID                      string               `json:"ImageID"`
+	InstanceType                 string               `json:"InstanceType"`
+	KeyName                      string               `json:"KeyName,omitempty"`
+	IAMInstanceProfile           string               `json:"IAMInstanceProfile,omitempty"`
+	UserData                     string               `json:"UserData,omitempty"`
+	KernelID                     string               `json:"KernelID,omitempty"`
+	RamdiskID                    string               `json:"RamdiskID,omitempty"`
+	SpotPrice                    string               `json:"SpotPrice,omitempty"`
+	PlacementTenancy             string               `json:"PlacementTenancy,omitempty"`
+	ClassicLinkVPCID             string               `json:"ClassicLinkVpcId,omitempty"`
+	BlockDeviceMappings          []BlockDeviceMapping `json:"BlockDeviceMappings,omitempty"`
+	ClassicLinkVPCSecurityGroups []string             `json:"ClassicLinkVpcSecurityGroups,omitempty"`
+	SecurityGroups               []string             `json:"SecurityGroups,omitempty"`
+	AssociatePublicIPAddress     bool                 `json:"AssociatePublicIpAddress,omitempty"`
+	EbsOptimized                 bool                 `json:"EbsOptimized,omitempty"`
+	InstanceMonitoring           bool                 `json:"InstanceMonitoring,omitempty"`
 }
 
 // BlockDeviceMapping represents an EBS or ephemeral block device mapping.
 type BlockDeviceMapping struct {
+	Ebs         *EbsBlockDevice `json:"Ebs,omitempty"`
 	VirtualName string          `json:"VirtualName,omitempty"`
 	DeviceName  string          `json:"DeviceName"`
 	NoDevice    string          `json:"NoDevice,omitempty"`
-	Ebs         *EbsBlockDevice `json:"Ebs,omitempty"`
 }
 
 // Instance represents an EC2 instance in an Auto Scaling group.
 type Instance struct {
+	LaunchTime              time.Time `json:"LaunchTime,omitzero"`
 	InstanceID              string    `json:"InstanceID"`
 	AvailabilityZone        string    `json:"AvailabilityZone"`
 	LifecycleState          string    `json:"LifecycleState"`
 	HealthStatus            string    `json:"HealthStatus"`
 	LaunchConfigurationName string    `json:"LaunchConfigurationName,omitempty"`
 	InstanceType            string    `json:"InstanceType,omitempty"`
-	LaunchTime              time.Time `json:"LaunchTime,omitzero"`
 	ProtectedFromScaleIn    bool      `json:"ProtectedFromScaleIn,omitempty"`
 }
 
@@ -326,43 +326,43 @@ type FailedScheduledAction struct {
 
 // InstanceRefreshPreferences holds the preferences for an instance refresh operation.
 type InstanceRefreshPreferences struct {
-	MinHealthyPercentage         int32   `json:"MinHealthyPercentage,omitempty"`
-	MaxHealthyPercentage         int32   `json:"MaxHealthyPercentage,omitempty"`
-	InstanceWarmup               int32   `json:"InstanceWarmup,omitempty"`
-	CheckpointDelay              int32   `json:"CheckpointDelay,omitempty"`
-	CheckpointPercentages        []int32 `json:"CheckpointPercentages,omitempty"`
-	SkipMatching                 bool    `json:"SkipMatching,omitempty"`
-	AutoRollback                 bool    `json:"AutoRollback,omitempty"`
-	ScaleInProtectedInstances    string  `json:"ScaleInProtectedInstances,omitempty"`
-	StandbyInstances             string  `json:"StandbyInstances,omitempty"`
+	ScaleInProtectedInstances string  `json:"ScaleInProtectedInstances,omitempty"`
+	StandbyInstances          string  `json:"StandbyInstances,omitempty"`
+	CheckpointPercentages     []int32 `json:"CheckpointPercentages,omitempty"`
+	MinHealthyPercentage      int32   `json:"MinHealthyPercentage,omitempty"`
+	MaxHealthyPercentage      int32   `json:"MaxHealthyPercentage,omitempty"`
+	InstanceWarmup            int32   `json:"InstanceWarmup,omitempty"`
+	CheckpointDelay           int32   `json:"CheckpointDelay,omitempty"`
+	SkipMatching              bool    `json:"SkipMatching,omitempty"`
+	AutoRollback              bool    `json:"AutoRollback,omitempty"`
 }
 
 // InstanceRefresh represents an instance refresh operation for an Auto Scaling group.
 type InstanceRefresh struct {
-	StartTime            time.Time                  `json:"StartTime"`
-	EndTime              time.Time                  `json:"EndTime,omitzero"`
-	InstanceRefreshID    string                     `json:"InstanceRefreshId"`
-	AutoScalingGroupName string                     `json:"AutoScalingGroupName"`
-	Status               string                     `json:"Status"`
-	StatusReason         string                     `json:"StatusReason,omitempty"`
+	StartTime            time.Time `json:"StartTime"`
+	EndTime              time.Time `json:"EndTime,omitzero"`
+	InstanceRefreshID    string    `json:"InstanceRefreshId"`
+	AutoScalingGroupName string    `json:"AutoScalingGroupName"`
+	Status               string    `json:"Status"`
+	StatusReason         string    `json:"StatusReason,omitempty"`
 	// Strategy is the instance refresh strategy; defaults to "Rolling".
-	Strategy             string                     `json:"Strategy,omitempty"`
-	Preferences          InstanceRefreshPreferences `json:"Preferences,omitempty"`
-	PercentageComplete   int32                      `json:"PercentageComplete,omitempty"`
-	InstancesToUpdate    int32                      `json:"InstancesToUpdate,omitempty"`
+	Strategy           string                     `json:"Strategy,omitempty"`
+	Preferences        InstanceRefreshPreferences `json:"Preferences"`
+	PercentageComplete int32                      `json:"PercentageComplete,omitempty"`
+	InstancesToUpdate  int32                      `json:"InstancesToUpdate,omitempty"`
 }
 
 // LifecycleHook represents a lifecycle hook attached to an Auto Scaling group.
 type LifecycleHook struct {
-	LifecycleHookName        string `json:"LifecycleHookName"`
-	AutoScalingGroupName     string `json:"AutoScalingGroupName"`
-	LifecycleTransition      string `json:"LifecycleTransition,omitempty"`
-	DefaultResult            string `json:"DefaultResult,omitempty"`
-	NotificationTargetARN    string `json:"NotificationTargetARN,omitempty"`
-	NotificationMetadata     string `json:"NotificationMetadata,omitempty"`
-	RoleARN                  string `json:"RoleARN,omitempty"`
-	HeartbeatTimeout         int32  `json:"HeartbeatTimeout,omitempty"`
-	GlobalTimeout            int32  `json:"GlobalTimeout,omitempty"`
+	LifecycleHookName     string `json:"LifecycleHookName"`
+	AutoScalingGroupName  string `json:"AutoScalingGroupName"`
+	LifecycleTransition   string `json:"LifecycleTransition,omitempty"`
+	DefaultResult         string `json:"DefaultResult,omitempty"`
+	NotificationTargetARN string `json:"NotificationTargetARN,omitempty"`
+	NotificationMetadata  string `json:"NotificationMetadata,omitempty"`
+	RoleARN               string `json:"RoleARN,omitempty"`
+	HeartbeatTimeout      int32  `json:"HeartbeatTimeout,omitempty"`
+	GlobalTimeout         int32  `json:"GlobalTimeout,omitempty"`
 }
 
 // CompleteLifecycleActionInput holds the input for CompleteLifecycleAction.

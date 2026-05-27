@@ -456,7 +456,7 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 	}, nil
 }
 
-//nolint:gocognit,cyclop // Too complex to refactor given time constraints
+//nolint:gocognit // Too complex to refactor given time constraints
 func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
 
@@ -1613,7 +1613,6 @@ func parseLaunchTemplate(vals url.Values, prefix string) *LaunchTemplateSpecific
 }
 
 // parseBlockDeviceMappings parses BlockDeviceMappings from form values.
-//
 //nolint:gocognit,nestif // Too complex to refactor given time constraints
 func parseBlockDeviceMappings(vals url.Values) []BlockDeviceMapping {
 	result := make([]BlockDeviceMapping, 0)

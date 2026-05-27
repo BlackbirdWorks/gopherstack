@@ -5,15 +5,15 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups               map[string]*AutoScalingGroup              `json:"groups"`
-	LaunchConfigurations map[string]*LaunchConfiguration           `json:"launchConfigurations"`
-	Activities           map[string][]ScalingActivity              `json:"activities"`
-	ScheduledActions     map[string]map[string]*ScheduledAction    `json:"scheduledActions"`
-	InstanceRefreshes    map[string][]*InstanceRefresh             `json:"instanceRefreshes"`
-	LifecycleHooks       map[string]map[string]*LifecycleHook      `json:"lifecycleHooks"`
-	ScalingPolicies      map[string]map[string]*ScalingPolicy      `json:"scalingPolicies"`
-	NotificationConfigs  map[string][]*NotificationConfiguration   `json:"notificationConfigs"`
-	WarmPools            map[string]*WarmPool                      `json:"warmPools"`
+	Groups               map[string]*AutoScalingGroup            `json:"groups"`
+	LaunchConfigurations map[string]*LaunchConfiguration         `json:"launchConfigurations"`
+	Activities           map[string][]ScalingActivity            `json:"activities"`
+	ScheduledActions     map[string]map[string]*ScheduledAction  `json:"scheduledActions"`
+	InstanceRefreshes    map[string][]*InstanceRefresh           `json:"instanceRefreshes"`
+	LifecycleHooks       map[string]map[string]*LifecycleHook    `json:"lifecycleHooks"`
+	ScalingPolicies      map[string]map[string]*ScalingPolicy    `json:"scalingPolicies"`
+	NotificationConfigs  map[string][]*NotificationConfiguration `json:"notificationConfigs"`
+	WarmPools            map[string]*WarmPool                    `json:"warmPools"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -41,7 +41,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
+// Restore populates the backend from a JSON payload.
+//
+//nolint:gocognit // Too complex to refactor given time constraints
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 

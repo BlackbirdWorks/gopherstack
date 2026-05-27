@@ -943,7 +943,7 @@ type registerJobDefinitionOutput struct {
 	TimeoutSeconds    int32  `json:"timeout,omitempty"`
 }
 
-//nolint:cyclop,funlen // Too complex to refactor given time constraints
+//nolint:cyclop // Too complex to refactor given time constraints
 func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProperties {
 	if in == nil {
 		return nil

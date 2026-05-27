@@ -785,8 +785,7 @@ func (b *InMemoryBackend) lookupJobByIDOrARN(idOrARN string) (*Job, bool) {
 }
 
 // CreateComputeEnvironment creates a new compute environment.
-//
-//nolint:gocognit,cyclop,funlen // Too complex to refactor given time constraints
+//nolint:gocognit,cyclop // Too complex to refactor given time constraints
 func (b *InMemoryBackend) CreateComputeEnvironment(
 	name, ceType, state string,
 	tags map[string]string,
@@ -919,7 +918,6 @@ func cloneComputeResources(cr *ComputeResources) *ComputeResources {
 
 // DescribeComputeEnvironments returns compute environments, optionally filtered by names/ARNs.
 // When names is empty, results are paginated via maxResults/nextToken.
-//
 //nolint:dupl // Boilerplate pagination logic is similar to DescribeJobQueues
 func (b *InMemoryBackend) DescribeComputeEnvironments(
 	names []string,
@@ -1092,7 +1090,6 @@ func (b *InMemoryBackend) CreateJobQueue(
 // DescribeJobQueues returns job queues, optionally filtered by names/ARNs.
 // When names are provided, all matching queues are returned without pagination.
 // When names is empty, results are paginated using maxResults and nextToken.
-//
 //nolint:dupl // Boilerplate pagination logic is similar to DescribeComputeEnvironments
 func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, nextToken string) ([]*JobQueue, string) {
 	b.mu.RLock("DescribeJobQueues")
@@ -1606,7 +1603,6 @@ func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
 }
 
 // SubmitJob submits a new Batch job for execution.
-//
 //nolint:funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) SubmitJob(
 	name, queue, jobDefinition string,

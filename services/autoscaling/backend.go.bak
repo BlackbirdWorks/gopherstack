@@ -358,7 +358,6 @@ func adjustInstances(existing []Instance, desired int32, azs []string, launchCon
 }
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
-//
 //nolint:funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("CreateAutoScalingGroup")
@@ -566,8 +565,7 @@ func validateCapacity(minSize, maxSize, desired int32) error {
 }
 
 // UpdateAutoScalingGroup updates an existing Auto Scaling group.
-//
-//nolint:gocognit,cyclop,funlen // Too complex to refactor given time constraints
+//nolint:gocognit,cyclop // Too complex to refactor given time constraints
 func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error) {
 	b.mu.Lock("UpdateAutoScalingGroup")
 	defer b.mu.Unlock()
@@ -2324,8 +2322,7 @@ func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([
 // SetInstanceHealth sets the health status of an instance across all ASGs.
 // When shouldRespectGracePeriod is true and the instance launched within the group's
 // HealthCheckGracePeriod, the unhealthy mark is silently ignored (AWS behavior).
-//
-//nolint:gocognit
+//nolint:gocognit,funlen
 func (b *InMemoryBackend) SetInstanceHealth(
 	instanceID string,
 	healthStatus string,

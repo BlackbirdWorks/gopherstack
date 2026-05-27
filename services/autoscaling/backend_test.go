@@ -1377,9 +1377,9 @@ func TestInMemoryBackend_LaunchTemplate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(b *autoscaling.InMemoryBackend)
-		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
-		name    string
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "create_asg_with_launch_template",
@@ -1454,9 +1454,9 @@ func TestInMemoryBackend_VPCZoneIdentifier(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(b *autoscaling.InMemoryBackend)
-		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
-		name    string
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "create_with_vpc_zone_identifier",
@@ -1638,9 +1638,9 @@ func TestInMemoryBackend_NewInstancesProtectedFromScaleIn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(b *autoscaling.InMemoryBackend)
-		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
-		name    string
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "new_instances_protected_propagates_to_initial_instances",
@@ -1786,18 +1786,18 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(b *autoscaling.InMemoryBackend)
-		run     func(t *testing.T, b *autoscaling.InMemoryBackend)
-		name    string
+		setup func(b *autoscaling.InMemoryBackend)
+		run   func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "unhealthy_mark_honored_after_grace_period",
 			setup: func(b *autoscaling.InMemoryBackend) {
 				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
-					AutoScalingGroupName:  "sih-asg",
-					MinSize:               1,
-					MaxSize:               3,
-					DesiredCapacity:       1,
+					AutoScalingGroupName:   "sih-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
 					HealthCheckGracePeriod: 0, // no grace period
 				})
 			},
@@ -1819,10 +1819,10 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 			name: "unhealthy_ignored_within_grace_period",
 			setup: func(b *autoscaling.InMemoryBackend) {
 				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
-					AutoScalingGroupName:  "sih-grace-asg",
-					MinSize:               1,
-					MaxSize:               3,
-					DesiredCapacity:       1,
+					AutoScalingGroupName:   "sih-grace-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
 					HealthCheckGracePeriod: 3600, // 1 hour grace
 				})
 			},
@@ -1846,10 +1846,10 @@ func TestInMemoryBackend_SetInstanceHealthGracePeriod(t *testing.T) {
 			name: "respect_grace_period_false_always_marks",
 			setup: func(b *autoscaling.InMemoryBackend) {
 				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
-					AutoScalingGroupName:  "sih-norespect-asg",
-					MinSize:               1,
-					MaxSize:               3,
-					DesiredCapacity:       1,
+					AutoScalingGroupName:   "sih-norespect-asg",
+					MinSize:                1,
+					MaxSize:                3,
+					DesiredCapacity:        1,
 					HealthCheckGracePeriod: 3600,
 				})
 			},
@@ -1887,9 +1887,9 @@ func TestInMemoryBackend_PutLifecycleHookValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		hook    autoscaling.LifecycleHook
 		setup   func(b *autoscaling.InMemoryBackend)
 		name    string
+		hook    autoscaling.LifecycleHook
 		wantErr bool
 	}{
 		{
@@ -2490,12 +2490,12 @@ func TestInMemoryBackend_CreateLaunchConfigurationExtended(t *testing.T) {
 				t.Helper()
 
 				_, err := b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
-					LaunchConfigurationName: "pubip-lc",
-					ImageID:                 "ami-abc",
-					InstanceType:            "t2.micro",
+					LaunchConfigurationName:  "pubip-lc",
+					ImageID:                  "ami-abc",
+					InstanceType:             "t2.micro",
 					AssociatePublicIPAddress: true,
-					EbsOptimized:            true,
-					InstanceMonitoring:      true,
+					EbsOptimized:             true,
+					InstanceMonitoring:       true,
 				})
 				require.NoError(t, err)
 
