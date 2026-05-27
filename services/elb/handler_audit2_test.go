@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestAudit2_AZSubnetMutualExclusivity(t *testing.T) {
 				"Listeners.member.1.Protocol":         {"HTTP"},
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
-				"Subnets.member.1":                   {"subnet-000a"},
+				"Subnets.member.1":                    {"subnet-000a"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -66,7 +67,7 @@ func TestAudit2_AZSubnetMutualExclusivity(t *testing.T) {
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
 				"AvailabilityZones.member.1":          {"us-east-1a"},
-				"Subnets.member.1":                   {"subnet-000a"},
+				"Subnets.member.1":                    {"subnet-000a"},
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -123,9 +124,9 @@ func TestAudit2_EnableAZ_VPCLBRejected(t *testing.T) {
 			}
 
 			rec := doELB(t, h, url.Values{
-				"Action":                    {"EnableAvailabilityZonesForLoadBalancer"},
-				"Version":                   {"2012-06-01"},
-				"LoadBalancerName":          {lbName},
+				"Action":                     {"EnableAvailabilityZonesForLoadBalancer"},
+				"Version":                    {"2012-06-01"},
+				"LoadBalancerName":           {lbName},
 				"AvailabilityZones.member.1": {"us-east-1b"},
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -230,11 +231,11 @@ func TestAudit2_DNSNameFormat(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		vals          url.Values
-		name          string
-		wantPrefix    string
-		wantSuffix    string
-		wantContains  string
+		vals         url.Values
+		name         string
+		wantPrefix   string
+		wantSuffix   string
+		wantContains string
 	}{
 		{
 			name: "internet_facing_has_hash_suffix",
@@ -396,11 +397,11 @@ func TestAudit2_StickinessPolicy_TCPRejected(t *testing.T) {
 			// Attach stickiness policy to the listener.
 			portStr := tt.port
 			rec = doELB(t, h, url.Values{
-				"Action":                  {"SetLoadBalancerPoliciesOfListener"},
-				"Version":                 {"2012-06-01"},
-				"LoadBalancerName":        {lbName},
-				"LoadBalancerPort":        {portStr},
-				"PolicyNames.member.1":    {"sticky-pol"},
+				"Action":               {"SetLoadBalancerPoliciesOfListener"},
+				"Version":              {"2012-06-01"},
+				"LoadBalancerName":     {lbName},
+				"LoadBalancerPort":     {portStr},
+				"PolicyNames.member.1": {"sticky-pol"},
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -486,14 +487,14 @@ func TestAudit2_CertARNValidation(t *testing.T) {
 			lbName := fmt.Sprintf("certval-%d", i)
 
 			rec := doELB(t, h, url.Values{
-				"Action":                                        {"CreateLoadBalancer"},
-				"Version":                                       {"2012-06-01"},
-				"LoadBalancerName":                              {lbName},
-				"Listeners.member.1.Protocol":                   {"HTTPS"},
-				"Listeners.member.1.LoadBalancerPort":           {httpsPort},
-				"Listeners.member.1.InstancePort":               {"8443"},
-				"Listeners.member.1.SSLCertificateId":           {certARN},
-				"AvailabilityZones.member.1":                    {"us-east-1a"},
+				"Action":                              {"CreateLoadBalancer"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {lbName},
+				"Listeners.member.1.Protocol":         {"HTTPS"},
+				"Listeners.member.1.LoadBalancerPort": {httpsPort},
+				"Listeners.member.1.InstancePort":     {"8443"},
+				"Listeners.member.1.SSLCertificateId": {certARN},
+				"AvailabilityZones.member.1":          {"us-east-1a"},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -634,19 +635,19 @@ func TestAudit2_DescribeInstanceHealth_InvalidFormat(t *testing.T) {
 
 			if tt.register {
 				rec := doELB(t, h, url.Values{
-					"Action":                          {"RegisterInstancesWithLoadBalancer"},
-					"Version":                         {"2012-06-01"},
-					"LoadBalancerName":                {"health-fmt-lb"},
-					"Instances.member.1.InstanceId":   {tt.instanceID},
+					"Action":                        {"RegisterInstancesWithLoadBalancer"},
+					"Version":                       {"2012-06-01"},
+					"LoadBalancerName":              {"health-fmt-lb"},
+					"Instances.member.1.InstanceId": {tt.instanceID},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doELB(t, h, url.Values{
-				"Action":                          {"DescribeInstanceHealth"},
-				"Version":                         {"2012-06-01"},
-				"LoadBalancerName":                {"health-fmt-lb"},
-				"Instances.member.1.InstanceId":   {tt.instanceID},
+				"Action":                        {"DescribeInstanceHealth"},
+				"Version":                       {"2012-06-01"},
+				"LoadBalancerName":              {"health-fmt-lb"},
+				"Instances.member.1.InstanceId": {tt.instanceID},
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -714,7 +715,7 @@ func TestAudit2_AccountLimit_MaxListeners(t *testing.T) {
 			"Version":                             {"2012-06-01"},
 			"LoadBalancerName":                    {"maxlist-lb"},
 			"Listeners.member.1.Protocol":         {"HTTP"},
-			"Listeners.member.1.LoadBalancerPort": {fmt.Sprintf("%d", port)},
+			"Listeners.member.1.LoadBalancerPort": {strconv.Itoa(port)},
 			"Listeners.member.1.InstancePort":     {"8080"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code, "listener on port %d should succeed", port)
@@ -827,11 +828,11 @@ func TestAudit2_BSD_CleanupOnEmptyPolicies(t *testing.T) {
 
 	// Attach policy to backend port 8080.
 	doELB(t, h, url.Values{
-		"Action":                  {"SetLoadBalancerPoliciesForBackendServer"},
-		"Version":                 {"2012-06-01"},
-		"LoadBalancerName":        {"bsd-lb"},
-		"InstancePort":            {"8080"},
-		"PolicyNames.member.1":    {"pp-pol"},
+		"Action":               {"SetLoadBalancerPoliciesForBackendServer"},
+		"Version":              {"2012-06-01"},
+		"LoadBalancerName":     {"bsd-lb"},
+		"InstancePort":         {"8080"},
+		"PolicyNames.member.1": {"pp-pol"},
 	})
 
 	// Verify BSD entry is present.
@@ -854,8 +855,8 @@ func TestAudit2_BSD_CleanupOnEmptyPolicies(t *testing.T) {
 // describeBSDs is a helper that calls DescribeLoadBalancers and extracts the
 // BackendServerDescriptions list.
 func describeBSDs(t *testing.T, h *elb.Handler, lbName string) []struct {
-	InstancePort int32  `xml:"InstancePort"`
 	PolicyNames  string `xml:"PolicyNames"`
+	InstancePort int32  `xml:"InstancePort"`
 } {
 	t.Helper()
 
@@ -873,8 +874,8 @@ func describeBSDs(t *testing.T, h *elb.Handler, lbName string) []struct {
 				Members []struct {
 					BSDs struct {
 						Members []struct {
-							InstancePort int32  `xml:"InstancePort"`
 							PolicyNames  string `xml:"PolicyNames"`
+							InstancePort int32  `xml:"InstancePort"`
 						} `xml:"member"`
 					} `xml:"BackendServerDescriptions"`
 				} `xml:"member"`
@@ -1015,14 +1016,14 @@ func TestAudit2_ProtocolPairing(t *testing.T) {
 
 			h := newTestHandler()
 			vals := url.Values{
-				"Action":                                        {"CreateLoadBalancer"},
-				"Version":                                       {"2012-06-01"},
-				"LoadBalancerName":                              {"pair-lb"},
-				"Listeners.member.1.Protocol":                   {tt.protocol},
-				"Listeners.member.1.InstanceProtocol":           {tt.instanceProtocol},
-				"Listeners.member.1.LoadBalancerPort":           {tt.port},
-				"Listeners.member.1.InstancePort":               {"8080"},
-				"AvailabilityZones.member.1":                    {"us-east-1a"},
+				"Action":                              {"CreateLoadBalancer"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"pair-lb"},
+				"Listeners.member.1.Protocol":         {tt.protocol},
+				"Listeners.member.1.InstanceProtocol": {tt.instanceProtocol},
+				"Listeners.member.1.LoadBalancerPort": {tt.port},
+				"Listeners.member.1.InstancePort":     {"8080"},
+				"AvailabilityZones.member.1":          {"us-east-1a"},
 			}
 			if tt.certARN != "" {
 				vals.Set("Listeners.member.1.SSLCertificateId", tt.certARN)
@@ -1075,23 +1076,23 @@ func TestAudit2_CreateLB_ListenerRequirements(t *testing.T) {
 		{
 			name: "https_with_cert_accepted",
 			vals: url.Values{
-				"Action":                                        {"CreateLoadBalancer"},
-				"Version":                                       {"2012-06-01"},
-				"LoadBalancerName":                              {"withcert-lb"},
-				"Listeners.member.1.Protocol":                   {"HTTPS"},
-				"Listeners.member.1.LoadBalancerPort":           {"443"},
-				"Listeners.member.1.InstancePort":               {"8443"},
-				"Listeners.member.1.SSLCertificateId":           {"arn:aws:acm:us-east-1:123456789012:certificate/abc"},
-				"AvailabilityZones.member.1":                    {"us-east-1a"},
+				"Action":                              {"CreateLoadBalancer"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"withcert-lb"},
+				"Listeners.member.1.Protocol":         {"HTTPS"},
+				"Listeners.member.1.LoadBalancerPort": {"443"},
+				"Listeners.member.1.InstancePort":     {"8443"},
+				"Listeners.member.1.SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/abc"},
+				"AvailabilityZones.member.1":          {"us-east-1a"},
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "no_listeners_rejected",
 			vals: url.Values{
-				"Action":                    {"CreateLoadBalancer"},
-				"Version":                   {"2012-06-01"},
-				"LoadBalancerName":          {"nolisteners-lb"},
+				"Action":                     {"CreateLoadBalancer"},
+				"Version":                    {"2012-06-01"},
+				"LoadBalancerName":           {"nolisteners-lb"},
 				"AvailabilityZones.member.1": {"us-east-1a"},
 			},
 			wantStatus: http.StatusBadRequest,

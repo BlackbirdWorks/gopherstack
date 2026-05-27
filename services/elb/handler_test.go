@@ -67,7 +67,7 @@ func mustCreateVPCLB(t *testing.T, h *elb.Handler, name string) {
 		"Listeners.member.1.Protocol":         {"HTTP"},
 		"Listeners.member.1.LoadBalancerPort": {"80"},
 		"Listeners.member.1.InstancePort":     {"8080"},
-		"Subnets.member.1":                   {"subnet-00001"},
+		"Subnets.member.1":                    {"subnet-00001"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }

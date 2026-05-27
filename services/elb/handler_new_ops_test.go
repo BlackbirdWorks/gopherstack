@@ -290,14 +290,14 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 				t.Helper()
 
 				rec := doELB(t, h, url.Values{
-					"Action":                                        {"CreateLoadBalancer"},
-					"Version":                                       {"2012-06-01"},
-					"LoadBalancerName":                              {"ssl-lb"},
-					"AvailabilityZones.member.1":                    {"us-east-1a"},
-					"Listeners.member.1.Protocol":                   {"HTTPS"},
-					"Listeners.member.1.LoadBalancerPort":           {"443"},
-					"Listeners.member.1.InstancePort":               {"8443"},
-					"Listeners.member.1.SSLCertificateId":           {"arn:aws:acm:us-east-1:123456789012:certificate/initial"},
+					"Action":                              {"CreateLoadBalancer"},
+					"Version":                             {"2012-06-01"},
+					"LoadBalancerName":                    {"ssl-lb"},
+					"AvailabilityZones.member.1":          {"us-east-1a"},
+					"Listeners.member.1.Protocol":         {"HTTPS"},
+					"Listeners.member.1.LoadBalancerPort": {"443"},
+					"Listeners.member.1.InstancePort":     {"8443"},
+					"Listeners.member.1.SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/initial"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},

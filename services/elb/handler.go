@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	elbVersion  = "2012-06-01"
-	elbXMLNS    = "http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/"
-	boolStrTrue = "true"
+	elbVersion   = "2012-06-01"
+	elbXMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/"
+	boolStrTrue  = "true"
+	boolStrFalse = "false"
 )
 
 // Handler is the Echo HTTP handler for Classic ELB operations.
@@ -462,7 +463,7 @@ func parseHealthCheck(vals url.Values) (HealthCheck, error) {
 		rest := target[colonIdx+1:]
 
 		switch proto {
-		case "HTTP", "HTTPS":
+		case protoHTTP, protoHTTPS:
 			if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
 				path := rest[slashIdx:]
 				if qIdx := strings.IndexAny(path, "?#"); qIdx >= 0 {
@@ -895,8 +896,8 @@ func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (
 		return nil, fmt.Errorf("%w: SSLCertificateId is required", ErrInvalidParameter)
 	}
 
-	if err := validateCertificateID(certID); err != nil {
-		return nil, err
+	if certErr := validateCertificateID(certID); certErr != nil {
+		return nil, certErr
 	}
 
 	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(name, port, certID); setErr != nil {
@@ -1289,6 +1290,57 @@ func parseInt32(s string) (int32, error) {
 
 // validateHealthCheckTarget validates the HealthCheck Target format expected by AWS:
 // PROTOCOL:PORT for TCP/SSL or PROTOCOL:PORT/PATH for HTTP/HTTPS.
+// validateHealthCheckHTTPTarget validates the port/path portion of an HTTP(S)
+// health-check target string (everything after the colon).
+func validateHealthCheckHTTPTarget(rest string) error {
+	slashIdx := strings.Index(rest, "/")
+	if slashIdx < 1 {
+		return fmt.Errorf(
+			"%w: HealthCheck.Target for HTTP/HTTPS must include a path (e.g. HTTP:80/health)",
+			ErrInvalidParameter,
+		)
+	}
+
+	if err := validateTargetPort(rest[:slashIdx]); err != nil {
+		return err
+	}
+
+	path := rest[slashIdx:]
+
+	const maxPathLen = 1024
+	if len(path) > maxPathLen {
+		return fmt.Errorf(
+			"%w: HealthCheck.Target path must not exceed %d characters",
+			ErrInvalidParameter,
+			maxPathLen,
+		)
+	}
+
+	for _, ch := range path {
+		if ch == '\r' || ch == '\n' || ch == ' ' {
+			return fmt.Errorf(
+				"%w: HealthCheck.Target path contains invalid whitespace or control characters",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateTargetPort parses and validates a port string for a health-check target.
+func validateTargetPort(portStr string) error {
+	p, err := strconv.ParseInt(portStr, 10, 32)
+	if err != nil || p < 1 || p > maxPort {
+		return fmt.Errorf(
+			"%w: HealthCheck.Target port must be between 1 and 65535",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
+}
+
 func validateHealthCheckTarget(target string) error {
 	colonIdx := strings.Index(target, ":")
 	if colonIdx < 1 {
@@ -1302,45 +1354,16 @@ func validateHealthCheckTarget(target string) error {
 	rest := target[colonIdx+1:]
 
 	switch proto {
-	case "HTTP", "HTTPS":
-		slashIdx := strings.Index(rest, "/")
-		if slashIdx < 1 {
-			return fmt.Errorf(
-				"%w: HealthCheck.Target for HTTP/HTTPS must include a path (e.g. HTTP:80/health)",
-				ErrInvalidParameter,
-			)
-		}
-
-		portStr := rest[:slashIdx]
-		p, err := strconv.ParseInt(portStr, 10, 32)
-
-		if err != nil || p < 1 || p > 65535 {
-			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
-		}
-
-		path := rest[slashIdx:]
-
-		const maxPathLen = 1024
-		if len(path) > maxPathLen {
-			return fmt.Errorf("%w: HealthCheck.Target path must not exceed %d characters", ErrInvalidParameter, maxPathLen)
-		}
-
-		for _, ch := range path {
-			if ch == '\r' || ch == '\n' || ch == ' ' {
-				return fmt.Errorf("%w: HealthCheck.Target path contains invalid whitespace or control characters", ErrInvalidParameter)
-			}
-		}
-	case "TCP", "SSL":
-		p, err := strconv.ParseInt(rest, 10, 32)
-
-		if err != nil || p < 1 || p > 65535 {
-			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
-		}
+	case protoHTTP, protoHTTPS:
+		return validateHealthCheckHTTPTarget(rest)
+	case protoTCP, protoSSL:
+		return validateTargetPort(rest)
 	default:
-		return fmt.Errorf("%w: HealthCheck.Target protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: HealthCheck.Target protocol must be one of HTTP, HTTPS, TCP, SSL",
+			ErrInvalidParameter,
+		)
 	}
-
-	return nil
 }
 
 // collectMemberIndexes returns the sorted list of member indexes present in vals
@@ -1354,14 +1377,8 @@ func collectMemberIndexes(vals url.Values, dotPrefix string) []int {
 		}
 
 		rest := k[len(dotPrefix):]
-		dotIdx := strings.Index(rest, ".")
 
-		var idxStr string
-		if dotIdx < 0 {
-			idxStr = rest
-		} else {
-			idxStr = rest[:dotIdx]
-		}
+		idxStr, _, _ := strings.Cut(rest, ".")
 
 		if n, err := strconv.Atoi(idxStr); err == nil && n > 0 {
 			seen[n] = struct{}{}
@@ -1391,70 +1408,107 @@ func parseMembers(vals url.Values, prefix string) []string {
 	return result
 }
 
+// parseListenerPort parses a port string and validates it against the AWS-allowed port set.
+func parseListenerPort(raw, fieldName string) (int32, error) {
+	port, err := parseInt32(raw)
+	if err != nil || port < 1 || port > maxPort {
+		return 0, fmt.Errorf(
+			"%w: %s must be between 1 and 65535",
+			ErrInvalidParameter, fieldName,
+		)
+	}
+
+	return port, nil
+}
+
+// parseOneListener parses and validates a single listener from form values at index i.
+func parseOneListener(vals url.Values, i int) (*Listener, error) {
+	proto := vals.Get(fmt.Sprintf("Listeners.member.%d.Protocol", i))
+	if proto == "" {
+		return nil, nil //nolint:nilnil // nil signals "skip this index"
+	}
+
+	proto = strings.ToUpper(proto)
+
+	switch proto {
+	case protoHTTP, protoHTTPS, protoTCP, protoSSL:
+	default:
+		return nil, fmt.Errorf(
+			"%w: Protocol must be one of HTTP, HTTPS, TCP, SSL",
+			ErrInvalidParameter,
+		)
+	}
+
+	lbPort, err := parseListenerPort(
+		vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)),
+		"LoadBalancerPort",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !isAllowedListenerPort(lbPort) {
+		return nil, fmt.Errorf(
+			"%w: LoadBalancerPort %d is not in the allowed range "+
+				"(25, 80, 443, 465, 587, or 1024-65535)",
+			ErrInvalidParameter, lbPort,
+		)
+	}
+
+	instProto := strings.ToUpper(
+		vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i)),
+	)
+	if instProto == "" {
+		instProto = proto
+	}
+
+	if pairErr := validateProtocolPairing(proto, instProto); pairErr != nil {
+		return nil, pairErr
+	}
+
+	instPort, err := parseListenerPort(
+		vals.Get(fmt.Sprintf("Listeners.member.%d.InstancePort", i)),
+		"InstancePort",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
+
+	// HTTPS/SSL requires a certificate.
+	if (proto == protoHTTPS || proto == protoSSL) && certID == "" {
+		return nil, fmt.Errorf(
+			"%w: SSLCertificateId is required for %s listeners",
+			ErrInvalidParameter, proto,
+		)
+	}
+
+	return &Listener{
+		Protocol:         proto,
+		LoadBalancerPort: lbPort,
+		InstanceProtocol: instProto,
+		InstancePort:     instPort,
+		SSLCertificateID: certID,
+	}, nil
+}
+
 // parseListeners extracts listener definitions from Listeners.member.N.* form values.
 func parseListeners(vals url.Values) ([]Listener, error) {
 	indexes := collectMemberIndexes(vals, "Listeners.member.")
 	result := make([]Listener, 0, len(indexes))
 
 	for _, i := range indexes {
-		proto := vals.Get(fmt.Sprintf("Listeners.member.%d.Protocol", i))
-		if proto == "" {
-			continue
-		}
-
-		proto = strings.ToUpper(proto)
-
-		switch proto {
-		case "HTTP", "HTTPS", "TCP", "SSL":
-		default:
-			return nil, fmt.Errorf("%w: Protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
-		}
-
-		lbPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)))
-		if err != nil || lbPort < 1 || lbPort > 65535 {
-			return nil, fmt.Errorf("%w: LoadBalancerPort must be between 1 and 65535", ErrInvalidParameter)
-		}
-
-		// Port allowlist: 25/80/443/465/587/1024-65535
-		if !isAllowedListenerPort(lbPort) {
-			return nil, fmt.Errorf(
-				"%w: LoadBalancerPort %d is not in the allowed range (25, 80, 443, 465, 587, or 1024-65535)",
-				ErrInvalidParameter, lbPort,
-			)
-		}
-
-		instProto := strings.ToUpper(vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i)))
-		if instProto == "" {
-			instProto = proto
-		}
-
-		// Validate protocol pairing
-		if err := validateProtocolPairing(proto, instProto); err != nil {
+		l, err := parseOneListener(vals, i)
+		if err != nil {
 			return nil, err
 		}
 
-		instPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.InstancePort", i)))
-		if err != nil || instPort < 1 || instPort > 65535 {
-			return nil, fmt.Errorf("%w: InstancePort must be between 1 and 65535", ErrInvalidParameter)
+		if l == nil {
+			continue
 		}
 
-		certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
-
-		// HTTPS/SSL requires a certificate
-		if (proto == "HTTPS" || proto == "SSL") && certID == "" {
-			return nil, fmt.Errorf(
-				"%w: SSLCertificateId is required for %s listeners",
-				ErrInvalidParameter, proto,
-			)
-		}
-
-		result = append(result, Listener{
-			Protocol:         proto,
-			LoadBalancerPort: lbPort,
-			InstanceProtocol: instProto,
-			InstancePort:     instPort,
-			SSLCertificateID: certID,
-		})
+		result = append(result, *l)
 	}
 
 	return result, nil
@@ -1464,21 +1518,21 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 // 25, 80, 443, 465, 587, and 1024-65535.
 func isAllowedListenerPort(port int32) bool {
 	switch port {
-	case 25, 80, 443, 465, 587:
+	case smtpPort, httpPort, httpsPort, smtpsPort, submissionPort:
 		return true
 	}
 
-	return port >= 1024 && port <= 65535
+	return port >= minDynamicPort && port <= maxPort
 }
 
 // validateProtocolPairing returns an error if the frontend/backend protocol pairing is invalid.
 // AWS rules: HTTP↔HTTP/HTTPS, HTTPS↔HTTP/HTTPS, TCP↔TCP, SSL↔TCP/SSL.
 func validateProtocolPairing(protocol, instanceProtocol string) error {
 	valid := map[string]map[string]bool{
-		"HTTP":  {"HTTP": true, "HTTPS": true},
-		"HTTPS": {"HTTP": true, "HTTPS": true},
-		"TCP":   {"TCP": true},
-		"SSL":   {"TCP": true, "SSL": true},
+		protoHTTP:  {protoHTTP: true, protoHTTPS: true},
+		protoHTTPS: {protoHTTP: true, protoHTTPS: true},
+		protoTCP:   {protoTCP: true},
+		protoSSL:   {protoTCP: true, protoSSL: true},
 	}
 
 	if allowed, ok := valid[protocol]; !ok || !allowed[instanceProtocol] {
@@ -1660,7 +1714,7 @@ func validateTagKey(key string) error {
 
 // certIDRe matches an ACM or IAM certificate ARN.
 // ACM:  arn:aws:acm:<region>:<acct>:certificate/<uuid>
-// IAM:  arn:aws:iam::<acct>:server-certificate/<name>
+// IAM:  arn:aws:iam::<acct>:server-certificate/<name>.
 var certIDRe = regexp.MustCompile(`^arn:aws:(acm|iam):`)
 
 // validateCertificateID returns an error if certID does not look like a
@@ -1691,7 +1745,7 @@ func decodePageMarker(marker string) (int, error) {
 	}
 
 	if n < 0 {
-		return 0, fmt.Errorf("invalid Marker: negative offset")
+		return 0, fmt.Errorf("%w: invalid Marker: negative offset", ErrInvalidParameter)
 	}
 
 	return n, nil
@@ -1803,7 +1857,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		CreatedTime:               lb.CreatedTime.UTC().Format(time.RFC3339),
 		Scheme:                    lb.Scheme,
 		VPCId:                     lb.VPCId,
-		SourceSecurityGroup: computeSourceSecurityGroup(lb),
+		SourceSecurityGroup:       computeSourceSecurityGroup(lb),
 		AvailabilityZones:         xmlStringValueList{Members: azs},
 		SecurityGroups:            xmlStringValueList{Members: sgs},
 		Subnets:                   xmlStringValueList{Members: subnets},
