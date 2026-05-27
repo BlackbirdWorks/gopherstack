@@ -66,7 +66,11 @@ func TestRuleLifecycle(t *testing.T) {
 				require.True(t, ok)
 				require.Len(t, copies, 1)
 				ca := copies[0].(map[string]any)
-				assert.Equal(t, "arn:aws:backup:us-west-2:123456789012:backup-vault:dst", ca["DestinationBackupVaultArn"])
+				assert.Equal(
+					t,
+					"arn:aws:backup:us-west-2:123456789012:backup-vault:dst",
+					ca["DestinationBackupVaultArn"],
+				)
 			},
 		},
 		{
@@ -112,9 +116,9 @@ func TestRuleLifecycle(t *testing.T) {
 			rules: []any{
 				map[string]any{
 					"RuleName":                   "r1",
-					"TargetBackupVaultName":       "vault-d",
-					"ScheduleExpression":          "cron(0 0 * * ? *)",
-					"ScheduleExpressionTimezone":  "America/New_York",
+					"TargetBackupVaultName":      "vault-d",
+					"ScheduleExpression":         "cron(0 0 * * ? *)",
+					"ScheduleExpressionTimezone": "America/New_York",
 				},
 			},
 			wantInRules: func(t *testing.T, rules []any) {
@@ -141,7 +145,7 @@ func TestRuleLifecycle(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"BackupPlan": map[string]any{
 					"BackupPlanName": "test-plan",
-					"Rules":         tt.rules,
+					"Rules":          tt.rules,
 				},
 			})
 			require.NoError(t, err)
@@ -885,13 +889,13 @@ func TestRecoveryPointNewFields(t *testing.T) {
 	doBatch1Request(t, h, http.MethodPut, "/backup-vaults/rp-vault", `{}`)
 
 	rp := &backup.RecoveryPoint{
-		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:rp-1",
-		BackupVaultName:  "rp-vault",
-		BackupVaultArn:   "arn:aws:backup:us-east-1:000000000000:backup-vault:rp-vault",
-		Status:           "COMPLETED",
-		StorageClass:     "WARM",
-		IsEncrypted:      true,
-		EncryptionKeyArn: "arn:aws:kms:us-east-1:000000000000:key/abc123",
+		RecoveryPointArn:     "arn:aws:backup:us-east-1:000000000000:recovery-point:rp-1",
+		BackupVaultName:      "rp-vault",
+		BackupVaultArn:       "arn:aws:backup:us-east-1:000000000000:backup-vault:rp-vault",
+		Status:               "COMPLETED",
+		StorageClass:         "WARM",
+		IsEncrypted:          true,
+		EncryptionKeyArn:     "arn:aws:kms:us-east-1:000000000000:key/abc123",
 		SourceBackupVaultArn: "arn:aws:backup:us-east-1:000000000000:backup-vault:src-vault",
 	}
 	require.NoError(t, b.AddRecoveryPoint("rp-vault", rp))
@@ -925,7 +929,11 @@ func TestRecoveryPointNewFields(t *testing.T) {
 			name: "source_backup_vault_arn_preserved",
 			checkResp: func(t *testing.T, resp map[string]any) {
 				t.Helper()
-				assert.Equal(t, "arn:aws:backup:us-east-1:000000000000:backup-vault:src-vault", resp["SourceBackupVaultArn"])
+				assert.Equal(
+					t,
+					"arn:aws:backup:us-east-1:000000000000:backup-vault:src-vault",
+					resp["SourceBackupVaultArn"],
+				)
 			},
 		},
 	}
@@ -952,9 +960,9 @@ func TestVaultLockConfigDeletion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		setup           func(t *testing.T, h *backup.Handler)
-		deleteShouldOK  bool
+		name           string
+		setup          func(t *testing.T, h *backup.Handler)
+		deleteShouldOK bool
 	}{
 		{
 			name: "delete_existing_lock",

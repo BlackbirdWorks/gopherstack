@@ -2158,8 +2158,8 @@ type backupSelectionDoc struct {
 	IamRoleArn    string                   `json:"IamRoleArn,omitempty"`
 	Resources     []string                 `json:"Resources,omitempty"`
 	NotResources  []string                 `json:"NotResources,omitempty"`
-	ListOfTags    []tagConditionJSON        `json:"ListOfTags,omitempty"`
-	Conditions    *selectionConditionsJSON  `json:"Conditions,omitempty"`
+	ListOfTags    []tagConditionJSON       `json:"ListOfTags,omitempty"`
+	Conditions    *selectionConditionsJSON `json:"Conditions,omitempty"`
 }
 
 type createBackupSelectionBody struct {
@@ -2338,11 +2338,11 @@ type reportSettingJSON struct {
 }
 
 type createReportPlanBody struct {
-	ReportPlanName           string                      `json:"ReportPlanName"`
-	ReportPlanDescription    string                      `json:"ReportPlanDescription,omitempty"`
-	ReportDeliveryChannel    *reportDeliveryChannelJSON  `json:"ReportDeliveryChannel,omitempty"`
-	ReportSetting            *reportSettingJSON           `json:"ReportSetting,omitempty"`
-	IdempotencyToken         string                      `json:"IdempotencyToken,omitempty"`
+	ReportPlanName        string                     `json:"ReportPlanName"`
+	ReportPlanDescription string                     `json:"ReportPlanDescription,omitempty"`
+	ReportDeliveryChannel *reportDeliveryChannelJSON `json:"ReportDeliveryChannel,omitempty"`
+	ReportSetting         *reportSettingJSON         `json:"ReportSetting,omitempty"`
+	IdempotencyToken      string                     `json:"IdempotencyToken,omitempty"`
 }
 
 func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {

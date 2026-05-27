@@ -1759,7 +1759,15 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	plan, err := original.CreateBackupPlan("persist-plan", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateBackupSelection(plan.BackupPlanID, "selection-1", "arn:aws:iam::123456789012:role/r", nil, nil, nil, nil)
+	_, err = original.CreateBackupSelection(
+		plan.BackupPlanID,
+		"selection-1",
+		"arn:aws:iam::123456789012:role/r",
+		nil,
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Create a restore access vault.

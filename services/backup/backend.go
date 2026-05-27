@@ -25,23 +25,23 @@ var (
 
 	// validVaultEvents is the canonical set of AWS Backup vault notification events.
 	validVaultEvents = map[string]struct{}{
-		"BACKUP_JOB_STARTED":         {},
-		"BACKUP_JOB_COMPLETED":       {},
-		"BACKUP_JOB_SUCCESSFUL":      {},
-		"BACKUP_JOB_FAILED":          {},
-		"BACKUP_JOB_EXPIRED":         {},
-		"RESTORE_JOB_STARTED":        {},
-		"RESTORE_JOB_COMPLETED":      {},
-		"RESTORE_JOB_SUCCESSFUL":     {},
-		"RESTORE_JOB_FAILED":         {},
-		"COPY_JOB_STARTED":           {},
-		"COPY_JOB_SUCCESSFUL":        {},
-		"COPY_JOB_FAILURE":           {},
-		"RECOVERY_POINT_MODIFIED":    {},
-		"BACKUP_PLAN_CREATED":        {},
-		"BACKUP_PLAN_MODIFIED":       {},
-		"S3_BACKUP_OBJECT_FAILED":    {},
-		"S3_RESTORE_OBJECT_FAILED":   {},
+		"BACKUP_JOB_STARTED":       {},
+		"BACKUP_JOB_COMPLETED":     {},
+		"BACKUP_JOB_SUCCESSFUL":    {},
+		"BACKUP_JOB_FAILED":        {},
+		"BACKUP_JOB_EXPIRED":       {},
+		"RESTORE_JOB_STARTED":      {},
+		"RESTORE_JOB_COMPLETED":    {},
+		"RESTORE_JOB_SUCCESSFUL":   {},
+		"RESTORE_JOB_FAILED":       {},
+		"COPY_JOB_STARTED":         {},
+		"COPY_JOB_SUCCESSFUL":      {},
+		"COPY_JOB_FAILURE":         {},
+		"RECOVERY_POINT_MODIFIED":  {},
+		"BACKUP_PLAN_CREATED":      {},
+		"BACKUP_PLAN_MODIFIED":     {},
+		"S3_BACKUP_OBJECT_FAILED":  {},
+		"S3_RESTORE_OBJECT_FAILED": {},
 	}
 )
 
@@ -60,7 +60,7 @@ type CalculatedLifecycle struct {
 
 // CopyAction defines a cross-vault copy triggered by a backup rule.
 type CopyAction struct {
-	DestinationBackupVaultArn string   `json:"destinationBackupVaultArn"`
+	DestinationBackupVaultArn string    `json:"destinationBackupVaultArn"`
 	Lifecycle                 Lifecycle `json:"lifecycle,omitempty"`
 }
 
@@ -187,14 +187,14 @@ type Job struct {
 
 // Selection represents an AWS Backup selection (resources assigned to a plan).
 type Selection struct {
-	CreationTime  time.Time           `json:"creationTime"`
-	SelectionName string              `json:"selectionName"`
-	SelectionID   string              `json:"selectionId"`
-	BackupPlanID  string              `json:"backupPlanId"`
-	IAMRoleArn    string              `json:"iamRoleArn,omitempty"`
-	Resources     []string            `json:"resources,omitempty"`
-	NotResources  []string            `json:"notResources,omitempty"`
-	ListOfTags    []TagCondition      `json:"listOfTags,omitempty"`
+	CreationTime  time.Time            `json:"creationTime"`
+	SelectionName string               `json:"selectionName"`
+	SelectionID   string               `json:"selectionId"`
+	BackupPlanID  string               `json:"backupPlanId"`
+	IAMRoleArn    string               `json:"iamRoleArn,omitempty"`
+	Resources     []string             `json:"resources,omitempty"`
+	NotResources  []string             `json:"notResources,omitempty"`
+	ListOfTags    []TagCondition       `json:"listOfTags,omitempty"`
 	Conditions    *SelectionConditions `json:"conditions,omitempty"`
 }
 
