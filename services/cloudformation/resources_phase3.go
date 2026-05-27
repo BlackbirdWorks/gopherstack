@@ -329,7 +329,21 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 		defType = "container"
 	}
 
-	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
+	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(
+		name,
+		defType,
+		nil,
+		nil,
+		0,
+		0,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		false,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job definition %s: %w", name, err)
 	}
