@@ -4007,7 +4007,7 @@ func TestNewBackendCRUD(t *testing.T) {
 			},
 		},
 		{
-			name: "function_update_sets_unpublished",
+			name: "function_update_sets_development",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreateFunction("upd-fn2", "", "cloudfront-js-2.0", "code")
@@ -4016,7 +4016,7 @@ func TestNewBackendCRUD(t *testing.T) {
 				require.NoError(t, err)
 				fn, err := b.UpdateFunction("upd-fn2", "new comment", "cloudfront-js-2.0", "new code")
 				require.NoError(t, err)
-				assert.Equal(t, "UNPUBLISHED", fn.Status)
+				assert.Equal(t, "DEVELOPMENT", fn.Status)
 			},
 		},
 		{

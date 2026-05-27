@@ -37,6 +37,11 @@ const (
 	opCreateInvalidationForDistTenant       = "CreateInvalidationForDistributionTenant"
 	opCreateKeyGroup                        = "CreateKeyGroup"
 	opCreateKeyValueStore                   = "CreateKeyValueStore"
+	opGetKVSKey                             = "GetKey"
+	opPutKVSKey                             = "PutKey"
+	opDeleteKVSKey                          = "DeleteKey"
+	opListKVSKeys                           = "ListKeys"
+	opUpdateKVSKeys                         = "UpdateKeys"
 	opCreateMonitoringSubscription          = "CreateMonitoringSubscription"
 	opCreatePublicKey                       = "CreatePublicKey"
 	opCreateRealtimeLogConfig               = "CreateRealtimeLogConfig"
@@ -315,6 +320,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteFieldLevelEncryptionProfile,
 		opDeleteKeyGroup,
 		opDeleteKeyValueStore,
+		opDeleteKVSKey,
 		opDeleteMonitoringSubscription,
 		opDeletePublicKey,
 		opDeleteRealtimeLogConfig,
@@ -341,6 +347,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetInvalidationForDistTenant,
 		opGetKeyGroup,
 		opGetKeyGroupConfig,
+		opGetKVSKey,
 		opGetManagedCertificateDetails,
 		opGetMonitoringSubscription,
 		opGetPublicKey,
@@ -376,6 +383,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListInvalidationsForDistTenant,
 		opListKeyGroups,
 		opListKeyValueStores,
+		opListKVSKeys,
 		opListPublicKeys,
 		opListRealtimeLogConfigs,
 		opListStreamingDistributions,
@@ -395,6 +403,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateFieldLevelEncryptionProfile,
 		opUpdateKeyGroup,
 		opUpdateKeyValueStore,
+		opUpdateKVSKeys,
+		opPutKVSKey,
 		opUpdatePublicKey,
 		opUpdateRealtimeLogConfig,
 		opUpdateStreamingDistribution,
@@ -873,7 +883,56 @@ func parseCFKeyAndLogPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
+	if op, kvsID, key := parseCFKVSDataPlanePath(method, suffix); op != "" {
+		if key != "" {
+			return op, kvsID + "/" + key
+		}
+
+		return op, kvsID
+	}
+
 	return parseCFPublicKeyRealtimePath(method, suffix)
+}
+
+// parseCFKVSDataPlanePath routes KVS data-plane key operations.
+// Returns (op, kvsID, key) — key is empty for list/batch ops.
+func parseCFKVSDataPlanePath(method, suffix string) (string, string, string) {
+	const kvsPrefix = "key-value-store/"
+	if !strings.HasPrefix(suffix, kvsPrefix) {
+		return "", "", ""
+	}
+
+	rest := strings.TrimPrefix(suffix, kvsPrefix)
+	kvsID, after, ok := strings.Cut(rest, "/keys")
+	if !ok {
+		return "", "", ""
+	}
+
+	if after == "" || after == "/" {
+		switch method {
+		case http.MethodGet:
+			return opListKVSKeys, kvsID, ""
+		case http.MethodPost:
+			return opUpdateKVSKeys, kvsID, ""
+		}
+
+		return "", "", ""
+	}
+
+	if key, hasSlash := strings.CutPrefix(after, "/"); hasSlash {
+		if key != "" && !strings.Contains(key, "/") {
+			switch method {
+			case http.MethodGet:
+				return opGetKVSKey, kvsID, key
+			case http.MethodPut:
+				return opPutKVSKey, kvsID, key
+			case http.MethodDelete:
+				return opDeleteKVSKey, kvsID, key
+			}
+		}
+	}
+
+	return "", "", ""
 }
 
 // parseCFPublicKeyRealtimePath routes public key and realtime log config paths.
@@ -1361,6 +1420,9 @@ func parseCFMiscPathByDistribution(method, suffix string) (string, string) {
 type distributionConfigMinimal struct {
 	CallerReference string `xml:"CallerReference"`
 	Comment         string `xml:"Comment"`
+	PriceClass      string `xml:"PriceClass"`
+	HTTPVersion     string `xml:"HttpVersion"`
+	IsIPV6Enabled   bool   `xml:"IsIPV6Enabled"`
 	Enabled         bool   `xml:"Enabled"`
 }
 
@@ -1735,6 +1797,10 @@ func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resou
 
 // dispatchLogStoreVPCOps handles realtime log config, key value store, and VPC origin operations.
 func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchKVSOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
 	switch operation {
 	case opGetRealtimeLogConfig:
 		return h.handleGetRealtimeLogConfig(c, resource)
@@ -1742,12 +1808,6 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateRealtimeLogConfig(c, resource)
 	case opDeleteRealtimeLogConfig:
 		return h.handleDeleteRealtimeLogConfig(c, resource)
-	case opDescribeKeyValueStore:
-		return h.handleGetKeyValueStore(c, resource)
-	case opUpdateKeyValueStore:
-		return h.handleUpdateKeyValueStore(c, resource)
-	case opDeleteKeyValueStore:
-		return h.handleDeleteKeyValueStore(c, resource)
 	case opGetVpcOrigin:
 		return h.handleGetVpcOrigin(c, resource)
 	case opUpdateVpcOrigin:
@@ -1760,6 +1820,33 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateContinuousDeploymentPolicy(c, resource)
 	case opDeleteContinuousDeploymentPolicy:
 		return h.handleDeleteContinuousDeploymentPolicy(c, resource)
+	default:
+
+		return errNotDispatched
+	}
+}
+
+// dispatchKVSOps handles KVS control-plane and data-plane operations.
+func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case opDescribeKeyValueStore:
+		return h.handleGetKeyValueStore(c, resource)
+	case opUpdateKeyValueStore:
+		return h.handleUpdateKeyValueStore(c, resource)
+	case opDeleteKeyValueStore:
+		return h.handleDeleteKeyValueStore(c, resource)
+	case opGetKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handleGetKVSKey(c, kvsID, key)
+	case opPutKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handlePutKVSKey(c, kvsID, key)
+	case opDeleteKVSKey:
+		kvsID, key, _ := strings.Cut(resource, "/")
+
+		return h.handleDeleteKVSKey(c, kvsID, key)
 	default:
 
 		return errNotDispatched
@@ -1794,6 +1881,8 @@ func (h *Handler) dispatchListCore(c *echo.Context, operation, resource string) 
 		return h.handleListResponseHeadersPolicies(c)
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
+	case opListKVSKeys:
+		return h.handleListKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched
@@ -1850,6 +1939,8 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 		return h.handleGetFunctionAssociations(c, resource)
 	case opSetFunctionAssociations:
 		return h.handleSetFunctionAssociations(c, resource)
+	case opUpdateKVSKeys:
+		return h.handleUpdateKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched
@@ -2392,6 +2483,56 @@ func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// distributionSummaryPriceClass returns the PriceClass for a distribution, falling back to
+// "PriceClass_All" when none was stored (legacy or minimal config).
+func distributionSummaryPriceClass(d *Distribution) string {
+	if d.PriceClass != "" {
+		return d.PriceClass
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.PriceClass != "" {
+			return cfg.PriceClass
+		}
+	}
+
+	return "PriceClass_All"
+}
+
+// distributionSummaryHTTPVersion returns the HttpVersion for a distribution.
+func distributionSummaryHTTPVersion(d *Distribution) string {
+	if d.HTTPVersion != "" {
+		return d.HTTPVersion
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil && cfg.HTTPVersion != "" {
+			return cfg.HTTPVersion
+		}
+	}
+
+	return "http2"
+}
+
+// distributionSummaryIsIPV6(d) reads IsIPV6Enabled from the stored raw config when the
+// Distribution field is false (zero value is ambiguous, so raw config is authoritative).
+func distributionSummaryIsIPV6(d *Distribution) bool {
+	if d.IsIPV6Enabled {
+		return true
+	}
+
+	if len(d.RawConfig) > 0 {
+		var cfg distributionConfigMinimal
+		if err := xml.Unmarshal(d.RawConfig, &cfg); err == nil {
+			return cfg.IsIPV6Enabled
+		}
+	}
+
+	return false
+}
+
 func (h *Handler) handleListDistributions(c *echo.Context) error {
 	dists := h.Backend.ListDistributions()
 
@@ -2399,18 +2540,19 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 	for _, d := range dists {
 		aliases := h.Backend.ListAliases(d.ID)
 		s := distributionSummaryXML{
-			ID:         d.ID,
-			ARN:        d.ARN,
-			Status:     d.Status,
-			DomainName: d.DomainName,
-			Comment:    d.Comment,
-			Enabled:    d.Enabled,
+			ID:            d.ID,
+			ARN:           d.ARN,
+			Status:        d.Status,
+			DomainName:    d.DomainName,
+			Comment:       d.Comment,
+			Enabled:       d.Enabled,
+			IsIPV6Enabled: distributionSummaryIsIPV6(d),
 		}
 		s.Aliases.Quantity = len(aliases)
 		s.ViewerCertificate.CloudFrontDefaultCertificate = true
 		s.Restrictions.GeoRestriction.RestrictionType = "none"
-		s.PriceClass = "PriceClass_All"
-		s.HTTPVersion = "http2"
+		s.PriceClass = distributionSummaryPriceClass(d)
+		s.HTTPVersion = distributionSummaryHTTPVersion(d)
 		summaries = append(summaries, s)
 	}
 
@@ -2460,13 +2602,110 @@ type anycastIPListRequestXML struct {
 	IPCount int32    `xml:"IPCount"`
 }
 
+type cachePolicyHeadersConfigXML struct {
+	HeaderBehavior string   `xml:"HeaderBehavior"`
+	Headers        []string `xml:"Headers>Header"`
+}
+
+type cachePolicyCookiesConfigXML struct {
+	CookieBehavior string   `xml:"CookieBehavior"`
+	Cookies        []string `xml:"Cookies>Cookie"`
+}
+
+type cachePolicyQueryStringsConfigXML struct {
+	QueryStringBehavior string   `xml:"QueryStringBehavior"`
+	QueryStrings        []string `xml:"QueryStrings>QueryString"`
+}
+
+type cachePolicyParamsXML struct {
+	HeadersConfig      cachePolicyHeadersConfigXML      `xml:"HeadersConfig"`
+	CookiesConfig      cachePolicyCookiesConfigXML      `xml:"CookiesConfig"`
+	QueryStringsConfig cachePolicyQueryStringsConfigXML `xml:"QueryStringsConfig"`
+	EnableGzip         bool                             `xml:"EnableAcceptEncodingGzip"`
+	EnableBrotli       bool                             `xml:"EnableAcceptEncodingBrotli"`
+}
+
 type cachePolicyConfigXML struct {
-	XMLName    xml.Name `xml:"CachePolicyConfig"`
-	Name       string   `xml:"Name"`
-	Comment    string   `xml:"Comment"`
-	DefaultTTL int64    `xml:"DefaultTTL"`
-	MaxTTL     int64    `xml:"MaxTTL"`
-	MinTTL     int64    `xml:"MinTTL"`
+	XMLName    xml.Name             `xml:"CachePolicyConfig"`
+	Name       string               `xml:"Name"`
+	Comment    string               `xml:"Comment"`
+	Params     cachePolicyParamsXML `xml:"ParametersInCacheKeyAndForwardedToOrigin"`
+	DefaultTTL int64                `xml:"DefaultTTL"`
+	MaxTTL     int64                `xml:"MaxTTL"`
+	MinTTL     int64                `xml:"MinTTL"`
+}
+
+// cachePolicyParamsFromXML converts the XML params struct to the backend model.
+// Returns nil when no meaningful params were provided.
+func cachePolicyParamsFromXML(x cachePolicyParamsXML) *CachePolicyParams {
+	p := &CachePolicyParams{
+		EnableAcceptEncodingGzip:   x.EnableGzip,
+		EnableAcceptEncodingBrotli: x.EnableBrotli,
+		HeadersConfig: CachePolicyHeadersConfig{
+			HeaderBehavior: x.HeadersConfig.HeaderBehavior,
+			Headers:        x.HeadersConfig.Headers,
+		},
+		CookiesConfig: CachePolicyCookiesConfig{
+			CookieBehavior: x.CookiesConfig.CookieBehavior,
+			Cookies:        x.CookiesConfig.Cookies,
+		},
+		QueryStringsConfig: CachePolicyQueryStringsConfig{
+			QueryStringBehavior: x.QueryStringsConfig.QueryStringBehavior,
+			QueryStrings:        x.QueryStringsConfig.QueryStrings,
+		},
+	}
+	// Return nil when the params are entirely default (no config provided).
+	if p.HeadersConfig.HeaderBehavior == "" && p.CookiesConfig.CookieBehavior == "" &&
+		p.QueryStringsConfig.QueryStringBehavior == "" &&
+		!p.EnableAcceptEncodingGzip && !p.EnableAcceptEncodingBrotli {
+		return nil
+	}
+
+	return p
+}
+
+// cachePolicyResponseXML builds the full CachePolicy XML response.
+func cachePolicyResponseXML(p *CachePolicy) string {
+	var paramsXML string
+	if p.Params != nil {
+		paramsXML = fmt.Sprintf(
+			`<ParametersInCacheKeyAndForwardedToOrigin>`+
+				`<EnableAcceptEncodingGzip>%v</EnableAcceptEncodingGzip>`+
+				`<EnableAcceptEncodingBrotli>%v</EnableAcceptEncodingBrotli>`+
+				`<HeadersConfig><HeaderBehavior>%s</HeaderBehavior></HeadersConfig>`+
+				`<CookiesConfig><CookieBehavior>%s</CookieBehavior></CookiesConfig>`+
+				`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior></QueryStringsConfig>`+
+				`</ParametersInCacheKeyAndForwardedToOrigin>`,
+			p.Params.EnableAcceptEncodingGzip,
+			p.Params.EnableAcceptEncodingBrotli,
+			p.Params.HeadersConfig.HeaderBehavior,
+			p.Params.CookiesConfig.CookieBehavior,
+			p.Params.QueryStringsConfig.QueryStringBehavior,
+		)
+	}
+
+	return fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<CachePolicy xmlns="%s">`+
+			`<Id>%s</Id>`+
+			`<CachePolicyConfig>`+
+			`<Name>%s</Name>`+
+			`<Comment>%s</Comment>`+
+			`<DefaultTTL>%d</DefaultTTL>`+
+			`<MaxTTL>%d</MaxTTL>`+
+			`<MinTTL>%d</MinTTL>`+
+			`%s`+
+			`</CachePolicyConfig>`+
+			`</CachePolicy>`,
+		cfNS,
+		p.ID,
+		p.Name,
+		p.Comment,
+		p.DefaultTTL,
+		p.MaxTTL,
+		p.MinTTL,
+		paramsXML,
+	)
 }
 
 type connectionFunctionRequestXML struct {
@@ -2627,42 +2866,23 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 		}
 	}
 
+	params := cachePolicyParamsFromXML(req.Params)
 	policy, createErr := h.Backend.CreateCachePolicy(
 		req.Name,
 		req.Comment,
 		req.DefaultTTL,
 		req.MaxTTL,
 		req.MinTTL,
+		params,
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(
-		`<?xml version="1.0" encoding="UTF-8"?>`+
-			`<CachePolicy xmlns="%s">`+
-			`<Id>%s</Id>`+
-			`<CachePolicyConfig>`+
-			`<Name>%s</Name>`+
-			`<Comment>%s</Comment>`+
-			`<DefaultTTL>%d</DefaultTTL>`+
-			`<MaxTTL>%d</MaxTTL>`+
-			`<MinTTL>%d</MinTTL>`+
-			`</CachePolicyConfig>`+
-			`</CachePolicy>`,
-		cfNS,
-		policy.ID,
-		policy.Name,
-		policy.Comment,
-		policy.DefaultTTL,
-		policy.MaxTTL,
-		policy.MinTTL,
-	)
-
 	c.Response().Header().Set("ETag", policy.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"cache-policy/"+policy.ID)
 
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, cachePolicyResponseXML(policy))
 }
 
 func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
@@ -3357,20 +3577,7 @@ func (h *Handler) handleGetCachePolicy(c *echo.Context, id string) error {
 
 	c.Response().Header().Set("ETag", p.ETag)
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<CachePolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<CachePolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`<DefaultTTL>%d</DefaultTTL>`+
-		`<MaxTTL>%d</MaxTTL>`+
-		`<MinTTL>%d</MinTTL>`+
-		`</CachePolicyConfig>`+
-		`</CachePolicy>`,
-		cfNS, p.ID, p.Name, p.Comment, p.DefaultTTL, p.MaxTTL, p.MinTTL)
-
-	return xmlResp(c, http.StatusOK, resp)
+	return xmlResp(c, http.StatusOK, cachePolicyResponseXML(p))
 }
 
 func (h *Handler) handleGetCachePolicyConfig(c *echo.Context, id string) error {
@@ -3461,6 +3668,7 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 		}
 	}
 
+	params := cachePolicyParamsFromXML(req.Params)
 	p, updateErr := h.Backend.UpdateCachePolicy(
 		id,
 		req.Name,
@@ -3468,27 +3676,15 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 		req.DefaultTTL,
 		req.MaxTTL,
 		req.MinTTL,
+		params,
 	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<CachePolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<CachePolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`<DefaultTTL>%d</DefaultTTL>`+
-		`<MaxTTL>%d</MaxTTL>`+
-		`<MinTTL>%d</MinTTL>`+
-		`</CachePolicyConfig>`+
-		`</CachePolicy>`,
-		cfNS, p.ID, p.Name, p.Comment, p.DefaultTTL, p.MaxTTL, p.MinTTL)
-
 	c.Response().Header().Set("ETag", p.ETag)
 
-	return xmlResp(c, http.StatusOK, resp)
+	return xmlResp(c, http.StatusOK, cachePolicyResponseXML(p))
 }
 
 func (h *Handler) handleDeleteCachePolicy(c *echo.Context, id string) error {
@@ -3705,10 +3901,78 @@ func oacResponseXML(oac *OriginAccessControl) string {
 
 // --- Response Headers Policy handlers ---
 
+type rhpCorsConfigXML struct {
+	AccessControlAllowOrigins     []string `xml:"AccessControlAllowOrigins>Items>Origin"`
+	AccessControlAllowHeaders     []string `xml:"AccessControlAllowHeaders>Items>Header"`
+	AccessControlAllowMethods     []string `xml:"AccessControlAllowMethods>Items>Method"`
+	AccessControlExposeHeaders    []string `xml:"AccessControlExposeHeaders>Items>Header"`
+	AccessControlMaxAgeSec        int64    `xml:"AccessControlMaxAgeSec"`
+	AccessControlAllowCredentials bool     `xml:"AccessControlAllowCredentials"`
+	OriginOverride                bool     `xml:"OriginOverride"`
+}
+
+type rhpSecurityHeadersXML struct {
+	FrameOptionsValue              string `xml:"FrameOptions>FrameOption"`
+	ReferrerPolicy                 string `xml:"ReferrerPolicy>ReferrerPolicy"`
+	ContentSecurityPolicy          string `xml:"ContentSecurityPolicy>ContentSecurityPolicy"`
+	XSSProtection                  string `xml:"XSSProtection>ReportUri"`
+	StrictTransportSecuritySeconds int64  `xml:"StrictTransportSecurity>AccessControlMaxAgeSec"`
+	IncludeSubdomains              bool   `xml:"StrictTransportSecurity>IncludeSubdomains"`
+	Preload                        bool   `xml:"StrictTransportSecurity>Preload"`
+	ContentTypeOptionsOverride     bool   `xml:"ContentTypeOptions>Override"`
+}
+
+type rhpCustomHeaderXML struct {
+	Header   string `xml:"Header"`
+	Value    string `xml:"Value"`
+	Override bool   `xml:"Override"`
+}
+
 type rhpConfigXML struct {
-	XMLName xml.Name `xml:"ResponseHeadersPolicyConfig"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	XMLName         xml.Name               `xml:"ResponseHeadersPolicyConfig"`
+	Name            string                 `xml:"Name"`
+	Comment         string                 `xml:"Comment"`
+	CorsConfig      *rhpCorsConfigXML      `xml:"CorsConfig"`
+	SecurityHeaders *rhpSecurityHeadersXML `xml:"SecurityHeadersConfig"`
+	CustomHeaders   []rhpCustomHeaderXML   `xml:"CustomHeadersConfig>Items>ResponseHeadersPolicyCustomHeader"`
+	RemoveHeaders   []string               `xml:"RemoveHeadersConfig>Items>ResponseHeadersPolicyRemoveHeader>Header"`
+}
+
+func rhpConfigFromXML(x rhpConfigXML) *ResponseHeadersPolicyConfig {
+	cfg := &ResponseHeadersPolicyConfig{}
+	if x.CorsConfig != nil {
+		cfg.CorsConfig = &RHPCorsConfig{
+			AccessControlAllowOrigins:     x.CorsConfig.AccessControlAllowOrigins,
+			AccessControlAllowHeaders:     x.CorsConfig.AccessControlAllowHeaders,
+			AccessControlAllowMethods:     x.CorsConfig.AccessControlAllowMethods,
+			AccessControlExposeHeaders:    x.CorsConfig.AccessControlExposeHeaders,
+			AccessControlMaxAgeSec:        x.CorsConfig.AccessControlMaxAgeSec,
+			AccessControlAllowCredentials: x.CorsConfig.AccessControlAllowCredentials,
+			OriginOverride:                x.CorsConfig.OriginOverride,
+		}
+	}
+	if x.SecurityHeaders != nil {
+		cfg.SecurityHeaders = &RHPSecurityHeaders{
+			StrictTransportSecuritySeconds: x.SecurityHeaders.StrictTransportSecuritySeconds,
+			ContentTypeOptionsOverride:     x.SecurityHeaders.ContentTypeOptionsOverride,
+			FrameOptionsValue:              x.SecurityHeaders.FrameOptionsValue,
+			ReferrerPolicy:                 x.SecurityHeaders.ReferrerPolicy,
+			ContentSecurityPolicy:          x.SecurityHeaders.ContentSecurityPolicy,
+			XSSProtection:                  x.SecurityHeaders.XSSProtection,
+			IncludeSubdomains:              x.SecurityHeaders.IncludeSubdomains,
+			Preload:                        x.SecurityHeaders.Preload,
+		}
+	}
+	for _, h := range x.CustomHeaders {
+		cfg.CustomHeaders = append(cfg.CustomHeaders, RHPCustomHeader(h))
+	}
+	cfg.RemoveHeaders = x.RemoveHeaders
+	if cfg.CorsConfig == nil && cfg.SecurityHeaders == nil && len(cfg.CustomHeaders) == 0 &&
+		len(cfg.RemoveHeaders) == 0 {
+		return nil
+	}
+
+	return cfg
 }
 
 func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
@@ -3731,7 +3995,7 @@ func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 			cfErrorXML("InvalidArgument", "ResponseHeadersPolicyConfig Name is required"))
 	}
 
-	p, createErr := h.Backend.CreateResponseHeadersPolicy(req.Name, req.Comment)
+	p, createErr := h.Backend.CreateResponseHeadersPolicy(req.Name, req.Comment, rhpConfigFromXML(req))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -3837,7 +4101,7 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 		req.Name = current.Name
 	}
 
-	p, updateErr := h.Backend.UpdateResponseHeadersPolicy(id, req.Name, req.Comment)
+	p, updateErr := h.Backend.UpdateResponseHeadersPolicy(id, req.Name, req.Comment, rhpConfigFromXML(req))
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -3873,15 +4137,64 @@ func (h *Handler) handleDeleteResponseHeadersPolicy(c *echo.Context, id string) 
 }
 
 func rhpResponseXML(p *ResponseHeadersPolicy) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ResponseHeadersPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<ResponseHeadersPolicyConfig>`+
 		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ResponseHeadersPolicyConfig>`+
-		`</ResponseHeadersPolicy>`,
+		`<Comment>%s</Comment>`,
 		cfNS, p.ID, p.Name, p.Comment)
+	if c := p.CorsConfig; c != nil {
+		fmt.Fprintf(&sb,
+			`<CorsConfig>`+
+				`<AccessControlAllowCredentials>%v</AccessControlAllowCredentials>`+
+				`<AccessControlMaxAgeSec>%d</AccessControlMaxAgeSec>`+
+				`<OriginOverride>%v</OriginOverride>`+
+				`</CorsConfig>`,
+			c.AccessControlAllowCredentials, c.AccessControlMaxAgeSec, c.OriginOverride)
+	}
+	if s := p.SecurityHeaders; s != nil {
+		fmt.Fprintf(&sb,
+			`<SecurityHeadersConfig>`+
+				`<StrictTransportSecurity>`+
+				`<AccessControlMaxAgeSec>%d</AccessControlMaxAgeSec>`+
+				`<IncludeSubdomains>%v</IncludeSubdomains>`+
+				`<Preload>%v</Preload>`+
+				`</StrictTransportSecurity>`+
+				`<FrameOptions><FrameOption>%s</FrameOption></FrameOptions>`+
+				`<ReferrerPolicy><ReferrerPolicy>%s</ReferrerPolicy></ReferrerPolicy>`+
+				`</SecurityHeadersConfig>`,
+			s.StrictTransportSecuritySeconds, s.IncludeSubdomains, s.Preload,
+			s.FrameOptionsValue, s.ReferrerPolicy)
+	}
+	if len(p.CustomHeaders) > 0 {
+		sb.WriteString(`<CustomHeadersConfig><Items>`)
+		for _, h := range p.CustomHeaders {
+			fmt.Fprintf(&sb,
+				`<ResponseHeadersPolicyCustomHeader>`+
+					`<Header>%s</Header>`+
+					`<Value>%s</Value>`+
+					`<Override>%v</Override>`+
+					`</ResponseHeadersPolicyCustomHeader>`,
+				h.Header, h.Value, h.Override)
+		}
+		fmt.Fprintf(&sb, `</Items><Quantity>%d</Quantity></CustomHeadersConfig>`, len(p.CustomHeaders))
+	}
+	if len(p.RemoveHeaders) > 0 {
+		sb.WriteString(`<RemoveHeadersConfig><Items>`)
+		for _, h := range p.RemoveHeaders {
+			fmt.Fprintf(
+				&sb,
+				`<ResponseHeadersPolicyRemoveHeader><Header>%s</Header></ResponseHeadersPolicyRemoveHeader>`,
+				h,
+			)
+		}
+		fmt.Fprintf(&sb, `</Items><Quantity>%d</Quantity></RemoveHeadersConfig>`, len(p.RemoveHeaders))
+	}
+	sb.WriteString(`</ResponseHeadersPolicyConfig></ResponseHeadersPolicy>`)
+
+	return sb.String()
 }
 
 // --- CloudFront Function handlers ---
@@ -4138,10 +4451,55 @@ func functionResponseXML(fn *Function) string {
 
 // --- Origin Request Policy handlers ---
 
+type orpHeadersConfigXML struct {
+	HeaderBehavior string   `xml:"HeaderBehavior"`
+	Headers        []string `xml:"Headers>Items>Name"`
+}
+
+type orpCookiesConfigXML struct {
+	CookieBehavior string   `xml:"CookieBehavior"`
+	Cookies        []string `xml:"Cookies>Items>Name"`
+}
+
+type orpQueryStringsConfigXML struct {
+	QueryStringBehavior string   `xml:"QueryStringBehavior"`
+	QueryStrings        []string `xml:"QueryStrings>Items>Name"`
+}
+
 type orpConfigXML struct {
-	XMLName xml.Name `xml:"OriginRequestPolicyConfig"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+	HeadersConfig      *orpHeadersConfigXML      `xml:"HeadersConfig"`
+	CookiesConfig      *orpCookiesConfigXML      `xml:"CookiesConfig"`
+	QueryStringsConfig *orpQueryStringsConfigXML `xml:"QueryStringsConfig"`
+	XMLName            xml.Name                  `xml:"OriginRequestPolicyConfig"`
+	Name               string                    `xml:"Name"`
+	Comment            string                    `xml:"Comment"`
+}
+
+func orpConfigFromXML(x orpConfigXML) *OriginRequestPolicyConfig {
+	cfg := &OriginRequestPolicyConfig{}
+	if x.HeadersConfig != nil {
+		cfg.HeadersConfig = &ORPHeadersConfig{
+			HeaderBehavior: x.HeadersConfig.HeaderBehavior,
+			Headers:        x.HeadersConfig.Headers,
+		}
+	}
+	if x.CookiesConfig != nil {
+		cfg.CookiesConfig = &ORPCookiesConfig{
+			CookieBehavior: x.CookiesConfig.CookieBehavior,
+			Cookies:        x.CookiesConfig.Cookies,
+		}
+	}
+	if x.QueryStringsConfig != nil {
+		cfg.QueryStringsConfig = &ORPQueryStringsConfig{
+			QueryStringBehavior: x.QueryStringsConfig.QueryStringBehavior,
+			QueryStrings:        x.QueryStringsConfig.QueryStrings,
+		}
+	}
+	if cfg.HeadersConfig == nil && cfg.CookiesConfig == nil && cfg.QueryStringsConfig == nil {
+		return nil
+	}
+
+	return cfg
 }
 
 func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
@@ -4167,7 +4525,7 @@ func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
 			cfErrorXML("InvalidArgument", "OriginRequestPolicyConfig Name is required"))
 	}
 
-	p, createErr := h.Backend.CreateOriginRequestPolicy(req.Name, req.Comment)
+	p, createErr := h.Backend.CreateOriginRequestPolicy(req.Name, req.Comment, orpConfigFromXML(req))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -4273,7 +4631,7 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 		req.Name = current.Name
 	}
 
-	p, updateErr := h.Backend.UpdateOriginRequestPolicy(id, req.Name, req.Comment)
+	p, updateErr := h.Backend.UpdateOriginRequestPolicy(id, req.Name, req.Comment, orpConfigFromXML(req))
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -4309,15 +4667,35 @@ func (h *Handler) handleDeleteOriginRequestPolicy(c *echo.Context, id string) er
 }
 
 func orpResponseXML(p *OriginRequestPolicy) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `<?xml version="1.0" encoding="UTF-8"?>`+
 		`<OriginRequestPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<OriginRequestPolicyConfig>`+
 		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</OriginRequestPolicyConfig>`+
-		`</OriginRequestPolicy>`,
+		`<Comment>%s</Comment>`,
 		cfNS, p.ID, p.Name, p.Comment)
+	if h := p.HeadersConfig; h != nil {
+		fmt.Fprintf(&sb,
+			`<HeadersConfig><HeaderBehavior>%s</HeaderBehavior><Quantity>%d</Quantity></HeadersConfig>`,
+			h.HeaderBehavior, len(h.Headers))
+	}
+	if c := p.CookiesConfig; c != nil {
+		fmt.Fprintf(&sb,
+			`<CookiesConfig><CookieBehavior>%s</CookieBehavior><Quantity>%d</Quantity></CookiesConfig>`,
+			c.CookieBehavior, len(c.Cookies))
+	}
+	if q := p.QueryStringsConfig; q != nil {
+		fmt.Fprintf(
+			&sb,
+			`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior><Quantity>%d</Quantity></QueryStringsConfig>`,
+			q.QueryStringBehavior,
+			len(q.QueryStrings),
+		)
+	}
+	sb.WriteString(`</OriginRequestPolicyConfig></OriginRequestPolicy>`)
+
+	return sb.String()
 }
 
 // --- Field Level Encryption handlers ---
