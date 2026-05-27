@@ -936,18 +936,18 @@ type nodePropertiesInput struct {
 }
 
 type registerJobDefinitionInput struct {
-	Tags                         map[string]string              `json:"tags"`
-	Parameters                   map[string]string              `json:"parameters,omitempty"`
-	Timeout                      *jobDefinitionTimeout          `json:"timeout,omitempty"`
-	ContainerProperties          *containerPropertiesInput      `json:"containerProperties,omitempty"`
-	NodeProperties               *nodePropertiesInput           `json:"nodeProperties,omitempty"`
-	RuntimePlatform              *runtimePlatformInput          `json:"runtimePlatform,omitempty"`
+	Tags                         map[string]string                 `json:"tags"`
+	Parameters                   map[string]string                 `json:"parameters,omitempty"`
+	Timeout                      *jobDefinitionTimeout             `json:"timeout,omitempty"`
+	ContainerProperties          *containerPropertiesInput         `json:"containerProperties,omitempty"`
+	NodeProperties               *nodePropertiesInput              `json:"nodeProperties,omitempty"`
+	RuntimePlatform              *runtimePlatformInput             `json:"runtimePlatform,omitempty"`
 	ConsumableResourceProperties []consumableResourcePropertyInput `json:"consumableResourceProperties,omitempty"`
-	JobDefinitionName            string                         `json:"jobDefinitionName"`
-	Type                         string                         `json:"type"`
-	PlatformCapabilities         []string                       `json:"platformCapabilities,omitempty"`
-	SchedulingPriority           int32                          `json:"schedulingPriority,omitempty"`
-	PropagateTags                bool                           `json:"propagateTags,omitempty"`
+	JobDefinitionName            string                            `json:"jobDefinitionName"`
+	Type                         string                            `json:"type"`
+	PlatformCapabilities         []string                          `json:"platformCapabilities,omitempty"`
+	SchedulingPriority           int32                             `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                              `json:"propagateTags,omitempty"`
 }
 
 type registerJobDefinitionOutput struct {
@@ -1017,18 +1017,27 @@ func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProper
 		}
 
 		for _, d := range in.LinuxParameters.Devices {
-			lp.Devices = append(lp.Devices, Device{HostPath: d.HostPath, ContainerPath: d.ContainerPath, Permissions: d.Permissions})
+			lp.Devices = append(
+				lp.Devices,
+				Device{HostPath: d.HostPath, ContainerPath: d.ContainerPath, Permissions: d.Permissions},
+			)
 		}
 
 		for _, t := range in.LinuxParameters.Tmpfs {
-			lp.Tmpfs = append(lp.Tmpfs, Tmpfs{ContainerPath: t.ContainerPath, Size: t.Size, MountOptions: t.MountOptions})
+			lp.Tmpfs = append(
+				lp.Tmpfs,
+				Tmpfs{ContainerPath: t.ContainerPath, Size: t.Size, MountOptions: t.MountOptions},
+			)
 		}
 
 		cp.LinuxParameters = lp
 	}
 
 	if in.LogConfiguration != nil {
-		cp.LogConfiguration = &LogConfiguration{LogDriver: in.LogConfiguration.LogDriver, Options: in.LogConfiguration.Options}
+		cp.LogConfiguration = &LogConfiguration{
+			LogDriver: in.LogConfiguration.LogDriver,
+			Options:   in.LogConfiguration.Options,
+		}
 	}
 
 	if in.NetworkConfiguration != nil {
@@ -1036,7 +1045,9 @@ func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProper
 	}
 
 	if in.FargatePlatformConfiguration != nil {
-		cp.FargatePlatformConfiguration = &FargatePlatformConfiguration{PlatformVersion: in.FargatePlatformConfiguration.PlatformVersion}
+		cp.FargatePlatformConfiguration = &FargatePlatformConfiguration{
+			PlatformVersion: in.FargatePlatformConfiguration.PlatformVersion,
+		}
 	}
 
 	if in.EphemeralStorage != nil {
@@ -1051,7 +1062,9 @@ func containerPropertiesFromInput(in *containerPropertiesInput) *ContainerProper
 	}
 
 	if in.RepositoryCredentials != nil {
-		cp.RepositoryCredentials = &RepositoryCredentials{CredentialsParameter: in.RepositoryCredentials.CredentialsParameter}
+		cp.RepositoryCredentials = &RepositoryCredentials{
+			CredentialsParameter: in.RepositoryCredentials.CredentialsParameter,
+		}
 	}
 
 	return cp
@@ -1164,10 +1177,13 @@ func (h *Handler) handleDescribeJobDefinitions(
 		nextToken = *in.NextToken
 	}
 
-	jds, outToken, err := h.Backend.DescribeJobDefinitions(in.JobDefinitions, in.Status, in.JobDefinitionName, maxResults, nextToken)
-	if err != nil {
-		return nil, err
-	}
+	jds, outToken := h.Backend.DescribeJobDefinitions(
+		in.JobDefinitions,
+		in.Status,
+		in.JobDefinitionName,
+		maxResults,
+		nextToken,
+	)
 
 	out := &describeJobDefinitionsOutput{JobDefinitions: jds}
 	if outToken != "" {
@@ -1322,6 +1338,18 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submitJobOutput, error) {
+	var overrides *ContainerOverrides
+	if in.ContainerOverrides != nil {
+		env := make([]KeyValuePair, len(in.ContainerOverrides.Environment))
+		for i, kv := range in.ContainerOverrides.Environment {
+			env[i] = KeyValuePair{Name: kv.Name, Value: kv.Value}
+		}
+		overrides = &ContainerOverrides{
+			Command:     in.ContainerOverrides.Command,
+			Environment: env,
+		}
+	}
+
 	j, err := h.Backend.SubmitJob(
 		in.JobName,
 		in.JobQueue,
@@ -1331,6 +1359,12 @@ func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submi
 		in.DependsOn,
 		in.RetryStrategy,
 		in.Timeout,
+		nil, // arrayProperties
+		overrides,
+		nil,   // consumableResourceProperties
+		"",    // shareIdentifier
+		0,     // schedulingPriorityOverride
+		false, // propagateTags
 	)
 	if err != nil {
 		return nil, err
@@ -1527,7 +1561,7 @@ func (h *Handler) handleCreateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags)
+	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1725,7 +1759,7 @@ func (h *Handler) handleUpdateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateSchedulingPolicy(in.Arn); err != nil {
+	if err := h.Backend.UpdateSchedulingPolicy(in.Arn, nil); err != nil {
 		return nil, err
 	}
 
