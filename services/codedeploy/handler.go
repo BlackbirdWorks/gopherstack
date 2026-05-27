@@ -227,67 +227,58 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
+// errorMapping maps sentinel errors to HTTP status and exception type.
+type errorMapping struct {
+	sentinel error
+	code     string
+	status   int
+}
 
+// errorMappings is the ordered lookup table for handleError.
+//
+//nolint:gochecknoglobals // package-level lookup table for error mapping
+var errorMappings = []errorMapping{
+	{ErrNotFound, "ApplicationDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentGroupNotFound, "DeploymentGroupDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentNotFound, "DeploymentDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentConfigNotFound, "DeploymentConfigDoesNotExistException", http.StatusNotFound},
+	{ErrGitHubAccountTokenNotFound, "GitHubAccountTokenDoesNotExistException", http.StatusNotFound},
+	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentConfigInUse, "DeploymentConfigInUseException", http.StatusConflict},
+	{ErrInvalidComputePlatform, "InvalidComputePlatformException", http.StatusBadRequest},
+	{ErrIamArnRequired, "IamArnRequiredException", http.StatusBadRequest},
+	{ErrMultipleIamArns, "MultipleIamArnsProvidedException", http.StatusBadRequest},
+	{ErrTagLimitExceeded, "TagLimitExceededException", http.StatusBadRequest},
+	{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
+	{errInvalidRequest, "InvalidRequestException", http.StatusBadRequest},
+	{errUnknownAction, "InvalidRequestException", http.StatusBadRequest},
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	makePayload := func(code, msg string) []byte {
 		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: msg})
 
 		return b
 	}
 
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("ApplicationDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentGroupDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentConfigNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentConfigDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrGitHubAccountTokenNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("GitHubAccountTokenDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("ApplicationAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("DeploymentGroupAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentConfigAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("DeploymentConfigAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentConfigInUse):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("DeploymentConfigInUseException", err.Error()))
-	case errors.Is(err, ErrInvalidComputePlatform):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("InvalidComputePlatformException", err.Error()))
-	case errors.Is(err, ErrIamArnRequired):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("IamArnRequiredException", err.Error()))
-	case errors.Is(err, ErrMultipleIamArns):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("MultipleIamArnsProvidedException", err.Error()))
-	case errors.Is(err, ErrTagLimitExceeded):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("TagLimitExceededException", err.Error()))
-	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("InvalidParameterValueException", err.Error()))
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	for _, m := range errorMappings {
+		if errors.Is(err, m.sentinel) {
+			return c.JSONBlob(m.status, makePayload(m.code, err.Error()))
+		}
+	}
+
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 		return c.JSONBlob(http.StatusBadRequest,
 			makePayload("InvalidRequestException", err.Error()))
-	default:
-		return c.JSONBlob(http.StatusInternalServerError,
-			makePayload("ServiceException", err.Error()))
 	}
+
+	return c.JSONBlob(http.StatusInternalServerError,
+		makePayload("ServiceException", err.Error()))
 }
 
 // --- Input/Output types and handlers ---
@@ -432,8 +423,8 @@ type targetGroupPairInfoEntry struct {
 // loadBalancerInfoEntry is the wire format for load balancer info.
 type loadBalancerInfoEntry struct {
 	ElbInfoList             []elbInfoEntry             `json:"elbInfoList,omitempty"`
-	TargetGroupInfoList     []targetGroupInfoEntry      `json:"targetGroupInfoList,omitempty"`
-	TargetGroupPairInfoList []targetGroupPairInfoEntry  `json:"targetGroupPairInfoList,omitempty"`
+	TargetGroupInfoList     []targetGroupInfoEntry     `json:"targetGroupInfoList,omitempty"`
+	TargetGroupPairInfoList []targetGroupPairInfoEntry `json:"targetGroupPairInfoList,omitempty"`
 }
 
 // deploymentStyleEntry is the wire format for deployment style.
@@ -444,14 +435,14 @@ type deploymentStyleEntry struct {
 
 // terminateBlueEntry is the wire format for blue-instance termination config.
 type terminateBlueEntry struct {
-	Action                    string `json:"action,omitempty"`
-	TerminationWaitTimeInMinutes int  `json:"terminationWaitTimeInMinutes,omitempty"`
+	Action                       string `json:"action,omitempty"`
+	TerminationWaitTimeInMinutes int    `json:"terminationWaitTimeInMinutes,omitempty"`
 }
 
 // deploymentReadyEntry is the wire format for deployment ready option.
 type deploymentReadyEntry struct {
-	ActionOnTimeout  string `json:"actionOnTimeout,omitempty"`
-	WaitTimeInMinutes int   `json:"waitTimeInMinutes,omitempty"`
+	ActionOnTimeout   string `json:"actionOnTimeout,omitempty"`
+	WaitTimeInMinutes int    `json:"waitTimeInMinutes,omitempty"`
 }
 
 // greenFleetEntry is the wire format for green fleet provisioning option.
@@ -461,9 +452,9 @@ type greenFleetEntry struct {
 
 // blueGreenConfigEntry is the wire format for blue/green deployment configuration.
 type blueGreenConfigEntry struct {
-	TerminateBlueInstancesOnDeploymentSuccess *terminateBlueEntry   `json:"terminateBlueInstancesOnDeploymentSuccess,omitempty"`
-	DeploymentReadyOption                    *deploymentReadyEntry  `json:"deploymentReadyOption,omitempty"`
-	GreenFleetProvisioningOption             *greenFleetEntry       `json:"greenFleetProvisioningOption,omitempty"`
+	TerminateBlueInstancesOnDeploymentSuccess *terminateBlueEntry   `json:"terminateBlueInstancesOnDeploymentSuccess,omitempty"` //nolint:lll // long AWS name
+	DeploymentReadyOption                     *deploymentReadyEntry `json:"deploymentReadyOption,omitempty"`
+	GreenFleetProvisioningOption              *greenFleetEntry      `json:"greenFleetProvisioningOption,omitempty"`
 }
 
 // alarmEntry is the wire format for a CloudWatch alarm reference.
@@ -509,73 +500,71 @@ type ecsServiceEntry struct {
 
 // deploymentGroupInfoOutput is the full wire format for a deployment group (get/batch responses).
 type deploymentGroupInfoOutput struct {
-	BlueGreenDeploymentConfiguration  *blueGreenConfigEntry   `json:"blueGreenDeploymentConfiguration,omitempty"`
-	AlarmConfiguration                *alarmConfigEntry       `json:"alarmConfiguration,omitempty"`
-	AutoRollbackConfiguration         *autoRollbackConfigEntry `json:"autoRollbackConfiguration,omitempty"`
-	LoadBalancerInfo                  *loadBalancerInfoEntry  `json:"loadBalancerInfo,omitempty"`
-	DeploymentStyle                   *deploymentStyleEntry   `json:"deploymentStyle,omitempty"`
-	Ec2TagSet                         *ec2TagSetEntry         `json:"ec2TagSet,omitempty"`
-	OnPremisesTagSet                  *onPremTagSetEntry      `json:"onPremisesTagSet,omitempty"`
-	ApplicationName                   string                  `json:"applicationName"`
-	DeploymentGroupID                 string                  `json:"deploymentGroupId"`
-	DeploymentGroupName               string                  `json:"deploymentGroupName"`
-	ServiceRoleArn                    string                  `json:"serviceRoleArn"`
-	DeploymentConfigName              string                  `json:"deploymentConfigName"`
-	ComputePlatform                   string                  `json:"computePlatform,omitempty"`
-	OutdatedInstancesStrategy         string                  `json:"outdatedInstancesStrategy,omitempty"`
-	Ec2TagFilters                     []tagFilterEntry        `json:"ec2TagFilters,omitempty"`
-	OnPremisesInstanceTagFilters      []tagFilterEntry        `json:"onPremisesInstanceTagFilters,omitempty"`
-	AutoScalingGroups                 []autoScalingGroupEntry `json:"autoScalingGroups,omitempty"`
-	TriggerConfigurations             []triggerConfigEntry    `json:"triggerConfigurations,omitempty"`
-	ECSServices                       []ecsServiceEntry       `json:"ecsServices,omitempty"`
-	TerminationHookEnabled            bool                    `json:"terminationHookEnabled,omitempty"`
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration,omitempty"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration,omitempty"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration,omitempty"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo,omitempty"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet,omitempty"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet,omitempty"`
+	ApplicationName                  string                   `json:"applicationName"`
+	DeploymentGroupID                string                   `json:"deploymentGroupId"`
+	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	ComputePlatform                  string                   `json:"computePlatform,omitempty"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy,omitempty"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters,omitempty"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters,omitempty"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups,omitempty"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations,omitempty"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices,omitempty"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled,omitempty"`
 }
 
 // dgToOutput converts a backend DeploymentGroup to the wire output format.
+//
+//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
 func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 	out := deploymentGroupInfoOutput{
-		ApplicationName:            dg.ApplicationName,
-		DeploymentGroupID:          dg.DeploymentGroupID,
-		DeploymentGroupName:        dg.DeploymentGroupName,
-		ServiceRoleArn:             dg.ServiceRoleArn,
-		DeploymentConfigName:       dg.DeploymentConfigName,
-		ComputePlatform:            dg.ComputePlatform,
-		OutdatedInstancesStrategy:  dg.OutdatedInstancesStrategy,
-		TerminationHookEnabled:     dg.TerminationHookEnabled,
+		ApplicationName:           dg.ApplicationName,
+		DeploymentGroupID:         dg.DeploymentGroupID,
+		DeploymentGroupName:       dg.DeploymentGroupName,
+		ServiceRoleArn:            dg.ServiceRoleArn,
+		DeploymentConfigName:      dg.DeploymentConfigName,
+		ComputePlatform:           dg.ComputePlatform,
+		OutdatedInstancesStrategy: dg.OutdatedInstancesStrategy,
+		TerminationHookEnabled:    dg.TerminationHookEnabled,
 	}
 
 	for _, f := range dg.Ec2TagFilters {
-		out.Ec2TagFilters = append(out.Ec2TagFilters, tagFilterEntry{Key: f.Key, Value: f.Value, Type: f.Type})
+		out.Ec2TagFilters = append(out.Ec2TagFilters, tagFilterEntry(f))
 	}
 
 	for _, f := range dg.OnPremisesInstanceTagFilters {
 		out.OnPremisesInstanceTagFilters = append(out.OnPremisesInstanceTagFilters,
-			tagFilterEntry{Key: f.Key, Value: f.Value, Type: f.Type})
+			tagFilterEntry(f))
 	}
 
 	for _, asg := range dg.AutoScalingGroups {
-		out.AutoScalingGroups = append(out.AutoScalingGroups, autoScalingGroupEntry{Name: asg.Name, Hook: asg.Hook})
+		out.AutoScalingGroups = append(out.AutoScalingGroups, autoScalingGroupEntry(asg))
 	}
 
 	for _, tc := range dg.TriggerConfigurations {
-		out.TriggerConfigurations = append(out.TriggerConfigurations, triggerConfigEntry{
-			TriggerName:      tc.TriggerName,
-			TriggerTargetArn: tc.TriggerTargetArn,
-			TriggerEvents:    tc.TriggerEvents,
-		})
+		out.TriggerConfigurations = append(out.TriggerConfigurations, triggerConfigEntry(tc))
 	}
 
 	for _, svc := range dg.ECSServices {
-		out.ECSServices = append(out.ECSServices, ecsServiceEntry{ServiceName: svc.ServiceName, ClusterName: svc.ClusterName})
+		out.ECSServices = append(out.ECSServices, ecsServiceEntry(svc))
 	}
 
 	if dg.LoadBalancerInfo != nil {
 		lbi := &loadBalancerInfoEntry{}
 		for _, e := range dg.LoadBalancerInfo.ElbInfoList {
-			lbi.ElbInfoList = append(lbi.ElbInfoList, elbInfoEntry{Name: e.Name})
+			lbi.ElbInfoList = append(lbi.ElbInfoList, elbInfoEntry(e))
 		}
 		for _, tg := range dg.LoadBalancerInfo.TargetGroupInfoList {
-			lbi.TargetGroupInfoList = append(lbi.TargetGroupInfoList, targetGroupInfoEntry{Name: tg.Name})
+			lbi.TargetGroupInfoList = append(lbi.TargetGroupInfoList, targetGroupInfoEntry(tg))
 		}
 		for _, pair := range dg.LoadBalancerInfo.TargetGroupPairInfoList {
 			p := targetGroupPairInfoEntry{}
@@ -586,7 +575,7 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 				p.TestTrafficRoute = &trafficRouteEntry{ListenerArns: pair.TestTrafficRoute.ListenerArns}
 			}
 			for _, tg := range pair.TargetGroups {
-				p.TargetGroups = append(p.TargetGroups, targetGroupInfoEntry{Name: tg.Name})
+				p.TargetGroups = append(p.TargetGroups, targetGroupInfoEntry(tg))
 			}
 			lbi.TargetGroupPairInfoList = append(lbi.TargetGroupPairInfoList, p)
 		}
@@ -605,14 +594,14 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 		if dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess != nil {
 			tb := dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess
 			bgc.TerminateBlueInstancesOnDeploymentSuccess = &terminateBlueEntry{
-				Action:                    tb.Action,
+				Action:                       tb.Action,
 				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
 			}
 		}
 		if dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption != nil {
 			dr := dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption
 			bgc.DeploymentReadyOption = &deploymentReadyEntry{
-				ActionOnTimeout:  dr.ActionOnTimeout,
+				ActionOnTimeout:   dr.ActionOnTimeout,
 				WaitTimeInMinutes: dr.WaitTimeInMinutes,
 			}
 		}
@@ -630,7 +619,7 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 			IgnorePollAlarmFailure: dg.AlarmConfiguration.IgnorePollAlarmFailure,
 		}
 		for _, a := range dg.AlarmConfiguration.Alarms {
-			ac.Alarms = append(ac.Alarms, alarmEntry{Name: a.Name})
+			ac.Alarms = append(ac.Alarms, alarmEntry(a))
 		}
 		out.AlarmConfiguration = ac
 	}
@@ -645,9 +634,9 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 	if dg.Ec2TagSet != nil {
 		ets := &ec2TagSetEntry{}
 		for _, group := range dg.Ec2TagSet.Ec2TagSetList {
-			var row []tagFilterEntry
+			row := make([]tagFilterEntry, 0, len(group))
 			for _, f := range group {
-				row = append(row, tagFilterEntry{Key: f.Key, Value: f.Value, Type: f.Type})
+				row = append(row, tagFilterEntry(f))
 			}
 			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
 		}
@@ -657,9 +646,9 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 	if dg.OnPremisesTagSet != nil {
 		opts := &onPremTagSetEntry{}
 		for _, group := range dg.OnPremisesTagSet.OnPremisesTagSetList {
-			var row []tagFilterEntry
+			row := make([]tagFilterEntry, 0, len(group))
 			for _, f := range group {
-				row = append(row, tagFilterEntry{Key: f.Key, Value: f.Value, Type: f.Type})
+				row = append(row, tagFilterEntry(f))
 			}
 			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
 		}
@@ -670,6 +659,8 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 }
 
 // dgInputFromWire converts wire-format deployment group input fields to backend DeploymentGroupInput.
+//
+//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
 func dgInputFromWire(
 	serviceRoleArn, deploymentConfigName, outdatedInstancesStrategy string,
 	terminationHookEnabled bool,
@@ -694,33 +685,29 @@ func dgInputFromWire(
 	}
 
 	for _, f := range ec2TagFilters {
-		input.Ec2TagFilters = append(input.Ec2TagFilters, TagFilter{Key: f.Key, Value: f.Value, Type: f.Type})
+		input.Ec2TagFilters = append(input.Ec2TagFilters, TagFilter(f))
 	}
 	for _, f := range onPremTagFilters {
 		input.OnPremisesInstanceTagFilters = append(input.OnPremisesInstanceTagFilters,
-			TagFilter{Key: f.Key, Value: f.Value, Type: f.Type})
+			TagFilter(f))
 	}
 	for _, asg := range autoScalingGroups {
-		input.AutoScalingGroups = append(input.AutoScalingGroups, AutoScalingGroup{Name: asg.Name, Hook: asg.Hook})
+		input.AutoScalingGroups = append(input.AutoScalingGroups, AutoScalingGroup(asg))
 	}
 	for _, tc := range triggerConfigs {
-		input.TriggerConfigurations = append(input.TriggerConfigurations, TriggerConfiguration{
-			TriggerName:      tc.TriggerName,
-			TriggerTargetArn: tc.TriggerTargetArn,
-			TriggerEvents:    tc.TriggerEvents,
-		})
+		input.TriggerConfigurations = append(input.TriggerConfigurations, TriggerConfiguration(tc))
 	}
 	for _, svc := range ecsServices {
-		input.ECSServices = append(input.ECSServices, ECSService{ServiceName: svc.ServiceName, ClusterName: svc.ClusterName})
+		input.ECSServices = append(input.ECSServices, ECSService(svc))
 	}
 
 	if lbi != nil {
 		lb := &LoadBalancerInfo{}
 		for _, e := range lbi.ElbInfoList {
-			lb.ElbInfoList = append(lb.ElbInfoList, ElbInfo{Name: e.Name})
+			lb.ElbInfoList = append(lb.ElbInfoList, ElbInfo(e))
 		}
 		for _, tg := range lbi.TargetGroupInfoList {
-			lb.TargetGroupInfoList = append(lb.TargetGroupInfoList, TargetGroupInfo{Name: tg.Name})
+			lb.TargetGroupInfoList = append(lb.TargetGroupInfoList, TargetGroupInfo(tg))
 		}
 		for _, pair := range lbi.TargetGroupPairInfoList {
 			p := TargetGroupPairInfo{}
@@ -731,7 +718,7 @@ func dgInputFromWire(
 				p.TestTrafficRoute = &TrafficRoute{ListenerArns: pair.TestTrafficRoute.ListenerArns}
 			}
 			for _, tg := range pair.TargetGroups {
-				p.TargetGroups = append(p.TargetGroups, TargetGroupInfo{Name: tg.Name})
+				p.TargetGroups = append(p.TargetGroups, TargetGroupInfo(tg))
 			}
 			lb.TargetGroupPairInfoList = append(lb.TargetGroupPairInfoList, p)
 		}
@@ -750,13 +737,13 @@ func dgInputFromWire(
 		if bgConfig.TerminateBlueInstancesOnDeploymentSuccess != nil {
 			tb := bgConfig.TerminateBlueInstancesOnDeploymentSuccess
 			bgc.TerminateBlueInstancesOnDeploymentSuccess = &TerminateBlueInstancesOnDeploymentSuccess{
-				Action:                    tb.Action,
+				Action:                       tb.Action,
 				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
 			}
 		}
 		if bgConfig.DeploymentReadyOption != nil {
 			bgc.DeploymentReadyOption = &DeploymentReadyOption{
-				ActionOnTimeout:  bgConfig.DeploymentReadyOption.ActionOnTimeout,
+				ActionOnTimeout:   bgConfig.DeploymentReadyOption.ActionOnTimeout,
 				WaitTimeInMinutes: bgConfig.DeploymentReadyOption.WaitTimeInMinutes,
 			}
 		}
@@ -774,7 +761,7 @@ func dgInputFromWire(
 			IgnorePollAlarmFailure: alarmConfig.IgnorePollAlarmFailure,
 		}
 		for _, a := range alarmConfig.Alarms {
-			ac.Alarms = append(ac.Alarms, Alarm{Name: a.Name})
+			ac.Alarms = append(ac.Alarms, Alarm(a))
 		}
 		input.AlarmConfiguration = ac
 	}
@@ -789,9 +776,9 @@ func dgInputFromWire(
 	if ec2TagSet != nil {
 		ets := &Ec2TagSet{}
 		for _, group := range ec2TagSet.Ec2TagSetList {
-			var row []TagFilter
+			row := make([]TagFilter, 0, len(group))
 			for _, f := range group {
-				row = append(row, TagFilter{Key: f.Key, Value: f.Value, Type: f.Type})
+				row = append(row, TagFilter(f))
 			}
 			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
 		}
@@ -801,9 +788,9 @@ func dgInputFromWire(
 	if onPremTagSet != nil {
 		opts := &TagSet{}
 		for _, group := range onPremTagSet.OnPremisesTagSetList {
-			var row []TagFilter
+			row := make([]TagFilter, 0, len(group))
 			for _, f := range group {
-				row = append(row, TagFilter{Key: f.Key, Value: f.Value, Type: f.Type})
+				row = append(row, TagFilter(f))
 			}
 			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
 		}
@@ -814,25 +801,25 @@ func dgInputFromWire(
 }
 
 type createDeploymentGroupInput struct {
-	ApplicationName                   string                  `json:"applicationName"`
-	DeploymentGroupName               string                  `json:"deploymentGroupName"`
-	ServiceRoleArn                    string                  `json:"serviceRoleArn"`
-	DeploymentConfigName              string                  `json:"deploymentConfigName"`
-	BlueGreenDeploymentConfiguration  *blueGreenConfigEntry   `json:"blueGreenDeploymentConfiguration"`
-	AlarmConfiguration                *alarmConfigEntry       `json:"alarmConfiguration"`
-	AutoRollbackConfiguration         *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
-	LoadBalancerInfo                  *loadBalancerInfoEntry  `json:"loadBalancerInfo"`
-	DeploymentStyle                   *deploymentStyleEntry   `json:"deploymentStyle"`
-	Ec2TagSet                         *ec2TagSetEntry         `json:"ec2TagSet"`
-	OnPremisesTagSet                  *onPremTagSetEntry      `json:"onPremisesTagSet"`
-	Tags                              []tagEntry              `json:"tags"`
-	Ec2TagFilters                     []tagFilterEntry        `json:"ec2TagFilters"`
-	OnPremisesInstanceTagFilters      []tagFilterEntry        `json:"onPremisesInstanceTagFilters"`
-	AutoScalingGroups                 []autoScalingGroupEntry `json:"autoScalingGroups"`
-	TriggerConfigurations             []triggerConfigEntry    `json:"triggerConfigurations"`
-	ECSServices                       []ecsServiceEntry       `json:"ecsServices"`
-	OutdatedInstancesStrategy         string                  `json:"outdatedInstancesStrategy"`
-	TerminationHookEnabled            bool                    `json:"terminationHookEnabled"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet"`
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	ApplicationName                  string                   `json:"applicationName"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy"`
+	Tags                             []tagEntry               `json:"tags"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled"`
 }
 
 type createDeploymentGroupOutput struct {
@@ -1042,10 +1029,10 @@ type timeRangeEntry struct {
 }
 
 type listDeploymentsInput struct {
-	ApplicationName      string          `json:"applicationName"`
-	DeploymentGroupName  string          `json:"deploymentGroupName"`
-	IncludeOnlyStatuses  []string        `json:"includeOnlyStatuses"`
-	CreateTimeRange      *timeRangeEntry `json:"createTimeRange"`
+	CreateTimeRange     *timeRangeEntry `json:"createTimeRange"`
+	ApplicationName     string          `json:"applicationName"`
+	DeploymentGroupName string          `json:"deploymentGroupName"`
+	IncludeOnlyStatuses []string        `json:"includeOnlyStatuses"`
 }
 
 type listDeploymentsOutput struct {
@@ -1507,24 +1494,24 @@ type timeBasedLinearEntry struct {
 
 // trafficRoutingConfigEntry is the wire format for traffic routing configuration.
 type trafficRoutingConfigEntry struct {
-	Type            string                `json:"type,omitempty"`
 	TimeBasedCanary *timeBasedCanaryEntry `json:"timeBasedCanary,omitempty"`
 	TimeBasedLinear *timeBasedLinearEntry `json:"timeBasedLinear,omitempty"`
+	Type            string                `json:"type,omitempty"`
 }
 
 // zonalConfigEntry is the wire format for zonal deployment configuration.
 type zonalConfigEntry struct {
+	MinimumHealthyHostsPerZone        *minimumHealthyHostsEntry `json:"minimumHealthyHostsPerZone,omitempty"`
 	FirstZoneMonitorDurationInSeconds int                       `json:"firstZoneMonitorDurationInSeconds,omitempty"`
 	MonitorDurationInSeconds          int                       `json:"monitorDurationInSeconds,omitempty"`
-	MinimumHealthyHostsPerZone        *minimumHealthyHostsEntry `json:"minimumHealthyHostsPerZone,omitempty"`
 }
 
 type createDeploymentConfigInput struct {
-	DeploymentConfigName string                     `json:"deploymentConfigName"`
-	ComputePlatform      string                     `json:"computePlatform"`
 	MinimumHealthyHosts  *minimumHealthyHostsEntry  `json:"minimumHealthyHosts"`
 	TrafficRoutingConfig *trafficRoutingConfigEntry `json:"trafficRoutingConfig"`
 	ZonalConfig          *zonalConfigEntry          `json:"zonalConfig"`
+	DeploymentConfigName string                     `json:"deploymentConfigName"`
+	ComputePlatform      string                     `json:"computePlatform"`
 }
 
 type createDeploymentConfigOutput struct {
@@ -1608,25 +1595,25 @@ func (h *Handler) handleUpdateApplication(
 }
 
 type updateDeploymentGroupInput struct {
-	ApplicationName                   string                  `json:"applicationName"`
-	CurrentDeploymentGroupName        string                  `json:"currentDeploymentGroupName"`
-	NewDeploymentGroupName            string                  `json:"newDeploymentGroupName"`
-	ServiceRoleArn                    string                  `json:"serviceRoleArn"`
-	DeploymentConfigName              string                  `json:"deploymentConfigName"`
-	BlueGreenDeploymentConfiguration  *blueGreenConfigEntry   `json:"blueGreenDeploymentConfiguration"`
-	AlarmConfiguration                *alarmConfigEntry       `json:"alarmConfiguration"`
-	AutoRollbackConfiguration         *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
-	LoadBalancerInfo                  *loadBalancerInfoEntry  `json:"loadBalancerInfo"`
-	DeploymentStyle                   *deploymentStyleEntry   `json:"deploymentStyle"`
-	Ec2TagSet                         *ec2TagSetEntry         `json:"ec2TagSet"`
-	OnPremisesTagSet                  *onPremTagSetEntry      `json:"onPremisesTagSet"`
-	Ec2TagFilters                     []tagFilterEntry        `json:"ec2TagFilters"`
-	OnPremisesInstanceTagFilters      []tagFilterEntry        `json:"onPremisesInstanceTagFilters"`
-	AutoScalingGroups                 []autoScalingGroupEntry `json:"autoScalingGroups"`
-	TriggerConfigurations             []triggerConfigEntry    `json:"triggerConfigurations"`
-	ECSServices                       []ecsServiceEntry       `json:"ecsServices"`
-	OutdatedInstancesStrategy         string                  `json:"outdatedInstancesStrategy"`
-	TerminationHookEnabled            bool                    `json:"terminationHookEnabled"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo"`
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	ApplicationName                  string                   `json:"applicationName"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	NewDeploymentGroupName           string                   `json:"newDeploymentGroupName"`
+	CurrentDeploymentGroupName       string                   `json:"currentDeploymentGroupName"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled"`
 }
 
 type updateDeploymentGroupOutput struct {
@@ -1708,13 +1695,13 @@ type getDeploymentConfigInput struct {
 }
 
 type deploymentConfigInfo struct {
+	MinimumHealthyHosts  *minimumHealthyHostsEntry  `json:"minimumHealthyHosts,omitempty"`
+	TrafficRoutingConfig *trafficRoutingConfigEntry `json:"trafficRoutingConfig,omitempty"`
+	ZonalConfig          *zonalConfigEntry          `json:"zonalConfig,omitempty"`
 	DeploymentConfigID   string                     `json:"deploymentConfigId"`
 	DeploymentConfigName string                     `json:"deploymentConfigName"`
 	ComputePlatform      string                     `json:"computePlatform"`
 	CreateTime           int64                      `json:"createTime"`
-	MinimumHealthyHosts  *minimumHealthyHostsEntry  `json:"minimumHealthyHosts,omitempty"`
-	TrafficRoutingConfig *trafficRoutingConfigEntry `json:"trafficRoutingConfig,omitempty"`
-	ZonalConfig          *zonalConfigEntry          `json:"zonalConfig,omitempty"`
 }
 
 type getDeploymentConfigOutput struct {
@@ -1948,7 +1935,7 @@ func (h *Handler) handleListOnPremisesInstances(
 ) (*listOnPremisesInstancesOutput, error) {
 	filters := make([]TagFilter, 0, len(in.TagFilters))
 	for _, f := range in.TagFilters {
-		filters = append(filters, TagFilter{Key: f.Key, Value: f.Value, Type: f.Type})
+		filters = append(filters, TagFilter(f))
 	}
 
 	return &listOnPremisesInstancesOutput{

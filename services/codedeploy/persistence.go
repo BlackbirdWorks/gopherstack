@@ -8,32 +8,32 @@ import (
 
 // snapshotApplication is the JSON-serializable form of Application (with tags map).
 type snapshotApplication struct {
-	Application
 	TagsMap map[string]string `json:"tagsMap"`
+	Application
 }
 
 // snapshotDeploymentGroup is the JSON-serializable form of DeploymentGroup (with tags map).
 type snapshotDeploymentGroup struct {
-	DeploymentGroup
 	TagsMap map[string]string `json:"tagsMap"`
+	DeploymentGroup
 }
 
 // snapshotOnPremisesInstance is the JSON-serializable form of OnPremisesInstance (with tags map).
 type snapshotOnPremisesInstance struct {
-	OnPremisesInstance
 	TagsMap map[string]string `json:"tagsMap"`
+	OnPremisesInstance
 }
 
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
-	Applications        map[string]*snapshotApplication                        `json:"applications"`
-	DeploymentGroups    map[string]map[string]*snapshotDeploymentGroup         `json:"deploymentGroups"`
-	Deployments         map[string]*Deployment                                 `json:"deployments"`
-	OnPremisesInstances map[string]*snapshotOnPremisesInstance                 `json:"onPremisesInstances"`
-	DeploymentConfigs   map[string]*DeploymentConfig                           `json:"deploymentConfigs"`
-	GitHubTokens        []string                                               `json:"githubTokens,omitempty"`
-	AccountID           string                                                 `json:"accountID"`
-	Region              string                                                 `json:"region"`
+	Applications        map[string]*snapshotApplication                `json:"applications"`
+	DeploymentGroups    map[string]map[string]*snapshotDeploymentGroup `json:"deploymentGroups"`
+	Deployments         map[string]*Deployment                         `json:"deployments"`
+	OnPremisesInstances map[string]*snapshotOnPremisesInstance         `json:"onPremisesInstances"`
+	DeploymentConfigs   map[string]*DeploymentConfig                   `json:"deploymentConfigs"`
+	AccountID           string                                         `json:"accountID"`
+	Region              string                                         `json:"region"`
+	GitHubTokens        []string                                       `json:"githubTokens,omitempty"`
 }
 
 // ensureNonNil initialises any nil maps so callers do not need to guard after Restore.

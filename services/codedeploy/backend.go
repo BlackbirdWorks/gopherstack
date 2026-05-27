@@ -3,7 +3,7 @@ package codedeploy
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +20,8 @@ import (
 const (
 	statusSucceeded       = "Succeeded"
 	computePlatformServer = "Server"
+	computePlatformLambda = "Lambda"
+	computePlatformECS    = "ECS"
 
 	maxTagsPerResource = 50
 	maxTagKeyLen       = 128
@@ -28,6 +30,14 @@ const (
 
 	deployIDChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	deployIDLen   = 9
+
+	// Default config values for built-in deployment configurations.
+	defaultHealthyHostPct = 50
+	defaultCanaryPct      = 10
+	defaultCanaryInterval = 5
+	defaultLinearPct      = 10
+	defaultLinearInterval = 1
+	arnSegmentCount       = 7
 )
 
 // simulatedDeployDuration is the simulated time for a deployment to complete.
@@ -37,21 +47,21 @@ const simulatedDeployDuration = 5 * time.Second
 const maxBatchRevisions = 25
 
 var (
-	ErrNotFound                   = awserr.New("ApplicationDoesNotExistException", awserr.ErrNotFound)
-	ErrDeploymentGroupNotFound    = awserr.New("DeploymentGroupDoesNotExistException", awserr.ErrNotFound)
-	ErrDeploymentNotFound         = awserr.New("DeploymentDoesNotExistException", awserr.ErrNotFound)
-	ErrAlreadyExists              = awserr.New("ApplicationAlreadyExistsException", awserr.ErrConflict)
-	ErrDeploymentGroupAlreadyExists = awserr.New("DeploymentGroupAlreadyExistsException", awserr.ErrConflict)
-	ErrDeploymentConfigNotFound   = awserr.New("DeploymentConfigDoesNotExistException", awserr.ErrNotFound)
+	ErrNotFound                      = awserr.New("ApplicationDoesNotExistException", awserr.ErrNotFound)
+	ErrDeploymentGroupNotFound       = awserr.New("DeploymentGroupDoesNotExistException", awserr.ErrNotFound)
+	ErrDeploymentNotFound            = awserr.New("DeploymentDoesNotExistException", awserr.ErrNotFound)
+	ErrAlreadyExists                 = awserr.New("ApplicationAlreadyExistsException", awserr.ErrConflict)
+	ErrDeploymentGroupAlreadyExists  = awserr.New("DeploymentGroupAlreadyExistsException", awserr.ErrConflict)
+	ErrDeploymentConfigNotFound      = awserr.New("DeploymentConfigDoesNotExistException", awserr.ErrNotFound)
 	ErrDeploymentConfigAlreadyExists = awserr.New("DeploymentConfigAlreadyExistsException", awserr.ErrConflict)
-	ErrOnPremisesInstanceNotFound = awserr.New("InstanceNameRequiredException", awserr.ErrNotFound)
-	ErrValidation                 = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
-	ErrTagLimitExceeded           = awserr.New("TagLimitExceededException", awserr.ErrInvalidParameter)
-	ErrInvalidComputePlatform     = awserr.New("InvalidComputePlatformException", awserr.ErrInvalidParameter)
-	ErrIamArnRequired             = awserr.New("IamArnRequiredException", awserr.ErrInvalidParameter)
-	ErrMultipleIamArns            = awserr.New("MultipleIamArnsProvidedException", awserr.ErrInvalidParameter)
-	ErrDeploymentConfigInUse      = awserr.New("DeploymentConfigInUseException", awserr.ErrConflict)
-	ErrGitHubAccountTokenNotFound = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
+	ErrOnPremisesInstanceNotFound    = awserr.New("InstanceNameRequiredException", awserr.ErrNotFound)
+	ErrValidation                    = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
+	ErrTagLimitExceeded              = awserr.New("TagLimitExceededException", awserr.ErrInvalidParameter)
+	ErrInvalidComputePlatform        = awserr.New("InvalidComputePlatformException", awserr.ErrInvalidParameter)
+	ErrIamArnRequired                = awserr.New("IamArnRequiredException", awserr.ErrInvalidParameter)
+	ErrMultipleIamArns               = awserr.New("MultipleIamArnsProvidedException", awserr.ErrInvalidParameter)
+	ErrDeploymentConfigInUse         = awserr.New("DeploymentConfigInUseException", awserr.ErrConflict)
+	ErrGitHubAccountTokenNotFound    = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
 
 	// onPremInstanceNameRe validates on-premises instance names per AWS spec.
 	onPremInstanceNameRe = regexp.MustCompile(`^[A-Za-z0-9._\-]{1,100}$`)
@@ -92,9 +102,9 @@ type TargetGroupInfo struct {
 
 // TargetGroupPairInfo is an ALB/NLB target group pair for blue/green deployments.
 type TargetGroupPairInfo struct {
-	ProdTrafficRoute    *TrafficRoute     `json:"prodTrafficRoute,omitempty"`
-	TestTrafficRoute    *TrafficRoute     `json:"testTrafficRoute,omitempty"`
-	TargetGroups        []TargetGroupInfo `json:"targetGroups,omitempty"`
+	ProdTrafficRoute *TrafficRoute     `json:"prodTrafficRoute,omitempty"`
+	TestTrafficRoute *TrafficRoute     `json:"testTrafficRoute,omitempty"`
+	TargetGroups     []TargetGroupInfo `json:"targetGroups,omitempty"`
 }
 
 // TrafficRoute specifies a listener ARN for traffic routing.
@@ -105,8 +115,8 @@ type TrafficRoute struct {
 // LoadBalancerInfo holds load balancer configuration for a deployment group.
 type LoadBalancerInfo struct {
 	ElbInfoList             []ElbInfo             `json:"elbInfoList,omitempty"`
-	TargetGroupInfoList     []TargetGroupInfo      `json:"targetGroupInfoList,omitempty"`
-	TargetGroupPairInfoList []TargetGroupPairInfo  `json:"targetGroupPairInfoList,omitempty"`
+	TargetGroupInfoList     []TargetGroupInfo     `json:"targetGroupInfoList,omitempty"`
+	TargetGroupPairInfoList []TargetGroupPairInfo `json:"targetGroupPairInfoList,omitempty"`
 }
 
 // DeploymentStyle describes the type and traffic control option for a deployment.
@@ -117,14 +127,14 @@ type DeploymentStyle struct {
 
 // TerminateBlueInstancesOnDeploymentSuccess holds blue-instance termination config.
 type TerminateBlueInstancesOnDeploymentSuccess struct {
-	Action                    string `json:"action,omitempty"` // TERMINATE | KEEP_ALIVE
-	TerminationWaitTimeInMinutes int  `json:"terminationWaitTimeInMinutes,omitempty"`
+	Action                       string `json:"action,omitempty"` // TERMINATE | KEEP_ALIVE
+	TerminationWaitTimeInMinutes int    `json:"terminationWaitTimeInMinutes,omitempty"`
 }
 
 // DeploymentReadyOption configures behavior when blue/green instances are ready.
 type DeploymentReadyOption struct {
-	ActionOnTimeout  string `json:"actionOnTimeout,omitempty"` // CONTINUE_DEPLOYMENT | STOP_DEPLOYMENT
-	WaitTimeInMinutes int   `json:"waitTimeInMinutes,omitempty"`
+	ActionOnTimeout   string `json:"actionOnTimeout,omitempty"` // CONTINUE_DEPLOYMENT | STOP_DEPLOYMENT
+	WaitTimeInMinutes int    `json:"waitTimeInMinutes,omitempty"`
 }
 
 // GreenFleetProvisioningOption configures how replacement instances are provisioned.
@@ -134,9 +144,9 @@ type GreenFleetProvisioningOption struct {
 
 // BlueGreenDeploymentConfiguration holds blue/green deployment configuration.
 type BlueGreenDeploymentConfiguration struct {
-	TerminateBlueInstancesOnDeploymentSuccess *TerminateBlueInstancesOnDeploymentSuccess `json:"terminateBlueInstancesOnDeploymentSuccess,omitempty"`
-	DeploymentReadyOption                    *DeploymentReadyOption                     `json:"deploymentReadyOption,omitempty"`
-	GreenFleetProvisioningOption             *GreenFleetProvisioningOption              `json:"greenFleetProvisioningOption,omitempty"`
+	TerminateBlueInstancesOnDeploymentSuccess *TerminateBlueInstancesOnDeploymentSuccess `json:"terminateBlueInstancesOnDeploymentSuccess,omitempty"` //nolint:lll // long AWS name
+	DeploymentReadyOption                     *DeploymentReadyOption                     `json:"deploymentReadyOption,omitempty"`                     //nolint:lll // aligned with AWS field above
+	GreenFleetProvisioningOption              *GreenFleetProvisioningOption              `json:"greenFleetProvisioningOption,omitempty"`              //nolint:lll // aligned with AWS field above
 }
 
 // Alarm references a CloudWatch alarm.
@@ -146,14 +156,14 @@ type Alarm struct {
 
 // AlarmConfiguration holds alarm-based stop configuration.
 type AlarmConfiguration struct {
-	Alarms                []Alarm `json:"alarms,omitempty"`
-	Enabled               bool    `json:"enabled,omitempty"`
-	IgnorePollAlarmFailure bool   `json:"ignorePollAlarmFailure,omitempty"`
+	Alarms                 []Alarm `json:"alarms,omitempty"`
+	Enabled                bool    `json:"enabled,omitempty"`
+	IgnorePollAlarmFailure bool    `json:"ignorePollAlarmFailure,omitempty"`
 }
 
 // AutoRollbackConfiguration holds auto-rollback event configuration.
 type AutoRollbackConfiguration struct {
-	Events  []string `json:"events,omitempty"` // DEPLOYMENT_FAILURE | DEPLOYMENT_STOP_ON_ALARM | DEPLOYMENT_STOP_ON_REQUEST
+	Events  []string `json:"events,omitempty"` // rollback event types
 	Enabled bool     `json:"enabled,omitempty"`
 }
 
@@ -172,76 +182,76 @@ type ECSService struct {
 
 // Application represents an AWS CodeDeploy application.
 type Application struct {
-	CreationTime    time.Time  `json:"createTime"`
-	Tags            *tags.Tags `json:"-"`
+	CreationTime    time.Time         `json:"createTime"`
+	Tags            *tags.Tags        `json:"-"`
 	TagsMap         map[string]string `json:"tagsMap,omitempty"`
-	ApplicationName string     `json:"applicationName"`
-	ApplicationID   string     `json:"applicationId"`
-	ComputePlatform string     `json:"computePlatform"`
-	AccountID       string     `json:"-"`
-	Region          string     `json:"-"`
+	ApplicationName string            `json:"applicationName"`
+	ApplicationID   string            `json:"applicationId"`
+	ComputePlatform string            `json:"computePlatform"`
+	AccountID       string            `json:"-"`
+	Region          string            `json:"-"`
 }
 
 // DeploymentGroup represents a CodeDeploy deployment group.
 type DeploymentGroup struct {
-	Tags                              *tags.Tags                         `json:"-"`
-	TagsMap                           map[string]string                  `json:"tagsMap,omitempty"`
-	BlueGreenDeploymentConfiguration  *BlueGreenDeploymentConfiguration  `json:"blueGreenDeploymentConfiguration,omitempty"`
-	AlarmConfiguration                *AlarmConfiguration                `json:"alarmConfiguration,omitempty"`
-	AutoRollbackConfiguration         *AutoRollbackConfiguration         `json:"autoRollbackConfiguration,omitempty"`
-	LoadBalancerInfo                  *LoadBalancerInfo                  `json:"loadBalancerInfo,omitempty"`
-	DeploymentStyle                   *DeploymentStyle                   `json:"deploymentStyle,omitempty"`
-	Ec2TagSet                         *Ec2TagSet                         `json:"ec2TagSet,omitempty"`
-	OnPremisesTagSet                  *TagSet                            `json:"onPremisesTagSet,omitempty"`
-	ApplicationName                   string                             `json:"applicationName"`
-	DeploymentGroupName               string                             `json:"deploymentGroupName"`
-	DeploymentGroupID                 string                             `json:"deploymentGroupId"`
-	ServiceRoleArn                    string                             `json:"serviceRoleArn"`
-	DeploymentConfigName              string                             `json:"deploymentConfigName"`
-	ComputePlatform                   string                             `json:"computePlatform"`
-	OutdatedInstancesStrategy         string                             `json:"outdatedInstancesStrategy,omitempty"`
-	AccountID                         string                             `json:"-"`
-	Region                            string                             `json:"-"`
-	Ec2TagFilters                     []TagFilter                        `json:"ec2TagFilters,omitempty"`
-	OnPremisesInstanceTagFilters      []TagFilter                        `json:"onPremisesInstanceTagFilters,omitempty"`
-	AutoScalingGroups                 []AutoScalingGroup                 `json:"autoScalingGroups,omitempty"`
-	TriggerConfigurations             []TriggerConfiguration             `json:"triggerConfigurations,omitempty"`
-	ECSServices                       []ECSService                       `json:"ecsServices,omitempty"`
-	TerminationHookEnabled            bool                               `json:"terminationHookEnabled,omitempty"`
+	Tags                             *tags.Tags                        `json:"-"`
+	TagsMap                          map[string]string                 `json:"tagsMap,omitempty"`
+	BlueGreenDeploymentConfiguration *BlueGreenDeploymentConfiguration `json:"blueGreenDeploymentConfiguration,omitempty"`
+	AlarmConfiguration               *AlarmConfiguration               `json:"alarmConfiguration,omitempty"`
+	AutoRollbackConfiguration        *AutoRollbackConfiguration        `json:"autoRollbackConfiguration,omitempty"`
+	LoadBalancerInfo                 *LoadBalancerInfo                 `json:"loadBalancerInfo,omitempty"`
+	DeploymentStyle                  *DeploymentStyle                  `json:"deploymentStyle,omitempty"`
+	Ec2TagSet                        *Ec2TagSet                        `json:"ec2TagSet,omitempty"`
+	OnPremisesTagSet                 *TagSet                           `json:"onPremisesTagSet,omitempty"`
+	ApplicationName                  string                            `json:"applicationName"`
+	DeploymentGroupName              string                            `json:"deploymentGroupName"`
+	DeploymentGroupID                string                            `json:"deploymentGroupId"`
+	ServiceRoleArn                   string                            `json:"serviceRoleArn"`
+	DeploymentConfigName             string                            `json:"deploymentConfigName"`
+	ComputePlatform                  string                            `json:"computePlatform"`
+	OutdatedInstancesStrategy        string                            `json:"outdatedInstancesStrategy,omitempty"`
+	AccountID                        string                            `json:"-"`
+	Region                           string                            `json:"-"`
+	Ec2TagFilters                    []TagFilter                       `json:"ec2TagFilters,omitempty"`
+	OnPremisesInstanceTagFilters     []TagFilter                       `json:"onPremisesInstanceTagFilters,omitempty"`
+	AutoScalingGroups                []AutoScalingGroup                `json:"autoScalingGroups,omitempty"`
+	TriggerConfigurations            []TriggerConfiguration            `json:"triggerConfigurations,omitempty"`
+	ECSServices                      []ECSService                      `json:"ecsServices,omitempty"`
+	TerminationHookEnabled           bool                              `json:"terminationHookEnabled,omitempty"`
 }
 
 // Deployment represents a CodeDeploy deployment.
 type Deployment struct {
-	CreateTime                      time.Time  `json:"createTime"`
-	CompleteTime                    *time.Time `json:"completeTime,omitempty"`
-	DeploymentID                    string     `json:"deploymentId"`
-	ApplicationName                 string     `json:"applicationName"`
-	DeploymentGroupName             string     `json:"deploymentGroupName"`
-	DeploymentConfigName            string     `json:"deploymentConfigName"`
-	Status                          string     `json:"status"`
-	Creator                         string     `json:"creator"`
-	Description                     string     `json:"description,omitempty"`
-	FileExistsBehavior               string     `json:"fileExistsBehavior,omitempty"`
-	UpdateOutdatedInstancesOnly      bool       `json:"updateOutdatedInstancesOnly,omitempty"`
-	IgnoreApplicationStopFailures    bool       `json:"ignoreApplicationStopFailures,omitempty"`
-	AccountID                       string     `json:"-"`
-	Region                          string     `json:"-"`
+	CreateTime                    time.Time  `json:"createTime"`
+	CompleteTime                  *time.Time `json:"completeTime,omitempty"`
+	Status                        string     `json:"status"`
+	ApplicationName               string     `json:"applicationName"`
+	DeploymentGroupName           string     `json:"deploymentGroupName"`
+	DeploymentConfigName          string     `json:"deploymentConfigName"`
+	DeploymentID                  string     `json:"deploymentId"`
+	Creator                       string     `json:"creator"`
+	Description                   string     `json:"description,omitempty"`
+	FileExistsBehavior            string     `json:"fileExistsBehavior,omitempty"`
+	AccountID                     string     `json:"-"`
+	Region                        string     `json:"-"`
+	UpdateOutdatedInstancesOnly   bool       `json:"updateOutdatedInstancesOnly,omitempty"`
+	IgnoreApplicationStopFailures bool       `json:"ignoreApplicationStopFailures,omitempty"`
 }
 
 // OnPremisesInstance represents an on-premises instance registered with CodeDeploy.
 type OnPremisesInstance struct {
-	RegisterTime   time.Time  `json:"registerTime"`
-	DeregisterTime *time.Time `json:"deregisterTime,omitempty"`
-	Tags           *tags.Tags `json:"-"`
+	RegisterTime   time.Time         `json:"registerTime"`
+	DeregisterTime *time.Time        `json:"deregisterTime,omitempty"`
+	Tags           *tags.Tags        `json:"-"`
 	TagsMap        map[string]string `json:"tagsMap,omitempty"`
-	InstanceName   string     `json:"instanceName"`
-	IamSessionArn  string     `json:"iamSessionArn,omitempty"`
-	IamUserArn     string     `json:"iamUserArn,omitempty"`
+	InstanceName   string            `json:"instanceName"`
+	IamSessionArn  string            `json:"iamSessionArn,omitempty"`
+	IamUserArn     string            `json:"iamUserArn,omitempty"`
 }
 
 // MinimumHealthyHosts specifies the minimum number/percentage of healthy instances.
 type MinimumHealthyHosts struct {
-	Type  string `json:"type,omitempty"`  // HOST_COUNT | FLEET_PERCENT
+	Type  string `json:"type,omitempty"` // HOST_COUNT | FLEET_PERCENT
 	Value int    `json:"value,omitempty"`
 }
 
@@ -259,16 +269,16 @@ type TimeBasedLinear struct {
 
 // TrafficRoutingConfig holds traffic routing configuration for a deployment config.
 type TrafficRoutingConfig struct {
-	Type            string           `json:"type,omitempty"` // TimeBasedCanary | TimeBasedLinear | AllAtOnce
 	TimeBasedCanary *TimeBasedCanary `json:"timeBasedCanary,omitempty"`
 	TimeBasedLinear *TimeBasedLinear `json:"timeBasedLinear,omitempty"`
+	Type            string           `json:"type,omitempty"`
 }
 
 // ZonalConfig holds availability-zone-based deployment configuration.
 type ZonalConfig struct {
+	MinimumHealthyHostsPerZone        *MinimumHealthyHosts `json:"minimumHealthyHostsPerZone,omitempty"`
 	FirstZoneMonitorDurationInSeconds int                  `json:"firstZoneMonitorDurationInSeconds,omitempty"`
 	MonitorDurationInSeconds          int                  `json:"monitorDurationInSeconds,omitempty"`
-	MinimumHealthyHostsPerZone        *MinimumHealthyHosts `json:"minimumHealthyHostsPerZone,omitempty"`
 }
 
 // DeploymentConfig represents a CodeDeploy deployment configuration.
@@ -337,55 +347,67 @@ func (b *InMemoryBackend) seedDefaultConfigs() {
 		{
 			DeploymentConfigName: "CodeDeployDefault.HalfAtATime",
 			ComputePlatform:      computePlatformServer,
-			MinimumHealthyHosts:  &MinimumHealthyHosts{Type: "FLEET_PERCENT", Value: 50},
+			MinimumHealthyHosts:  &MinimumHealthyHosts{Type: "FLEET_PERCENT", Value: defaultHealthyHostPct},
 			TrafficRoutingConfig: allAtOnce,
 			IsDefault:            true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.LambdaAllAtOnce",
-			ComputePlatform:      "Lambda",
+			ComputePlatform:      computePlatformLambda,
 			TrafficRoutingConfig: allAtOnce,
 			IsDefault:            true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.LambdaCanary10Percent5Minutes",
-			ComputePlatform:      "Lambda",
+			ComputePlatform:      computePlatformLambda,
 			TrafficRoutingConfig: &TrafficRoutingConfig{
-				Type:            "TimeBasedCanary",
-				TimeBasedCanary: &TimeBasedCanary{CanaryPercentage: 10, CanaryInterval: 5},
+				Type: "TimeBasedCanary",
+				TimeBasedCanary: &TimeBasedCanary{
+					CanaryPercentage: defaultCanaryPct,
+					CanaryInterval:   defaultCanaryInterval,
+				},
 			},
 			IsDefault: true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.LambdaLinear10PercentEvery1Minute",
-			ComputePlatform:      "Lambda",
+			ComputePlatform:      computePlatformLambda,
 			TrafficRoutingConfig: &TrafficRoutingConfig{
-				Type:            "TimeBasedLinear",
-				TimeBasedLinear: &TimeBasedLinear{LinearPercentage: 10, LinearInterval: 1},
+				Type: "TimeBasedLinear",
+				TimeBasedLinear: &TimeBasedLinear{
+					LinearPercentage: defaultLinearPct,
+					LinearInterval:   defaultLinearInterval,
+				},
 			},
 			IsDefault: true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.ECSAllAtOnce",
-			ComputePlatform:      "ECS",
+			ComputePlatform:      computePlatformECS,
 			TrafficRoutingConfig: allAtOnce,
 			IsDefault:            true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.ECSCanary10Percent5Minutes",
-			ComputePlatform:      "ECS",
+			ComputePlatform:      computePlatformECS,
 			TrafficRoutingConfig: &TrafficRoutingConfig{
-				Type:            "TimeBasedCanary",
-				TimeBasedCanary: &TimeBasedCanary{CanaryPercentage: 10, CanaryInterval: 5},
+				Type: "TimeBasedCanary",
+				TimeBasedCanary: &TimeBasedCanary{
+					CanaryPercentage: defaultCanaryPct,
+					CanaryInterval:   defaultCanaryInterval,
+				},
 			},
 			IsDefault: true,
 		},
 		{
 			DeploymentConfigName: "CodeDeployDefault.ECSLinear10PercentEvery1Minute",
-			ComputePlatform:      "ECS",
+			ComputePlatform:      computePlatformECS,
 			TrafficRoutingConfig: &TrafficRoutingConfig{
-				Type:            "TimeBasedLinear",
-				TimeBasedLinear: &TimeBasedLinear{LinearPercentage: 10, LinearInterval: 1},
+				Type: "TimeBasedLinear",
+				TimeBasedLinear: &TimeBasedLinear{
+					LinearPercentage: defaultLinearPct,
+					LinearInterval:   defaultLinearInterval,
+				},
 			},
 			IsDefault: true,
 		},
@@ -450,7 +472,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 func generateDeploymentID() string {
 	b := make([]byte, deployIDLen)
 	for i := range b {
-		b[i] = deployIDChars[rand.Intn(len(deployIDChars))]
+		b[i] = deployIDChars[rand.IntN(len(deployIDChars))] //nolint:gosec // non-crypto ID for test mock
 	}
 
 	return "d-" + string(b)
@@ -572,22 +594,22 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 
 // DeploymentGroupInput holds all the optional rich fields for CreateDeploymentGroup and UpdateDeploymentGroup.
 type DeploymentGroupInput struct {
-	BlueGreenDeploymentConfiguration  *BlueGreenDeploymentConfiguration
-	AlarmConfiguration                *AlarmConfiguration
-	AutoRollbackConfiguration         *AutoRollbackConfiguration
-	LoadBalancerInfo                  *LoadBalancerInfo
-	DeploymentStyle                   *DeploymentStyle
-	Ec2TagSet                         *Ec2TagSet
-	OnPremisesTagSet                  *TagSet
-	Ec2TagFilters                     []TagFilter
-	OnPremisesInstanceTagFilters      []TagFilter
-	AutoScalingGroups                 []AutoScalingGroup
-	TriggerConfigurations             []TriggerConfiguration
-	ECSServices                       []ECSService
-	ServiceRoleArn                    string
-	DeploymentConfigName              string
-	OutdatedInstancesStrategy         string
-	TerminationHookEnabled            bool
+	BlueGreenDeploymentConfiguration *BlueGreenDeploymentConfiguration
+	AlarmConfiguration               *AlarmConfiguration
+	AutoRollbackConfiguration        *AutoRollbackConfiguration
+	LoadBalancerInfo                 *LoadBalancerInfo
+	DeploymentStyle                  *DeploymentStyle
+	Ec2TagSet                        *Ec2TagSet
+	OnPremisesTagSet                 *TagSet
+	ServiceRoleArn                   string
+	DeploymentConfigName             string
+	OutdatedInstancesStrategy        string
+	OnPremisesInstanceTagFilters     []TagFilter
+	AutoScalingGroups                []AutoScalingGroup
+	TriggerConfigurations            []TriggerConfiguration
+	ECSServices                      []ECSService
+	Ec2TagFilters                    []TagFilter
+	TerminationHookEnabled           bool
 }
 
 // CreateDeploymentGroup creates a deployment group for an application.
@@ -604,7 +626,7 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	if dgs, ok := b.deploymentGroups[appName]; ok {
+	if dgs, hasDG := b.deploymentGroups[appName]; hasDG {
 		if _, exists := dgs[dgName]; exists {
 			return nil, fmt.Errorf("%w: deployment group %s already exists", ErrDeploymentGroupAlreadyExists, dgName)
 		}
@@ -621,32 +643,32 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 	}
 
 	dg := &DeploymentGroup{
-		ApplicationName:                   appName,
-		DeploymentGroupName:               dgName,
-		DeploymentGroupID:                 dgID,
-		ServiceRoleArn:                    input.ServiceRoleArn,
-		DeploymentConfigName:              input.DeploymentConfigName,
-		ComputePlatform:                   app.ComputePlatform,
-		AccountID:                         b.accountID,
-		Region:                            b.region,
-		Tags:                              t,
-		Ec2TagFilters:                     input.Ec2TagFilters,
-		OnPremisesInstanceTagFilters:      input.OnPremisesInstanceTagFilters,
-		AutoScalingGroups:                 input.AutoScalingGroups,
-		LoadBalancerInfo:                  input.LoadBalancerInfo,
-		DeploymentStyle:                   input.DeploymentStyle,
-		Ec2TagSet:                         input.Ec2TagSet,
-		OnPremisesTagSet:                  input.OnPremisesTagSet,
-		BlueGreenDeploymentConfiguration:  input.BlueGreenDeploymentConfiguration,
-		AlarmConfiguration:                input.AlarmConfiguration,
-		AutoRollbackConfiguration:         input.AutoRollbackConfiguration,
-		TriggerConfigurations:             input.TriggerConfigurations,
-		ECSServices:                       input.ECSServices,
-		OutdatedInstancesStrategy:         input.OutdatedInstancesStrategy,
-		TerminationHookEnabled:            input.TerminationHookEnabled,
+		ApplicationName:                  appName,
+		DeploymentGroupName:              dgName,
+		DeploymentGroupID:                dgID,
+		ServiceRoleArn:                   input.ServiceRoleArn,
+		DeploymentConfigName:             input.DeploymentConfigName,
+		ComputePlatform:                  app.ComputePlatform,
+		AccountID:                        b.accountID,
+		Region:                           b.region,
+		Tags:                             t,
+		Ec2TagFilters:                    input.Ec2TagFilters,
+		OnPremisesInstanceTagFilters:     input.OnPremisesInstanceTagFilters,
+		AutoScalingGroups:                input.AutoScalingGroups,
+		LoadBalancerInfo:                 input.LoadBalancerInfo,
+		DeploymentStyle:                  input.DeploymentStyle,
+		Ec2TagSet:                        input.Ec2TagSet,
+		OnPremisesTagSet:                 input.OnPremisesTagSet,
+		BlueGreenDeploymentConfiguration: input.BlueGreenDeploymentConfiguration,
+		AlarmConfiguration:               input.AlarmConfiguration,
+		AutoRollbackConfiguration:        input.AutoRollbackConfiguration,
+		TriggerConfigurations:            input.TriggerConfigurations,
+		ECSServices:                      input.ECSServices,
+		OutdatedInstancesStrategy:        input.OutdatedInstancesStrategy,
+		TerminationHookEnabled:           input.TerminationHookEnabled,
 	}
 
-	if _, ok := b.deploymentGroups[appName]; !ok {
+	if _, hasDGs := b.deploymentGroups[appName]; !hasDGs {
 		b.deploymentGroups[appName] = make(map[string]*DeploymentGroup)
 	}
 
@@ -701,11 +723,9 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 	}
 
 	// Track whether hooks/alarms were previously configured and are now being removed.
-	hooksNotCleanedUp := false
-	if dg.AlarmConfiguration != nil && dg.AlarmConfiguration.Enabled &&
-		(input.AlarmConfiguration == nil || !input.AlarmConfiguration.Enabled) {
-		hooksNotCleanedUp = true
-	}
+	hooksNotCleanedUp := dg.AlarmConfiguration != nil && dg.AlarmConfiguration.Enabled &&
+		(input.AlarmConfiguration == nil || !input.AlarmConfiguration.Enabled)
+
 	if len(dg.TriggerConfigurations) > 0 && len(input.TriggerConfigurations) == 0 {
 		hooksNotCleanedUp = true
 	}
@@ -818,10 +838,10 @@ func (b *InMemoryBackend) DeleteDeploymentGroup(appName, dgName string) error {
 // DeploymentOptions holds optional per-deployment settings.
 type DeploymentOptions struct {
 	FileExistsBehavior            string
-	UpdateOutdatedInstancesOnly   bool
-	IgnoreApplicationStopFailures bool
 	Description                   string
 	Creator                       string
+	UpdateOutdatedInstancesOnly   bool
+	IgnoreApplicationStopFailures bool
 }
 
 // CreateDeployment creates a new deployment.
@@ -891,11 +911,11 @@ func (b *InMemoryBackend) GetDeployment(deploymentID string) (*Deployment, error
 
 // DeploymentFilter holds optional filters for ListDeployments.
 type DeploymentFilter struct {
+	CreateTimeStart     *time.Time
+	CreateTimeEnd       *time.Time
 	ApplicationName     string
 	DeploymentGroupName string
 	Statuses            []string
-	CreateTimeStart     *time.Time
-	CreateTimeEnd       *time.Time
 }
 
 // ListDeployments returns deployment IDs in sorted order, filtered by the provided criteria.
@@ -982,8 +1002,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	}
 
 	existing := t.Clone()
-	if err := validateTagUpdate(existing, kv); err != nil {
-		return err
+	if valErr := validateTagUpdate(existing, kv); valErr != nil {
+		return valErr
 	}
 
 	t.Merge(kv)
@@ -1081,8 +1101,8 @@ func parseARN(arnStr string) *parsedARN {
 
 	// Fixed-position split: arn : partition : service : region : account : resourceType : resourceID
 	// Use SplitN with limit 7 to correctly handle resource IDs containing colons.
-	parts := strings.SplitN(arnStr, ":", 7)
-	if len(parts) != 7 {
+	parts := strings.SplitN(arnStr, ":", arnSegmentCount)
+	if len(parts) != arnSegmentCount {
 		return nil
 	}
 
@@ -1111,8 +1131,8 @@ func (b *InMemoryBackend) DeploymentConfigARN(name string) string {
 func validComputePlatforms() map[string]struct{} {
 	return map[string]struct{}{
 		computePlatformServer: {},
-		"Lambda":              {},
-		"ECS":                 {},
+		computePlatformLambda: {},
+		computePlatformECS:    {},
 	}
 }
 
@@ -1644,6 +1664,8 @@ func (b *InMemoryBackend) ListOnPremisesInstances(registrationStatus string, tag
 }
 
 // matchesTagFilters returns true if the tags satisfy all the given filters.
+//
+//nolint:gocognit // tag filter matching requires nested condition evaluation
 func matchesTagFilters(t *tags.Tags, filters []TagFilter) bool {
 	if t == nil {
 		return len(filters) == 0
@@ -1662,6 +1684,7 @@ func matchesTagFilters(t *tags.Tags, filters []TagFilter) bool {
 			for _, v := range kv {
 				if v == f.Value {
 					found = true
+
 					break
 				}
 			}

@@ -27,8 +27,8 @@ func TestAudit_CreateApplication_ComputePlatformValidation(t *testing.T) {
 	tests := []struct {
 		name        string
 		platform    string
-		wantStatus  int
 		wantErrType string
+		wantStatus  int
 	}{
 		{name: "server_valid", platform: "Server", wantStatus: http.StatusOK},
 		{name: "lambda_valid", platform: "Lambda", wantStatus: http.StatusOK},
@@ -80,9 +80,9 @@ func TestAudit_CreateDeploymentGroup_RichFields_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "CreateDeploymentGroup", map[string]any{
-		"applicationName":     "my-app",
-		"deploymentGroupName": "rich-dg",
-		"serviceRoleArn":      "arn:aws:iam::123:role/role",
+		"applicationName":      "my-app",
+		"deploymentGroupName":  "rich-dg",
+		"serviceRoleArn":       "arn:aws:iam::123:role/role",
 		"deploymentConfigName": "CodeDeployDefault.AllAtOnce",
 		"ec2TagFilters": []map[string]string{
 			{"Key": "env", "Value": "prod", "Type": "EQUALS"},
@@ -123,23 +123,24 @@ func TestAudit_CreateDeploymentGroup_RichFields_RoundTrip(t *testing.T) {
 
 	var resp struct {
 		DeploymentGroupInfo struct {
-			ServiceRoleArn    string `json:"serviceRoleArn"`
-			ComputePlatform   string `json:"computePlatform"`
-			DeploymentStyle   *struct {
+			DeploymentStyle *struct {
 				DeploymentType   string `json:"deploymentType"`
 				DeploymentOption string `json:"deploymentOption"`
 			} `json:"deploymentStyle"`
 			AlarmConfiguration *struct {
-				Enabled bool `json:"enabled"`
-				Alarms  []struct {
+				Alarms []struct {
 					Name string `json:"name"`
 				} `json:"alarms"`
+				Enabled bool `json:"enabled"`
 			} `json:"alarmConfiguration"`
 			AutoRollbackConfiguration *struct {
-				Enabled bool     `json:"enabled"`
 				Events  []string `json:"events"`
+				Enabled bool     `json:"enabled"`
 			} `json:"autoRollbackConfiguration"`
-			Ec2TagFilters []struct {
+			ServiceRoleArn            string `json:"serviceRoleArn"`
+			ComputePlatform           string `json:"computePlatform"`
+			OutdatedInstancesStrategy string `json:"outdatedInstancesStrategy"`
+			Ec2TagFilters             []struct {
 				Key   string `json:"Key"`
 				Value string `json:"Value"`
 				Type  string `json:"Type"`
@@ -148,8 +149,7 @@ func TestAudit_CreateDeploymentGroup_RichFields_RoundTrip(t *testing.T) {
 				TriggerName   string   `json:"triggerName"`
 				TriggerEvents []string `json:"triggerEvents"`
 			} `json:"triggerConfigurations"`
-			OutdatedInstancesStrategy string `json:"outdatedInstancesStrategy"`
-			TerminationHookEnabled    bool   `json:"terminationHookEnabled"`
+			TerminationHookEnabled bool `json:"terminationHookEnabled"`
 		} `json:"deploymentGroupInfo"`
 	}
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
@@ -181,11 +181,11 @@ func TestAudit_UpdateDeploymentGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		setup           func(h *codedeploy.Handler)
-		input           map[string]any
-		wantStatus      int
-		wantHooksClean  bool
+		setup          func(h *codedeploy.Handler)
+		input          map[string]any
+		name           string
+		wantStatus     int
+		wantHooksClean bool
 	}{
 		{
 			name: "rename",
@@ -310,10 +310,10 @@ func TestAudit_CreateDeploymentConfig_SubStructs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		input      map[string]any
-		wantStatus int
 		checkFn    func(t *testing.T, info map[string]any)
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "minimum_healthy_hosts",
@@ -502,10 +502,10 @@ func TestAudit_DefaultDeploymentConfigs_GetReturnsSubStructs(t *testing.T) {
 
 			var resp struct {
 				DeploymentConfigInfo struct {
-					ComputePlatform      string `json:"computePlatform"`
 					TrafficRoutingConfig *struct {
 						Type string `json:"type"`
 					} `json:"trafficRoutingConfig"`
+					ComputePlatform string `json:"computePlatform"`
 				} `json:"deploymentConfigInfo"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -542,8 +542,8 @@ func TestAudit_RegisterOnPremisesInstance_IamValidation(t *testing.T) {
 		instanceName  string
 		iamSessionArn string
 		iamUserArn    string
-		wantStatus    int
 		wantErrType   string
+		wantStatus    int
 	}{
 		{
 			name:          "session_arn_only",
@@ -759,9 +759,9 @@ func TestAudit_TagResource_TagLimits(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		wantErrType string
 		tags        []map[string]string
 		wantStatus  int
-		wantErrType string
 	}{
 		{
 			name: "within_limit",
@@ -827,7 +827,7 @@ func TestAudit_TagResource_ExceedsMaxTags(t *testing.T) {
 
 	// Add 50 tags.
 	tags := make([]map[string]string, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		tags[i] = map[string]string{"Key": "k" + string(rune('a'+i%26)) + string(rune('0'+i/26)), "Value": "v"}
 	}
 	rec := doRequest(t, h, "TagResource", map[string]any{"resourceArn": appARN, "tags": tags})
@@ -858,7 +858,7 @@ func TestAudit_CreateDeployment_IDFormat(t *testing.T) {
 	_, _ = h.Backend.CreateApplication("app", "Server", nil)
 	_, _ = createDG(h.Backend, "app", "dg", "", "", nil)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		rec := doRequest(t, h, "CreateDeployment", map[string]any{
 			"applicationName":     "app",
 			"deploymentGroupName": "dg",
