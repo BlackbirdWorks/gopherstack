@@ -16,36 +16,44 @@ func TestAWSAccuracy_ErrorTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setup        func(h *codebuild.Handler)
-		action       string
-		body         any
-		wantStatus   int
-		wantErrType  string
+		body        any
+		setup       func(h *codebuild.Handler)
+		name        string
+		action      string
+		wantErrType string
+		wantStatus  int
 	}{
 		{
-			name:       "create_duplicate_project_returns_ResourceAlreadyExistsException",
-			action:     "CreateProject",
+			name:   "create_duplicate_project_returns_ResourceAlreadyExistsException",
+			action: "CreateProject",
 			body: map[string]any{
-				"name":        "dup-project",
-				"source":      map[string]any{"type": "NO_SOURCE"},
-				"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
-				"environment": map[string]any{"type": "LINUX_CONTAINER", "image": "img", "computeType": "BUILD_GENERAL1_SMALL"},
+				"name":      "dup-project",
+				"source":    map[string]any{"type": "NO_SOURCE"},
+				"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+				"environment": map[string]any{
+					"type":        "LINUX_CONTAINER",
+					"image":       "img",
+					"computeType": "BUILD_GENERAL1_SMALL",
+				},
 			},
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceAlreadyExistsException",
 			setup: func(h *codebuild.Handler) {
 				doRequest(t, h, "CreateProject", map[string]any{
-					"name":        "dup-project",
-					"source":      map[string]any{"type": "NO_SOURCE"},
-					"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
-					"environment": map[string]any{"type": "LINUX_CONTAINER", "image": "img", "computeType": "BUILD_GENERAL1_SMALL"},
+					"name":      "dup-project",
+					"source":    map[string]any{"type": "NO_SOURCE"},
+					"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+					"environment": map[string]any{
+						"type":        "LINUX_CONTAINER",
+						"image":       "img",
+						"computeType": "BUILD_GENERAL1_SMALL",
+					},
 				})
 			},
 		},
 		{
-			name:       "create_duplicate_fleet_returns_ResourceAlreadyExistsException",
-			action:     "CreateFleet",
+			name:   "create_duplicate_fleet_returns_ResourceAlreadyExistsException",
+			action: "CreateFleet",
 			body: map[string]any{
 				"name":            "dup-fleet",
 				"baseCapacity":    1,
@@ -64,61 +72,65 @@ func TestAWSAccuracy_ErrorTypes(t *testing.T) {
 			},
 		},
 		{
-			name:       "create_duplicate_webhook_returns_ResourceAlreadyExistsException",
-			action:     "CreateWebhook",
-			body:       map[string]any{"projectName": "webhook-proj"},
-			wantStatus: http.StatusBadRequest,
+			name:        "create_duplicate_webhook_returns_ResourceAlreadyExistsException",
+			action:      "CreateWebhook",
+			body:        map[string]any{"projectName": "webhook-proj"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceAlreadyExistsException",
 			setup: func(h *codebuild.Handler) {
 				doRequest(t, h, "CreateProject", map[string]any{
-					"name":        "webhook-proj",
-					"source":      map[string]any{"type": "NO_SOURCE"},
-					"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
-					"environment": map[string]any{"type": "LINUX_CONTAINER", "image": "img", "computeType": "BUILD_GENERAL1_SMALL"},
+					"name":      "webhook-proj",
+					"source":    map[string]any{"type": "NO_SOURCE"},
+					"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+					"environment": map[string]any{
+						"type":        "LINUX_CONTAINER",
+						"image":       "img",
+						"computeType": "BUILD_GENERAL1_SMALL",
+					},
 				})
 				doRequest(t, h, "CreateWebhook", map[string]any{"projectName": "webhook-proj"})
 			},
 		},
 		{
-			name:       "start_build_missing_project_returns_ResourceNotFoundException",
-			action:     "StartBuild",
-			body:       map[string]any{"projectName": "ghost-project"},
-			wantStatus: http.StatusBadRequest,
+			name:        "start_build_missing_project_returns_ResourceNotFoundException",
+			action:      "StartBuild",
+			body:        map[string]any{"projectName": "ghost-project"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "stop_build_missing_returns_ResourceNotFoundException",
-			action:     "StopBuild",
-			body:       map[string]any{"id": "ghost:abc"},
-			wantStatus: http.StatusBadRequest,
+			name:        "stop_build_missing_returns_ResourceNotFoundException",
+			action:      "StopBuild",
+			body:        map[string]any{"id": "ghost:abc"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "update_project_missing_returns_ResourceNotFoundException",
-			action:     "UpdateProject",
-			body:       map[string]any{"name": "ghost-project"},
-			wantStatus: http.StatusBadRequest,
+			name:        "update_project_missing_returns_ResourceNotFoundException",
+			action:      "UpdateProject",
+			body:        map[string]any{"name": "ghost-project"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "delete_project_missing_returns_ResourceNotFoundException",
-			action:     "DeleteProject",
-			body:       map[string]any{"name": "ghost-project"},
-			wantStatus: http.StatusBadRequest,
+			name:        "delete_project_missing_returns_ResourceNotFoundException",
+			action:      "DeleteProject",
+			body:        map[string]any{"name": "ghost-project"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "delete_fleet_missing_returns_ResourceNotFoundException",
-			action:     "DeleteFleet",
-			body:       map[string]any{"arn": "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost"},
-			wantStatus: http.StatusBadRequest,
+			name:        "delete_fleet_missing_returns_ResourceNotFoundException",
+			action:      "DeleteFleet",
+			body:        map[string]any{"arn": "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "get_resource_policy_missing_returns_ResourceNotFoundException",
-			action:     "GetResourcePolicy",
-			body:       map[string]any{"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/ghost"},
-			wantStatus: http.StatusBadRequest,
+			name:        "get_resource_policy_missing_returns_ResourceNotFoundException",
+			action:      "GetResourcePolicy",
+			body:        map[string]any{"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/ghost"},
+			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
 	}
@@ -151,15 +163,15 @@ func TestAWSAccuracy_StopBuild(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		wantBuildStatus  string
-		wantCurrentPhase string
+		name              string
+		wantBuildStatus   string
+		wantCurrentPhase  string
 		wantBuildComplete bool
 	}{
 		{
-			name:             "stop_sets_STOPPED_not_SUCCEEDED",
-			wantBuildStatus:  "STOPPED",
-			wantCurrentPhase: "COMPLETED",
+			name:              "stop_sets_STOPPED_not_SUCCEEDED",
+			wantBuildStatus:   "STOPPED",
+			wantCurrentPhase:  "COMPLETED",
 			wantBuildComplete: true,
 		},
 	}
@@ -185,9 +197,9 @@ func TestAWSAccuracy_StopBuild(t *testing.T) {
 
 			var out struct {
 				Build struct {
-					BuildStatus   string `json:"buildStatus"`
-					CurrentPhase  string `json:"currentPhase"`
-					BuildComplete bool   `json:"buildComplete"`
+					BuildStatus   string  `json:"buildStatus"`
+					CurrentPhase  string  `json:"currentPhase"`
+					BuildComplete bool    `json:"buildComplete"`
 					EndTime       float64 `json:"endTime"`
 				} `json:"build"`
 			}
@@ -205,22 +217,22 @@ func TestAWSAccuracy_ProjectSource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		source       map[string]any
-		wantLocation string
-		wantBuildspec string
-		wantCloneDepth int
-		wantInsecureSsl bool
+		name                  string
+		source                map[string]any
+		wantLocation          string
+		wantBuildspec         string
+		wantCloneDepth        int
+		wantInsecureSsl       bool
 		wantReportBuildStatus bool
 	}{
 		{
 			name: "full_github_source",
 			source: map[string]any{
 				"type":              "GITHUB",
-				"location":         "https://github.com/example/repo",
-				"buildspec":        "buildspec.yml",
-				"gitCloneDepth":    1,
-				"insecureSsl":      false,
+				"location":          "https://github.com/example/repo",
+				"buildspec":         "buildspec.yml",
+				"gitCloneDepth":     1,
+				"insecureSsl":       false,
 				"reportBuildStatus": true,
 			},
 			wantLocation:          "https://github.com/example/repo",
@@ -250,9 +262,9 @@ func TestAWSAccuracy_ProjectSource(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, "CreateProject", map[string]any{
-				"name":        "src-test-" + tt.name,
-				"source":      tt.source,
-				"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
+				"name":      "src-test-" + tt.name,
+				"source":    tt.source,
+				"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
 				"environment": map[string]any{
 					"type":        "LINUX_CONTAINER",
 					"image":       "aws/codebuild/standard:7.0",
@@ -265,10 +277,10 @@ func TestAWSAccuracy_ProjectSource(t *testing.T) {
 				Project struct {
 					Source struct {
 						Type              string `json:"type"`
-						Location         string `json:"location"`
-						Buildspec        string `json:"buildspec"`
-						GitCloneDepth    int    `json:"gitCloneDepth"`
-						InsecureSsl      bool   `json:"insecureSsl"`
+						Location          string `json:"location"`
+						Buildspec         string `json:"buildspec"`
+						GitCloneDepth     int    `json:"gitCloneDepth"`
+						InsecureSsl       bool   `json:"insecureSsl"`
 						ReportBuildStatus bool   `json:"reportBuildStatus"`
 					} `json:"source"`
 				} `json:"project"`
@@ -327,9 +339,9 @@ func TestAWSAccuracy_ProjectArtifacts(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, "CreateProject", map[string]any{
-				"name":        "art-test-" + tt.name,
-				"source":      map[string]any{"type": "NO_SOURCE"},
-				"artifacts":   tt.artifacts,
+				"name":      "art-test-" + tt.name,
+				"source":    map[string]any{"type": "NO_SOURCE"},
+				"artifacts": tt.artifacts,
 				"environment": map[string]any{
 					"type":        "LINUX_CONTAINER",
 					"image":       "aws/codebuild/standard:7.0",
@@ -362,21 +374,21 @@ func TestAWSAccuracy_ProjectEnvironment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                     string
 		environment              map[string]any
+		name                     string
 		wantType                 string
 		wantComputeType          string
-		wantPrivilegedMode       bool
-		wantEnvVarCount          int
 		wantImagePullCredentials string
+		wantEnvVarCount          int
+		wantPrivilegedMode       bool
 	}{
 		{
 			name: "full_environment_with_env_vars",
 			environment: map[string]any{
-				"type":        "LINUX_CONTAINER",
-				"image":       "aws/codebuild/standard:7.0",
-				"computeType": "BUILD_GENERAL1_LARGE",
-				"privilegedMode": true,
+				"type":                     "LINUX_CONTAINER",
+				"image":                    "aws/codebuild/standard:7.0",
+				"computeType":              "BUILD_GENERAL1_LARGE",
+				"privilegedMode":           true,
 				"imagePullCredentialsType": "CODEBUILD",
 				"environmentVariables": []map[string]any{
 					{"name": "MY_VAR", "value": "hello", "type": "PLAINTEXT"},
@@ -402,9 +414,9 @@ func TestAWSAccuracy_ProjectEnvironment(t *testing.T) {
 		{
 			name: "gpu_container",
 			environment: map[string]any{
-				"type":        "LINUX_GPU_CONTAINER",
-				"image":       "aws/codebuild/standard:7.0",
-				"computeType": "BUILD_GENERAL1_XLARGE",
+				"type":           "LINUX_GPU_CONTAINER",
+				"image":          "aws/codebuild/standard:7.0",
+				"computeType":    "BUILD_GENERAL1_XLARGE",
 				"privilegedMode": false,
 			},
 			wantType:        "LINUX_GPU_CONTAINER",
@@ -430,9 +442,9 @@ func TestAWSAccuracy_ProjectEnvironment(t *testing.T) {
 					Environment struct {
 						Type                     string           `json:"type"`
 						ComputeType              string           `json:"computeType"`
-						PrivilegedMode           bool             `json:"privilegedMode"`
 						ImagePullCredentialsType string           `json:"imagePullCredentialsType"`
 						EnvironmentVariables     []map[string]any `json:"environmentVariables"`
+						PrivilegedMode           bool             `json:"privilegedMode"`
 					} `json:"environment"`
 				} `json:"project"`
 			}
@@ -451,10 +463,10 @@ func TestAWSAccuracy_ProjectCache(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		cache        map[string]any
-		wantType     string
-		wantModeLen  int
+		name        string
+		cache       map[string]any
+		wantType    string
+		wantModeLen int
 	}{
 		{
 			name: "no_cache",
@@ -488,9 +500,9 @@ func TestAWSAccuracy_ProjectCache(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, "CreateProject", map[string]any{
-				"name":        "cache-test-" + tt.name,
-				"source":      map[string]any{"type": "NO_SOURCE"},
-				"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
+				"name":      "cache-test-" + tt.name,
+				"source":    map[string]any{"type": "NO_SOURCE"},
+				"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
 				"environment": map[string]any{
 					"type":        "LINUX_CONTAINER",
 					"image":       "aws/codebuild/standard:7.0",
@@ -520,11 +532,11 @@ func TestAWSAccuracy_ProjectTimeouts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		timeoutInMinutes        int32
-		queuedTimeoutInMinutes  int32
-		concurrentBuildLimit    int32
-		autoRetryLimit          int32
+		name                   string
+		timeoutInMinutes       int32
+		queuedTimeoutInMinutes int32
+		concurrentBuildLimit   int32
+		autoRetryLimit         int32
 	}{
 		{
 			name:                   "build_timeouts",
@@ -537,11 +549,11 @@ func TestAWSAccuracy_ProjectTimeouts(t *testing.T) {
 			autoRetryLimit:       3,
 		},
 		{
-			name:                    "all_limits",
-			timeoutInMinutes:        120,
-			queuedTimeoutInMinutes:  480,
-			concurrentBuildLimit:    10,
-			autoRetryLimit:          1,
+			name:                   "all_limits",
+			timeoutInMinutes:       120,
+			queuedTimeoutInMinutes: 480,
+			concurrentBuildLimit:   10,
+			autoRetryLimit:         1,
 		},
 	}
 
@@ -585,10 +597,10 @@ func TestAWSAccuracy_ProjectTimeouts(t *testing.T) {
 				} `json:"project"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Equal(t, float64(tt.timeoutInMinutes), out.Project.TimeoutInMinutes)
-			assert.Equal(t, float64(tt.queuedTimeoutInMinutes), out.Project.QueuedTimeoutInMinutes)
-			assert.Equal(t, float64(tt.concurrentBuildLimit), out.Project.ConcurrentBuildLimit)
-			assert.Equal(t, float64(tt.autoRetryLimit), out.Project.AutoRetryLimit)
+			assert.InDelta(t, float64(tt.timeoutInMinutes), out.Project.TimeoutInMinutes, 0)
+			assert.InDelta(t, float64(tt.queuedTimeoutInMinutes), out.Project.QueuedTimeoutInMinutes, 0)
+			assert.InDelta(t, float64(tt.concurrentBuildLimit), out.Project.ConcurrentBuildLimit, 0)
+			assert.InDelta(t, float64(tt.autoRetryLimit), out.Project.AutoRetryLimit, 0)
 		})
 	}
 }
@@ -675,7 +687,7 @@ func TestAWSAccuracy_VpcConfig(t *testing.T) {
 	tests := []struct {
 		name      string
 		vpcConfig map[string]any
-		wantVpcId string
+		wantVpcID string
 	}{
 		{
 			name: "vpc_config_stored",
@@ -684,7 +696,7 @@ func TestAWSAccuracy_VpcConfig(t *testing.T) {
 				"subnets":          []string{"subnet-abc", "subnet-def"},
 				"securityGroupIds": []string{"sg-xyz"},
 			},
-			wantVpcId: "vpc-12345",
+			wantVpcID: "vpc-12345",
 		},
 	}
 
@@ -709,14 +721,14 @@ func TestAWSAccuracy_VpcConfig(t *testing.T) {
 			var out struct {
 				Project struct {
 					VpcConfig struct {
-						VpcId            string   `json:"vpcId"`
+						VpcID            string   `json:"vpcId"`
 						Subnets          []string `json:"subnets"`
-						SecurityGroupIds []string `json:"securityGroupIds"`
+						SecurityGroupIDs []string `json:"securityGroupIds"`
 					} `json:"vpcConfig"`
 				} `json:"project"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Equal(t, tt.wantVpcId, out.Project.VpcConfig.VpcId)
+			assert.Equal(t, tt.wantVpcID, out.Project.VpcConfig.VpcID)
 		})
 	}
 }
@@ -787,10 +799,10 @@ func TestAWSAccuracy_LogsConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                     string
-		logsConfig               map[string]any
-		wantCloudWatchStatus     string
-		wantS3Status             string
+		name                 string
+		logsConfig           map[string]any
+		wantCloudWatchStatus string
+		wantS3Status         string
 	}{
 		{
 			name: "cloudwatch_logs_enabled",
@@ -872,9 +884,9 @@ func TestAWSAccuracy_BuildInheritsProject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		serviceRole    string
-		encryptionKey  string
+		name            string
+		serviceRole     string
+		encryptionKey   string
 		wantServiceRole string
 	}{
 		{
@@ -946,10 +958,10 @@ func TestAWSAccuracy_FleetSchema(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		fleetBody       map[string]any
+		fleetBody        map[string]any
+		name             string
+		wantStatusCode   string
 		wantBaseCapacity float64
-		wantStatusCode  string
 	}{
 		{
 			name: "fleet_has_status_struct",
@@ -974,14 +986,14 @@ func TestAWSAccuracy_FleetSchema(t *testing.T) {
 
 			var out struct {
 				Fleet struct {
-					BaseCapacity float64 `json:"baseCapacity"`
-					Status       struct {
+					Status struct {
 						StatusCode string `json:"statusCode"`
 					} `json:"status"`
+					BaseCapacity float64 `json:"baseCapacity"`
 				} `json:"fleet"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Equal(t, tt.wantBaseCapacity, out.Fleet.BaseCapacity)
+			assert.InDelta(t, tt.wantBaseCapacity, out.Fleet.BaseCapacity, 0)
 			assert.Equal(t, tt.wantStatusCode, out.Fleet.Status.StatusCode)
 		})
 	}
@@ -1005,8 +1017,8 @@ func TestAWSAccuracy_DeleteFleet(t *testing.T) {
 			wantList:   0,
 		},
 		{
-			name:      "delete_missing_fleet_returns_404",
-			deleteArn: "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost-fleet",
+			name:       "delete_missing_fleet_returns_404",
+			deleteArn:  "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost-fleet",
 			wantDelete: http.StatusBadRequest,
 		},
 	}
@@ -1049,7 +1061,7 @@ func TestAWSAccuracy_DeleteFleet(t *testing.T) {
 					Fleets []string `json:"fleets"`
 				}
 				require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
-				assert.Len(t, listOut.Fleets, 0, "fleet should be removed from list after delete")
+				assert.Empty(t, listOut.Fleets, "fleet should be removed from list after delete")
 			}
 		})
 	}
@@ -1102,7 +1114,12 @@ func TestAWSAccuracy_DeleteBuildBatch(t *testing.T) {
 			assert.Equal(t, tt.wantDelete, deleteRec.Code)
 
 			if !tt.missing {
-				listRec := doRequest(t, h, "ListBuildBatchesForProject", map[string]any{"projectName": "batch-proj-" + tt.name})
+				listRec := doRequest(
+					t,
+					h,
+					"ListBuildBatchesForProject",
+					map[string]any{"projectName": "batch-proj-" + tt.name},
+				)
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listOut struct {
@@ -1257,10 +1274,10 @@ func TestAWSAccuracy_CommandExecutionType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		execType    string
-		command     string
-		wantType    string
+		name     string
+		execType string
+		command  string
+		wantType string
 	}{
 		{
 			name:     "shell_type_stored",
@@ -1375,8 +1392,8 @@ func TestAWSAccuracy_BuildPhases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		wantInitialPhase  string
+		name               string
+		wantInitialPhase   string
 		wantPhasesNonEmpty bool
 	}{
 		{
@@ -1419,11 +1436,11 @@ func TestAWSAccuracy_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		name        string
 		resourceArn string
-		policy     string
-		wantGet    int
-		wantPolicy string
+		policy      string
+		wantPolicy  string
+		wantGet     int
 	}{
 		{
 			name:        "put_and_get_policy",
@@ -1464,10 +1481,10 @@ func TestAWSAccuracy_BuildBatchConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		buildBatchConfig    map[string]any
-		wantServiceRole     string
-		wantMaxBuilds       float64
+		name             string
+		buildBatchConfig map[string]any
+		wantServiceRole  string
+		wantMaxBuilds    float64
 	}{
 		{
 			name: "batch_config_stored",
@@ -1514,7 +1531,7 @@ func TestAWSAccuracy_BuildBatchConfig(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			assert.Equal(t, tt.wantServiceRole, out.Project.BuildBatchConfig.ServiceRole)
-			assert.Equal(t, tt.wantMaxBuilds, out.Project.BuildBatchConfig.Restrictions.MaximumBuildsAllowed)
+			assert.InDelta(t, tt.wantMaxBuilds, out.Project.BuildBatchConfig.Restrictions.MaximumBuildsAllowed, 0)
 		})
 	}
 }

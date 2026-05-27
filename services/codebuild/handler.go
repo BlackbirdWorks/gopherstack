@@ -297,23 +297,23 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // --- Project operations ---
 
 type createProjectInput struct {
-	Tags                    map[string]string      `json:"tags"`
+	Cache                   *ProjectCache          `json:"cache"`
 	Source                  *ProjectSource         `json:"source"`
 	Artifacts               *ProjectArtifacts      `json:"artifacts"`
-	SecondarySources        []ProjectSource        `json:"secondarySources"`
-	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
-	Environment             *ProjectEnvironment    `json:"environment"`
-	Cache                   *ProjectCache          `json:"cache"`
-	LogsConfig              *LogsConfig            `json:"logsConfig"`
-	VpcConfig               *VpcConfig             `json:"vpcConfig"`
+	Tags                    map[string]string      `json:"tags"`
 	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig"`
+	LogsConfig              *LogsConfig            `json:"logsConfig"`
+	Environment             *ProjectEnvironment    `json:"environment"`
+	EncryptionKey           string                 `json:"encryptionKey"`
 	Name                    string                 `json:"name"`
 	Description             string                 `json:"description"`
 	ServiceRole             string                 `json:"serviceRole"`
-	EncryptionKey           string                 `json:"encryptionKey"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySources        []ProjectSource        `json:"secondarySources"`
 	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
 	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
@@ -384,23 +384,23 @@ func (h *Handler) handleBatchGetProjects(
 }
 
 type updateProjectInput struct {
-	Tags                    map[string]string      `json:"tags"`
+	Cache                   *ProjectCache          `json:"cache,omitempty"`
 	Source                  *ProjectSource         `json:"source,omitempty"`
 	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
-	SecondarySources        []ProjectSource        `json:"secondarySources"`
-	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
-	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
-	Cache                   *ProjectCache          `json:"cache,omitempty"`
-	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
-	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	Tags                    map[string]string      `json:"tags"`
 	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
+	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
+	EncryptionKey           string                 `json:"encryptionKey"`
 	Name                    string                 `json:"name"`
 	Description             string                 `json:"description"`
 	ServiceRole             string                 `json:"serviceRole"`
-	EncryptionKey           string                 `json:"encryptionKey"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySources        []ProjectSource        `json:"secondarySources"`
 	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
 	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`

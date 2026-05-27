@@ -88,7 +88,11 @@ func TestJanitor_SweepCompletedBuilds(t *testing.T) {
 
 			src := codebuild.ProjectSource{Type: "NO_SOURCE"}
 			arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
-			env := codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"}
+			env := codebuild.ProjectEnvironment{
+				Type:        "LINUX_CONTAINER",
+				Image:       "img",
+				ComputeType: "BUILD_GENERAL1_SMALL",
+			}
 			_, err := backend.CreateProject(codebuild.ProjectConfig{
 				Name:        "proj",
 				Source:      &src,

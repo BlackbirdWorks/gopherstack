@@ -18,6 +18,7 @@ const (
 	buildStatusSucceeded  = "SUCCEEDED"
 	buildStatusInProgress = "IN_PROGRESS"
 	buildStatusStopped    = "STOPPED"
+	phaseSubmitted        = "SUBMITTED"
 )
 
 var (
@@ -37,7 +38,7 @@ type SourceAuth struct {
 
 // ProjectSource represents the source configuration for a CodeBuild project.
 type ProjectSource struct {
-	Auth              SourceAuth `json:"auth,omitempty"`
+	Auth              SourceAuth `json:"auth,omitzero"`
 	Type              string     `json:"type"`
 	Location          string     `json:"location,omitempty"`
 	Buildspec         string     `json:"buildspec,omitempty"`
@@ -82,13 +83,13 @@ type RegistryCredential struct {
 
 // ProjectEnvironment represents the build environment for a CodeBuild project.
 type ProjectEnvironment struct {
-	EnvironmentVariables     []EnvironmentVariable `json:"environmentVariables,omitempty"`
 	RegistryCredential       *RegistryCredential   `json:"registryCredential,omitempty"`
 	Type                     string                `json:"type"`
 	Image                    string                `json:"image"`
 	ComputeType              string                `json:"computeType"`
 	Certificate              string                `json:"certificate,omitempty"`
 	ImagePullCredentialsType string                `json:"imagePullCredentialsType,omitempty"`
+	EnvironmentVariables     []EnvironmentVariable `json:"environmentVariables,omitempty"`
 	PrivilegedMode           bool                  `json:"privilegedMode,omitempty"`
 }
 
@@ -116,35 +117,35 @@ type S3LogsConfig struct {
 
 // LogsConfig represents the logs configuration for a CodeBuild project.
 type LogsConfig struct {
-	CloudWatchLogs CloudWatchLogsConfig `json:"cloudWatchLogs,omitempty"`
-	S3Logs         S3LogsConfig         `json:"s3Logs,omitempty"`
+	CloudWatchLogs CloudWatchLogsConfig `json:"cloudWatchLogs,omitzero"`
+	S3Logs         S3LogsConfig         `json:"s3Logs,omitzero"`
 }
 
 // VpcConfig represents VPC configuration for a CodeBuild project.
 type VpcConfig struct {
-	VpcId            string   `json:"vpcId,omitempty"`
+	VpcID            string   `json:"vpcId,omitempty"`
 	Subnets          []string `json:"subnets,omitempty"`
-	SecurityGroupIds []string `json:"securityGroupIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 }
 
 // BatchRestrictions represents restrictions on batch builds.
 type BatchRestrictions struct {
-	MaximumBuildsAllowed int32    `json:"maximumBuildsAllowed,omitempty"`
 	ComputeTypesAllowed  []string `json:"computeTypesAllowed,omitempty"`
+	MaximumBuildsAllowed int32    `json:"maximumBuildsAllowed,omitempty"`
 }
 
 // BuildBatchConfig represents batch build configuration for a project.
 type BuildBatchConfig struct {
-	Restrictions    BatchRestrictions `json:"restrictions,omitempty"`
-	ServiceRole     string            `json:"serviceRole,omitempty"`
-	BatchReportMode string            `json:"batchReportMode,omitempty"` // REPORT_AGGREGATED_BATCH|REPORT_INDIVIDUAL_BUILDS
-	TimeoutInMins   int32             `json:"timeoutInMins,omitempty"`
-	CombineArtifacts bool             `json:"combineArtifacts,omitempty"`
+	ServiceRole      string            `json:"serviceRole,omitempty"`
+	BatchReportMode  string            `json:"batchReportMode,omitempty"`
+	Restrictions     BatchRestrictions `json:"restrictions,omitzero"`
+	TimeoutInMins    int32             `json:"timeoutInMins,omitempty"`
+	CombineArtifacts bool              `json:"combineArtifacts,omitempty"`
 }
 
 // ProjectBadge represents the build badge for a project.
 type ProjectBadge struct {
-	BadgeRequestUrl string `json:"badgeRequestUrl,omitempty"`
+	BadgeRequestURL string `json:"badgeRequestUrl,omitempty"`
 	BadgeEnabled    bool   `json:"badgeEnabled,omitempty"`
 }
 
@@ -159,32 +160,32 @@ type FileSystemLocation struct {
 
 // Project represents an in-memory AWS CodeBuild project.
 type Project struct {
-	Tags                    map[string]string      `json:"tags,omitempty"`
-	Source                  ProjectSource          `json:"source"`
-	Artifacts               ProjectArtifacts       `json:"artifacts"`
-	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
-	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
 	Cache                   *ProjectCache          `json:"cache,omitempty"`
-	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
-	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
-	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	Tags                    map[string]string      `json:"tags,omitempty"`
 	Badge                   *ProjectBadge          `json:"badge,omitempty"`
-	Environment             ProjectEnvironment     `json:"environment"`
+	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
 	Name                    string                 `json:"name"`
-	Arn                     string                 `json:"arn"`
 	Description             string                 `json:"description,omitempty"`
 	ServiceRole             string                 `json:"serviceRole,omitempty"`
 	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
-	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
+	Arn                     string                 `json:"arn"`
 	Visibility              string                 `json:"projectVisibility,omitempty"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
+	Artifacts               ProjectArtifacts       `json:"artifacts"`
+	Source                  ProjectSource          `json:"source"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
+	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	Environment             ProjectEnvironment     `json:"environment"`
+	Created                 float64                `json:"created,omitempty"`
+	LastModified            float64                `json:"lastModified,omitempty"`
 	TimeoutInMinutes        int32                  `json:"timeoutInMinutes,omitempty"`
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
 	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit,omitempty"`
 	AutoRetryLimit          int32                  `json:"autoRetryLimit,omitempty"`
-	Created                 float64                `json:"created,omitempty"`
-	LastModified            float64                `json:"lastModified,omitempty"`
 }
 
 // BuildPhaseContext represents a context entry within a build phase.
@@ -195,12 +196,12 @@ type BuildPhaseContext struct {
 
 // BuildPhase represents a single phase in the build lifecycle.
 type BuildPhase struct {
+	PhaseType         string              `json:"phaseType"`
+	PhaseStatus       string              `json:"phaseStatus,omitempty"`
 	Contexts          []BuildPhaseContext `json:"contexts,omitempty"`
-	PhaseType         string             `json:"phaseType"`
-	PhaseStatus       string             `json:"phaseStatus,omitempty"`
-	StartTime         float64            `json:"startTime,omitempty"`
-	EndTime           float64            `json:"endTime,omitempty"`
-	DurationInSeconds float64            `json:"durationInSeconds,omitempty"`
+	StartTime         float64             `json:"startTime,omitempty"`
+	EndTime           float64             `json:"endTime,omitempty"`
+	DurationInSeconds float64             `json:"durationInSeconds,omitempty"`
 }
 
 // BuildLogs represents the log locations for a build.
@@ -215,21 +216,21 @@ type BuildLogs struct {
 
 // Build represents an in-memory AWS CodeBuild build execution.
 type Build struct {
+	Source                 *ProjectSource      `json:"source,omitempty"`
 	Tags                   map[string]string   `json:"tags,omitempty"`
-	Phases                 []BuildPhase        `json:"phases,omitempty"`
 	Logs                   *BuildLogs          `json:"logs,omitempty"`
 	Artifacts              *ProjectArtifacts   `json:"artifacts,omitempty"`
 	Environment            *ProjectEnvironment `json:"environment,omitempty"`
-	Source                 *ProjectSource      `json:"source,omitempty"`
-	ID                     string              `json:"id"`
+	CurrentPhase           string              `json:"currentPhase,omitempty"`
+	Initiator              string              `json:"initiator,omitempty"`
 	Arn                    string              `json:"arn"`
 	ProjectName            string              `json:"projectName"`
 	BuildStatus            string              `json:"buildStatus"`
-	CurrentPhase           string              `json:"currentPhase,omitempty"`
-	ResolvedSourceVersion  string              `json:"resolvedSourceVersion,omitempty"`
-	Initiator              string              `json:"initiator,omitempty"`
-	EncryptionKey          string              `json:"encryptionKey,omitempty"`
 	ServiceRole            string              `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion  string              `json:"resolvedSourceVersion,omitempty"`
+	ID                     string              `json:"id"`
+	EncryptionKey          string              `json:"encryptionKey,omitempty"`
+	Phases                 []BuildPhase        `json:"phases,omitempty"`
 	BuildNumber            int64               `json:"buildNumber,omitempty"`
 	StartTime              float64             `json:"startTime,omitempty"`
 	EndTime                float64             `json:"endTime,omitempty"`
@@ -474,23 +475,23 @@ func (b *InMemoryBackend) lookupByNameOrARN(nameOrARN string) (*Project, bool) {
 
 // ProjectConfig holds all configurable fields for creating or updating a project.
 type ProjectConfig struct {
-	Tags                    map[string]string
+	Cache                   *ProjectCache
 	Source                  *ProjectSource
 	Artifacts               *ProjectArtifacts
-	SecondarySources        []ProjectSource
-	SecondaryArtifacts      []ProjectArtifacts
-	SecondarySourceVersions []ProjectSourceVersion
-	FileSystemLocations     []FileSystemLocation
-	Environment             *ProjectEnvironment
-	Cache                   *ProjectCache
-	LogsConfig              *LogsConfig
-	VpcConfig               *VpcConfig
+	Tags                    map[string]string
 	BuildBatchConfig        *BuildBatchConfig
+	VpcConfig               *VpcConfig
+	LogsConfig              *LogsConfig
+	Environment             *ProjectEnvironment
+	EncryptionKey           string
 	Name                    string
 	Description             string
 	ServiceRole             string
-	EncryptionKey           string
 	ResourceAccessRole      string
+	FileSystemLocations     []FileSystemLocation
+	SecondarySourceVersions []ProjectSourceVersion
+	SecondaryArtifacts      []ProjectArtifacts
+	SecondarySources        []ProjectSource
 	TimeoutInMinutes        int32
 	QueuedTimeoutInMinutes  int32
 	ConcurrentBuildLimit    int32
@@ -579,19 +580,8 @@ func (b *InMemoryBackend) BatchGetProjects(names []string) ([]*Project, []string
 }
 
 // UpdateProject updates fields on an existing project.
-func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Project, error) {
-	b.mu.Lock("UpdateProject")
-	defer b.mu.Unlock()
-
-	p, ok := b.lookupByNameOrARN(name)
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	if cfg.Description != "" {
-		p.Description = cfg.Description
-	}
-
+// applyProjectOptionalFields copies non-zero optional fields from cfg into p.
+func applyProjectOptionalFields(p *Project, cfg ProjectConfig) {
 	if cfg.Source != nil {
 		p.Source = *cfg.Source
 	}
@@ -602,34 +592,6 @@ func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Projec
 
 	if cfg.Environment != nil {
 		p.Environment = *cfg.Environment
-	}
-
-	if cfg.ServiceRole != "" {
-		p.ServiceRole = cfg.ServiceRole
-	}
-
-	if cfg.EncryptionKey != "" {
-		p.EncryptionKey = cfg.EncryptionKey
-	}
-
-	if cfg.ResourceAccessRole != "" {
-		p.ResourceAccessRole = cfg.ResourceAccessRole
-	}
-
-	if cfg.TimeoutInMinutes != 0 {
-		p.TimeoutInMinutes = cfg.TimeoutInMinutes
-	}
-
-	if cfg.QueuedTimeoutInMinutes != 0 {
-		p.QueuedTimeoutInMinutes = cfg.QueuedTimeoutInMinutes
-	}
-
-	if cfg.ConcurrentBuildLimit != 0 {
-		p.ConcurrentBuildLimit = cfg.ConcurrentBuildLimit
-	}
-
-	if cfg.AutoRetryLimit != 0 {
-		p.AutoRetryLimit = cfg.AutoRetryLimit
 	}
 
 	if cfg.SecondarySources != nil {
@@ -663,12 +625,54 @@ func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Projec
 	if cfg.BuildBatchConfig != nil {
 		p.BuildBatchConfig = cfg.BuildBatchConfig
 	}
+}
+
+// UpdateProject updates fields on an existing project.
+func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Project, error) {
+	b.mu.Lock("UpdateProject")
+	defer b.mu.Unlock()
+
+	p, ok := b.lookupByNameOrARN(name)
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if cfg.Description != "" {
+		p.Description = cfg.Description
+	}
+
+	if cfg.ServiceRole != "" {
+		p.ServiceRole = cfg.ServiceRole
+	}
+
+	if cfg.EncryptionKey != "" {
+		p.EncryptionKey = cfg.EncryptionKey
+	}
+
+	if cfg.ResourceAccessRole != "" {
+		p.ResourceAccessRole = cfg.ResourceAccessRole
+	}
+
+	if cfg.TimeoutInMinutes != 0 {
+		p.TimeoutInMinutes = cfg.TimeoutInMinutes
+	}
+
+	if cfg.QueuedTimeoutInMinutes != 0 {
+		p.QueuedTimeoutInMinutes = cfg.QueuedTimeoutInMinutes
+	}
+
+	if cfg.ConcurrentBuildLimit != 0 {
+		p.ConcurrentBuildLimit = cfg.ConcurrentBuildLimit
+	}
+
+	if cfg.AutoRetryLimit != 0 {
+		p.AutoRetryLimit = cfg.AutoRetryLimit
+	}
+
+	applyProjectOptionalFields(p, cfg)
 
 	if len(cfg.Tags) > 0 {
-		if p.Tags == nil {
-			p.Tags = make(map[string]string)
-		}
-		maps.Copy(p.Tags, cfg.Tags)
+		p.Tags = mergeTags(p.Tags, cfg.Tags)
 	}
 
 	p.LastModified = float64(time.Now().Unix())
@@ -676,6 +680,17 @@ func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Projec
 	out := *p
 
 	return &out, nil
+}
+
+// mergeTags returns a new map containing dst's entries merged with src.
+func mergeTags(dst, src map[string]string) map[string]string {
+	if dst == nil {
+		dst = make(map[string]string, len(src))
+	}
+
+	maps.Copy(dst, src)
+
+	return dst
 }
 
 // DeleteProject removes a project by name and all builds associated with it.
@@ -742,7 +757,7 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 		ProjectName:            projectName,
 		BuildStatus:            buildStatusInProgress,
 		StartTime:              now,
-		CurrentPhase:           "SUBMITTED",
+		CurrentPhase:           phaseSubmitted,
 		ServiceRole:            proj.ServiceRole,
 		EncryptionKey:          proj.EncryptionKey,
 		TimeoutInMinutes:       proj.TimeoutInMinutes,
@@ -751,7 +766,7 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 		Source:                 &src,
 		Artifacts:              &artifacts,
 		Phases: []BuildPhase{
-			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
+			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 		},
 	}
 	b.builds[fullID] = build
@@ -871,7 +886,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 		ProjectName:  projectName,
 		BuildStatus:  buildStatusInProgress,
 		StartTime:    float64(time.Now().Unix()),
-		CurrentPhase: "SUBMITTED",
+		CurrentPhase: phaseSubmitted,
 	}
 	b.builds[fullID] = build
 	b.buildARNIndex[build.Arn] = fullID
