@@ -24,7 +24,7 @@ var (
 	vaultNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{2,50}$`)
 
 	// validVaultEvents is the canonical set of AWS Backup vault notification events.
-	validVaultEvents = map[string]struct{}{
+	validVaultEvents = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
 		"BACKUP_JOB_STARTED":       {},
 		"BACKUP_JOB_COMPLETED":     {},
 		"BACKUP_JOB_SUCCESSFUL":    {},
@@ -61,7 +61,7 @@ type CalculatedLifecycle struct {
 // CopyAction defines a cross-vault copy triggered by a backup rule.
 type CopyAction struct {
 	DestinationBackupVaultArn string    `json:"destinationBackupVaultArn"`
-	Lifecycle                 Lifecycle `json:"lifecycle,omitempty"`
+	Lifecycle                 Lifecycle `json:"lifecycle,omitzero"`
 }
 
 // TagCondition is a single tag-based resource selection filter.
@@ -87,15 +87,15 @@ type SelectionConditions struct {
 
 // AdvancedBackupSetting enables resource-type-specific backup options (e.g., Windows VSS).
 type AdvancedBackupSetting struct {
-	ResourceType  string            `json:"resourceType"`
 	BackupOptions map[string]string `json:"backupOptions,omitempty"`
+	ResourceType  string            `json:"resourceType"`
 }
 
 // FrameworkControl represents a compliance control within an audit framework.
 type FrameworkControl struct {
-	ControlName            string            `json:"controlName"`
 	ControlInputParameters map[string]string `json:"controlInputParameters,omitempty"`
 	ControlScope           map[string]any    `json:"controlScope,omitempty"`
+	ControlName            string            `json:"controlName"`
 }
 
 // ReportDeliveryChannel specifies the S3 destination and format for report output.
@@ -130,14 +130,14 @@ type Vault struct {
 
 // Rule represents a single rule in a backup plan.
 type Rule struct {
-	Lifecycle                  *Lifecycle        `json:"lifecycle,omitempty"`
-	CopyActions                []CopyAction      `json:"copyActions,omitempty"`
 	RecoveryPointTags          map[string]string `json:"recoveryPointTags,omitempty"`
+	Lifecycle                  *Lifecycle        `json:"lifecycle,omitempty"`
 	RuleName                   string            `json:"ruleName"`
 	RuleID                     string            `json:"ruleId,omitempty"`
 	TargetVaultName            string            `json:"targetVaultName"`
 	ScheduleExpression         string            `json:"scheduleExpression,omitempty"`
 	ScheduleExpressionTimezone string            `json:"scheduleExpressionTimezone,omitempty"`
+	CopyActions                []CopyAction      `json:"copyActions,omitempty"`
 	StartWindowMinutes         int64             `json:"startWindowMinutes,omitempty"`
 	CompletionWindowMinutes    int64             `json:"completionWindowMinutes,omitempty"`
 	EnableContinuousBackup     bool              `json:"enableContinuousBackup,omitempty"`
@@ -188,6 +188,7 @@ type Job struct {
 // Selection represents an AWS Backup selection (resources assigned to a plan).
 type Selection struct {
 	CreationTime  time.Time            `json:"creationTime"`
+	Conditions    *SelectionConditions `json:"conditions,omitempty"`
 	SelectionName string               `json:"selectionName"`
 	SelectionID   string               `json:"selectionId"`
 	BackupPlanID  string               `json:"backupPlanId"`
@@ -195,7 +196,6 @@ type Selection struct {
 	Resources     []string             `json:"resources,omitempty"`
 	NotResources  []string             `json:"notResources,omitempty"`
 	ListOfTags    []TagCondition       `json:"listOfTags,omitempty"`
-	Conditions    *SelectionConditions `json:"conditions,omitempty"`
 }
 
 // Framework represents an AWS Backup audit framework.
@@ -222,13 +222,13 @@ type LegalHold struct {
 
 // ReportPlan represents an AWS Backup report plan.
 type ReportPlan struct {
-	CreationTime          time.Time              `json:"creationTime"`
 	Tags                  *tags.Tags             `json:"tags,omitempty"`
+	ReportDeliveryChannel *ReportDeliveryChannel `json:"reportDeliveryChannel,omitempty"`
+	ReportSetting         *ReportSetting         `json:"reportSetting,omitempty"`
+	CreationTime          time.Time              `json:"creationTime"`
 	ReportPlanName        string                 `json:"reportPlanName"`
 	ReportPlanArn         string                 `json:"reportPlanArn"`
 	ReportPlanDescription string                 `json:"reportPlanDescription,omitempty"`
-	ReportDeliveryChannel *ReportDeliveryChannel `json:"reportDeliveryChannel,omitempty"`
-	ReportSetting         *ReportSetting         `json:"reportSetting,omitempty"`
 }
 
 // RestoreAccessVault represents an AWS Backup restore access backup vault.
@@ -420,8 +420,10 @@ func (b *InMemoryBackend) CreateBackupVault(
 		// Idempotent create: same CreatorRequestId returns existing vault.
 		if creatorRequestID != "" && existing.CreatorRequestID == creatorRequestID {
 			cp := *existing
+
 			return &cp, nil
 		}
+
 		return nil, fmt.Errorf("%w: vault %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1464,6 +1466,7 @@ func (b *InMemoryBackend) GetBackupVaultLockConfig(vaultName string) (*VaultLock
 	}
 
 	cp := *cfg
+
 	return &cp, nil
 }
 

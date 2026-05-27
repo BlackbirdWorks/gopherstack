@@ -17,9 +17,9 @@ func TestRuleLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantInRules func(t *testing.T, rules []any)
 		name        string
 		rules       []any
-		wantInRules func(t *testing.T, rules []any)
 	}{
 		{
 			name: "lifecycle_fields_round_trip",
@@ -38,8 +38,8 @@ func TestRuleLifecycle(t *testing.T) {
 				require.Len(t, rules, 1)
 				r := rules[0].(map[string]any)
 				lc := r["Lifecycle"].(map[string]any)
-				assert.Equal(t, float64(30), lc["MoveToColdStorageAfterDays"])
-				assert.Equal(t, float64(120), lc["DeleteAfterDays"])
+				assert.InDelta(t, float64(30), lc["MoveToColdStorageAfterDays"], 0)
+				assert.InDelta(t, float64(120), lc["DeleteAfterDays"], 0)
 			},
 		},
 		{
@@ -177,9 +177,9 @@ func TestAdvancedBackupSettings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantSettings     func(t *testing.T, settings []any)
 		name             string
 		advancedSettings []any
-		wantSettings     func(t *testing.T, settings []any)
 	}{
 		{
 			name: "windows_vss_round_trip",
@@ -203,7 +203,7 @@ func TestAdvancedBackupSettings(t *testing.T) {
 		{
 			name:             "no_advanced_settings",
 			advancedSettings: nil,
-			wantSettings: func(t *testing.T, settings []any) {
+			wantSettings: func(t *testing.T, _ []any) {
 				t.Helper()
 				// settings key should be absent or empty.
 			},
@@ -259,9 +259,9 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		selection map[string]any
 		wantSel   func(t *testing.T, sel map[string]any)
+		name      string
 	}{
 		{
 			name: "resources_round_trip",
@@ -636,7 +636,9 @@ func TestVaultAccessPolicyJSONValidation(t *testing.T) {
 		{
 			name: "valid_json_policy",
 			body: `{
-				"Policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"backup:StartBackupJob\",\"Resource\":\"*\"}]}"
+				"Policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",' +
+					'\"Principal\":{\"AWS\":\"*\"},\"Action\":\"backup:StartBackupJob\",' +
+					'\"Resource\":\"*\"}]}"
 			}`,
 			wantStatus: http.StatusOK,
 		},
@@ -679,9 +681,9 @@ func TestFrameworkControls(t *testing.T) {
 	tests := []struct {
 		name           string
 		body           string
+		wantStatus2    string
 		wantStatus     int
 		wantControlLen int
-		wantStatus2    string
 	}{
 		{
 			name: "framework_with_controls",
@@ -901,8 +903,8 @@ func TestRecoveryPointNewFields(t *testing.T) {
 	require.NoError(t, b.AddRecoveryPoint("rp-vault", rp))
 
 	tests := []struct {
-		name      string
 		checkResp func(t *testing.T, resp map[string]any)
+		name      string
 	}{
 		{
 			name: "storage_class_preserved",
@@ -960,8 +962,8 @@ func TestVaultLockConfigDeletion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
 		setup          func(t *testing.T, h *backup.Handler)
+		name           string
 		deleteShouldOK bool
 	}{
 		{

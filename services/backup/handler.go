@@ -1588,26 +1588,26 @@ type lifecycleJSON struct {
 
 type copyActionJSON struct {
 	DestinationBackupVaultArn string        `json:"DestinationBackupVaultArn"`
-	Lifecycle                 lifecycleJSON `json:"Lifecycle,omitempty"`
+	Lifecycle                 lifecycleJSON `json:"Lifecycle,omitzero"`
 }
 
 type backupRuleJSON struct {
 	RecoveryPointTags          map[string]string `json:"RecoveryPointTags,omitempty"`
 	Lifecycle                  *lifecycleJSON    `json:"Lifecycle,omitempty"`
-	CopyActions                []copyActionJSON  `json:"CopyActions,omitempty"`
 	RuleName                   string            `json:"RuleName"`
-	RuleId                     string            `json:"RuleId,omitempty"`
+	RuleID                     string            `json:"RuleId,omitempty"`
 	TargetBackupVaultName      string            `json:"TargetBackupVaultName"`
 	ScheduleExpression         string            `json:"ScheduleExpression,omitempty"`
 	ScheduleExpressionTimezone string            `json:"ScheduleExpressionTimezone,omitempty"`
+	CopyActions                []copyActionJSON  `json:"CopyActions,omitempty"`
 	StartWindowMinutes         int64             `json:"StartWindowMinutes,omitempty"`
 	CompletionWindowMinutes    int64             `json:"CompletionWindowMinutes,omitempty"`
 	EnableContinuousBackup     bool              `json:"EnableContinuousBackup,omitempty"`
 }
 
 type advancedBackupSettingJSON struct {
-	ResourceType  string            `json:"ResourceType"`
 	BackupOptions map[string]string `json:"BackupOptions,omitempty"`
+	ResourceType  string            `json:"ResourceType"`
 }
 
 type backupPlanBodyDoc struct {
@@ -1625,6 +1625,7 @@ func lifecycleFromJSON(lj *lifecycleJSON) *Lifecycle {
 	if lj == nil {
 		return nil
 	}
+
 	return &Lifecycle{
 		MoveToColdStorageAfterDays:          lj.MoveToColdStorageAfterDays,
 		DeleteAfterDays:                     lj.DeleteAfterDays,
@@ -1636,6 +1637,7 @@ func lifecycleToJSON(lc *Lifecycle) *lifecycleJSON {
 	if lc == nil {
 		return nil
 	}
+
 	return &lifecycleJSON{
 		MoveToColdStorageAfterDays:          lc.MoveToColdStorageAfterDays,
 		DeleteAfterDays:                     lc.DeleteAfterDays,
@@ -1654,6 +1656,7 @@ func copyActionsFromJSON(in []copyActionJSON) []CopyAction {
 		}
 		out = append(out, act)
 	}
+
 	return out
 }
 
@@ -1669,48 +1672,43 @@ func copyActionsToJSON(in []CopyAction) []copyActionJSON {
 			},
 		})
 	}
+
 	return out
 }
 
 func advancedSettingsFromJSON(in []advancedBackupSettingJSON) []AdvancedBackupSetting {
 	out := make([]AdvancedBackupSetting, 0, len(in))
 	for _, s := range in {
-		out = append(out, AdvancedBackupSetting{
-			ResourceType:  s.ResourceType,
-			BackupOptions: s.BackupOptions,
-		})
+		out = append(out, AdvancedBackupSetting(s))
 	}
+
 	return out
 }
 
 func advancedSettingsToJSON(in []AdvancedBackupSetting) []advancedBackupSettingJSON {
 	out := make([]advancedBackupSettingJSON, 0, len(in))
 	for _, s := range in {
-		out = append(out, advancedBackupSettingJSON{
-			ResourceType:  s.ResourceType,
-			BackupOptions: s.BackupOptions,
-		})
+		out = append(out, advancedBackupSettingJSON(s))
 	}
+
 	return out
 }
 
 func tagConditionsFromJSON(in []tagConditionJSON) []TagCondition {
 	out := make([]TagCondition, 0, len(in))
 	for _, tc := range in {
-		out = append(out, TagCondition{
-			ConditionType:  tc.ConditionType,
-			ConditionKey:   tc.ConditionKey,
-			ConditionValue: tc.ConditionValue,
-		})
+		out = append(out, TagCondition(tc))
 	}
+
 	return out
 }
 
 func stringConditionsFromJSON(in []stringConditionJSON) []StringCondition {
 	out := make([]StringCondition, 0, len(in))
 	for _, sc := range in {
-		out = append(out, StringCondition{Key: sc.Key, Value: sc.Value})
+		out = append(out, StringCondition(sc))
 	}
+
 	return out
 }
 
@@ -1718,6 +1716,7 @@ func selectionConditionsFromJSON(in *selectionConditionsJSON) *SelectionConditio
 	if in == nil {
 		return nil
 	}
+
 	return &SelectionConditions{
 		StringEquals:    stringConditionsFromJSON(in.StringEquals),
 		StringLike:      stringConditionsFromJSON(in.StringLike),
@@ -1731,7 +1730,7 @@ func rulesFromJSON(in []backupRuleJSON) []Rule {
 	for _, r := range in {
 		rules = append(rules, Rule{
 			RuleName:                   r.RuleName,
-			RuleID:                     r.RuleId,
+			RuleID:                     r.RuleID,
 			TargetVaultName:            r.TargetBackupVaultName,
 			ScheduleExpression:         r.ScheduleExpression,
 			ScheduleExpressionTimezone: r.ScheduleExpressionTimezone,
@@ -1752,7 +1751,7 @@ func rulesToJSON(rules []Rule) []backupRuleJSON {
 	for _, r := range rules {
 		rj := backupRuleJSON{
 			RuleName:                   r.RuleName,
-			RuleId:                     r.RuleID,
+			RuleID:                     r.RuleID,
 			TargetBackupVaultName:      r.TargetVaultName,
 			ScheduleExpression:         r.ScheduleExpression,
 			ScheduleExpressionTimezone: r.ScheduleExpressionTimezone,
@@ -1941,6 +1940,13 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 	})
 }
 
+// setOptionalStr sets key in m if v is non-empty.
+func setOptionalStr(m map[string]any, key, v string) {
+	if v != "" {
+		m[key] = v
+	}
+}
+
 func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	j, err := h.Backend.DescribeBackupJob(jobID)
 	if err != nil {
@@ -1954,45 +1960,35 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 		keyState:           j.State,
 		keyCreationDate:    epochSeconds(j.CreationTime),
 	}
-	if j.ResourceArn != "" {
-		resp["ResourceArn"] = j.ResourceArn
-	}
-	if j.ResourceType != "" {
-		resp["ResourceType"] = j.ResourceType
-	}
-	if j.IAMRoleArn != "" {
-		resp["IamRoleArn"] = j.IAMRoleArn
-	}
-	if j.RecoveryPointArn != "" {
-		resp["RecoveryPointArn"] = j.RecoveryPointArn
-	}
-	if j.PercentDone != "" {
-		resp["PercentDone"] = j.PercentDone
-	}
-	if j.MessageCategory != "" {
-		resp["MessageCategory"] = j.MessageCategory
-	}
-	if j.ParentJobID != "" {
-		resp["ParentJobId"] = j.ParentJobID
-	}
+	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
+	setOptionalStr(resp, "ResourceType", j.ResourceType)
+	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
+	setOptionalStr(resp, "RecoveryPointArn", j.RecoveryPointArn)
+	setOptionalStr(resp, "PercentDone", j.PercentDone)
+	setOptionalStr(resp, "MessageCategory", j.MessageCategory)
+	setOptionalStr(resp, "ParentJobId", j.ParentJobID)
+	setOptionalStr(resp, "CompositeMemberIdentifier", j.CompositeMemberIdentifier)
+
 	if j.IsParent {
 		resp["IsParent"] = j.IsParent
 	}
-	if j.CompositeMemberIdentifier != "" {
-		resp["CompositeMemberIdentifier"] = j.CompositeMemberIdentifier
-	}
+
 	if j.BytesTransferred > 0 {
 		resp["BytesTransferred"] = j.BytesTransferred
 	}
+
 	if j.BackupSizeInBytes > 0 {
 		resp["BackupSizeInBytes"] = j.BackupSizeInBytes
 	}
+
 	if j.CompletionTime != nil {
 		resp["CompletionDate"] = epochSeconds(*j.CompletionTime)
 	}
+
 	if j.ExpectedCompletionDate != nil {
 		resp["ExpectedCompletionDate"] = epochSeconds(*j.ExpectedCompletionDate)
 	}
+
 	if j.StartBy != nil {
 		resp["StartBy"] = epochSeconds(*j.StartBy)
 	}
@@ -2154,17 +2150,17 @@ type selectionConditionsJSON struct {
 }
 
 type backupSelectionDoc struct {
+	Conditions    *selectionConditionsJSON `json:"Conditions,omitempty"`
 	SelectionName string                   `json:"SelectionName"`
 	IamRoleArn    string                   `json:"IamRoleArn,omitempty"`
 	Resources     []string                 `json:"Resources,omitempty"`
 	NotResources  []string                 `json:"NotResources,omitempty"`
 	ListOfTags    []tagConditionJSON       `json:"ListOfTags,omitempty"`
-	Conditions    *selectionConditionsJSON `json:"Conditions,omitempty"`
 }
 
 type createBackupSelectionBody struct {
-	BackupSelection  backupSelectionDoc `json:"BackupSelection"`
 	CreatorRequestID string             `json:"CreatorRequestId,omitempty"`
+	BackupSelection  backupSelectionDoc `json:"BackupSelection"`
 }
 
 func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, body []byte) error {
@@ -2201,16 +2197,16 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 }
 
 type frameworkControlJSON struct {
-	ControlName            string            `json:"ControlName"`
 	ControlInputParameters map[string]string `json:"ControlInputParameters,omitempty"`
 	ControlScope           map[string]any    `json:"ControlScope,omitempty"`
+	ControlName            string            `json:"ControlName"`
 }
 
 type createFrameworkBody struct {
 	FrameworkName        string                 `json:"FrameworkName"`
 	FrameworkDescription string                 `json:"FrameworkDescription,omitempty"`
-	FrameworkControls    []frameworkControlJSON `json:"FrameworkControls,omitempty"`
 	IdempotencyToken     string                 `json:"IdempotencyToken,omitempty"`
+	FrameworkControls    []frameworkControlJSON `json:"FrameworkControls,omitempty"`
 }
 
 func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
@@ -2228,11 +2224,7 @@ func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 
 	controls := make([]FrameworkControl, 0, len(in.FrameworkControls))
 	for _, fc := range in.FrameworkControls {
-		controls = append(controls, FrameworkControl{
-			ControlName:            fc.ControlName,
-			ControlInputParameters: fc.ControlInputParameters,
-			ControlScope:           fc.ControlScope,
-		})
+		controls = append(controls, FrameworkControl(fc))
 	}
 	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription, controls)
 	if err != nil {
@@ -2948,6 +2940,7 @@ func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) err
 	if sel.Conditions != nil {
 		selDoc["Conditions"] = sel.Conditions
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyBackupPlanID:   sel.BackupPlanID,
 		keySelectionID:    sel.SelectionID,
@@ -3310,6 +3303,7 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 		}
 		resp["FrameworkControls"] = controls
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -3433,6 +3427,7 @@ func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
 		}
 		rpDoc["ReportSetting"] = rs
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"ReportPlan": rpDoc})
 }
 
