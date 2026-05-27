@@ -37,6 +37,12 @@ var (
 	ErrTagNotFound = awserr.New("TagNotFoundFault", awserr.ErrNotFound)
 	// ErrInvalidARN is returned for invalid ARNs.
 	ErrInvalidARN = awserr.New("InvalidARNFault", awserr.ErrInvalidParameter)
+	// ErrInvalidParameterValue is returned when a parameter value is invalid.
+	ErrInvalidParameterValue = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
+	// ErrInvalidParameterCombination is returned for invalid parameter combinations.
+	ErrInvalidParameterCombination = awserr.New("InvalidParameterCombinationException", awserr.ErrInvalidParameter)
+	// ErrNodeNotFound is returned when a node does not exist.
+	ErrNodeNotFound = awserr.New("NodeNotFoundFault", awserr.ErrNotFound)
 )
 
 const (
@@ -52,22 +58,45 @@ const (
 	// paramApplyStatusInSync is the value reported for parameter group status when in sync.
 	paramApplyStatusInSync = "in-sync"
 
-	// defaultMaintenanceWindow is the default preferred maintenance window.
-	defaultMaintenanceWindow = "sun:05:00-sun:09:00"
-
 	// sseStatusDisabled is the SSE status when not enabled.
 	sseStatusDisabled = "DISABLED"
 
 	// sseStatusEnabled is the SSE status when enabled.
 	sseStatusEnabled = "ENABLED"
+
+	// notificationTopicStatusActive is the active SNS topic status.
+	notificationTopicStatusActive = "active"
+
+	// maintenanceWindowMinutes is the fixed width of the simulated maintenance window.
+	maintenanceWindowMinutes = 60
+
+	// hoursPerDay is the number of hours in a day.
+	hoursPerDay = 24
+
+	// minutesPerHour is the number of minutes in an hour.
+	minutesPerHour = 60
 )
 
+// maintenanceWindowDays maps random seeds to day abbreviations for the maintenance window.
+//
+//nolint:gochecknoglobals // package-level lookup table
+var maintenanceWindowDays = []string{
+	"sun",
+	"mon",
+	"tue",
+	"wed",
+	"thu",
+	"fri",
+	"sat",
+}
+
 // InMemoryBackend is the in-memory DAX backend.
-type InMemoryBackend struct {
+type InMemoryBackend struct { //nolint:govet // field grouping by concern is preferred over alignment optimization
 	clusters     map[string]*Cluster
 	paramGroups  map[string]*ParameterGroup
 	subnetGroups map[string]*SubnetGroup
 	tags         map[string]map[string]string // resourceArn -> tags
+	events       []*Event
 	mu           *lockmetrics.RWMutex
 	AccountID    string
 	Region       string
@@ -80,27 +109,34 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		paramGroups:  make(map[string]*ParameterGroup),
 		subnetGroups: make(map[string]*SubnetGroup),
 		tags:         make(map[string]map[string]string),
+		events:       make([]*Event, 0),
 		mu:           lockmetrics.New("dax"),
 		AccountID:    accountID,
 		Region:       region,
 	}
 
-	// Pre-populate the default parameter group.
+	b.seedDefaults()
+
+	return b
+}
+
+// seedDefaults populates factory-default parameter and subnet groups.
+func (b *InMemoryBackend) seedDefaults() {
+	params := make(map[string]string, len(defaultParameterValues))
+	maps.Copy(params, defaultParameterValues)
+
 	b.paramGroups[DefaultParameterGroupName] = &ParameterGroup{
 		ParameterGroupName: DefaultParameterGroupName,
 		Description:        "Default parameter group for DAX 1.0",
-		Parameters:         make(map[string]string),
+		Parameters:         params,
 	}
 
-	// Pre-populate the default subnet group.
 	b.subnetGroups[DefaultSubnetGroupName] = &SubnetGroup{
 		SubnetGroupName: DefaultSubnetGroupName,
 		Description:     "Default subnet group",
 		VpcID:           "vpc-default",
-		SubnetIDs:       []string{"subnet-default"},
+		Subnets:         []SubnetEntry{{SubnetID: "subnet-default", AvailabilityZone: b.Region + "a"}},
 	}
-
-	return b
 }
 
 // clusterARN builds a DAX cluster ARN.
@@ -115,7 +151,6 @@ func daxURL(addr string, port int) string {
 
 // clusterEndpointAddress generates a realistic DAX endpoint address.
 func clusterEndpointAddress(name, region string) string {
-	// Generate a pseudo-random hex suffix for the DNS name.
 	const maxSuffix uint32 = 0xFFFFFF
 	suffix := fmt.Sprintf("%06x", rand.Uint32N(maxSuffix)) //nolint:gosec // not security sensitive
 
@@ -127,7 +162,20 @@ func nodeEndpointAddress(clusterName, nodeID, region string) string {
 	return fmt.Sprintf("%s-%s.nodes.dax-clusters.%s.amazonaws.com", clusterName, nodeID, region)
 }
 
-// CreateCluster creates a new DAX cluster.
+// randomMaintenanceWindow returns a random 60-minute maintenance window slot.
+func randomMaintenanceWindow() string {
+	//nolint:gosec // not security sensitive
+	day := maintenanceWindowDays[rand.Uint32N(uint32(len(maintenanceWindowDays)))]
+	hour := rand.Uint32N(hoursPerDay)      //nolint:gosec // not security sensitive
+	minute := rand.Uint32N(minutesPerHour) //nolint:gosec // not security sensitive
+
+	totalMinutes := hour*minutesPerHour + minute + uint32(maintenanceWindowMinutes)
+	endHour := totalMinutes / minutesPerHour % hoursPerDay
+	endMinute := totalMinutes % minutesPerHour
+
+	return fmt.Sprintf("%s:%02d:%02d-%s:%02d:%02d", day, hour, minute, day, endHour, endMinute)
+}
+
 // validateCreateCluster validates the CreateCluster input before acquiring the lock.
 func validateCreateCluster(input *CreateClusterInput) error {
 	if input.ClusterName == "" {
@@ -135,11 +183,35 @@ func validateCreateCluster(input *CreateClusterInput) error {
 	}
 
 	if input.NodeType == "" {
-		return fmt.Errorf("%w: NodeType is required", ErrInvalidARN)
+		return fmt.Errorf("%w: NodeType is required", ErrInvalidParameterValue)
+	}
+
+	if !validNodeTypes[input.NodeType] {
+		return fmt.Errorf("%w: unsupported node type %q", ErrInvalidParameterValue, input.NodeType)
 	}
 
 	if input.IamRoleArn == "" {
 		return fmt.Errorf("%w: IamRoleArn is required", ErrInvalidARN)
+	}
+
+	if input.ReplicationFactor > maxReplicationFactor {
+		return fmt.Errorf(
+			"%w: ReplicationFactor %d exceeds maximum of %d",
+			ErrInvalidParameterCombination,
+			input.ReplicationFactor,
+			maxReplicationFactor,
+		)
+	}
+
+	if input.ClusterEndpointEncryptionType != "" &&
+		input.ClusterEndpointEncryptionType != EncryptionTypeNone &&
+		input.ClusterEndpointEncryptionType != EncryptionTypeTLS {
+		return fmt.Errorf(
+			"%w: ClusterEndpointEncryptionType must be %q or %q",
+			ErrInvalidParameterValue,
+			EncryptionTypeNone,
+			EncryptionTypeTLS,
+		)
 	}
 
 	return nil
@@ -147,8 +219,8 @@ func validateCreateCluster(input *CreateClusterInput) error {
 
 // applyCreateClusterDefaults fills in default values for optional fields.
 func applyCreateClusterDefaults(input *CreateClusterInput) {
-	if input.ReplicationFactor < 1 {
-		input.ReplicationFactor = 1
+	if input.ReplicationFactor < minReplicationFactor {
+		input.ReplicationFactor = minReplicationFactor
 	}
 
 	if input.SubnetGroupName == "" {
@@ -157,6 +229,10 @@ func applyCreateClusterDefaults(input *CreateClusterInput) {
 
 	if input.ParameterGroupName == "" {
 		input.ParameterGroupName = DefaultParameterGroupName
+	}
+
+	if input.ClusterEndpointEncryptionType == "" {
+		input.ClusterEndpointEncryptionType = EncryptionTypeNone
 	}
 }
 
@@ -224,25 +300,26 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	maintenanceWindow := input.PreferredMaintenanceWindow
 	if maintenanceWindow == "" {
-		maintenanceWindow = defaultMaintenanceWindow
+		maintenanceWindow = randomMaintenanceWindow()
 	}
 
 	clusterEndpoint := clusterEndpointAddress(input.ClusterName, b.Region)
 
 	cluster := &Cluster{
-		ClusterName:                input.ClusterName,
-		ClusterArn:                 clusterARN,
-		Description:                input.Description,
-		NodeType:                   input.NodeType,
-		Status:                     StatusAvailable,
-		IamRoleArn:                 input.IamRoleArn,
-		SubnetGroupName:            input.SubnetGroupName,
-		SecurityGroupIDs:           input.SecurityGroupIDs,
-		PreferredMaintenanceWindow: maintenanceWindow,
-		CreateTime:                 now,
-		TotalNodes:                 input.ReplicationFactor,
-		ActiveNodes:                input.ReplicationFactor,
-		Nodes:                      nodes,
+		ClusterName:                   input.ClusterName,
+		ClusterArn:                    clusterARN,
+		Description:                   input.Description,
+		NodeType:                      input.NodeType,
+		Status:                        StatusAvailable,
+		IamRoleArn:                    input.IamRoleArn,
+		SubnetGroupName:               input.SubnetGroupName,
+		SecurityGroupIDs:              input.SecurityGroupIDs,
+		PreferredMaintenanceWindow:    maintenanceWindow,
+		ClusterEndpointEncryptionType: input.ClusterEndpointEncryptionType,
+		CreateTime:                    now,
+		TotalNodes:                    input.ReplicationFactor,
+		ActiveNodes:                   input.ReplicationFactor,
+		Nodes:                         nodes,
 		Endpoint: &Endpoint{
 			Address: clusterEndpoint,
 			Port:    daxPort,
@@ -258,16 +335,24 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		Tags: make(map[string]string),
 	}
 
-	// Copy tags.
+	if input.NotificationTopicArn != "" {
+		cluster.NotificationConfiguration = &NotificationConfiguration{
+			TopicArn:    input.NotificationTopicArn,
+			TopicStatus: notificationTopicStatusActive,
+		}
+	}
+
 	maps.Copy(cluster.Tags, input.Tags)
 
 	b.clusters[input.ClusterName] = cluster
 
-	// Store tags in the tag index too.
 	if len(input.Tags) > 0 {
 		b.tags[clusterARN] = make(map[string]string)
 		maps.Copy(b.tags[clusterARN], input.Tags)
 	}
+
+	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
+		fmt.Sprintf("Cluster %s has been created.", input.ClusterName))
 
 	cp := b.clusterCopy(cluster)
 
@@ -286,7 +371,6 @@ func (b *InMemoryBackend) collectClustersLocked(clusterNames []string) ([]*Clust
 		return all, nil
 	}
 
-	// Check for missing clusters before collecting.
 	for _, name := range clusterNames {
 		if _, ok := b.clusters[name]; !ok {
 			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, name)
@@ -393,8 +477,8 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 		)
 	}
 
-	if input.Description != "" {
-		cluster.Description = input.Description
+	if input.Description != nil {
+		cluster.Description = *input.Description
 	}
 
 	if input.PreferredMaintenanceWindow != "" {
@@ -413,12 +497,26 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 		cluster.ParameterGroup.ParameterGroupName = input.ParameterGroupName
 	}
 
+	if input.NotificationTopicArn != "" {
+		status := notificationTopicStatusActive
+		if input.NotificationTopicStatus != "" {
+			status = input.NotificationTopicStatus
+		}
+
+		cluster.NotificationConfiguration = &NotificationConfiguration{
+			TopicArn:    input.NotificationTopicArn,
+			TopicStatus: status,
+		}
+	} else if input.NotificationTopicStatus != "" && cluster.NotificationConfiguration != nil {
+		cluster.NotificationConfiguration.TopicStatus = input.NotificationTopicStatus
+	}
+
 	cp := b.clusterCopy(cluster)
 
 	return cp, nil
 }
 
-// DeleteCluster deletes a DAX cluster.
+// DeleteCluster marks a DAX cluster as deleting and removes it from the store.
 func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	if clusterName == "" {
 		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
@@ -432,13 +530,215 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
+	if cluster.Status == StatusDeleting {
+		return nil, fmt.Errorf("%w: cluster %s is already being deleted", ErrInvalidClusterState, clusterName)
+	}
+
 	cp := b.clusterCopy(cluster)
 	cp.Status = StatusDeleting
+
+	b.emitEventLocked(clusterName, EventSourceTypeCluster,
+		fmt.Sprintf("Cluster %s has been deleted.", clusterName))
 
 	delete(b.clusters, clusterName)
 	delete(b.tags, cluster.ClusterArn)
 
 	return cp, nil
+}
+
+// IncreaseReplicationFactor adds nodes to a cluster.
+func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFactorInput) (*Cluster, error) {
+	if input.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+	}
+
+	if input.NewReplicationFactor < minReplicationFactor || input.NewReplicationFactor > maxReplicationFactor {
+		return nil, fmt.Errorf(
+			"%w: NewReplicationFactor must be between %d and %d",
+			ErrInvalidParameterCombination,
+			minReplicationFactor,
+			maxReplicationFactor,
+		)
+	}
+
+	b.mu.Lock("IncreaseReplicationFactor")
+	defer b.mu.Unlock()
+
+	cluster, ok := b.clusters[input.ClusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
+	}
+
+	if cluster.Status != StatusAvailable {
+		return nil, fmt.Errorf(
+			"%w: cluster %s must be %s to resize (currently %s)",
+			ErrInvalidClusterState,
+			input.ClusterName,
+			StatusAvailable,
+			cluster.Status,
+		)
+	}
+
+	if input.NewReplicationFactor <= len(cluster.Nodes) {
+		return nil, fmt.Errorf(
+			"%w: NewReplicationFactor %d must be greater than current %d",
+			ErrInvalidParameterCombination,
+			input.NewReplicationFactor,
+			len(cluster.Nodes),
+		)
+	}
+
+	now := time.Now().UTC()
+
+	for i := len(cluster.Nodes); i < input.NewReplicationFactor; i++ {
+		az := b.Region + "a"
+		if i < len(input.AvailabilityZones) {
+			az = input.AvailabilityZones[i-len(cluster.Nodes)]
+		}
+
+		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
+		addr := nodeEndpointAddress(input.ClusterName, fmt.Sprintf("%04d", i), b.Region)
+
+		cluster.Nodes = append(cluster.Nodes, Node{
+			NodeID:               nodeID,
+			NodeStatus:           StatusAvailable,
+			AvailabilityZone:     az,
+			CreateTime:           now,
+			ParameterGroupStatus: paramApplyStatusInSync,
+			Endpoint: &Endpoint{
+				Address: addr,
+				Port:    daxPort,
+				URL:     daxURL(addr, daxClusterURLPort),
+			},
+		})
+	}
+
+	cluster.TotalNodes = input.NewReplicationFactor
+	cluster.ActiveNodes = input.NewReplicationFactor
+
+	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
+		fmt.Sprintf("Replication factor increased to %d.", input.NewReplicationFactor))
+
+	return b.clusterCopy(cluster), nil
+}
+
+// DecreaseReplicationFactor removes nodes from a cluster.
+func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFactorInput) (*Cluster, error) {
+	if input.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+	}
+
+	if input.NewReplicationFactor < minReplicationFactor || input.NewReplicationFactor > maxReplicationFactor {
+		return nil, fmt.Errorf(
+			"%w: NewReplicationFactor must be between %d and %d",
+			ErrInvalidParameterCombination,
+			minReplicationFactor,
+			maxReplicationFactor,
+		)
+	}
+
+	b.mu.Lock("DecreaseReplicationFactor")
+	defer b.mu.Unlock()
+
+	cluster, ok := b.clusters[input.ClusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
+	}
+
+	if cluster.Status != StatusAvailable {
+		return nil, fmt.Errorf(
+			"%w: cluster %s must be %s to resize (currently %s)",
+			ErrInvalidClusterState,
+			input.ClusterName,
+			StatusAvailable,
+			cluster.Status,
+		)
+	}
+
+	if input.NewReplicationFactor >= len(cluster.Nodes) {
+		return nil, fmt.Errorf(
+			"%w: NewReplicationFactor %d must be less than current %d",
+			ErrInvalidParameterCombination,
+			input.NewReplicationFactor,
+			len(cluster.Nodes),
+		)
+	}
+
+	if len(input.NodeIDsToRemove) > 0 {
+		// Remove specific nodes; keep up to NewReplicationFactor.
+		removeSet := make(map[string]bool, len(input.NodeIDsToRemove))
+		for _, id := range input.NodeIDsToRemove {
+			removeSet[id] = true
+		}
+
+		kept := make([]Node, 0, input.NewReplicationFactor)
+
+		for _, n := range cluster.Nodes {
+			if !removeSet[n.NodeID] {
+				kept = append(kept, n)
+			}
+		}
+
+		cluster.Nodes = kept
+	} else {
+		cluster.Nodes = cluster.Nodes[:input.NewReplicationFactor]
+	}
+
+	cluster.TotalNodes = input.NewReplicationFactor
+	cluster.ActiveNodes = input.NewReplicationFactor
+
+	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
+		fmt.Sprintf("Replication factor decreased to %d.", input.NewReplicationFactor))
+
+	return b.clusterCopy(cluster), nil
+}
+
+// RebootNode initiates a reboot of a specific node in a cluster.
+func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+	}
+
+	if nodeID == "" {
+		return nil, fmt.Errorf("%w: NodeId is required", ErrNodeNotFound)
+	}
+
+	b.mu.Lock("RebootNode")
+	defer b.mu.Unlock()
+
+	cluster, ok := b.clusters[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
+	}
+
+	if cluster.Status != StatusAvailable {
+		return nil, fmt.Errorf(
+			"%w: cluster %s must be %s to reboot a node",
+			ErrInvalidClusterState,
+			clusterName,
+			StatusAvailable,
+		)
+	}
+
+	found := false
+
+	for i := range cluster.Nodes {
+		if cluster.Nodes[i].NodeID == nodeID {
+			cluster.Nodes[i].NodeStatus = StatusRebooting
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, fmt.Errorf("%w: node %s not found in cluster %s", ErrNodeNotFound, nodeID, clusterName)
+	}
+
+	b.emitEventLocked(clusterName, EventSourceTypeNode,
+		fmt.Sprintf("Node %s reboot initiated.", nodeID))
+
+	return b.clusterCopy(cluster), nil
 }
 
 // TagResource adds tags to a DAX resource.
@@ -460,13 +760,9 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 
 	maps.Copy(b.tags[resourceArn], tags)
 
-	// Update cluster tags if applicable.
-	for _, cluster := range b.clusters {
-		if cluster.ClusterArn == resourceArn {
-			maps.Copy(cluster.Tags, tags)
-
-			break
-		}
+	// Propagate to cluster.Tags if this is a cluster ARN.
+	if cluster := b.clusterByARN(resourceArn); cluster != nil {
+		maps.Copy(cluster.Tags, tags)
 	}
 
 	return nil
@@ -491,14 +787,9 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		}
 	}
 
-	// Update cluster tags if applicable.
-	for _, cluster := range b.clusters {
-		if cluster.ClusterArn == resourceArn {
-			for _, k := range tagKeys {
-				delete(cluster.Tags, k)
-			}
-
-			break
+	if cluster := b.clusterByARN(resourceArn); cluster != nil {
+		for _, k := range tagKeys {
+			delete(cluster.Tags, k)
 		}
 	}
 
@@ -543,15 +834,23 @@ func (b *InMemoryBackend) CreateParameterGroup(name, description string) (*Param
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupAlreadyExists, name)
 	}
 
+	params := make(map[string]string, len(defaultParameterValues))
+	maps.Copy(params, defaultParameterValues)
+
 	pg := &ParameterGroup{
 		ParameterGroupName: name,
 		Description:        description,
-		Parameters:         make(map[string]string),
+		Parameters:         params,
 	}
 
 	b.paramGroups[name] = pg
 
+	b.emitEventLocked(name, EventSourceTypeParameterGroup,
+		fmt.Sprintf("Parameter group %s created.", name))
+
 	cp := *pg
+	cp.Parameters = make(map[string]string, len(pg.Parameters))
+	maps.Copy(cp.Parameters, pg.Parameters)
 
 	return &cp, nil
 }
@@ -574,13 +873,13 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 				return nil, "", fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
 			}
 
-			cp := *pg
-			all = append(all, &cp)
+			cp := paramGroupCopy(pg)
+			all = append(all, cp)
 		}
 	} else {
 		for _, pg := range b.paramGroups {
-			cp := *pg
-			all = append(all, &cp)
+			cp := paramGroupCopy(pg)
+			all = append(all, cp)
 		}
 
 		sort.Slice(all, func(i, j int) bool {
@@ -589,6 +888,38 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 	}
 
 	return all, "", nil
+}
+
+// UpdateParameterGroup updates parameter values in a parameter group.
+func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) (*ParameterGroup, error) {
+	if input.ParameterGroupName == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
+	}
+
+	b.mu.Lock("UpdateParameterGroup")
+	defer b.mu.Unlock()
+
+	pg, ok := b.paramGroups[input.ParameterGroupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
+	}
+
+	for _, pv := range input.ParameterNameValues {
+		if _, known := defaultParameterValues[pv.ParameterName]; !known {
+			return nil, fmt.Errorf(
+				"%w: unknown parameter %q",
+				ErrInvalidParameterValue,
+				pv.ParameterName,
+			)
+		}
+
+		pg.Parameters[pv.ParameterName] = pv.ParameterValue
+	}
+
+	b.emitEventLocked(input.ParameterGroupName, EventSourceTypeParameterGroup,
+		fmt.Sprintf("Parameter group %s updated.", input.ParameterGroupName))
+
+	return paramGroupCopy(pg), nil
 }
 
 // DeleteParameterGroup deletes a DAX parameter group.
@@ -604,7 +935,6 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 		return fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
 	}
 
-	// Check if any cluster uses this parameter group.
 	for _, cluster := range b.clusters {
 		if cluster.ParameterGroup.ParameterGroupName == name {
 			return fmt.Errorf("%w: parameter group %s is in use by cluster %s",
@@ -615,6 +945,110 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 	delete(b.paramGroups, name)
 
 	return nil
+}
+
+// DescribeParameters returns the parameters for a specific parameter group.
+func (b *InMemoryBackend) DescribeParameters(
+	paramGroupName string,
+	_ int,
+	_ string,
+) ([]*Parameter, string, error) {
+	if paramGroupName == "" {
+		return nil, "", fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
+	}
+
+	b.mu.RLock("DescribeParameters")
+	defer b.mu.RUnlock()
+
+	pg, ok := b.paramGroups[paramGroupName]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: %s", ErrParameterGroupNotFound, paramGroupName)
+	}
+
+	params := make([]*Parameter, 0, len(pg.Parameters))
+
+	for name, value := range pg.Parameters {
+		_, isDefault := defaultParameterValues[name]
+		source := "user"
+
+		if isDefault && value == defaultParameterValues[name] {
+			source = "system"
+		}
+
+		p := &Parameter{
+			ParameterName:  name,
+			ParameterValue: value,
+			Description:    defaultParameterDescriptions[name],
+			Source:         source,
+			DataType:       "integer",
+			IsModifiable:   "TRUE",
+			ChangeType:     "requires-reboot",
+		}
+
+		params = append(params, p)
+	}
+
+	sort.Slice(params, func(i, j int) bool {
+		return params[i].ParameterName < params[j].ParameterName
+	})
+
+	return params, "", nil
+}
+
+// DescribeDefaultParameters returns the default DAX 1.0 parameter definitions.
+func (b *InMemoryBackend) DescribeDefaultParameters(_ int, _ string) ([]*Parameter, string, error) {
+	params := make([]*Parameter, 0, len(defaultParameterValues))
+
+	for name, value := range defaultParameterValues {
+		p := &Parameter{
+			ParameterName:  name,
+			ParameterValue: value,
+			Description:    defaultParameterDescriptions[name],
+			Source:         "system",
+			DataType:       "integer",
+			IsModifiable:   "TRUE",
+			ChangeType:     "requires-reboot",
+		}
+
+		params = append(params, p)
+	}
+
+	sort.Slice(params, func(i, j int) bool {
+		return params[i].ParameterName < params[j].ParameterName
+	})
+
+	return params, "", nil
+}
+
+// ResetParameterGroup resets parameter group parameters to defaults.
+func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []string) (*ParameterGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
+	}
+
+	b.mu.Lock("ResetParameterGroup")
+	defer b.mu.Unlock()
+
+	pg, ok := b.paramGroups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
+	}
+
+	if len(parameterNames) == 0 {
+		// Reset all to defaults.
+		maps.Copy(pg.Parameters, defaultParameterValues)
+	} else {
+		for _, pname := range parameterNames {
+			if def, found := defaultParameterValues[pname]; found {
+				pg.Parameters[pname] = def
+			}
+		}
+	}
+
+	b.emitEventLocked(name, EventSourceTypeParameterGroup,
+		fmt.Sprintf("Parameter group %s reset to defaults.", name))
+
+	return paramGroupCopy(pg), nil
 }
 
 // CreateSubnetGroup creates a DAX subnet group.
@@ -633,18 +1067,20 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupAlreadyExists, name)
 	}
 
+	subnets := subnetEntriesFromIDs(subnetIDs, b.Region)
+
 	sg := &SubnetGroup{
 		SubnetGroupName: name,
 		Description:     description,
-		SubnetIDs:       append([]string(nil), subnetIDs...),
+		Subnets:         subnets,
 	}
 
 	b.subnetGroups[name] = sg
 
-	cp := *sg
-	cp.SubnetIDs = append([]string(nil), sg.SubnetIDs...)
+	b.emitEventLocked(name, EventSourceTypeSubnetGroup,
+		fmt.Sprintf("Subnet group %s created.", name))
 
-	return &cp, nil
+	return subnetGroupCopy(sg), nil
 }
 
 // DescribeSubnetGroups returns DAX subnet groups.
@@ -665,15 +1101,11 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 				return nil, "", fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, name)
 			}
 
-			cp := *sg
-			cp.SubnetIDs = append([]string(nil), sg.SubnetIDs...)
-			all = append(all, &cp)
+			all = append(all, subnetGroupCopy(sg))
 		}
 	} else {
 		for _, sg := range b.subnetGroups {
-			cp := *sg
-			cp.SubnetIDs = append([]string(nil), sg.SubnetIDs...)
-			all = append(all, &cp)
+			all = append(all, subnetGroupCopy(sg))
 		}
 
 		sort.Slice(all, func(i, j int) bool {
@@ -682,6 +1114,34 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 	}
 
 	return all, "", nil
+}
+
+// UpdateSubnetGroup updates a subnet group's description and/or subnet list.
+func (b *InMemoryBackend) UpdateSubnetGroup(input UpdateSubnetGroupInput) (*SubnetGroup, error) {
+	if input.SubnetGroupName == "" {
+		return nil, fmt.Errorf("%w: SubnetGroupName is required", ErrSubnetGroupNotFound)
+	}
+
+	b.mu.Lock("UpdateSubnetGroup")
+	defer b.mu.Unlock()
+
+	sg, ok := b.subnetGroups[input.SubnetGroupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, input.SubnetGroupName)
+	}
+
+	if input.Description != "" {
+		sg.Description = input.Description
+	}
+
+	if len(input.SubnetIDs) > 0 {
+		sg.Subnets = subnetEntriesFromIDs(input.SubnetIDs, b.Region)
+	}
+
+	b.emitEventLocked(input.SubnetGroupName, EventSourceTypeSubnetGroup,
+		fmt.Sprintf("Subnet group %s updated.", input.SubnetGroupName))
+
+	return subnetGroupCopy(sg), nil
 }
 
 // DeleteSubnetGroup deletes a DAX subnet group.
@@ -697,7 +1157,6 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 		return fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, name)
 	}
 
-	// Check if any cluster uses this subnet group.
 	for _, cluster := range b.clusters {
 		if cluster.SubnetGroupName == name {
 			return fmt.Errorf("%w: subnet group %s is in use by cluster %s",
@@ -710,6 +1169,80 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 	return nil
 }
 
+// eventMatches returns true if the event matches the given filters.
+func eventMatches(ev *Event, sourceName, sourceType string, startTime, endTime *time.Time) bool {
+	if sourceName != "" && ev.SourceName != sourceName {
+		return false
+	}
+
+	if sourceType != "" && ev.SourceType != sourceType {
+		return false
+	}
+
+	if startTime != nil && ev.Date.Before(*startTime) {
+		return false
+	}
+
+	if endTime != nil && ev.Date.After(*endTime) {
+		return false
+	}
+
+	return true
+}
+
+// DescribeEvents returns events filtered by source and time range.
+func (b *InMemoryBackend) DescribeEvents(
+	sourceName string,
+	sourceType string,
+	startTime *time.Time,
+	endTime *time.Time,
+	maxResults int,
+	nextToken string,
+) ([]*Event, string, error) {
+	b.mu.RLock("DescribeEvents")
+	defer b.mu.RUnlock()
+
+	if maxResults <= 0 {
+		maxResults = maxClustersDefault
+	}
+
+	var filtered []*Event
+
+	for _, ev := range b.events {
+		if !eventMatches(ev, sourceName, sourceType, startTime, endTime) {
+			continue
+		}
+
+		cp := *ev
+		filtered = append(filtered, &cp)
+	}
+
+	// Apply pagination via token = index as string.
+	start := 0
+
+	if nextToken != "" {
+		idx, err := strconv.Atoi(nextToken)
+		if err == nil && idx >= 0 && idx < len(filtered) {
+			start = idx
+		}
+	}
+
+	if start >= len(filtered) {
+		return []*Event{}, "", nil
+	}
+
+	end := start + maxResults
+	newNextToken := ""
+
+	if end < len(filtered) {
+		newNextToken = strconv.Itoa(end)
+	} else {
+		end = len(filtered)
+	}
+
+	return filtered[start:end], newNextToken, nil
+}
+
 // Reset clears all DAX state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -719,51 +1252,73 @@ func (b *InMemoryBackend) Reset() {
 	b.tags = make(map[string]map[string]string)
 	b.paramGroups = make(map[string]*ParameterGroup)
 	b.subnetGroups = make(map[string]*SubnetGroup)
+	b.events = make([]*Event, 0)
 
-	// Re-populate defaults.
-	b.paramGroups[DefaultParameterGroupName] = &ParameterGroup{
-		ParameterGroupName: DefaultParameterGroupName,
-		Description:        "Default parameter group for DAX 1.0",
-		Parameters:         make(map[string]string),
+	b.seedDefaults()
+}
+
+// emitEventLocked appends an event to the ring buffer. Must be called with b.mu held for write.
+func (b *InMemoryBackend) emitEventLocked(sourceName, sourceType, message string) {
+	ev := &Event{
+		Date:       time.Now().UTC(),
+		SourceName: sourceName,
+		SourceType: sourceType,
+		Message:    message,
 	}
 
-	b.subnetGroups[DefaultSubnetGroupName] = &SubnetGroup{
-		SubnetGroupName: DefaultSubnetGroupName,
-		Description:     "Default subnet group",
-		VpcID:           "vpc-default",
-		SubnetIDs:       []string{"subnet-default"},
+	b.events = append(b.events, ev)
+
+	if len(b.events) > maxEventsPerBuffer {
+		b.events = b.events[len(b.events)-maxEventsPerBuffer:]
 	}
 }
 
 // arnExists returns true if the ARN corresponds to an existing DAX resource.
+// Must be called with b.mu held.
 func (b *InMemoryBackend) arnExists(arn string) bool {
-	for _, cluster := range b.clusters {
-		if cluster.ClusterArn == arn {
-			return true
-		}
+	clusterPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:cache/", b.Region, b.AccountID)
+	if name, ok := strings.CutPrefix(arn, clusterPrefix); ok {
+		_, exists := b.clusters[name]
+
+		return exists
 	}
 
-	// Also check if it's a direct cluster name lookup (for convenience).
-	prefix := fmt.Sprintf("arn:aws:dax:%s:%s:cache/", b.Region, b.AccountID)
-	if name, ok := strings.CutPrefix(arn, prefix); ok {
-		if _, exists := b.clusters[name]; exists {
-			return true
-		}
+	paramPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:parametergroup/", b.Region, b.AccountID)
+	if name, ok := strings.CutPrefix(arn, paramPrefix); ok {
+		_, exists := b.paramGroups[name]
+
+		return exists
+	}
+
+	subnetPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:subnetgroup/", b.Region, b.AccountID)
+	if name, ok := strings.CutPrefix(arn, subnetPrefix); ok {
+		_, exists := b.subnetGroups[name]
+
+		return exists
 	}
 
 	return false
+}
+
+// clusterByARN returns the cluster matching the given ARN, or nil.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) clusterByARN(arn string) *Cluster {
+	prefix := fmt.Sprintf("arn:aws:dax:%s:%s:cache/", b.Region, b.AccountID)
+	if name, ok := strings.CutPrefix(arn, prefix); ok {
+		return b.clusters[name]
+	}
+
+	return nil
 }
 
 // clusterCopy returns a deep copy of a Cluster.
 func (b *InMemoryBackend) clusterCopy(c *Cluster) *Cluster {
 	cp := *c
 	cp.Tags = make(map[string]string)
-
 	maps.Copy(cp.Tags, c.Tags)
 
 	cp.SecurityGroupIDs = append([]string(nil), c.SecurityGroupIDs...)
 
-	// Copy nodes.
 	cp.Nodes = make([]Node, len(c.Nodes))
 	for i, n := range c.Nodes {
 		nodeCp := n
@@ -781,5 +1336,41 @@ func (b *InMemoryBackend) clusterCopy(c *Cluster) *Cluster {
 		cp.Endpoint = &endpointCp
 	}
 
+	if c.NotificationConfiguration != nil {
+		ncCp := *c.NotificationConfiguration
+		cp.NotificationConfiguration = &ncCp
+	}
+
 	return &cp
+}
+
+// paramGroupCopy returns a deep copy of a ParameterGroup.
+func paramGroupCopy(pg *ParameterGroup) *ParameterGroup {
+	cp := *pg
+	cp.Parameters = make(map[string]string, len(pg.Parameters))
+	maps.Copy(cp.Parameters, pg.Parameters)
+
+	return &cp
+}
+
+// subnetGroupCopy returns a deep copy of a SubnetGroup.
+func subnetGroupCopy(sg *SubnetGroup) *SubnetGroup {
+	cp := *sg
+	cp.Subnets = append([]SubnetEntry(nil), sg.Subnets...)
+
+	return &cp
+}
+
+// subnetEntriesFromIDs converts string subnet IDs to SubnetEntry slices using default AZ.
+func subnetEntriesFromIDs(ids []string, region string) []SubnetEntry {
+	entries := make([]SubnetEntry, 0, len(ids))
+
+	for _, id := range ids {
+		entries = append(entries, SubnetEntry{
+			SubnetID:         id,
+			AvailabilityZone: region + "a",
+		})
+	}
+
+	return entries
 }
