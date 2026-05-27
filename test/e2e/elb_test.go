@@ -21,6 +21,14 @@ func TestELBDashboard(t *testing.T) {
 	_, err := stack.ELBHandler.Backend.CreateLoadBalancer(elbbackend.CreateLoadBalancerInput{
 		LoadBalancerName: "e2e-test-lb",
 		Scheme:           "internet-facing",
+		AvailabilityZones: []string{"us-east-1a"},
+		Listeners: []elbbackend.Listener{
+			{
+				Protocol:         "HTTP",
+				LoadBalancerPort: 80,
+				InstancePort:     8080,
+			},
+		},
 	})
 	require.NoError(t, err)
 

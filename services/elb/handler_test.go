@@ -55,6 +55,23 @@ func mustCreateLB(t *testing.T, h *elb.Handler, name string) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// mustCreateVPCLB creates a VPC load balancer (with a subnet) and asserts success.
+// VPC LBs are required for ApplySecurityGroups and AttachSubnets operations.
+func mustCreateVPCLB(t *testing.T, h *elb.Handler, name string) {
+	t.Helper()
+
+	rec := doELB(t, h, url.Values{
+		"Action":                              {"CreateLoadBalancer"},
+		"Version":                             {"2012-06-01"},
+		"LoadBalancerName":                    {name},
+		"Listeners.member.1.Protocol":         {"HTTP"},
+		"Listeners.member.1.LoadBalancerPort": {"80"},
+		"Listeners.member.1.InstancePort":     {"8080"},
+		"Subnets.member.1":                    {"subnet-00001"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 // parseXMLBody parses raw XML from a recorder body into dst.
 func parseXMLBody(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 	t.Helper()
@@ -84,7 +101,8 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"AvailabilityZones.member.1":          {"us-east-1a"},
 			},
 			wantStatus: http.StatusOK,
-			wantDNS:    "my-lb.us-east-1.elb.amazonaws.com",
+			// DNS now includes a hash suffix: my-lb-<hash>.us-east-1.elb.amazonaws.com
+			wantDNS: "my-lb-",
 		},
 		{
 			name: "duplicate_returns_conflict",
@@ -120,6 +138,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Listeners.member.1.Protocol":         {"HTTP"},
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
+				"AvailabilityZones.member.1":          {"us-east-1a"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -145,7 +164,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 					} `xml:"CreateLoadBalancerResult"`
 				}
 				parseXMLBody(t, rec, &resp)
-				assert.Equal(t, tt.wantDNS, resp.Result.DNSName)
+				assert.Contains(t, resp.Result.DNSName, tt.wantDNS)
 			}
 		})
 	}
@@ -1272,10 +1291,11 @@ func TestApplySecurityGroupsToLoadBalancer(t *testing.T) {
 		wantStatus int
 	}{
 		{
+			// ApplySecurityGroups requires a VPC LB (created with subnets).
 			name: "applies_security_groups",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
-				mustCreateLB(t, h, "sg-lb")
+				mustCreateVPCLB(t, h, "sg-lb")
 			},
 			vals: url.Values{
 				"Action":                  {"ApplySecurityGroupsToLoadBalancer"},
@@ -1349,10 +1369,11 @@ func TestAttachLoadBalancerToSubnets(t *testing.T) {
 		wantStatus    int
 	}{
 		{
+			// AttachLoadBalancerToSubnets requires a VPC LB (created with subnets).
 			name: "attaches_subnets",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
-				mustCreateLB(t, h, "subnet-lb")
+				mustCreateVPCLB(t, h, "subnet-lb")
 			},
 			vals: url.Values{
 				"Action":           {"AttachLoadBalancerToSubnets"},
@@ -1362,13 +1383,13 @@ func TestAttachLoadBalancerToSubnets(t *testing.T) {
 				"Subnets.member.2": {"subnet-bbb"},
 			},
 			wantStatus:    http.StatusOK,
-			wantSubnetLen: 2,
+			wantSubnetLen: 3, // subnet-00001 (from create) + subnet-aaa + subnet-bbb
 		},
 		{
 			name: "idempotent_attach",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
-				mustCreateLB(t, h, "subnet-idem-lb")
+				mustCreateVPCLB(t, h, "subnet-idem-lb")
 				doELB(t, h, url.Values{
 					"Action":           {"AttachLoadBalancerToSubnets"},
 					"Version":          {"2012-06-01"},
@@ -1383,7 +1404,7 @@ func TestAttachLoadBalancerToSubnets(t *testing.T) {
 				"Subnets.member.1": {"subnet-aaa"},
 			},
 			wantStatus:    http.StatusOK,
-			wantSubnetLen: 1,
+			wantSubnetLen: 2, // subnet-00001 (from create) + subnet-aaa
 		},
 		{
 			name: "lb_not_found",
@@ -2036,24 +2057,15 @@ func TestDescribeLoadBalancerPolicies(t *testing.T) {
 			wantPolicyLen: 1,
 		},
 		{
-			name: "describe_no_lb_name_returns_all",
-			setup: func(t *testing.T, h *elb.Handler) {
-				t.Helper()
-				mustCreateLB(t, h, "pol3-lb")
-				doELB(t, h, url.Values{
-					"Action":           {"CreateLoadBalancerPolicy"},
-					"Version":          {"2012-06-01"},
-					"LoadBalancerName": {"pol3-lb"},
-					"PolicyName":       {"global-pol"},
-					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
-				})
-			},
+			// When no LoadBalancerName is given, AWS returns only the
+			// built-in sample SSL policies (not customer policies).
+			name: "describe_no_lb_name_returns_sample_policies",
 			vals: url.Values{
 				"Action":  {"DescribeLoadBalancerPolicies"},
 				"Version": {"2012-06-01"},
 			},
 			wantStatus:    http.StatusOK,
-			wantPolicyLen: 1,
+			wantPolicyLen: 4,
 		},
 		{
 			name: "lb_not_found",

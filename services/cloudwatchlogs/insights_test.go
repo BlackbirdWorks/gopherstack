@@ -15,13 +15,13 @@ func makeInsightsBackend(t *testing.T) *cloudwatchlogs.InMemoryBackend {
 	t.Helper()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	_, err := b.CreateLogGroup("/grp")
+	_, err := b.CreateLogGroup("/grp", "", "")
 	require.NoError(t, err)
 	_, err = b.CreateLogStream("/grp", "s")
 	require.NoError(t, err)
 
 	now := time.Now().UnixMilli()
-	_, err = b.PutLogEvents("/grp", "s", []cloudwatchlogs.InputLogEvent{
+	_, err = b.PutLogEvents("/grp", "s", "", []cloudwatchlogs.InputLogEvent{
 		{Message: "ERROR: disk full", Timestamp: now - 3000},
 		{Message: "INFO: startup complete", Timestamp: now - 2000},
 		{Message: "ERROR: connection refused", Timestamp: now - 1000},

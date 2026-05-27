@@ -38,7 +38,7 @@ type inProcessCWLogsAdapter struct {
 }
 
 func (a *inProcessCWLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(groupName); err != nil &&
+	if _, err := a.backend.CreateLogGroup(groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogspkg.ErrLogGroupAlreadyExists) {
 		return err
 	}
@@ -59,7 +59,7 @@ func (a *inProcessCWLogsAdapter) PutLogLines(groupName, streamName string, messa
 		events[i] = cwlogspkg.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(groupName, streamName, events)
+	_, err := a.backend.PutLogEvents(groupName, streamName, "", events)
 
 	return err
 }
