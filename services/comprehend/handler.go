@@ -31,6 +31,9 @@ const (
 	fieldLanguageCode          = "LanguageCode"
 	fieldText                  = "Text"
 	fieldScore                 = "Score"
+	fieldEntities              = "Entities"
+	fieldLabels                = "Labels"
+	fieldName                  = "Name"
 	lowSentimentScore          = 0.01
 	neutralSentimentScore      = 0.97
 )
@@ -216,7 +219,21 @@ func (h *Handler) buildOperations() map[string]operation {
 	}
 	ops["StartFlywheelIteration"] = h.startIteration
 	ops["GetFlywheelIteration"] = h.getIteration
+	ops["DescribeFlywheelIteration"] = h.getIteration
 	ops["ListFlywheelIterationHistory"] = h.listIterations
+
+	ops["BatchDetectTargetedSentiment"] = h.batch(h.detectTargetedSentiment)
+	ops["ClassifyDocument"] = h.classifyDocument
+	ops["ContainsPiiEntities"] = h.containsPIIEntities
+	ops["DeleteResourcePolicy"] = h.deleteResourcePolicy
+	ops["DescribeResourcePolicy"] = h.describeResourcePolicy
+	ops["DetectTargetedSentiment"] = h.detectTargetedSentiment
+	ops["ImportModel"] = h.importModel
+	ops["ListDocumentClassifierSummaries"] = h.listDocumentClassifierSummaries
+	ops["ListEntityRecognizerSummaries"] = h.listEntityRecognizerSummaries
+	ops["PutResourcePolicy"] = h.putResourcePolicy
+	ops["StopTrainingDocumentClassifier"] = h.stopTrainingDocumentClassifier
+	ops["StopTrainingEntityRecognizer"] = h.stopTrainingEntityRecognizer
 
 	return ops
 }
@@ -628,8 +645,8 @@ func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, erro
 			score = 0.99
 		}
 		result = append(result, map[string]any{
-			"Toxicity": score,
-			"Labels":   []map[string]any{{"Name": "HATE_SPEECH", fieldScore: score}},
+			"Toxicity":  score,
+			fieldLabels: []map[string]any{{fieldName: "HATE_SPEECH", fieldScore: score}},
 		})
 	}
 
@@ -673,4 +690,90 @@ func matchResult(text, match, kind string) map[string]any {
 	}
 
 	return out
+}
+
+func (h *Handler) classifyDocument(input map[string]any) (map[string]any, error) {
+	if _, err := documentText(input); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"Classes": []map[string]any{
+			{fieldName: "TEST_CLASS", fieldScore: defaultScore},
+		},
+		fieldLabels: []map[string]any{
+			{fieldName: "TEST_LABEL", fieldScore: defaultScore},
+		},
+	}, nil
+}
+
+func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, error) {
+	text, err := documentText(input)
+	if err != nil {
+		return nil, err
+	}
+	hasPii := strings.Contains(text, "@") || strings.Contains(text, "-") || strings.Contains(text, ".")
+	labels := []map[string]any{}
+	if hasPii {
+		labels = append(labels, map[string]any{fieldName: "PII", fieldScore: defaultScore})
+	}
+
+	return map[string]any{
+		fieldLabels: labels,
+	}, nil
+}
+
+func (h *Handler) detectTargetedSentiment(input map[string]any) (map[string]any, error) {
+	if _, err := documentText(input); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		fieldEntities: []map[string]any{},
+	}, nil
+}
+
+func (h *Handler) deleteResourcePolicy(_ map[string]any) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+func (h *Handler) describeResourcePolicy(_ map[string]any) (map[string]any, error) {
+	return map[string]any{
+		"ResourcePolicy":   "{\"Statement\":[]}",
+		"CreationTime":     0,
+		"LastModifiedTime": 0,
+		"PolicyRevisionId": "rev1",
+	}, nil
+}
+
+func (h *Handler) putResourcePolicy(_ map[string]any) (map[string]any, error) {
+	return map[string]any{
+		"PolicyRevisionId": "rev1",
+	}, nil
+}
+
+func (h *Handler) importModel(_ map[string]any) (map[string]any, error) {
+	return map[string]any{
+		"ModelArn": "arn:aws:comprehend:us-east-1:123456789012:model/imported-model",
+	}, nil
+}
+
+func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]any, error) {
+	return map[string]any{
+		"DocumentClassifierSummariesList": []map[string]any{},
+	}, nil
+}
+
+func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]any, error) {
+	return map[string]any{
+		"EntityRecognizerSummariesList": []map[string]any{},
+	}, nil
+}
+
+func (h *Handler) stopTrainingDocumentClassifier(_ map[string]any) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+func (h *Handler) stopTrainingEntityRecognizer(_ map[string]any) (map[string]any, error) {
+	return map[string]any{}, nil
 }
