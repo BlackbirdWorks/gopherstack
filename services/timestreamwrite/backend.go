@@ -642,8 +642,43 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableIn
 // WriteRecordsOutput summarises the results of a WriteRecords call.
 type WriteRecordsOutput struct {
 	RejectedRecords []RejectedRecord
-	Total           int32
-	MemoryStore     int32
+	// Total is the total number of records successfully ingested.
+	Total int32
+	// MemoryStore is the count of records written to the memory store
+	// (records whose timestamp falls within the memory retention window).
+	MemoryStore int32
+	// MagneticStore is the count of records written to the magnetic store
+	// (records whose timestamp is outside the memory retention window and the
+	// table has magnetic store writes enabled).
+	MagneticStore int32
+}
+
+// recordGoesToMemoryStore reports whether a record should be counted as a memory-store
+// write based on the table's retention and magnetic store configuration.
+//
+// Rules (matching the AWS API routing behaviour):
+//  1. If the table has no MagneticStoreWriteProperties, or magnetic store writes are
+//     disabled, all records go to memory store regardless of timestamp.
+//  2. If no memory retention period is configured, all records go to memory store.
+//  3. Otherwise, records whose InternalTimestamp falls within the memory retention
+//     window (i.e. after the cutoff) go to memory store; older records go to magnetic store.
+func recordGoesToMemoryStore(r Record, tbl *Table, now time.Time) bool {
+	if tbl == nil {
+		return true
+	}
+
+	if tbl.MagneticStoreWriteProperties == nil || !tbl.MagneticStoreWriteProperties.EnableMagneticStoreWrites {
+		return true
+	}
+
+	if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
+		return true
+	}
+
+	retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
+	cutoff := now.Add(-retention)
+
+	return r.InternalTimestamp.After(cutoff)
 }
 
 // recordKey computes a deterministic dedup key for a record using measure name,
@@ -683,6 +718,9 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
+	// Capture the table metadata under the global read lock for store routing decisions.
+	tbl := b.tables[dbName][tblName]
+
 	slot.mu.Lock("WriteRecords")
 	defer slot.mu.Unlock()
 
@@ -691,7 +729,10 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 	}
 
 	var rejected []RejectedRecord
-	var inserted int32
+
+	var memoryInserted, magneticInserted int32
+
+	now := time.Now().UTC()
 
 	for i, r := range records {
 		key := recordKey(r)
@@ -715,7 +756,13 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 				cp.Version = newVersion
 				cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
 				slot.records[idx] = cp
-				inserted++
+
+				// Route the updated record to memory or magnetic store.
+				if recordGoesToMemoryStore(cp, tbl, now) {
+					memoryInserted++
+				} else {
+					magneticInserted++
+				}
 			} else {
 				// Same or lower version: reject.
 				rejected = append(rejected, RejectedRecord{
@@ -731,7 +778,13 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 			cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
 			slot.recordIndex[key] = len(slot.records)
 			slot.records = append(slot.records, cp)
-			inserted++
+
+			// Route the new record to memory or magnetic store.
+			if recordGoesToMemoryStore(cp, tbl, now) {
+				memoryInserted++
+			} else {
+				magneticInserted++
+			}
 		}
 	}
 
@@ -739,8 +792,14 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, &RejectedRecordsError{RejectedRecords: rejected}
 	}
 
+	total := memoryInserted + magneticInserted
+
 	// Record counts are bounded by request size limits (< MaxInt32).
-	return &WriteRecordsOutput{Total: inserted, MemoryStore: inserted}, nil //#nosec G115
+	return &WriteRecordsOutput{ //#nosec G115
+		Total:         total,
+		MemoryStore:   memoryInserted,
+		MagneticStore: magneticInserted,
+	}, nil
 }
 
 func parseTimestreamTime(ts, unit string) time.Time {
