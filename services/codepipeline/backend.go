@@ -22,20 +22,22 @@ const (
 	PipelineTypeV1 = "V1"
 	PipelineTypeV2 = "V2"
 
-	// ExecutionModeQueued, ExecutionModeSuperseded, ExecutionModeParallel
-	// are valid ExecutionMode values.
-	ExecutionModeQueued     = "QUEUED"
+	// ExecutionModeQueued is the QUEUED execution mode.
+	ExecutionModeQueued = "QUEUED"
+	// ExecutionModeSuperseded is the SUPERSEDED execution mode.
 	ExecutionModeSuperseded = "SUPERSEDED"
-	ExecutionModeParallel   = "PARALLEL"
+	// ExecutionModeParallel is the PARALLEL execution mode.
+	ExecutionModeParallel = "PARALLEL"
 
-	// WebhookAuthGitHubHMAC, WebhookAuthIP, WebhookAuthUnauthenticated
-	// are the valid Authentication values for a WebhookDefinition.
-	WebhookAuthGitHubHMAC      = "GITHUB_HMAC"
-	WebhookAuthIP               = "IP"
-	WebhookAuthUnauthenticated  = "UNAUTHENTICATED"
+	// WebhookAuthGitHubHMAC is the GITHUB_HMAC authentication type for webhooks.
+	WebhookAuthGitHubHMAC = "GITHUB_HMAC"
+	// WebhookAuthIP is the IP authentication type for webhooks.
+	WebhookAuthIP = "IP"
+	// WebhookAuthUnauthenticated is the UNAUTHENTICATED authentication type for webhooks.
+	WebhookAuthUnauthenticated = "UNAUTHENTICATED"
 
-	// artifactStoreTypeS3 is the only supported ArtifactStore type.
-	artifactStoreTypeS3 = "S3"
+	// kindPipeline is the resource kind string for pipelines.
+	kindPipeline = "pipeline"
 )
 
 var (
@@ -131,7 +133,7 @@ type customActionTypeKey struct {
 
 // Job represents a CodePipeline job queued for a custom action.
 type Job struct {
-	ActionTypeID ActionTypeID `json:"actionTypeId,omitempty"`
+	ActionTypeID ActionTypeID `json:"actionTypeId,omitzero"`
 	ID           string       `json:"id"`
 	PipelineName string       `json:"pipelineName,omitempty"`
 	Nonce        string       `json:"nonce"`
@@ -140,7 +142,7 @@ type Job struct {
 
 // WebhookFilter represents a filter applied to incoming webhook payloads.
 type WebhookFilter struct {
-	JsonPath    string `json:"jsonPath"`
+	JSONPath    string `json:"jsonPath"`
 	MatchEquals string `json:"matchEquals,omitempty"`
 }
 
@@ -152,8 +154,7 @@ type WebhookAuthConfig struct {
 
 // Webhook represents a CodePipeline webhook with full AWS-parity fields.
 type Webhook struct {
-	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitempty"`
-	Filters                     []WebhookFilter   `json:"filters,omitempty"`
+	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
 	Name                        string            `json:"name"`
 	TargetPipeline              string            `json:"targetPipeline"`
 	TargetAction                string            `json:"targetAction"`
@@ -161,6 +162,7 @@ type Webhook struct {
 	URL                         string            `json:"url,omitempty"`
 	ARN                         string            `json:"arn,omitempty"`
 	LastTriggered               string            `json:"lastTriggered,omitempty"`
+	Filters                     []WebhookFilter   `json:"filters,omitempty"`
 	RegisteredWithThirdParty    bool              `json:"registeredWithThirdParty"`
 }
 
@@ -198,16 +200,16 @@ type Condition struct {
 
 // Action represents a single action within a pipeline stage.
 type Action struct {
-	Configuration   map[string]string `json:"configuration,omitempty"`
-	ActionTypeID    ActionTypeID      `json:"actionTypeId"`
-	Name            string            `json:"name"`
-	RoleArn         string            `json:"roleArn,omitempty"`
-	Region          string            `json:"region,omitempty"`
-	Namespace       string            `json:"namespace,omitempty"`
-	InputArtifacts  []ArtifactRef     `json:"inputArtifacts,omitempty"`
-	OutputArtifacts []ArtifactRef     `json:"outputArtifacts,omitempty"`
-	RunOrder        int               `json:"runOrder,omitempty"`
-	TimeoutInMinutes int              `json:"timeoutInMinutes,omitempty"`
+	Configuration    map[string]string `json:"configuration,omitempty"`
+	ActionTypeID     ActionTypeID      `json:"actionTypeId"`
+	Name             string            `json:"name"`
+	RoleArn          string            `json:"roleArn,omitempty"`
+	Region           string            `json:"region,omitempty"`
+	Namespace        string            `json:"namespace,omitempty"`
+	InputArtifacts   []ArtifactRef     `json:"inputArtifacts,omitempty"`
+	OutputArtifacts  []ArtifactRef     `json:"outputArtifacts,omitempty"`
+	RunOrder         int               `json:"runOrder,omitempty"`
+	TimeoutInMinutes int               `json:"timeoutInMinutes,omitempty"`
 }
 
 // ArtifactRef represents a reference to an artifact.
@@ -325,7 +327,7 @@ type Tag struct {
 // InMemoryBackend is a thread-safe in-memory store for CodePipeline resources.
 type InMemoryBackend struct {
 	pipelines         map[string]*Pipeline
-	pipelineARNIndex  map[string]string   // ARN → pipeline name
+	pipelineARNIndex  map[string]string // ARN → pipeline name
 	customActionTypes map[customActionTypeKey]*CustomActionType
 	jobs              map[string]*Job     // jobID → Job
 	webhooks          map[string]*Webhook // name → Webhook
@@ -512,9 +514,9 @@ func (b *InMemoryBackend) ListPipelines() []PipelineSummary {
 
 // resolveResourceARN looks up a resource by ARN, returning its type ("pipeline" or "webhook")
 // and name. Returns ErrResourceNotFound if ARN refers to a webhook, ErrNotFound if unknown.
-func (b *InMemoryBackend) resolveResourceARN(resourceARN string) (kind, name string, err error) {
+func (b *InMemoryBackend) resolveResourceARN(resourceARN string) (string, string, error) {
 	if n, ok := b.pipelineARNIndex[resourceARN]; ok {
-		return "pipeline", n, nil
+		return kindPipeline, n, nil
 	}
 
 	if n, ok := b.webhookARNIndex[resourceARN]; ok {
@@ -536,7 +538,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	}
 
 	switch kind {
-	case "pipeline":
+	case kindPipeline:
 		return tagsToSortedSlice(b.pipelines[name].Tags), nil
 	case "webhook":
 		// Webhooks support tagging but we don't store tags on them yet;
@@ -557,7 +559,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 		return err
 	}
 
-	if kind != "pipeline" {
+	if kind != kindPipeline {
 		return fmt.Errorf("%w: ARN %q is not a pipeline", ErrResourceNotFound, resourceARN)
 	}
 
@@ -583,7 +585,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return err
 	}
 
-	if kind != "pipeline" {
+	if kind != kindPipeline {
 		return fmt.Errorf("%w: ARN %q is not a pipeline", ErrResourceNotFound, resourceARN)
 	}
 
@@ -1154,8 +1156,8 @@ func (b *InMemoryBackend) ListPipelineExecutions(pipelineName string) ([]Pipelin
 type StageState struct {
 	InboundTransitionState  *StageTransitionState
 	OutboundTransitionState *StageTransitionState
-	ActionStates            []map[string]any
 	StageName               string
+	ActionStates            []map[string]any
 }
 
 // GetPipelineState returns the current state of each stage in a pipeline.

@@ -22,16 +22,17 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		pipeline   codepipeline.PipelineDeclaration
 		name       string
 		wantType   string
 		wantMode   string
+		pipeline   codepipeline.PipelineDeclaration
 		wantStatus int
 	}{
 		{
 			name: "V1 defaults applied on create",
 			pipeline: func() codepipeline.PipelineDeclaration {
 				p := samplePipeline("v1-defaults")
+
 				return p
 			}(),
 			wantType:   "V1",
@@ -47,6 +48,7 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 				p.Variables = []codepipeline.PipelineVariable{
 					{Name: "ENV", DefaultValue: "dev"},
 				}
+
 				return p
 			}(),
 			wantType:   "V2",
@@ -59,6 +61,7 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 				p := samplePipeline("v1-queued")
 				p.PipelineType = codepipeline.PipelineTypeV1
 				p.ExecutionMode = codepipeline.ExecutionModeQueued
+
 				return p
 			}(),
 			wantType:   "V1",
@@ -70,6 +73,7 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 			pipeline: func() codepipeline.PipelineDeclaration {
 				p := samplePipeline("bad-type")
 				p.PipelineType = "V3"
+
 				return p
 			}(),
 			wantStatus: http.StatusBadRequest,
@@ -79,6 +83,7 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 			pipeline: func() codepipeline.PipelineDeclaration {
 				p := samplePipeline("bad-mode")
 				p.ExecutionMode = "UNKNOWN"
+
 				return p
 			}(),
 			wantStatus: http.StatusBadRequest,
@@ -116,8 +121,8 @@ func TestHandler_Pipeline_Triggers_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		triggers   []codepipeline.Trigger
 		name       string
+		triggers   []codepipeline.Trigger
 		wantStatus int
 	}{
 		{
@@ -174,8 +179,8 @@ func TestHandler_Action_ExtendedFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		action     codepipeline.Action
 		name       string
+		action     codepipeline.Action
 		wantStatus int
 	}{
 		{
@@ -394,9 +399,9 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 
 	tests := []struct {
 		webhook    map[string]any
+		checkFn    func(t *testing.T, out map[string]any)
 		name       string
 		wantStatus int
-		checkFn    func(t *testing.T, out map[string]any)
 	}{
 		{
 			name: "webhook with filters and GITHUB_HMAC auth",
@@ -487,9 +492,9 @@ func TestHandler_ListWebhooks_DefinitionWrapper(t *testing.T) {
 
 	tests := []struct {
 		setup      func(h *codepipeline.Handler)
+		checkFn    func(t *testing.T, webhooks []any)
 		name       string
 		wantCount  int
-		checkFn    func(t *testing.T, webhooks []any)
 		wantStatus int
 	}{
 		{
@@ -501,7 +506,7 @@ func TestHandler_ListWebhooks_DefinitionWrapper(t *testing.T) {
 					TargetAction:   "src",
 					Authentication: "GITHUB_HMAC",
 					Filters: []codepipeline.WebhookFilter{
-						{JsonPath: "$.ref", MatchEquals: "refs/heads/main"},
+						{JSONPath: "$.ref", MatchEquals: "refs/heads/main"},
 					},
 				})
 			},
@@ -585,16 +590,16 @@ func TestHandler_PollForJobs_Filter(t *testing.T) {
 			name: "matching category/provider/version returns job",
 			setup: func(h *codepipeline.Handler) {
 				h.Backend.AddJobInternal(&codepipeline.Job{
-					ID:    "job-match-1",
-					Nonce: "n1",
+					ID:     "job-match-1",
+					Nonce:  "n1",
 					Status: "Queued",
 					ActionTypeID: codepipeline.ActionTypeID{
 						Category: "Build", Owner: "Custom", Provider: "MyBuilder", Version: "1",
 					},
 				})
 				h.Backend.AddJobInternal(&codepipeline.Job{
-					ID:    "job-other-provider",
-					Nonce: "n2",
+					ID:     "job-other-provider",
+					Nonce:  "n2",
 					Status: "Queued",
 					ActionTypeID: codepipeline.ActionTypeID{
 						Category: "Build", Owner: "Custom", Provider: "OtherBuilder", Version: "1",
@@ -611,8 +616,8 @@ func TestHandler_PollForJobs_Filter(t *testing.T) {
 			name: "no queued jobs for type returns empty",
 			setup: func(h *codepipeline.Handler) {
 				h.Backend.AddJobInternal(&codepipeline.Job{
-					ID:    "job-inprogress",
-					Nonce: "n1",
+					ID:     "job-inprogress",
+					Nonce:  "n1",
 					Status: "InProgress",
 					ActionTypeID: codepipeline.ActionTypeID{
 						Category: "Build", Owner: "Custom", Provider: "MyBuilder", Version: "1",
@@ -629,8 +634,8 @@ func TestHandler_PollForJobs_Filter(t *testing.T) {
 			name: "different version not returned",
 			setup: func(h *codepipeline.Handler) {
 				h.Backend.AddJobInternal(&codepipeline.Job{
-					ID:    "job-v2",
-					Nonce: "n1",
+					ID:     "job-v2",
+					Nonce:  "n1",
 					Status: "Queued",
 					ActionTypeID: codepipeline.ActionTypeID{
 						Category: "Build", Owner: "Custom", Provider: "MyBuilder", Version: "2",
@@ -682,20 +687,20 @@ func TestHandler_ListActionTypes_FullShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		filter     string
 		setup      func(h *codepipeline.Handler)
+		checkFn    func(t *testing.T, items []any)
+		filter     string
 		name       string
 		wantCount  int
-		checkFn    func(t *testing.T, items []any)
 		wantStatus int
 	}{
 		{
 			name: "full shape includes id/input/output/settings",
 			setup: func(h *codepipeline.Handler) {
 				rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-					"category": "Build",
-					"provider": "MyBuilder",
-					"version":  "1",
+					"category":              "Build",
+					"provider":              "MyBuilder",
+					"version":               "1",
 					"inputArtifactDetails":  map[string]any{"minimumCount": 1, "maximumCount": 5},
 					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 1},
 					"settings": map[string]any{
@@ -735,9 +740,9 @@ func TestHandler_ListActionTypes_FullShape(t *testing.T) {
 			name: "actionOwnerFilter=Custom returns matching",
 			setup: func(h *codepipeline.Handler) {
 				rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-					"category": "Test",
-					"provider": "MyTest",
-					"version":  "1",
+					"category":              "Test",
+					"provider":              "MyTest",
+					"version":               "1",
 					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 				})
@@ -751,9 +756,9 @@ func TestHandler_ListActionTypes_FullShape(t *testing.T) {
 			name: "actionOwnerFilter=ThirdParty returns empty when only Custom types",
 			setup: func(h *codepipeline.Handler) {
 				rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-					"category": "Build",
-					"provider": "MyBuilder",
-					"version":  "1",
+					"category":              "Build",
+					"provider":              "MyBuilder",
+					"version":               "1",
 					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 				})
@@ -809,9 +814,9 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 
 	tests := []struct {
 		updateInput map[string]any
+		checkFn     func(t *testing.T, h *codepipeline.Handler)
 		name        string
 		wantStatus  int
-		checkFn     func(t *testing.T, h *codepipeline.Handler)
 	}{
 		{
 			name: "update with full body persists settings and artifact details",
@@ -848,7 +853,7 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 
 				inArt, _ := at["inputArtifactDetails"].(map[string]any)
 				minCnt, _ := inArt["minimumCount"].(float64)
-				assert.Equal(t, float64(2), minCnt)
+				assert.InDelta(t, float64(2), minCnt, 0)
 
 				settings, _ := at["settings"].(map[string]any)
 				require.NotNil(t, settings)
@@ -888,7 +893,8 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 			h := newTestHandler(t)
 
 			// Pre-create the action type for update tests that expect success or type lookup.
-			if tt.wantStatus == http.StatusOK || tt.name == "update non-existent type returns ActionTypeNotFoundException" {
+			if tt.wantStatus == http.StatusOK ||
+				tt.name == "update non-existent type returns ActionTypeNotFoundException" {
 				if tt.wantStatus == http.StatusOK {
 					rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
 						"category": "Build", "provider": "MyBuilder", "version": "1",
@@ -919,8 +925,8 @@ func TestHandler_CreatePipeline_RoleArnRequired(t *testing.T) {
 	tests := []struct {
 		pipeline   map[string]any
 		name       string
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name: "missing roleArn rejected",
@@ -932,8 +938,13 @@ func TestHandler_CreatePipeline_RoleArnRequired(t *testing.T) {
 						"name": "Source",
 						"actions": []map[string]any{
 							{
-								"name":         "Src",
-								"actionTypeId": map[string]any{"category": "Source", "owner": "AWS", "provider": "S3", "version": "1"},
+								"name": "Src",
+								"actionTypeId": map[string]any{
+									"category": "Source",
+									"owner":    "AWS",
+									"provider": "S3",
+									"version":  "1",
+								},
 							},
 						},
 					},
@@ -984,8 +995,8 @@ func TestHandler_ListTagsForResource_WebhookARN(t *testing.T) {
 	tests := []struct {
 		setup      func(h *codepipeline.Handler) string
 		name       string
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name: "pipeline ARN returns tags",
@@ -1037,8 +1048,8 @@ func TestHandler_DisableStageTransition_StageValidation(t *testing.T) {
 		input      map[string]any
 		setup      func(h *codepipeline.Handler)
 		name       string
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name: "existing stage disabled ok",
@@ -1112,8 +1123,8 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		checkFn func(t *testing.T)
+		name    string
 	}{
 		{
 			name: "Restore followed by mutation does not corrupt backend",
@@ -1202,10 +1213,10 @@ func TestHandler_UpdatePipeline_VersionConflict(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		version    int
 		name       string
-		wantStatus int
 		wantType   string
+		version    int
+		wantStatus int
 	}{
 		{
 			name:       "version 0 (omitted) always succeeds",
@@ -1259,8 +1270,8 @@ func TestHandler_DeleteCustomActionType_InUse(t *testing.T) {
 		setup      func(h *codepipeline.Handler)
 		input      map[string]any
 		name       string
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name: "type in use by pipeline rejected",
@@ -1330,9 +1341,9 @@ func TestHandler_GetPipelineState_ActionStates(t *testing.T) {
 
 	tests := []struct {
 		setup      func(h *codepipeline.Handler)
+		checkFn    func(t *testing.T, out map[string]any)
 		name       string
 		wantStatus int
-		checkFn    func(t *testing.T, out map[string]any)
 	}{
 		{
 			name: "actionStates included per stage",
@@ -1619,8 +1630,8 @@ func TestInMemoryBackend_DeletePipeline_ClearsExecutions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		checkFn func(t *testing.T)
+		name    string
 	}{
 		{
 			name: "executions removed on pipeline delete",

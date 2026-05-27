@@ -237,104 +237,44 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "PipelineNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "PipelineNotFoundException", err)
 	case errors.Is(err, ErrActionTypeNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ActionTypeNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ActionTypeNotFoundException", err)
 	case errors.Is(err, ErrJobNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "JobNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "JobNotFoundException", err)
 	case errors.Is(err, ErrWebhookNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "WebhookNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "WebhookNotFoundException", err)
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidStructureException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "InvalidStructureException", err)
 	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ValidationException", err)
 	case errors.Is(err, ErrConflict):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ConflictException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ConflictException", err)
 	case errors.Is(err, ErrResourceInUse):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceInUseException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ResourceInUseException", err)
 	case errors.Is(err, ErrResourceNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ResourceNotFoundException", err)
 	case errors.Is(err, ErrStageNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "StageNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "StageNotFoundException", err)
 	case errors.Is(err, ErrInvalidStructure):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidStructureException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "InvalidStructureException", err)
 	case errors.Is(err, errUnknownAction):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidActionException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "InvalidActionException", err)
 	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return errorBlob(c, http.StatusBadRequest, "ValidationException", err)
 	default:
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InternalFailure",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusInternalServerError, payload)
+		return errorBlob(c, http.StatusInternalServerError, "InternalFailure", err)
 	}
+}
+
+// errorBlob marshals a JSON error response and writes it to the echo context.
+func errorBlob(c *echo.Context, status int, errType string, err error) error {
+	payload, _ := json.Marshal(service.JSONErrorResponse{
+		Type:    errType,
+		Message: err.Error(),
+	})
+
+	return c.JSONBlob(status, payload)
 }
 
 // --- Pipeline operations ---
@@ -374,7 +314,11 @@ func (h *Handler) handleCreatePipeline(
 	}
 
 	if in.Pipeline.ArtifactStore.Type != "" && !validArtifactStoreType(in.Pipeline.ArtifactStore.Type) {
-		return nil, fmt.Errorf("%w: invalid artifactStore type %q: must be S3", ErrValidation, in.Pipeline.ArtifactStore.Type)
+		return nil, fmt.Errorf(
+			"%w: invalid artifactStore type %q: must be S3",
+			ErrValidation,
+			in.Pipeline.ArtifactStore.Type,
+		)
 	}
 
 	tagMap := tagsToMap(in.Tags)
@@ -1248,20 +1192,20 @@ type listWebhooksInput struct {
 
 // webhookDefinitionView is the AWS-spec shape for a webhook definition inside ListWebhooks.
 type webhookDefinitionView struct {
-	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitempty"`
-	Filters                     []WebhookFilter   `json:"filters,omitempty"`
+	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
 	Name                        string            `json:"name"`
 	TargetPipeline              string            `json:"targetPipeline"`
 	TargetAction                string            `json:"targetAction"`
 	Authentication              string            `json:"authentication,omitempty"`
+	Filters                     []WebhookFilter   `json:"filters,omitempty"`
 }
 
 // webhookListEntry is the AWS-spec outer envelope returned per webhook in ListWebhooks.
 type webhookListEntry struct {
-	Definition               webhookDefinitionView `json:"definition"`
 	URL                      string                `json:"url,omitempty"`
 	ARN                      string                `json:"arn,omitempty"`
 	LastTriggered            string                `json:"lastTriggered,omitempty"`
+	Definition               webhookDefinitionView `json:"definition"`
 	RegisteredWithThirdParty bool                  `json:"registeredWithThirdParty"`
 }
 
@@ -1298,12 +1242,12 @@ func (h *Handler) handleListWebhooks(
 
 type putWebhookInput struct {
 	Webhook struct {
-		AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitempty"`
-		Filters                     []WebhookFilter   `json:"filters,omitempty"`
+		AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
 		Name                        string            `json:"name"`
 		TargetPipeline              string            `json:"targetPipeline"`
 		TargetAction                string            `json:"targetAction"`
 		Authentication              string            `json:"authentication,omitempty"`
+		Filters                     []WebhookFilter   `json:"filters,omitempty"`
 	} `json:"webhook"`
 	Tags []Tag `json:"tags"`
 }

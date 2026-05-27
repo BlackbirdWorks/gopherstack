@@ -29,13 +29,13 @@ type executionEntry struct {
 
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
-	Pipelines        map[string]*Pipeline    `json:"pipelines"`
-	PipelineARNIndex map[string]string       `json:"pipelineARNIndex"`
-	Jobs             map[string]*Job         `json:"jobs"`
-	Webhooks         map[string]*Webhook     `json:"webhooks"`
-	WebhookARNIndex  map[string]string       `json:"webhookARNIndex"`
-	AccountID        string                  `json:"accountID"`
-	Region           string                  `json:"region"`
+	Pipelines         map[string]*Pipeline    `json:"pipelines"`
+	PipelineARNIndex  map[string]string       `json:"pipelineARNIndex"`
+	Jobs              map[string]*Job         `json:"jobs"`
+	Webhooks          map[string]*Webhook     `json:"webhooks"`
+	WebhookARNIndex   map[string]string       `json:"webhookARNIndex"`
+	AccountID         string                  `json:"accountID"`
+	Region            string                  `json:"region"`
 	CustomActionTypes []customActionTypeEntry `json:"customActionTypes"`
 	StageTransitions  []stageTransitionEntry  `json:"stageTransitions"`
 	Executions        []executionEntry        `json:"executions"`
