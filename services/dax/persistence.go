@@ -2,19 +2,23 @@ package dax
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 )
+
+// errSnapshotIntegrity is the sentinel error for snapshot referential integrity failures.
+var errSnapshotIntegrity = errors.New("snapshot integrity violation")
 
 type backendSnapshot struct {
 	Clusters     map[string]*Cluster          `json:"clusters"`
 	ParamGroups  map[string]*ParameterGroup   `json:"paramGroups"`
 	SubnetGroups map[string]*SubnetGroup      `json:"subnetGroups"`
 	Tags         map[string]map[string]string `json:"tags"`
-	Events       []*Event                     `json:"events"`
 	AccountID    string                       `json:"accountID"`
 	Region       string                       `json:"region"`
+	Events       []*Event                     `json:"events"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
@@ -45,13 +49,23 @@ func validateSnapshot(s *backendSnapshot) error {
 		if cluster.ParameterGroup.ParameterGroupName != "" {
 			pgName := cluster.ParameterGroup.ParameterGroupName
 			if _, ok := s.ParamGroups[pgName]; !ok {
-				return fmt.Errorf("cluster %q references missing parameter group %q", name, pgName)
+				return fmt.Errorf(
+					"%w: cluster %q references missing parameter group %q",
+					errSnapshotIntegrity,
+					name,
+					pgName,
+				)
 			}
 		}
 
 		if cluster.SubnetGroupName != "" {
 			if _, ok := s.SubnetGroups[cluster.SubnetGroupName]; !ok {
-				return fmt.Errorf("cluster %q references missing subnet group %q", name, cluster.SubnetGroupName)
+				return fmt.Errorf(
+					"%w: cluster %q references missing subnet group %q",
+					errSnapshotIntegrity,
+					name,
+					cluster.SubnetGroupName,
+				)
 			}
 		}
 	}

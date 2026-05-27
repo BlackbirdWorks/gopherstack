@@ -22,18 +22,16 @@ func validCreateInput(name string) dax.CreateClusterInput {
 	}
 }
 
-func strPtr(s string) *string { return &s }
-
 // ---- CreateCluster ----
 
 func TestCreateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check   func(t *testing.T, c *dax.Cluster)
 		name    string
 		input   dax.CreateClusterInput
 		wantErr bool
-		check   func(t *testing.T, c *dax.Cluster)
 	}{
 		{
 			name:  "valid minimal input",
@@ -58,6 +56,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("ha-cluster")
 				in.ReplicationFactor = 3
+
 				return in
 			}(),
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -71,6 +70,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("sse-cluster")
 				in.SSESpecificationEnabled = true
+
 				return in
 			}(),
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -83,6 +83,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("tagged")
 				in.Tags = map[string]string{"env": "test", "team": "platform"}
+
 				return in
 			}(),
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -96,6 +97,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("tls-cluster")
 				in.ClusterEndpointEncryptionType = dax.EncryptionTypeTLS
+
 				return in
 			}(),
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -108,6 +110,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("notif-cluster")
 				in.NotificationTopicArn = "arn:aws:sns:us-east-1:123456789012:my-topic"
+
 				return in
 			}(),
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -128,8 +131,12 @@ func TestCreateCluster(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid node type",
-			input:   dax.CreateClusterInput{ClusterName: "x", NodeType: "invalid.type", IamRoleArn: "arn:aws:iam::123456789012:role/r"},
+			name: "invalid node type",
+			input: dax.CreateClusterInput{
+				ClusterName: "x",
+				NodeType:    "invalid.type",
+				IamRoleArn:  "arn:aws:iam::123456789012:role/r",
+			},
 			wantErr: true,
 		},
 		{
@@ -142,6 +149,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("big-cluster")
 				in.ReplicationFactor = 11
+
 				return in
 			}(),
 			wantErr: true,
@@ -151,6 +159,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("x")
 				in.SubnetGroupName = "no-such-group"
+
 				return in
 			}(),
 			wantErr: true,
@@ -160,6 +169,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("x")
 				in.ParameterGroupName = "no-such-pg"
+
 				return in
 			}(),
 			wantErr: true,
@@ -169,6 +179,7 @@ func TestCreateCluster(t *testing.T) {
 			input: func() dax.CreateClusterInput {
 				in := validCreateInput("x")
 				in.ClusterEndpointEncryptionType = "INVALID"
+
 				return in
 			}(),
 			wantErr: true,
@@ -183,6 +194,7 @@ func TestCreateCluster(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -251,6 +263,7 @@ func TestDescribeClusters(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -286,20 +299,21 @@ func TestUpdateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend) string
 		input   func(clusterName string) dax.UpdateClusterInput
-		wantErr bool
 		check   func(t *testing.T, c *dax.Cluster)
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "update description",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateCluster(validCreateInput("upd"))
+
 				return "upd"
 			},
 			input: func(name string) dax.UpdateClusterInput {
-				return dax.UpdateClusterInput{ClusterName: name, Description: strPtr("new description")}
+				return dax.UpdateClusterInput{ClusterName: name, Description: new("new description")}
 			},
 			check: func(t *testing.T, c *dax.Cluster) {
 				t.Helper()
@@ -312,14 +326,15 @@ func TestUpdateCluster(t *testing.T) {
 				in := validCreateInput("desc-cluster")
 				in.Description = "initial"
 				_, _ = b.CreateCluster(in)
+
 				return "desc-cluster"
 			},
 			input: func(name string) dax.UpdateClusterInput {
-				return dax.UpdateClusterInput{ClusterName: name, Description: strPtr("")}
+				return dax.UpdateClusterInput{ClusterName: name, Description: new("")}
 			},
 			check: func(t *testing.T, c *dax.Cluster) {
 				t.Helper()
-				assert.Equal(t, "", c.Description)
+				assert.Empty(t, c.Description)
 			},
 		},
 		{
@@ -328,6 +343,7 @@ func TestUpdateCluster(t *testing.T) {
 				in := validCreateInput("keep-desc")
 				in.Description = "kept"
 				_, _ = b.CreateCluster(in)
+
 				return "keep-desc"
 			},
 			input: func(name string) dax.UpdateClusterInput {
@@ -342,6 +358,7 @@ func TestUpdateCluster(t *testing.T) {
 			name: "update notification topic",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateCluster(validCreateInput("notif"))
+
 				return "notif"
 			},
 			input: func(name string) dax.UpdateClusterInput {
@@ -363,6 +380,7 @@ func TestUpdateCluster(t *testing.T) {
 				in := validCreateInput("topic-status")
 				in.NotificationTopicArn = "arn:aws:sns:us-east-1:123456789012:topic"
 				_, _ = b.CreateCluster(in)
+
 				return "topic-status"
 			},
 			input: func(name string) dax.UpdateClusterInput {
@@ -397,6 +415,7 @@ func TestUpdateCluster(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -445,6 +464,7 @@ func TestDeleteCluster(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -464,11 +484,11 @@ func TestIncreaseReplicationFactor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend)
+		check   func(t *testing.T, c *dax.Cluster)
+		name    string
 		input   dax.IncreaseReplicationFactorInput
 		wantErr bool
-		check   func(t *testing.T, c *dax.Cluster)
 	}{
 		{
 			name: "increase from 1 to 3",
@@ -521,6 +541,7 @@ func TestIncreaseReplicationFactor(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -539,11 +560,11 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend)
+		check   func(t *testing.T, c *dax.Cluster)
+		name    string
 		input   dax.DecreaseReplicationFactorInput
 		wantErr bool
-		check   func(t *testing.T, c *dax.Cluster)
 	}{
 		{
 			name: "decrease from 3 to 1",
@@ -606,6 +627,7 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -624,12 +646,12 @@ func TestRebootNode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		setup       func(b *dax.InMemoryBackend)
+		check       func(t *testing.T, c *dax.Cluster)
+		name        string
 		clusterName string
 		nodeID      string
 		wantErr     bool
-		check       func(t *testing.T, c *dax.Cluster)
 	}{
 		{
 			name: "success",
@@ -672,6 +694,7 @@ func TestRebootNode(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -690,16 +713,17 @@ func TestTagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend) string
 		tags    map[string]string
-		wantErr bool
 		check   func(t *testing.T, tags map[string]string)
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "tag cluster ARN",
 			setup: func(b *dax.InMemoryBackend) string {
 				c, _ := b.CreateCluster(validCreateInput("tagged2"))
+
 				return c.ClusterArn
 			},
 			tags: map[string]string{"k1": "v1", "k2": "v2"},
@@ -713,6 +737,7 @@ func TestTagResource(t *testing.T) {
 			name: "tag parameter group ARN",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateParameterGroup("my-pg", "")
+
 				return "arn:aws:dax:us-east-1:123456789012:parametergroup/my-pg"
 			},
 			tags: map[string]string{"k": "v"},
@@ -725,6 +750,7 @@ func TestTagResource(t *testing.T) {
 			name: "tag subnet group ARN",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateSubnetGroup("my-sg", "", []string{"subnet-1"})
+
 				return "arn:aws:dax:us-east-1:123456789012:subnetgroup/my-sg"
 			},
 			tags: map[string]string{"k": "v"},
@@ -753,6 +779,7 @@ func TestTagResource(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -790,11 +817,11 @@ func TestCreateParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check       func(t *testing.T, pg *dax.ParameterGroup)
 		name        string
 		pgName      string
 		description string
 		wantErr     bool
-		check       func(t *testing.T, pg *dax.ParameterGroup)
 	}{
 		{
 			name:        "success",
@@ -824,6 +851,7 @@ func TestCreateParameterGroup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -893,6 +921,7 @@ func TestDescribeParameterGroups(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -906,11 +935,11 @@ func TestUpdateParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend)
+		check   func(t *testing.T, pg *dax.ParameterGroup)
+		name    string
 		input   dax.UpdateParameterGroupInput
 		wantErr bool
-		check   func(t *testing.T, pg *dax.ParameterGroup)
 	}{
 		{
 			name: "update query-ttl",
@@ -918,8 +947,10 @@ func TestUpdateParameterGroup(t *testing.T) {
 				_, _ = b.CreateParameterGroup("my-pg", "")
 			},
 			input: dax.UpdateParameterGroupInput{
-				ParameterGroupName:  "my-pg",
-				ParameterNameValues: []dax.ParameterNameValue{{ParameterName: "query-ttl-millis", ParameterValue: "60000"}},
+				ParameterGroupName: "my-pg",
+				ParameterNameValues: []dax.ParameterNameValue{
+					{ParameterName: "query-ttl-millis", ParameterValue: "60000"},
+				},
 			},
 			check: func(t *testing.T, pg *dax.ParameterGroup) {
 				t.Helper()
@@ -927,9 +958,12 @@ func TestUpdateParameterGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "unknown parameter name",
-			setup:   func(b *dax.InMemoryBackend) { _, _ = b.CreateParameterGroup("pg", "") },
-			input:   dax.UpdateParameterGroupInput{ParameterGroupName: "pg", ParameterNameValues: []dax.ParameterNameValue{{ParameterName: "unknown-param", ParameterValue: "1"}}},
+			name:  "unknown parameter name",
+			setup: func(b *dax.InMemoryBackend) { _, _ = b.CreateParameterGroup("pg", "") },
+			input: dax.UpdateParameterGroupInput{
+				ParameterGroupName:  "pg",
+				ParameterNameValues: []dax.ParameterNameValue{{ParameterName: "unknown-param", ParameterValue: "1"}},
+			},
 			wantErr: true,
 		},
 		{
@@ -950,6 +984,7 @@ func TestUpdateParameterGroup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1019,8 +1054,8 @@ func TestDescribeParameters(t *testing.T) {
 	tests := []struct {
 		name       string
 		pgName     string
-		wantErr    bool
 		wantParams []string
+		wantErr    bool
 	}{
 		{
 			name:       "default group has params",
@@ -1043,6 +1078,7 @@ func TestDescribeParameters(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1081,20 +1117,22 @@ func TestResetParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
 		setup          func(b *dax.InMemoryBackend)
+		check          func(t *testing.T, pg *dax.ParameterGroup)
+		name           string
 		pgName         string
 		parameterNames []string
 		wantErr        bool
-		check          func(t *testing.T, pg *dax.ParameterGroup)
 	}{
 		{
 			name: "reset all to defaults",
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateParameterGroup("pg", "")
 				_, _ = b.UpdateParameterGroup(dax.UpdateParameterGroupInput{
-					ParameterGroupName:  "pg",
-					ParameterNameValues: []dax.ParameterNameValue{{ParameterName: "query-ttl-millis", ParameterValue: "99999"}},
+					ParameterGroupName: "pg",
+					ParameterNameValues: []dax.ParameterNameValue{
+						{ParameterName: "query-ttl-millis", ParameterValue: "99999"},
+					},
 				})
 			},
 			pgName: "pg",
@@ -1108,8 +1146,10 @@ func TestResetParameterGroup(t *testing.T) {
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateParameterGroup("pg2", "")
 				_, _ = b.UpdateParameterGroup(dax.UpdateParameterGroupInput{
-					ParameterGroupName:  "pg2",
-					ParameterNameValues: []dax.ParameterNameValue{{ParameterName: "query-ttl-millis", ParameterValue: "99999"}},
+					ParameterGroupName: "pg2",
+					ParameterNameValues: []dax.ParameterNameValue{
+						{ParameterName: "query-ttl-millis", ParameterValue: "99999"},
+					},
 				})
 			},
 			pgName:         "pg2",
@@ -1137,6 +1177,7 @@ func TestResetParameterGroup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1155,12 +1196,12 @@ func TestCreateSubnetGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check     func(t *testing.T, sg *dax.SubnetGroup)
 		name      string
 		sgName    string
 		desc      string
 		subnetIDs []string
 		wantErr   bool
-		check     func(t *testing.T, sg *dax.SubnetGroup)
 	}{
 		{
 			name:      "success",
@@ -1191,6 +1232,7 @@ func TestCreateSubnetGroup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1216,11 +1258,11 @@ func TestUpdateSubnetGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(b *dax.InMemoryBackend)
+		check   func(t *testing.T, sg *dax.SubnetGroup)
+		name    string
 		input   dax.UpdateSubnetGroupInput
 		wantErr bool
-		check   func(t *testing.T, sg *dax.SubnetGroup)
 	}{
 		{
 			name: "update description",
@@ -1263,6 +1305,7 @@ func TestUpdateSubnetGroup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1364,6 +1407,7 @@ func TestDescribeSubnetGroups(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 
@@ -1459,9 +1503,9 @@ func TestSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(b *dax.InMemoryBackend)
 		check func(t *testing.T, b2 *dax.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "round-trip cluster",
@@ -1524,7 +1568,13 @@ func TestRestore_ReferentialIntegrityFailure(t *testing.T) {
 	t.Parallel()
 
 	// Craft a snapshot where a cluster references a missing parameter group.
-	badSnap := `{"clusters":{"bad":{"clusterName":"bad","parameterGroup":{"parameterGroupName":"missing-pg"},"subnetGroupName":"default","tags":{},"nodes":[],"securityGroupIds":[]}},"paramGroups":{},"subnetGroups":{"default":{"subnetGroupName":"default","subnets":[]}},"tags":{}}`
+	badSnap := `{` +
+		`"clusters":{"bad":{"clusterName":"bad",` +
+		`"parameterGroup":{"parameterGroupName":"missing-pg"},` +
+		`"subnetGroupName":"default","tags":{},"nodes":[],"securityGroupIds":[]}},` +
+		`"paramGroups":{},` +
+		`"subnetGroups":{"default":{"subnetGroupName":"default","subnets":[]}},` +
+		`"tags":{}}`
 
 	b := newTestBackend()
 	err := b.Restore([]byte(badSnap))

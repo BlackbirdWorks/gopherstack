@@ -44,7 +44,7 @@ const (
 )
 
 // validNodeTypes is the set of valid DAX node type identifiers.
-var validNodeTypes = map[string]bool{
+var validNodeTypes = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
 	"dax.r4.large":    true,
 	"dax.r4.xlarge":   true,
 	"dax.r4.2xlarge":  true,
@@ -64,13 +64,13 @@ var validNodeTypes = map[string]bool{
 }
 
 // defaultParameterValues are the canonical DAX 1.0 parameter defaults.
-var defaultParameterValues = map[string]string{
+var defaultParameterValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
 	"query-ttl-millis":  "300000",
 	"record-ttl-millis": "300000",
 }
 
 // defaultParameterDescriptions provides human-readable descriptions for default parameters.
-var defaultParameterDescriptions = map[string]string{
+var defaultParameterDescriptions = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
 	"query-ttl-millis":  "The number of milliseconds for which query results are cached.",
 	"record-ttl-millis": "The number of milliseconds for which individual item results are cached.",
 }
@@ -212,15 +212,15 @@ type UpdateClusterInput struct {
 // IncreaseReplicationFactorInput holds parameters for increasing cluster replication.
 type IncreaseReplicationFactorInput struct {
 	ClusterName          string
-	NewReplicationFactor int
 	AvailabilityZones    []string
+	NewReplicationFactor int
 }
 
 // DecreaseReplicationFactorInput holds parameters for decreasing cluster replication.
 type DecreaseReplicationFactorInput struct {
 	ClusterName          string
-	NewReplicationFactor int
 	NodeIDsToRemove      []string
+	NewReplicationFactor int
 }
 
 // UpdateParameterGroupInput holds parameters for updating a parameter group.

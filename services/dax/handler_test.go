@@ -59,10 +59,10 @@ func TestHandlerCreateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		wantStatus int
 	}{
 		{
 			name:       "success",
@@ -81,6 +81,7 @@ func TestHandlerCreateCluster(t *testing.T) {
 			body: func() map[string]any {
 				b := validClusterBody("tls-cluster")
 				b["ClusterEndpointEncryptionType"] = "TLS"
+
 				return b
 			}(),
 			wantStatus: http.StatusOK,
@@ -151,9 +152,9 @@ func TestHandlerDescribeClusters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(t *testing.T, h *dax.Handler)
 		body      map[string]any
+		name      string
 		wantCount int
 	}{
 		{
@@ -165,6 +166,7 @@ func TestHandlerDescribeClusters(t *testing.T) {
 		{
 			name: "after create",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("c1"))
 			},
 			body:      map[string]any{},
@@ -195,15 +197,16 @@ func TestHandlerUpdateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "update description",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("upd-cluster"))
 			},
 			body: map[string]any{
@@ -220,6 +223,7 @@ func TestHandlerUpdateCluster(t *testing.T) {
 		{
 			name: "update notification topic",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("notif-cluster"))
 			},
 			body: map[string]any{
@@ -266,14 +270,15 @@ func TestHandlerDeleteCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("del-cluster"))
 			},
 			body:       map[string]any{"ClusterName": "del-cluster"},
@@ -305,17 +310,18 @@ func TestHandlerReplicationFactor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		operation  string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		operation  string
+		wantStatus int
 	}{
 		{
 			name:      "increase 1 to 3",
 			operation: "IncreaseReplicationFactor",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("grow"))
 			},
 			body:       map[string]any{"ClusterName": "grow", "NewReplicationFactor": 3},
@@ -323,13 +329,14 @@ func TestHandlerReplicationFactor(t *testing.T) {
 			check: func(t *testing.T, resp map[string]any) {
 				t.Helper()
 				cluster := resp["Cluster"].(map[string]any)
-				assert.Equal(t, float64(3), cluster["TotalNodes"])
+				assert.InDelta(t, float64(3), cluster["TotalNodes"], 0)
 			},
 		},
 		{
 			name:      "decrease 3 to 1",
 			operation: "DecreaseReplicationFactor",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				body := validClusterBody("shrink")
 				body["ReplicationFactor"] = 3
 				daxRequest(t, h, "CreateCluster", body)
@@ -339,7 +346,7 @@ func TestHandlerReplicationFactor(t *testing.T) {
 			check: func(t *testing.T, resp map[string]any) {
 				t.Helper()
 				cluster := resp["Cluster"].(map[string]any)
-				assert.Equal(t, float64(1), cluster["TotalNodes"])
+				assert.InDelta(t, float64(1), cluster["TotalNodes"], 0)
 			},
 		},
 		{
@@ -375,15 +382,16 @@ func TestHandlerRebootNode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "success",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("reboot-cluster"))
 			},
 			body:       map[string]any{"ClusterName": "reboot-cluster", "NodeId": "reboot-cluster-0000"},
@@ -437,9 +445,11 @@ func TestHandlerTagResource(t *testing.T) {
 		{
 			name: "tag cluster",
 			setup: func(t *testing.T, h *dax.Handler) string {
+				t.Helper()
 				rec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
 				var resp map[string]any
 				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
 				return resp["Cluster"].(map[string]any)["ClusterArn"].(string)
 			},
 			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
@@ -502,12 +512,12 @@ func TestHandlerParameterGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		operation  string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		operation  string
+		wantStatus int
 	}{
 		{
 			name:       "create",
@@ -537,6 +547,7 @@ func TestHandlerParameterGroups(t *testing.T) {
 			name:      "update",
 			operation: "UpdateParameterGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "upd-pg"})
 			},
 			body: map[string]any{
@@ -551,6 +562,7 @@ func TestHandlerParameterGroups(t *testing.T) {
 			name:      "delete",
 			operation: "DeleteParameterGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "pg-del"})
 			},
 			body:       map[string]any{"ParameterGroupName": "pg-del"},
@@ -584,6 +596,7 @@ func TestHandlerParameterGroups(t *testing.T) {
 			name:      "reset parameter group",
 			operation: "ResetParameterGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "reset-pg"})
 			},
 			body:       map[string]any{"ParameterGroupName": "reset-pg"},
@@ -615,12 +628,12 @@ func TestHandlerSubnetGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		operation  string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		operation  string
+		wantStatus int
 	}{
 		{
 			name:      "create",
@@ -660,6 +673,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 			name:      "update",
 			operation: "UpdateSubnetGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "upd-sg",
 					"SubnetIds":       []string{"subnet-1"},
@@ -680,6 +694,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 			name:      "delete",
 			operation: "DeleteSubnetGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "sg-del",
 					"SubnetIds":       []string{"subnet-1"},
@@ -714,15 +729,16 @@ func TestHandlerDescribeEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *dax.Handler)
 		body       map[string]any
-		wantStatus int
 		check      func(t *testing.T, resp map[string]any)
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "events after create",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("evt-cluster"))
 			},
 			body:       map[string]any{},
@@ -780,6 +796,7 @@ func TestHandlerErrorMapping(t *testing.T) {
 			name:      "ClusterAlreadyExistsFault",
 			operation: "CreateCluster",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("dup"))
 			},
 			body:     validClusterBody("dup"),
@@ -822,6 +839,7 @@ func TestHandlerErrorMapping(t *testing.T) {
 			name:      "SubnetGroupAlreadyExistsFault",
 			operation: "CreateSubnetGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateSubnetGroup", map[string]any{
 					"SubnetGroupName": "dup-sg",
 					"SubnetIds":       []string{"subnet-1"},
@@ -837,6 +855,7 @@ func TestHandlerErrorMapping(t *testing.T) {
 			name:      "ParameterGroupAlreadyExistsFault",
 			operation: "CreateParameterGroup",
 			setup: func(t *testing.T, h *dax.Handler) {
+				t.Helper()
 				daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "dup-pg"})
 			},
 			body:     map[string]any{"ParameterGroupName": "dup-pg"},

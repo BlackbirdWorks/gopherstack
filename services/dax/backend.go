@@ -69,13 +69,29 @@ const (
 
 	// maintenanceWindowMinutes is the fixed width of the simulated maintenance window.
 	maintenanceWindowMinutes = 60
+
+	// hoursPerDay is the number of hours in a day.
+	hoursPerDay = 24
+
+	// minutesPerHour is the number of minutes in an hour.
+	minutesPerHour = 60
 )
 
 // maintenanceWindowDays maps random seeds to day abbreviations for the maintenance window.
-var maintenanceWindowDays = []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+//
+//nolint:gochecknoglobals // package-level lookup table
+var maintenanceWindowDays = []string{
+	"sun",
+	"mon",
+	"tue",
+	"wed",
+	"thu",
+	"fri",
+	"sat",
+}
 
 // InMemoryBackend is the in-memory DAX backend.
-type InMemoryBackend struct {
+type InMemoryBackend struct { //nolint:govet // field grouping by concern is preferred over alignment optimization
 	clusters     map[string]*Cluster
 	paramGroups  map[string]*ParameterGroup
 	subnetGroups map[string]*SubnetGroup
@@ -128,16 +144,6 @@ func (b *InMemoryBackend) clusterARN(name string) string {
 	return fmt.Sprintf("arn:aws:dax:%s:%s:cache/%s", b.Region, b.AccountID, name)
 }
 
-// paramGroupARN builds a DAX parameter group ARN.
-func (b *InMemoryBackend) paramGroupARN(name string) string {
-	return fmt.Sprintf("arn:aws:dax:%s:%s:parametergroup/%s", b.Region, b.AccountID, name)
-}
-
-// subnetGroupARN builds a DAX subnet group ARN.
-func (b *InMemoryBackend) subnetGroupARN(name string) string {
-	return fmt.Sprintf("arn:aws:dax:%s:%s:subnetgroup/%s", b.Region, b.AccountID, name)
-}
-
 // daxURL builds a dax:// URL from a host address and port number.
 func daxURL(addr string, port int) string {
 	return "dax://" + net.JoinHostPort(addr, strconv.Itoa(port))
@@ -158,12 +164,14 @@ func nodeEndpointAddress(clusterName, nodeID, region string) string {
 
 // randomMaintenanceWindow returns a random 60-minute maintenance window slot.
 func randomMaintenanceWindow() string {
-	day := maintenanceWindowDays[rand.Uint32N(uint32(len(maintenanceWindowDays)))] //nolint:gosec
-	hour := rand.Uint32N(24)                                                        //nolint:gosec
-	minute := rand.Uint32N(60)                                                      //nolint:gosec
+	//nolint:gosec // not security sensitive
+	day := maintenanceWindowDays[rand.Uint32N(uint32(len(maintenanceWindowDays)))]
+	hour := rand.Uint32N(hoursPerDay)      //nolint:gosec // not security sensitive
+	minute := rand.Uint32N(minutesPerHour) //nolint:gosec // not security sensitive
 
-	endHour := (hour*60 + minute + uint32(maintenanceWindowMinutes)) / 60 % 24
-	endMinute := (hour*60 + minute + uint32(maintenanceWindowMinutes)) % 60
+	totalMinutes := hour*minutesPerHour + minute + uint32(maintenanceWindowMinutes)
+	endHour := totalMinutes / minutesPerHour % hoursPerDay
+	endMinute := totalMinutes % minutesPerHour
 
 	return fmt.Sprintf("%s:%02d:%02d-%s:%02d:%02d", day, hour, minute, day, endHour, endMinute)
 }
@@ -1028,12 +1036,10 @@ func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []stri
 
 	if len(parameterNames) == 0 {
 		// Reset all to defaults.
-		for k, v := range defaultParameterValues {
-			pg.Parameters[k] = v
-		}
+		maps.Copy(pg.Parameters, defaultParameterValues)
 	} else {
 		for _, pname := range parameterNames {
-			if def, ok := defaultParameterValues[pname]; ok {
+			if def, found := defaultParameterValues[pname]; found {
 				pg.Parameters[pname] = def
 			}
 		}
@@ -1163,6 +1169,27 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 	return nil
 }
 
+// eventMatches returns true if the event matches the given filters.
+func eventMatches(ev *Event, sourceName, sourceType string, startTime, endTime *time.Time) bool {
+	if sourceName != "" && ev.SourceName != sourceName {
+		return false
+	}
+
+	if sourceType != "" && ev.SourceType != sourceType {
+		return false
+	}
+
+	if startTime != nil && ev.Date.Before(*startTime) {
+		return false
+	}
+
+	if endTime != nil && ev.Date.After(*endTime) {
+		return false
+	}
+
+	return true
+}
+
 // DescribeEvents returns events filtered by source and time range.
 func (b *InMemoryBackend) DescribeEvents(
 	sourceName string,
@@ -1176,25 +1203,13 @@ func (b *InMemoryBackend) DescribeEvents(
 	defer b.mu.RUnlock()
 
 	if maxResults <= 0 {
-		maxResults = 100
+		maxResults = maxClustersDefault
 	}
 
 	var filtered []*Event
 
 	for _, ev := range b.events {
-		if sourceName != "" && ev.SourceName != sourceName {
-			continue
-		}
-
-		if sourceType != "" && ev.SourceType != sourceType {
-			continue
-		}
-
-		if startTime != nil && ev.Date.Before(*startTime) {
-			continue
-		}
-
-		if endTime != nil && ev.Date.After(*endTime) {
+		if !eventMatches(ev, sourceName, sourceType, startTime, endTime) {
 			continue
 		}
 

@@ -22,6 +22,7 @@ const (
 	daxTargetPrefix    = "AmazonDAXV3."
 	daxMatchPriority   = service.PriorityHeaderExact
 	clusterResponseKey = "Cluster"
+	parameterGroupKey  = "ParameterGroup"
 )
 
 var (
@@ -133,7 +134,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the DAX operation to the appropriate handler function.
-func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (any, error) {
+//
+//nolint:cyclop // routing switch covers all DAX operations
+func (h *Handler) dispatch(
+	ctx context.Context,
+	operation string,
+	body []byte,
+) (any, error) {
 	_ = ctx // reserved for future logging/tracing use
 
 	switch operation {
@@ -229,8 +236,8 @@ type deleteClusterRequest struct {
 
 type increaseReplicationFactorRequest struct {
 	ClusterName          string   `json:"ClusterName"`
-	NewReplicationFactor int      `json:"NewReplicationFactor"`
 	AvailabilityZones    []string `json:"AvailabilityZones"`
+	NewReplicationFactor int      `json:"NewReplicationFactor"`
 }
 
 type decreaseReplicationFactorRequest struct {
@@ -339,24 +346,24 @@ type tagItem struct {
 // ---- cluster response helpers ----
 
 type clusterResponse struct {
-	ParameterGroup                *paramGroupStatus          `json:"ParameterGroup,omitempty"`
-	SSEDescription                *sseDescResponse           `json:"SSEDescription,omitempty"`
-	Endpoint                      *endpointResponse          `json:"ClusterDiscoveryEndpoint,omitempty"`
-	NotificationConfiguration     *notificationConfigResp    `json:"NotificationConfiguration,omitempty"`
-	ClusterName                   string                     `json:"ClusterName"`
-	ClusterArn                    string                     `json:"ClusterArn"`
-	Description                   string                     `json:"Description,omitempty"`
-	NodeType                      string                     `json:"NodeType"`
-	Status                        string                     `json:"ClusterStatus"`
-	SubnetGroup                   string                     `json:"SubnetGroup,omitempty"`
-	IamRoleArn                    string                     `json:"IamRoleArn,omitempty"`
-	PreferredMaintenanceWindow    string                     `json:"PreferredMaintenanceWindow,omitempty"`
-	ClusterEndpointEncryptionType string                     `json:"ClusterEndpointEncryptionType,omitempty"`
-	Nodes                         []nodeResponse             `json:"Nodes,omitempty"`
-	SecurityGroups                []securityGroupResp        `json:"SecurityGroups,omitempty"`
-	Tags                          []tagItem                  `json:"Tags,omitempty"`
-	TotalNodes                    int                        `json:"TotalNodes"`
-	ActiveNodes                   int                        `json:"ActiveNodes"`
+	ParameterGroup                *paramGroupStatus       `json:"ParameterGroup,omitempty"`
+	SSEDescription                *sseDescResponse        `json:"SSEDescription,omitempty"`
+	Endpoint                      *endpointResponse       `json:"ClusterDiscoveryEndpoint,omitempty"`
+	NotificationConfiguration     *notificationConfigResp `json:"NotificationConfiguration,omitempty"`
+	ClusterName                   string                  `json:"ClusterName"`
+	ClusterArn                    string                  `json:"ClusterArn"`
+	Description                   string                  `json:"Description,omitempty"`
+	NodeType                      string                  `json:"NodeType"`
+	Status                        string                  `json:"ClusterStatus"`
+	SubnetGroup                   string                  `json:"SubnetGroup,omitempty"`
+	IamRoleArn                    string                  `json:"IamRoleArn,omitempty"`
+	PreferredMaintenanceWindow    string                  `json:"PreferredMaintenanceWindow,omitempty"`
+	ClusterEndpointEncryptionType string                  `json:"ClusterEndpointEncryptionType,omitempty"`
+	Nodes                         []nodeResponse          `json:"Nodes,omitempty"`
+	SecurityGroups                []securityGroupResp     `json:"SecurityGroups,omitempty"`
+	Tags                          []tagItem               `json:"Tags,omitempty"`
+	TotalNodes                    int                     `json:"TotalNodes"`
+	ActiveNodes                   int                     `json:"ActiveNodes"`
 }
 
 type endpointResponse struct {
@@ -606,15 +613,7 @@ func (h *Handler) handleUpdateCluster(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cluster, err := h.Backend.UpdateCluster(UpdateClusterInput{
-		ClusterName:                req.ClusterName,
-		Description:                req.Description,
-		PreferredMaintenanceWindow: req.PreferredMaintenanceWindow,
-		SecurityGroupIDs:           req.SecurityGroupIDs,
-		ParameterGroupName:         req.ParameterGroupName,
-		NotificationTopicArn:       req.NotificationTopicArn,
-		NotificationTopicStatus:    req.NotificationTopicStatus,
-	})
+	cluster, err := h.Backend.UpdateCluster(UpdateClusterInput(req))
 	if err != nil {
 		return nil, err
 	}
@@ -646,11 +645,7 @@ func (h *Handler) handleIncreaseReplicationFactor(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cluster, err := h.Backend.IncreaseReplicationFactor(IncreaseReplicationFactorInput{
-		ClusterName:          req.ClusterName,
-		NewReplicationFactor: req.NewReplicationFactor,
-		AvailabilityZones:    req.AvailabilityZones,
-	})
+	cluster, err := h.Backend.IncreaseReplicationFactor(IncreaseReplicationFactorInput(req))
 	if err != nil {
 		return nil, err
 	}
@@ -666,11 +661,7 @@ func (h *Handler) handleDecreaseReplicationFactor(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cluster, err := h.Backend.DecreaseReplicationFactor(DecreaseReplicationFactorInput{
-		ClusterName:          req.ClusterName,
-		NewReplicationFactor: req.NewReplicationFactor,
-		NodeIDsToRemove:      req.NodeIDsToRemove,
-	})
+	cluster, err := h.Backend.DecreaseReplicationFactor(DecreaseReplicationFactorInput(req))
 	if err != nil {
 		return nil, err
 	}
@@ -768,7 +759,7 @@ func (h *Handler) handleCreateParameterGroup(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"ParameterGroup": parameterGroupResponse{
+		parameterGroupKey: parameterGroupResponse{
 			ParameterGroupName: pg.ParameterGroupName,
 			Description:        pg.Description,
 		},
@@ -819,10 +810,7 @@ func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
 
 	pvs := make([]ParameterNameValue, 0, len(req.ParameterNameValues))
 	for _, pv := range req.ParameterNameValues {
-		pvs = append(pvs, ParameterNameValue{
-			ParameterName:  pv.ParameterName,
-			ParameterValue: pv.ParameterValue,
-		})
+		pvs = append(pvs, ParameterNameValue(pv))
 	}
 
 	pg, err := h.Backend.UpdateParameterGroup(UpdateParameterGroupInput{
@@ -834,7 +822,7 @@ func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"ParameterGroup": parameterGroupResponse{
+		parameterGroupKey: parameterGroupResponse{
 			ParameterGroupName: pg.ParameterGroupName,
 			Description:        pg.Description,
 		},
@@ -924,7 +912,7 @@ func (h *Handler) handleResetParameterGroup(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"ParameterGroup": parameterGroupResponse{
+		parameterGroupKey: parameterGroupResponse{
 			ParameterGroupName: pg.ParameterGroupName,
 			Description:        pg.Description,
 		},
@@ -986,11 +974,7 @@ func (h *Handler) handleUpdateSubnetGroup(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	sg, err := h.Backend.UpdateSubnetGroup(UpdateSubnetGroupInput{
-		SubnetGroupName: req.SubnetGroupName,
-		Description:     req.Description,
-		SubnetIDs:       req.SubnetIDs,
-	})
+	sg, err := h.Backend.UpdateSubnetGroup(UpdateSubnetGroupInput(req))
 	if err != nil {
 		return nil, err
 	}
@@ -1078,6 +1062,8 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 
 // mapError maps a backend error to an HTTP status code and error body.
 // Specific sentinel errors take priority over their parent error categories.
+//
+//nolint:cyclop // exhaustive error mapping requires many cases
 func (h *Handler) mapError(err error) (int, map[string]any) {
 	// Specific not-found variants.
 	switch {
