@@ -18,62 +18,225 @@ const (
 	buildStatusSucceeded  = "SUCCEEDED"
 	buildStatusInProgress = "IN_PROGRESS"
 	buildStatusStopped    = "STOPPED"
+	phaseSubmitted        = "SUBMITTED"
 )
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource with the same name already exists.
-	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
+	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 )
 
+// SourceAuth represents authentication for a CodeBuild source.
+type SourceAuth struct {
+	Type     string `json:"type,omitempty"`
+	Resource string `json:"resource,omitempty"`
+}
+
 // ProjectSource represents the source configuration for a CodeBuild project.
 type ProjectSource struct {
-	Type     string `json:"type"`
-	Location string `json:"location,omitempty"`
+	Auth              SourceAuth `json:"auth,omitzero"`
+	Type              string     `json:"type"`
+	Location          string     `json:"location,omitempty"`
+	Buildspec         string     `json:"buildspec,omitempty"`
+	SourceIdentifier  string     `json:"sourceIdentifier,omitempty"`
+	GitCloneDepth     int32      `json:"gitCloneDepth,omitempty"`
+	InsecureSsl       bool       `json:"insecureSsl,omitempty"`
+	ReportBuildStatus bool       `json:"reportBuildStatus,omitempty"`
+}
+
+// ProjectSourceVersion pairs a source identifier with a specific version.
+type ProjectSourceVersion struct {
+	SourceIdentifier string `json:"sourceIdentifier"`
+	SourceVersion    string `json:"sourceVersion"`
 }
 
 // ProjectArtifacts represents the artifacts configuration for a CodeBuild project.
 type ProjectArtifacts struct {
-	Type     string `json:"type"`
-	Location string `json:"location,omitempty"`
+	Type                 string `json:"type"`
+	Location             string `json:"location,omitempty"`
+	Path                 string `json:"path,omitempty"`
+	NamespaceType        string `json:"namespaceType,omitempty"`
+	Name                 string `json:"name,omitempty"`
+	Packaging            string `json:"packaging,omitempty"`
+	ArtifactIdentifier   string `json:"artifactIdentifier,omitempty"`
+	BucketOwnerAccess    string `json:"bucketOwnerAccess,omitempty"`
+	OverrideArtifactName bool   `json:"overrideArtifactName,omitempty"`
+	EncryptionDisabled   bool   `json:"encryptionDisabled,omitempty"`
+}
+
+// EnvironmentVariable represents an environment variable for a build environment.
+type EnvironmentVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	Type  string `json:"type,omitempty"` // PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER
+}
+
+// RegistryCredential holds credentials for a private Docker registry.
+type RegistryCredential struct {
+	Credential         string `json:"credential"`
+	CredentialProvider string `json:"credentialProvider"`
 }
 
 // ProjectEnvironment represents the build environment for a CodeBuild project.
 type ProjectEnvironment struct {
-	Type           string `json:"type"`
-	Image          string `json:"image"`
-	ComputeType    string `json:"computeType"`
-	PrivilegedMode bool   `json:"privilegedMode,omitempty"`
+	RegistryCredential       *RegistryCredential   `json:"registryCredential,omitempty"`
+	Type                     string                `json:"type"`
+	Image                    string                `json:"image"`
+	ComputeType              string                `json:"computeType"`
+	Certificate              string                `json:"certificate,omitempty"`
+	ImagePullCredentialsType string                `json:"imagePullCredentialsType,omitempty"`
+	EnvironmentVariables     []EnvironmentVariable `json:"environmentVariables,omitempty"`
+	PrivilegedMode           bool                  `json:"privilegedMode,omitempty"`
+}
+
+// ProjectCache represents the cache configuration for a CodeBuild project.
+type ProjectCache struct {
+	Type     string   `json:"type"` // NO_CACHE|S3|LOCAL
+	Location string   `json:"location,omitempty"`
+	Modes    []string `json:"modes,omitempty"`
+}
+
+// CloudWatchLogsConfig represents CloudWatch Logs configuration.
+type CloudWatchLogsConfig struct {
+	Status     string `json:"status"` // ENABLED|DISABLED
+	GroupName  string `json:"groupName,omitempty"`
+	StreamName string `json:"streamName,omitempty"`
+}
+
+// S3LogsConfig represents S3 log configuration.
+type S3LogsConfig struct {
+	Status             string `json:"status"` // ENABLED|DISABLED
+	Location           string `json:"location,omitempty"`
+	BucketOwnerAccess  string `json:"bucketOwnerAccess,omitempty"`
+	EncryptionDisabled bool   `json:"encryptionDisabled,omitempty"`
+}
+
+// LogsConfig represents the logs configuration for a CodeBuild project.
+type LogsConfig struct {
+	CloudWatchLogs CloudWatchLogsConfig `json:"cloudWatchLogs,omitzero"`
+	S3Logs         S3LogsConfig         `json:"s3Logs,omitzero"`
+}
+
+// VpcConfig represents VPC configuration for a CodeBuild project.
+type VpcConfig struct {
+	VpcID            string   `json:"vpcId,omitempty"`
+	Subnets          []string `json:"subnets,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+}
+
+// BatchRestrictions represents restrictions on batch builds.
+type BatchRestrictions struct {
+	ComputeTypesAllowed  []string `json:"computeTypesAllowed,omitempty"`
+	MaximumBuildsAllowed int32    `json:"maximumBuildsAllowed,omitempty"`
+}
+
+// BuildBatchConfig represents batch build configuration for a project.
+type BuildBatchConfig struct {
+	ServiceRole      string            `json:"serviceRole,omitempty"`
+	BatchReportMode  string            `json:"batchReportMode,omitempty"`
+	Restrictions     BatchRestrictions `json:"restrictions,omitzero"`
+	TimeoutInMins    int32             `json:"timeoutInMins,omitempty"`
+	CombineArtifacts bool              `json:"combineArtifacts,omitempty"`
+}
+
+// ProjectBadge represents the build badge for a project.
+type ProjectBadge struct {
+	BadgeRequestURL string `json:"badgeRequestUrl,omitempty"`
+	BadgeEnabled    bool   `json:"badgeEnabled,omitempty"`
+}
+
+// FileSystemLocation represents an EFS file system mount for a project.
+type FileSystemLocation struct {
+	Identifier   string `json:"identifier,omitempty"`
+	Location     string `json:"location,omitempty"`
+	Type         string `json:"type,omitempty"` // EFS
+	MountPoint   string `json:"mountPoint,omitempty"`
+	MountOptions string `json:"mountOptions,omitempty"`
 }
 
 // Project represents an in-memory AWS CodeBuild project.
 type Project struct {
-	Tags         map[string]string  `json:"tags,omitempty"`
-	Source       ProjectSource      `json:"source"`
-	Artifacts    ProjectArtifacts   `json:"artifacts"`
-	Name         string             `json:"name"`
-	Arn          string             `json:"arn"`
-	Description  string             `json:"description,omitempty"`
-	ServiceRole  string             `json:"serviceRole,omitempty"`
-	Visibility   string             `json:"projectVisibility,omitempty"`
-	Environment  ProjectEnvironment `json:"environment"`
-	Created      float64            `json:"created,omitempty"`
-	LastModified float64            `json:"lastModified,omitempty"`
+	Cache                   *ProjectCache          `json:"cache,omitempty"`
+	Tags                    map[string]string      `json:"tags,omitempty"`
+	Badge                   *ProjectBadge          `json:"badge,omitempty"`
+	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
+	Name                    string                 `json:"name"`
+	Description             string                 `json:"description,omitempty"`
+	ServiceRole             string                 `json:"serviceRole,omitempty"`
+	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
+	Arn                     string                 `json:"arn"`
+	Visibility              string                 `json:"projectVisibility,omitempty"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
+	Artifacts               ProjectArtifacts       `json:"artifacts"`
+	Source                  ProjectSource          `json:"source"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
+	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	Environment             ProjectEnvironment     `json:"environment"`
+	Created                 float64                `json:"created,omitempty"`
+	LastModified            float64                `json:"lastModified,omitempty"`
+	TimeoutInMinutes        int32                  `json:"timeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
+	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit,omitempty"`
+	AutoRetryLimit          int32                  `json:"autoRetryLimit,omitempty"`
+}
+
+// BuildPhaseContext represents a context entry within a build phase.
+type BuildPhaseContext struct {
+	Message    string `json:"message,omitempty"`
+	StatusCode string `json:"statusCode,omitempty"`
+}
+
+// BuildPhase represents a single phase in the build lifecycle.
+type BuildPhase struct {
+	PhaseType         string              `json:"phaseType"`
+	PhaseStatus       string              `json:"phaseStatus,omitempty"`
+	Contexts          []BuildPhaseContext `json:"contexts,omitempty"`
+	StartTime         float64             `json:"startTime,omitempty"`
+	EndTime           float64             `json:"endTime,omitempty"`
+	DurationInSeconds float64             `json:"durationInSeconds,omitempty"`
+}
+
+// BuildLogs represents the log locations for a build.
+type BuildLogs struct {
+	CloudWatchLogsArn string `json:"cloudWatchLogsArn,omitempty"`
+	S3LogsArn         string `json:"s3LogsArn,omitempty"`
+	GroupName         string `json:"groupName,omitempty"`
+	StreamName        string `json:"streamName,omitempty"`
+	S3Location        string `json:"s3Location,omitempty"`
+	DeepLink          string `json:"deepLink,omitempty"`
 }
 
 // Build represents an in-memory AWS CodeBuild build execution.
 type Build struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ID           string            `json:"id"`
-	Arn          string            `json:"arn"`
-	ProjectName  string            `json:"projectName"`
-	BuildStatus  string            `json:"buildStatus"`
-	CurrentPhase string            `json:"currentPhase,omitempty"`
-	StartTime    float64           `json:"startTime,omitempty"`
-	EndTime      float64           `json:"endTime,omitempty"`
+	Source                 *ProjectSource      `json:"source,omitempty"`
+	Tags                   map[string]string   `json:"tags,omitempty"`
+	Logs                   *BuildLogs          `json:"logs,omitempty"`
+	Artifacts              *ProjectArtifacts   `json:"artifacts,omitempty"`
+	Environment            *ProjectEnvironment `json:"environment,omitempty"`
+	CurrentPhase           string              `json:"currentPhase,omitempty"`
+	Initiator              string              `json:"initiator,omitempty"`
+	Arn                    string              `json:"arn"`
+	ProjectName            string              `json:"projectName"`
+	BuildStatus            string              `json:"buildStatus"`
+	ServiceRole            string              `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion  string              `json:"resolvedSourceVersion,omitempty"`
+	ID                     string              `json:"id"`
+	EncryptionKey          string              `json:"encryptionKey,omitempty"`
+	Phases                 []BuildPhase        `json:"phases,omitempty"`
+	BuildNumber            int64               `json:"buildNumber,omitempty"`
+	StartTime              float64             `json:"startTime,omitempty"`
+	EndTime                float64             `json:"endTime,omitempty"`
+	TimeoutInMinutes       int32               `json:"timeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes int32               `json:"queuedTimeoutInMinutes,omitempty"`
+	BuildComplete          bool                `json:"buildComplete,omitempty"`
 }
 
 // ReportExportConfig represents the export configuration for a CodeBuild report group.
@@ -104,17 +267,34 @@ type Report struct {
 	Expired        float64 `json:"expired,omitempty"`
 }
 
+// FleetStatus represents the operational status of a compute fleet.
+type FleetStatus struct {
+	StatusCode string `json:"statusCode,omitempty"`
+	Context    string `json:"context,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// ScalingConfiguration represents the scaling settings for a compute fleet.
+type ScalingConfiguration struct {
+	ScalingType     string `json:"scalingType,omitempty"`
+	MaxCapacity     int32  `json:"maxCapacity,omitempty"`
+	DesiredCapacity int32  `json:"desiredCapacity,omitempty"`
+}
+
 // Fleet represents an in-memory AWS CodeBuild compute fleet.
 type Fleet struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	Arn             string            `json:"arn"`
-	Name            string            `json:"name"`
-	ComputeType     string            `json:"computeType,omitempty"`
-	EnvironmentType string            `json:"environmentType,omitempty"`
-	Status          string            `json:"status"`
-	BaseCapacity    int32             `json:"baseCapacity"`
-	Created         float64           `json:"created,omitempty"`
-	LastModified    float64           `json:"lastModified,omitempty"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Status               *FleetStatus          `json:"status,omitempty"`
+	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration,omitempty"`
+	Arn                  string                `json:"arn"`
+	Name                 string                `json:"name"`
+	FleetServiceRole     string                `json:"fleetServiceRole,omitempty"`
+	OverflowBehavior     string                `json:"overflowBehavior,omitempty"` // QUEUE|ON_DEMAND
+	ComputeType          string                `json:"computeType,omitempty"`
+	EnvironmentType      string                `json:"environmentType,omitempty"`
+	BaseCapacity         int32                 `json:"baseCapacity"`
+	Created              float64               `json:"created,omitempty"`
+	LastModified         float64               `json:"lastModified,omitempty"`
 }
 
 // BuildBatch represents an in-memory AWS CodeBuild build batch.
@@ -125,16 +305,22 @@ type BuildBatch struct {
 	ProjectName      string            `json:"projectName"`
 	BuildBatchStatus string            `json:"buildBatchStatus"`
 	StartTime        float64           `json:"startTime,omitempty"`
+	EndTime          float64           `json:"endTime,omitempty"`
 }
 
 // CommandExecution represents an in-memory AWS CodeBuild command execution.
 type CommandExecution struct {
-	ID         string  `json:"id"`
-	SandboxID  string  `json:"sandboxId"`
-	SandboxArn string  `json:"sandboxArn,omitempty"`
-	Command    string  `json:"command,omitempty"`
-	Status     string  `json:"status"`
-	StartTime  float64 `json:"startTime,omitempty"`
+	ID                    string  `json:"id"`
+	SandboxID             string  `json:"sandboxId"`
+	SandboxArn            string  `json:"sandboxArn,omitempty"`
+	Command               string  `json:"command,omitempty"`
+	Type                  string  `json:"type,omitempty"` // SHELL
+	Status                string  `json:"status"`
+	StandardOutputContent string  `json:"standardOutputContent,omitempty"`
+	StandardErrorContent  string  `json:"standardErrorContent,omitempty"`
+	ExitCode              int32   `json:"exitCode,omitempty"`
+	StartTime             float64 `json:"startTime,omitempty"`
+	EndTime               float64 `json:"endTime,omitempty"`
 }
 
 // Sandbox represents an in-memory AWS CodeBuild sandbox.
@@ -142,8 +328,9 @@ type Sandbox struct {
 	ID          string  `json:"id"`
 	Arn         string  `json:"arn"`
 	ProjectName string  `json:"projectName,omitempty"`
-	Status      string  `json:"status"`
+	Status      string  `json:"status"` // QUEUED|PROVISIONING|READY|STARTING|STOPPED
 	StartTime   float64 `json:"startTime,omitempty"`
+	EndTime     float64 `json:"endTime,omitempty"`
 }
 
 // Webhook represents an in-memory AWS CodeBuild webhook.
@@ -286,40 +473,86 @@ func (b *InMemoryBackend) lookupByNameOrARN(nameOrARN string) (*Project, bool) {
 	return nil, false
 }
 
+// ProjectConfig holds all configurable fields for creating or updating a project.
+type ProjectConfig struct {
+	Cache                   *ProjectCache
+	Source                  *ProjectSource
+	Artifacts               *ProjectArtifacts
+	Tags                    map[string]string
+	BuildBatchConfig        *BuildBatchConfig
+	VpcConfig               *VpcConfig
+	LogsConfig              *LogsConfig
+	Environment             *ProjectEnvironment
+	EncryptionKey           string
+	Name                    string
+	Description             string
+	ServiceRole             string
+	ResourceAccessRole      string
+	FileSystemLocations     []FileSystemLocation
+	SecondarySourceVersions []ProjectSourceVersion
+	SecondaryArtifacts      []ProjectArtifacts
+	SecondarySources        []ProjectSource
+	TimeoutInMinutes        int32
+	QueuedTimeoutInMinutes  int32
+	ConcurrentBuildLimit    int32
+	AutoRetryLimit          int32
+}
+
 // CreateProject creates a new CodeBuild project.
-func (b *InMemoryBackend) CreateProject(
-	name, description string,
-	source ProjectSource,
-	artifacts ProjectArtifacts,
-	environment ProjectEnvironment,
-	serviceRole string,
-	tags map[string]string,
-) (*Project, error) {
+func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 	b.mu.Lock("CreateProject")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projects[name]; exists {
+	if cfg.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if _, exists := b.projects[cfg.Name]; exists {
 		return nil, ErrAlreadyExists
 	}
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
+	tagsCopy := make(map[string]string, len(cfg.Tags))
+	maps.Copy(tagsCopy, cfg.Tags)
 
 	now := float64(time.Now().Unix())
 	p := &Project{
-		Name:         name,
-		Arn:          b.buildProjectARN(name),
-		Description:  description,
-		Source:       source,
-		Artifacts:    artifacts,
-		Environment:  environment,
-		ServiceRole:  serviceRole,
-		Tags:         tagsCopy,
-		Created:      now,
-		LastModified: now,
+		Name:                    cfg.Name,
+		Arn:                     b.buildProjectARN(cfg.Name),
+		Description:             cfg.Description,
+		ServiceRole:             cfg.ServiceRole,
+		EncryptionKey:           cfg.EncryptionKey,
+		ResourceAccessRole:      cfg.ResourceAccessRole,
+		TimeoutInMinutes:        cfg.TimeoutInMinutes,
+		QueuedTimeoutInMinutes:  cfg.QueuedTimeoutInMinutes,
+		ConcurrentBuildLimit:    cfg.ConcurrentBuildLimit,
+		AutoRetryLimit:          cfg.AutoRetryLimit,
+		Tags:                    tagsCopy,
+		SecondarySources:        cfg.SecondarySources,
+		SecondaryArtifacts:      cfg.SecondaryArtifacts,
+		SecondarySourceVersions: cfg.SecondarySourceVersions,
+		FileSystemLocations:     cfg.FileSystemLocations,
+		Cache:                   cfg.Cache,
+		LogsConfig:              cfg.LogsConfig,
+		VpcConfig:               cfg.VpcConfig,
+		BuildBatchConfig:        cfg.BuildBatchConfig,
+		Created:                 now,
+		LastModified:            now,
 	}
-	b.projects[name] = p
-	b.projectARNIndex[p.Arn] = name
+
+	if cfg.Source != nil {
+		p.Source = *cfg.Source
+	}
+
+	if cfg.Artifacts != nil {
+		p.Artifacts = *cfg.Artifacts
+	}
+
+	if cfg.Environment != nil {
+		p.Environment = *cfg.Environment
+	}
+
+	b.projects[cfg.Name] = p
+	b.projectARNIndex[p.Arn] = cfg.Name
 
 	out := *p
 
@@ -347,13 +580,55 @@ func (b *InMemoryBackend) BatchGetProjects(names []string) ([]*Project, []string
 }
 
 // UpdateProject updates fields on an existing project.
-func (b *InMemoryBackend) UpdateProject(
-	name, description string,
-	source *ProjectSource,
-	artifacts *ProjectArtifacts,
-	environment *ProjectEnvironment,
-	serviceRole string,
-) (*Project, error) {
+// applyProjectOptionalFields copies non-zero optional fields from cfg into p.
+func applyProjectOptionalFields(p *Project, cfg ProjectConfig) {
+	if cfg.Source != nil {
+		p.Source = *cfg.Source
+	}
+
+	if cfg.Artifacts != nil {
+		p.Artifacts = *cfg.Artifacts
+	}
+
+	if cfg.Environment != nil {
+		p.Environment = *cfg.Environment
+	}
+
+	if cfg.SecondarySources != nil {
+		p.SecondarySources = cfg.SecondarySources
+	}
+
+	if cfg.SecondaryArtifacts != nil {
+		p.SecondaryArtifacts = cfg.SecondaryArtifacts
+	}
+
+	if cfg.SecondarySourceVersions != nil {
+		p.SecondarySourceVersions = cfg.SecondarySourceVersions
+	}
+
+	if cfg.FileSystemLocations != nil {
+		p.FileSystemLocations = cfg.FileSystemLocations
+	}
+
+	if cfg.Cache != nil {
+		p.Cache = cfg.Cache
+	}
+
+	if cfg.LogsConfig != nil {
+		p.LogsConfig = cfg.LogsConfig
+	}
+
+	if cfg.VpcConfig != nil {
+		p.VpcConfig = cfg.VpcConfig
+	}
+
+	if cfg.BuildBatchConfig != nil {
+		p.BuildBatchConfig = cfg.BuildBatchConfig
+	}
+}
+
+// UpdateProject updates fields on an existing project.
+func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Project, error) {
 	b.mu.Lock("UpdateProject")
 	defer b.mu.Unlock()
 
@@ -362,24 +637,42 @@ func (b *InMemoryBackend) UpdateProject(
 		return nil, ErrNotFound
 	}
 
-	if description != "" {
-		p.Description = description
+	if cfg.Description != "" {
+		p.Description = cfg.Description
 	}
 
-	if source != nil {
-		p.Source = *source
+	if cfg.ServiceRole != "" {
+		p.ServiceRole = cfg.ServiceRole
 	}
 
-	if artifacts != nil {
-		p.Artifacts = *artifacts
+	if cfg.EncryptionKey != "" {
+		p.EncryptionKey = cfg.EncryptionKey
 	}
 
-	if environment != nil {
-		p.Environment = *environment
+	if cfg.ResourceAccessRole != "" {
+		p.ResourceAccessRole = cfg.ResourceAccessRole
 	}
 
-	if serviceRole != "" {
-		p.ServiceRole = serviceRole
+	if cfg.TimeoutInMinutes != 0 {
+		p.TimeoutInMinutes = cfg.TimeoutInMinutes
+	}
+
+	if cfg.QueuedTimeoutInMinutes != 0 {
+		p.QueuedTimeoutInMinutes = cfg.QueuedTimeoutInMinutes
+	}
+
+	if cfg.ConcurrentBuildLimit != 0 {
+		p.ConcurrentBuildLimit = cfg.ConcurrentBuildLimit
+	}
+
+	if cfg.AutoRetryLimit != 0 {
+		p.AutoRetryLimit = cfg.AutoRetryLimit
+	}
+
+	applyProjectOptionalFields(p, cfg)
+
+	if len(cfg.Tags) > 0 {
+		p.Tags = mergeTags(p.Tags, cfg.Tags)
 	}
 
 	p.LastModified = float64(time.Now().Unix())
@@ -387,6 +680,17 @@ func (b *InMemoryBackend) UpdateProject(
 	out := *p
 
 	return &out, nil
+}
+
+// mergeTags returns a new map containing dst's entries merged with src.
+func mergeTags(dst, src map[string]string) map[string]string {
+	if dst == nil {
+		dst = make(map[string]string, len(src))
+	}
+
+	maps.Copy(dst, src)
+
+	return dst
 }
 
 // DeleteProject removes a project by name and all builds associated with it.
@@ -429,24 +733,41 @@ func (b *InMemoryBackend) ListProjects() []string {
 	return names
 }
 
-// StartBuild creates a new build for the given project.
+// StartBuild creates a new build for the given project, copying environment/source/artifacts from the project.
 func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 	b.mu.Lock("StartBuild")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	proj, ok := b.projects[projectName]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
 	buildID := randomID()
 	fullID := projectName + ":" + buildID
+	now := float64(time.Now().Unix())
+
+	env := proj.Environment
+	src := proj.Source
+	artifacts := proj.Artifacts
+
 	build := &Build{
-		ID:           fullID,
-		Arn:          b.buildBuildARN(projectName, buildID),
-		ProjectName:  projectName,
-		BuildStatus:  buildStatusInProgress,
-		StartTime:    float64(time.Now().Unix()),
-		CurrentPhase: "SUBMITTED",
+		ID:                     fullID,
+		Arn:                    b.buildBuildARN(projectName, buildID),
+		ProjectName:            projectName,
+		BuildStatus:            buildStatusInProgress,
+		StartTime:              now,
+		CurrentPhase:           phaseSubmitted,
+		ServiceRole:            proj.ServiceRole,
+		EncryptionKey:          proj.EncryptionKey,
+		TimeoutInMinutes:       proj.TimeoutInMinutes,
+		QueuedTimeoutInMinutes: proj.QueuedTimeoutInMinutes,
+		Environment:            &env,
+		Source:                 &src,
+		Artifacts:              &artifacts,
+		Phases: []BuildPhase{
+			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
+		},
 	}
 	b.builds[fullID] = build
 	b.buildARNIndex[build.Arn] = fullID
@@ -480,7 +801,7 @@ func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 	return found, notFound
 }
 
-// StopBuild marks a build as SUCCEEDED (stopped).
+// StopBuild marks a build as STOPPED.
 func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	b.mu.Lock("StopBuild")
 	defer b.mu.Unlock()
@@ -490,9 +811,10 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 		return nil, ErrNotFound
 	}
 
-	build.BuildStatus = buildStatusSucceeded
+	build.BuildStatus = buildStatusStopped
 	build.EndTime = float64(time.Now().Unix())
 	build.CurrentPhase = "COMPLETED"
+	build.BuildComplete = true
 
 	out := *build
 
@@ -564,7 +886,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 		ProjectName:  projectName,
 		BuildStatus:  buildStatusInProgress,
 		StartTime:    float64(time.Now().Unix()),
-		CurrentPhase: "SUBMITTED",
+		CurrentPhase: phaseSubmitted,
 	}
 	b.builds[fullID] = build
 	b.buildARNIndex[build.Arn] = fullID
@@ -775,7 +1097,7 @@ func (b *InMemoryBackend) CreateFleet(
 		BaseCapacity:    baseCapacity,
 		ComputeType:     computeType,
 		EnvironmentType: environmentType,
-		Status:          "ACTIVE",
+		Status:          &FleetStatus{StatusCode: "ACTIVE"},
 		Tags:            tagsCopy,
 		Created:         now,
 		LastModified:    now,
@@ -1079,7 +1401,8 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 	bb := &BuildBatch{
 		ID:               id,
 		ProjectName:      projectName,
-		BuildBatchStatus: buildStatusSucceeded,
+		BuildBatchStatus: buildStatusInProgress,
+		StartTime:        float64(time.Now().Unix()),
 	}
 	b.buildBatches[id] = bb
 
@@ -1103,14 +1426,16 @@ func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType str
 	}
 
 	id := uuid.NewString()
+	now := float64(time.Now().Unix())
 	ce := &CommandExecution{
 		ID:        id,
 		SandboxID: sandboxID,
 		Command:   command,
+		Type:      execType,
 		Status:    buildStatusSucceeded,
+		StartTime: now,
+		EndTime:   now,
 	}
-
-	_ = execType
 	b.commandExecutions[id] = ce
 
 	if b.commandsBySandbox[sandboxID] == nil {
@@ -1133,10 +1458,13 @@ func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 	}
 
 	id := uuid.NewString()
+	sandboxArn := arn.Build("codebuild", b.region, b.accountID, "sandbox/"+id)
 	sb := &Sandbox{
 		ID:          id,
+		Arn:         sandboxArn,
 		ProjectName: projectName,
 		Status:      "READY",
+		StartTime:   float64(time.Now().Unix()),
 	}
 	b.sandboxes[id] = sb
 
@@ -1210,7 +1538,7 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy string) error {
 	return nil
 }
 
-// GetResourcePolicy returns the resource policy for the given ARN, or "{}" if not found.
+// GetResourcePolicy returns the resource policy for the given ARN, or ErrNotFound if none set.
 func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, error) {
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
@@ -1219,7 +1547,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, error) 
 		return p, nil
 	}
 
-	return "{}", nil
+	return "", ErrNotFound
 }
 
 // DeleteResourcePolicy removes the resource policy for the given ARN (idempotent).
@@ -1360,6 +1688,50 @@ func (b *InMemoryBackend) UpdateWebhook(projectName, branchFilter, buildType str
 
 // --- Extended Fleet operations ---
 
+// DeleteFleet removes a fleet by ARN.
+func (b *InMemoryBackend) DeleteFleet(arnStr string) error {
+	b.mu.Lock("DeleteFleet")
+	defer b.mu.Unlock()
+
+	name, ok := b.fleetARNIndex[arnStr]
+	if !ok {
+		// also try by name for convenience
+		if _, okName := b.fleets[arnStr]; okName {
+			name = arnStr
+			ok = true
+		}
+	}
+
+	if !ok {
+		return ErrNotFound
+	}
+
+	f := b.fleets[name]
+	delete(b.fleetARNIndex, f.Arn)
+	delete(b.fleets, name)
+
+	return nil
+}
+
+// DeleteBuildBatch removes a build batch by ID.
+func (b *InMemoryBackend) DeleteBuildBatch(id string) error {
+	b.mu.Lock("DeleteBuildBatch")
+	defer b.mu.Unlock()
+
+	bb, ok := b.buildBatches[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if set, ok2 := b.batchesByProject[bb.ProjectName]; ok2 {
+		delete(set, id)
+	}
+
+	delete(b.buildBatches, id)
+
+	return nil
+}
+
 // UpdateFleet updates the base capacity of a fleet.
 func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32) (*Fleet, error) {
 	b.mu.Lock("UpdateFleet")
@@ -1421,6 +1793,7 @@ func (b *InMemoryBackend) StopBuildBatch(id string) (*BuildBatch, error) {
 	}
 
 	bb.BuildBatchStatus = buildStatusStopped
+	bb.EndTime = float64(time.Now().Unix())
 	out := *bb
 
 	return &out, nil
@@ -1459,6 +1832,7 @@ func (b *InMemoryBackend) StopSandbox(id string) (*Sandbox, error) {
 	}
 
 	sb.Status = buildStatusStopped
+	sb.EndTime = float64(time.Now().Unix())
 	out := *sb
 
 	return &out, nil

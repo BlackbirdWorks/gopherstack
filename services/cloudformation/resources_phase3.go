@@ -636,15 +636,14 @@ func (rc *ResourceCreator) createCodeBuildProject(
 		env.ComputeType = "BUILD_GENERAL1_SMALL"
 	}
 
-	project, err := rc.backends.CodeBuild.Backend.CreateProject(
-		name,
-		description,
-		source,
-		artifacts,
-		env,
-		serviceRole,
-		nil,
-	)
+	project, err := rc.backends.CodeBuild.Backend.CreateProject(codebuildbackend.ProjectConfig{
+		Name:        name,
+		Description: description,
+		Source:      &source,
+		Artifacts:   &artifacts,
+		Environment: &env,
+		ServiceRole: serviceRole,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create CodeBuild project %s: %w", name, err)
 	}

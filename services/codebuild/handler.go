@@ -272,7 +272,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation):
+	case errors.Is(err, ErrAlreadyExists):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ResourceAlreadyExistsException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidInputException",
 			Message: err.Error(),
@@ -290,13 +297,27 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // --- Project operations ---
 
 type createProjectInput struct {
-	Tags        map[string]string  `json:"tags"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	ServiceRole string             `json:"serviceRole"`
-	Source      ProjectSource      `json:"source"`
-	Artifacts   ProjectArtifacts   `json:"artifacts"`
-	Environment ProjectEnvironment `json:"environment"`
+	Cache                   *ProjectCache          `json:"cache"`
+	Source                  *ProjectSource         `json:"source"`
+	Artifacts               *ProjectArtifacts      `json:"artifacts"`
+	Tags                    map[string]string      `json:"tags"`
+	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig"`
+	LogsConfig              *LogsConfig            `json:"logsConfig"`
+	Environment             *ProjectEnvironment    `json:"environment"`
+	EncryptionKey           string                 `json:"encryptionKey"`
+	Name                    string                 `json:"name"`
+	Description             string                 `json:"description"`
+	ServiceRole             string                 `json:"serviceRole"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySources        []ProjectSource        `json:"secondarySources"`
+	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
+	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
+	AutoRetryLimit          int32                  `json:"autoRetryLimit"`
 }
 
 type createProjectOutput struct {
@@ -311,11 +332,29 @@ func (h *Handler) handleCreateProject(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreateProject(
-		in.Name, in.Description,
-		in.Source, in.Artifacts, in.Environment,
-		in.ServiceRole, in.Tags,
-	)
+	p, err := h.Backend.CreateProject(ProjectConfig{
+		Name:                    in.Name,
+		Description:             in.Description,
+		Source:                  in.Source,
+		Artifacts:               in.Artifacts,
+		Environment:             in.Environment,
+		ServiceRole:             in.ServiceRole,
+		EncryptionKey:           in.EncryptionKey,
+		ResourceAccessRole:      in.ResourceAccessRole,
+		TimeoutInMinutes:        in.TimeoutInMinutes,
+		QueuedTimeoutInMinutes:  in.QueuedTimeoutInMinutes,
+		ConcurrentBuildLimit:    in.ConcurrentBuildLimit,
+		AutoRetryLimit:          in.AutoRetryLimit,
+		Tags:                    in.Tags,
+		SecondarySources:        in.SecondarySources,
+		SecondaryArtifacts:      in.SecondaryArtifacts,
+		SecondarySourceVersions: in.SecondarySourceVersions,
+		FileSystemLocations:     in.FileSystemLocations,
+		Cache:                   in.Cache,
+		LogsConfig:              in.LogsConfig,
+		VpcConfig:               in.VpcConfig,
+		BuildBatchConfig:        in.BuildBatchConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -345,12 +384,27 @@ func (h *Handler) handleBatchGetProjects(
 }
 
 type updateProjectInput struct {
-	Source      *ProjectSource      `json:"source,omitempty"`
-	Artifacts   *ProjectArtifacts   `json:"artifacts,omitempty"`
-	Environment *ProjectEnvironment `json:"environment,omitempty"`
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	ServiceRole string              `json:"serviceRole"`
+	Cache                   *ProjectCache          `json:"cache,omitempty"`
+	Source                  *ProjectSource         `json:"source,omitempty"`
+	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
+	Tags                    map[string]string      `json:"tags"`
+	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
+	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
+	EncryptionKey           string                 `json:"encryptionKey"`
+	Name                    string                 `json:"name"`
+	Description             string                 `json:"description"`
+	ServiceRole             string                 `json:"serviceRole"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySources        []ProjectSource        `json:"secondarySources"`
+	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
+	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
+	AutoRetryLimit          int32                  `json:"autoRetryLimit"`
 }
 
 type updateProjectOutput struct {
@@ -365,11 +419,28 @@ func (h *Handler) handleUpdateProject(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdateProject(
-		in.Name, in.Description,
-		in.Source, in.Artifacts, in.Environment,
-		in.ServiceRole,
-	)
+	p, err := h.Backend.UpdateProject(in.Name, ProjectConfig{
+		Description:             in.Description,
+		Source:                  in.Source,
+		Artifacts:               in.Artifacts,
+		Environment:             in.Environment,
+		ServiceRole:             in.ServiceRole,
+		EncryptionKey:           in.EncryptionKey,
+		ResourceAccessRole:      in.ResourceAccessRole,
+		TimeoutInMinutes:        in.TimeoutInMinutes,
+		QueuedTimeoutInMinutes:  in.QueuedTimeoutInMinutes,
+		ConcurrentBuildLimit:    in.ConcurrentBuildLimit,
+		AutoRetryLimit:          in.AutoRetryLimit,
+		Tags:                    in.Tags,
+		SecondarySources:        in.SecondarySources,
+		SecondaryArtifacts:      in.SecondaryArtifacts,
+		SecondarySourceVersions: in.SecondarySourceVersions,
+		FileSystemLocations:     in.FileSystemLocations,
+		Cache:                   in.Cache,
+		LogsConfig:              in.LogsConfig,
+		VpcConfig:               in.VpcConfig,
+		BuildBatchConfig:        in.BuildBatchConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -881,6 +952,10 @@ func (h *Handler) handleDeleteBuildBatch(
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
+	if err := h.Backend.DeleteBuildBatch(in.ID); err != nil {
+		return nil, err
+	}
+
 	return &deleteBuildBatchOutput{StatusCode: buildStatusSucceeded}, nil
 }
 
@@ -893,6 +968,10 @@ type deleteFleetOutput struct{}
 func (h *Handler) handleDeleteFleet(_ context.Context, in *deleteFleetInput) (*deleteFleetOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteFleet(in.Arn); err != nil {
+		return nil, err
 	}
 
 	return &deleteFleetOutput{}, nil
@@ -1095,7 +1174,7 @@ func (h *Handler) handleGetResourcePolicy(
 
 	policy, err := h.Backend.GetResourcePolicy(in.ResourceArn)
 	if err != nil {
-		return nil, err
+		return nil, err // ErrNotFound when no policy set
 	}
 
 	return &getResourcePolicyOutput{Policy: policy}, nil

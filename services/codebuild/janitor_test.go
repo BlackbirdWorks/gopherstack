@@ -86,19 +86,19 @@ func TestJanitor_SweepCompletedBuilds(t *testing.T) {
 
 			backend := newTestBackend(t)
 
-			_, err := backend.CreateProject(
-				"proj",
-				"",
-				codebuild.ProjectSource{Type: "NO_SOURCE"},
-				codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-				codebuild.ProjectEnvironment{
-					Type:        "LINUX_CONTAINER",
-					Image:       "img",
-					ComputeType: "BUILD_GENERAL1_SMALL",
-				},
-				"",
-				nil,
-			)
+			src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+			arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+			env := codebuild.ProjectEnvironment{
+				Type:        "LINUX_CONTAINER",
+				Image:       "img",
+				ComputeType: "BUILD_GENERAL1_SMALL",
+			}
+			_, err := backend.CreateProject(codebuild.ProjectConfig{
+				Name:        "proj",
+				Source:      &src,
+				Artifacts:   &arts,
+				Environment: &env,
+			})
 			require.NoError(t, err)
 
 			build, err := backend.StartBuild("proj")
@@ -134,10 +134,15 @@ func TestDeleteProject_CleanupBuilds(t *testing.T) {
 
 	backend := newTestBackend(t)
 
-	_, err := backend.CreateProject("proj", "", codebuild.ProjectSource{Type: "NO_SOURCE"},
-		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-		codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"},
-		"", nil)
+	src2 := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts2 := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env2 := codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"}
+	_, err := backend.CreateProject(codebuild.ProjectConfig{
+		Name:        "proj",
+		Source:      &src2,
+		Artifacts:   &arts2,
+		Environment: &env2,
+	})
 	require.NoError(t, err)
 
 	_, err = backend.StartBuild("proj")
@@ -165,15 +170,15 @@ func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 
 	backend := newTestBackend(t)
 
-	_, err := backend.CreateProject(
-		"proj",
-		"",
-		codebuild.ProjectSource{Type: "NO_SOURCE"},
-		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-		codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"},
-		"",
-		nil,
-	)
+	src3 := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts3 := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env3 := codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"}
+	_, err := backend.CreateProject(codebuild.ProjectConfig{
+		Name:        "proj",
+		Source:      &src3,
+		Artifacts:   &arts3,
+		Environment: &env3,
+	})
 	require.NoError(t, err)
 
 	build, err := backend.StartBuild("proj")
