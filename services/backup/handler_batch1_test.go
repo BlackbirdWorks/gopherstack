@@ -15,7 +15,7 @@ import (
 
 func newBatch1Handler(
 	t *testing.T,
-) (*backup.Handler, *backup.InMemoryBackend) { //nolint:unparam // b used in some callers
+) (*backup.Handler, *backup.InMemoryBackend) {
 	t.Helper()
 	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
 	h := backup.NewHandler(b)
@@ -291,6 +291,7 @@ func TestBatch1_ExportBackupPlanTemplate(t *testing.T) {
 	plan, err := b.CreateBackupPlan(
 		"my-plan",
 		[]backup.Rule{{RuleName: "r1", TargetVaultName: "v"}},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
