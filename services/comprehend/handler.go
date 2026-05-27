@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/labstack/echo/v5"
@@ -34,6 +35,8 @@ const (
 	fieldEntities              = "Entities"
 	fieldLabels                = "Labels"
 	fieldName                  = "Name"
+	fieldBeginOffset           = "BeginOffset"
+	fieldEndOffset             = "EndOffset"
 	lowSentimentScore          = 0.01
 	neutralSentimentScore      = 0.97
 )
@@ -615,8 +618,8 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 	tokens := make([]map[string]any, 0)
 	for index, token := range strings.Fields(text) {
 		tokens = append(tokens, map[string]any{
-			"TokenId": index + 1, fieldText: token, "BeginOffset": strings.Index(text, token),
-			"EndOffset":    strings.Index(text, token) + len(token),
+			"TokenId": index + 1, fieldText: token, fieldBeginOffset: strings.Index(text, token),
+			fieldEndOffset: strings.Index(text, token) + len(token),
 			"PartOfSpeech": map[string]any{"Tag": "NOUN", fieldScore: defaultScore},
 		})
 	}
@@ -683,7 +686,7 @@ func matchResult(text, match, kind string) map[string]any {
 	begin := strings.Index(text, match)
 	begin = max(begin, 0)
 	out := map[string]any{
-		fieldText: match, fieldScore: defaultScore, "BeginOffset": begin, "EndOffset": begin + len(match),
+		fieldText: match, fieldScore: defaultScore, fieldBeginOffset: begin, fieldEndOffset: begin + len(match),
 	}
 	if kind != "" {
 		out["Type"] = kind
@@ -693,16 +696,28 @@ func matchResult(text, match, kind string) map[string]any {
 }
 
 func (h *Handler) classifyDocument(input map[string]any) (map[string]any, error) {
-	if _, err := documentText(input); err != nil {
+	text, err := documentText(input)
+	if err != nil {
 		return nil, err
+	}
+
+	lower := strings.ToLower(text)
+	className := "OTHER"
+	switch {
+	case strings.Contains(lower, "finance") || strings.Contains(lower, "money"):
+		className = "FINANCE"
+	case strings.Contains(lower, "sports") || strings.Contains(lower, "game"):
+		className = "SPORTS"
+	case strings.Contains(lower, "tech") || strings.Contains(lower, "computer"):
+		className = "TECHNOLOGY"
 	}
 
 	return map[string]any{
 		"Classes": []map[string]any{
-			{fieldName: "TEST_CLASS", fieldScore: defaultScore},
+			{fieldName: className, fieldScore: defaultScore},
 		},
 		fieldLabels: []map[string]any{
-			{fieldName: "TEST_LABEL", fieldScore: defaultScore},
+			{fieldName: className, fieldScore: defaultScore},
 		},
 	}, nil
 }
@@ -712,7 +727,19 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	hasPii := strings.Contains(text, "@") || strings.Contains(text, "-") || strings.Contains(text, ".")
+	hasPii := false
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), // EMAIL
+		regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),          // SSN
+	}
+	for _, pattern := range patterns {
+		if pattern.MatchString(text) {
+			hasPii = true
+
+			break
+		}
+	}
+
 	labels := []map[string]any{}
 	if hasPii {
 		labels = append(labels, map[string]any{fieldName: "PII", fieldScore: defaultScore})
@@ -724,56 +751,151 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 }
 
 func (h *Handler) detectTargetedSentiment(input map[string]any) (map[string]any, error) {
-	if _, err := documentText(input); err != nil {
+	text, err := documentText(input)
+	if err != nil {
+		return nil, err
+	}
+
+	entities := make([]map[string]any, 0)
+	lower := strings.ToLower(text)
+	sentiment := "NEUTRAL"
+	switch {
+	case strings.Contains(lower, "great") || strings.Contains(lower, "love") || strings.Contains(lower, "excellent"):
+		sentiment = "POSITIVE"
+	case strings.Contains(lower, "bad") || strings.Contains(lower, "hate") || strings.Contains(lower, "terrible"):
+		sentiment = "NEGATIVE"
+	}
+
+	for word := range strings.FieldsSeq(text) {
+		cleaned := strings.Trim(word, ".,!?")
+		if cleaned != "" && unicode.IsUpper(rune(cleaned[0])) {
+			entity := matchResult(text, cleaned, "PERSON")
+			// Targeted sentiment specific fields
+			mentions := []map[string]any{
+				{
+					"Score": defaultScore, "Text": cleaned, "Type": "PERSON",
+					fieldBeginOffset: entity[fieldBeginOffset], fieldEndOffset: entity[fieldEndOffset],
+					"MentionSentiment": map[string]any{
+						"Sentiment": sentiment,
+						"SentimentScore": map[string]float64{
+							"Positive": lowSentimentScore, "Negative": lowSentimentScore,
+							"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
+						},
+					},
+				},
+			}
+			entity["Mentions"] = mentions
+			entities = append(entities, entity)
+		}
+	}
+
+	return map[string]any{
+		fieldEntities: entities,
+	}, nil
+}
+
+func (h *Handler) deleteResourcePolicy(input map[string]any) (map[string]any, error) {
+	err := h.Backend.DeleteResourcePolicy(
+		stringValue(input, "ResourceArn", ""),
+		stringValue(input, "PolicyRevisionId", ""),
+	)
+
+	return map[string]any{}, err
+}
+
+func (h *Handler) describeResourcePolicy(input map[string]any) (map[string]any, error) {
+	policy, revision, err := h.Backend.GetResourcePolicy(stringValue(input, "ResourceArn", ""))
+	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{
-		fieldEntities: []map[string]any{},
+		"ResourcePolicy":   policy,
+		"CreationTime":     time.Now().UTC(),
+		"LastModifiedTime": time.Now().UTC(),
+		"PolicyRevisionId": revision,
 	}, nil
 }
 
-func (h *Handler) deleteResourcePolicy(_ map[string]any) (map[string]any, error) {
-	return map[string]any{}, nil
-}
+func (h *Handler) putResourcePolicy(input map[string]any) (map[string]any, error) {
+	revision, err := h.Backend.PutResourcePolicy(
+		stringValue(input, "ResourceArn", ""),
+		stringValue(input, "ResourcePolicy", ""),
+		stringValue(input, "PolicyRevisionId", ""),
+	)
+	if err != nil {
+		return nil, err
+	}
 
-func (h *Handler) describeResourcePolicy(_ map[string]any) (map[string]any, error) {
 	return map[string]any{
-		"ResourcePolicy":   "{\"Statement\":[]}",
-		"CreationTime":     0,
-		"LastModifiedTime": 0,
-		"PolicyRevisionId": "rev1",
+		"PolicyRevisionId": revision,
 	}, nil
 }
 
-func (h *Handler) putResourcePolicy(_ map[string]any) (map[string]any, error) {
-	return map[string]any{
-		"PolicyRevisionId": "rev1",
-	}, nil
-}
+func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
+	// ImportModel effectively creates a resource modeled after a source model.
+	// For simplicity in emulation, we map it to creating a new DocumentClassifier (or EntityRecognizer).
+	// We'll assume DocumentClassifier by default as AWS docs specify it can be either based on source.
+	resource, err := h.Backend.CreateResource(
+		"document-classifier",
+		stringValue(input, "ModelName", ""),
+		stringValue(input, "VersionName", ""),
+		input,
+		inputTags(input),
+	)
+	if err != nil {
+		return nil, err
+	}
 
-func (h *Handler) importModel(_ map[string]any) (map[string]any, error) {
 	return map[string]any{
-		"ModelArn": "arn:aws:comprehend:us-east-1:123456789012:model/imported-model",
+		"ModelArn": resource.Arn,
 	}, nil
 }
 
 func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]any, error) {
+	resources := h.Backend.ListResources("document-classifier")
+	items := make([]map[string]any, 0, len(resources))
+	for _, resource := range resources {
+		items = append(items, map[string]any{
+			"DocumentClassifierName": resource.Name,
+			"NumberOfVersions":       1,
+			"LatestVersionCreatedAt": resource.CreatedAt,
+			"LatestVersionName":      resource.VersionName,
+			"LatestVersionStatus":    resource.Status,
+		})
+	}
+
 	return map[string]any{
-		"DocumentClassifierSummariesList": []map[string]any{},
+		"DocumentClassifierSummariesList": items,
 	}, nil
 }
 
 func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]any, error) {
+	resources := h.Backend.ListResources("entity-recognizer")
+	items := make([]map[string]any, 0, len(resources))
+	for _, resource := range resources {
+		items = append(items, map[string]any{
+			"RecognizerName":         resource.Name,
+			"NumberOfVersions":       1,
+			"LatestVersionCreatedAt": resource.CreatedAt,
+			"LatestVersionName":      resource.VersionName,
+			"LatestVersionStatus":    resource.Status,
+		})
+	}
+
 	return map[string]any{
-		"EntityRecognizerSummariesList": []map[string]any{},
+		"EntityRecognizerSummariesList": items,
 	}, nil
 }
 
-func (h *Handler) stopTrainingDocumentClassifier(_ map[string]any) (map[string]any, error) {
-	return map[string]any{}, nil
+func (h *Handler) stopTrainingDocumentClassifier(input map[string]any) (map[string]any, error) {
+	err := h.Backend.StopTrainingResource(stringValue(input, fieldDocumentClassifierARN, ""), "document-classifier")
+
+	return map[string]any{}, err
 }
 
-func (h *Handler) stopTrainingEntityRecognizer(_ map[string]any) (map[string]any, error) {
-	return map[string]any{}, nil
+func (h *Handler) stopTrainingEntityRecognizer(input map[string]any) (map[string]any, error) {
+	err := h.Backend.StopTrainingResource(stringValue(input, fieldEntityRecognizerARN, ""), "entity-recognizer")
+
+	return map[string]any{}, err
 }

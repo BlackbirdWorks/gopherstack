@@ -99,24 +99,28 @@ type FlywheelIteration struct {
 
 // InMemoryBackend stores Comprehend state safely for concurrent requests.
 type InMemoryBackend struct {
-	jobs       map[string]*Job
-	resources  map[string]*Resource
-	iterations map[string]*FlywheelIteration
-	tags       map[string]map[string]string
-	accountID  string
-	region     string
-	mu         sync.RWMutex
+	jobs            map[string]*Job
+	resources       map[string]*Resource
+	iterations      map[string]*FlywheelIteration
+	tags            map[string]map[string]string
+	policies        map[string]string
+	policyRevisions map[string]string
+	accountID       string
+	region          string
+	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a configured Comprehend backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		jobs:       make(map[string]*Job),
-		resources:  make(map[string]*Resource),
-		iterations: make(map[string]*FlywheelIteration),
-		tags:       make(map[string]map[string]string),
-		accountID:  accountID,
-		region:     region,
+		jobs:            make(map[string]*Job),
+		resources:       make(map[string]*Resource),
+		iterations:      make(map[string]*FlywheelIteration),
+		tags:            make(map[string]map[string]string),
+		policies:        make(map[string]string),
+		policyRevisions: make(map[string]string),
+		accountID:       accountID,
+		region:          region,
 	}
 }
 
@@ -132,6 +136,8 @@ func (b *InMemoryBackend) Reset() {
 	b.resources = make(map[string]*Resource)
 	b.iterations = make(map[string]*FlywheelIteration)
 	b.tags = make(map[string]map[string]string)
+	b.policies = make(map[string]string)
+	b.policyRevisions = make(map[string]string)
 }
 
 // StartJob submits an analysis job with AWS-style initial status.
@@ -451,6 +457,71 @@ func (b *InMemoryBackend) ListTags(resourceArn string) ([]Tag, error) {
 	}
 
 	return out, nil
+}
+
+// PutResourcePolicy saves a resource policy.
+func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevision string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
+		return "", fmt.Errorf("%w: policy revision mismatch", ErrConflict)
+	}
+
+	revision := uuid.NewString()
+	b.policies[resourceArn] = policy
+	b.policyRevisions[resourceArn] = revision
+
+	return revision, nil
+}
+
+// GetResourcePolicy retrieves a resource policy.
+func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	policy, ok := b.policies[resourceArn]
+	if !ok {
+		return "", "", fmt.Errorf("%w: resource policy not found for %q", ErrNotFound, resourceArn)
+	}
+
+	return policy, b.policyRevisions[resourceArn], nil
+}
+
+// DeleteResourcePolicy removes a resource policy.
+func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn, expectedRevision string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
+		return fmt.Errorf("%w: policy revision mismatch", ErrConflict)
+	}
+	if _, ok := b.policies[resourceArn]; !ok {
+		return fmt.Errorf("%w: resource policy not found for %q", ErrNotFound, resourceArn)
+	}
+
+	delete(b.policies, resourceArn)
+	delete(b.policyRevisions, resourceArn)
+
+	return nil
+}
+
+// StopTrainingResource sets a trainable resource's status to STOPPED.
+func (b *InMemoryBackend) StopTrainingResource(resourceArn, resourceType string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	resource, ok := b.resources[resourceArn]
+	if !ok || resource.Type != resourceType {
+		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
+	}
+
+	if resource.Status == statusSubmitted || resource.Status == statusInProgress {
+		resource.Status = statusStopped
+		resource.UpdatedAt = time.Now().UTC()
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string {
