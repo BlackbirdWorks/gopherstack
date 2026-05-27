@@ -372,7 +372,7 @@ func TestHandler_CreateDeployment(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
-				_, err = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
+				_, err = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
 				if err != nil {
 					panic(err)
 				}
@@ -537,7 +537,7 @@ func TestHandler_GetDeploymentGroup(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "arn:aws:iam::123:role/role", "", nil)
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "arn:aws:iam::123:role/role", "", nil)
 			},
 			input: map[string]any{
 				"applicationName":     "my-app",
@@ -624,7 +624,7 @@ func TestHandler_DeleteDeploymentGroup(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
 			},
 			input:      map[string]any{"applicationName": "my-app", "deploymentGroupName": "my-dg"},
 			wantStatus: http.StatusOK,
@@ -664,8 +664,8 @@ func TestHandler_GetDeployment(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-				d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "test", "user")
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "test", "user")
 
 				return d.DeploymentID
 			},
@@ -716,8 +716,8 @@ func TestHandler_ListDeployments(t *testing.T) {
 
 	// Create some deployments.
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-	_, _ = h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+	_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+	_, _ = createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 	rec = doRequest(t, h, "ListDeployments", map[string]any{
 		"applicationName":     "my-app",
@@ -764,7 +764,7 @@ func TestHandler_BackendErrors(t *testing.T) {
 			// Pre-create for the "already exists" case.
 			if tt.name == "deployment_group_already_exists" {
 				_, _ = h.Backend.CreateApplication("dup-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("dup-app", "dup-dg", "", "", nil)
+				_, _ = createDG(h.Backend, "dup-app", "dup-dg", "", "", nil)
 			}
 
 			if tt.name == "deployment_group_not_found_for_deployment" {
@@ -826,10 +826,10 @@ func TestBackend_ListDeploymentGroupDetails(t *testing.T) {
 	_, err := b.CreateApplication("my-app", "Server", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDeploymentGroup("my-app", "dg1", "", "", nil)
+	_, err = createDG(b, "my-app", "dg1", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDeploymentGroup("my-app", "dg2", "", "", nil)
+	_, err = createDG(b, "my-app", "dg2", "", "", nil)
 	require.NoError(t, err)
 
 	dgs, err := b.ListDeploymentGroupDetails("my-app")
@@ -1007,8 +1007,8 @@ func TestHandler_BatchGetDeploymentGroups(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "dg1", "", "", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "dg2", "", "", nil)
+				_, _ = createDG(h.Backend, "my-app", "dg1", "", "", nil)
+				_, _ = createDG(h.Backend, "my-app", "dg2", "", "", nil)
 			},
 			input: map[string]any{
 				"applicationName":      "my-app",
@@ -1066,8 +1066,8 @@ func TestHandler_BatchGetDeploymentInstances(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-				d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 				return d.DeploymentID
 			},
@@ -1125,8 +1125,8 @@ func TestHandler_BatchGetDeploymentTargets(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-				d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 				return d.DeploymentID
 			},
@@ -1192,9 +1192,9 @@ func TestHandler_BatchGetDeployments(t *testing.T) {
 			name: "two_found",
 			setup: func(h *codedeploy.Handler) []string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-				d1, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
-				d2, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d1, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
+				d2, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 				return []string{d1.DeploymentID, d2.DeploymentID, "d-notexist"}
 			},
@@ -1299,8 +1299,8 @@ func TestHandler_ContinueDeployment(t *testing.T) {
 			name: "success",
 			setup: func(h *codedeploy.Handler) string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-				_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-				d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 				return d.DeploymentID
 			},
@@ -1436,7 +1436,8 @@ func TestRefinement1_Reset(t *testing.T) {
 
 	assert.Equal(t, 0, h.Backend.ApplicationCount())
 	assert.Equal(t, 0, h.Backend.DeploymentCount())
-	assert.Equal(t, 0, h.Backend.DeploymentConfigCount())
+	// 9 CodeDeployDefault.* configs are re-seeded on every Reset/NewInMemoryBackend.
+	assert.Equal(t, 9, h.Backend.DeploymentConfigCount())
 }
 
 func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
@@ -1475,9 +1476,9 @@ func TestRefinement1_SortedListDeploymentGroups(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "z-group", "", "", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "a-group", "", "", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "m-group", "", "", nil)
+	_, _ = createDG(h.Backend, "my-app", "z-group", "", "", nil)
+	_, _ = createDG(h.Backend, "my-app", "a-group", "", "", nil)
+	_, _ = createDG(h.Backend, "my-app", "m-group", "", "", nil)
 
 	rec := doRequest(t, h, "ListDeploymentGroups", map[string]any{"applicationName": "my-app"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1496,9 +1497,9 @@ func TestRefinement1_SortedListDeployments(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
-	d1, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
-	d2, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+	_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+	d1, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
+	d2, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 	rec := doRequest(t, h, "ListDeployments", map[string]any{"applicationName": "my-app"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1554,7 +1555,7 @@ func TestRefinement1_TagsOnDeploymentGroups(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", nil)
+	_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
 
 	dgArn := h.Backend.DeploymentGroupARN("my-app", "my-dg")
 
@@ -1616,7 +1617,8 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.DeploymentGroupCount("seeded-app"))
 	assert.Equal(t, 1, h.Backend.DeploymentCount())
 	assert.Equal(t, 1, h.Backend.OnPremisesInstanceCount())
-	assert.Equal(t, 1, h.Backend.DeploymentConfigCount())
+	// 9 CodeDeployDefault.* pre-seeded configs + 1 added here.
+	assert.Equal(t, 10, h.Backend.DeploymentConfigCount())
 }
 
 func TestRefinement1_DeploymentConfigARN(t *testing.T) {
@@ -1706,8 +1708,8 @@ func TestRefinement1_DeploymentInfoIncludesConfigName(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "CodeDeployDefault.AllAtOnce", nil)
-	d, _ := h.Backend.CreateDeployment("my-app", "my-dg", "", "")
+	_, _ = createDG(h.Backend, "my-app", "my-dg", "", "CodeDeployDefault.AllAtOnce", nil)
+	d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
 
 	rec := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": d.DeploymentID})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1725,9 +1727,9 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("persisted-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("persisted-app", "persisted-dg", "", "", nil)
-	d, _ := h.Backend.CreateDeployment("persisted-app", "persisted-dg", "", "")
-	_, _ = h.Backend.CreateDeploymentConfig("persisted-cfg", "Lambda")
+	_, _ = createDG(h.Backend, "persisted-app", "persisted-dg", "", "", nil)
+	d, _ := createDeploy(h.Backend, "persisted-app", "persisted-dg", "", "")
+	_, _ = createCfg(h.Backend, "persisted-cfg", "Lambda")
 
 	snap := h.Snapshot()
 	require.NotNil(t, snap)
@@ -1738,7 +1740,8 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, h2.Backend.ApplicationCount())
 	assert.Equal(t, 1, h2.Backend.DeploymentGroupCount("persisted-app"))
 	assert.Equal(t, 1, h2.Backend.DeploymentCount())
-	assert.Equal(t, 1, h2.Backend.DeploymentConfigCount())
+	// 9 CodeDeployDefault.* pre-seeded configs + 1 custom "persisted-cfg".
+	assert.Equal(t, 10, h2.Backend.DeploymentConfigCount())
 
 	// Verify deployment is readable
 	rec := doRequest(t, h2, "GetDeployment", map[string]any{"deploymentId": d.DeploymentID})
@@ -1820,7 +1823,7 @@ func TestRefinement1_UntagDeploymentGroup(t *testing.T) {
 	h := newTestHandler(t)
 
 	_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
-	_, _ = h.Backend.CreateDeploymentGroup("my-app", "my-dg", "", "", map[string]string{"env": "test", "team": "eng"})
+	_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", map[string]string{"env": "test", "team": "eng"})
 
 	dgARN := h.Backend.DeploymentGroupARN("my-app", "my-dg")
 
