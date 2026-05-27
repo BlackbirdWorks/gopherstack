@@ -18,19 +18,17 @@ import (
 func TestCodeBuildDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.CodeBuildHandler.Backend.CreateProject(
-		"e2e-test-project",
-		"E2E test project",
-		codebuildbackend.ProjectSource{Type: "NO_SOURCE"},
-		codebuildbackend.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-		codebuildbackend.ProjectEnvironment{
+	_, err := stack.CodeBuildHandler.Backend.CreateProject(codebuildbackend.ProjectConfig{
+		Name:        "e2e-test-project",
+		Description: "E2E test project",
+		Source:      &codebuildbackend.ProjectSource{Type: "NO_SOURCE"},
+		Artifacts:   &codebuildbackend.ProjectArtifacts{Type: "NO_ARTIFACTS"},
+		Environment: &codebuildbackend.ProjectEnvironment{
 			Type:        "LINUX_CONTAINER",
 			Image:       "aws/codebuild/standard:1.0",
 			ComputeType: "BUILD_GENERAL1_SMALL",
 		},
-		"",
-		nil,
-	)
+	})
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

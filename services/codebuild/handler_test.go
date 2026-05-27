@@ -685,7 +685,7 @@ func TestHandler_StopBuild(t *testing.T) {
 					} `json:"build"`
 				}
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Equal(t, "SUCCEEDED", out.Build.BuildStatus)
+				assert.Equal(t, "STOPPED", out.Build.BuildStatus)
 			}
 		})
 	}
@@ -1409,19 +1409,20 @@ func TestCodeBuild_PersistenceSnapshotRestore(t *testing.T) {
 	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create a project and start a build.
-	_, err := b.CreateProject(
-		"snap-proj",
-		"",
-		codebuild.ProjectSource{Type: "NO_SOURCE"},
-		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-		codebuild.ProjectEnvironment{
-			Type:        "LINUX_CONTAINER",
-			Image:       "aws/codebuild/standard:5.0",
-			ComputeType: "BUILD_GENERAL1_SMALL",
-		},
-		"arn:aws:iam::000000000000:role/codebuild",
-		nil,
-	)
+	src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env := codebuild.ProjectEnvironment{
+		Type:        "LINUX_CONTAINER",
+		Image:       "aws/codebuild/standard:5.0",
+		ComputeType: "BUILD_GENERAL1_SMALL",
+	}
+	_, err := b.CreateProject(codebuild.ProjectConfig{
+		Name:        "snap-proj",
+		ServiceRole: "arn:aws:iam::000000000000:role/codebuild",
+		Source:      &src,
+		Artifacts:   &arts,
+		Environment: &env,
+	})
 	require.NoError(t, err)
 
 	build, err := b.StartBuild("snap-proj")
@@ -2143,19 +2144,19 @@ func TestBackend_Reset(t *testing.T) {
 	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed some data.
-	_, err := b.CreateProject(
-		"reset-proj",
-		"",
-		codebuild.ProjectSource{Type: "NO_SOURCE"},
-		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
-		codebuild.ProjectEnvironment{
-			Type:        "LINUX_CONTAINER",
-			Image:       "aws/codebuild/standard:5.0",
-			ComputeType: "BUILD_GENERAL1_SMALL",
-		},
-		"",
-		nil,
-	)
+	src2 := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts2 := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env2 := codebuild.ProjectEnvironment{
+		Type:        "LINUX_CONTAINER",
+		Image:       "aws/codebuild/standard:5.0",
+		ComputeType: "BUILD_GENERAL1_SMALL",
+	}
+	_, err := b.CreateProject(codebuild.ProjectConfig{
+		Name:        "reset-proj",
+		Source:      &src2,
+		Artifacts:   &arts2,
+		Environment: &env2,
+	})
 	require.NoError(t, err)
 
 	_, err = b.CreateFleet("reset-fleet", 1, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", nil)

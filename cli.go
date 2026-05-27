@@ -3479,7 +3479,7 @@ type cwLogsAdapter struct {
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(groupName); err != nil &&
+	if _, err := a.backend.CreateLogGroup(groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
 		return err
 	}
@@ -3500,7 +3500,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(groupName, streamName, events)
+	_, err := a.backend.PutLogEvents(groupName, streamName, "", events)
 
 	return err
 }

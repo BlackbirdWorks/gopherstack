@@ -1,5 +1,6 @@
 resource "aws_elb" "this" {
   name = "tf-elb-{{.Suffix}}"
+  availability_zones = ["us-east-1a"]
 
   listener {
     instance_port     = 80

@@ -1,10 +1,18 @@
 package cloudwatchlogs
 
+// LogGroupClass constants match the AWS CloudWatch Logs API enum.
+const (
+	LogGroupClassStandard         = "STANDARD"
+	LogGroupClassInfrequentAccess = "INFREQUENT_ACCESS"
+)
+
 // LogGroup represents a CloudWatch Logs log group.
 type LogGroup struct {
 	RetentionInDays   *int32 `json:"retentionInDays,omitempty"`
 	LogGroupName      string `json:"logGroupName"`
 	Arn               string `json:"arn"`
+	LogGroupClass     string `json:"logGroupClass,omitempty"`
+	KmsKeyID          string `json:"kmsKeyId,omitempty"`
 	CreationTime      int64  `json:"creationTime"`
 	StoredBytes       int64  `json:"storedBytes"`
 	MetricFilterCount int32  `json:"metricFilterCount"`
@@ -61,12 +69,20 @@ type ScheduledQueryRunSummary struct {
 	InvocationTime int64  `json:"invocationTime"`
 }
 
+// Distribution constants for subscription filter event routing.
+const (
+	DistributionRandom      = "Random"
+	DistributionByLogStream = "ByLogStream"
+)
+
 // SubscriptionFilter represents a CloudWatch Logs subscription filter.
 type SubscriptionFilter struct {
 	FilterPattern  string `json:"filterPattern"`
 	FilterName     string `json:"filterName"`
 	LogGroupName   string `json:"logGroupName"`
 	DestinationArn string `json:"destinationArn"`
+	RoleArn        string `json:"roleArn,omitempty"`
+	Distribution   string `json:"distribution,omitempty"`
 	CreationTime   int64  `json:"creationTime"`
 }
 
@@ -160,12 +176,16 @@ type Delivery struct {
 type LogAnomalyDetector struct {
 	AnomalyDetectorArn    string   `json:"anomalyDetectorArn"`
 	DetectorName          string   `json:"detectorName,omitempty"`
+	DetectorStatus        string   `json:"detectorStatus,omitempty"`
 	EvaluationFrequency   string   `json:"evaluationFrequency,omitempty"`
 	FilterPattern         string   `json:"filterPattern,omitempty"`
 	KmsKeyID              string   `json:"kmsKeyId,omitempty"`
 	LogGroupArnList       []string `json:"logGroupArnList"`
 	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
+	EvaluationLookback    int64    `json:"evaluationLookback,omitempty"`
 	CreationTimeStamp     int64    `json:"creationTimeStamp"`
+	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp,omitempty"`
+	FilterAnomalies       bool     `json:"filterAnomalies,omitempty"`
 }
 
 // ScheduledQuery represents a CloudWatch Logs scheduled query.
@@ -180,17 +200,34 @@ type ScheduledQuery struct {
 
 // AccountPolicy represents a CloudWatch Logs account-level policy.
 type AccountPolicy struct {
-	PolicyName     string `json:"policyName"`
-	PolicyType     string `json:"policyType"`
-	PolicyDocument string `json:"policyDocument,omitempty"`
+	PolicyName        string `json:"policyName"`
+	PolicyType        string `json:"policyType"`
+	PolicyDocument    string `json:"policyDocument,omitempty"`
+	Scope             string `json:"scope,omitempty"`
+	SelectionCriteria string `json:"selectionCriteria,omitempty"`
+}
+
+// RejectedLogEventsInfo describes log events that were rejected by PutLogEvents.
+type RejectedLogEventsInfo struct {
+	TooNewLogEventStartIndex *int32 `json:"tooNewLogEventStartIndex,omitempty"`
+	TooOldLogEventStartIndex *int32 `json:"tooOldLogEventStartIndex,omitempty"`
+	ExpiredLogEventEndIndex  *int32 `json:"expiredLogEventEndIndex,omitempty"`
+}
+
+// PutLogEventsResult is the result of a PutLogEvents call.
+type PutLogEventsResult struct {
+	RejectedLogEventsInfo *RejectedLogEventsInfo `json:"rejectedLogEventsInfo,omitempty"`
+	NextSequenceToken     string                 `json:"nextSequenceToken"`
 }
 
 // MetricTransformation describes how to extract a metric from a log event.
 type MetricTransformation struct {
-	DefaultValue    *float64 `json:"defaultValue,omitempty"`
-	MetricNamespace string   `json:"metricNamespace"`
-	MetricName      string   `json:"metricName"`
-	MetricValue     string   `json:"metricValue"`
+	Dimensions      map[string]string `json:"dimensions,omitempty"`
+	DefaultValue    *float64          `json:"defaultValue,omitempty"`
+	MetricNamespace string            `json:"metricNamespace"`
+	MetricName      string            `json:"metricName"`
+	MetricValue     string            `json:"metricValue"`
+	Unit            string            `json:"unit,omitempty"`
 }
 
 // MetricFilter represents a CloudWatch Logs metric filter.
