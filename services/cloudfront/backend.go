@@ -194,17 +194,17 @@ func generateID() string {
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
 	Tags             map[string]string `json:"tags,omitempty"`
-	ID               string            `json:"id"`
+	CallerReference  string            `json:"callerReference"`
 	ARN              string            `json:"arn"`
 	DomainName       string            `json:"domainName"`
 	Status           string            `json:"status"`
 	ETag             string            `json:"eTag"`
-	CallerReference  string            `json:"callerReference"`
+	ID               string            `json:"id"`
 	Comment          string            `json:"comment,omitempty"`
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
-	RawConfig        []byte            `json:"rawConfig,omitempty"`
 	PriceClass       string            `json:"priceClass,omitempty"`
 	HTTPVersion      string            `json:"httpVersion,omitempty"`
+	RawConfig        []byte            `json:"rawConfig,omitempty"`
 	IsIPV6Enabled    bool              `json:"isIPV6Enabled"`
 	Enabled          bool              `json:"enabled"`
 }
@@ -329,12 +329,12 @@ type RHPCorsConfig struct {
 
 // RHPSecurityHeaders holds the security header settings for a ResponseHeadersPolicy.
 type RHPSecurityHeaders struct {
-	StrictTransportSecuritySeconds int64  `json:"strictTransportSecuritySeconds,omitempty"`
-	ContentTypeOptionsOverride     bool   `json:"contentTypeOptionsOverride"`
-	FrameOptionsValue              string `json:"frameOptionsValue,omitempty"` // DENY or SAMEORIGIN
+	FrameOptionsValue              string `json:"frameOptionsValue,omitempty"`
 	ReferrerPolicy                 string `json:"referrerPolicy,omitempty"`
 	ContentSecurityPolicy          string `json:"contentSecurityPolicy,omitempty"`
 	XSSProtection                  string `json:"xssProtection,omitempty"`
+	StrictTransportSecuritySeconds int64  `json:"strictTransportSecuritySeconds,omitempty"`
+	ContentTypeOptionsOverride     bool   `json:"contentTypeOptionsOverride"`
 	IncludeSubdomains              bool   `json:"includeSubdomains"`
 	Preload                        bool   `json:"preload"`
 }
@@ -358,12 +358,12 @@ type ResponseHeadersPolicyConfig struct {
 type ResponseHeadersPolicy struct {
 	CorsConfig      *RHPCorsConfig      `json:"corsConfig,omitempty"`
 	SecurityHeaders *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
-	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
-	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
 	ID              string              `json:"id"`
 	Name            string              `json:"name"`
 	Comment         string              `json:"comment,omitempty"`
 	ETag            string              `json:"eTag"`
+	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
+	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
 }
 
 // Function represents a CloudFront Function.
@@ -588,6 +588,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.resetDistributions()
+	b.resetPoliciesAndKeys()
+}
+
+// resetDistributions clears distribution-related maps.
+func (b *InMemoryBackend) resetDistributions() {
 	b.distributions = make(map[string]*Distribution)
 	b.distributionARNs = make(map[string]string)
 	b.distributionCallerRefs = make(map[string]string)
@@ -610,6 +616,18 @@ func (b *InMemoryBackend) Reset() {
 	b.functions = make(map[string]*Function)
 	b.originRequestPolicies = make(map[string]*OriginRequestPolicy)
 	b.originRequestPolicyByName = make(map[string]string)
+	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
+	b.distributionCachePolicies = make(map[string]string)
+	b.distributionOriginRequestPolicies = make(map[string]string)
+	b.distributionResponseHeadersPolicies = make(map[string]string)
+	b.distributionRealtimeLogConfigs = make(map[string]string)
+	b.distributionTenants = make(map[string]*DistributionTenant)
+	b.distributionTenantsByDomain = make(map[string]string)
+	b.tenantInvalidations = make(map[string][]*Invalidation)
+}
+
+// resetPoliciesAndKeys clears encryption, key, and store maps.
+func (b *InMemoryBackend) resetPoliciesAndKeys() {
 	b.fieldLevelEncryptions = make(map[string]*FieldLevelEncryption)
 	b.fieldLevelEncryptionByName = make(map[string]string)
 	b.fieldLevelEncryptionProfiles = make(map[string]*FieldLevelEncryptionProfile)
@@ -623,18 +641,10 @@ func (b *InMemoryBackend) Reset() {
 	b.keyValueStores = make(map[string]*KeyValueStore)
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
-	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
 	b.trustStores = make(map[string]*TrustStore)
 	b.streamingDistributions = make(map[string]*StreamingDistribution)
 	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
 	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
-	b.distributionCachePolicies = make(map[string]string)
-	b.distributionOriginRequestPolicies = make(map[string]string)
-	b.distributionResponseHeadersPolicies = make(map[string]string)
-	b.distributionRealtimeLogConfigs = make(map[string]string)
-	b.distributionTenants = make(map[string]*DistributionTenant)
-	b.distributionTenantsByDomain = make(map[string]string)
-	b.tenantInvalidations = make(map[string][]*Invalidation)
 	b.keyValueStoreData = make(map[string]map[string]string)
 	b.keyValueDataETags = make(map[string]string)
 }

@@ -69,14 +69,14 @@ func TestKVSDataPlane(t *testing.T) {
 	t.Parallel()
 
 	type testCase struct {
-		name      string
-		setup     func(*testing.T, *cloudfront.InMemoryBackend) string // returns kvsID
-		method    string
+		setup     func(*testing.T, *cloudfront.InMemoryBackend) string
 		pathFn    func(kvsID string) string
-		body      string
 		header    map[string]string
-		wantCode  int
 		checkBody func(*testing.T, *httptest.ResponseRecorder)
+		name      string
+		method    string
+		body      string
+		wantCode  int
 	}
 
 	makeKVS := func(t *testing.T, b *cloudfront.InMemoryBackend) string {
@@ -219,8 +219,8 @@ func TestKVSBackendDataPlane(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *cloudfront.InMemoryBackend)
+		name string
 	}{
 		{
 			name: "put_get_value",
@@ -398,8 +398,8 @@ func TestResponseHeadersPolicyConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
-		wantCode int
 		wantIn   string
+		wantCode int
 	}{
 		{
 			name: "create_with_cors_config",
@@ -471,8 +471,8 @@ func TestOriginRequestPolicyConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
-		wantCode int
 		wantIn   string
+		wantCode int
 	}{
 		{
 			name: "create_with_headers_config",
@@ -532,8 +532,8 @@ func TestFunctionStatusDevelopment(t *testing.T) {
 		method   string
 		path     string
 		body     string
-		wantCode int
 		wantIn   string
+		wantCode int
 	}{
 		{
 			name:   "create_function_status_development",
@@ -768,8 +768,8 @@ func TestOAICanonicalUserID(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *cloudfront.InMemoryBackend)
+		name string
 	}{
 		{
 			name: "canonical_user_id_is_64_hex_chars",

@@ -2627,9 +2627,9 @@ type cachePolicyParamsXML struct {
 
 type cachePolicyConfigXML struct {
 	XMLName    xml.Name             `xml:"CachePolicyConfig"`
-	Params     cachePolicyParamsXML `xml:"ParametersInCacheKeyAndForwardedToOrigin"`
 	Name       string               `xml:"Name"`
 	Comment    string               `xml:"Comment"`
+	Params     cachePolicyParamsXML `xml:"ParametersInCacheKeyAndForwardedToOrigin"`
 	DefaultTTL int64                `xml:"DefaultTTL"`
 	MaxTTL     int64                `xml:"MaxTTL"`
 	MinTTL     int64                `xml:"MinTTL"`
@@ -3912,14 +3912,14 @@ type rhpCorsConfigXML struct {
 }
 
 type rhpSecurityHeadersXML struct {
-	StrictTransportSecuritySeconds int64  `xml:"StrictTransportSecurity>AccessControlMaxAgeSec"`
-	IncludeSubdomains              bool   `xml:"StrictTransportSecurity>IncludeSubdomains"`
-	Preload                        bool   `xml:"StrictTransportSecurity>Preload"`
-	ContentTypeOptionsOverride     bool   `xml:"ContentTypeOptions>Override"`
 	FrameOptionsValue              string `xml:"FrameOptions>FrameOption"`
 	ReferrerPolicy                 string `xml:"ReferrerPolicy>ReferrerPolicy"`
 	ContentSecurityPolicy          string `xml:"ContentSecurityPolicy>ContentSecurityPolicy"`
 	XSSProtection                  string `xml:"XSSProtection>ReportUri"`
+	StrictTransportSecuritySeconds int64  `xml:"StrictTransportSecurity>AccessControlMaxAgeSec"`
+	IncludeSubdomains              bool   `xml:"StrictTransportSecurity>IncludeSubdomains"`
+	Preload                        bool   `xml:"StrictTransportSecurity>Preload"`
+	ContentTypeOptionsOverride     bool   `xml:"ContentTypeOptions>Override"`
 }
 
 type rhpCustomHeaderXML struct {
@@ -4467,12 +4467,12 @@ type orpQueryStringsConfigXML struct {
 }
 
 type orpConfigXML struct {
-	XMLName            xml.Name                  `xml:"OriginRequestPolicyConfig"`
-	Name               string                    `xml:"Name"`
-	Comment            string                    `xml:"Comment"`
 	HeadersConfig      *orpHeadersConfigXML      `xml:"HeadersConfig"`
 	CookiesConfig      *orpCookiesConfigXML      `xml:"CookiesConfig"`
 	QueryStringsConfig *orpQueryStringsConfigXML `xml:"QueryStringsConfig"`
+	XMLName            xml.Name                  `xml:"OriginRequestPolicyConfig"`
+	Name               string                    `xml:"Name"`
+	Comment            string                    `xml:"Comment"`
 }
 
 func orpConfigFromXML(x orpConfigXML) *OriginRequestPolicyConfig {

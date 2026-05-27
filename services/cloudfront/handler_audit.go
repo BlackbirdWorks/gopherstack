@@ -21,9 +21,9 @@ type kvsKeyItemJSON struct {
 }
 
 type kvsListKeysResponseJSON struct {
+	ETag     string            `json:"eTag"`
 	Items    []*kvsKeyItemJSON `json:"items"`
 	Quantity int               `json:"quantity"`
-	ETag     string            `json:"eTag"`
 }
 
 type kvsUpdateKeysRequestJSON struct {
