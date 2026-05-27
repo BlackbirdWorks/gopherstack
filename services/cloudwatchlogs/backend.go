@@ -57,8 +57,10 @@ const (
 	anomalyVisibilityTimeMinDays = 7
 	// anomalyVisibilityTimeMaxDays is the maximum allowed anomaly visibility time in days.
 	anomalyVisibilityTimeMaxDays = 90
+	// msPerDay is the number of milliseconds in a day.
+	msPerDay = 24 * 60 * 60 * 1000
 	// putLogEventsMaxEventAgeMs is the maximum age of a log event (14 days) in milliseconds.
-	putLogEventsMaxEventAgeMs = 14 * 24 * 60 * 60 * 1000
+	putLogEventsMaxEventAgeMs = 14 * msPerDay
 	// putLogEventsFutureWindowMs is the maximum future offset (2 hours) for log events in milliseconds.
 	putLogEventsFutureWindowMs = 2 * 60 * 60 * 1000
 	// putLogEventsMaxMessageBytes is the maximum size of a single log event message (256 KB).
@@ -69,10 +71,6 @@ const (
 	minRealisticTimestampMs = 1_000_000_000_000
 	// detectorStatusInitializing is the status of a newly created anomaly detector.
 	detectorStatusInitializing = "INITIALIZING"
-	// detectorStatusTraining is the status after initial data collection.
-	detectorStatusTraining = "TRAINING"
-	// detectorStatusAnalyzing is the steady-state status for an anomaly detector.
-	detectorStatusAnalyzing = "ANALYZING"
 )
 
 // validEvaluationFrequencies returns the allowed values for the anomaly detector
@@ -297,7 +295,12 @@ type StorageBackend interface {
 	// PutAccountPolicy creates or updates an account-level policy.
 	PutAccountPolicy(policyName, policyType, policyDocument, scope, selectionCriteria string) (*AccountPolicy, error)
 	// DescribeAccountPolicies returns account-level policies, optionally filtered.
-	DescribeAccountPolicies(policyType, policyName string, accountIdentifiers []string, limit int, nextToken string) ([]AccountPolicy, string, error)
+	DescribeAccountPolicies(
+		policyType, policyName string,
+		accountIdentifiers []string,
+		limit int,
+		nextToken string,
+	) ([]AccountPolicy, string, error)
 	// DisassociateKmsKey removes the KMS key association from a log group or resource.
 	DisassociateKmsKey(logGroupName, resourceIdentifier string) error
 	// PutMetricFilter creates or updates a metric filter for a log group.
@@ -560,7 +563,11 @@ func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (
 	}
 
 	if _, ok := validLogGroupClasses()[logGroupClass]; !ok {
-		return nil, fmt.Errorf("%w: invalid logGroupClass %q, must be STANDARD or INFREQUENT_ACCESS", ErrValidation, logGroupClass)
+		return nil, fmt.Errorf(
+			"%w: invalid logGroupClass %q, must be STANDARD or INFREQUENT_ACCESS",
+			ErrValidation,
+			logGroupClass,
+		)
 	}
 
 	b.mu.Lock("CreateLogGroup")
@@ -575,7 +582,7 @@ func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (
 		LogGroupName:  name,
 		Arn:           b.groupARN(name),
 		LogGroupClass: logGroupClass,
-		KmsKeyId:      kmsKeyID,
+		KmsKeyID:      kmsKeyID,
 	}
 	b.groups[name] = g
 	b.streams[name] = make(map[string]*LogStream)
@@ -796,10 +803,8 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, order
 	return streams, token, nil
 }
 
-// PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
-// sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
-// Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
-func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken string, events []InputLogEvent) (*PutLogEventsResult, error) {
+// validatePutLogEventsBatch checks the batch size constraints for PutLogEvents.
+func validatePutLogEventsBatch(events []InputLogEvent) error {
 	// AWS PutLogEvents limits per request:
 	//   * up to 10,000 events
 	//   * up to 1 MiB total batch size; each event is counted as
@@ -811,7 +816,7 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 	)
 
 	if len(events) > maxEventsPerBatch {
-		return nil, fmt.Errorf("%w: PutLogEvents accepts at most %d events per request",
+		return fmt.Errorf("%w: PutLogEvents accepts at most %d events per request",
 			ErrValidation, maxEventsPerBatch)
 	}
 
@@ -819,69 +824,38 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 	for i, e := range events {
 		msgLen := len(e.Message)
 		if msgLen > putLogEventsMaxMessageBytes {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: event at index %d exceeds maximum message size of %d bytes",
 				ErrValidation, i, putLogEventsMaxMessageBytes,
 			)
 		}
+
 		totalBytes += msgLen + eventOverheadBytes
 	}
 
 	if totalBytes > maxBatchBytes {
-		return nil, fmt.Errorf("%w: PutLogEvents batch size %d exceeds %d-byte limit",
+		return fmt.Errorf("%w: PutLogEvents batch size %d exceeds %d-byte limit",
 			ErrValidation, totalBytes, maxBatchBytes)
 	}
 
-	b.mu.Lock("PutLogEvents")
+	return nil
+}
 
-	if _, exists := b.groups[groupName]; !exists {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
-	}
-
-	if _, exists := b.streams[groupName][streamName]; !exists {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
-	}
-
-	stream := b.streams[groupName][streamName]
-
-	// Validate sequence token if provided. AWS still returns InvalidSequenceTokenException
-	// for wrong tokens even though tokens are now optional.
-	if sequenceToken != "" {
-		expectedToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
-		if sequenceToken != expectedToken {
-			b.mu.Unlock()
-			return nil, fmt.Errorf("%w: expected sequenceToken %s", ErrInvalidSequenceToken, expectedToken)
-		}
-	}
-
-	now := time.Now().UnixMilli()
-
-	// Determine the retention cutoff for timestamp validation.
-	group := b.groups[groupName]
-	var retentionCutoffMs int64
-	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
-		retentionCutoffMs = now - int64(*group.RetentionInDays)*24*60*60*1000
-	} else {
-		retentionCutoffMs = now - putLogEventsMaxEventAgeMs
-	}
-	futureLimit := now + putLogEventsFutureWindowMs
-
-	// Classify events: accepted vs rejected.
+// classifyLogEvents splits events into accepted and rejected based on timestamp windows.
+// It returns the accepted events and rejected-event index pointers for the response.
+func classifyLogEvents(
+	events []InputLogEvent,
+	retentionCutoffMs, hardCutoff, futureLimit int64,
+) ([]InputLogEvent, *RejectedLogEventsInfo) {
 	var (
-		acceptedEvents           []InputLogEvent
-		tooOldStart              *int32
-		tooNewStart              *int32
-		expiredEnd               *int32
+		acceptedEvents []InputLogEvent
+		tooOldStart    *int32
+		tooNewStart    *int32
+		expiredEnd     *int32
 	)
 
-	hardCutoff := now - putLogEventsMaxEventAgeMs
-
 	for i, e := range events {
-		idx := int32(i) //nolint:gosec // i bounded by maxEventsPerBatch (10k)
+		idx := int32(i)
 
 		// Synthetic test timestamps (before Sep 2001) bypass window validation.
 		if e.Timestamp < minRealisticTimestampMs {
@@ -918,12 +892,6 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 		acceptedEvents = append(acceptedEvents, e)
 	}
 
-	b.appendEvents(groupName, streamName, stream, now, acceptedEvents)
-
-	stream.LastIngestionTime = &now
-	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
-
-	// Build rejected info only if some events were rejected.
 	var rejectedInfo *RejectedLogEventsInfo
 	if tooNewStart != nil || tooOldStart != nil || expiredEnd != nil {
 		rejectedInfo = &RejectedLogEventsInfo{
@@ -932,6 +900,67 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName, sequenceToken stri
 			ExpiredLogEventEndIndex:  expiredEnd,
 		}
 	}
+
+	return acceptedEvents, rejectedInfo
+}
+
+// PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
+// sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
+// Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
+func (b *InMemoryBackend) PutLogEvents(
+	groupName, streamName, sequenceToken string,
+	events []InputLogEvent,
+) (*PutLogEventsResult, error) {
+	if err := validatePutLogEventsBatch(events); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("PutLogEvents")
+
+	if _, exists := b.groups[groupName]; !exists {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	if _, exists := b.streams[groupName][streamName]; !exists {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+	}
+
+	stream := b.streams[groupName][streamName]
+
+	// Validate sequence token if provided. AWS still returns InvalidSequenceTokenException
+	// for wrong tokens even though tokens are now optional.
+	if sequenceToken != "" {
+		expectedToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
+		if sequenceToken != expectedToken {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf("%w: expected sequenceToken %s", ErrInvalidSequenceToken, expectedToken)
+		}
+	}
+
+	now := time.Now().UnixMilli()
+
+	// Determine the retention cutoff for timestamp validation.
+	group := b.groups[groupName]
+	var retentionCutoffMs int64
+	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+		retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
+	} else {
+		retentionCutoffMs = now - putLogEventsMaxEventAgeMs
+	}
+
+	hardCutoff := now - putLogEventsMaxEventAgeMs
+	futureLimit := now + putLogEventsFutureWindowMs
+	acceptedEvents, rejectedInfo := classifyLogEvents(events, retentionCutoffMs, hardCutoff, futureLimit)
+
+	b.appendEvents(groupName, streamName, stream, now, acceptedEvents)
+
+	stream.LastIngestionTime = &now
+	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
 
 	// Collect matching subscription filters for async delivery (while holding the lock).
 	filters := b.matchingFilters(groupName, acceptedEvents)
@@ -1138,7 +1167,9 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
 // roleArn is required by AWS when delivering to Kinesis streams; distribution defaults to Random.
-func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn, roleArn, distribution string) error {
+func (b *InMemoryBackend) PutSubscriptionFilter(
+	groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+) error {
 	if groupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -2735,7 +2766,9 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 
 // PutAccountPolicy creates or updates an account-level policy.
 // scope must be ALL or SELECTION_CRITERIA (defaults to ALL if empty).
-func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocument, scope, selectionCriteria string) (*AccountPolicy, error) {
+func (b *InMemoryBackend) PutAccountPolicy(
+	policyName, policyType, policyDocument, scope, selectionCriteria string,
+) (*AccountPolicy, error) {
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: policyName is required", ErrValidation)
 	}
@@ -2774,7 +2807,12 @@ func (b *InMemoryBackend) PutAccountPolicy(policyName, policyType, policyDocumen
 
 // DescribeAccountPolicies returns account-level policies, optionally filtered, with pagination.
 // accountIdentifiers filters by account IDs embedded in the policy name (prefix match).
-func (b *InMemoryBackend) DescribeAccountPolicies(policyType, policyName string, accountIdentifiers []string, limit int, nextToken string) ([]AccountPolicy, string, error) {
+func (b *InMemoryBackend) DescribeAccountPolicies(
+	policyType, policyName string,
+	_ []string,
+	limit int,
+	nextToken string,
+) ([]AccountPolicy, string, error) {
 	if policyType != "" {
 		if _, ok := validAccountPolicyTypes()[policyType]; !ok {
 			return nil, "", fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)

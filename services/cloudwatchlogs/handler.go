@@ -740,10 +740,10 @@ type putAccountPolicyOutput struct {
 
 // --- DescribeAccountPolicies ---.
 type describeAccountPoliciesInput struct {
-	AccountIdentifiers []string `json:"accountIdentifiers,omitempty"`
 	PolicyName         string   `json:"policyName"`
 	PolicyType         string   `json:"policyType"`
 	NextToken          string   `json:"nextToken,omitempty"`
+	AccountIdentifiers []string `json:"accountIdentifiers,omitempty"`
 	MaxResults         int      `json:"maxResults,omitempty"`
 }
 
@@ -1016,7 +1016,12 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			result, err := h.Backend.PutLogEvents(input.LogGroupName, input.LogStreamName, input.SequenceToken, input.LogEvents)
+			result, err := h.Backend.PutLogEvents(
+				input.LogGroupName,
+				input.LogStreamName,
+				input.SequenceToken,
+				input.LogEvents,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -1598,7 +1603,13 @@ func (h *Handler) handlePutAccountPolicy(b []byte) (any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	policy, err := h.Backend.PutAccountPolicy(input.PolicyName, input.PolicyType, input.PolicyDocument, input.Scope, input.SelectionCriteria)
+	policy, err := h.Backend.PutAccountPolicy(
+		input.PolicyName,
+		input.PolicyType,
+		input.PolicyDocument,
+		input.Scope,
+		input.SelectionCriteria,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,7 +1622,13 @@ func (h *Handler) handleDescribeAccountPolicies(b []byte) (any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	policies, nextToken, err := h.Backend.DescribeAccountPolicies(input.PolicyType, input.PolicyName, input.AccountIdentifiers, input.MaxResults, input.NextToken)
+	policies, nextToken, err := h.Backend.DescribeAccountPolicies(
+		input.PolicyType,
+		input.PolicyName,
+		input.AccountIdentifiers,
+		input.MaxResults,
+		input.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

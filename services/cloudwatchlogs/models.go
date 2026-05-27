@@ -12,7 +12,7 @@ type LogGroup struct {
 	LogGroupName      string `json:"logGroupName"`
 	Arn               string `json:"arn"`
 	LogGroupClass     string `json:"logGroupClass,omitempty"`
-	KmsKeyId          string `json:"kmsKeyId,omitempty"`
+	KmsKeyID          string `json:"kmsKeyId,omitempty"`
 	CreationTime      int64  `json:"creationTime"`
 	StoredBytes       int64  `json:"storedBytes"`
 	MetricFilterCount int32  `json:"metricFilterCount"`
@@ -71,8 +71,8 @@ type ScheduledQueryRunSummary struct {
 
 // Distribution constants for subscription filter event routing.
 const (
-	DistributionRandom        = "Random"
-	DistributionByLogStream   = "ByLogStream"
+	DistributionRandom      = "Random"
+	DistributionByLogStream = "ByLogStream"
 )
 
 // SubscriptionFilter represents a CloudWatch Logs subscription filter.
@@ -200,11 +200,11 @@ type ScheduledQuery struct {
 
 // AccountPolicy represents a CloudWatch Logs account-level policy.
 type AccountPolicy struct {
-	PolicyName         string `json:"policyName"`
-	PolicyType         string `json:"policyType"`
-	PolicyDocument     string `json:"policyDocument,omitempty"`
-	Scope              string `json:"scope,omitempty"`
-	SelectionCriteria  string `json:"selectionCriteria,omitempty"`
+	PolicyName        string `json:"policyName"`
+	PolicyType        string `json:"policyType"`
+	PolicyDocument    string `json:"policyDocument,omitempty"`
+	Scope             string `json:"scope,omitempty"`
+	SelectionCriteria string `json:"selectionCriteria,omitempty"`
 }
 
 // RejectedLogEventsInfo describes log events that were rejected by PutLogEvents.

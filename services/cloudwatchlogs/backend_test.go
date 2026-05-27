@@ -734,7 +734,14 @@ func TestCloudWatchLogsBackend_PutSubscriptionFilter(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.CreateLogGroup("grp", "", "")
-				_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:old", "", "")
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"f",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:old",
+					"",
+					"",
+				)
 			},
 			group:          "grp",
 			filterName:     "f",
@@ -817,8 +824,22 @@ func TestCloudWatchLogsBackend_DescribeSubscriptionFilters(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.CreateLogGroup("grp", "", "")
-				_ = b.PutSubscriptionFilter("grp", "filter-a", "", "arn:aws:lambda:us-east-1:123456789012:function:a", "", "")
-				_ = b.PutSubscriptionFilter("grp", "filter-b", "", "arn:aws:lambda:us-east-1:123456789012:function:b", "", "")
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"filter-a",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:a",
+					"",
+					"",
+				)
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"filter-b",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:b",
+					"",
+					"",
+				)
 			},
 			group:     "grp",
 			wantCount: 2,
@@ -835,7 +856,14 @@ func TestCloudWatchLogsBackend_DescribeSubscriptionFilters(t *testing.T) {
 					"arn:aws:lambda:us-east-1:123456789012:function:a",
 					"", "",
 				)
-				_ = b.PutSubscriptionFilter("grp", "dev-filter", "", "arn:aws:lambda:us-east-1:123456789012:function:b", "", "")
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"dev-filter",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:b",
+					"",
+					"",
+				)
 			},
 			group:         "grp",
 			prefix:        "prod",
@@ -902,7 +930,14 @@ func TestCloudWatchLogsBackend_DeleteSubscriptionFilter(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.CreateLogGroup("grp", "", "")
-				_ = b.PutSubscriptionFilter("grp", "my-filter", "", "arn:aws:lambda:us-east-1:123456789012:function:a", "", "")
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"my-filter",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:a",
+					"",
+					"",
+				)
 			},
 			group:      "grp",
 			filterName: "my-filter",
@@ -3676,10 +3711,10 @@ func TestCloudWatchLogsBackend_DescribeLogStreams_Ordering(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		orderBy    string
 		wantFirst  string
-		wantErr    error
 		descending bool
 	}{
 		{
@@ -3918,12 +3953,12 @@ func TestCloudWatchLogsBackend_CreateLogGroup_WithClass(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr       error
 		name          string
 		logGroupClass string
 		kmsKeyID      string
 		wantClass     string
 		wantKmsKeyID  string
-		wantErr       error
 	}{
 		{
 			name:      "default_class_is_standard",
@@ -3967,7 +4002,7 @@ func TestCloudWatchLogsBackend_CreateLogGroup_WithClass(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantClass, g.LogGroupClass)
-			assert.Equal(t, tt.wantKmsKeyID, g.KmsKeyId)
+			assert.Equal(t, tt.wantKmsKeyID, g.KmsKeyID)
 		})
 	}
 }
@@ -4000,17 +4035,17 @@ func TestCloudWatchLogsBackend_PutLogEvents_RejectedLogEventsInfo(t *testing.T) 
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
-	tooOld := now - 15*24*60*60*1000    // 15 days ago (beyond 14d hard cap)
-	tooNew := now + 3*60*60*1000        // 3 hours in the future
+	tooOld := now - 15*24*60*60*1000 // 15 days ago (beyond 14d hard cap)
+	tooNew := now + 3*60*60*1000     // 3 hours in the future
 
 	tests := []struct {
-		name              string
-		events            []cloudwatchlogs.InputLogEvent
-		wantAccepted      int
-		wantTooOld        bool
-		wantTooNew        bool
-		wantExpired       bool
-		wantErr           error
+		wantErr      error
+		name         string
+		events       []cloudwatchlogs.InputLogEvent
+		wantAccepted int
+		wantTooOld   bool
+		wantTooNew   bool
+		wantExpired  bool
 	}{
 		{
 			name: "all_valid",
@@ -4105,10 +4140,10 @@ func TestCloudWatchLogsBackend_PutLogEvents_SequenceToken(t *testing.T) {
 	now := time.Now().UnixMilli()
 
 	tests := []struct {
-		name          string
-		setupEvents   int
-		sequenceToken string
 		wantErr       error
+		name          string
+		sequenceToken string
+		setupEvents   int
 	}{
 		{
 			name:          "no_token_accepted",
@@ -4177,10 +4212,10 @@ func TestCloudWatchLogsBackend_MetricTransformation_DimensionsAndUnit(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		transformations []cloudwatchlogs.MetricTransformation
 		wantDimensions  map[string]string
+		name            string
 		wantUnit        string
+		transformations []cloudwatchlogs.MetricTransformation
 	}{
 		{
 			name: "with_dimensions_and_unit",
@@ -4244,12 +4279,12 @@ func TestCloudWatchLogsBackend_PutSubscriptionFilter_RoleArnAndDistribution(t *t
 	t.Parallel()
 
 	tests := []struct {
+		wantErr          error
 		name             string
 		roleArn          string
 		distribution     string
 		wantDistribution string
 		wantRoleArn      string
-		wantErr          error
 	}{
 		{
 			name:             "default_distribution_is_random",
@@ -4347,12 +4382,12 @@ func TestCloudWatchLogsBackend_PutAccountPolicy_ExtendedTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr           error
 		name              string
 		policyType        string
 		scope             string
 		selectionCriteria string
 		wantScope         string
-		wantErr           error
 	}{
 		{
 			name:       "data_protection_policy",
@@ -4431,10 +4466,10 @@ func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation
 	const msPerDay = 24 * 60 * 60 * 1000
 
 	tests := []struct {
-		name                  string
-		anomalyVisibilityTime int64
 		wantErr               error
+		name                  string
 		wantStatus            string
+		anomalyVisibilityTime int64
 	}{
 		{
 			name:       "zero_accepted",
@@ -4531,9 +4566,9 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation
 	const msPerDay = 24 * 60 * 60 * 1000
 
 	tests := []struct {
+		wantErr               error
 		name                  string
 		anomalyVisibilityTime int64
-		wantErr               error
 	}{
 		{
 			name:                  "valid_30_days",
@@ -4580,11 +4615,11 @@ func TestCloudWatchLogsBackend_DescribeLogStreams_OrderByValidation(t *testing.T
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		orderBy    string
 		prefix     string
 		descending bool
-		wantErr    error
 	}{
 		{
 			name:    "name_asc_valid",
@@ -4650,10 +4685,10 @@ func TestCloudWatchLogsBackend_PutQueryDefinition_UpdateVerifiesID(t *testing.T)
 	t.Parallel()
 
 	tests := []struct {
+		wantErr           error
 		name              string
 		queryDefinitionID string
 		createFirst       bool
-		wantErr           error
 	}{
 		{
 			name:              "create_new_no_id",
@@ -4778,8 +4813,8 @@ func TestCloudWatchLogsBackend_DescribeAccountPolicies_FilterByType(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			policies, _, err := b.DescribeAccountPolicies(tt.policyType, "", nil, 0, "")
-			require.NoError(t, err)
+			policies, _, descErr := b.DescribeAccountPolicies(tt.policyType, "", nil, 0, "")
+			require.NoError(t, descErr)
 			assert.Len(t, policies, tt.wantLen)
 		})
 	}
