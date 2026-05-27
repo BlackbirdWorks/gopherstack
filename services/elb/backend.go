@@ -4,6 +4,7 @@ package elb
 
 import (
 	"fmt"
+	"hash/fnv"
 	"regexp"
 	"slices"
 	"sort"
@@ -18,9 +19,42 @@ import (
 )
 
 const (
-	policyTypeAppCookie = "AppCookieStickinessPolicyType"
-	policyTypeLBCookie  = "LBCookieStickinessPolicyType"
-	notApplicable       = "N/A"
+	policyTypeAppCookie   = "AppCookieStickinessPolicyType"
+	policyTypeLBCookie    = "LBCookieStickinessPolicyType"
+	policyTypeSSLNeg      = "SSLNegotiationPolicyType"
+	notApplicable         = "N/A"
+	protoHTTP             = "HTTP"
+	protoHTTPS            = "HTTPS"
+	protoTCP              = "TCP"
+	protoSSL              = "SSL"
+	attrRefSecurityPolicy = "Reference-Security-Policy"
+	attrProtocolTLS12     = "Protocol-TLSv1.2"
+	attrProtocolTLS11     = "Protocol-TLSv1.1"
+	attrProtocolTLS10     = "Protocol-TLSv1"
+	attrServerCipherOrder = "Server-Defined-Cipher-Order"
+	attrTypeBoolean       = "Boolean"
+	attrTypeString        = "String"
+	cardinalityZeroOrOne  = "ZERO_OR_ONE"
+
+	// dnsHashModLB is the modulus for generating deterministic DNS host IDs.
+	dnsHashModLB = 10_000_000_000
+	// dnsHashModHZ is the modulus for generating deterministic hosted zone IDs.
+	dnsHashModHZ = 1_000_000_000
+
+	// smtpPort is SMTP port 25.
+	smtpPort = 25
+	// httpPort is the standard HTTP port.
+	httpPort = 80
+	// httpsPort is the standard HTTPS port.
+	httpsPort = 443
+	// smtpsPort is the SMTPS port.
+	smtpsPort = 465
+	// submissionPort is the mail submission port.
+	submissionPort = 587
+	// minDynamicPort is the lowest user/dynamic port.
+	minDynamicPort = 1024
+	// maxPort is the maximum TCP/UDP port number.
+	maxPort = 65535
 )
 
 var (
@@ -44,6 +78,8 @@ var (
 	ErrInvalidInstance = awserr.New("InvalidInstance", awserr.ErrInvalidParameter)
 	// ErrDuplicateListener is returned when a listener already exists on the requested port.
 	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
+	// ErrInvalidConfiguration is returned when an operation is not valid for the LB's configuration.
+	ErrInvalidConfiguration = awserr.New("InvalidConfigurationRequest", awserr.ErrInvalidParameter)
 
 	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
 	// must start and end with alphanumeric.
@@ -61,7 +97,7 @@ var (
 		policyTypeAppCookie:                     {},
 		policyTypeLBCookie:                      {},
 		"ProxyProtocolPolicyType":               {},
-		"SSLNegotiationPolicyType":              {},
+		policyTypeSSLNeg:                        {},
 		"BackendServerAuthenticationPolicyType": {},
 	}
 )
@@ -73,10 +109,21 @@ const (
 	defaultIdleTimeout int32 = 60
 	// defaultAccessLogEmitInterval is the default access log emit interval in minutes.
 	defaultAccessLogEmitInterval int32 = 60
-	// canonicalHostedZoneID is the real AWS Classic ELB hosted zone ID (us-east-1).
-	// In production AWS uses per-region values; for a local emulator one constant suffices.
-	canonicalHostedZoneID = "Z35SXDOTRQ7X7K"
 )
+
+// regionHostedZoneIDs maps AWS region names to the Classic ELB hosted zone ID for that region.
+var regionHostedZoneIDs = map[string]string{ //nolint:gochecknoglobals // immutable lookup table
+	"us-east-1":      "Z35SXDOTRQ7X7K",
+	"us-east-2":      "Z3AADJGX6KTTL2",
+	"us-west-1":      "Z368ELLRRE2KJ0",
+	"us-west-2":      "Z1H1FL5HABSF5",
+	"eu-west-1":      "Z32O12XQLNTSW2",
+	"eu-west-2":      "ZHURV8PSTC4K8",
+	"eu-central-1":   "Z215JYRZR1TBD5",
+	"ap-northeast-1": "Z14GRHDCWA56QT",
+	"ap-southeast-1": "Z1LMS91P8CMLE5",
+	"ap-southeast-2": "Z1GM3OXH4ZPM65",
+}
 
 // Listener is a single protocol/port mapping on a load balancer.
 type Listener struct {
@@ -125,6 +172,28 @@ func defaultLBAttributes() LoadBalancerAttributes {
 	}
 }
 
+// dnsNameSuffix returns a stable 10-digit numeric suffix for an ELB DNS name,
+// derived from a hash of the account ID and LB name.
+func dnsNameSuffix(accountID, lbName string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(accountID + ":" + lbName))
+
+	return fmt.Sprintf("%010d", h.Sum64()%dnsHashModLB)
+}
+
+// canonicalHostedZoneIDForRegion returns the Classic ELB hosted zone ID for the given region.
+// Falls back to a synthetic ID for unknown regions.
+func canonicalHostedZoneIDForRegion(region string) string {
+	if id, ok := regionHostedZoneIDs[region]; ok {
+		return id
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte("elb-hzid:" + region))
+
+	return fmt.Sprintf("Z%09d", h.Sum32()%dnsHashModHZ)
+}
+
 // HealthCheck holds health-check configuration for a load balancer.
 type HealthCheck struct {
 	Target             string `json:"target"`
@@ -160,6 +229,7 @@ type LoadBalancer struct {
 	SecurityGroups            []string
 	Subnets                   []string
 	Attributes                LoadBalancerAttributes
+	IsVPC                     bool
 }
 
 // CreateLoadBalancerInput holds input for CreateLoadBalancer.
@@ -377,36 +447,106 @@ func (b *InMemoryBackend) AddLoadBalancerInternal(lb LoadBalancer) {
 	b.lbs[lb.LoadBalancerName] = &cp
 }
 
-// CreateLoadBalancer creates a new Classic ELB load balancer.
-func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
-	b.mu.Lock("CreateLoadBalancer")
-	defer b.mu.Unlock()
-
-	if input.LoadBalancerName == "" {
-		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+// validateCreateLBName checks that the LB name is present and well-formed.
+func validateCreateLBName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	if !lbNameRe.MatchString(input.LoadBalancerName) {
-		return nil, fmt.Errorf(
-			"%w: LoadBalancerName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+	if !lbNameRe.MatchString(name) {
+		return fmt.Errorf(
+			"%w: LoadBalancerName must be 1-32 alphanumeric characters or hyphens, "+
+				"starting and ending with alphanumeric",
 			ErrInvalidParameter,
 		)
 	}
 
-	if _, exists := b.lbs[input.LoadBalancerName]; exists {
-		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
-	}
+	return nil
+}
 
-	scheme := input.Scheme
+// resolveScheme normalises the scheme parameter, returning an error for invalid values.
+func resolveScheme(scheme string) (string, error) {
 	if scheme == "" {
 		scheme = "internet-facing"
 	}
 
 	if scheme != "internet-facing" && scheme != "internal" {
-		return nil, fmt.Errorf("%w: Scheme must be 'internet-facing' or 'internal'", ErrInvalidParameter)
+		return "", fmt.Errorf(
+			"%w: Scheme must be 'internet-facing' or 'internal'",
+			ErrInvalidParameter,
+		)
 	}
 
-	dnsName := input.LoadBalancerName + "." + b.region + ".elb.amazonaws.com"
+	return scheme, nil
+}
+
+// validateCreateLBZones checks listener, AZ, and subnet constraints.
+func validateCreateLBZones(input CreateLoadBalancerInput) error {
+	if len(input.Listeners) == 0 {
+		return fmt.Errorf(
+			"%w: at least one Listener is required to create a load balancer",
+			ErrInvalidParameter,
+		)
+	}
+
+	if len(input.AvailabilityZones) > 0 && len(input.Subnets) > 0 {
+		return fmt.Errorf(
+			"%w: AvailabilityZones and Subnets are mutually exclusive",
+			ErrInvalidConfiguration,
+		)
+	}
+
+	if len(input.AvailabilityZones) == 0 && len(input.Subnets) == 0 {
+		return fmt.Errorf(
+			"%w: at least one AvailabilityZone or Subnet is required",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
+}
+
+// CreateLoadBalancer creates a new Classic ELB load balancer.
+func (b *InMemoryBackend) CreateLoadBalancer(
+	input CreateLoadBalancerInput,
+) (*LoadBalancer, error) {
+	if err := validateCreateLBName(input.LoadBalancerName); err != nil {
+		return nil, err
+	}
+
+	scheme, err := resolveScheme(input.Scheme)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateLoadBalancer")
+	defer b.mu.Unlock()
+
+	if _, exists := b.lbs[input.LoadBalancerName]; exists {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
+	}
+
+	const maxLBs = 20
+	if len(b.lbs) >= maxLBs {
+		return nil, fmt.Errorf(
+			"%w: classic-load-balancers limit of %d exceeded",
+			ErrValidation, maxLBs,
+		)
+	}
+
+	if zoneErr := validateCreateLBZones(input); zoneErr != nil {
+		return nil, zoneErr
+	}
+
+	isVPC := len(input.Subnets) > 0
+
+	suffix := dnsNameSuffix(b.accountID, input.LoadBalancerName)
+	dnsPrefix := input.LoadBalancerName + "-" + suffix
+	if scheme == "internal" {
+		dnsPrefix = "internal-" + dnsPrefix
+	}
+
+	dnsName := dnsPrefix + "." + b.region + ".elb.amazonaws.com"
 	lbARN := arn.Build("elasticloadbalancing", b.region, b.accountID, "loadbalancer/"+input.LoadBalancerName)
 
 	// Ensure non-nil slices so callers never have to nil-check.
@@ -449,7 +589,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		ARN:                       lbARN,
 		DNSName:                   dnsName,
 		CanonicalHostedZoneName:   dnsName,
-		CanonicalHostedZoneNameID: canonicalHostedZoneID,
+		CanonicalHostedZoneNameID: canonicalHostedZoneIDForRegion(b.region),
 		CreatedTime:               time.Now(),
 		Scheme:                    scheme,
 		AvailabilityZones:         azs,
@@ -463,6 +603,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 		Attributes:                defaultLBAttributes(),
+		IsVPC:                     isVPC,
 	}
 
 	b.lbs[input.LoadBalancerName] = lb
@@ -551,6 +692,22 @@ func (b *InMemoryBackend) RegisterInstancesWithLoadBalancer(name string, instanc
 	existing := make(map[string]bool, len(lb.Instances))
 	for _, inst := range lb.Instances {
 		existing[inst.InstanceID] = true
+	}
+
+	const maxRegisteredInstances = 1000
+	newCount := 0
+	for _, inst := range instances {
+		if !existing[inst.InstanceID] {
+			newCount++
+		}
+	}
+
+	if len(lb.Instances)+newCount > maxRegisteredInstances {
+		return nil, fmt.Errorf(
+			"%w: classic-registered-instances limit of %d exceeded",
+			ErrValidation,
+			maxRegisteredInstances,
+		)
 	}
 
 	for _, inst := range instances {
@@ -722,6 +879,11 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []L
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
+	const maxListeners = 100
+	if len(lb.Listeners)+len(listeners) > maxListeners {
+		return fmt.Errorf("%w: classic-listeners limit of %d exceeded", ErrValidation, maxListeners)
+	}
+
 	existing := make(map[int32]*Listener, len(lb.Listeners))
 	for i := range lb.Listeners {
 		existing[lb.Listeners[i].LoadBalancerPort] = &lb.Listeners[i]
@@ -853,6 +1015,13 @@ func (b *InMemoryBackend) ApplySecurityGroupsToLoadBalancer(name string, securit
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
+	if !lb.IsVPC {
+		return nil, fmt.Errorf(
+			"%w: ApplySecurityGroupsToLoadBalancer is only available for VPC load balancers",
+			ErrInvalidConfiguration,
+		)
+	}
+
 	cp := make([]string, len(securityGroups))
 	copy(cp, securityGroups)
 	sort.Strings(cp)
@@ -869,6 +1038,10 @@ func (b *InMemoryBackend) AttachLoadBalancerToSubnets(name string, subnets []str
 	lb, ok := b.lbs[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	if !lb.IsVPC {
+		return nil, fmt.Errorf("%w: cannot attach subnets to an EC2-Classic load balancer", ErrInvalidConfiguration)
 	}
 
 	existing := make(map[string]bool, len(lb.Subnets))
@@ -929,6 +1102,13 @@ func (b *InMemoryBackend) EnableAvailabilityZonesForLoadBalancer(name string, az
 	lb, ok := b.lbs[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	if lb.IsVPC {
+		return nil, fmt.Errorf(
+			"%w: cannot enable availability zones on a VPC load balancer; use AttachLoadBalancerToSubnets instead",
+			ErrInvalidConfiguration,
+		)
 	}
 
 	existing := make(map[string]bool, len(lb.AvailabilityZones))
@@ -1009,6 +1189,14 @@ func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(name string, por
 
 	for i := range lb.Listeners {
 		if lb.Listeners[i].LoadBalancerPort == port {
+			proto := lb.Listeners[i].Protocol
+			if proto != protoHTTPS && proto != protoSSL {
+				return fmt.Errorf(
+					"%w: SSL certificate can only be set on HTTPS or SSL listeners (port %d has protocol %s)",
+					ErrInvalidConfiguration, port, proto,
+				)
+			}
+
 			lb.Listeners[i].SSLCertificateID = certID
 
 			return nil
@@ -1018,8 +1206,28 @@ func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(name string, por
 	return fmt.Errorf("%w: no listener on port %d", ErrListenerNotFound, port)
 }
 
+// listenerProtocolForPort returns the protocol of the listener on the given port,
+// or an empty string if no matching listener exists.
+func listenerProtocolForPort(lb *LoadBalancer, port int32) string {
+	for i := range lb.Listeners {
+		if lb.Listeners[i].LoadBalancerPort == port {
+			return lb.Listeners[i].Protocol
+		}
+	}
+
+	return ""
+}
+
+// isStickinessPolicy returns true if the policy type is an app or LB cookie policy.
+func isStickinessPolicy(pol *LoadBalancerPolicy) bool {
+	return pol.PolicyTypeName == policyTypeAppCookie ||
+		pol.PolicyTypeName == policyTypeLBCookie
+}
+
 // SetLoadBalancerPoliciesOfListener sets the policies for an existing listener.
-func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(name string, port int32, policyNames []string) error {
+func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(
+	name string, port int32, policyNames []string,
+) error {
 	b.mu.Lock("SetLoadBalancerPoliciesOfListener")
 	defer b.mu.Unlock()
 
@@ -1032,6 +1240,19 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(name string, port in
 	for _, p := range policyNames {
 		if _, exists := b.policies[policyKey(name, p)]; !exists {
 			return fmt.Errorf("%w: %q", ErrPolicyNotFound, p)
+		}
+	}
+
+	// Validate stickiness policies are not attached to TCP/SSL listeners.
+	proto := listenerProtocolForPort(lb, port)
+	if proto == protoTCP || proto == protoSSL {
+		for _, pName := range policyNames {
+			if isStickinessPolicy(b.policies[policyKey(name, pName)]) {
+				return fmt.Errorf(
+					"%w: stickiness policies cannot be applied to TCP or SSL listeners",
+					ErrInvalidConfiguration,
+				)
+			}
 		}
 	}
 
@@ -1071,6 +1292,19 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesForBackendServer(
 
 	cp := make([]string, len(policyNames))
 	copy(cp, policyNames)
+
+	if len(policyNames) == 0 {
+		// Remove the BSD entry when policy list is empty.
+		kept := lb.BackendServerDescriptions[:0]
+		for _, bsd := range lb.BackendServerDescriptions {
+			if bsd.InstancePort != instancePort {
+				kept = append(kept, bsd)
+			}
+		}
+		lb.BackendServerDescriptions = kept
+
+		return nil
+	}
 
 	for i := range lb.BackendServerDescriptions {
 		if lb.BackendServerDescriptions[i].InstancePort == instancePort {
@@ -1259,6 +1493,16 @@ func (b *InMemoryBackend) DescribeInstanceHealth(name string, instances []Instan
 
 	// If specific instances requested, validate them and return their health.
 	if len(instances) > 0 {
+		for _, inst := range instances {
+			if !instanceIDRe.MatchString(inst.InstanceID) {
+				return nil, fmt.Errorf(
+					"%w: invalid instance ID format %q; must match i-[a-f0-9]{8,17}",
+					ErrInvalidInstance,
+					inst.InstanceID,
+				)
+			}
+		}
+
 		registered := make(map[string]bool, len(lb.Instances))
 		for _, inst := range lb.Instances {
 			registered[inst.InstanceID] = true
@@ -1325,9 +1569,30 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 		filterNames[n] = true
 	}
 
+	if name == "" {
+		samples := builtinSamplePolicies()
+		result := make([]LoadBalancerPolicy, 0, len(samples))
+
+		for _, p := range samples {
+			if len(filterNames) > 0 && !filterNames[p.PolicyName] {
+				continue
+			}
+
+			cp := p
+			attrCopy := make([]PolicyAttribute, len(p.PolicyAttributeDescriptions))
+			copy(attrCopy, p.PolicyAttributeDescriptions)
+			cp.PolicyAttributeDescriptions = attrCopy
+			result = append(result, cp)
+		}
+
+		sort.Slice(result, func(i, j int) bool { return result[i].PolicyName < result[j].PolicyName })
+
+		return result, nil
+	}
+
 	result := make([]LoadBalancerPolicy, 0, len(b.policies))
 	for _, p := range b.policies {
-		if name != "" && p.LoadBalancerName != name {
+		if p.LoadBalancerName != name {
 			continue
 		}
 
@@ -1349,6 +1614,58 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 	return result, nil
 }
 
+// builtinSamplePolicies returns the predefined Classic ELB SSL/cipher reference policies
+// that AWS ships by default. These are returned by DescribeLoadBalancerPolicies when no
+// LoadBalancerName is specified.
+func builtinSamplePolicies() []LoadBalancerPolicy {
+	return []LoadBalancerPolicy{
+		{
+			PolicyName:       "ELBSecurityPolicy-2016-08",
+			PolicyTypeName:   policyTypeSSLNeg,
+			LoadBalancerName: "",
+			PolicyAttributeDescriptions: []PolicyAttribute{
+				{AttributeName: attrRefSecurityPolicy, AttributeValue: "ELBSecurityPolicy-2016-08"},
+				{AttributeName: attrProtocolTLS12, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS11, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS10, AttributeValue: boolStrFalse},
+				{AttributeName: attrServerCipherOrder, AttributeValue: boolStrTrue},
+			},
+		},
+		{
+			PolicyName:       "ELBSecurityPolicy-TLS-1-2-2017-01",
+			PolicyTypeName:   policyTypeSSLNeg,
+			LoadBalancerName: "",
+			PolicyAttributeDescriptions: []PolicyAttribute{
+				{AttributeName: attrRefSecurityPolicy, AttributeValue: "ELBSecurityPolicy-TLS-1-2-2017-01"},
+				{AttributeName: attrProtocolTLS12, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS11, AttributeValue: boolStrFalse},
+				{AttributeName: attrProtocolTLS10, AttributeValue: boolStrFalse},
+				{AttributeName: attrServerCipherOrder, AttributeValue: boolStrTrue},
+			},
+		},
+		{
+			PolicyName:     "ELBSample-ELBDefaultNegotiationPolicy",
+			PolicyTypeName: policyTypeSSLNeg,
+			PolicyAttributeDescriptions: []PolicyAttribute{
+				{AttributeName: attrProtocolTLS12, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS11, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS10, AttributeValue: boolStrTrue},
+				{AttributeName: attrServerCipherOrder, AttributeValue: boolStrFalse},
+			},
+		},
+		{
+			PolicyName:     "ELBSample-OpenSSLDefaultCipherPolicy",
+			PolicyTypeName: policyTypeSSLNeg,
+			PolicyAttributeDescriptions: []PolicyAttribute{
+				{AttributeName: attrProtocolTLS12, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS11, AttributeValue: boolStrTrue},
+				{AttributeName: attrProtocolTLS10, AttributeValue: boolStrTrue},
+				{AttributeName: attrServerCipherOrder, AttributeValue: boolStrFalse},
+			},
+		},
+	}
+}
+
 // builtinPolicyTypes returns the built-in Classic ELB policy type descriptions.
 func builtinPolicyTypes() []PolicyTypeDescription {
 	return []PolicyTypeDescription{
@@ -1358,7 +1675,7 @@ func builtinPolicyTypes() []PolicyTypeDescription {
 			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
 				{
 					AttributeName: "CookieName",
-					AttributeType: "String",
+					AttributeType: attrTypeString,
 					Cardinality:   "ONE",
 					Description:   "The name of the application cookie used for stickiness.",
 				},
@@ -1371,32 +1688,73 @@ func builtinPolicyTypes() []PolicyTypeDescription {
 				{
 					AttributeName: "CookieExpirationPeriod",
 					AttributeType: "Long",
-					Cardinality:   "ZERO_OR_ONE",
+					Cardinality:   cardinalityZeroOrOne,
 					Description:   "The time period, in seconds, after which the cookie should be considered stale.",
 				},
 			},
 		},
 		{
-			PolicyTypeName:                  "ProxyProtocolPolicyType",
-			Description:                     "Policy that enables Proxy Protocol on the load balancer.",
-			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{},
+			PolicyTypeName: "ProxyProtocolPolicyType",
+			Description:    "Policy that enables Proxy Protocol on the load balancer.",
+			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
+				{
+					AttributeName: "ProxyProtocol", AttributeType: attrTypeBoolean,
+					Cardinality: "ONE", DefaultValue: boolStrFalse,
+					Description: "Enable or disable Proxy Protocol support.",
+				},
+			},
 		},
 		{
-			PolicyTypeName:                  "PublicKeyPolicyType",
-			Description:                     "Policy that holds a public key for back-end server authentication.",
-			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{},
+			PolicyTypeName: "PublicKeyPolicyType",
+			Description:    "Policy that holds a public key for back-end server authentication.",
+			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
+				{
+					AttributeName: "PublicKey", AttributeType: attrTypeString,
+					Cardinality: "ONE_OR_MORE",
+					Description: "The public key used to authenticate back-end servers.",
+				},
+			},
 		},
 		{
 			PolicyTypeName: "BackendServerAuthenticationPolicyType",
 			Description: "Policy that enables authentication between the load balancer " +
 				"and back-end instances.",
-			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{},
+			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
+				{
+					AttributeName: "PublicKeyPolicyName", AttributeType: "PolicyName",
+					Cardinality: "ONE_OR_MORE",
+					Description: "The policy name of a PublicKeyPolicy.",
+				},
+			},
 		},
 		{
-			PolicyTypeName: "SSLNegotiationPolicyType",
+			PolicyTypeName: policyTypeSSLNeg,
 			Description: "Policy that configures front-end connections using the protocols " +
 				"and ciphers available in the OpenSSL library.",
-			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{},
+			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
+				{
+					AttributeName: attrProtocolTLS12, AttributeType: attrTypeBoolean,
+					Cardinality: cardinalityZeroOrOne, DefaultValue: boolStrTrue,
+				},
+				{
+					AttributeName: attrProtocolTLS11, AttributeType: attrTypeBoolean,
+					Cardinality: cardinalityZeroOrOne, DefaultValue: boolStrFalse,
+				},
+				{
+					AttributeName: attrProtocolTLS10, AttributeType: attrTypeBoolean,
+					Cardinality: cardinalityZeroOrOne, DefaultValue: boolStrFalse,
+				},
+				{
+					AttributeName: attrServerCipherOrder, AttributeType: attrTypeBoolean,
+					Cardinality: cardinalityZeroOrOne, DefaultValue: boolStrFalse,
+				},
+				{
+					AttributeName: attrRefSecurityPolicy, AttributeType: attrTypeString,
+					Cardinality: cardinalityZeroOrOne,
+					Description: "The reference security policy name. " +
+						"Mutually exclusive with explicit protocol/cipher attributes.",
+				},
+			},
 		},
 	}
 }

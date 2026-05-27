@@ -348,6 +348,7 @@ func TestAudit1_DuplicateListener_CreateListeners(t *testing.T) {
 				"Listeners.member.1.Protocol":         {"HTTPS"},
 				"Listeners.member.1.LoadBalancerPort": {"443"},
 				"Listeners.member.1.InstancePort":     {"8443"},
+				"Listeners.member.1.SSLCertificateId": {"arn:aws:iam::123456789012:server-certificate/my-cert"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -769,7 +770,10 @@ func TestAudit1_SourceSecurityGroup_AlwaysPresent(t *testing.T) {
 	}
 }
 
-func TestAudit1_SourceSecurityGroup_OwnerAliasIsAccountID(t *testing.T) {
+// TestAudit1_SourceSecurityGroup_EC2Classic verifies that an EC2-Classic
+// (no-subnet, no-VPC) LB uses the Amazon-managed security-group alias
+// "amazon-elb" / "amazon-elb-sg", matching real AWS behaviour.
+func TestAudit1_SourceSecurityGroup_EC2Classic(t *testing.T) {
 	t.Parallel()
 
 	b := elb.NewInMemoryBackend("999888777666", "us-east-1")
@@ -789,6 +793,7 @@ func TestAudit1_SourceSecurityGroup_OwnerAliasIsAccountID(t *testing.T) {
 			LoadBalancerDescriptions struct {
 				Members []struct {
 					SourceSecurityGroup struct {
+						GroupName  string `xml:"GroupName"`
 						OwnerAlias string `xml:"OwnerAlias"`
 					} `xml:"SourceSecurityGroup"`
 				} `xml:"member"`
@@ -797,7 +802,10 @@ func TestAudit1_SourceSecurityGroup_OwnerAliasIsAccountID(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.LoadBalancerDescriptions.Members, 1)
-	assert.Equal(t, "999888777666", resp.Result.LoadBalancerDescriptions.Members[0].SourceSecurityGroup.OwnerAlias)
+
+	ssg := resp.Result.LoadBalancerDescriptions.Members[0].SourceSecurityGroup
+	assert.Equal(t, "amazon-elb-sg", ssg.GroupName)
+	assert.Equal(t, "amazon-elb", ssg.OwnerAlias)
 }
 
 // ─── LoadBalancer CRUD ────────────────────────────────────────────────────────
@@ -1272,17 +1280,22 @@ func TestAudit1_SecurityGroups_ApplyEmpty(t *testing.T) {
 func TestAudit1_ListenerProtocols(t *testing.T) {
 	t.Parallel()
 
+	const testCertARN = "arn:aws:iam::123456789012:server-certificate/my-cert"
+
 	protocols := []struct {
 		name     string
 		protocol string
+		certARN  string
+		port     string
 		valid    bool
 	}{
-		{"http_valid", "HTTP", true},
-		{"https_valid", "HTTPS", true},
-		{"tcp_valid", "TCP", true},
-		{"ssl_valid", "SSL", true},
-		{"udp_invalid", "UDP", false},
-		{"grpc_invalid", "GRPC", false},
+		{"http_valid", "HTTP", "", "80", true},
+		// HTTPS/SSL require a certificate ARN.
+		{"https_valid", "HTTPS", testCertARN, "443", true},
+		{"tcp_valid", "TCP", "", "80", true},
+		{"ssl_valid", "SSL", testCertARN, "443", true},
+		{"udp_invalid", "UDP", "", "80", false},
+		{"grpc_invalid", "GRPC", "", "80", false},
 	}
 
 	for _, tt := range protocols {
@@ -1290,15 +1303,20 @@ func TestAudit1_ListenerProtocols(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			rec := doELB(t, h, url.Values{
+			vals := url.Values{
 				"Action":                              {"CreateLoadBalancer"},
 				"Version":                             {"2012-06-01"},
 				"LoadBalancerName":                    {"proto-lb"},
 				"AvailabilityZones.member.1":          {"us-east-1a"},
 				"Listeners.member.1.Protocol":         {tt.protocol},
-				"Listeners.member.1.LoadBalancerPort": {"80"},
+				"Listeners.member.1.LoadBalancerPort": {tt.port},
 				"Listeners.member.1.InstancePort":     {"8080"},
-			})
+			}
+			if tt.certARN != "" {
+				vals.Set("Listeners.member.1.SSLCertificateId", tt.certARN)
+			}
+
+			rec := doELB(t, h, vals)
 
 			if tt.valid {
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -1353,9 +1371,13 @@ func TestAudit1_Listener_PortBoundaries(t *testing.T) {
 		port       string
 		wantStatus int
 	}{
-		{name: "port_1_ok", port: "1", wantStatus: http.StatusOK},
+		// AWS allows: 25, 80, 443, 465, 587, and 1024-65535.
+		{name: "port_25_ok", port: "25", wantStatus: http.StatusOK},
+		{name: "port_80_ok", port: "80", wantStatus: http.StatusOK},
+		{name: "port_1024_ok", port: "1024", wantStatus: http.StatusOK},
 		{name: "port_65535_ok", port: "65535", wantStatus: http.StatusOK},
 		{name: "port_0_rejected", port: "0", wantStatus: http.StatusBadRequest},
+		{name: "port_1_rejected", port: "1", wantStatus: http.StatusBadRequest},
 		{name: "port_65536_rejected", port: "65536", wantStatus: http.StatusBadRequest},
 	}
 
