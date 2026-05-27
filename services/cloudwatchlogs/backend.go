@@ -841,18 +841,49 @@ func validatePutLogEventsBatch(events []InputLogEvent) error {
 	return nil
 }
 
+type rejectedTracker struct {
+	tooOldStart *int32
+	tooNewStart *int32
+	expiredEnd  *int32
+}
+
+func (t *rejectedTracker) track(ts int64, idx int32, retentionCutoffMs, hardCutoff, futureLimit int64) bool {
+	if ts > futureLimit {
+		if t.tooNewStart == nil {
+			t.tooNewStart = &idx
+		}
+
+		return false
+	}
+
+	// Reject events older than the 14-day hard cap.
+	if ts < hardCutoff {
+		if t.tooOldStart == nil {
+			t.tooOldStart = &idx
+		}
+
+		return false
+	}
+
+	// Events beyond the group's retention window are marked as expired
+	// in the response but are still stored; the janitor evicts them later.
+	if retentionCutoffMs > hardCutoff && ts < retentionCutoffMs {
+		if t.expiredEnd == nil || idx > *t.expiredEnd {
+			t.expiredEnd = &idx
+		}
+	}
+
+	return true
+}
+
 // classifyLogEvents splits events into accepted and rejected based on timestamp windows.
 // It returns the accepted events and rejected-event index pointers for the response.
 func classifyLogEvents(
 	events []InputLogEvent,
 	retentionCutoffMs, hardCutoff, futureLimit int64,
 ) ([]InputLogEvent, *RejectedLogEventsInfo) {
-	var (
-		acceptedEvents []InputLogEvent
-		tooOldStart    *int32
-		tooNewStart    *int32
-		expiredEnd     *int32
-	)
+	var acceptedEvents []InputLogEvent
+	var tracker rejectedTracker
 
 	for i, e := range events {
 		idx := int32(i)
@@ -864,40 +895,17 @@ func classifyLogEvents(
 			continue
 		}
 
-		if e.Timestamp > futureLimit {
-			if tooNewStart == nil {
-				tooNewStart = &idx
-			}
-
-			continue
+		if tracker.track(e.Timestamp, idx, retentionCutoffMs, hardCutoff, futureLimit) {
+			acceptedEvents = append(acceptedEvents, e)
 		}
-
-		// Reject events older than the 14-day hard cap.
-		if e.Timestamp < hardCutoff {
-			if tooOldStart == nil {
-				tooOldStart = &idx
-			}
-
-			continue
-		}
-
-		// Events beyond the group's retention window are marked as expired
-		// in the response but are still stored; the janitor evicts them later.
-		if retentionCutoffMs > hardCutoff && e.Timestamp < retentionCutoffMs {
-			if expiredEnd == nil || idx > *expiredEnd {
-				expiredEnd = &idx
-			}
-		}
-
-		acceptedEvents = append(acceptedEvents, e)
 	}
 
 	var rejectedInfo *RejectedLogEventsInfo
-	if tooNewStart != nil || tooOldStart != nil || expiredEnd != nil {
+	if tracker.tooNewStart != nil || tracker.tooOldStart != nil || tracker.expiredEnd != nil {
 		rejectedInfo = &RejectedLogEventsInfo{
-			TooNewLogEventStartIndex: tooNewStart,
-			TooOldLogEventStartIndex: tooOldStart,
-			ExpiredLogEventEndIndex:  expiredEnd,
+			TooNewLogEventStartIndex: tracker.tooNewStart,
+			TooOldLogEventStartIndex: tracker.tooOldStart,
+			ExpiredLogEventEndIndex:  tracker.expiredEnd,
 		}
 	}
 
