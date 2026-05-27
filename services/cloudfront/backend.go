@@ -1,6 +1,11 @@
 package cloudfront
 
 import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -17,7 +22,106 @@ import (
 
 const (
 	statusDeployed = "Deployed"
+
+	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
+	maxInvalidationPaths = 3000
+	// maxCachePolicyTTL is the AWS upper bound for CachePolicy MaxTTL (1 year).
+	maxCachePolicyTTL = 31536000
+	// minSamplingRate and maxSamplingRate bound RealtimeLogConfig SamplingRate.
+	minSamplingRate = 1
+	maxSamplingRate = 100
+	// minPublicKeyBits is the minimum RSA key size accepted by CloudFront.
+	minPublicKeyBits = 2048
 )
+
+// oaiS3CanonicalUserID returns the AWS-style 64-char hex S3 canonical user ID for an OAI.
+// AWS derives this deterministically per OAI; we hash the OAI ID for a stable value.
+func oaiS3CanonicalUserID(id string) string {
+	sum := sha256.Sum256([]byte("oai-canonical:" + id))
+
+	return hex.EncodeToString(sum[:])
+}
+
+// validateRuntime returns ErrValidation when the runtime is not a known CloudFront Function runtime.
+func validateRuntime(runtime string) error {
+	switch runtime {
+	case "cloudfront-js-1.0", "cloudfront-js-2.0":
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: Runtime must be one of cloudfront-js-1.0 or cloudfront-js-2.0, got %q",
+		ErrValidation, runtime,
+	)
+}
+
+// validateInvalidationPaths checks that every path starts with '/', there are no more than
+// maxInvalidationPaths, and wildcards are only used as trailing '/*' on a segment.
+func validateInvalidationPaths(paths []string) error {
+	if len(paths) > maxInvalidationPaths {
+		return fmt.Errorf(
+			"%w: too many invalidation paths: %d (max %d)",
+			ErrValidation, len(paths), maxInvalidationPaths,
+		)
+	}
+
+	for _, p := range paths {
+		if !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("%w: invalidation path must start with '/': %q", ErrValidation, p)
+		}
+		// Wildcard must be the final segment and the entire segment (e.g. /foo/* is OK, /foo*bar is not).
+		if strings.Contains(p, "*") {
+			if !strings.HasSuffix(p, "/*") && p != "/*" {
+				return fmt.Errorf(
+					"%w: wildcard in invalidation path must be trailing '/*': %q",
+					ErrValidation, p,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateSamplingRate returns ErrValidation when rate is outside [1, 100].
+func validateSamplingRate(rate int64) error {
+	if rate < minSamplingRate || rate > maxSamplingRate {
+		return fmt.Errorf(
+			"%w: SamplingRate must be between %d and %d, got %d",
+			ErrValidation, minSamplingRate, maxSamplingRate, rate,
+		)
+	}
+
+	return nil
+}
+
+// validatePEMPublicKey parses encodedKey as a PEM-encoded public key and verifies
+// that RSA keys are at least minPublicKeyBits bits.
+func validatePEMPublicKey(encodedKey string) error {
+	block, _ := pem.Decode([]byte(encodedKey))
+	if block == nil {
+		return fmt.Errorf("%w: EncodedKey must be a valid PEM-encoded public key", ErrValidation)
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("%w: EncodedKey PEM parse failed: %w", ErrValidation, err)
+	}
+
+	const bitsPerByte = 8
+	// Only check bit-length for RSA keys; EC keys are accepted unconditionally.
+	if rsaPub, ok := pub.(interface{ Size() int }); ok {
+		bits := rsaPub.Size() * bitsPerByte
+		if bits < minPublicKeyBits {
+			return fmt.Errorf(
+				"%w: RSA key must be at least %d bits, got %d",
+				ErrValidation, minPublicKeyBits, bits,
+			)
+		}
+	}
+
+	return nil
+}
 
 var (
 	// ErrNotFound is returned when a requested distribution does not exist.
@@ -67,6 +171,9 @@ var (
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
 )
 
+// ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
+var ErrPreconditionFailed = errors.New("PreconditionFailed")
+
 const (
 	// idChars are the uppercase alphanumeric characters used for CloudFront IDs.
 	idChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -87,15 +194,18 @@ func generateID() string {
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
 	Tags             map[string]string `json:"tags,omitempty"`
-	ID               string            `json:"id"`
+	CallerReference  string            `json:"callerReference"`
 	ARN              string            `json:"arn"`
 	DomainName       string            `json:"domainName"`
 	Status           string            `json:"status"`
 	ETag             string            `json:"eTag"`
-	CallerReference  string            `json:"callerReference"`
+	ID               string            `json:"id"`
 	Comment          string            `json:"comment,omitempty"`
 	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	PriceClass       string            `json:"priceClass,omitempty"`
+	HTTPVersion      string            `json:"httpVersion,omitempty"`
 	RawConfig        []byte            `json:"rawConfig,omitempty"`
+	IsIPV6Enabled    bool              `json:"isIPV6Enabled"`
 	Enabled          bool              `json:"enabled"`
 }
 
@@ -127,15 +237,43 @@ type AnycastIPList struct {
 	IPCount int32  `json:"ipCount"`
 }
 
+// CachePolicyHeadersConfig specifies which headers the policy forwards and caches.
+type CachePolicyHeadersConfig struct {
+	HeaderBehavior string   `json:"headerBehavior"` // none, whitelist
+	Headers        []string `json:"headers,omitempty"`
+}
+
+// CachePolicyCookiesConfig specifies which cookies the policy forwards and caches.
+type CachePolicyCookiesConfig struct {
+	CookieBehavior string   `json:"cookieBehavior"` // none, whitelist, allExcept, all
+	Cookies        []string `json:"cookies,omitempty"`
+}
+
+// CachePolicyQueryStringsConfig specifies which query strings the policy includes in the cache key.
+type CachePolicyQueryStringsConfig struct {
+	QueryStringBehavior string   `json:"queryStringBehavior"` // none, whitelist, allExcept, all
+	QueryStrings        []string `json:"queryStrings,omitempty"`
+}
+
+// CachePolicyParams models ParametersInCacheKeyAndForwardedToOrigin.
+type CachePolicyParams struct {
+	HeadersConfig              CachePolicyHeadersConfig      `json:"headersConfig"`
+	CookiesConfig              CachePolicyCookiesConfig      `json:"cookiesConfig"`
+	QueryStringsConfig         CachePolicyQueryStringsConfig `json:"queryStringsConfig"`
+	EnableAcceptEncodingGzip   bool                          `json:"enableAcceptEncodingGzip"`
+	EnableAcceptEncodingBrotli bool                          `json:"enableAcceptEncodingBrotli"`
+}
+
 // CachePolicy represents a CloudFront cache policy.
 type CachePolicy struct {
-	ID         string `json:"id"`
-	ETag       string `json:"etag"`
-	Name       string `json:"name"`
-	Comment    string `json:"comment,omitempty"`
-	DefaultTTL int64  `json:"defaultTtl"`
-	MaxTTL     int64  `json:"maxTtl"`
-	MinTTL     int64  `json:"minTtl"`
+	Params     *CachePolicyParams `json:"params,omitempty"`
+	ID         string             `json:"id"`
+	ETag       string             `json:"etag"`
+	Name       string             `json:"name"`
+	Comment    string             `json:"comment,omitempty"`
+	DefaultTTL int64              `json:"defaultTtl"`
+	MaxTTL     int64              `json:"maxTtl"`
+	MinTTL     int64              `json:"minTtl"`
 }
 
 // ConnectionFunction represents a CloudFront connection function.
@@ -178,12 +316,54 @@ type OriginAccessControl struct {
 	ETag            string `json:"eTag"`
 }
 
+// RHPCorsConfig holds the CORS settings for a ResponseHeadersPolicy.
+type RHPCorsConfig struct {
+	AccessControlAllowOrigins     []string `json:"accessControlAllowOrigins,omitempty"`
+	AccessControlAllowHeaders     []string `json:"accessControlAllowHeaders,omitempty"`
+	AccessControlAllowMethods     []string `json:"accessControlAllowMethods,omitempty"`
+	AccessControlExposeHeaders    []string `json:"accessControlExposeHeaders,omitempty"`
+	AccessControlMaxAgeSec        int64    `json:"accessControlMaxAgeSec,omitempty"`
+	AccessControlAllowCredentials bool     `json:"accessControlAllowCredentials"`
+	OriginOverride                bool     `json:"originOverride"`
+}
+
+// RHPSecurityHeaders holds the security header settings for a ResponseHeadersPolicy.
+type RHPSecurityHeaders struct {
+	FrameOptionsValue              string `json:"frameOptionsValue,omitempty"`
+	ReferrerPolicy                 string `json:"referrerPolicy,omitempty"`
+	ContentSecurityPolicy          string `json:"contentSecurityPolicy,omitempty"`
+	XSSProtection                  string `json:"xssProtection,omitempty"`
+	StrictTransportSecuritySeconds int64  `json:"strictTransportSecuritySeconds,omitempty"`
+	ContentTypeOptionsOverride     bool   `json:"contentTypeOptionsOverride"`
+	IncludeSubdomains              bool   `json:"includeSubdomains"`
+	Preload                        bool   `json:"preload"`
+}
+
+// RHPCustomHeader is a single custom header key/value pair for a ResponseHeadersPolicy.
+type RHPCustomHeader struct {
+	Header   string `json:"header"`
+	Value    string `json:"value"`
+	Override bool   `json:"override"`
+}
+
+// ResponseHeadersPolicyConfig carries optional full-config inputs for CreateResponseHeadersPolicy.
+type ResponseHeadersPolicyConfig struct {
+	CorsConfig      *RHPCorsConfig
+	SecurityHeaders *RHPSecurityHeaders
+	CustomHeaders   []RHPCustomHeader
+	RemoveHeaders   []string
+}
+
 // ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
 type ResponseHeadersPolicy struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	CorsConfig      *RHPCorsConfig      `json:"corsConfig,omitempty"`
+	SecurityHeaders *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Comment         string              `json:"comment,omitempty"`
+	ETag            string              `json:"eTag"`
+	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
+	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
 }
 
 // Function represents a CloudFront Function.
@@ -192,17 +372,38 @@ type Function struct {
 	Comment      string `json:"comment,omitempty"`
 	Runtime      string `json:"runtime"`
 	FunctionCode string `json:"functionCode"`
-	Status       string `json:"status"` // UNPUBLISHED or LIVE
+	Status       string `json:"status"` // DEVELOPMENT or LIVE
 	ETag         string `json:"eTag"`
 	ARN          string `json:"arn"`
 }
 
+// ORPHeadersConfig controls which request headers are forwarded to the origin.
+type ORPHeadersConfig struct {
+	HeaderBehavior string   `json:"headerBehavior"` // none, whitelist, allViewer, allViewerAndWhitelistCloudFront
+	Headers        []string `json:"headers,omitempty"`
+}
+
+// ORPCookiesConfig controls which cookies are forwarded to the origin.
+type ORPCookiesConfig struct {
+	CookieBehavior string   `json:"cookieBehavior"` // none, whitelist, all, allExcept
+	Cookies        []string `json:"cookies,omitempty"`
+}
+
+// ORPQueryStringsConfig controls which query strings are forwarded to the origin.
+type ORPQueryStringsConfig struct {
+	QueryStringBehavior string   `json:"queryStringBehavior"` // none, whitelist, all, allExcept
+	QueryStrings        []string `json:"queryStrings,omitempty"`
+}
+
 // OriginRequestPolicy represents a CloudFront Origin Request Policy.
 type OriginRequestPolicy struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	HeadersConfig      *ORPHeadersConfig      `json:"headersConfig,omitempty"`
+	CookiesConfig      *ORPCookiesConfig      `json:"cookiesConfig,omitempty"`
+	QueryStringsConfig *ORPQueryStringsConfig `json:"queryStringsConfig,omitempty"`
+	ID                 string                 `json:"id"`
+	Name               string                 `json:"name"`
+	Comment            string                 `json:"comment,omitempty"`
+	ETag               string                 `json:"eTag"`
 }
 
 // FieldLevelEncryption represents a CloudFront Field Level Encryption config.
@@ -316,9 +517,12 @@ type InMemoryBackend struct {
 	distributionTenants         map[string]*DistributionTenant // key: tenant ID
 	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
 	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
-	mu                          *lockmetrics.RWMutex
-	accountID                   string
-	region                      string
+	// Audit batch additions.
+	keyValueStoreData map[string]map[string]string // KVS ID → key → value
+	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
@@ -371,6 +575,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionTenants:                 make(map[string]*DistributionTenant),
 		distributionTenantsByDomain:         make(map[string]string),
 		tenantInvalidations:                 make(map[string][]*Invalidation),
+		keyValueStoreData:                   make(map[string]map[string]string),
+		keyValueDataETags:                   make(map[string]string),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
 		region:                              region,
@@ -382,6 +588,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.resetDistributions()
+	b.resetPoliciesAndKeys()
+}
+
+// resetDistributions clears distribution-related maps.
+func (b *InMemoryBackend) resetDistributions() {
 	b.distributions = make(map[string]*Distribution)
 	b.distributionARNs = make(map[string]string)
 	b.distributionCallerRefs = make(map[string]string)
@@ -404,6 +616,18 @@ func (b *InMemoryBackend) Reset() {
 	b.functions = make(map[string]*Function)
 	b.originRequestPolicies = make(map[string]*OriginRequestPolicy)
 	b.originRequestPolicyByName = make(map[string]string)
+	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
+	b.distributionCachePolicies = make(map[string]string)
+	b.distributionOriginRequestPolicies = make(map[string]string)
+	b.distributionResponseHeadersPolicies = make(map[string]string)
+	b.distributionRealtimeLogConfigs = make(map[string]string)
+	b.distributionTenants = make(map[string]*DistributionTenant)
+	b.distributionTenantsByDomain = make(map[string]string)
+	b.tenantInvalidations = make(map[string][]*Invalidation)
+}
+
+// resetPoliciesAndKeys clears encryption, key, and store maps.
+func (b *InMemoryBackend) resetPoliciesAndKeys() {
 	b.fieldLevelEncryptions = make(map[string]*FieldLevelEncryption)
 	b.fieldLevelEncryptionByName = make(map[string]string)
 	b.fieldLevelEncryptionProfiles = make(map[string]*FieldLevelEncryptionProfile)
@@ -417,18 +641,12 @@ func (b *InMemoryBackend) Reset() {
 	b.keyValueStores = make(map[string]*KeyValueStore)
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
-	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
 	b.trustStores = make(map[string]*TrustStore)
 	b.streamingDistributions = make(map[string]*StreamingDistribution)
 	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
 	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
-	b.distributionCachePolicies = make(map[string]string)
-	b.distributionOriginRequestPolicies = make(map[string]string)
-	b.distributionResponseHeadersPolicies = make(map[string]string)
-	b.distributionRealtimeLogConfigs = make(map[string]string)
-	b.distributionTenants = make(map[string]*DistributionTenant)
-	b.distributionTenantsByDomain = make(map[string]string)
-	b.tenantInvalidations = make(map[string][]*Invalidation)
+	b.keyValueStoreData = make(map[string]map[string]string)
+	b.keyValueDataETags = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -598,7 +816,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 	oai := &OriginAccessIdentity{
 		ID:                id,
 		ARN:               b.oaiARN(id),
-		S3CanonicalUserID: uuid.NewString(),
+		S3CanonicalUserID: oaiS3CanonicalUserID(id),
 		ETag:              uuid.NewString(),
 		CallerReference:   callerRef,
 		Comment:           comment,
@@ -734,6 +952,10 @@ func (b *InMemoryBackend) CreateInvalidation(
 	distributionID, callerRef string,
 	paths []string,
 ) (*Invalidation, error) {
+	if err := validateInvalidationPaths(paths); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateInvalidation")
 	defer b.mu.Unlock()
 
@@ -937,6 +1159,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*Anyc
 func (b *InMemoryBackend) CreateCachePolicy(
 	name, comment string,
 	defaultTTL, maxTTL, minTTL int64,
+	params ...*CachePolicyParams,
 ) (*CachePolicy, error) {
 	b.mu.Lock("CreateCachePolicy")
 	defer b.mu.Unlock()
@@ -953,6 +1176,10 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
 	}
 
+	if maxTTL > maxCachePolicyTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be <= %d, got %d", ErrValidation, maxCachePolicyTTL, maxTTL)
+	}
+
 	if maxTTL < defaultTTL {
 		return nil, fmt.Errorf("%w: MaxTTL must be >= DefaultTTL", ErrValidation)
 	}
@@ -965,6 +1192,11 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		)
 	}
 
+	var p *CachePolicyParams
+	if len(params) > 0 {
+		p = params[0]
+	}
+
 	id := generateID()
 	policy := &CachePolicy{
 		ID:         id,
@@ -974,6 +1206,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		DefaultTTL: defaultTTL,
 		MaxTTL:     maxTTL,
 		MinTTL:     minTTL,
+		Params:     p,
 	}
 	b.cachePolicies[id] = policy
 	b.cachePolicyByName[name] = id
@@ -1209,6 +1442,7 @@ func (b *InMemoryBackend) ListCachePolicies() []*CachePolicy {
 func (b *InMemoryBackend) UpdateCachePolicy(
 	id, name, comment string,
 	defaultTTL, maxTTL, minTTL int64,
+	params ...*CachePolicyParams,
 ) (*CachePolicy, error) {
 	b.mu.Lock("UpdateCachePolicy")
 	defer b.mu.Unlock()
@@ -1228,6 +1462,10 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 
 	if defaultTTL < minTTL {
 		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
+	}
+
+	if maxTTL > maxCachePolicyTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be <= %d, got %d", ErrValidation, maxCachePolicyTTL, maxTTL)
 	}
 
 	if maxTTL < defaultTTL {
@@ -1254,6 +1492,9 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	p.MaxTTL = maxTTL
 	p.MinTTL = minTTL
 	p.ETag = uuid.NewString()
+	if len(params) > 0 {
+		p.Params = params[0]
+	}
 
 	cp := *p
 
@@ -1406,6 +1647,7 @@ func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 // CreateResponseHeadersPolicy creates a new Response Headers Policy.
 func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 	name, comment string,
+	opts ...*ResponseHeadersPolicyConfig,
 ) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("CreateResponseHeadersPolicy")
 	defer b.mu.Unlock()
@@ -1429,6 +1671,15 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 		Comment: comment,
 		ETag:    uuid.NewString(),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.CorsConfig = cfg.CorsConfig
+		p.SecurityHeaders = cfg.SecurityHeaders
+		p.CustomHeaders = cfg.CustomHeaders
+		p.RemoveHeaders = cfg.RemoveHeaders
+	}
+
 	b.responseHeadersPolicies[id] = p
 	b.responseHeadersPolicyByName[name] = id
 	cp := *p
@@ -1474,6 +1725,7 @@ func (b *InMemoryBackend) ListResponseHeadersPolicies() []*ResponseHeadersPolicy
 // UpdateResponseHeadersPolicy updates an existing Response Headers Policy.
 func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 	id, name, comment string,
+	opts ...*ResponseHeadersPolicyConfig,
 ) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("UpdateResponseHeadersPolicy")
 	defer b.mu.Unlock()
@@ -1507,6 +1759,14 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 	p.Name = name
 	p.Comment = comment
 	p.ETag = uuid.NewString()
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.CorsConfig = cfg.CorsConfig
+		p.SecurityHeaders = cfg.SecurityHeaders
+		p.CustomHeaders = cfg.CustomHeaders
+		p.RemoveHeaders = cfg.RemoveHeaders
+	}
+
 	cp := *p
 
 	return &cp, nil
@@ -1538,6 +1798,10 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 func (b *InMemoryBackend) CreateFunction(
 	name, comment, runtime, functionCode string,
 ) (*Function, error) {
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -1554,7 +1818,7 @@ func (b *InMemoryBackend) CreateFunction(
 		Comment:      comment,
 		Runtime:      runtime,
 		FunctionCode: functionCode,
-		Status:       "UNPUBLISHED",
+		Status:       "DEVELOPMENT",
 		ETag:         uuid.NewString(),
 		ARN:          b.functionARN(name),
 	}
@@ -1616,6 +1880,10 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 func (b *InMemoryBackend) UpdateFunction(
 	name, comment, runtime, functionCode string,
 ) (*Function, error) {
+	if err := validateRuntime(runtime); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
@@ -1627,7 +1895,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.Comment = comment
 	fn.Runtime = runtime
 	fn.FunctionCode = functionCode
-	fn.Status = "UNPUBLISHED"
+	fn.Status = "DEVELOPMENT"
 	fn.ETag = uuid.NewString()
 	cp := *fn
 
@@ -1650,9 +1918,17 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 // --- Origin Request Policy CRUD ---
 
+// OriginRequestPolicyConfig carries optional full-config inputs for CreateOriginRequestPolicy.
+type OriginRequestPolicyConfig struct {
+	HeadersConfig      *ORPHeadersConfig
+	CookiesConfig      *ORPCookiesConfig
+	QueryStringsConfig *ORPQueryStringsConfig
+}
+
 // CreateOriginRequestPolicy creates a new Origin Request Policy.
 func (b *InMemoryBackend) CreateOriginRequestPolicy(
 	name, comment string,
+	opts ...*OriginRequestPolicyConfig,
 ) (*OriginRequestPolicy, error) {
 	b.mu.Lock("CreateOriginRequestPolicy")
 	defer b.mu.Unlock()
@@ -1676,6 +1952,14 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 		Comment: comment,
 		ETag:    uuid.NewString(),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.HeadersConfig = cfg.HeadersConfig
+		p.CookiesConfig = cfg.CookiesConfig
+		p.QueryStringsConfig = cfg.QueryStringsConfig
+	}
+
 	b.originRequestPolicies[id] = p
 	b.originRequestPolicyByName[name] = id
 	cp := *p
@@ -1721,6 +2005,7 @@ func (b *InMemoryBackend) ListOriginRequestPolicies() []*OriginRequestPolicy {
 // UpdateOriginRequestPolicy updates an existing Origin Request Policy.
 func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	id, name, comment string,
+	opts ...*OriginRequestPolicyConfig,
 ) (*OriginRequestPolicy, error) {
 	b.mu.Lock("UpdateOriginRequestPolicy")
 	defer b.mu.Unlock()
@@ -1754,6 +2039,13 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	p.Name = name
 	p.Comment = comment
 	p.ETag = uuid.NewString()
+	if len(opts) > 0 && opts[0] != nil {
+		cfg := opts[0]
+		p.HeadersConfig = cfg.HeadersConfig
+		p.CookiesConfig = cfg.CookiesConfig
+		p.QueryStringsConfig = cfg.QueryStringsConfig
+	}
+
 	cp := *p
 
 	return &cp, nil
@@ -2029,6 +2321,12 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 func (b *InMemoryBackend) CreatePublicKey(
 	callerRef, name, comment, encodedKey string,
 ) (*PublicKey, error) {
+	if encodedKey != "" {
+		if err := validatePEMPublicKey(encodedKey); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("CreatePublicKey")
 	defer b.mu.Unlock()
 
@@ -2135,6 +2433,12 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrAlreadyExists, name)
 	}
 
+	for _, itemID := range items {
+		if _, ok := b.publicKeys[itemID]; !ok {
+			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+		}
+	}
+
 	id := generateID()
 	kg := &KeyGroup{
 		ID:      id,
@@ -2203,6 +2507,12 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 		b.keyGroupByName[name] = id
 	}
 
+	for _, itemID := range items {
+		if _, exists := b.publicKeys[itemID]; !exists {
+			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
+		}
+	}
+
 	kg.Name = name
 	kg.Comment = comment
 	kg.Items = append([]string(nil), items...)
@@ -2247,6 +2557,10 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 	samplingRate int64,
 	fields []string,
 ) (*RealtimeLogConfig, error) {
+	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRealtimeLogConfig")
 	defer b.mu.Unlock()
 
@@ -2330,6 +2644,10 @@ func (b *InMemoryBackend) UpdateRealtimeLogConfig(
 	samplingRate int64,
 	fields []string,
 ) (*RealtimeLogConfig, error) {
+	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateRealtimeLogConfig")
 	defer b.mu.Unlock()
 
@@ -2462,6 +2780,139 @@ func (b *InMemoryBackend) DeleteKeyValueStore(id string) error {
 	delete(b.keyValueStores, id)
 
 	return nil
+}
+
+// --- KVS Data Plane ---
+
+// kvsDataETag returns or creates the ETag for a KVS data store.
+func (b *InMemoryBackend) kvsDataETag(id string) string {
+	if etag, ok := b.keyValueDataETags[id]; ok {
+		return etag
+	}
+
+	etag := uuid.NewString()
+	b.keyValueDataETags[id] = etag
+
+	return etag
+}
+
+// GetKVSValue returns the value for a key in a Key Value Store.
+func (b *InMemoryBackend) GetKVSValue(kvsID, key string) (string, string, error) {
+	b.mu.RLock("GetKVSValue")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	data := b.keyValueStoreData[kvsID]
+	val, ok := data[key]
+	if !ok {
+		return "", "", fmt.Errorf("%w: key %q not found in kvs %s", ErrNotFound, key, kvsID)
+	}
+
+	return val, b.keyValueDataETags[kvsID], nil
+}
+
+// PutKVSValue creates or updates a key/value pair in a Key Value Store.
+func (b *InMemoryBackend) PutKVSValue(kvsID, key, value, ifMatch string) (string, error) {
+	b.mu.Lock("PutKVSValue")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] == nil {
+		b.keyValueStoreData[kvsID] = make(map[string]string)
+	}
+	b.keyValueStoreData[kvsID][key] = value
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
+}
+
+// DeleteKVSValue deletes a key from a Key Value Store.
+func (b *InMemoryBackend) DeleteKVSValue(kvsID, key, ifMatch string) (string, error) {
+	b.mu.Lock("DeleteKVSValue")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] != nil {
+		delete(b.keyValueStoreData[kvsID], key)
+	}
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
+}
+
+// KVSItem is a single key/value item in a Key Value Store.
+type KVSItem struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ListKVSValues returns all key/value pairs in a Key Value Store.
+func (b *InMemoryBackend) ListKVSValues(kvsID string) ([]*KVSItem, string, error) {
+	b.mu.RLock("ListKVSValues")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return nil, "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	data := b.keyValueStoreData[kvsID]
+	items := make([]*KVSItem, 0, len(data))
+	for k, v := range data {
+		items = append(items, &KVSItem{Key: k, Value: v})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+
+	return items, b.kvsDataETag(kvsID), nil
+}
+
+// UpdateKVSValues performs a batch put/delete on a Key Value Store.
+func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem, deletes []string) (string, error) {
+	b.mu.Lock("UpdateKVSValues")
+	defer b.mu.Unlock()
+
+	if _, ok := b.keyValueStores[kvsID]; !ok {
+		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+	}
+
+	currentETag := b.kvsDataETag(kvsID)
+	if ifMatch != "" && ifMatch != currentETag {
+		return "", fmt.Errorf("%w: If-Match ETag mismatch", ErrPreconditionFailed)
+	}
+
+	if b.keyValueStoreData[kvsID] == nil {
+		b.keyValueStoreData[kvsID] = make(map[string]string)
+	}
+	for _, item := range puts {
+		b.keyValueStoreData[kvsID][item.Key] = item.Value
+	}
+	for _, key := range deletes {
+		delete(b.keyValueStoreData[kvsID], key)
+	}
+	newETag := uuid.NewString()
+	b.keyValueDataETags[kvsID] = newETag
+
+	return newETag, nil
 }
 
 // --- VPC Origin CRUD ---

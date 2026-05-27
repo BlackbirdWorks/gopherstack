@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -226,49 +227,58 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
+// errorMapping maps sentinel errors to HTTP status and exception type.
+type errorMapping struct {
+	sentinel error
+	code     string
+	status   int
+}
 
+// errorMappings is the ordered lookup table for handleError.
+//
+//nolint:gochecknoglobals // package-level lookup table for error mapping
+var errorMappings = []errorMapping{
+	{ErrNotFound, "ApplicationDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentGroupNotFound, "DeploymentGroupDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentNotFound, "DeploymentDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentConfigNotFound, "DeploymentConfigDoesNotExistException", http.StatusNotFound},
+	{ErrGitHubAccountTokenNotFound, "GitHubAccountTokenDoesNotExistException", http.StatusNotFound},
+	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},
+	{ErrDeploymentConfigInUse, "DeploymentConfigInUseException", http.StatusConflict},
+	{ErrInvalidComputePlatform, "InvalidComputePlatformException", http.StatusBadRequest},
+	{ErrIamArnRequired, "IamArnRequiredException", http.StatusBadRequest},
+	{ErrMultipleIamArns, "MultipleIamArnsProvidedException", http.StatusBadRequest},
+	{ErrTagLimitExceeded, "TagLimitExceededException", http.StatusBadRequest},
+	{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
+	{errInvalidRequest, "InvalidRequestException", http.StatusBadRequest},
+	{errUnknownAction, "InvalidRequestException", http.StatusBadRequest},
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	makePayload := func(code, msg string) []byte {
 		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: msg})
 
 		return b
 	}
 
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("ApplicationDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentGroupDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentConfigNotFound):
-		return c.JSONBlob(http.StatusNotFound,
-			makePayload("DeploymentConfigDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("ApplicationAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("DeploymentGroupAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentConfigAlreadyExists):
-		return c.JSONBlob(http.StatusConflict,
-			makePayload("DeploymentConfigAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest,
-			makePayload("InvalidParameterValueException", err.Error()))
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	for _, m := range errorMappings {
+		if errors.Is(err, m.sentinel) {
+			return c.JSONBlob(m.status, makePayload(m.code, err.Error()))
+		}
+	}
+
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 		return c.JSONBlob(http.StatusBadRequest,
 			makePayload("InvalidRequestException", err.Error()))
-	default:
-		return c.JSONBlob(http.StatusInternalServerError,
-			makePayload("ServiceException", err.Error()))
 	}
+
+	return c.JSONBlob(http.StatusInternalServerError,
+		makePayload("ServiceException", err.Error()))
 }
 
 // --- Input/Output types and handlers ---
@@ -375,12 +385,441 @@ func (h *Handler) handleDeleteApplication(
 	return &deleteApplicationOutput{}, nil
 }
 
+// tagFilterEntry is the wire format for a tag filter (with Type field).
+type tagFilterEntry struct {
+	Key   string `json:"Key,omitempty"`
+	Value string `json:"Value,omitempty"`
+	Type  string `json:"Type,omitempty"`
+}
+
+// autoScalingGroupEntry is the wire format for an auto scaling group reference.
+type autoScalingGroupEntry struct {
+	Name string `json:"name,omitempty"`
+	Hook string `json:"hook,omitempty"`
+}
+
+// elbInfoEntry is the wire format for an ELB reference.
+type elbInfoEntry struct {
+	Name string `json:"name,omitempty"`
+}
+
+// targetGroupInfoEntry is the wire format for a target group reference.
+type targetGroupInfoEntry struct {
+	Name string `json:"name,omitempty"`
+}
+
+// trafficRouteEntry is the wire format for a traffic route.
+type trafficRouteEntry struct {
+	ListenerArns []string `json:"listenerArns,omitempty"`
+}
+
+// targetGroupPairInfoEntry is the wire format for a target group pair.
+type targetGroupPairInfoEntry struct {
+	ProdTrafficRoute *trafficRouteEntry     `json:"prodTrafficRoute,omitempty"`
+	TestTrafficRoute *trafficRouteEntry     `json:"testTrafficRoute,omitempty"`
+	TargetGroups     []targetGroupInfoEntry `json:"targetGroups,omitempty"`
+}
+
+// loadBalancerInfoEntry is the wire format for load balancer info.
+type loadBalancerInfoEntry struct {
+	ElbInfoList             []elbInfoEntry             `json:"elbInfoList,omitempty"`
+	TargetGroupInfoList     []targetGroupInfoEntry     `json:"targetGroupInfoList,omitempty"`
+	TargetGroupPairInfoList []targetGroupPairInfoEntry `json:"targetGroupPairInfoList,omitempty"`
+}
+
+// deploymentStyleEntry is the wire format for deployment style.
+type deploymentStyleEntry struct {
+	DeploymentType   string `json:"deploymentType,omitempty"`
+	DeploymentOption string `json:"deploymentOption,omitempty"`
+}
+
+// terminateBlueEntry is the wire format for blue-instance termination config.
+type terminateBlueEntry struct {
+	Action                       string `json:"action,omitempty"`
+	TerminationWaitTimeInMinutes int    `json:"terminationWaitTimeInMinutes,omitempty"`
+}
+
+// deploymentReadyEntry is the wire format for deployment ready option.
+type deploymentReadyEntry struct {
+	ActionOnTimeout   string `json:"actionOnTimeout,omitempty"`
+	WaitTimeInMinutes int    `json:"waitTimeInMinutes,omitempty"`
+}
+
+// greenFleetEntry is the wire format for green fleet provisioning option.
+type greenFleetEntry struct {
+	Action string `json:"action,omitempty"`
+}
+
+// blueGreenConfigEntry is the wire format for blue/green deployment configuration.
+type blueGreenConfigEntry struct {
+	TerminateBlueInstancesOnDeploymentSuccess *terminateBlueEntry   `json:"terminateBlueInstancesOnDeploymentSuccess,omitempty"` //nolint:lll // long AWS name
+	DeploymentReadyOption                     *deploymentReadyEntry `json:"deploymentReadyOption,omitempty"`
+	GreenFleetProvisioningOption              *greenFleetEntry      `json:"greenFleetProvisioningOption,omitempty"`
+}
+
+// alarmEntry is the wire format for a CloudWatch alarm reference.
+type alarmEntry struct {
+	Name string `json:"name,omitempty"`
+}
+
+// alarmConfigEntry is the wire format for alarm configuration.
+type alarmConfigEntry struct {
+	Alarms                 []alarmEntry `json:"alarms,omitempty"`
+	Enabled                bool         `json:"enabled,omitempty"`
+	IgnorePollAlarmFailure bool         `json:"ignorePollAlarmFailure,omitempty"`
+}
+
+// autoRollbackConfigEntry is the wire format for auto-rollback configuration.
+type autoRollbackConfigEntry struct {
+	Events  []string `json:"events,omitempty"`
+	Enabled bool     `json:"enabled,omitempty"`
+}
+
+// triggerConfigEntry is the wire format for SNS trigger configuration.
+type triggerConfigEntry struct {
+	TriggerName      string   `json:"triggerName,omitempty"`
+	TriggerTargetArn string   `json:"triggerTargetArn,omitempty"`
+	TriggerEvents    []string `json:"triggerEvents,omitempty"`
+}
+
+// ec2TagSetEntry is the wire format for an EC2 tag set.
+type ec2TagSetEntry struct {
+	Ec2TagSetList [][]tagFilterEntry `json:"ec2TagSetList,omitempty"`
+}
+
+// onPremTagSetEntry is the wire format for an on-premises tag set.
+type onPremTagSetEntry struct {
+	OnPremisesTagSetList [][]tagFilterEntry `json:"onPremisesTagSetList,omitempty"`
+}
+
+// ecsServiceEntry is the wire format for an ECS service reference.
+type ecsServiceEntry struct {
+	ServiceName string `json:"serviceName,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+}
+
+// deploymentGroupInfoOutput is the full wire format for a deployment group (get/batch responses).
+type deploymentGroupInfoOutput struct {
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration,omitempty"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration,omitempty"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration,omitempty"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo,omitempty"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet,omitempty"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet,omitempty"`
+	ApplicationName                  string                   `json:"applicationName"`
+	DeploymentGroupID                string                   `json:"deploymentGroupId"`
+	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	ComputePlatform                  string                   `json:"computePlatform,omitempty"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy,omitempty"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters,omitempty"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters,omitempty"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups,omitempty"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations,omitempty"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices,omitempty"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled,omitempty"`
+}
+
+// dgToOutput converts a backend DeploymentGroup to the wire output format.
+//
+//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
+func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
+	out := deploymentGroupInfoOutput{
+		ApplicationName:           dg.ApplicationName,
+		DeploymentGroupID:         dg.DeploymentGroupID,
+		DeploymentGroupName:       dg.DeploymentGroupName,
+		ServiceRoleArn:            dg.ServiceRoleArn,
+		DeploymentConfigName:      dg.DeploymentConfigName,
+		ComputePlatform:           dg.ComputePlatform,
+		OutdatedInstancesStrategy: dg.OutdatedInstancesStrategy,
+		TerminationHookEnabled:    dg.TerminationHookEnabled,
+	}
+
+	for _, f := range dg.Ec2TagFilters {
+		out.Ec2TagFilters = append(out.Ec2TagFilters, tagFilterEntry(f))
+	}
+
+	for _, f := range dg.OnPremisesInstanceTagFilters {
+		out.OnPremisesInstanceTagFilters = append(out.OnPremisesInstanceTagFilters,
+			tagFilterEntry(f))
+	}
+
+	for _, asg := range dg.AutoScalingGroups {
+		out.AutoScalingGroups = append(out.AutoScalingGroups, autoScalingGroupEntry(asg))
+	}
+
+	for _, tc := range dg.TriggerConfigurations {
+		out.TriggerConfigurations = append(out.TriggerConfigurations, triggerConfigEntry(tc))
+	}
+
+	for _, svc := range dg.ECSServices {
+		out.ECSServices = append(out.ECSServices, ecsServiceEntry(svc))
+	}
+
+	if dg.LoadBalancerInfo != nil {
+		lbi := &loadBalancerInfoEntry{}
+		for _, e := range dg.LoadBalancerInfo.ElbInfoList {
+			lbi.ElbInfoList = append(lbi.ElbInfoList, elbInfoEntry(e))
+		}
+		for _, tg := range dg.LoadBalancerInfo.TargetGroupInfoList {
+			lbi.TargetGroupInfoList = append(lbi.TargetGroupInfoList, targetGroupInfoEntry(tg))
+		}
+		for _, pair := range dg.LoadBalancerInfo.TargetGroupPairInfoList {
+			p := targetGroupPairInfoEntry{}
+			if pair.ProdTrafficRoute != nil {
+				p.ProdTrafficRoute = &trafficRouteEntry{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
+			}
+			if pair.TestTrafficRoute != nil {
+				p.TestTrafficRoute = &trafficRouteEntry{ListenerArns: pair.TestTrafficRoute.ListenerArns}
+			}
+			for _, tg := range pair.TargetGroups {
+				p.TargetGroups = append(p.TargetGroups, targetGroupInfoEntry(tg))
+			}
+			lbi.TargetGroupPairInfoList = append(lbi.TargetGroupPairInfoList, p)
+		}
+		out.LoadBalancerInfo = lbi
+	}
+
+	if dg.DeploymentStyle != nil {
+		out.DeploymentStyle = &deploymentStyleEntry{
+			DeploymentType:   dg.DeploymentStyle.DeploymentType,
+			DeploymentOption: dg.DeploymentStyle.DeploymentOption,
+		}
+	}
+
+	if dg.BlueGreenDeploymentConfiguration != nil {
+		bgc := &blueGreenConfigEntry{}
+		if dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess != nil {
+			tb := dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess
+			bgc.TerminateBlueInstancesOnDeploymentSuccess = &terminateBlueEntry{
+				Action:                       tb.Action,
+				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
+			}
+		}
+		if dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption != nil {
+			dr := dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption
+			bgc.DeploymentReadyOption = &deploymentReadyEntry{
+				ActionOnTimeout:   dr.ActionOnTimeout,
+				WaitTimeInMinutes: dr.WaitTimeInMinutes,
+			}
+		}
+		if dg.BlueGreenDeploymentConfiguration.GreenFleetProvisioningOption != nil {
+			bgc.GreenFleetProvisioningOption = &greenFleetEntry{
+				Action: dg.BlueGreenDeploymentConfiguration.GreenFleetProvisioningOption.Action,
+			}
+		}
+		out.BlueGreenDeploymentConfiguration = bgc
+	}
+
+	if dg.AlarmConfiguration != nil {
+		ac := &alarmConfigEntry{
+			Enabled:                dg.AlarmConfiguration.Enabled,
+			IgnorePollAlarmFailure: dg.AlarmConfiguration.IgnorePollAlarmFailure,
+		}
+		for _, a := range dg.AlarmConfiguration.Alarms {
+			ac.Alarms = append(ac.Alarms, alarmEntry(a))
+		}
+		out.AlarmConfiguration = ac
+	}
+
+	if dg.AutoRollbackConfiguration != nil {
+		out.AutoRollbackConfiguration = &autoRollbackConfigEntry{
+			Events:  dg.AutoRollbackConfiguration.Events,
+			Enabled: dg.AutoRollbackConfiguration.Enabled,
+		}
+	}
+
+	if dg.Ec2TagSet != nil {
+		ets := &ec2TagSetEntry{}
+		for _, group := range dg.Ec2TagSet.Ec2TagSetList {
+			row := make([]tagFilterEntry, 0, len(group))
+			for _, f := range group {
+				row = append(row, tagFilterEntry(f))
+			}
+			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
+		}
+		out.Ec2TagSet = ets
+	}
+
+	if dg.OnPremisesTagSet != nil {
+		opts := &onPremTagSetEntry{}
+		for _, group := range dg.OnPremisesTagSet.OnPremisesTagSetList {
+			row := make([]tagFilterEntry, 0, len(group))
+			for _, f := range group {
+				row = append(row, tagFilterEntry(f))
+			}
+			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
+		}
+		out.OnPremisesTagSet = opts
+	}
+
+	return out
+}
+
+// dgInputFromWire converts wire-format deployment group input fields to backend DeploymentGroupInput.
+//
+//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
+func dgInputFromWire(
+	serviceRoleArn, deploymentConfigName, outdatedInstancesStrategy string,
+	terminationHookEnabled bool,
+	ec2TagFilters []tagFilterEntry,
+	onPremTagFilters []tagFilterEntry,
+	autoScalingGroups []autoScalingGroupEntry,
+	triggerConfigs []triggerConfigEntry,
+	ecsServices []ecsServiceEntry,
+	lbi *loadBalancerInfoEntry,
+	style *deploymentStyleEntry,
+	bgConfig *blueGreenConfigEntry,
+	alarmConfig *alarmConfigEntry,
+	autoRollback *autoRollbackConfigEntry,
+	ec2TagSet *ec2TagSetEntry,
+	onPremTagSet *onPremTagSetEntry,
+) DeploymentGroupInput {
+	input := DeploymentGroupInput{
+		ServiceRoleArn:            serviceRoleArn,
+		DeploymentConfigName:      deploymentConfigName,
+		OutdatedInstancesStrategy: outdatedInstancesStrategy,
+		TerminationHookEnabled:    terminationHookEnabled,
+	}
+
+	for _, f := range ec2TagFilters {
+		input.Ec2TagFilters = append(input.Ec2TagFilters, TagFilter(f))
+	}
+	for _, f := range onPremTagFilters {
+		input.OnPremisesInstanceTagFilters = append(input.OnPremisesInstanceTagFilters,
+			TagFilter(f))
+	}
+	for _, asg := range autoScalingGroups {
+		input.AutoScalingGroups = append(input.AutoScalingGroups, AutoScalingGroup(asg))
+	}
+	for _, tc := range triggerConfigs {
+		input.TriggerConfigurations = append(input.TriggerConfigurations, TriggerConfiguration(tc))
+	}
+	for _, svc := range ecsServices {
+		input.ECSServices = append(input.ECSServices, ECSService(svc))
+	}
+
+	if lbi != nil {
+		lb := &LoadBalancerInfo{}
+		for _, e := range lbi.ElbInfoList {
+			lb.ElbInfoList = append(lb.ElbInfoList, ElbInfo(e))
+		}
+		for _, tg := range lbi.TargetGroupInfoList {
+			lb.TargetGroupInfoList = append(lb.TargetGroupInfoList, TargetGroupInfo(tg))
+		}
+		for _, pair := range lbi.TargetGroupPairInfoList {
+			p := TargetGroupPairInfo{}
+			if pair.ProdTrafficRoute != nil {
+				p.ProdTrafficRoute = &TrafficRoute{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
+			}
+			if pair.TestTrafficRoute != nil {
+				p.TestTrafficRoute = &TrafficRoute{ListenerArns: pair.TestTrafficRoute.ListenerArns}
+			}
+			for _, tg := range pair.TargetGroups {
+				p.TargetGroups = append(p.TargetGroups, TargetGroupInfo(tg))
+			}
+			lb.TargetGroupPairInfoList = append(lb.TargetGroupPairInfoList, p)
+		}
+		input.LoadBalancerInfo = lb
+	}
+
+	if style != nil {
+		input.DeploymentStyle = &DeploymentStyle{
+			DeploymentType:   style.DeploymentType,
+			DeploymentOption: style.DeploymentOption,
+		}
+	}
+
+	if bgConfig != nil {
+		bgc := &BlueGreenDeploymentConfiguration{}
+		if bgConfig.TerminateBlueInstancesOnDeploymentSuccess != nil {
+			tb := bgConfig.TerminateBlueInstancesOnDeploymentSuccess
+			bgc.TerminateBlueInstancesOnDeploymentSuccess = &TerminateBlueInstancesOnDeploymentSuccess{
+				Action:                       tb.Action,
+				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
+			}
+		}
+		if bgConfig.DeploymentReadyOption != nil {
+			bgc.DeploymentReadyOption = &DeploymentReadyOption{
+				ActionOnTimeout:   bgConfig.DeploymentReadyOption.ActionOnTimeout,
+				WaitTimeInMinutes: bgConfig.DeploymentReadyOption.WaitTimeInMinutes,
+			}
+		}
+		if bgConfig.GreenFleetProvisioningOption != nil {
+			bgc.GreenFleetProvisioningOption = &GreenFleetProvisioningOption{
+				Action: bgConfig.GreenFleetProvisioningOption.Action,
+			}
+		}
+		input.BlueGreenDeploymentConfiguration = bgc
+	}
+
+	if alarmConfig != nil {
+		ac := &AlarmConfiguration{
+			Enabled:                alarmConfig.Enabled,
+			IgnorePollAlarmFailure: alarmConfig.IgnorePollAlarmFailure,
+		}
+		for _, a := range alarmConfig.Alarms {
+			ac.Alarms = append(ac.Alarms, Alarm(a))
+		}
+		input.AlarmConfiguration = ac
+	}
+
+	if autoRollback != nil {
+		input.AutoRollbackConfiguration = &AutoRollbackConfiguration{
+			Events:  autoRollback.Events,
+			Enabled: autoRollback.Enabled,
+		}
+	}
+
+	if ec2TagSet != nil {
+		ets := &Ec2TagSet{}
+		for _, group := range ec2TagSet.Ec2TagSetList {
+			row := make([]TagFilter, 0, len(group))
+			for _, f := range group {
+				row = append(row, TagFilter(f))
+			}
+			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
+		}
+		input.Ec2TagSet = ets
+	}
+
+	if onPremTagSet != nil {
+		opts := &TagSet{}
+		for _, group := range onPremTagSet.OnPremisesTagSetList {
+			row := make([]TagFilter, 0, len(group))
+			for _, f := range group {
+				row = append(row, TagFilter(f))
+			}
+			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
+		}
+		input.OnPremisesTagSet = opts
+	}
+
+	return input
+}
+
 type createDeploymentGroupInput struct {
-	ApplicationName      string     `json:"applicationName"`
-	DeploymentGroupName  string     `json:"deploymentGroupName"`
-	ServiceRoleArn       string     `json:"serviceRoleArn"`
-	DeploymentConfigName string     `json:"deploymentConfigName"`
-	Tags                 []tagEntry `json:"tags"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet"`
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	ApplicationName                  string                   `json:"applicationName"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy"`
+	Tags                             []tagEntry               `json:"tags"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled"`
 }
 
 type createDeploymentGroupOutput struct {
@@ -395,9 +834,19 @@ func (h *Handler) handleCreateDeploymentGroup(
 		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
 	}
 
+	input := dgInputFromWire(
+		in.ServiceRoleArn, in.DeploymentConfigName, in.OutdatedInstancesStrategy,
+		in.TerminationHookEnabled,
+		in.Ec2TagFilters, in.OnPremisesInstanceTagFilters,
+		in.AutoScalingGroups, in.TriggerConfigurations, in.ECSServices,
+		in.LoadBalancerInfo, in.DeploymentStyle,
+		in.BlueGreenDeploymentConfiguration, in.AlarmConfiguration,
+		in.AutoRollbackConfiguration, in.Ec2TagSet, in.OnPremisesTagSet,
+	)
+
 	dg, err := h.Backend.CreateDeploymentGroup(
 		in.ApplicationName, in.DeploymentGroupName,
-		in.ServiceRoleArn, in.DeploymentConfigName,
+		input,
 		tagEntriesToMap(in.Tags),
 	)
 	if err != nil {
@@ -412,16 +861,8 @@ type getDeploymentGroupInput struct {
 	DeploymentGroupName string `json:"deploymentGroupName"`
 }
 
-type deploymentGroupInfo struct {
-	ApplicationName      string `json:"applicationName"`
-	DeploymentGroupID    string `json:"deploymentGroupId"`
-	DeploymentGroupName  string `json:"deploymentGroupName"`
-	ServiceRoleArn       string `json:"serviceRoleArn"`
-	DeploymentConfigName string `json:"deploymentConfigName"`
-}
-
 type getDeploymentGroupOutput struct {
-	DeploymentGroupInfo deploymentGroupInfo `json:"deploymentGroupInfo"`
+	DeploymentGroupInfo deploymentGroupInfoOutput `json:"deploymentGroupInfo"`
 }
 
 func (h *Handler) handleGetDeploymentGroup(
@@ -437,15 +878,7 @@ func (h *Handler) handleGetDeploymentGroup(
 		return nil, err
 	}
 
-	return &getDeploymentGroupOutput{
-		DeploymentGroupInfo: deploymentGroupInfo{
-			ApplicationName:      dg.ApplicationName,
-			DeploymentGroupID:    dg.DeploymentGroupID,
-			DeploymentGroupName:  dg.DeploymentGroupName,
-			ServiceRoleArn:       dg.ServiceRoleArn,
-			DeploymentConfigName: dg.DeploymentConfigName,
-		},
-	}, nil
+	return &getDeploymentGroupOutput{DeploymentGroupInfo: dgToOutput(dg)}, nil
 }
 
 type listDeploymentGroupsInput struct {
@@ -495,9 +928,12 @@ func (h *Handler) handleDeleteDeploymentGroup(
 }
 
 type createDeploymentInput struct {
-	ApplicationName     string `json:"applicationName"`
-	DeploymentGroupName string `json:"deploymentGroupName"`
-	Description         string `json:"description"`
+	ApplicationName               string `json:"applicationName"`
+	DeploymentGroupName           string `json:"deploymentGroupName"`
+	Description                   string `json:"description"`
+	FileExistsBehavior            string `json:"fileExistsBehavior"`
+	UpdateOutdatedInstancesOnly   bool   `json:"updateOutdatedInstancesOnly"`
+	IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures"`
 }
 
 type createDeploymentOutput struct {
@@ -512,7 +948,15 @@ func (h *Handler) handleCreateDeployment(
 		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.CreateDeployment(in.ApplicationName, in.DeploymentGroupName, in.Description, "user")
+	opts := DeploymentOptions{
+		Description:                   in.Description,
+		FileExistsBehavior:            in.FileExistsBehavior,
+		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
+		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
+		Creator:                       "user",
+	}
+
+	d, err := h.Backend.CreateDeployment(in.ApplicationName, in.DeploymentGroupName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -525,15 +969,18 @@ type getDeploymentInput struct {
 }
 
 type deploymentInfo struct {
-	CompleteTime         *int64 `json:"completeTime,omitempty"`
-	DeploymentID         string `json:"deploymentId"`
-	ApplicationName      string `json:"applicationName"`
-	DeploymentGroupName  string `json:"deploymentGroupName"`
-	DeploymentConfigName string `json:"deploymentConfigName,omitempty"`
-	Status               string `json:"status"`
-	Creator              string `json:"creator"`
-	Description          string `json:"description,omitempty"`
-	CreateTime           int64  `json:"createTime"`
+	CompleteTime                  *int64 `json:"completeTime,omitempty"`
+	DeploymentID                  string `json:"deploymentId"`
+	ApplicationName               string `json:"applicationName"`
+	DeploymentGroupName           string `json:"deploymentGroupName"`
+	DeploymentConfigName          string `json:"deploymentConfigName,omitempty"`
+	Status                        string `json:"status"`
+	Creator                       string `json:"creator"`
+	Description                   string `json:"description,omitempty"`
+	FileExistsBehavior            string `json:"fileExistsBehavior,omitempty"`
+	CreateTime                    int64  `json:"createTime"`
+	UpdateOutdatedInstancesOnly   bool   `json:"updateOutdatedInstancesOnly,omitempty"`
+	IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures,omitempty"`
 }
 
 type getDeploymentOutput struct {
@@ -554,14 +1001,17 @@ func (h *Handler) handleGetDeployment(
 	}
 
 	info := deploymentInfo{
-		DeploymentID:         d.DeploymentID,
-		ApplicationName:      d.ApplicationName,
-		DeploymentGroupName:  d.DeploymentGroupName,
-		DeploymentConfigName: d.DeploymentConfigName,
-		Status:               d.Status,
-		Creator:              d.Creator,
-		CreateTime:           d.CreateTime.UnixMilli(),
-		Description:          d.Description,
+		DeploymentID:                  d.DeploymentID,
+		ApplicationName:               d.ApplicationName,
+		DeploymentGroupName:           d.DeploymentGroupName,
+		DeploymentConfigName:          d.DeploymentConfigName,
+		Status:                        d.Status,
+		Creator:                       d.Creator,
+		CreateTime:                    d.CreateTime.UnixMilli(),
+		Description:                   d.Description,
+		FileExistsBehavior:            d.FileExistsBehavior,
+		UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
+		IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
 	}
 
 	if d.CompleteTime != nil {
@@ -572,9 +1022,17 @@ func (h *Handler) handleGetDeployment(
 	return &getDeploymentOutput{DeploymentInfo: info}, nil
 }
 
+// timeRangeEntry is the wire format for a create-time range filter.
+type timeRangeEntry struct {
+	Start *int64 `json:"start,omitempty"`
+	End   *int64 `json:"end,omitempty"`
+}
+
 type listDeploymentsInput struct {
-	ApplicationName     string `json:"applicationName"`
-	DeploymentGroupName string `json:"deploymentGroupName"`
+	CreateTimeRange     *timeRangeEntry `json:"createTimeRange"`
+	ApplicationName     string          `json:"applicationName"`
+	DeploymentGroupName string          `json:"deploymentGroupName"`
+	IncludeOnlyStatuses []string        `json:"includeOnlyStatuses"`
 }
 
 type listDeploymentsOutput struct {
@@ -585,8 +1043,25 @@ func (h *Handler) handleListDeployments(
 	_ context.Context,
 	in *listDeploymentsInput,
 ) (*listDeploymentsOutput, error) {
+	filter := DeploymentFilter{
+		ApplicationName:     in.ApplicationName,
+		DeploymentGroupName: in.DeploymentGroupName,
+		Statuses:            in.IncludeOnlyStatuses,
+	}
+
+	if in.CreateTimeRange != nil {
+		if in.CreateTimeRange.Start != nil {
+			t := time.UnixMilli(*in.CreateTimeRange.Start).UTC()
+			filter.CreateTimeStart = &t
+		}
+		if in.CreateTimeRange.End != nil {
+			t := time.UnixMilli(*in.CreateTimeRange.End).UTC()
+			filter.CreateTimeEnd = &t
+		}
+	}
+
 	return &listDeploymentsOutput{
-		Deployments: h.Backend.ListDeployments(in.ApplicationName, in.DeploymentGroupName),
+		Deployments: h.Backend.ListDeployments(filter),
 	}, nil
 }
 
@@ -796,8 +1271,8 @@ type batchGetDeploymentGroupsInput struct {
 }
 
 type batchGetDeploymentGroupsOutput struct {
-	ErrorMessage         string                `json:"errorMessage,omitempty"`
-	DeploymentGroupsInfo []deploymentGroupInfo `json:"deploymentGroupsInfo"`
+	ErrorMessage         string                      `json:"errorMessage,omitempty"`
+	DeploymentGroupsInfo []deploymentGroupInfoOutput `json:"deploymentGroupsInfo"`
 }
 
 func (h *Handler) handleBatchGetDeploymentGroups(
@@ -813,15 +1288,9 @@ func (h *Handler) handleBatchGetDeploymentGroups(
 		return nil, err
 	}
 
-	infos := make([]deploymentGroupInfo, 0, len(dgs))
+	infos := make([]deploymentGroupInfoOutput, 0, len(dgs))
 	for _, dg := range dgs {
-		infos = append(infos, deploymentGroupInfo{
-			ApplicationName:      dg.ApplicationName,
-			DeploymentGroupID:    dg.DeploymentGroupID,
-			DeploymentGroupName:  dg.DeploymentGroupName,
-			ServiceRoleArn:       dg.ServiceRoleArn,
-			DeploymentConfigName: dg.DeploymentConfigName,
-		})
+		infos = append(infos, dgToOutput(dg))
 	}
 
 	return &batchGetDeploymentGroupsOutput{DeploymentGroupsInfo: infos}, nil
@@ -845,10 +1314,12 @@ func (h *Handler) handleBatchGetDeploymentInstances(
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
 	}
 
-	items, errMsg := h.Backend.BatchGetDeploymentInstances(in.DeploymentID, in.InstanceIDs)
+	items, err := h.Backend.BatchGetDeploymentInstances(in.DeploymentID, in.InstanceIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	return &batchGetDeploymentInstancesOutput{
-		ErrorMessage:     errMsg,
 		InstancesSummary: items,
 	}, nil
 }
@@ -904,14 +1375,17 @@ func (h *Handler) handleBatchGetDeployments(
 	infos := make([]deploymentInfo, 0, len(deployments))
 	for _, d := range deployments {
 		info := deploymentInfo{
-			DeploymentID:         d.DeploymentID,
-			ApplicationName:      d.ApplicationName,
-			DeploymentGroupName:  d.DeploymentGroupName,
-			DeploymentConfigName: d.DeploymentConfigName,
-			Status:               d.Status,
-			Creator:              d.Creator,
-			CreateTime:           d.CreateTime.UnixMilli(),
-			Description:          d.Description,
+			DeploymentID:                  d.DeploymentID,
+			ApplicationName:               d.ApplicationName,
+			DeploymentGroupName:           d.DeploymentGroupName,
+			DeploymentConfigName:          d.DeploymentConfigName,
+			Status:                        d.Status,
+			Creator:                       d.Creator,
+			CreateTime:                    d.CreateTime.UnixMilli(),
+			Description:                   d.Description,
+			FileExistsBehavior:            d.FileExistsBehavior,
+			UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
+			IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
 		}
 
 		if d.CompleteTime != nil {
@@ -1000,9 +1474,44 @@ func (h *Handler) handleContinueDeployment(
 	return &continueDeploymentOutput{}, nil
 }
 
+// minimumHealthyHostsEntry is the wire format for minimum healthy hosts config.
+type minimumHealthyHostsEntry struct {
+	Type  string `json:"type,omitempty"`
+	Value int    `json:"value,omitempty"`
+}
+
+// timeBasedCanaryEntry is the wire format for canary traffic routing.
+type timeBasedCanaryEntry struct {
+	CanaryPercentage int `json:"canaryPercentage,omitempty"`
+	CanaryInterval   int `json:"canaryInterval,omitempty"`
+}
+
+// timeBasedLinearEntry is the wire format for linear traffic routing.
+type timeBasedLinearEntry struct {
+	LinearPercentage int `json:"linearPercentage,omitempty"`
+	LinearInterval   int `json:"linearInterval,omitempty"`
+}
+
+// trafficRoutingConfigEntry is the wire format for traffic routing configuration.
+type trafficRoutingConfigEntry struct {
+	TimeBasedCanary *timeBasedCanaryEntry `json:"timeBasedCanary,omitempty"`
+	TimeBasedLinear *timeBasedLinearEntry `json:"timeBasedLinear,omitempty"`
+	Type            string                `json:"type,omitempty"`
+}
+
+// zonalConfigEntry is the wire format for zonal deployment configuration.
+type zonalConfigEntry struct {
+	MinimumHealthyHostsPerZone        *minimumHealthyHostsEntry `json:"minimumHealthyHostsPerZone,omitempty"`
+	FirstZoneMonitorDurationInSeconds int                       `json:"firstZoneMonitorDurationInSeconds,omitempty"`
+	MonitorDurationInSeconds          int                       `json:"monitorDurationInSeconds,omitempty"`
+}
+
 type createDeploymentConfigInput struct {
-	DeploymentConfigName string `json:"deploymentConfigName"`
-	ComputePlatform      string `json:"computePlatform"`
+	MinimumHealthyHosts  *minimumHealthyHostsEntry  `json:"minimumHealthyHosts"`
+	TrafficRoutingConfig *trafficRoutingConfigEntry `json:"trafficRoutingConfig"`
+	ZonalConfig          *zonalConfigEntry          `json:"zonalConfig"`
+	DeploymentConfigName string                     `json:"deploymentConfigName"`
+	ComputePlatform      string                     `json:"computePlatform"`
 }
 
 type createDeploymentConfigOutput struct {
@@ -1017,7 +1526,43 @@ func (h *Handler) handleCreateDeploymentConfig(
 		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
 	}
 
-	cfg, err := h.Backend.CreateDeploymentConfig(in.DeploymentConfigName, in.ComputePlatform)
+	var mhh *MinimumHealthyHosts
+	if in.MinimumHealthyHosts != nil {
+		mhh = &MinimumHealthyHosts{Type: in.MinimumHealthyHosts.Type, Value: in.MinimumHealthyHosts.Value}
+	}
+
+	var trc *TrafficRoutingConfig
+	if in.TrafficRoutingConfig != nil {
+		trc = &TrafficRoutingConfig{Type: in.TrafficRoutingConfig.Type}
+		if in.TrafficRoutingConfig.TimeBasedCanary != nil {
+			trc.TimeBasedCanary = &TimeBasedCanary{
+				CanaryPercentage: in.TrafficRoutingConfig.TimeBasedCanary.CanaryPercentage,
+				CanaryInterval:   in.TrafficRoutingConfig.TimeBasedCanary.CanaryInterval,
+			}
+		}
+		if in.TrafficRoutingConfig.TimeBasedLinear != nil {
+			trc.TimeBasedLinear = &TimeBasedLinear{
+				LinearPercentage: in.TrafficRoutingConfig.TimeBasedLinear.LinearPercentage,
+				LinearInterval:   in.TrafficRoutingConfig.TimeBasedLinear.LinearInterval,
+			}
+		}
+	}
+
+	var zc *ZonalConfig
+	if in.ZonalConfig != nil {
+		zc = &ZonalConfig{
+			FirstZoneMonitorDurationInSeconds: in.ZonalConfig.FirstZoneMonitorDurationInSeconds,
+			MonitorDurationInSeconds:          in.ZonalConfig.MonitorDurationInSeconds,
+		}
+		if in.ZonalConfig.MinimumHealthyHostsPerZone != nil {
+			zc.MinimumHealthyHostsPerZone = &MinimumHealthyHosts{
+				Type:  in.ZonalConfig.MinimumHealthyHostsPerZone.Type,
+				Value: in.ZonalConfig.MinimumHealthyHostsPerZone.Value,
+			}
+		}
+	}
+
+	cfg, err := h.Backend.CreateDeploymentConfig(in.DeploymentConfigName, in.ComputePlatform, mhh, trc, zc)
 	if err != nil {
 		return nil, err
 	}
@@ -1050,14 +1595,30 @@ func (h *Handler) handleUpdateApplication(
 }
 
 type updateDeploymentGroupInput struct {
-	ApplicationName            string `json:"applicationName"`
-	CurrentDeploymentGroupName string `json:"currentDeploymentGroupName"`
-	NewDeploymentGroupName     string `json:"newDeploymentGroupName"`
-	ServiceRoleArn             string `json:"serviceRoleArn"`
-	DeploymentConfigName       string `json:"deploymentConfigName"`
+	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
+	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet"`
+	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet"`
+	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle"`
+	LoadBalancerInfo                 *loadBalancerInfoEntry   `json:"loadBalancerInfo"`
+	BlueGreenDeploymentConfiguration *blueGreenConfigEntry    `json:"blueGreenDeploymentConfiguration"`
+	AlarmConfiguration               *alarmConfigEntry        `json:"alarmConfiguration"`
+	DeploymentConfigName             string                   `json:"deploymentConfigName"`
+	ApplicationName                  string                   `json:"applicationName"`
+	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
+	NewDeploymentGroupName           string                   `json:"newDeploymentGroupName"`
+	CurrentDeploymentGroupName       string                   `json:"currentDeploymentGroupName"`
+	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy"`
+	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters"`
+	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters"`
+	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups"`
+	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations"`
+	ECSServices                      []ecsServiceEntry        `json:"ecsServices"`
+	TerminationHookEnabled           bool                     `json:"terminationHookEnabled"`
 }
 
-type updateDeploymentGroupOutput struct{}
+type updateDeploymentGroupOutput struct {
+	HooksNotCleanedUp bool `json:"hooksNotCleanedUp,omitempty"`
+}
 
 func (h *Handler) handleUpdateDeploymentGroup(
 	_ context.Context,
@@ -1067,7 +1628,25 @@ func (h *Handler) handleUpdateDeploymentGroup(
 		return nil, fmt.Errorf("%w: applicationName and currentDeploymentGroupName are required", errInvalidRequest)
 	}
 
-	return &updateDeploymentGroupOutput{}, nil
+	input := dgInputFromWire(
+		in.ServiceRoleArn, in.DeploymentConfigName, in.OutdatedInstancesStrategy,
+		in.TerminationHookEnabled,
+		in.Ec2TagFilters, in.OnPremisesInstanceTagFilters,
+		in.AutoScalingGroups, in.TriggerConfigurations, in.ECSServices,
+		in.LoadBalancerInfo, in.DeploymentStyle,
+		in.BlueGreenDeploymentConfiguration, in.AlarmConfiguration,
+		in.AutoRollbackConfiguration, in.Ec2TagSet, in.OnPremisesTagSet,
+	)
+
+	hooks, err := h.Backend.UpdateDeploymentGroup(
+		in.ApplicationName, in.CurrentDeploymentGroupName, in.NewDeploymentGroupName,
+		input,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateDeploymentGroupOutput{HooksNotCleanedUp: hooks}, nil
 }
 
 type stopDeploymentInput struct {
@@ -1116,14 +1695,66 @@ type getDeploymentConfigInput struct {
 }
 
 type deploymentConfigInfo struct {
-	DeploymentConfigID   string `json:"deploymentConfigId"`
-	DeploymentConfigName string `json:"deploymentConfigName"`
-	ComputePlatform      string `json:"computePlatform"`
-	CreateTime           int64  `json:"createTime"`
+	MinimumHealthyHosts  *minimumHealthyHostsEntry  `json:"minimumHealthyHosts,omitempty"`
+	TrafficRoutingConfig *trafficRoutingConfigEntry `json:"trafficRoutingConfig,omitempty"`
+	ZonalConfig          *zonalConfigEntry          `json:"zonalConfig,omitempty"`
+	DeploymentConfigID   string                     `json:"deploymentConfigId"`
+	DeploymentConfigName string                     `json:"deploymentConfigName"`
+	ComputePlatform      string                     `json:"computePlatform"`
+	CreateTime           int64                      `json:"createTime"`
 }
 
 type getDeploymentConfigOutput struct {
 	DeploymentConfigInfo deploymentConfigInfo `json:"deploymentConfigInfo"`
+}
+
+func deploymentConfigToInfo(cfg *DeploymentConfig) deploymentConfigInfo {
+	info := deploymentConfigInfo{
+		DeploymentConfigID:   cfg.DeploymentConfigID,
+		DeploymentConfigName: cfg.DeploymentConfigName,
+		ComputePlatform:      cfg.ComputePlatform,
+		CreateTime:           cfg.CreateTime.UnixMilli(),
+	}
+
+	if cfg.MinimumHealthyHosts != nil {
+		info.MinimumHealthyHosts = &minimumHealthyHostsEntry{
+			Type:  cfg.MinimumHealthyHosts.Type,
+			Value: cfg.MinimumHealthyHosts.Value,
+		}
+	}
+
+	if cfg.TrafficRoutingConfig != nil {
+		trc := &trafficRoutingConfigEntry{Type: cfg.TrafficRoutingConfig.Type}
+		if cfg.TrafficRoutingConfig.TimeBasedCanary != nil {
+			trc.TimeBasedCanary = &timeBasedCanaryEntry{
+				CanaryPercentage: cfg.TrafficRoutingConfig.TimeBasedCanary.CanaryPercentage,
+				CanaryInterval:   cfg.TrafficRoutingConfig.TimeBasedCanary.CanaryInterval,
+			}
+		}
+		if cfg.TrafficRoutingConfig.TimeBasedLinear != nil {
+			trc.TimeBasedLinear = &timeBasedLinearEntry{
+				LinearPercentage: cfg.TrafficRoutingConfig.TimeBasedLinear.LinearPercentage,
+				LinearInterval:   cfg.TrafficRoutingConfig.TimeBasedLinear.LinearInterval,
+			}
+		}
+		info.TrafficRoutingConfig = trc
+	}
+
+	if cfg.ZonalConfig != nil {
+		zc := &zonalConfigEntry{
+			FirstZoneMonitorDurationInSeconds: cfg.ZonalConfig.FirstZoneMonitorDurationInSeconds,
+			MonitorDurationInSeconds:          cfg.ZonalConfig.MonitorDurationInSeconds,
+		}
+		if cfg.ZonalConfig.MinimumHealthyHostsPerZone != nil {
+			zc.MinimumHealthyHostsPerZone = &minimumHealthyHostsEntry{
+				Type:  cfg.ZonalConfig.MinimumHealthyHostsPerZone.Type,
+				Value: cfg.ZonalConfig.MinimumHealthyHostsPerZone.Value,
+			}
+		}
+		info.ZonalConfig = zc
+	}
+
+	return info
 }
 
 func (h *Handler) handleGetDeploymentConfig(
@@ -1139,14 +1770,7 @@ func (h *Handler) handleGetDeploymentConfig(
 		return nil, err
 	}
 
-	return &getDeploymentConfigOutput{
-		DeploymentConfigInfo: deploymentConfigInfo{
-			DeploymentConfigID:   cfg.DeploymentConfigID,
-			DeploymentConfigName: cfg.DeploymentConfigName,
-			ComputePlatform:      cfg.ComputePlatform,
-			CreateTime:           cfg.CreateTime.UnixMilli(),
-		},
-	}, nil
+	return &getDeploymentConfigOutput{DeploymentConfigInfo: deploymentConfigToInfo(cfg)}, nil
 }
 
 type listDeploymentConfigsInput struct{}
@@ -1226,7 +1850,9 @@ func (h *Handler) handleRegisterOnPremisesInstance(
 		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
 	}
 
-	h.Backend.RegisterOnPremisesInstance(in.InstanceName, in.IamSessionArn, in.IamUserArn)
+	if err := h.Backend.RegisterOnPremisesInstance(in.InstanceName, in.IamSessionArn, in.IamUserArn); err != nil {
+		return nil, err
+	}
 
 	return &registerOnPremisesInstanceOutput{}, nil
 }
@@ -1295,8 +1921,8 @@ func (h *Handler) handleGetOnPremisesInstance(
 }
 
 type listOnPremisesInstancesInput struct {
-	RegistrationStatus string     `json:"registrationStatus"`
-	TagFilters         []tagEntry `json:"tagFilters"`
+	RegistrationStatus string           `json:"registrationStatus"`
+	TagFilters         []tagFilterEntry `json:"tagFilters"`
 }
 
 type listOnPremisesInstancesOutput struct {
@@ -1307,8 +1933,13 @@ func (h *Handler) handleListOnPremisesInstances(
 	_ context.Context,
 	in *listOnPremisesInstancesInput,
 ) (*listOnPremisesInstancesOutput, error) {
+	filters := make([]TagFilter, 0, len(in.TagFilters))
+	for _, f := range in.TagFilters {
+		filters = append(filters, TagFilter(f))
+	}
+
 	return &listOnPremisesInstancesOutput{
-		InstanceNames: h.Backend.ListOnPremisesInstances(in.RegistrationStatus),
+		InstanceNames: h.Backend.ListOnPremisesInstances(in.RegistrationStatus, filters),
 	}, nil
 }
 
@@ -1528,6 +2159,14 @@ func (h *Handler) handleDeleteGitHubAccountToken(
 	_ context.Context,
 	in *deleteGitHubAccountTokenInput,
 ) (*deleteGitHubAccountTokenOutput, error) {
+	if in.TokenName == "" {
+		return nil, fmt.Errorf("%w: tokenName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteGitHubAccountToken(in.TokenName); err != nil {
+		return nil, err
+	}
+
 	return &deleteGitHubAccountTokenOutput{TokenName: in.TokenName}, nil
 }
 
@@ -1541,7 +2180,7 @@ func (h *Handler) handleListGitHubAccountTokenNames(
 	_ context.Context,
 	_ *listGitHubAccountTokenNamesInput,
 ) (*listGitHubAccountTokenNamesOutput, error) {
-	return &listGitHubAccountTokenNamesOutput{TokenNameList: []string{}}, nil
+	return &listGitHubAccountTokenNamesOutput{TokenNameList: h.Backend.ListGitHubAccountTokenNames()}, nil
 }
 
 type deleteResourcesByExternalIDInput struct {

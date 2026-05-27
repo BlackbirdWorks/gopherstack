@@ -193,7 +193,7 @@ func TestBackupPlanIDIndex(t *testing.T) {
 			run: func(t *testing.T, b *backup.InMemoryBackend) {
 				t.Helper()
 
-				plan, err := b.CreateBackupPlan("idx-plan", nil, nil)
+				plan, err := b.CreateBackupPlan("idx-plan", nil, nil, nil)
 				require.NoError(t, err)
 
 				got, err := b.GetBackupPlan(plan.BackupPlanID)
@@ -206,11 +206,11 @@ func TestBackupPlanIDIndex(t *testing.T) {
 			run: func(t *testing.T, b *backup.InMemoryBackend) {
 				t.Helper()
 
-				plan, err := b.CreateBackupPlan("upd-plan", nil, nil)
+				plan, err := b.CreateBackupPlan("upd-plan", nil, nil, nil)
 				require.NoError(t, err)
 
 				rules := []backup.Rule{{RuleName: "r1", TargetVaultName: "vault1"}}
-				updated, err := b.UpdateBackupPlan(plan.BackupPlanID, rules)
+				updated, err := b.UpdateBackupPlan(plan.BackupPlanID, rules, nil)
 				require.NoError(t, err)
 				require.Len(t, updated.Rules, 1)
 				assert.Equal(t, "r1", updated.Rules[0].RuleName)
@@ -221,7 +221,7 @@ func TestBackupPlanIDIndex(t *testing.T) {
 			run: func(t *testing.T, b *backup.InMemoryBackend) {
 				t.Helper()
 
-				plan, err := b.CreateBackupPlan("del-plan", nil, nil)
+				plan, err := b.CreateBackupPlan("del-plan", nil, nil, nil)
 				require.NoError(t, err)
 
 				err = b.DeleteBackupPlan(plan.BackupPlanID)

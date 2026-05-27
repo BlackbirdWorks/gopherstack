@@ -1,5 +1,7 @@
 package dax
 
+import "time"
+
 // StorageBackend is the interface for DAX storage operations.
 type StorageBackend interface {
 	// Cluster operations.
@@ -11,6 +13,9 @@ type StorageBackend interface {
 	) ([]*Cluster, string, error)
 	UpdateCluster(input UpdateClusterInput) (*Cluster, error)
 	DeleteCluster(clusterName string) (*Cluster, error)
+	IncreaseReplicationFactor(input IncreaseReplicationFactorInput) (*Cluster, error)
+	DecreaseReplicationFactor(input DecreaseReplicationFactorInput) (*Cluster, error)
+	RebootNode(clusterName, nodeID string) (*Cluster, error)
 
 	// Tag operations.
 	TagResource(resourceArn string, tags map[string]string) error
@@ -24,7 +29,11 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*ParameterGroup, string, error)
+	UpdateParameterGroup(input UpdateParameterGroupInput) (*ParameterGroup, error)
 	DeleteParameterGroup(name string) error
+	DescribeParameters(paramGroupName string, maxResults int, nextToken string) ([]*Parameter, string, error)
+	DescribeDefaultParameters(maxResults int, nextToken string) ([]*Parameter, string, error)
+	ResetParameterGroup(name string, parameterNames []string) (*ParameterGroup, error)
 
 	// Subnet group operations.
 	CreateSubnetGroup(name, description string, subnetIDs []string) (*SubnetGroup, error)
@@ -33,7 +42,18 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*SubnetGroup, string, error)
+	UpdateSubnetGroup(input UpdateSubnetGroupInput) (*SubnetGroup, error)
 	DeleteSubnetGroup(name string) error
+
+	// Event operations.
+	DescribeEvents(
+		sourceName string,
+		sourceType string,
+		startTime *time.Time,
+		endTime *time.Time,
+		maxResults int,
+		nextToken string,
+	) ([]*Event, string, error)
 
 	// Reset / persistence.
 	Reset()
