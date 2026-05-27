@@ -122,7 +122,7 @@ require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
 require github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19
+	github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.23
 	github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.19
 )
 
@@ -133,7 +133,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.32.20
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12
 	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17
-	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20
+	github.com/aws/aws-sdk-go-v2/service/mwaa v1.40.1
 	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19
@@ -149,10 +149,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.60.1
 	github.com/aws/aws-sdk-go-v2/service/shield v1.34.20
 	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.38.0
-	github.com/aws/aws-sdk-go-v2/service/textract v1.40.22
+	github.com/aws/aws-sdk-go-v2/service/textract v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.16
 	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19
-	github.com/aws/aws-sdk-go-v2/service/transcribe v1.54.3
+	github.com/aws/aws-sdk-go-v2/service/transcribe v1.55.0
 	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
@@ -165,6 +165,13 @@ require (
 require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
 
 require github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
+
+require (
+	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0 // indirect
+)
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2

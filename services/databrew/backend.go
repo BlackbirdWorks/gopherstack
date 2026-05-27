@@ -148,6 +148,43 @@ type JobRun struct {
 	ExecutionTime int     `json:"ExecutionTime,omitempty"`
 }
 
+// Rule represents a data quality rule.
+type Rule struct {
+	SubstitutionMap map[string]string `json:"SubstitutionMap,omitempty"`
+	Threshold       map[string]any    `json:"Threshold,omitempty"`
+	Name            string            `json:"Name"`
+	CheckExpression string            `json:"CheckExpression"`
+	ColumnSelectors []map[string]any  `json:"ColumnSelectors,omitempty"`
+	Disabled        bool              `json:"Disabled,omitempty"`
+}
+
+// Ruleset represents a DataBrew data quality ruleset.
+type Ruleset struct {
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Name             string            `json:"Name"`
+	Arn              string            `json:"ResourceArn"`
+	Description      string            `json:"Description,omitempty"`
+	TargetArn        string            `json:"TargetArn"`
+	CreatedBy        string            `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
+	Rules            []Rule            `json:"Rules"`
+	CreateDate       float64           `json:"CreateDate,omitempty"`
+	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+}
+
+// Schedule represents a DataBrew schedule.
+type Schedule struct {
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Name             string            `json:"Name"`
+	Arn              string            `json:"ResourceArn"`
+	CronExpression   string            `json:"CronExpression"`
+	CreatedBy        string            `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
+	JobNames         []string          `json:"JobNames,omitempty"`
+	CreateDate       float64           `json:"CreateDate,omitempty"`
+	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+}
+
 // InMemoryBackend stores DataBrew state in memory.
 type InMemoryBackend struct {
 	datasets  map[string]*Dataset
@@ -155,6 +192,8 @@ type InMemoryBackend struct {
 	projects  map[string]*Project
 	jobs      map[string]*Job
 	jobRuns   map[string][]*JobRun
+	rulesets  map[string]*Ruleset
+	schedules map[string]*Schedule
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
@@ -168,6 +207,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		projects:  make(map[string]*Project),
 		jobs:      make(map[string]*Job),
 		jobRuns:   make(map[string][]*JobRun),
+		rulesets:  make(map[string]*Ruleset),
+		schedules: make(map[string]*Schedule),
 		mu:        lockmetrics.New("databrew"),
 		accountID: accountID,
 		region:    region,
@@ -185,6 +226,8 @@ func (b *InMemoryBackend) Reset() {
 	b.projects = make(map[string]*Project)
 	b.jobs = make(map[string]*Job)
 	b.jobRuns = make(map[string][]*JobRun)
+	b.rulesets = make(map[string]*Ruleset)
+	b.schedules = make(map[string]*Schedule)
 }
 
 func sortedKeys[V any](m map[string]V) []string {
@@ -211,6 +254,14 @@ func (b *InMemoryBackend) projectARN(name string) string {
 
 func (b *InMemoryBackend) jobARN(name string) string {
 	return arn.Build("databrew", b.region, b.accountID, "job/"+name)
+}
+
+func (b *InMemoryBackend) rulesetARN(name string) string {
+	return arn.Build("databrew", b.region, b.accountID, "ruleset/"+name)
+}
+
+func (b *InMemoryBackend) scheduleARN(name string) string {
+	return arn.Build("databrew", b.region, b.accountID, "schedule/"+name)
 }
 
 func (b *InMemoryBackend) CreateDataset(
@@ -622,4 +673,352 @@ func (b *InMemoryBackend) ListJobRuns(jobName string) ([]*JobRun, error) {
 	}
 
 	return out, nil
+}
+
+func (b *InMemoryBackend) CreateRuleset(
+	name, description, targetArn string,
+	rules []Rule,
+	tags map[string]string,
+) (*Ruleset, error) {
+	b.mu.Lock("CreateRuleset")
+	defer b.mu.Unlock()
+	if name == "" {
+		return nil, ErrValidation
+	}
+	if _, ok := b.rulesets[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+	rs := &Ruleset{
+		Name: name, Arn: b.rulesetARN(name), Description: description,
+		TargetArn: targetArn, Rules: append([]Rule(nil), rules...),
+		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
+		LastModifiedDate: float64(time.Now().Unix()),
+	}
+	b.rulesets[name] = rs
+
+	return rs, nil
+}
+
+func (b *InMemoryBackend) DescribeRuleset(name string) (*Ruleset, error) {
+	b.mu.RLock("DescribeRuleset")
+	defer b.mu.RUnlock()
+	rs, ok := b.rulesets[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *rs
+	cp.Tags = maps.Clone(rs.Tags)
+	cp.Rules = append([]Rule(nil), rs.Rules...)
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) ListRulesets() []*Ruleset {
+	b.mu.RLock("ListRulesets")
+	defer b.mu.RUnlock()
+	out := make([]*Ruleset, 0, len(b.rulesets))
+	for _, k := range sortedKeys(b.rulesets) {
+		cp := *b.rulesets[k]
+		cp.Tags = maps.Clone(b.rulesets[k].Tags)
+		cp.Rules = append([]Rule(nil), b.rulesets[k].Rules...)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) UpdateRuleset(name, description string, rules []Rule) error {
+	b.mu.Lock("UpdateRuleset")
+	defer b.mu.Unlock()
+	rs, ok := b.rulesets[name]
+	if !ok {
+		return ErrNotFound
+	}
+	rs.Description = description
+	rs.Rules = rules
+	rs.LastModifiedDate = float64(time.Now().Unix())
+
+	return nil
+}
+
+func (b *InMemoryBackend) DeleteRuleset(name string) error {
+	b.mu.Lock("DeleteRuleset")
+	defer b.mu.Unlock()
+	if _, ok := b.rulesets[name]; !ok {
+		return ErrNotFound
+	}
+	delete(b.rulesets, name)
+
+	return nil
+}
+
+func (b *InMemoryBackend) CreateSchedule(
+	name string,
+	jobNames []string,
+	cron string,
+	tags map[string]string,
+) (*Schedule, error) {
+	b.mu.Lock("CreateSchedule")
+	defer b.mu.Unlock()
+	if name == "" {
+		return nil, ErrValidation
+	}
+	if _, ok := b.schedules[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+	sc := &Schedule{
+		Name: name, Arn: b.scheduleARN(name), JobNames: append([]string(nil), jobNames...),
+		CronExpression: cron, Tags: maps.Clone(tags),
+		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
+	}
+	b.schedules[name] = sc
+
+	return sc, nil
+}
+
+func (b *InMemoryBackend) DescribeSchedule(name string) (*Schedule, error) {
+	b.mu.RLock("DescribeSchedule")
+	defer b.mu.RUnlock()
+	sc, ok := b.schedules[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *sc
+	cp.Tags = maps.Clone(sc.Tags)
+	cp.JobNames = append([]string(nil), sc.JobNames...)
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) ListSchedules() []*Schedule {
+	b.mu.RLock("ListSchedules")
+	defer b.mu.RUnlock()
+	out := make([]*Schedule, 0, len(b.schedules))
+	for _, k := range sortedKeys(b.schedules) {
+		cp := *b.schedules[k]
+		cp.Tags = maps.Clone(b.schedules[k].Tags)
+		cp.JobNames = append([]string(nil), b.schedules[k].JobNames...)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) UpdateSchedule(name string, jobNames []string, cron string) error {
+	b.mu.Lock("UpdateSchedule")
+	defer b.mu.Unlock()
+	sc, ok := b.schedules[name]
+	if !ok {
+		return ErrNotFound
+	}
+	sc.JobNames = jobNames
+	sc.CronExpression = cron
+	sc.LastModifiedDate = float64(time.Now().Unix())
+
+	return nil
+}
+
+func (b *InMemoryBackend) DeleteSchedule(name string) error {
+	b.mu.Lock("DeleteSchedule")
+	defer b.mu.Unlock()
+	if _, ok := b.schedules[name]; !ok {
+		return ErrNotFound
+	}
+	delete(b.schedules, name)
+
+	return nil
+}
+
+func (b *InMemoryBackend) StopJobRun(name, runID string) (*JobRun, error) {
+	b.mu.Lock("StopJobRun")
+	defer b.mu.Unlock()
+
+	runs, ok := b.jobRuns[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	for _, run := range runs {
+		if run.RunID == runID {
+			if run.State != "SUCCEEDED" && run.State != "FAILED" && run.State != "STOPPED" {
+				run.State = "STOPPED"
+				run.CompletedOn = float64(time.Now().Unix())
+			}
+			cp := *run
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+func (b *InMemoryBackend) DescribeJobRun(name, runID string) (*JobRun, error) {
+	b.mu.RLock("DescribeJobRun")
+	defer b.mu.RUnlock()
+
+	runs, ok := b.jobRuns[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	for _, run := range runs {
+		if run.RunID == runID {
+			cp := *run
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// FindTagsByArn searches all resources for a specific ARN and returns its tags.
+func (b *InMemoryBackend) FindTagsByArn(arn string) (map[string]string, error) {
+	b.mu.RLock("FindTagsByArn")
+	defer b.mu.RUnlock()
+
+	for _, ds := range b.datasets {
+		if ds.Arn == arn {
+			return maps.Clone(ds.Tags), nil
+		}
+	}
+	for _, r := range b.recipes {
+		if r.Arn == arn {
+			return maps.Clone(r.Tags), nil
+		}
+	}
+	for _, p := range b.projects {
+		if p.Arn == arn {
+			return maps.Clone(p.Tags), nil
+		}
+	}
+	for _, j := range b.jobs {
+		if j.Arn == arn {
+			return maps.Clone(j.Tags), nil
+		}
+	}
+	for _, rs := range b.rulesets {
+		if rs.Arn == arn {
+			return maps.Clone(rs.Tags), nil
+		}
+	}
+	for _, sc := range b.schedules {
+		if sc.Arn == arn {
+			return maps.Clone(sc.Tags), nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// UpdateTagsByArn searches all resources and applies tags additions/removals.
+func (b *InMemoryBackend) UpdateTagsByArn(arn string, add map[string]string, remove []string) error {
+	b.mu.Lock("UpdateTagsByArn")
+	defer b.mu.Unlock()
+
+	applyTags := func(tags map[string]string) map[string]string {
+		if tags == nil {
+			tags = make(map[string]string)
+		}
+		maps.Copy(tags, add)
+		for _, k := range remove {
+			delete(tags, k)
+		}
+
+		return tags
+	}
+
+	if b.updateDatasetTags(arn, applyTags) {
+		return nil
+	}
+	if b.updateRecipeTags(arn, applyTags) {
+		return nil
+	}
+	if b.updateProjectTags(arn, applyTags) {
+		return nil
+	}
+	if b.updateJobTags(arn, applyTags) {
+		return nil
+	}
+	if b.updateRulesetTags(arn, applyTags) {
+		return nil
+	}
+	if b.updateScheduleTags(arn, applyTags) {
+		return nil
+	}
+
+	return ErrNotFound
+}
+
+func (b *InMemoryBackend) updateDatasetTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.datasets {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) updateRecipeTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.recipes {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) updateProjectTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.projects {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) updateJobTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.jobs {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) updateRulesetTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.rulesets {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) updateScheduleTags(arn string, apply func(map[string]string) map[string]string) bool {
+	for _, x := range b.schedules {
+		if x.Arn == arn {
+			x.Tags = apply(x.Tags)
+
+			return true
+		}
+	}
+
+	return false
 }

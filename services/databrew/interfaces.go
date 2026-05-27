@@ -53,6 +53,26 @@ type StorageBackend interface {
 	DeleteJob(name string) error
 	StartJobRun(jobName string) (*JobRun, error)
 	ListJobRuns(jobName string) ([]*JobRun, error)
+	DescribeJobRun(name, runID string) (*JobRun, error)
+	StopJobRun(name, runID string) (*JobRun, error)
+
+	// Ruleset operations.
+	CreateRuleset(name, description, targetArn string, rules []Rule, tags map[string]string) (*Ruleset, error)
+	DescribeRuleset(name string) (*Ruleset, error)
+	ListRulesets() []*Ruleset
+	UpdateRuleset(name, description string, rules []Rule) error
+	DeleteRuleset(name string) error
+
+	// Schedule operations.
+	CreateSchedule(name string, jobNames []string, cron string, tags map[string]string) (*Schedule, error)
+	DescribeSchedule(name string) (*Schedule, error)
+	ListSchedules() []*Schedule
+	UpdateSchedule(name string, jobNames []string, cron string) error
+	DeleteSchedule(name string) error
+
+	// Tag operations.
+	FindTagsByArn(arn string) (map[string]string, error)
+	UpdateTagsByArn(arn string, add map[string]string, remove []string) error
 }
 
 // compile-time assertion that InMemoryBackend implements StorageBackend.

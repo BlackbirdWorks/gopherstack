@@ -46,6 +46,7 @@ const (
 	kindWhatIfForecast          resourceKind = "what-if-forecast"
 	kindWhatIfForecastExport    resourceKind = "what-if-forecast-export"
 	kindMonitor                 resourceKind = "monitor"
+	kindExplainability          resourceKind = "explainability"
 )
 
 // Resource stores one Forecast API object with AWS response-shaped attributes.
@@ -77,6 +78,7 @@ type MonitorEvaluation struct {
 type InMemoryBackend struct {
 	resources   map[resourceKind]map[string]*Resource
 	evaluations map[string][]MonitorEvaluation
+	tags        map[string]map[string]string
 	accountID   string
 	region      string
 	mu          sync.RWMutex
@@ -94,6 +96,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		resources:   make(map[resourceKind]map[string]*Resource),
 		evaluations: make(map[string][]MonitorEvaluation),
+		tags:        make(map[string]map[string]string),
 		accountID:   accountID,
 		region:      region,
 	}
@@ -285,4 +288,91 @@ func stringValue(value any) string {
 	result, _ := value.(string)
 
 	return result
+}
+
+// UpdateResourceStatus handles StopResource and ResumeResource
+func (b *InMemoryBackend) UpdateResourceStatus(arn, newStatus string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, kinds := range b.resources {
+		for _, resource := range kinds {
+			if resource.ARN == arn {
+				resource.Status = newStatus
+				resource.UpdatedAt = time.Now().UTC()
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
+}
+
+// DeleteResourceTree deletes a resource and its children (mock implementation deleting just the resource)
+func (b *InMemoryBackend) DeleteResourceTree(arn string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, kinds := range b.resources {
+		for _, resource := range kinds {
+			if resource.ARN == arn {
+				resource.Status = statusDeleting
+				resource.UpdatedAt = time.Now().UTC()
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
+}
+
+// GetAccuracyMetrics returns dummy accuracy metrics for a predictor
+func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]any, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.lookupLocked(kindPredictor, predictorArn); !ok {
+		return nil, fmt.Errorf("%w: predictor %q", ErrNotFound, predictorArn)
+	}
+
+	return map[string]any{
+		"PredictorEvaluationResults": []map[string]any{},
+	}, nil
+}
+
+// TagResource adds tags to a resource
+func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.tags[arn] == nil {
+		b.tags[arn] = make(map[string]string)
+	}
+	for k, v := range tags {
+		b.tags[arn][k] = v
+	}
+	return nil
+}
+
+// UntagResource removes tags from a resource
+func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.tags[arn] != nil {
+		for _, k := range tagKeys {
+			delete(b.tags[arn], k)
+		}
+	}
+	return nil
+}
+
+// ListTagsForResource lists tags for a resource
+func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make(map[string]string)
+	for k, v := range b.tags[arn] {
+		result[k] = v
+	}
+	return result, nil
 }

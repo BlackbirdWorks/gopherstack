@@ -24,6 +24,10 @@ const (
 	segProfileJobs = "profileJobs"
 	segRecipeJobs  = "recipeJobs"
 	segJobs        = "jobs"
+	segRulesets    = "rulesets"
+	segSchedules   = "schedules"
+	segTags        = "tags"
+	segJobRun      = "jobRun"
 
 	opCreateDataset    = "CreateDataset"
 	opDescribeDataset  = "DescribeDataset"
@@ -50,9 +54,36 @@ const (
 	opDeleteJob        = "DeleteJob"
 	opStartJobRun      = "StartJobRun"
 	opListJobRuns      = "ListJobRuns"
-	opUnknown          = "Unknown"
+	opDescribeJobRun   = "DescribeJobRun"
+	opStopJobRun       = "StopJobRun"
+
+	opCreateRuleset   = "CreateRuleset"
+	opDescribeRuleset = "DescribeRuleset"
+	opListRulesets    = "ListRulesets"
+	opUpdateRuleset   = "UpdateRuleset"
+	opDeleteRuleset   = "DeleteRuleset"
+
+	opCreateSchedule   = "CreateSchedule"
+	opDescribeSchedule = "DescribeSchedule"
+	opListSchedules    = "ListSchedules"
+	opUpdateSchedule   = "UpdateSchedule"
+	opDeleteSchedule   = "DeleteSchedule"
+
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+	opListTagsForResource = "ListTagsForResource"
+
+	opBatchDeleteRecipeVersion = "BatchDeleteRecipeVersion"
+	opDeleteRecipeVersion      = "DeleteRecipeVersion"
+	opListRecipeVersions       = "ListRecipeVersions"
+
+	opSendProjectSessionAction = "SendProjectSessionAction"
+	opStartProjectSession      = "StartProjectSession"
+
+	opUnknown = "Unknown"
 
 	minPathSegments = 2
+	minTagsSegments = 5
 
 	keyName    = "Name"
 	keyMessage = "Message"
@@ -90,6 +121,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateProject, opDescribeProject, opListProjects, opUpdateProject, opDeleteProject,
 		opCreateProfileJob, opCreateRecipeJob, opDescribeJob, opListJobs,
 		opUpdateProfileJob, opUpdateRecipeJob, opDeleteJob, opStartJobRun, opListJobRuns,
+		opDescribeJobRun, opStopJobRun,
+		opCreateRuleset, opDescribeRuleset, opListRulesets, opUpdateRuleset, opDeleteRuleset,
+		opCreateSchedule, opDescribeSchedule, opListSchedules, opUpdateSchedule, opDeleteSchedule,
+		opTagResource, opUntagResource, opListTagsForResource,
+		opBatchDeleteRecipeVersion, opDeleteRecipeVersion, opListRecipeVersions,
+		opSendProjectSessionAction, opStartProjectSession,
 	}
 }
 
@@ -133,6 +170,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		body = enrichDataBrewBody(action, name, body)
+
+		// For tags and job runs, we might need a third parameter, but let's pass it in the body.
+		if len(strings.Split(c.Request().URL.Path, "/")) >= minTagsSegments {
+			body = enrichDataBrewSubOpBody(c.Request().URL.Path, body)
+		}
 
 		result, dispErr := h.dispatch(ctx, action, body)
 		if dispErr != nil {
@@ -186,19 +228,31 @@ func parseDataBrewRESTPath(method, path string) (string, string) {
 		subOp = segments[2]
 	}
 
+	return mapResourceOp(resource, method, name, subOp)
+}
+
+func mapResourceOp(resource, method, name, subOp string) (string, string) {
 	switch resource {
 	case segDatasets:
 		return parseDatasetOp(method, name), name
 	case segRecipes:
 		return parseRecipeOp(method, name, subOp), name
 	case segProjects:
-		return parseProjectOp(method, name), name
+		return parseProjectOp(method, name, subOp), name
 	case segProfileJobs:
 		return parseProfileJobOp(method, name), name
 	case segRecipeJobs:
 		return parseRecipeJobOp(method, name), name
 	case segJobs:
 		return parseJobOp(method, name, subOp), name
+	case segRulesets:
+		return parseRulesetOp(method, name), name
+	case segSchedules:
+		return parseScheduleOp(method, name), name
+	case segTags:
+		return parseTagsOp(method, name), name
+	case "recipeVersions":
+		return opBatchDeleteRecipeVersion, name
 	}
 
 	return opUnknown, ""
@@ -233,6 +287,12 @@ func parseRecipeOp(method, name, subOp string) string {
 	if subOp == "publishRecipe" {
 		return opPublishRecipe
 	}
+	if subOp == "recipeVersions" && method == http.MethodGet {
+		return opListRecipeVersions
+	}
+	if subOp == "recipeVersion" && method == http.MethodDelete {
+		return opDeleteRecipeVersion
+	}
 	switch method {
 	case http.MethodPost:
 		if name == "" {
@@ -257,7 +317,13 @@ func parseRecipeOp(method, name, subOp string) string {
 	return opUnknown
 }
 
-func parseProjectOp(method, name string) string {
+func parseProjectOp(method, name, subOp string) string {
+	if subOp == "sendProjectSessionAction" && method == http.MethodPut {
+		return opSendProjectSessionAction
+	}
+	if subOp == "startProjectSession" && method == http.MethodPut {
+		return opStartProjectSession
+	}
 	switch method {
 	case http.MethodPost:
 		if name == "" {
@@ -318,6 +384,10 @@ func parseJobOp(method, name, subOp string) string {
 		return opStartJobRun
 	case subOp == "jobRuns" && method == http.MethodGet:
 		return opListJobRuns
+	case subOp == segJobRun && method == http.MethodGet:
+		return opDescribeJobRun
+	case subOp == segJobRun && method == http.MethodPost:
+		return opStopJobRun
 	case method == http.MethodGet && name == "":
 		return opListJobs
 	case method == http.MethodGet && name != "":
@@ -342,6 +412,92 @@ func enrichDataBrewBody(_, name string, body []byte) []byte {
 	return result
 }
 
+func enrichDataBrewSubOpBody(path string, body []byte) []byte {
+	segments := strings.Split(path, "/")
+	m := make(map[string]json.RawMessage)
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &m)
+	}
+
+	// e.g. /databrew/v1/jobs/{Name}/jobRun/{RunId}
+	if len(segments) >= 6 && segments[4] == segJobRun {
+		runIDJSON, _ := json.Marshal(segments[5])
+		m["RunId"] = runIDJSON
+	}
+	// e.g. /databrew/v1/recipes/{Name}/recipeVersion/{RecipeVersion}
+	if len(segments) >= 6 && segments[4] == "recipeVersion" {
+		versionJSON, _ := json.Marshal(segments[5])
+		m["RecipeVersion"] = versionJSON
+	}
+	// tags ResourceArn
+	if len(segments) >= 5 && segments[3] == "tags" {
+		// rebuild arn from path
+		// actually segments[4:] are the resourceARN URL encoded
+		arn := strings.Join(segments[4:], "/")
+		arnJSON, _ := json.Marshal(arn)
+		m["ResourceArn"] = arnJSON
+	}
+
+	result, _ := json.Marshal(m)
+
+	return result
+}
+
+func parseRulesetOp(method, name string) string {
+	switch method {
+	case http.MethodPost:
+		if name == "" {
+			return opCreateRuleset
+		}
+	case http.MethodGet:
+		if name == "" {
+			return opListRulesets
+		}
+
+		return opDescribeRuleset
+	case http.MethodPut:
+		return opUpdateRuleset
+	case http.MethodDelete:
+		return opDeleteRuleset
+	}
+
+	return opUnknown
+}
+
+func parseScheduleOp(method, name string) string {
+	switch method {
+	case http.MethodPost:
+		if name == "" {
+			return opCreateSchedule
+		}
+	case http.MethodGet:
+		if name == "" {
+			return opListSchedules
+		}
+
+		return opDescribeSchedule
+	case http.MethodPut:
+		return opUpdateSchedule
+	case http.MethodDelete:
+		return opDeleteSchedule
+	}
+
+	return opUnknown
+}
+
+func parseTagsOp(method, _ string) string {
+	switch method {
+	case http.MethodPost:
+		return opTagResource
+	case http.MethodDelete:
+		return opUntagResource
+	case http.MethodGet:
+		return opListTagsForResource
+	}
+
+	return opUnknown
+}
+
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	if result, ok, err := h.dispatchDataset(ctx, action, body); ok {
 		return result, err
@@ -356,6 +512,18 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	}
 
 	if result, ok, err := h.dispatchJob(ctx, action, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchRuleset(ctx, action, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchSchedule(ctx, action, body); ok {
+		return result, err
+	}
+
+	if result, ok, err := h.dispatchTags(ctx, action, body); ok {
 		return result, err
 	}
 
@@ -423,6 +591,18 @@ func (h *Handler) dispatchRecipe(
 		r, e := h.handleDeleteRecipe(ctx, body)
 
 		return r, true, e
+	case opBatchDeleteRecipeVersion:
+		r, e := h.handleBatchDeleteRecipeVersion(ctx, body)
+
+		return r, true, e
+	case opDeleteRecipeVersion:
+		r, e := h.handleDeleteRecipeVersion(ctx, body)
+
+		return r, true, e
+	case opListRecipeVersions:
+		r, e := h.handleListRecipeVersions(ctx, body)
+
+		return r, true, e
 	}
 
 	return nil, false, nil
@@ -452,6 +632,14 @@ func (h *Handler) dispatchProject(
 		return r, true, e
 	case opDeleteProject:
 		r, e := h.handleDeleteProject(ctx, body)
+
+		return r, true, e
+	case opStartProjectSession:
+		r, e := h.handleStartProjectSession(ctx, body)
+
+		return r, true, e
+	case opSendProjectSessionAction:
+		r, e := h.handleSendProjectSessionAction(ctx, body)
 
 		return r, true, e
 	}
@@ -495,6 +683,87 @@ func (h *Handler) dispatchJob(
 		return r, true, e
 	case opListJobRuns:
 		r, e := h.handleListJobRuns(ctx, body)
+
+		return r, true, e
+	case opDescribeJobRun:
+		r, e := h.handleDescribeJobRun(ctx, body)
+
+		return r, true, e
+	case opStopJobRun:
+		r, e := h.handleStopJobRun(ctx, body)
+
+		return r, true, e
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchRuleset(ctx context.Context, action string, body []byte) ([]byte, bool, error) {
+	switch action {
+	case opCreateRuleset:
+		r, e := h.handleCreateRuleset(ctx, body)
+
+		return r, true, e
+	case opDescribeRuleset:
+		r, e := h.handleDescribeRuleset(ctx, body)
+
+		return r, true, e
+	case opListRulesets:
+		r, e := h.handleListRulesets(ctx, body)
+
+		return r, true, e
+	case opUpdateRuleset:
+		r, e := h.handleUpdateRuleset(ctx, body)
+
+		return r, true, e
+	case opDeleteRuleset:
+		r, e := h.handleDeleteRuleset(ctx, body)
+
+		return r, true, e
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchSchedule(ctx context.Context, action string, body []byte) ([]byte, bool, error) {
+	switch action {
+	case opCreateSchedule:
+		r, e := h.handleCreateSchedule(ctx, body)
+
+		return r, true, e
+	case opDescribeSchedule:
+		r, e := h.handleDescribeSchedule(ctx, body)
+
+		return r, true, e
+	case opListSchedules:
+		r, e := h.handleListSchedules(ctx, body)
+
+		return r, true, e
+	case opUpdateSchedule:
+		r, e := h.handleUpdateSchedule(ctx, body)
+
+		return r, true, e
+	case opDeleteSchedule:
+		r, e := h.handleDeleteSchedule(ctx, body)
+
+		return r, true, e
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchTags(ctx context.Context, action string, body []byte) ([]byte, bool, error) {
+	switch action {
+	case opListTagsForResource:
+		r, e := h.handleListTagsForResource(ctx, body)
+
+		return r, true, e
+	case opTagResource:
+		r, e := h.handleTagResource(ctx, body)
+
+		return r, true, e
+	case opUntagResource:
+		r, e := h.handleUntagResource(ctx, body)
 
 		return r, true, e
 	}
@@ -876,4 +1145,281 @@ func (h *Handler) handleListJobRuns(_ context.Context, body []byte) ([]byte, err
 	}
 
 	return json.Marshal(map[string]any{"JobRuns": runs})
+}
+
+func (h *Handler) handleDescribeJobRun(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name  string `json:"Name"`
+		RunID string `json:"RunId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	run, err := h.Backend.DescribeJobRun(req.Name, req.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(run)
+}
+
+func (h *Handler) handleStopJobRun(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name  string `json:"Name"`
+		RunID string `json:"RunId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	run, err := h.Backend.StopJobRun(req.Name, req.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"RunId": run.RunID})
+}
+
+func (h *Handler) handleCreateRuleset(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Tags        map[string]string `json:"Tags"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
+		TargetArn   string            `json:"TargetArn"`
+		Rules       []Rule            `json:"Rules"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	rs, err := h.Backend.CreateRuleset(req.Name, req.Description, req.TargetArn, req.Rules, req.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: rs.Name})
+}
+
+func (h *Handler) handleDescribeRuleset(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	rs, err := h.Backend.DescribeRuleset(req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(rs)
+}
+
+func (h *Handler) handleListRulesets(_ context.Context, _ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"Rulesets": h.Backend.ListRulesets()})
+}
+
+func (h *Handler) handleUpdateRuleset(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
+		Rules       []Rule `json:"Rules"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.UpdateRuleset(req.Name, req.Description, req.Rules); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleDeleteRuleset(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.DeleteRuleset(req.Name); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleCreateSchedule(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Tags           map[string]string `json:"Tags"`
+		Name           string            `json:"Name"`
+		CronExpression string            `json:"CronExpression"`
+		JobNames       []string          `json:"JobNames"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	sc, err := h.Backend.CreateSchedule(req.Name, req.JobNames, req.CronExpression, req.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: sc.Name})
+}
+
+func (h *Handler) handleDescribeSchedule(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	sc, err := h.Backend.DescribeSchedule(req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(sc)
+}
+
+func (h *Handler) handleListSchedules(_ context.Context, _ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"Schedules": h.Backend.ListSchedules()})
+}
+
+func (h *Handler) handleUpdateSchedule(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name           string   `json:"Name"`
+		CronExpression string   `json:"CronExpression"`
+		JobNames       []string `json:"JobNames"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.UpdateSchedule(req.Name, req.JobNames, req.CronExpression); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleDeleteSchedule(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.DeleteSchedule(req.Name); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Tags        map[string]string `json:"Tags"`
+		ResourceArn string            `json:"ResourceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.UpdateTagsByArn(req.ResourceArn, req.Tags, nil); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ResourceArn string   `json:"ResourceArn"`
+		TagKeys     []string `json:"TagKeys"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.UpdateTagsByArn(req.ResourceArn, nil, req.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	tags, err := h.Backend.FindTagsByArn(req.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{"Tags": tags})
+}
+
+func (h *Handler) handleBatchDeleteRecipeVersion(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name           string   `json:"Name"`
+		RecipeVersions []string `json:"RecipeVersions"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	// We only emulate a single version "1.0", so any batch deletion for emulation
+	// will either do nothing or delete the recipe itself if it was the only version.
+	// For simplicity, return success.
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleDeleteRecipeVersion(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name          string `json:"Name"`
+		RecipeVersion string `json:"RecipeVersion"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleListRecipeVersions(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	r, err := h.Backend.DescribeRecipe(req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{"Recipes": []Recipe{*r}})
+}
+
+func (h *Handler) handleStartProjectSession(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Name          string `json:"Name"`
+		AssumeControl bool   `json:"AssumeControl"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+func (h *Handler) handleSendProjectSessionAction(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Action map[string]any `json:"Action"`
+		Name   string         `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
 }
