@@ -27,7 +27,52 @@ var (
 	ErrEventDataStoreNotFound = awserr.New("EventDataStoreNotFoundException", awserr.ErrNotFound)
 	// ErrQueryNotFound is returned when a query is not found.
 	ErrQueryNotFound = awserr.New("InactiveQueryException", awserr.ErrNotFound)
+	// ErrTerminationProtected is returned when trying to delete a termination-protected resource.
+	ErrTerminationProtected = awserr.New("EventDataStoreTerminationProtectedException", awserr.ErrConflict)
 )
+
+// AdvancedFieldSelector represents a filter condition in an advanced event selector.
+// Each field selector specifies a field name and one or more comparison operators.
+type AdvancedFieldSelector struct {
+	Field         string   `json:"Field"`
+	Equals        []string `json:"Equals,omitempty"`
+	StartsWith    []string `json:"StartsWith,omitempty"`
+	EndsWith      []string `json:"EndsWith,omitempty"`
+	NotEquals     []string `json:"NotEquals,omitempty"`
+	NotStartsWith []string `json:"NotStartsWith,omitempty"`
+	NotEndsWith   []string `json:"NotEndsWith,omitempty"`
+}
+
+// AdvancedEventSelector represents an advanced event selector that filters events
+// based on field-level conditions. Mutually exclusive with basic EventSelectors.
+type AdvancedEventSelector struct {
+	Name           string                  `json:"Name,omitempty"`
+	FieldSelectors []AdvancedFieldSelector `json:"FieldSelectors"`
+}
+
+// LookupAttribute represents a filter attribute for LookupEvents.
+type LookupAttribute struct {
+	AttributeKey   string `json:"AttributeKey"`
+	AttributeValue string `json:"AttributeValue"`
+}
+
+// CloudTrailEvent represents a recorded management or data event.
+type CloudTrailEvent struct {
+	EventID      string         `json:"EventId"`
+	EventName    string         `json:"EventName"`
+	EventSource  string         `json:"EventSource"`
+	EventTime    time.Time      `json:"EventTime"`
+	Username     string         `json:"Username,omitempty"`
+	Resources    []EventResource `json:"Resources,omitempty"`
+	ReadOnly     string         `json:"ReadOnly,omitempty"`
+	AccessKeyID  string         `json:"AccessKeyId,omitempty"`
+}
+
+// EventResource represents a resource associated with a CloudTrail event.
+type EventResource struct {
+	ResourceName string `json:"ResourceName,omitempty"`
+	ResourceType string `json:"ResourceType,omitempty"`
+}
 
 // Channel represents a CloudTrail channel resource.
 type Channel struct {
@@ -57,17 +102,23 @@ type Dashboard struct {
 
 // EventDataStore represents a CloudTrail event data store resource.
 type EventDataStore struct {
-	Tags                 *tags.Tags `json:"tags,omitempty"`
-	CreatedTimestamp     time.Time  `json:"createdTimestamp"`
-	UpdatedTimestamp     time.Time  `json:"updatedTimestamp"`
-	EventDataStoreID     string     `json:"eventDataStoreId"`
-	EventDataStoreARN    string     `json:"eventDataStoreArn"`
-	Name                 string     `json:"name"`
-	Status               string     `json:"status"`
-	RetentionPeriod      int32      `json:"retentionPeriod"`
-	MultiRegionEnabled   bool       `json:"multiRegionEnabled"`
-	OrganizationEnabled  bool       `json:"organizationEnabled"`
-	TerminationProtected bool       `json:"terminationProtectionEnabled"`
+	Tags                   *tags.Tags              `json:"tags,omitempty"`
+	CreatedTimestamp       time.Time               `json:"createdTimestamp"`
+	UpdatedTimestamp       time.Time               `json:"updatedTimestamp"`
+	EventDataStoreID       string                  `json:"eventDataStoreId"`
+	EventDataStoreARN      string                  `json:"eventDataStoreArn"`
+	Name                   string                  `json:"name"`
+	Status                 string                  `json:"status"`
+	FederationStatus       string                  `json:"federationStatus,omitempty"`
+	FederationRoleArn      string                  `json:"federationRoleArn,omitempty"`
+	BillingMode            string                  `json:"billingMode,omitempty"`
+	KMSKeyID               string                  `json:"kmsKeyId,omitempty"`
+	AdvancedEventSelectors []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
+	InsightSelectors       []InsightSelector       `json:"insightSelectors,omitempty"`
+	RetentionPeriod        int32                   `json:"retentionPeriod"`
+	MultiRegionEnabled     bool                    `json:"multiRegionEnabled"`
+	OrganizationEnabled    bool                    `json:"organizationEnabled"`
+	TerminationProtected   bool                    `json:"terminationProtectionEnabled"`
 }
 
 // Query represents a CloudTrail query resource.
@@ -105,26 +156,33 @@ type EventSelector struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via AddTags / CreateTrail.
 type Trail struct {
-	CreationTime               time.Time       `json:"creationTime"`
-	Tags                       *tags.Tags      `json:"tags,omitempty"`
-	KMSKeyID                   string          `json:"kmsKeyId,omitempty"`
-	TrailARN                   string          `json:"trailArn"`
-	S3BucketName               string          `json:"s3BucketName"`
-	S3KeyPrefix                string          `json:"s3KeyPrefix,omitempty"`
-	SnsTopicName               string          `json:"snsTopicName,omitempty"`
-	SnsTopicARN                string          `json:"snsTopicArn,omitempty"`
-	CloudWatchLogsLogGroupARN  string          `json:"cloudWatchLogsLogGroupArn,omitempty"`
-	CloudWatchLogsRoleARN      string          `json:"cloudWatchLogsRoleArn,omitempty"`
-	Region                     string          `json:"region"`
-	Name                       string          `json:"name"`
-	HomeRegion                 string          `json:"homeRegion"`
-	AccountID                  string          `json:"accountId"`
-	EventSelectors             []EventSelector `json:"eventSelectors,omitempty"`
-	IncludeGlobalServiceEvents bool            `json:"includeGlobalServiceEvents"`
-	IsMultiRegionTrail         bool            `json:"isMultiRegionTrail"`
-	LogFileValidationEnabled   bool            `json:"logFileValidationEnabled"`
-	IsLogging                  bool            `json:"isLogging"`
-	HasCustomEventSelectors    bool            `json:"hasCustomEventSelectors"`
+	CreationTime               time.Time               `json:"creationTime"`
+	StartLoggingTime           *time.Time              `json:"startLoggingTime,omitempty"`
+	StopLoggingTime            *time.Time              `json:"stopLoggingTime,omitempty"`
+	LatestDeliveryTime         *time.Time              `json:"latestDeliveryTime,omitempty"`
+	Tags                       *tags.Tags              `json:"tags,omitempty"`
+	KMSKeyID                   string                  `json:"kmsKeyId,omitempty"`
+	TrailARN                   string                  `json:"trailArn"`
+	S3BucketName               string                  `json:"s3BucketName"`
+	S3KeyPrefix                string                  `json:"s3KeyPrefix,omitempty"`
+	SnsTopicName               string                  `json:"snsTopicName,omitempty"`
+	SnsTopicARN                string                  `json:"snsTopicArn,omitempty"`
+	CloudWatchLogsLogGroupARN  string                  `json:"cloudWatchLogsLogGroupArn,omitempty"`
+	CloudWatchLogsRoleARN      string                  `json:"cloudWatchLogsRoleArn,omitempty"`
+	Region                     string                  `json:"region"`
+	Name                       string                  `json:"name"`
+	HomeRegion                 string                  `json:"homeRegion"`
+	AccountID                  string                  `json:"accountId"`
+	EventSelectors             []EventSelector         `json:"eventSelectors,omitempty"`
+	AdvancedEventSelectors     []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
+	InsightSelectors           []InsightSelector       `json:"insightSelectors,omitempty"`
+	IncludeGlobalServiceEvents bool                    `json:"includeGlobalServiceEvents"`
+	IsMultiRegionTrail         bool                    `json:"isMultiRegionTrail"`
+	LogFileValidationEnabled   bool                    `json:"logFileValidationEnabled"`
+	IsLogging                  bool                    `json:"isLogging"`
+	HasCustomEventSelectors    bool                    `json:"hasCustomEventSelectors"`
+	HasInsightSelectors        bool                    `json:"hasInsightSelectors"`
+	IsOrganizationTrail        bool                    `json:"isOrganizationTrail"`
 }
 
 // Import represents a CloudTrail import resource.
@@ -159,7 +217,6 @@ type InMemoryBackend struct {
 	queries          map[string]*Query
 	resourcePolicies map[string]*ResourcePolicy
 	imports          map[string]*Import
-	insightSelectors map[string][]InsightSelector // trail ARN → selectors
 	accountID        string
 	region           string
 	channelCounter   int
@@ -186,7 +243,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		queries:          make(map[string]*Query),
 		resourcePolicies: make(map[string]*ResourcePolicy),
 		imports:          make(map[string]*Import),
-		insightSelectors: make(map[string][]InsightSelector),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("cloudtrail"),
@@ -225,7 +281,6 @@ func (b *InMemoryBackend) Reset() {
 	b.queries = make(map[string]*Query)
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.imports = make(map[string]*Import)
-	b.insightSelectors = make(map[string][]InsightSelector)
 	b.channelCounter = 0
 	b.dashboardCounter = 0
 	b.edsCounter = 0
@@ -424,7 +479,7 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 	return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 }
 
-// StartLogging sets the isLogging flag for a trail to true.
+// StartLogging sets the isLogging flag for a trail to true and records the start time.
 func (b *InMemoryBackend) StartLogging(nameOrARN string) error {
 	b.mu.Lock("StartLogging")
 	defer b.mu.Unlock()
@@ -433,12 +488,15 @@ func (b *InMemoryBackend) StartLogging(nameOrARN string) error {
 	if t == nil {
 		return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
+	now := time.Now().UTC()
 	t.IsLogging = true
+	t.StartLoggingTime = &now
+	t.LatestDeliveryTime = &now
 
 	return nil
 }
 
-// StopLogging sets the isLogging flag for a trail to false.
+// StopLogging sets the isLogging flag for a trail to false and records the stop time.
 func (b *InMemoryBackend) StopLogging(nameOrARN string) error {
 	b.mu.Lock("StopLogging")
 	defer b.mu.Unlock()
@@ -447,26 +505,34 @@ func (b *InMemoryBackend) StopLogging(nameOrARN string) error {
 	if t == nil {
 		return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
+	now := time.Now().UTC()
 	t.IsLogging = false
+	t.StopLoggingTime = &now
 
 	return nil
 }
 
-// GetTrailStatus returns the logging status of a trail.
-func (b *InMemoryBackend) GetTrailStatus(nameOrARN string) (bool, error) {
+// GetTrailStatus returns the full logging status of a trail.
+func (b *InMemoryBackend) GetTrailStatus(nameOrARN string) (*Trail, error) {
 	b.mu.RLock("GetTrailStatus")
 	defer b.mu.RUnlock()
 
 	t := b.findByNameOrARNLocked(nameOrARN)
 	if t == nil {
-		return false, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
+		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
+	cp := *t
 
-	return t.IsLogging, nil
+	return &cp, nil
 }
 
-// PutEventSelectors sets event selectors for a trail.
-func (b *InMemoryBackend) PutEventSelectors(nameOrARN string, selectors []EventSelector) (*Trail, error) {
+// PutEventSelectors sets event selectors for a trail. Basic and advanced selectors
+// are mutually exclusive: providing AdvancedEventSelectors clears EventSelectors and vice versa.
+func (b *InMemoryBackend) PutEventSelectors(
+	nameOrARN string,
+	selectors []EventSelector,
+	advancedSelectors []AdvancedEventSelector,
+) (*Trail, error) {
 	b.mu.Lock("PutEventSelectors")
 	defer b.mu.Unlock()
 
@@ -474,25 +540,35 @@ func (b *InMemoryBackend) PutEventSelectors(nameOrARN string, selectors []EventS
 	if t == nil {
 		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
-	t.EventSelectors = selectors
-	t.HasCustomEventSelectors = len(selectors) > 0
+	if len(advancedSelectors) > 0 {
+		// Advanced selectors replace basic selectors.
+		t.AdvancedEventSelectors = copyAdvancedEventSelectors(advancedSelectors)
+		t.EventSelectors = nil
+		t.HasCustomEventSelectors = true
+	} else {
+		// Basic selectors replace advanced selectors.
+		t.EventSelectors = selectors
+		t.AdvancedEventSelectors = nil
+		t.HasCustomEventSelectors = len(selectors) > 0
+	}
 	cp := *t
 	cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(t.AdvancedEventSelectors)
 
 	return &cp, nil
 }
 
-// GetEventSelectors returns event selectors for a trail.
-func (b *InMemoryBackend) GetEventSelectors(nameOrARN string) (string, []EventSelector, error) {
+// GetEventSelectors returns both basic and advanced event selectors for a trail.
+func (b *InMemoryBackend) GetEventSelectors(nameOrARN string) (string, []EventSelector, []AdvancedEventSelector, error) {
 	b.mu.RLock("GetEventSelectors")
 	defer b.mu.RUnlock()
 
 	t := b.findByNameOrARNLocked(nameOrARN)
 	if t == nil {
-		return "", nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
+		return "", nil, nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
 
-	return t.TrailARN, copyEventSelectors(t.EventSelectors), nil
+	return t.TrailARN, copyEventSelectors(t.EventSelectors), copyAdvancedEventSelectors(t.AdvancedEventSelectors), nil
 }
 
 // AddTags adds tags to a resource by ARN or ID.
@@ -613,6 +689,42 @@ func copyEventSelectors(in []EventSelector) []EventSelector {
 			copy(out[i].DataResources, es.DataResources)
 		}
 	}
+
+	return out
+}
+
+func copyAdvancedEventSelectors(in []AdvancedEventSelector) []AdvancedEventSelector {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AdvancedEventSelector, len(in))
+	for i, aes := range in {
+		out[i].Name = aes.Name
+		if aes.FieldSelectors != nil {
+			out[i].FieldSelectors = make([]AdvancedFieldSelector, len(aes.FieldSelectors))
+			for j, fs := range aes.FieldSelectors {
+				out[i].FieldSelectors[j] = AdvancedFieldSelector{
+					Field:         fs.Field,
+					Equals:        copyStringSlice(fs.Equals),
+					StartsWith:    copyStringSlice(fs.StartsWith),
+					EndsWith:      copyStringSlice(fs.EndsWith),
+					NotEquals:     copyStringSlice(fs.NotEquals),
+					NotStartsWith: copyStringSlice(fs.NotStartsWith),
+					NotEndsWith:   copyStringSlice(fs.NotEndsWith),
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func copyStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
 
 	return out
 }
@@ -740,6 +852,8 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	name string,
 	multiRegionEnabled, organizationEnabled, terminationProtected bool,
 	retentionPeriod int32,
+	advancedEventSelectors []AdvancedEventSelector,
+	billingMode, kmsKeyID string,
 	kv map[string]string,
 ) (*EventDataStore, error) {
 	b.mu.Lock("CreateEventDataStore")
@@ -759,30 +873,39 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	if len(kv) > 0 {
 		t.Merge(kv)
 	}
+	if billingMode == "" {
+		billingMode = "EXTENDABLE_RETENTION_PRICING"
+	}
 	now := time.Now().UTC()
 	eds := &EventDataStore{
-		EventDataStoreID:     id,
-		EventDataStoreARN:    edsARN,
-		Name:                 name,
-		Status:               statusEnabled,
-		MultiRegionEnabled:   multiRegionEnabled,
-		OrganizationEnabled:  organizationEnabled,
-		TerminationProtected: terminationProtected,
-		RetentionPeriod:      retentionPeriod,
-		CreatedTimestamp:     now,
-		UpdatedTimestamp:     now,
-		Tags:                 t,
+		EventDataStoreID:       id,
+		EventDataStoreARN:      edsARN,
+		Name:                   name,
+		Status:                 statusEnabled,
+		MultiRegionEnabled:     multiRegionEnabled,
+		OrganizationEnabled:    organizationEnabled,
+		TerminationProtected:   terminationProtected,
+		RetentionPeriod:        retentionPeriod,
+		AdvancedEventSelectors: copyAdvancedEventSelectors(advancedEventSelectors),
+		BillingMode:            billingMode,
+		KMSKeyID:               kmsKeyID,
+		FederationStatus:       "DISABLED",
+		CreatedTimestamp:       now,
+		UpdatedTimestamp:       now,
+		Tags:                   t,
 	}
 	b.eventDataStores[id] = eds
 	b.edsByARN[edsARN] = id
 	b.edsByName[name] = id
 
 	cp := *eds
+	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(eds.AdvancedEventSelectors)
 
 	return &cp, nil
 }
 
 // DeleteEventDataStore deletes an event data store by ID or ARN.
+// Returns ErrTerminationProtected if termination protection is enabled.
 func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
 	b.mu.Lock("DeleteEventDataStore")
 	defer b.mu.Unlock()
@@ -794,6 +917,9 @@ func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
 	eds, ok := b.eventDataStores[id]
 	if !ok {
 		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	if eds.TerminationProtected {
+		return fmt.Errorf("%w: event data store %s has termination protection enabled", ErrTerminationProtected, edsIDOrARN)
 	}
 	delete(b.edsByARN, eds.EventDataStoreARN)
 	delete(b.edsByName, eds.Name)
@@ -916,6 +1042,8 @@ func (b *InMemoryBackend) UpdateEventDataStore(
 	name string,
 	multiRegionEnabled, organizationEnabled, terminationProtected *bool,
 	retentionPeriod *int32,
+	advancedEventSelectors []AdvancedEventSelector,
+	billingMode, kmsKeyID string,
 ) (*EventDataStore, error) {
 	b.mu.Lock("UpdateEventDataStore")
 	defer b.mu.Unlock()
@@ -945,8 +1073,18 @@ func (b *InMemoryBackend) UpdateEventDataStore(
 	if retentionPeriod != nil {
 		eds.RetentionPeriod = *retentionPeriod
 	}
+	if advancedEventSelectors != nil {
+		eds.AdvancedEventSelectors = copyAdvancedEventSelectors(advancedEventSelectors)
+	}
+	if billingMode != "" {
+		eds.BillingMode = billingMode
+	}
+	if kmsKeyID != "" {
+		eds.KMSKeyID = kmsKeyID
+	}
 	eds.UpdatedTimestamp = time.Now().UTC()
 	cp := *eds
+	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(eds.AdvancedEventSelectors)
 
 	return &cp, nil
 }
@@ -1249,18 +1387,26 @@ func (b *InMemoryBackend) StopImport(importID string) (*Import, error) {
 	return &cp, nil
 }
 
-// PutInsightSelectors sets insight selectors for a trail.
-func (b *InMemoryBackend) PutInsightSelectors(trailNameOrARN string, selectors []InsightSelector) error {
+// PutInsightSelectors sets insight selectors for a trail, updating HasInsightSelectors.
+func (b *InMemoryBackend) PutInsightSelectors(trailNameOrARN string, selectors []InsightSelector) (*Trail, error) {
 	b.mu.Lock("PutInsightSelectors")
 	defer b.mu.Unlock()
 
 	t := b.findByNameOrARNLocked(trailNameOrARN)
 	if t == nil {
-		return fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
+		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
 	}
-	b.insightSelectors[t.TrailARN] = selectors
+	t.InsightSelectors = make([]InsightSelector, len(selectors))
+	copy(t.InsightSelectors, selectors)
+	t.HasInsightSelectors = len(selectors) > 0
 
-	return nil
+	cp := *t
+	cp.InsightSelectors = make([]InsightSelector, len(t.InsightSelectors))
+	copy(cp.InsightSelectors, t.InsightSelectors)
+	cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(t.AdvancedEventSelectors)
+
+	return &cp, nil
 }
 
 // GetInsightSelectors returns insight selectors for a trail.
@@ -1272,9 +1418,8 @@ func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []
 	if t == nil {
 		return "", nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
 	}
-	sels := b.insightSelectors[t.TrailARN]
-	cp := make([]InsightSelector, len(sels))
-	copy(cp, sels)
+	cp := make([]InsightSelector, len(t.InsightSelectors))
+	copy(cp, t.InsightSelectors)
 
 	return t.TrailARN, cp, nil
 }
@@ -1314,7 +1459,7 @@ func (b *InMemoryBackend) RegisterOrganizationDelegatedAdmin(accountID string) e
 	return nil
 }
 
-// DisableFederation disables federation for an event data store (no-op, returns EDS).
+// DisableFederation disables federation for an event data store.
 func (b *InMemoryBackend) DisableFederation(edsIDOrARN string) (*EventDataStore, error) {
 	b.mu.Lock("DisableFederation")
 	defer b.mu.Unlock()
@@ -1327,13 +1472,16 @@ func (b *InMemoryBackend) DisableFederation(edsIDOrARN string) (*EventDataStore,
 	if !ok {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
+	eds.FederationStatus = "DISABLED"
+	eds.FederationRoleArn = ""
+	eds.UpdatedTimestamp = time.Now().UTC()
 	cp := *eds
 
 	return &cp, nil
 }
 
-// EnableFederation enables federation for an event data store (no-op, returns EDS).
-func (b *InMemoryBackend) EnableFederation(edsIDOrARN, _ string) (*EventDataStore, error) {
+// EnableFederation enables federation for an event data store, storing the role ARN.
+func (b *InMemoryBackend) EnableFederation(edsIDOrARN, federationRoleArn string) (*EventDataStore, error) {
 	b.mu.Lock("EnableFederation")
 	defer b.mu.Unlock()
 
@@ -1345,6 +1493,9 @@ func (b *InMemoryBackend) EnableFederation(edsIDOrARN, _ string) (*EventDataStor
 	if !ok {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
+	eds.FederationStatus = "ENABLED"
+	eds.FederationRoleArn = federationRoleArn
+	eds.UpdatedTimestamp = time.Now().UTC()
 	cp := *eds
 
 	return &cp, nil
@@ -1409,4 +1560,50 @@ func (b *InMemoryBackend) ListInsightsMetricData() []map[string]any {
 // ListImportFailures returns empty import failures (stub).
 func (b *InMemoryBackend) ListImportFailures(_ string) []map[string]any {
 	return []map[string]any{}
+}
+
+// LookupEventsInput holds parameters for a LookupEvents call.
+type LookupEventsInput struct {
+	LookupAttributes []LookupAttribute
+	StartTime        *time.Time
+	EndTime          *time.Time
+	MaxResults       int32
+	NextToken        string
+}
+
+// LookupEventsOutput holds the result of a LookupEvents call.
+type LookupEventsOutput struct {
+	Events    []CloudTrailEvent
+	NextToken string
+}
+
+// LookupEvents returns management events matching the given filters. Since the emulator
+// does not actively record events from API calls, this returns the stored events slice
+// filtered by the provided lookup attributes and time range.
+func (b *InMemoryBackend) LookupEvents(in LookupEventsInput) LookupEventsOutput {
+	return LookupEventsOutput{Events: []CloudTrailEvent{}}
+}
+
+// PutEDSInsightSelectors sets insight selectors for an event data store.
+func (b *InMemoryBackend) PutEDSInsightSelectors(edsIDOrARN string, selectors []InsightSelector) (*EventDataStore, error) {
+	b.mu.Lock("PutEDSInsightSelectors")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	eds.InsightSelectors = make([]InsightSelector, len(selectors))
+	copy(eds.InsightSelectors, selectors)
+	eds.UpdatedTimestamp = time.Now().UTC()
+	cp := *eds
+	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(eds.AdvancedEventSelectors)
+	cp.InsightSelectors = make([]InsightSelector, len(eds.InsightSelectors))
+	copy(cp.InsightSelectors, eds.InsightSelectors)
+
+	return &cp, nil
 }
