@@ -53,6 +53,16 @@ const (
 	keyProfile      = "profile"
 	keyProfiles     = "profiles"
 	keyTags         = "tags"
+
+	// URL path segment depth constants.
+	segmentDepthResource    = 2 // /prefix/{id}
+	segmentDepthSubResource = 3 // /prefix/{id}/action
+
+	// minSegmentsForResource is the minimum number of path segments for a resource op.
+	minSegmentsForResource = 2
+
+	// base10 is the radix for integer parsing in query string parameters.
+	base10 = 10
 )
 
 // Handler handles Roles Anywhere HTTP requests.
@@ -322,8 +332,8 @@ func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, e
 	id := extractID(path, pathTrustanchor)
 
 	var req struct {
-		Name   string             `json:"name"`
 		Source *TrustAnchorSource `json:"source"`
+		Name   string             `json:"name"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -364,12 +374,12 @@ func (h *Handler) handleDisableTrustAnchor(path string) (any, int, error) {
 
 func (h *Handler) handleCreateProfile(body []byte) (any, int, error) {
 	var req struct {
+		DurationSeconds           *int32     `json:"durationSeconds"`
 		Name                      string     `json:"name"`
+		SessionPolicy             string     `json:"sessionPolicy"`
 		RoleArns                  []string   `json:"roleArns"`
 		Tags                      []TagEntry `json:"tags"`
-		DurationSeconds           *int32     `json:"durationSeconds"`
 		ManagedPolicyArns         []string   `json:"managedPolicyArns"`
-		SessionPolicy             string     `json:"sessionPolicy"`
 		RequireInstanceProperties bool       `json:"requireInstanceProperties"`
 	}
 
@@ -437,12 +447,12 @@ func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error
 	id := extractID(path, pathProfile)
 
 	var req struct {
-		Name                      string   `json:"name"`
-		RoleArns                  []string `json:"roleArns"`
 		DurationSeconds           *int32   `json:"durationSeconds"`
-		ManagedPolicyArns         []string `json:"managedPolicyArns"`
-		SessionPolicy             string   `json:"sessionPolicy"`
 		RequireInstanceProperties *bool    `json:"requireInstanceProperties"`
+		Name                      string   `json:"name"`
+		SessionPolicy             string   `json:"sessionPolicy"`
+		RoleArns                  []string `json:"roleArns"`
+		ManagedPolicyArns         []string `json:"managedPolicyArns"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -568,29 +578,54 @@ func parseRESTPath(method, path string) (string, string) {
 		return opUnknown, ""
 	}
 
+	if op, id := parseEntityPath(method, segments); op != opUnknown {
+		return op, id
+	}
+
+	return parseTagPaths(method, segments)
+}
+
+// parseEntityPath handles /trustanchors, /trustanchor/*, /profiles, /profile/* routing.
+func parseEntityPath(method string, segments []string) (string, string) {
 	switch segments[0] {
 	case pathTrustanchors:
-		// GET /trustanchors
-		if method == http.MethodGet {
-			return opListTrustAnchors, ""
-		}
-
-		// POST /trustanchors (CreateTrustAnchor)
-		if method == http.MethodPost {
-			return opCreateTrustAnchor, ""
-		}
+		return parseTrustAnchorsCollection(method)
 	case pathTrustanchor:
 		return parseTrustAnchorPath(method, segments)
 	case pathProfiles:
-		if method == http.MethodGet {
-			return opListProfiles, ""
-		}
-
-		if method == http.MethodPost {
-			return opCreateProfile, ""
-		}
+		return parseProfilesCollection(method)
 	case pathProfile:
 		return parseProfilePath(method, segments)
+	}
+
+	return opUnknown, ""
+}
+
+func parseTrustAnchorsCollection(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opListTrustAnchors, ""
+	case http.MethodPost:
+		return opCreateTrustAnchor, ""
+	}
+
+	return opUnknown, ""
+}
+
+func parseProfilesCollection(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opListProfiles, ""
+	case http.MethodPost:
+		return opCreateProfile, ""
+	}
+
+	return opUnknown, ""
+}
+
+// parseTagPaths handles /TagResource, /UntagResource, /ListTagsForResource routing.
+func parseTagPaths(method string, segments []string) (string, string) {
+	switch segments[0] {
 	case pathTagResource:
 		if method == http.MethodPost {
 			return opTagResource, ""
@@ -609,14 +644,14 @@ func parseRESTPath(method, path string) (string, string) {
 }
 
 func parseTrustAnchorPath(method string, segments []string) (string, string) {
-	if len(segments) < 2 {
+	if len(segments) < minSegmentsForResource {
 		return opUnknown, ""
 	}
 
 	id := segments[1]
 
 	switch len(segments) {
-	case 2:
+	case segmentDepthResource:
 		switch method {
 		case http.MethodGet:
 			return opGetTrustAnchor, id
@@ -625,7 +660,7 @@ func parseTrustAnchorPath(method string, segments []string) (string, string) {
 		case http.MethodPatch:
 			return opUpdateTrustAnchor, id
 		}
-	case 3:
+	case segmentDepthSubResource:
 		switch segments[2] {
 		case pathEnable:
 			if method == http.MethodPost {
@@ -642,14 +677,14 @@ func parseTrustAnchorPath(method string, segments []string) (string, string) {
 }
 
 func parseProfilePath(method string, segments []string) (string, string) {
-	if len(segments) < 2 {
+	if len(segments) < minSegmentsForResource {
 		return opUnknown, ""
 	}
 
 	id := segments[1]
 
 	switch len(segments) {
-	case 2:
+	case segmentDepthResource:
 		switch method {
 		case http.MethodGet:
 			return opGetProfile, id
@@ -658,7 +693,7 @@ func parseProfilePath(method string, segments []string) (string, string) {
 		case http.MethodPatch:
 			return opUpdateProfile, id
 		}
-	case 3:
+	case segmentDepthSubResource:
 		switch segments[2] {
 		case pathEnable:
 			if method == http.MethodPost {
@@ -703,7 +738,7 @@ func parsePageParams(query string) (string, int) {
 
 			for _, c := range after {
 				if c >= '0' && c <= '9' {
-					n = n*10 + int(c-'0')
+					n = n*base10 + int(c-'0')
 				}
 			}
 

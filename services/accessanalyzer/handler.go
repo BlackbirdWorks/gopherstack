@@ -47,14 +47,18 @@ const (
 	opListTagsForResource = "ListTagsForResource"
 	opUnknown             = "Unknown"
 
-	keyCreatedAt  = "createdAt"
-	keyUpdatedAt  = "updatedAt"
-	keyAnalyzer   = "analyzer"
+	segmentDepthResource     = 2
+	segmentDepthSubResource  = 3
+	segmentDepthLeafResource = 4
+
+	keyCreatedAt   = "createdAt"
+	keyUpdatedAt   = "updatedAt"
+	keyAnalyzer    = "analyzer"
 	keyArchiveRule = "archiveRule"
-	keyFinding    = "finding"
-	keyFindings   = "findings"
-	keyARN        = "arn"
-	keyTags       = "tags"
+	keyFinding     = "finding"
+	keyFindings    = "findings"
+	keyARN         = "arn"
+	keyTags        = "tags"
 )
 
 // Handler handles Access Analyzer HTTP requests.
@@ -99,6 +103,7 @@ func (h *Handler) GetSupportedOperations() []string {
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
 		return strings.HasPrefix(path, "/"+pathAnalyzer) ||
 			strings.HasPrefix(path, "/"+pathTags+"/") ||
 			path == "/"+pathResource+"/"+pathScan ||
@@ -175,68 +180,81 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
-	if result, code, err, handled := h.dispatchAnalyzerOps(op, path, query, body); handled {
+	if result, code, ok, err := h.dispatchAnalyzerOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, err, handled := h.dispatchFindingOps(op, path, body); handled {
+	if result, code, ok, err := h.dispatchFindingOps(op, path, body); ok {
 		return result, code, err
 	}
 
 	return h.dispatchTagOps(op, path, query, body)
 }
 
-func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any, int, error, bool) {
+func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateAnalyzer:
 		r, c, e := h.handleCreateAnalyzer(body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opGetAnalyzer:
 		r, c, e := h.handleGetAnalyzer(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opListAnalyzers:
 		r, c, e := h.handleListAnalyzers(query)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDeleteAnalyzer:
 		r, c, e := h.handleDeleteAnalyzer(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opCreateArchiveRule:
 		r, c, e := h.handleCreateArchiveRule(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opGetArchiveRule:
 		r, c, e := h.handleGetArchiveRule(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opListArchiveRules:
 		r, c, e := h.handleListArchiveRules(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDeleteArchiveRule:
 		r, c, e := h.handleDeleteArchiveRule(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opUpdateArchiveRule:
 		r, c, e := h.handleUpdateArchiveRule(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	}
 
-	return nil, 0, nil, false
+	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, error, bool) {
+func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetFinding:
 		r, c, e := h.handleGetFinding(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opListFindings:
 		r, c, e := h.handleListFindings(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opUpdateFindings:
 		r, c, e := h.handleUpdateFindings(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opStartResourceScan:
 		r, c, e := h.handleStartResourceScan(body)
-		return r, c, e, true
+
+		return r, c, true, e
 	}
 
-	return nil, 0, nil, false
+	return nil, 0, false, nil
 }
 
 func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int, error) {
@@ -256,9 +274,9 @@ func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int,
 
 func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 	var req struct {
+		Tags         map[string]string `json:"tags"`
 		AnalyzerName string            `json:"analyzerName"`
 		Type         string            `json:"type"`
-		Tags         map[string]string `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -283,7 +301,7 @@ func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 }
 
 func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
-	name := extractPathParam(path, pathAnalyzer)
+	name := extractAnalyzerName(path)
 
 	a, err := h.Backend.GetAnalyzer(name)
 	if err != nil {
@@ -296,7 +314,7 @@ func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
 func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
 	analyzerType := ""
 
-	for _, part := range strings.Split(query, "&") {
+	for part := range strings.SplitSeq(query, "&") {
 		if after, ok := strings.CutPrefix(part, "type="); ok {
 			analyzerType = after
 		}
@@ -317,7 +335,7 @@ func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
 }
 
 func (h *Handler) handleDeleteAnalyzer(path string) (any, int, error) {
-	name := extractPathParam(path, pathAnalyzer)
+	name := extractAnalyzerName(path)
 
 	if err := h.Backend.DeleteAnalyzer(name); err != nil {
 		return nil, 0, err
@@ -327,11 +345,11 @@ func (h *Handler) handleDeleteAnalyzer(path string) (any, int, error) {
 }
 
 func (h *Handler) handleCreateArchiveRule(path string, body []byte) (any, int, error) {
-	analyzerName := extractPathParam(path, pathAnalyzer)
+	analyzerName := extractAnalyzerName(path)
 
 	var req struct {
-		RuleName string                     `json:"ruleName"`
 		Filter   map[string]FilterCriterion `json:"filter"`
+		RuleName string                     `json:"ruleName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -346,7 +364,7 @@ func (h *Handler) handleCreateArchiveRule(path string, body []byte) (any, int, e
 }
 
 func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
-	analyzerName, ruleName := extractTwoPathParams(path, pathAnalyzer, pathArchiveRule)
+	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
 
 	rule, err := h.Backend.GetArchiveRule(analyzerName, ruleName)
 	if err != nil {
@@ -357,7 +375,7 @@ func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
-	analyzerName := extractPathParam(path, pathAnalyzer)
+	analyzerName := extractAnalyzerName(path)
 
 	rules, err := h.Backend.ListArchiveRules(analyzerName)
 	if err != nil {
@@ -374,7 +392,7 @@ func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
 }
 
 func (h *Handler) handleDeleteArchiveRule(path string) (any, int, error) {
-	analyzerName, ruleName := extractTwoPathParams(path, pathAnalyzer, pathArchiveRule)
+	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
 
 	if err := h.Backend.DeleteArchiveRule(analyzerName, ruleName); err != nil {
 		return nil, 0, err
@@ -384,7 +402,7 @@ func (h *Handler) handleDeleteArchiveRule(path string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (any, int, error) {
-	analyzerName, ruleName := extractTwoPathParams(path, pathAnalyzer, pathArchiveRule)
+	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
 
 	var req struct {
 		Filter map[string]FilterCriterion `json:"filter"`
@@ -402,7 +420,7 @@ func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (any, int, e
 }
 
 func (h *Handler) handleGetFinding(path string) (any, int, error) {
-	analyzerName, findingID := extractTwoPathParams(path, pathAnalyzer, pathFinding)
+	analyzerName, findingID := extractAnalyzerAndSubName(path, pathFinding)
 
 	f, err := h.Backend.GetFinding(analyzerName, findingID)
 	if err != nil {
@@ -413,14 +431,14 @@ func (h *Handler) handleGetFinding(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListFindings(path string, body []byte) (any, int, error) {
-	analyzerName := extractPathParam(path, pathAnalyzer)
+	analyzerName := extractAnalyzerName(path)
 
 	var req struct {
-		AnalyzerArn string                     `json:"analyzerArn"`
 		Filter      map[string]FilterCriterion `json:"filter"`
-		MaxResults  int                        `json:"maxResults"`
+		AnalyzerArn string                     `json:"analyzerArn"`
 		NextToken   string                     `json:"nextToken"`
 		Status      string                     `json:"status"`
+		MaxResults  int                        `json:"maxResults"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -448,19 +466,19 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 }
 
 func (h *Handler) handleUpdateFindings(path string, body []byte) (any, int, error) {
-	analyzerName := extractPathParam(path, pathAnalyzer)
+	analyzerName := extractAnalyzerName(path)
 
 	var req struct {
 		AnalyzerArn string   `json:"analyzerArn"`
-		Ids         []string `json:"ids"`
 		Status      string   `json:"status"`
+		IDs         []string `json:"ids"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, 0, ErrValidation
 	}
 
-	if err := h.Backend.UpdateFindings(analyzerName, req.Ids, FindingStatus(req.Status)); err != nil {
+	if err := h.Backend.UpdateFindings(analyzerName, req.IDs, FindingStatus(req.Status)); err != nil {
 		return nil, 0, err
 	}
 
@@ -507,7 +525,7 @@ func (h *Handler) handleUntagResource(path, query string) (any, int, error) {
 
 	var tagKeys []string
 
-	for _, part := range strings.Split(query, "&") {
+	for part := range strings.SplitSeq(query, "&") {
 		if after, ok := strings.CutPrefix(part, "tagKeys="); ok {
 			tagKeys = append(tagKeys, after)
 		}
@@ -579,57 +597,79 @@ func parseRESTPath(method, path string) (string, string) {
 func parseAnalyzerPath(method string, segments []string) (string, string) {
 	switch len(segments) {
 	case 1:
-		// /analyzer
+		return parseAnalyzerCollection(method)
+	case segmentDepthResource:
+		return parseAnalyzerResource(method, segments[1])
+	case segmentDepthSubResource:
+		return parseAnalyzerSubResource(method, segments)
+	case segmentDepthLeafResource:
+		return parseAnalyzerLeafResource(method, segments)
+	}
+
+	return opUnknown, ""
+}
+
+func parseAnalyzerCollection(method string) (string, string) {
+	switch method {
+	case http.MethodPut:
+		return opCreateAnalyzer, ""
+	case http.MethodGet:
+		return opListAnalyzers, ""
+	}
+
+	return opUnknown, ""
+}
+
+func parseAnalyzerResource(method, name string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetAnalyzer, name
+	case http.MethodDelete:
+		return opDeleteAnalyzer, name
+	}
+
+	return opUnknown, ""
+}
+
+func parseAnalyzerSubResource(method string, segments []string) (string, string) {
+	name := segments[1]
+
+	switch segments[2] {
+	case pathArchiveRule:
 		switch method {
 		case http.MethodPut:
-			return opCreateAnalyzer, ""
+			return opCreateArchiveRule, name
 		case http.MethodGet:
-			return opListAnalyzers, ""
+			return opListArchiveRules, name
 		}
-	case 2:
-		// /analyzer/{name}
-		name := segments[1]
+	case pathFindings:
+		switch method {
+		case http.MethodPost:
+			return opListFindings, name
+		case http.MethodPut:
+			return opUpdateFindings, name
+		}
+	}
 
+	return opUnknown, ""
+}
+
+func parseAnalyzerLeafResource(method string, segments []string) (string, string) {
+	name := segments[1]
+
+	switch segments[2] {
+	case pathArchiveRule:
 		switch method {
 		case http.MethodGet:
-			return opGetAnalyzer, name
+			return opGetArchiveRule, name
 		case http.MethodDelete:
-			return opDeleteAnalyzer, name
+			return opDeleteArchiveRule, name
+		case http.MethodPut:
+			return opUpdateArchiveRule, name
 		}
-	case 3:
-		// /analyzer/{name}/archive-rule  or  /analyzer/{name}/findings  or  /analyzer/{name}/finding
-		switch segments[2] {
-		case pathArchiveRule:
-			switch method {
-			case http.MethodPut:
-				return opCreateArchiveRule, segments[1]
-			case http.MethodGet:
-				return opListArchiveRules, segments[1]
-			}
-		case pathFindings:
-			switch method {
-			case http.MethodPost:
-				return opListFindings, segments[1]
-			case http.MethodPut:
-				return opUpdateFindings, segments[1]
-			}
-		}
-	case 4:
-		// /analyzer/{name}/archive-rule/{rule}  or  /analyzer/{name}/finding/{id}
-		switch segments[2] {
-		case pathArchiveRule:
-			switch method {
-			case http.MethodGet:
-				return opGetArchiveRule, segments[1]
-			case http.MethodDelete:
-				return opDeleteArchiveRule, segments[1]
-			case http.MethodPut:
-				return opUpdateArchiveRule, segments[1]
-			}
-		case pathFinding:
-			if method == http.MethodGet {
-				return opGetFinding, segments[1]
-			}
+	case pathFinding:
+		if method == http.MethodGet {
+			return opGetFinding, name
 		}
 	}
 
@@ -657,13 +697,13 @@ func parseTagsPath(method string, segments []string) (string, string) {
 
 // ---- path parameter extraction ----
 
-// extractPathParam extracts the segment after the given key segment.
-// For /analyzer/{name} with key "analyzer", returns name.
-func extractPathParam(path, key string) string {
+// extractAnalyzerName extracts the analyzer name from a path.
+// For /analyzer/{name}/... returns name.
+func extractAnalyzerName(path string) string {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
 	for i, s := range segments {
-		if s == key && i+1 < len(segments) {
+		if s == pathAnalyzer && i+1 < len(segments) {
 			return segments[i+1]
 		}
 	}
@@ -671,19 +711,19 @@ func extractPathParam(path, key string) string {
 	return ""
 }
 
-// extractTwoPathParams extracts path params after two key segments.
-// For /analyzer/{name}/archive-rule/{ruleName} with keys "analyzer" and "archive-rule",
+// extractAnalyzerAndSubName extracts analyzer name and a sub-resource name from a path.
+// For /analyzer/{name}/archive-rule/{ruleName} with subKey "archive-rule",
 // returns (name, ruleName).
-func extractTwoPathParams(path, key1, key2 string) (string, string) {
+func extractAnalyzerAndSubName(path, subKey string) (string, string) {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	var first, second string
 
 	for i, s := range segments {
-		if s == key1 && i+1 < len(segments) {
+		if s == pathAnalyzer && i+1 < len(segments) {
 			first = segments[i+1]
 		}
 
-		if s == key2 && i+1 < len(segments) {
+		if s == subKey && i+1 < len(segments) {
 			second = segments[i+1]
 		}
 	}

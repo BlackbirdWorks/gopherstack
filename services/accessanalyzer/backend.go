@@ -3,6 +3,7 @@ package accessanalyzer
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -77,37 +78,36 @@ type Analyzer struct {
 
 // ArchiveRule represents an archive rule for an analyzer.
 type ArchiveRule struct {
-	RuleName  string                     `json:"ruleName"`
 	Filter    map[string]FilterCriterion `json:"filter"`
 	CreatedAt time.Time                  `json:"createdAt"`
 	UpdatedAt time.Time                  `json:"updatedAt"`
+	RuleName  string                     `json:"ruleName"`
 }
 
 // Finding represents a single IAM Access Analyzer finding.
 type Finding struct {
+	UpdatedAt    time.Time         `json:"updatedAt"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	Principal    map[string]string `json:"principal,omitempty"`
+	Condition    map[string]string `json:"condition,omitempty"`
+	IsPublic     *bool             `json:"isPublic,omitempty"`
 	ID           string            `json:"id"`
 	AnalyzerArn  string            `json:"analyzerArn"`
 	Status       FindingStatus     `json:"status"`
 	ResourceType string            `json:"resourceType"`
 	ResourceArn  string            `json:"resourceArn"`
 	Action       []string          `json:"action,omitempty"`
-	Principal    map[string]string `json:"principal,omitempty"`
-	Condition    map[string]string `json:"condition,omitempty"`
-	IsPublic     *bool             `json:"isPublic,omitempty"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
-	CreatedAt    time.Time         `json:"createdAt"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
-
+	mu           *lockmetrics.RWMutex
 	analyzers    map[string]*Analyzer               // name → Analyzer
 	archiveRules map[string]map[string]*ArchiveRule // analyzerName → ruleName → Rule
 	findings     map[string]map[string]*Finding     // analyzerName → findingID → Finding
 	tags         map[string]map[string]string       // resourceARN → tags
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -379,7 +379,7 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 // ListFindings returns findings for an analyzer, optionally filtered.
 func (b *InMemoryBackend) ListFindings(
 	analyzerName string,
-	filter map[string]FilterCriterion,
+	_ map[string]FilterCriterion,
 	status string,
 	maxResults int,
 	nextToken string,
@@ -453,7 +453,7 @@ func (b *InMemoryBackend) UpdateFindings(
 }
 
 // StartResourceScan records that a scan was initiated for a resource (no-op in simulation).
-func (b *InMemoryBackend) StartResourceScan(analyzerARN, resourceARN string) error {
+func (b *InMemoryBackend) StartResourceScan(analyzerARN string, _ string) error {
 	b.mu.RLock("StartResourceScan")
 	defer b.mu.RUnlock()
 
@@ -476,9 +476,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range kv {
-		b.tags[resourceARN][k] = v
-	}
+	maps.Copy(b.tags[resourceARN], kv)
 
 	return nil
 }
@@ -592,10 +590,7 @@ func cloneTags(m map[string]string) map[string]string {
 	}
 
 	out := make(map[string]string, len(m))
-
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 
 	return out
 }

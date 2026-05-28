@@ -27,21 +27,21 @@ var (
 
 // TrustAnchorSource defines the source of a trust anchor.
 type TrustAnchorSource struct {
-	SourceType string `json:"sourceType"`
 	// SourceData is a map of source-type-specific fields.
 	SourceData map[string]string `json:"sourceData,omitempty"`
+	SourceType string            `json:"sourceType"`
 }
 
 // TrustAnchor represents an IAM Roles Anywhere trust anchor.
 type TrustAnchor struct {
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
+	Source         TrustAnchorSource `json:"source"`
 	TrustAnchorID  string            `json:"trustAnchorId"`
 	TrustAnchorArn string            `json:"trustAnchorArn"`
 	Name           string            `json:"name"`
-	Source         TrustAnchorSource `json:"source"`
-	Enabled        bool              `json:"enabled"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
 	Tags           []TagEntry        `json:"tags,omitempty"`
+	Enabled        bool              `json:"enabled"`
 }
 
 // TagEntry is a key-value tag pair (Roles Anywhere uses list-based tags).
@@ -51,32 +51,30 @@ type TagEntry struct {
 }
 
 // Profile represents an IAM Roles Anywhere profile.
+// Profile represents an IAM Roles Anywhere profile.
 type Profile struct {
-	ProfileID  string     `json:"profileId"`
-	ProfileArn string     `json:"profileArn"`
-	Name       string     `json:"name"`
-	RoleArns   []string   `json:"roleArns"`
-	Enabled    bool       `json:"enabled"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	Tags       []TagEntry `json:"tags,omitempty"`
-
-	// Optional fields
-	DurationSeconds           *int32   `json:"durationSeconds,omitempty"`
-	ManagedPolicyArns         []string `json:"managedPolicyArns,omitempty"`
-	RequireInstanceProperties bool     `json:"requireInstanceProperties,omitempty"`
-	SessionPolicy             string   `json:"sessionPolicy,omitempty"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+	UpdatedAt                 time.Time  `json:"updatedAt"`
+	DurationSeconds           *int32     `json:"durationSeconds,omitempty"`
+	ProfileID                 string     `json:"profileId"`
+	ProfileArn                string     `json:"profileArn"`
+	Name                      string     `json:"name"`
+	SessionPolicy             string     `json:"sessionPolicy,omitempty"`
+	Tags                      []TagEntry `json:"tags,omitempty"`
+	RoleArns                  []string   `json:"roleArns"`
+	ManagedPolicyArns         []string   `json:"managedPolicyArns,omitempty"`
+	RequireInstanceProperties bool       `json:"requireInstanceProperties,omitempty"`
+	Enabled                   bool       `json:"enabled"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
-
+	mu           *lockmetrics.RWMutex
 	trustAnchors map[string]*TrustAnchor // id → TrustAnchor
 	profiles     map[string]*Profile     // id → Profile
 	tags         map[string][]TagEntry   // resourceARN → tags
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
