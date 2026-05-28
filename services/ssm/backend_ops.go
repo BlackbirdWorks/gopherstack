@@ -220,12 +220,41 @@ func (b *InMemoryBackend) GetInventory(input *GetInventoryInput) (*GetInventoryO
 	}, nil
 }
 
-// GetInventorySchema returns an empty schema list.
-// The in-memory backend does not maintain schema definitions.
-func (b *InMemoryBackend) GetInventorySchema(_ *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
-	return &GetInventorySchemaOutput{
-		Schemas: []any{},
-	}, nil
+// GetInventorySchema returns the built-in AWS SSM inventory schema types.
+// When TypeName is provided, only schemas matching that prefix are returned.
+func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
+	all := []InventorySchemaItem{
+		{TypeName: "AWS:Application", Version: "1.1"},
+		{TypeName: "AWS:AWSComponent", Version: "1.0"},
+		{TypeName: "AWS:ComplianceItem", Version: "1.1"},
+		{TypeName: "AWS:ComplianceSummary", Version: "1.1"},
+		{TypeName: "AWS:InstanceDetailedInformation", Version: "1.0"},
+		{TypeName: "AWS:InstanceInformation", Version: "1.0"},
+		{TypeName: "AWS:Network", Version: "1.0"},
+		{TypeName: "AWS:PatchCompliance", Version: "1.1"},
+		{TypeName: "AWS:PatchSummary", Version: "1.0"},
+		{TypeName: "AWS:WindowsRegistry", Version: "1.0"},
+		{TypeName: "AWS:WindowsRole", Version: "1.0"},
+		{TypeName: "AWS:WindowsUpdate", Version: "1.0"},
+		{TypeName: "Custom:Application", Version: "1.0"},
+	}
+
+	if input.TypeName == "" {
+		schemas := make([]any, len(all))
+		for i, s := range all {
+			schemas[i] = s
+		}
+		return &GetInventorySchemaOutput{Schemas: schemas}, nil
+	}
+
+	filtered := make([]any, 0)
+	for _, s := range all {
+		if s.TypeName == input.TypeName || len(s.TypeName) >= len(input.TypeName) &&
+			s.TypeName[:len(input.TypeName)] == input.TypeName {
+			filtered = append(filtered, s)
+		}
+	}
+	return &GetInventorySchemaOutput{Schemas: filtered}, nil
 }
 
 // ListInventoryEntries returns stored inventory entries for an instance and type.
@@ -365,24 +394,103 @@ func (b *InMemoryBackend) ListComplianceItems(
 	return &ListComplianceItemsOutput{ComplianceItems: all}, nil
 }
 
-// ListComplianceSummaries returns an empty list.
-// The in-memory backend does not compute compliance summaries.
+// ListComplianceSummaries aggregates stored compliance items by ComplianceType.
 func (b *InMemoryBackend) ListComplianceSummaries(
 	_ *ListComplianceSummariesInput,
 ) (*ListComplianceSummariesOutput, error) {
-	return &ListComplianceSummariesOutput{
-		ComplianceSummaryItems: []any{},
-	}, nil
+	b.mu.RLock("ListComplianceSummaries")
+	defer b.mu.RUnlock()
+
+	// Tally compliant/non-compliant counts per compliance type.
+	type tally struct {
+		compliantCount    int
+		nonCompliantCount int
+	}
+
+	tallies := make(map[string]*tally)
+
+	for _, items := range b.compliance {
+		for _, item := range items {
+			ct := item.ComplianceType
+			if ct == "" {
+				ct = "Custom"
+			}
+
+			if tallies[ct] == nil {
+				tallies[ct] = &tally{}
+			}
+
+			if item.Status == "COMPLIANT" {
+				tallies[ct].compliantCount++
+			} else {
+				tallies[ct].nonCompliantCount++
+			}
+		}
+	}
+
+	summaries := make([]any, 0, len(tallies))
+	for ct, t := range tallies {
+		summaries = append(summaries, ComplianceSummaryItem{
+			ComplianceType: ct,
+			CompliantSummary: ComplianceCountSummary{
+				CompliantCount: t.compliantCount,
+			},
+			NonCompliantSummary: ComplianceCountSummary{
+				NonCompliantCount: t.nonCompliantCount,
+			},
+		})
+	}
+
+	return &ListComplianceSummariesOutput{ComplianceSummaryItems: summaries}, nil
 }
 
-// ListResourceComplianceSummaries returns an empty list.
-// The in-memory backend does not compute per-resource compliance summaries.
+// ListResourceComplianceSummaries returns per-resource compliance summaries
+// derived from stored compliance items.
 func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	_ *ListResourceComplianceSummariesInput,
 ) (*ListResourceComplianceSummariesOutput, error) {
-	return &ListResourceComplianceSummariesOutput{
-		ResourceComplianceSummaryItems: []any{},
-	}, nil
+	b.mu.RLock("ListResourceComplianceSummaries")
+	defer b.mu.RUnlock()
+
+	summaries := make([]any, 0, len(b.compliance))
+
+	for resourceID, items := range b.compliance {
+		if len(items) == 0 {
+			continue
+		}
+
+		compliant := 0
+		nonCompliant := 0
+
+		for _, item := range items {
+			if item.Status == "COMPLIANT" {
+				compliant++
+			} else {
+				nonCompliant++
+			}
+		}
+
+		status := "COMPLIANT"
+		if nonCompliant > 0 {
+			status = "NON_COMPLIANT"
+		}
+
+		summaries = append(summaries, ResourceComplianceSummaryItem{
+			ResourceID:      resourceID,
+			ResourceType:    items[0].ResourceType,
+			ComplianceType:  items[0].ComplianceType,
+			OverallSeverity: "INFORMATIONAL",
+			Status:          status,
+			CompliantSummary: ComplianceCountSummary{
+				CompliantCount: compliant,
+			},
+			NonCompliantSummary: ComplianceCountSummary{
+				NonCompliantCount: nonCompliant,
+			},
+		})
+	}
+
+	return &ListResourceComplianceSummariesOutput{ResourceComplianceSummaryItems: summaries}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -633,12 +741,59 @@ func (b *InMemoryBackend) GetMaintenanceWindowTask(
 }
 
 // DescribeMaintenanceWindowsForTarget returns an empty list.
-// The in-memory backend does not index windows by target.
+// DescribeMaintenanceWindowsForTarget returns windows that have registered targets
+// matching the given resource type and target key/value filters.
 func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
-	_ *DescribeMaintenanceWindowsForTargetInput,
+	input *DescribeMaintenanceWindowsForTargetInput,
 ) (*DescribeMaintenanceWindowsForTargetOutput, error) {
+	b.mu.RLock("DescribeMaintenanceWindowsForTarget")
+	defer b.mu.RUnlock()
+
+	// Collect window IDs that match any of the requested targets.
+	matchedWindowIDs := make(map[string]struct{})
+
+	for _, windowTarget := range b.maintenanceWindowTargets {
+		if input.ResourceType != "" && windowTarget.ResourceType != input.ResourceType {
+			continue
+		}
+
+		if len(input.Targets) == 0 {
+			matchedWindowIDs[windowTarget.WindowID] = struct{}{}
+			continue
+		}
+
+		for _, reqTarget := range input.Targets {
+			for _, wt := range windowTarget.Targets {
+				if wt.Key == reqTarget.Key {
+					for _, reqVal := range reqTarget.Values {
+						for _, wVal := range wt.Values {
+							if wVal == reqVal {
+								matchedWindowIDs[windowTarget.WindowID] = struct{}{}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	identities := make([]MaintenanceWindowIdentity, 0, len(matchedWindowIDs))
+	for windowID := range matchedWindowIDs {
+		if mw, ok := b.maintenanceWindows[windowID]; ok {
+			identities = append(identities, MaintenanceWindowIdentity{
+				WindowID:    mw.WindowID,
+				Name:        mw.Name,
+				Description: mw.Description,
+				Enabled:     mw.Enabled,
+				Duration:    mw.Duration,
+				Cutoff:      mw.Cutoff,
+				Schedule:    mw.Schedule,
+			})
+		}
+	}
+
 	return &DescribeMaintenanceWindowsForTargetOutput{
-		WindowIdentities: []MaintenanceWindowIdentity{},
+		WindowIdentities: identities,
 	}, nil
 }
 
@@ -805,14 +960,28 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 	return &ListOpsItemRelatedItemsOutput{Summaries: all}, nil
 }
 
-// ListOpsItemEvents returns an empty list.
-// The in-memory backend does not track OpsItem events.
+// ListOpsItemEvents returns tracked events for OpsItems, optionally filtered by OpsItemID.
 func (b *InMemoryBackend) ListOpsItemEvents(
-	_ *ListOpsItemEventsInput,
+	input *ListOpsItemEventsInput,
 ) (*ListOpsItemEventsOutput, error) {
-	return &ListOpsItemEventsOutput{
-		Summaries: []OpsItemEventSummary{},
-	}, nil
+	b.mu.RLock("ListOpsItemEvents")
+	defer b.mu.RUnlock()
+
+	var summaries []OpsItemEventSummary
+
+	for _, event := range b.opsItemEvents {
+		if input.OpsItemID != "" && event.OpsItemID != input.OpsItemID {
+			continue
+		}
+
+		summaries = append(summaries, event)
+	}
+
+	if summaries == nil {
+		summaries = []OpsItemEventSummary{}
+	}
+
+	return &ListOpsItemEventsOutput{Summaries: summaries}, nil
 }
 
 // DeleteOpsMetadata removes OpsMetadata by ARN.

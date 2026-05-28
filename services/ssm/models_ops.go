@@ -84,6 +84,12 @@ type GetInventorySchemaOutput struct {
 	Schemas   []any  `json:"Schemas"`
 }
 
+// InventorySchemaItem represents a single inventory schema type entry.
+type InventorySchemaItem struct {
+	TypeName string `json:"TypeName"`
+	Version  string `json:"Version"`
+}
+
 // ListInventoryEntriesInput is the request payload for ListInventoryEntries.
 type ListInventoryEntriesInput struct {
 	MaxResults *int64 `json:"MaxResults,omitempty"`
@@ -477,6 +483,30 @@ type ListComplianceSummariesInput struct {
 type ListComplianceSummariesOutput struct {
 	NextToken              string `json:"NextToken,omitempty"`
 	ComplianceSummaryItems []any  `json:"ComplianceSummaryItems"`
+}
+
+// ComplianceCountSummary holds compliant or non-compliant item counts.
+type ComplianceCountSummary struct {
+	CompliantCount    int `json:"CompliantCount,omitempty"`
+	NonCompliantCount int `json:"NonCompliantCount,omitempty"`
+}
+
+// ComplianceSummaryItem represents a rolled-up compliance summary by type.
+type ComplianceSummaryItem struct {
+	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
+	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
+	ComplianceType      string                 `json:"ComplianceType"`
+}
+
+// ResourceComplianceSummaryItem represents per-resource compliance status.
+type ResourceComplianceSummaryItem struct {
+	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
+	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
+	ResourceID          string                 `json:"ResourceId"`
+	ResourceType        string                 `json:"ResourceType"`
+	ComplianceType      string                 `json:"ComplianceType"`
+	OverallSeverity     string                 `json:"OverallSeverity"`
+	Status              string                 `json:"Status"`
 }
 
 // ListResourceComplianceSummariesInput is the request payload.
