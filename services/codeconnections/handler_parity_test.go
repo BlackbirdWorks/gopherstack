@@ -1205,29 +1205,13 @@ func TestParity_Backend_CreateConnection_HostArn(t *testing.T) {
 func TestParity_Backend_CreateHost_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name      string
-		wantErrOn string
-	}{
-		{name: "first_create_succeeds"},
-		{name: "second_create_fails", wantErrOn: "second"},
-	}
-
 	b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	_, err := b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://a.example.com", nil)
+	require.NoError(t, err, "first create should succeed")
 
-			if tt.wantErrOn == "" {
-				_, err := b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://a.example.com", nil)
-				require.NoError(t, err)
-			} else {
-				_, err := b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://b.example.com", nil)
-				require.Error(t, err, "duplicate host name must fail")
-			}
-		})
-	}
+	_, err = b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://b.example.com", nil)
+	require.Error(t, err, "duplicate host name must fail")
 }
 
 // TestParity_Backend_HostsByName_DeleteRestores verifies delete releases the name for reuse.
