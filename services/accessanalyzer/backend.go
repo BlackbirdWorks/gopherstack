@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,7 +100,7 @@ type Finding struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu        lockmetrics.RWMutex
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
 
@@ -115,7 +113,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:           lockmetrics.NewRWMutex("accessanalyzer"),
+		mu:           lockmetrics.New("accessanalyzer"),
 		accountID:    accountID,
 		region:       region,
 		analyzers:    make(map[string]*Analyzer),
@@ -640,12 +638,3 @@ func copyFinding(f *Finding) *Finding {
 	return &cp
 }
 
-// isAccessAnalyzerARN reports whether resourceARN is an analyzer ARN matching the service.
-func isAccessAnalyzerARN(resourceARN, region, accountID string) bool {
-	prefix := fmt.Sprintf("arn:aws:access-analyzer:%s:%s:analyzer/", region, accountID)
-
-	return strings.HasPrefix(resourceARN, prefix)
-}
-
-// ensure no import cycle warning — we need sync for compile-time check.
-var _ sync.Locker = (*sync.Mutex)(nil)
