@@ -569,11 +569,11 @@ func applyModifyDBClusterOpts(c *DBCluster, opts *ModifyDBClusterOptions) {
 
 // ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.
 type ModifyDBClusterOptions struct {
-	VpcSecurityGroupIDs  []string
-	EnableLogsTypes      []string
-	DisableLogsTypes     []string
-	EngineVersion        string
-	Port                 int
+	EngineVersion       string
+	VpcSecurityGroupIDs []string
+	EnableLogsTypes     []string
+	DisableLogsTypes    []string
+	Port                int
 }
 
 func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {

@@ -3861,9 +3861,9 @@ func TestAudit_CreateCluster_VpcSecurityGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		vpcSGIDs     []string
 		name         string
 		wantContains string
+		vpcSGIDs     []string
 		wantStatus   int
 	}{
 		{
@@ -3995,8 +3995,8 @@ func TestAudit_CreateCluster_CloudwatchLogsExports(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		logTypes     []string
 		wantContains string
+		logTypes     []string
 		wantStatus   int
 	}{
 		{
@@ -4065,11 +4065,11 @@ func TestAudit_DeleteCluster_FinalSnapshot(t *testing.T) {
 		{
 			name: "create_final_snapshot",
 			vals: url.Values{
-				"Action":                             {"DeleteDBCluster"},
-				"Version":                            {"2014-10-31"},
-				"DBClusterIdentifier":                {"del-cluster"},
-				"SkipFinalSnapshot":                  {"false"},
-				"FinalDBClusterSnapshotIdentifier":   {"final-snap"},
+				"Action":                           {"DeleteDBCluster"},
+				"Version":                          {"2014-10-31"},
+				"DBClusterIdentifier":              {"del-cluster"},
+				"SkipFinalSnapshot":                {"false"},
+				"FinalDBClusterSnapshotIdentifier": {"final-snap"},
 			},
 			wantStatus:         200,
 			wantContains:       "DeleteDBClusterResponse",
@@ -4087,11 +4087,11 @@ func TestAudit_DeleteCluster_FinalSnapshot(t *testing.T) {
 				})
 			},
 			vals: url.Values{
-				"Action":                             {"DeleteDBCluster"},
-				"Version":                            {"2014-10-31"},
-				"DBClusterIdentifier":                {"del-cluster"},
-				"SkipFinalSnapshot":                  {"false"},
-				"FinalDBClusterSnapshotIdentifier":   {"final-snap"},
+				"Action":                           {"DeleteDBCluster"},
+				"Version":                          {"2014-10-31"},
+				"DBClusterIdentifier":              {"del-cluster"},
+				"SkipFinalSnapshot":                {"false"},
+				"FinalDBClusterSnapshotIdentifier": {"final-snap"},
 			},
 			wantStatus:   400,
 			wantContains: "DBClusterSnapshotAlreadyExistsFault",
@@ -4177,9 +4177,9 @@ func TestAudit_ModifyCluster_CloudwatchLogs(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		wantContains string
 		enableLogs   []string
 		disableLogs  []string
-		wantContains string
 		wantStatus   int
 	}{
 		{
@@ -4475,9 +4475,9 @@ func TestAudit_DeleteCluster_DeletionProtection(t *testing.T) {
 
 	tests := []struct {
 		name               string
-		deletionProtection bool
-		wantStatus         int
 		wantContains       string
+		wantStatus         int
+		deletionProtection bool
 	}{
 		{
 			name:               "deletion_protection_blocks_delete",
@@ -4521,9 +4521,9 @@ func TestAudit_DeleteCluster_WithInstances(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		addInstance  bool
-		wantStatus   int
 		wantContains string
+		wantStatus   int
+		addInstance  bool
 	}{
 		{
 			name:         "fails_with_instances",
@@ -4571,10 +4571,10 @@ func TestAudit_ClusterVpcSGPersistedToBackend(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		sgIDs       []string
-		wantLen     int
-		wantFirst   string
+		name      string
+		wantFirst string
+		sgIDs     []string
+		wantLen   int
 	}{
 		{
 			name:      "two_sgs_stored",
@@ -4815,8 +4815,8 @@ func TestAudit_StopCluster_AlreadyStopped(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		wantStatus   int
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name:         "stop_already_stopped_cluster_fails",
@@ -4851,8 +4851,8 @@ func TestAudit_StartCluster_AlreadyAvailable(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		wantStatus   int
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name:         "start_already_available_cluster_fails",
@@ -4887,8 +4887,8 @@ func TestAudit_FailoverCluster_StoppedFails(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		wantStatus   int
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name:         "failover_stopped_cluster_fails",
@@ -4959,10 +4959,10 @@ func TestAudit_InstanceInheritsClusterProperties(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		clusterID       string
-		wantEngineVer   string
-		wantStorageEnc  bool
+		name           string
+		clusterID      string
+		wantEngineVer  string
+		wantStorageEnc bool
 	}{
 		{
 			name:           "instance_inherits_from_cluster",
@@ -5048,11 +5048,11 @@ func TestAudit_RestoreCluster_FromSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		snapshotExists   bool
-		targetExists     bool
-		wantStatus       int
-		wantContains     string
+		name           string
+		wantContains   string
+		wantStatus     int
+		snapshotExists bool
+		targetExists   bool
 	}{
 		{
 			name:           "restore_from_valid_snapshot",
@@ -5119,11 +5119,11 @@ func TestAudit_RestoreCluster_ToPointInTime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		sourceExists    bool
-		targetExists    bool
-		wantStatus      int
-		wantContains    string
+		name         string
+		wantContains string
+		wantStatus   int
+		sourceExists bool
+		targetExists bool
 	}{
 		{
 			name:         "restore_from_source",
@@ -5168,10 +5168,10 @@ func TestAudit_RestoreCluster_ToPointInTime(t *testing.T) {
 				})
 			}
 			rr := doRequest(t, h, url.Values{
-				"Action":                       {"RestoreDBClusterToPointInTime"},
-				"Version":                      {"2014-10-31"},
-				"SourceDBClusterIdentifier":    {"pitr-source"},
-				"DBClusterIdentifier":          {"pitr-target"},
+				"Action":                    {"RestoreDBClusterToPointInTime"},
+				"Version":                   {"2014-10-31"},
+				"SourceDBClusterIdentifier": {"pitr-source"},
+				"DBClusterIdentifier":       {"pitr-target"},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -5185,8 +5185,8 @@ func TestAudit_GlobalCluster_FailoverSwitchover(t *testing.T) {
 	tests := []struct {
 		name         string
 		action       string
-		wantStatus   int
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name:         "failover_sets_failing_over_status",
@@ -5213,9 +5213,9 @@ func TestAudit_GlobalCluster_FailoverSwitchover(t *testing.T) {
 				"GlobalClusterIdentifier": {"fo-gc"},
 			})
 			rr := doRequest(t, h, url.Values{
-				"Action":                  {tt.action},
-				"Version":                 {"2014-10-31"},
-				"GlobalClusterIdentifier": {"fo-gc"},
+				"Action":                    {tt.action},
+				"Version":                   {"2014-10-31"},
+				"GlobalClusterIdentifier":   {"fo-gc"},
 				"TargetDbClusterIdentifier": {"some-cluster"},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
@@ -5334,9 +5334,9 @@ func TestAudit_SnapshotAttributes_AddRemove(t *testing.T) {
 		name         string
 		operation    string
 		attrName     string
+		wantContains string
 		valuesToAdd  []string
 		valuesToRm   []string
-		wantContains string
 		wantStatus   int
 	}{
 		{
@@ -5446,10 +5446,10 @@ func TestAudit_EventSubscription_FullLifecycle(t *testing.T) {
 			setup: func(t *testing.T, h *docdb.Handler) {
 				t.Helper()
 				doRequest(t, h, url.Values{
-					"Action":                         {"CreateEventSubscription"},
-					"Version":                        {"2014-10-31"},
-					"SubscriptionName":               {"src-id-sub"},
-					"SourceIds.SourceId.1":            {"my-cluster"},
+					"Action":               {"CreateEventSubscription"},
+					"Version":              {"2014-10-31"},
+					"SubscriptionName":     {"src-id-sub"},
+					"SourceIds.SourceId.1": {"my-cluster"},
 				})
 			},
 			vals: url.Values{
@@ -5554,11 +5554,11 @@ func TestAudit_Pagination_Clusters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		maxRecords   string
-		marker       string
-		wantCount    int
-		wantHasMore  bool
+		name        string
+		maxRecords  string
+		marker      string
+		wantCount   int
+		wantHasMore bool
 	}{
 		{
 			name:        "no_limit_returns_all",
@@ -5618,9 +5618,9 @@ func TestAudit_SubnetGroup_DeleteInUseFails(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		useInCluster bool
-		wantStatus   int
 		wantContains string
+		wantStatus   int
+		useInCluster bool
 	}{
 		{
 			name:         "in_use_by_cluster_fails",
