@@ -368,10 +368,16 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
 	availabilityZones := parseAvailabilityZones(vals)
 	tags := parseTags(vals)
+	opts := &CreateDBClusterOptions{
+		KmsKeyID:                         vals.Get("KmsKeyId"),
+		VpcSecurityGroupIDs:              parseVpcSecurityGroupIDs(vals),
+		EnabledCloudwatchLogsExports:     parseEnableLogTypes(vals),
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == stringTrue,
+	}
 	cluster, err := h.Backend.CreateDBCluster(
 		id, engine, engineVersion, masterUser, dbName, paramGroupName, subnetGroupName,
 		port, storageEncrypted, deletionProtection, backupRetentionPeriod,
-		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags,
+		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags, opts,
 	)
 	if err != nil {
 		return nil, err
@@ -408,7 +414,11 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.DeleteDBCluster(id)
+	opts := &DeleteDBClusterOptions{
+		SkipFinalSnapshot:                vals.Get("SkipFinalSnapshot") == stringTrue,
+		FinalDBClusterSnapshotIdentifier: vals.Get("FinalDBClusterSnapshotIdentifier"),
+	}
+	cluster, err := h.Backend.DeleteDBCluster(id, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -430,9 +440,24 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		backupRetentionPeriod, _ = strconv.Atoi(backupRetentionPeriodStr)
 	}
 	deletionProtection := parseBoolParam(vals, "DeletionProtection")
+
+	portStr := vals.Get("Port")
+	var port int
+	if portStr != "" {
+		port, _ = strconv.Atoi(portStr)
+	}
+
+	opts := &ModifyDBClusterOptions{
+		EngineVersion:       vals.Get("EngineVersion"),
+		VpcSecurityGroupIDs: parseVpcSecurityGroupIDs(vals),
+		EnableLogsTypes:     parseCloudwatchEnableLogTypes(vals),
+		DisableLogsTypes:    parseCloudwatchDisableLogTypes(vals),
+		Port:                port,
+	}
+
 	cluster, err := h.Backend.ModifyDBCluster(
 		id, paramGroupName, deletionProtection, backupRetentionPeriod,
-		preferredBackupWindow, preferredMaintenanceWindow,
+		preferredBackupWindow, preferredMaintenanceWindow, opts,
 	)
 	if err != nil {
 		return nil, err
@@ -493,7 +518,11 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		promotionTier, _ = strconv.Atoi(ptStr)
 	}
 	tags := parseTags(vals)
-	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, promotionTier, tags)
+	opts := &CreateDBInstanceOptions{
+		CACertificateIdentifier: vals.Get("CACertificateIdentifier"),
+		CopyTagsToSnapshot:      vals.Get("CopyTagsToSnapshot") == stringTrue,
+	}
+	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, promotionTier, tags, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +575,19 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	instanceClass := vals.Get("DBInstanceClass")
 	autoMinorVersionUpgrade := parseBoolParam(vals, "AutoMinorVersionUpgrade")
 	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, autoMinorVersionUpgrade, preferredMaintenanceWindow)
+
+	opts := &ModifyDBInstanceOptions{
+		CACertificateIdentifier: vals.Get("CACertificateIdentifier"),
+		CopyTagsToSnapshot:      parseBoolParam(vals, "CopyTagsToSnapshot"),
+	}
+	if ptStr := vals.Get("PromotionTier"); ptStr != "" {
+		pt, _ := strconv.Atoi(ptStr)
+		opts.PromotionTier = &pt
+	}
+
+	inst, err := h.Backend.ModifyDBInstance(
+		id, instanceClass, autoMinorVersionUpgrade, preferredMaintenanceWindow, opts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1358,47 +1399,70 @@ func parseTagKeyMembers(vals url.Values) []string {
 }
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
+	vpcSGs := make([]xmlVpcSecurityGroupMembership, 0, len(c.VpcSecurityGroupIDs))
+	for _, sgID := range c.VpcSecurityGroupIDs {
+		vpcSGs = append(vpcSGs, xmlVpcSecurityGroupMembership{
+			VpcSecurityGroupID: sgID,
+			Status:             "active",
+		})
+	}
+	logTypes := make([]string, len(c.EnabledCloudwatchLogsExports))
+	copy(logTypes, c.EnabledCloudwatchLogsExports)
+
 	return xmlDBCluster{
-		DBClusterIdentifier:         c.DBClusterIdentifier,
-		Engine:                      c.Engine,
-		Status:                      c.Status,
-		MasterUsername:              c.MasterUsername,
-		DatabaseName:                c.DatabaseName,
-		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
-		Endpoint:                    c.Endpoint,
-		ReaderEndpoint:              c.ReaderEndpoint,
-		DBSubnetGroupName:           c.DBSubnetGroupName,
-		PreferredBackupWindow:       c.PreferredBackupWindow,
-		PreferredMaintenanceWindow:  c.PreferredMaintenanceWindow,
-		Port:                        c.Port,
-		DBClusterArn:                c.DBClusterArn,
-		EngineVersion:               c.EngineVersion,
-		BackupRetentionPeriod:       c.BackupRetentionPeriod,
-		StorageEncrypted:            c.StorageEncrypted,
-		MultiAZ:                     c.MultiAZ,
-		DeletionProtection:          c.DeletionProtection,
-		ClusterCreateTime:           c.ClusterCreateTime,
+		DBClusterIdentifier:              c.DBClusterIdentifier,
+		Engine:                           c.Engine,
+		Status:                           c.Status,
+		MasterUsername:                   c.MasterUsername,
+		DatabaseName:                     c.DatabaseName,
+		DBClusterParameterGroupName:      c.DBClusterParameterGroupName,
+		Endpoint:                         c.Endpoint,
+		ReaderEndpoint:                   c.ReaderEndpoint,
+		DBSubnetGroupName:                c.DBSubnetGroupName,
+		PreferredBackupWindow:            c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:       c.PreferredMaintenanceWindow,
+		Port:                             c.Port,
+		DBClusterArn:                     c.DBClusterArn,
+		EngineVersion:                    c.EngineVersion,
+		BackupRetentionPeriod:            c.BackupRetentionPeriod,
+		StorageEncrypted:                 c.StorageEncrypted,
+		MultiAZ:                          c.MultiAZ,
+		DeletionProtection:               c.DeletionProtection,
+		ClusterCreateTime:                c.ClusterCreateTime,
+		HostedZoneID:                     c.HostedZoneID,
+		KmsKeyID:                         c.KmsKeyID,
+		ReplicationSourceIdentifier:      c.ReplicationSourceIdentifier,
+		IAMDatabaseAuthenticationEnabled: c.IAMDatabaseAuthenticationEnabled,
+		VpcSecurityGroups:                xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
+		EnabledCloudwatchLogsExports:     xmlLogTypeList{Members: logTypes},
+		DBClusterMembers:                 xmlDBClusterMemberList{},
 	}
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
+	logTypes := make([]string, len(inst.EnabledCloudwatchLogsExports))
+	copy(logTypes, inst.EnabledCloudwatchLogsExports)
+
 	return xmlDBInstance{
-		DBInstanceIdentifier:       inst.DBInstanceIdentifier,
-		DBClusterIdentifier:        inst.DBClusterIdentifier,
-		DBInstanceClass:            inst.DBInstanceClass,
-		Engine:                     inst.Engine,
-		DBInstanceStatus:           inst.DBInstanceStatus,
-		Endpoint:                   inst.Endpoint,
-		Port:                       inst.Port,
-		DBInstanceArn:              inst.DBInstanceArn,
-		EngineVersion:              inst.EngineVersion,
-		AvailabilityZone:           inst.AvailabilityZone,
-		DBSubnetGroupName:          inst.DBSubnetGroupName,
-		AutoMinorVersionUpgrade:    inst.AutoMinorVersionUpgrade,
-		PubliclyAccessible:         inst.PubliclyAccessible,
-		StorageEncrypted:           inst.StorageEncrypted,
-		PromotionTier:              inst.PromotionTier,
-		PreferredMaintenanceWindow: inst.PreferredMaintenanceWindow,
+		DBInstanceIdentifier:         inst.DBInstanceIdentifier,
+		DBClusterIdentifier:          inst.DBClusterIdentifier,
+		DBInstanceClass:              inst.DBInstanceClass,
+		Engine:                       inst.Engine,
+		DBInstanceStatus:             inst.DBInstanceStatus,
+		Endpoint:                     inst.Endpoint,
+		Port:                         inst.Port,
+		DBInstanceArn:                inst.DBInstanceArn,
+		EngineVersion:                inst.EngineVersion,
+		AvailabilityZone:             inst.AvailabilityZone,
+		DBSubnetGroupName:            inst.DBSubnetGroupName,
+		AutoMinorVersionUpgrade:      inst.AutoMinorVersionUpgrade,
+		PubliclyAccessible:           inst.PubliclyAccessible,
+		StorageEncrypted:             inst.StorageEncrypted,
+		PromotionTier:                inst.PromotionTier,
+		PreferredMaintenanceWindow:   inst.PreferredMaintenanceWindow,
+		CACertificateIdentifier:      inst.CACertificateIdentifier,
+		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
+		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
 	}
 }
 
@@ -1454,26 +1518,57 @@ type docdbErrorResponse struct {
 	Error   docdbError `xml:"Error"`
 }
 
+type xmlVpcSecurityGroupMembership struct {
+	VpcSecurityGroupID string `xml:"VpcSecurityGroupId"`
+	Status             string `xml:"Status"`
+}
+
+type xmlVpcSecurityGroupMembershipList struct {
+	Members []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroupMembership"`
+}
+
+type xmlLogTypeList struct {
+	Members []string `xml:"member"`
+}
+
+type xmlDBClusterMember struct {
+	DBInstanceIdentifier          string `xml:"DBInstanceIdentifier"`
+	DBClusterParameterGroupStatus string `xml:"DBClusterParameterGroupStatus"`
+	PromotionTier                 int    `xml:"PromotionTier"`
+	IsClusterWriter               bool   `xml:"IsClusterWriter"`
+}
+
+type xmlDBClusterMemberList struct {
+	Members []xmlDBClusterMember `xml:"DBClusterMember"`
+}
+
 type xmlDBCluster struct {
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	Engine                      string `xml:"Engine"`
-	Status                      string `xml:"Status"`
-	MasterUsername              string `xml:"MasterUsername,omitempty"`
-	DatabaseName                string `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup,omitempty"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
-	ReaderEndpoint              string `xml:"ReaderEndpoint,omitempty"`
-	DBSubnetGroupName           string `xml:"DBSubnetGroup,omitempty"`
-	PreferredBackupWindow       string `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow  string `xml:"PreferredMaintenanceWindow,omitempty"`
-	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
-	EngineVersion               string `xml:"EngineVersion,omitempty"`
-	ClusterCreateTime           string `xml:"ClusterCreateTime,omitempty"`
-	Port                        int    `xml:"Port"`
-	BackupRetentionPeriod       int    `xml:"BackupRetentionPeriod,omitempty"`
-	StorageEncrypted            bool   `xml:"StorageEncrypted"`
-	MultiAZ                     bool   `xml:"MultiAZ"`
-	DeletionProtection          bool   `xml:"DeletionProtection"`
+	DBClusterIdentifier              string                            `xml:"DBClusterIdentifier"`
+	Engine                           string                            `xml:"Engine"`
+	Status                           string                            `xml:"Status"`
+	MasterUsername                   string                            `xml:"MasterUsername,omitempty"`
+	DatabaseName                     string                            `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName      string                            `xml:"DBClusterParameterGroup,omitempty"`
+	Endpoint                         string                            `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                   string                            `xml:"ReaderEndpoint,omitempty"`
+	DBSubnetGroupName                string                            `xml:"DBSubnetGroup,omitempty"`
+	PreferredBackupWindow            string                            `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                            `xml:"PreferredMaintenanceWindow,omitempty"`
+	DBClusterArn                     string                            `xml:"DBClusterArn,omitempty"`
+	EngineVersion                    string                            `xml:"EngineVersion,omitempty"`
+	ClusterCreateTime                string                            `xml:"ClusterCreateTime,omitempty"`
+	HostedZoneID                     string                            `xml:"HostedZoneId,omitempty"`
+	KmsKeyID                         string                            `xml:"KmsKeyId,omitempty"`
+	ReplicationSourceIdentifier      string                            `xml:"ReplicationSourceIdentifier,omitempty"`
+	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
+	EnabledCloudwatchLogsExports     xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
+	DBClusterMembers                 xmlDBClusterMemberList            `xml:"DBClusterMembers"`
+	Port                             int                               `xml:"Port"`
+	BackupRetentionPeriod            int                               `xml:"BackupRetentionPeriod,omitempty"`
+	StorageEncrypted                 bool                              `xml:"StorageEncrypted"`
+	MultiAZ                          bool                              `xml:"MultiAZ"`
+	DeletionProtection               bool                              `xml:"DeletionProtection"`
+	IAMDatabaseAuthenticationEnabled bool                              `xml:"IAMDatabaseAuthenticationEnabled"`
 }
 
 type xmlDBClusterList struct {
@@ -1528,22 +1623,25 @@ type failoverDBClusterResponse struct {
 }
 
 type xmlDBInstance struct {
-	DBInstanceIdentifier       string `xml:"DBInstanceIdentifier"`
-	DBClusterIdentifier        string `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass            string `xml:"DBInstanceClass"`
-	Engine                     string `xml:"Engine"`
-	DBInstanceStatus           string `xml:"DBInstanceStatus"`
-	Endpoint                   string `xml:"Endpoint>Address,omitempty"`
-	DBInstanceArn              string `xml:"DBInstanceArn,omitempty"`
-	EngineVersion              string `xml:"EngineVersion,omitempty"`
-	AvailabilityZone           string `xml:"AvailabilityZone,omitempty"`
-	DBSubnetGroupName          string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
-	StorageEncrypted           bool   `xml:"StorageEncrypted"`
-	AutoMinorVersionUpgrade    bool   `xml:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible         bool   `xml:"PubliclyAccessible"`
-	Port                       int    `xml:"Endpoint>Port"`
-	PromotionTier              int    `xml:"PromotionTier,omitempty"`
+	DBInstanceIdentifier         string         `xml:"DBInstanceIdentifier"`
+	DBClusterIdentifier          string         `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass              string         `xml:"DBInstanceClass"`
+	Engine                       string         `xml:"Engine"`
+	DBInstanceStatus             string         `xml:"DBInstanceStatus"`
+	Endpoint                     string         `xml:"Endpoint>Address,omitempty"`
+	DBInstanceArn                string         `xml:"DBInstanceArn,omitempty"`
+	EngineVersion                string         `xml:"EngineVersion,omitempty"`
+	AvailabilityZone             string         `xml:"AvailabilityZone,omitempty"`
+	DBSubnetGroupName            string         `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
+	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
+	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
+	StorageEncrypted             bool           `xml:"StorageEncrypted"`
+	AutoMinorVersionUpgrade      bool           `xml:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible           bool           `xml:"PubliclyAccessible"`
+	CopyTagsToSnapshot           bool           `xml:"CopyTagsToSnapshot"`
+	Port                         int            `xml:"Endpoint>Port"`
+	PromotionTier                int            `xml:"PromotionTier,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -2232,5 +2330,49 @@ func parseAttributeValueMembers(vals url.Values, prefix string) []string {
 			return values
 		}
 		values = append(values, v)
+	}
+}
+
+func parseVpcSecurityGroupIDs(vals url.Values) []string {
+	var ids []string
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("VpcSecurityGroupIds.member.%d", i))
+		if id == "" {
+			return ids
+		}
+		ids = append(ids, id)
+	}
+}
+
+func parseEnableLogTypes(vals url.Values) []string {
+	var types []string
+	for i := 1; ; i++ {
+		t := vals.Get(fmt.Sprintf("EnableCloudwatchLogsExports.member.%d", i))
+		if t == "" {
+			return types
+		}
+		types = append(types, t)
+	}
+}
+
+func parseCloudwatchEnableLogTypes(vals url.Values) []string {
+	var types []string
+	for i := 1; ; i++ {
+		t := vals.Get(fmt.Sprintf("CloudwatchLogsExportConfiguration.EnableLogTypes.member.%d", i))
+		if t == "" {
+			return types
+		}
+		types = append(types, t)
+	}
+}
+
+func parseCloudwatchDisableLogTypes(vals url.Values) []string {
+	var types []string
+	for i := 1; ; i++ {
+		t := vals.Get(fmt.Sprintf("CloudwatchLogsExportConfiguration.DisableLogTypes.member.%d", i))
+		if t == "" {
+			return types
+		}
+		types = append(types, t)
 	}
 }

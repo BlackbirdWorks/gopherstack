@@ -81,17 +81,17 @@ type DBCluster struct {
 	DBSubnetGroupName                string            `json:"dbSubnetGroupName"`
 	PreferredBackupWindow            string            `json:"preferredBackupWindow"`
 	ClusterCreateTime                string            `json:"clusterCreateTime"`
-	HostedZoneId                     string            `json:"hostedZoneId"`
-	KmsKeyId                         string            `json:"kmsKeyId"`
+	HostedZoneID                     string            `json:"hostedZoneId"`
+	KmsKeyID                         string            `json:"kmsKeyId"`
 	ReplicationSourceIdentifier      string            `json:"replicationSourceIdentifier"`
 	AvailabilityZones                []string          `json:"availabilityZones"`
-	VpcSecurityGroupIds              []string          `json:"vpcSecurityGroupIds"`
+	VpcSecurityGroupIDs              []string          `json:"vpcSecurityGroupIds"`
 	EnabledCloudwatchLogsExports     []string          `json:"enabledCloudwatchLogsExports"`
 	ReadReplicaIdentifiers           []string          `json:"readReplicaIdentifiers"`
 	Port                             int               `json:"port"`
 	BackupRetentionPeriod            int               `json:"backupRetentionPeriod"`
 	StorageEncrypted                 bool              `json:"storageEncrypted"`
-	MultiAZ                         bool              `json:"multiAZ"`
+	MultiAZ                          bool              `json:"multiAZ"`
 	DeletionProtection               bool              `json:"deletionProtection"`
 	IAMDatabaseAuthenticationEnabled bool              `json:"iamDatabaseAuthenticationEnabled"`
 }
@@ -350,17 +350,17 @@ func (b *InMemoryBackend) CreateDBCluster(
 	copy(azs, availabilityZones)
 
 	var (
-		kmsKeyId                         string
-		vpcSecurityGroupIds              []string
+		kmsKeyID                         string
+		vpcSecurityGroupIDs              []string
 		enabledCloudwatchLogsExports     []string
 		iamDatabaseAuthenticationEnabled bool
 	)
 	if opts != nil {
-		kmsKeyId = opts.KmsKeyId
+		kmsKeyID = opts.KmsKeyID
 		iamDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
-		if len(opts.VpcSecurityGroupIds) > 0 {
-			vpcSecurityGroupIds = make([]string, len(opts.VpcSecurityGroupIds))
-			copy(vpcSecurityGroupIds, opts.VpcSecurityGroupIds)
+		if len(opts.VpcSecurityGroupIDs) > 0 {
+			vpcSecurityGroupIDs = make([]string, len(opts.VpcSecurityGroupIDs))
+			copy(vpcSecurityGroupIDs, opts.VpcSecurityGroupIDs)
 		}
 		if len(opts.EnabledCloudwatchLogsExports) > 0 {
 			enabledCloudwatchLogsExports = make([]string, len(opts.EnabledCloudwatchLogsExports))
@@ -389,8 +389,8 @@ func (b *InMemoryBackend) CreateDBCluster(
 		AvailabilityZones:                azs,
 		ClusterCreateTime:                time.Now().UTC().Format(time.RFC3339),
 		Tags:                             copyTags(tags),
-		KmsKeyId:                         kmsKeyId,
-		VpcSecurityGroupIds:              vpcSecurityGroupIds,
+		KmsKeyID:                         kmsKeyID,
+		VpcSecurityGroupIDs:              vpcSecurityGroupIDs,
 		EnabledCloudwatchLogsExports:     enabledCloudwatchLogsExports,
 		IAMDatabaseAuthenticationEnabled: iamDatabaseAuthenticationEnabled,
 	}
@@ -404,8 +404,8 @@ func (b *InMemoryBackend) CreateDBCluster(
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.
 type CreateDBClusterOptions struct {
-	KmsKeyId                         string
-	VpcSecurityGroupIds              []string
+	KmsKeyID                         string
+	VpcSecurityGroupIDs              []string
 	EnabledCloudwatchLogsExports     []string
 	IAMDatabaseAuthenticationEnabled bool
 }
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	return result, nil
 }
 
-func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
+func (b *InMemoryBackend) DeleteDBCluster(id string, opts *DeleteDBClusterOptions) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -451,10 +451,42 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 		}
 	}
 	cp := copyCluster(c)
+
+	// Create a final snapshot if requested.
+	if opts != nil && !opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier != "" {
+		snapID := opts.FinalDBClusterSnapshotIdentifier
+		if _, snapExists := b.clusterSnapshots[snapID]; snapExists {
+			return nil, fmt.Errorf(
+				"%w: cluster snapshot %s already exists",
+				ErrClusterSnapshotAlreadyExists,
+				snapID,
+			)
+		}
+		snap := &DBClusterSnapshot{
+			DBClusterSnapshotIdentifier: snapID,
+			DBClusterIdentifier:         id,
+			Engine:                      c.Engine,
+			Status:                      statusAvailable,
+			EngineVersion:               c.EngineVersion,
+			StorageEncrypted:            c.StorageEncrypted,
+			SnapshotType:                "manual",
+			PercentProgress:             snapshotPercentageComplete,
+			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+			DBClusterArn:                b.clusterARN(id),
+		}
+		b.clusterSnapshots[snapID] = snap
+	}
+
 	delete(b.clusters, id)
 	delete(b.tags, b.clusterARN(id))
 
 	return cp, nil
+}
+
+// DeleteDBClusterOptions holds optional parameters for DeleteDBCluster.
+type DeleteDBClusterOptions struct {
+	FinalDBClusterSnapshotIdentifier string
+	SkipFinalSnapshot                bool
 }
 
 func (b *InMemoryBackend) ModifyDBCluster(
@@ -462,6 +494,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	deletionProtection *bool,
 	backupRetentionPeriod int,
 	preferredBackupWindow, preferredMaintenanceWindow string,
+	opts *ModifyDBClusterOptions,
 ) (*DBCluster, error) {
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
@@ -487,8 +520,60 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if preferredMaintenanceWindow != "" {
 		c.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
+	if opts != nil {
+		applyModifyDBClusterOpts(c, opts)
+	}
 
 	return copyCluster(c), nil
+}
+
+// applyModifyDBClusterOpts applies optional ModifyDBCluster parameters to an existing cluster.
+func applyModifyDBClusterOpts(c *DBCluster, opts *ModifyDBClusterOptions) {
+	if opts.EngineVersion != "" {
+		c.EngineVersion = opts.EngineVersion
+	}
+	if opts.Port > 0 {
+		c.Port = opts.Port
+	}
+	if len(opts.VpcSecurityGroupIDs) > 0 {
+		vpcSGs := make([]string, len(opts.VpcSecurityGroupIDs))
+		copy(vpcSGs, opts.VpcSecurityGroupIDs)
+		c.VpcSecurityGroupIDs = vpcSGs
+	}
+	if len(opts.EnableLogsTypes) > 0 {
+		existing := make(map[string]bool, len(c.EnabledCloudwatchLogsExports))
+		for _, t := range c.EnabledCloudwatchLogsExports {
+			existing[t] = true
+		}
+		for _, t := range opts.EnableLogsTypes {
+			if !existing[t] {
+				c.EnabledCloudwatchLogsExports = append(c.EnabledCloudwatchLogsExports, t)
+				existing[t] = true
+			}
+		}
+	}
+	if len(opts.DisableLogsTypes) > 0 {
+		disableSet := make(map[string]bool, len(opts.DisableLogsTypes))
+		for _, t := range opts.DisableLogsTypes {
+			disableSet[t] = true
+		}
+		kept := c.EnabledCloudwatchLogsExports[:0]
+		for _, t := range c.EnabledCloudwatchLogsExports {
+			if !disableSet[t] {
+				kept = append(kept, t)
+			}
+		}
+		c.EnabledCloudwatchLogsExports = kept
+	}
+}
+
+// ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.
+type ModifyDBClusterOptions struct {
+	VpcSecurityGroupIDs  []string
+	EnableLogsTypes      []string
+	DisableLogsTypes     []string
+	EngineVersion        string
+	Port                 int
 }
 
 func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
@@ -539,6 +624,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	id, clusterID, instanceClass, engine string,
 	promotionTier int,
 	tags map[string]string,
+	opts *CreateDBInstanceOptions,
 ) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
@@ -571,21 +657,33 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 	instanceArn := b.instanceARN(id)
 	endpoint := fmt.Sprintf("%s.docdb.%s.amazonaws.com", id, b.region)
+
+	var (
+		caCertID           string
+		copyTagsToSnapshot bool
+	)
+	if opts != nil {
+		caCertID = opts.CACertificateIdentifier
+		copyTagsToSnapshot = opts.CopyTagsToSnapshot
+	}
+
 	inst := &DBInstance{
-		DBInstanceIdentifier: id,
-		DBClusterIdentifier:  clusterID,
-		DBInstanceClass:      instanceClass,
-		Engine:               engine,
-		DBInstanceStatus:     statusAvailable,
-		Endpoint:             endpoint,
-		Port:                 defaultDocDBPort,
-		DBInstanceArn:        instanceArn,
-		EngineVersion:        valueOrDefault(clusterEngineVersion, defaultEngineVersion),
-		StorageEncrypted:     clusterStorageEncrypted,
-		AvailabilityZone:     clusterAZ,
-		DBSubnetGroupName:    clusterSubnetGroupName,
-		PromotionTier:        promotionTier,
-		Tags:                 copyTags(tags),
+		DBInstanceIdentifier:    id,
+		DBClusterIdentifier:     clusterID,
+		DBInstanceClass:         instanceClass,
+		Engine:                  engine,
+		DBInstanceStatus:        statusAvailable,
+		Endpoint:                endpoint,
+		Port:                    defaultDocDBPort,
+		DBInstanceArn:           instanceArn,
+		EngineVersion:           valueOrDefault(clusterEngineVersion, defaultEngineVersion),
+		StorageEncrypted:        clusterStorageEncrypted,
+		AvailabilityZone:        clusterAZ,
+		DBSubnetGroupName:       clusterSubnetGroupName,
+		PromotionTier:           promotionTier,
+		Tags:                    copyTags(tags),
+		CACertificateIdentifier: caCertID,
+		CopyTagsToSnapshot:      copyTagsToSnapshot,
 	}
 	b.instances[id] = inst
 	if len(tags) > 0 {
@@ -593,6 +691,12 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	return copyInstance(inst), nil
+}
+
+// CreateDBInstanceOptions holds optional parameters for CreateDBInstance.
+type CreateDBInstanceOptions struct {
+	CACertificateIdentifier string
+	CopyTagsToSnapshot      bool
 }
 
 func (b *InMemoryBackend) DescribeDBInstances(id, clusterID string) ([]DBInstance, error) {
@@ -641,6 +745,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	id, instanceClass string,
 	autoMinorVersionUpgrade *bool,
 	preferredMaintenanceWindow string,
+	opts *ModifyDBInstanceOptions,
 ) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
@@ -657,8 +762,26 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if preferredMaintenanceWindow != "" {
 		inst.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
+	if opts != nil {
+		if opts.CACertificateIdentifier != "" {
+			inst.CACertificateIdentifier = opts.CACertificateIdentifier
+		}
+		if opts.CopyTagsToSnapshot != nil {
+			inst.CopyTagsToSnapshot = *opts.CopyTagsToSnapshot
+		}
+		if opts.PromotionTier != nil {
+			inst.PromotionTier = *opts.PromotionTier
+		}
+	}
 
 	return copyInstance(inst), nil
+}
+
+// ModifyDBInstanceOptions holds optional extra parameters for ModifyDBInstance.
+type ModifyDBInstanceOptions struct {
+	CopyTagsToSnapshot      *bool
+	PromotionTier           *int
+	CACertificateIdentifier string
 }
 
 func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
@@ -1888,6 +2011,18 @@ func copyCluster(c *DBCluster) *DBCluster {
 	if len(c.AvailabilityZones) > 0 {
 		cp.AvailabilityZones = make([]string, len(c.AvailabilityZones))
 		copy(cp.AvailabilityZones, c.AvailabilityZones)
+	}
+	if len(c.VpcSecurityGroupIDs) > 0 {
+		cp.VpcSecurityGroupIDs = make([]string, len(c.VpcSecurityGroupIDs))
+		copy(cp.VpcSecurityGroupIDs, c.VpcSecurityGroupIDs)
+	}
+	if len(c.EnabledCloudwatchLogsExports) > 0 {
+		cp.EnabledCloudwatchLogsExports = make([]string, len(c.EnabledCloudwatchLogsExports))
+		copy(cp.EnabledCloudwatchLogsExports, c.EnabledCloudwatchLogsExports)
+	}
+	if len(c.ReadReplicaIdentifiers) > 0 {
+		cp.ReadReplicaIdentifiers = make([]string, len(c.ReadReplicaIdentifiers))
+		copy(cp.ReadReplicaIdentifiers, c.ReadReplicaIdentifiers)
 	}
 
 	return &cp
