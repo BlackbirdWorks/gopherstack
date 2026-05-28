@@ -303,8 +303,9 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_asset",
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
+			name: "missing_asset",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -351,7 +352,8 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 					nil,
 				)
 			},
-			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
+			path: "/v1/package/version/readme" +
+				"?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
 			wantStatus: http.StatusOK,
 		},
 		{
