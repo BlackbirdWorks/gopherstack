@@ -1,6 +1,7 @@
 package codeartifact_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -26,7 +27,6 @@ func TestCAProvider_Init_NilCtx(t *testing.T) {
 
 	p := &codeartifact.Provider{}
 	_, err := p.Init(nil)
-	// CodeArtifact requires a non-nil context
 	require.Error(t, err)
 }
 
@@ -67,26 +67,76 @@ func setupRepo(t *testing.T, h *codeartifact.Handler, domain, repo string) {
 func TestHandler_DisassociateExternalConnection(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "my-domain")
-	setupRepo(t, h, "my-domain", "my-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_removes_connection",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "dis-domain")
+				setupRepo(t, h, "dis-domain", "dis-repo")
+				doRequest(t, h, http.MethodPost,
+					"/v1/repository/external-connection?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
+					nil,
+				)
+			},
+			path:       "/v1/repository/external-connection?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_nonexistent_connection",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "dis2-domain")
+				setupRepo(t, h, "dis2-domain", "dis2-repo")
+			},
+			path:       "/v1/repository/external-connection?domain=dis2-domain&repository=dis2-repo&externalConnection=public:npmjs",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/repository/external-connection?repository=dis-repo&externalConnection=public:npmjs",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/repository/external-connection?domain=dis-domain&externalConnection=public:npmjs",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_connection",
+			path:       "/v1/repository/external-connection?domain=dis-domain&repository=dis-repo",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo_not_found",
+			path:       "/v1/repository/external-connection?domain=dis-domain&repository=nope&externalConnection=public:npmjs",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	// Disassociate (no connection exists - should succeed or return not found)
-	rec := doRequest(
-		t,
-		h,
-		http.MethodDelete,
-		"/v1/repository/external-connection?domain=my-domain&repository=my-repo&externalConnection=public:npmjs",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodDelete,
-		"/v1/repository/external-connection?repository=my-repo&externalConnection=public:npmjs",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodDelete, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				repo, _ := resp["repository"].(map[string]any)
+				assert.NotNil(t, repo)
+			}
+		})
+	}
 }
 
 // ---- DisposePackageVersions tests ----
@@ -94,26 +144,83 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 func TestHandler_DisposePackageVersions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "dp-domain")
-	setupRepo(t, h, "dp-domain", "dp-repo")
+	tests := []struct {
+		body       any
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_existing_version",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "dp-domain")
+				setupRepo(t, h, "dp-domain", "dp-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=dp-domain&repository=dp-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/versions/dispose?domain=dp-domain&repository=dp-repo&format=npm&package=lodash",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_nonexistent_version",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "dp2-domain")
+				setupRepo(t, h, "dp2-domain", "dp2-repo")
+			},
+			path:       "/v1/package/versions/dispose?domain=dp2-domain&repository=dp2-repo&format=npm&package=lodash",
+			body:       map[string]any{"versions": []string{"9.9.9"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/versions/dispose?repository=dp-repo&format=npm&package=lodash",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/versions/dispose?domain=dp-domain&format=npm&package=lodash",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/versions/dispose?domain=dp-domain&repository=dp-repo&package=lodash",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/versions/dispose?domain=dp-domain&repository=dp-repo&format=npm",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	// Dispose package versions
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/v1/package/versions/dispose?domain=dp-domain&repository=dp-repo&format=npm&package=lodash",
-		map[string]any{"versions": []string{"1.0.0", "1.0.1"}},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPost,
-		"/v1/package/versions/dispose?repository=dp-repo&format=npm&package=lodash",
-		map[string]any{"versions": []string{"1.0.0"}},
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotNil(t, resp["successfulVersions"])
+				assert.NotNil(t, resp["failedVersions"])
+			}
+		})
+	}
 }
 
 // ---- GetAssociatedPackageGroup tests (backend-level) ----
@@ -125,12 +232,10 @@ func TestBackend_GetAssociatedPackageGroup(t *testing.T) {
 	_, err := b.CreateDomain("apg-domain", "", nil)
 	require.NoError(t, err)
 
-	// Get associated package group (returns nil, nil when no group matches)
 	pg, err := b.GetAssociatedPackageGroup("apg-domain", "npm", "", "lodash")
 	require.NoError(t, err)
 	assert.Nil(t, pg)
 
-	// Domain not found
 	_, err = b.GetAssociatedPackageGroup("nonexistent", "npm", "", "lodash")
 	require.Error(t, err)
 }
@@ -140,26 +245,75 @@ func TestBackend_GetAssociatedPackageGroup(t *testing.T) {
 func TestHandler_GetPackageVersionAsset(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "pva-domain")
-	setupRepo(t, h, "pva-domain", "pva-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "pva-domain")
+				setupRepo(t, h, "pva-domain", "pva-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0&asset=lodash-1.0.0.tgz",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/version/asset?repository=pva-repo&format=npm&package=lodash&version=1.0.0&asset=x.tgz",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/version/asset?domain=pva-domain&format=npm&package=lodash&version=1.0.0&asset=x.tgz",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&package=lodash&version=1.0.0&asset=x.tgz",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&version=1.0.0&asset=x.tgz",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_version",
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&asset=x.tgz",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_asset",
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "version_not_found",
+			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=9.9.9&asset=x.tgz",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	// Get package version asset (no real asset)
-	const assetPath = "/v1/package/version/asset" +
-		"?domain=pva-domain&repository=pva-repo&format=npm" +
-		"&package=lodash&version=1.0.0&asset=lodash-1.0.0.tgz"
-	rec := doRequest(t, h, http.MethodGet, assetPath, nil)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version/asset?repository=pva-repo&format=npm&package=lodash&version=1.0.0&asset=x.tgz",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 // ---- GetPackageVersionReadme tests ----
@@ -167,25 +321,77 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 func TestHandler_GetPackageVersionReadme(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "pvr-domain")
-	setupRepo(t, h, "pvr-domain", "pvr-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "pvr-domain")
+				setupRepo(t, h, "pvr-domain", "pvr-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/version/readme?repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/version/readme?domain=pvr-domain&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_version",
+			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "version_not_found",
+			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=9.9.9",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package/version/readme?repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				_, ok := resp["readme"]
+				assert.True(t, ok)
+			}
+		})
+	}
 }
 
 // ---- ListAllowedRepositoriesForGroup tests ----
@@ -193,21 +399,56 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 func TestHandler_ListAllowedRepositoriesForGroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "larg-domain")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "larg-domain")
+			},
+			path:       "/v1/package-group-allowed-repositories?domain=larg-domain&packageGroup=/npm/*",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package-group-allowed-repositories?packageGroup=/npm/*",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package_group",
+			path:       "/v1/package-group-allowed-repositories?domain=larg-domain",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/package-group-allowed-repositories?domain=nope&packageGroup=/npm/*",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodGet,
-		"/v1/package-group-allowed-repositories?domain=larg-domain&package-group=/",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package-group-allowed-repositories?package-group=/",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotNil(t, resp["allowedRepositories"])
+			}
+		})
+	}
 }
 
 // ---- ListAssociatedPackages tests ----
@@ -215,21 +456,60 @@ func TestHandler_ListAllowedRepositoriesForGroup(t *testing.T) {
 func TestHandler_ListAssociatedPackages(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lap-domain")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lap-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lap-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+			},
+			path:       "/v1/package-group-associated-packages?domain=lap-domain&packageGroup=/npm/*",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package-group-associated-packages?packageGroup=/npm/*",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package_group",
+			path:       "/v1/package-group-associated-packages?domain=lap-domain",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/package-group-associated-packages?domain=nope&packageGroup=/npm/*",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodGet,
-		"/v1/package-group-associated-packages?domain=lap-domain&package-group=/",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package-group-associated-packages?package-group=/",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				pkgs, _ := resp["packages"].([]any)
+				assert.NotNil(t, pkgs)
+			}
+		})
+	}
 }
 
 // ---- ListPackageGroups tests ----
@@ -237,21 +517,76 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 func TestHandler_ListPackageGroups(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lpg-domain")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "success_empty",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpg-domain")
+			},
+			path:       "/v1/package-groups?domain=lpg-domain",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "success_two_groups",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpg2-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg2-domain", map[string]any{"pattern": "/npm/*"})
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg2-domain", map[string]any{"pattern": "/pypi/*"})
+			},
+			path:       "/v1/package-groups?domain=lpg2-domain",
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name: "success_prefix_filter",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpg3-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg3-domain", map[string]any{"pattern": "/npm/*"})
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg3-domain", map[string]any{"pattern": "/pypi/*"})
+			},
+			path:       "/v1/package-groups?domain=lpg3-domain&prefix=/npm",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package-groups",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/package-groups?domain=nope",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodGet,
-		"/v1/package-groups?domain=lpg-domain",
-		nil,
-	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package-groups",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				groups, _ := resp["packageGroups"].([]any)
+				assert.Len(t, groups, tt.wantCount)
+			}
+		})
+	}
 }
 
 // ---- ListPackageVersionAssets tests ----
@@ -259,25 +594,77 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 func TestHandler_ListPackageVersionAssets(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lpva-domain")
-	setupRepo(t, h, "lpva-domain", "lpva-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpva-domain")
+				setupRepo(t, h, "lpva-domain", "lpva-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/version/assets?repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/version/assets?domain=lpva-domain&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_version",
+			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "version_not_found",
+			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=9.9.9",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package/version/assets?repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assets, _ := resp["assets"].([]any)
+				assert.NotNil(t, assets)
+			}
+		})
+	}
 }
 
 // ---- ListPackageVersionDependencies tests ----
@@ -285,28 +672,77 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lpvd-domain")
-	setupRepo(t, h, "lpvd-domain", "lpvd-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpvd-domain")
+				setupRepo(t, h, "lpvd-domain", "lpvd-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/version/dependencies?repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&format=npm&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&package=lodash&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_version",
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "version_not_found",
+			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=9.9.9",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v1/package/version/dependencies?repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				deps, _ := resp["dependencies"].([]any)
+				assert.NotNil(t, deps)
+			}
+		})
+	}
 }
 
 // ---- ListPackageVersions tests ----
@@ -314,22 +750,88 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 func TestHandler_ListPackageVersions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lpv-domain")
-	setupRepo(t, h, "lpv-domain", "lpv-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "success_two_versions",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpv-domain")
+				setupRepo(t, h, "lpv-domain", "lpv-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.0",
+					nil,
+				)
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.21",
+					nil,
+				)
+			},
+			path:       "/v1/package/versions?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash",
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name: "success_empty",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lpv2-domain")
+				setupRepo(t, h, "lpv2-domain", "lpv2-repo")
+			},
+			path:       "/v1/package/versions?domain=lpv2-domain&repository=lpv2-repo&format=npm&package=lodash",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/versions?repository=lpv-repo&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/versions?domain=lpv-domain&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/versions?domain=lpv-domain&repository=lpv-repo&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/versions?domain=lpv-domain&repository=lpv-repo&format=npm",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo_not_found",
+			path:       "/v1/package/versions?domain=lpv-domain&repository=nope&format=npm&package=lodash",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodGet,
-		"/v1/package/versions?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash",
-		nil,
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/package/versions?repository=lpv-repo&format=npm&package=lodash",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				versions, _ := resp["versions"].([]any)
+				assert.Len(t, versions, tt.wantCount)
+			}
+		})
+	}
 }
 
 // ---- ListPackages tests ----
@@ -337,25 +839,99 @@ func TestHandler_ListPackageVersions(t *testing.T) {
 func TestHandler_ListPackages(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "lp-domain")
-	setupRepo(t, h, "lp-domain", "lp-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "success_two_packages",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lp-domain")
+				setupRepo(t, h, "lp-domain", "lp-repo")
+				doRequest(t, h, http.MethodPost,
+					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=react&version=18.0.0",
+					nil,
+				)
+				doRequest(t, h, http.MethodPost,
+					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=lodash&version=4.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/packages?domain=lp-domain&repository=lp-repo",
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name: "success_empty",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lp2-domain")
+				setupRepo(t, h, "lp2-domain", "lp2-repo")
+			},
+			path:       "/v1/packages?domain=lp2-domain&repository=lp2-repo",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "success_format_filter",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "lp3-domain")
+				setupRepo(t, h, "lp3-domain", "lp3-repo")
+				doRequest(t, h, http.MethodPost,
+					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=npm&package=react&version=18.0.0",
+					nil,
+				)
+				doRequest(t, h, http.MethodPost,
+					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=pypi&package=boto3&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/packages?domain=lp3-domain&repository=lp3-repo&format=npm",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/packages?repository=lp-repo",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/packages?domain=lp-domain",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo_not_found",
+			path:       "/v1/packages?domain=lp-domain&repository=nope",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodGet,
-		"/v1/packages?domain=lp-domain&repository=lp-repo",
-		nil,
-	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodGet,
-		"/v1/packages?repository=lp-repo",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				pkgs, _ := resp["packages"].([]any)
+				assert.Len(t, pkgs, tt.wantCount)
+			}
+		})
+	}
 }
 
-// ---- ListSubPackageGroups tests (backend-level) ----
+// ---- ListSubPackageGroups tests ----
 
 func TestBackend_ListSubPackageGroups(t *testing.T) {
 	t.Parallel()
@@ -368,7 +944,6 @@ func TestBackend_ListSubPackageGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, groups)
 
-	// Domain not found
 	_, err = b.ListSubPackageGroups("nonexistent", "/")
 	require.Error(t, err)
 }
@@ -378,28 +953,81 @@ func TestBackend_ListSubPackageGroups(t *testing.T) {
 func TestHandler_PublishPackageVersion(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "ppv-domain")
-	setupRepo(t, h, "ppv-domain", "ppv-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "ppv-domain")
+				setupRepo(t, h, "ppv-domain", "ppv-repo")
+			},
+			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_idempotent",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "ppv2-domain")
+				setupRepo(t, h, "ppv2-domain", "ppv2-repo")
+				doRequest(t, h, http.MethodPost,
+					"/v1/package/versions/publish?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/versions/publish?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/versions/publish?repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/versions/publish?domain=ppv-domain&format=generic&package=mylib&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&package=mylib&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&version=1.0.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_version",
+			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
-		map[string]any{"assetName": "mylib-1.0.0.zip", "assetSHA256": "abc123"},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/v1/package/versions/publish?repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["version"])
+				assert.NotEmpty(t, resp["status"])
+			}
+		})
+	}
 }
 
 // ---- PutPackageOriginConfiguration tests ----
@@ -407,25 +1035,70 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 func TestHandler_PutPackageOriginConfiguration(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "ppoc-domain")
-	setupRepo(t, h, "ppoc-domain", "ppoc-repo")
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "ppoc-domain")
+				setupRepo(t, h, "ppoc-domain", "ppoc-repo")
+			},
+			path:       "/v1/package/origin-configuration?domain=ppoc-domain&repository=ppoc-repo&format=npm&package=lodash",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/origin-configuration?repository=ppoc-repo&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/origin-configuration?domain=ppoc-domain&format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/origin-configuration?domain=ppoc-domain&repository=ppoc-repo&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/origin-configuration?domain=ppoc-domain&repository=ppoc-repo&format=npm",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo_not_found",
+			path:       "/v1/package/origin-configuration?domain=ppoc-domain&repository=nope&format=npm&package=lodash",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/v1/package/origin-configuration?domain=ppoc-domain&repository=ppoc-repo&format=npm&package=lodash",
-		map[string]any{"restrictions": map[string]any{"publish": "ALLOW", "upstream": "ALLOW"}},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPost,
-		"/v1/package/origin-configuration?repository=ppoc-repo&format=npm&package=lodash",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPut, tt.path,
+				map[string]any{"restrictions": map[string]any{"publish": "ALLOW", "upstream": "ALLOW"}},
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				pkg, _ := resp["package"].(map[string]any)
+				assert.NotNil(t, pkg)
+			}
+		})
+	}
 }
 
 // ---- UpdatePackageGroup tests ----
@@ -433,27 +1106,71 @@ func TestHandler_PutPackageOriginConfiguration(t *testing.T) {
 func TestHandler_UpdatePackageGroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "upg-domain")
+	tests := []struct {
+		body       any
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_update_description",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "upg-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upg-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+			},
+			path:       "/v1/package-group?domain=upg-domain&packageGroup=/npm/*",
+			body:       map[string]any{"description": "updated description"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_update_contact_info",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "upg2-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upg2-domain",
+					map[string]any{"pattern": "/pypi/*"},
+				)
+			},
+			path:       "/v1/package-group?domain=upg2-domain&packageGroup=/pypi/*",
+			body:       map[string]any{"contactInfo": "team@example.com"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package-group",
+			body:       map[string]any{"packageGroup": "/test/"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "package_group_not_found",
+			path:       "/v1/package-group?domain=upg-domain&packageGroup=/missing/*",
+			body:       map[string]any{"description": "test"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	// Create a package group first
-	doRequest(t, h, http.MethodPost,
-		"/v1/package-group?domain=upg-domain",
-		map[string]any{"packageGroup": "/test/"},
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rec := doRequest(t, h, http.MethodPut,
-		"/v1/package-group?domain=upg-domain",
-		map[string]any{"packageGroup": "/test/", "description": "updated"},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPut,
-		"/v1/package-group",
-		map[string]any{"packageGroup": "/test/"},
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			rec := doRequest(t, h, http.MethodPut, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				pg, _ := resp["packageGroup"].(map[string]any)
+				assert.NotNil(t, pg)
+			}
+		})
+	}
 }
 
 // ---- UpdatePackageGroupOriginConfiguration tests ----
@@ -461,26 +1178,62 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "upgoc-domain")
-
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPut,
-		"/v1/package-group-origin-configuration?domain=upgoc-domain&package-group=/",
-		map[string]any{
-			"restrictions": map[string]any{"publish": map[string]any{"restrictionMode": "ALLOW"}},
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "upgoc-domain")
+				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upgoc-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+			},
+			path:       "/v1/package-group-origin-configuration?domain=upgoc-domain&packageGroup=/npm/*",
+			wantStatus: http.StatusOK,
 		},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+		{
+			name:       "missing_domain",
+			path:       "/v1/package-group-origin-configuration?packageGroup=/npm/*",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package_group",
+			path:       "/v1/package-group-origin-configuration?domain=upgoc-domain",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "package_group_not_found",
+			path:       "/v1/package-group-origin-configuration?domain=upgoc-domain&packageGroup=/missing/*",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPut,
-		"/v1/package-group-origin-configuration?package-group=/",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPut, tt.path,
+				map[string]any{"restrictions": map[string]any{"publish": map[string]any{"restrictionMode": "ALLOW"}}},
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				pg, _ := resp["packageGroup"].(map[string]any)
+				assert.NotNil(t, pg)
+			}
+		})
+	}
 }
 
 // ---- UpdatePackageVersionsStatus tests ----
@@ -488,25 +1241,89 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "upvs-domain")
-	setupRepo(t, h, "upvs-domain", "upvs-repo")
+	tests := []struct {
+		body       any
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_archive",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "upvs-domain")
+				setupRepo(t, h, "upvs-domain", "upvs-repo")
+				doRequest(t, h, http.MethodGet,
+					"/v1/package/version?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash&version=1.0.0",
+					nil,
+				)
+			},
+			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_missing_version_returns_not_found_in_result",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "upvs2-domain")
+				setupRepo(t, h, "upvs2-domain", "upvs2-repo")
+			},
+			path:       "/v1/package/versions/update_status?domain=upvs2-domain&repository=upvs2-repo&format=npm&package=lodash",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"9.9.9"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/package/versions/update_status?repository=upvs-repo&format=npm&package=lodash",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/package/versions/update_status?domain=upvs-domain&format=npm&package=lodash",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&package=lodash",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm",
+			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_target_status",
+			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
+			body:       map[string]any{"versions": []string{"1.0.0"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
-		map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
-	)
-	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPost,
-		"/v1/package/versions/update_status?repository=upvs-repo&format=npm&package=lodash",
-		nil,
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotNil(t, resp["successfulVersions"])
+				assert.NotNil(t, resp["failedVersions"])
+			}
+		})
+	}
 }
 
 // ---- UpdateRepository tests ----
@@ -514,22 +1331,72 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 func TestHandler_UpdateRepository(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	setupDomain(t, h, "ur-domain")
-	setupRepo(t, h, "ur-domain", "ur-repo")
+	tests := []struct {
+		body       any
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_update_description",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "ur-domain")
+				setupRepo(t, h, "ur-domain", "ur-repo")
+			},
+			path:       "/v1/repository?domain=ur-domain&repository=ur-repo",
+			body:       map[string]any{"description": "updated repo description"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "success_no_body",
+			setup: func(h *codeartifact.Handler) {
+				setupDomain(t, h, "ur2-domain")
+				setupRepo(t, h, "ur2-domain", "ur2-repo")
+			},
+			path:       "/v1/repository?domain=ur2-domain&repository=ur2-repo",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/repository?repository=ur-repo",
+			body:       map[string]any{"description": "updated"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_repo",
+			path:       "/v1/repository?domain=ur-domain",
+			body:       map[string]any{"description": "updated"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo_not_found",
+			path:       "/v1/repository?domain=ur-domain&repository=nope",
+			body:       map[string]any{"description": "test"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	rec := doRequest(t, h, http.MethodPut,
-		"/v1/repository?domain=ur-domain&repository=ur-repo",
-		map[string]any{"description": "updated repo description"},
-	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Missing domain
-	rec = doRequest(t, h, http.MethodPut,
-		"/v1/repository?repository=ur-repo",
-		map[string]any{"description": "updated"},
-	)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodPut, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				repo, _ := resp["repository"].(map[string]any)
+				assert.NotNil(t, repo)
+			}
+		})
+	}
 }
 
 // ---- Persistence coverage ----

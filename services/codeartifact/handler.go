@@ -316,6 +316,10 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 		return codeartifactRoute{operation: opUntagResource}
 	case pathV1AuthToken:
 		return codeartifactRoute{operation: opGetAuthorizationToken}
+	case pathV1SubPackageGroups:
+		return codeartifactRoute{operation: opListSubPackageGroups}
+	case pathV1AssociatedPackageGroup:
+		return codeartifactRoute{operation: opGetAssociatedPackageGroup}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -2025,6 +2029,15 @@ func (h *Handler) handlePutPackageOriginConfiguration(
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+	if format == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
+	}
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
+	}
 
 	pkg, err := h.Backend.PutPackageOriginConfiguration(domainName, repoName, format, namespace, name)
 	if err != nil {
@@ -2067,6 +2080,9 @@ func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, d
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
+	if pattern == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
+	}
 
 	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(domainName, pattern)
 	if err != nil {
@@ -2087,10 +2103,23 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+	if format == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
+	}
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
+	}
 
 	var in updateVersionsStatusBody
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &in)
+	}
+
+	if in.TargetStatus == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "targetStatus is required"))
 	}
 
 	results, err := h.Backend.UpdatePackageVersionsStatus(
@@ -2110,6 +2139,9 @@ type updateRepositoryBody struct {
 func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
 	var in updateRepositoryBody
