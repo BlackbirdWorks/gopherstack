@@ -676,12 +676,9 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 	return nil
 }
 
-// validateGeoProximityLocation enforces AWS constraints on GeoProximityLocation routing config.
-func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
-	if gpl == nil {
-		return nil
-	}
-
+// geoProximityLocationFieldCount counts how many of the three mutually exclusive
+// routing fields are set on a GeoProximityLocation.
+func geoProximityLocationFieldCount(gpl *GeoProximityLocation) int {
 	count := 0
 	if gpl.AWSRegion != "" {
 		count++
@@ -692,6 +689,45 @@ func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
 	if gpl.LocalZoneGroup != "" {
 		count++
 	}
+
+	return count
+}
+
+// validateGeoProximityCoordinates validates the lat/lon values inside a Coordinates block.
+func validateGeoProximityCoordinates(coords *GeoProximityCoordinates) error {
+	const (
+		latMin = -90.0
+		latMax = 90.0
+		lonMin = -180.0
+		lonMax = 180.0
+	)
+
+	lat, err := strconv.ParseFloat(coords.Latitude, 64)
+	if err != nil || lat < latMin || lat > latMax {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation Coordinates Latitude must be a number in [%g, %g]",
+			ErrInvalidInput, latMin, latMax,
+		)
+	}
+
+	lon, err := strconv.ParseFloat(coords.Longitude, 64)
+	if err != nil || lon < lonMin || lon > lonMax {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation Coordinates Longitude must be a number in [%g, %g]",
+			ErrInvalidInput, lonMin, lonMax,
+		)
+	}
+
+	return nil
+}
+
+// validateGeoProximityLocation enforces AWS constraints on GeoProximityLocation routing config.
+func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
+	if gpl == nil {
+		return nil
+	}
+
+	count := geoProximityLocationFieldCount(gpl)
 
 	if count == 0 {
 		return fmt.Errorf(
@@ -710,10 +746,6 @@ func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
 	const (
 		biasMin = -99
 		biasMax = 99
-		latMin  = -90.0
-		latMax  = 90.0
-		lonMin  = -180.0
-		lonMax  = 180.0
 	)
 
 	if gpl.Bias < biasMin || gpl.Bias > biasMax {
@@ -724,21 +756,7 @@ func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
 	}
 
 	if gpl.Coordinates != nil {
-		lat, err := strconv.ParseFloat(gpl.Coordinates.Latitude, 64)
-		if err != nil || lat < latMin || lat > latMax {
-			return fmt.Errorf(
-				"%w: GeoProximityLocation Coordinates Latitude must be a number in [%g, %g]",
-				ErrInvalidInput, latMin, latMax,
-			)
-		}
-
-		lon, err := strconv.ParseFloat(gpl.Coordinates.Longitude, 64)
-		if err != nil || lon < lonMin || lon > lonMax {
-			return fmt.Errorf(
-				"%w: GeoProximityLocation Coordinates Longitude must be a number in [%g, %g]",
-				ErrInvalidInput, lonMin, lonMax,
-			)
-		}
+		return validateGeoProximityCoordinates(gpl.Coordinates)
 	}
 
 	return nil
@@ -762,7 +780,7 @@ func validateHealthCheckConfig(cfg HealthCheckConfig) error {
 
 	if cfg.InsufficientDataHealthStatus != "" {
 		switch cfg.InsufficientDataHealthStatus {
-		case "Healthy", "Unhealthy", "LastKnownStatus":
+		case defaultHealthStatus, "Unhealthy", "LastKnownStatus":
 		default:
 			return fmt.Errorf(
 				"%w: InsufficientDataHealthStatus must be Healthy, Unhealthy, or LastKnownStatus",

@@ -1093,3 +1093,609 @@ func TestListHostedZonesByVPC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, zones)
 }
+
+// ----------------------------------------
+// Batch-2 Gap B1: CreateHealthCheck maps all config fields
+// ----------------------------------------
+
+func TestCreateHealthCheck_AllConfigFields(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-full</CallerReference>
+  <HealthCheckConfig>
+    <Type>HTTP</Type>
+    <IPAddress>1.2.3.4</IPAddress>
+    <Port>80</Port>
+    <ResourcePath>/health</ResourcePath>
+    <FullyQualifiedDomainName>example.com</FullyQualifiedDomainName>
+    <SearchString>OK</SearchString>
+    <RequestInterval>30</RequestInterval>
+    <FailureThreshold>3</FailureThreshold>
+    <EnableSNI>true</EnableSNI>
+    <Disabled>false</Disabled>
+    <MeasureLatency>true</MeasureLatency>
+    <InsufficientDataHealthStatus>Healthy</InsufficientDataHealthStatus>
+    <Regions>
+      <Region>us-east-1</Region>
+      <Region>eu-west-1</Region>
+    </Regions>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Extract health check ID from Location header.
+	loc := rec.Header().Get("Location")
+	require.NotEmpty(t, loc)
+	id := loc[strings.LastIndex(loc, "/")+1:]
+
+	// Get the health check back and verify all fields round-tripped.
+	rec = send(t, h, http.MethodGet, "/2013-04-01/healthcheck/"+id, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body2 := rec.Body.String()
+
+	assert.Contains(t, body2, "1.2.3.4")
+	assert.Contains(t, body2, "/health")
+	assert.Contains(t, body2, "OK")
+	assert.Contains(t, body2, "<EnableSNI>true</EnableSNI>")
+	assert.Contains(t, body2, "<MeasureLatency>true</MeasureLatency>")
+	assert.Contains(t, body2, "<InsufficientDataHealthStatus>Healthy</InsufficientDataHealthStatus>")
+	assert.Contains(t, body2, "us-east-1")
+	assert.Contains(t, body2, "eu-west-1")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B2: CLOUDWATCH_METRIC requires AlarmIdentifier
+// ----------------------------------------
+
+func TestCreateHealthCheck_CloudWatchMetric_RequiresAlarmIdentifier(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Missing AlarmIdentifier.
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-cw</CallerReference>
+  <HealthCheckConfig>
+    <Type>CLOUDWATCH_METRIC</Type>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+func TestCreateHealthCheck_CloudWatchMetric_WithAlarmIdentifier(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-cw2</CallerReference>
+  <HealthCheckConfig>
+    <Type>CLOUDWATCH_METRIC</Type>
+    <AlarmIdentifier>
+      <Name>my-alarm</Name>
+      <Region>us-east-1</Region>
+    </AlarmIdentifier>
+    <InsufficientDataHealthStatus>Unhealthy</InsufficientDataHealthStatus>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Contains(t, rec.Body.String(), "my-alarm")
+	assert.Contains(t, rec.Body.String(), "Unhealthy")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B3: RECOVERY_CONTROL requires RoutingControlArn
+// ----------------------------------------
+
+func TestCreateHealthCheck_RecoveryControl_RequiresRoutingControlArn(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-rc</CallerReference>
+  <HealthCheckConfig>
+    <Type>RECOVERY_CONTROL</Type>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+func TestCreateHealthCheck_RecoveryControl_WithArn(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-rc2</CallerReference>
+  <HealthCheckConfig>
+    <Type>RECOVERY_CONTROL</Type>
+    <RoutingControlArn>arn:aws:route53-recovery-control::123:controlpanel/abc/routingcontrol/xyz</RoutingControlArn>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Contains(t, rec.Body.String(), "RECOVERY_CONTROL")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B4: InsufficientDataHealthStatus validation
+// ----------------------------------------
+
+func TestCreateHealthCheck_InsufficientDataHealthStatus_Invalid(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ref-idhs</CallerReference>
+  <HealthCheckConfig>
+    <Type>HTTP</Type>
+    <IPAddress>1.2.3.4</IPAddress>
+    <Port>80</Port>
+    <InsufficientDataHealthStatus>BadValue</InsufficientDataHealthStatus>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B5: CreateTrafficPolicy name uniqueness
+// ----------------------------------------
+
+func TestCreateTrafficPolicy_NameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>unique-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+</CreateTrafficPolicyRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Second attempt with same name must fail.
+	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TrafficPolicyAlreadyExists")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B6: DeleteTrafficPolicy with active instances returns TrafficPolicyInUse
+// ----------------------------------------
+
+func TestDeleteTrafficPolicy_InUse(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Create zone, traffic policy, and instance.
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>inuse-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+</CreateTrafficPolicyRequest>`
+
+	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	type tpResp struct {
+		TrafficPolicy struct {
+			ID string `xml:"Id"`
+		} `xml:"TrafficPolicy"`
+	}
+
+	var tpr tpResp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &tpr))
+	tpID := tpr.TrafficPolicy.ID
+
+	instBody := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyInstanceRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>%s</HostedZoneId>
+  <Name>www.example.com</Name>
+  <TrafficPolicyId>%s</TrafficPolicyId>
+  <TrafficPolicyVersion>1</TrafficPolicyVersion>
+  <TTL>60</TTL>
+</CreateTrafficPolicyInstanceRequest>`, zoneID, tpID)
+
+	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicyinstance", instBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Now attempt to delete the policy version that is in use.
+	rec = send(t, h, http.MethodDelete,
+		fmt.Sprintf("/2013-04-01/trafficpolicy/%s/1", tpID), "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TrafficPolicyInUse")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B7: DeleteKeySigningKey requires INACTIVE
+// ----------------------------------------
+
+func TestDeleteKeySigningKey_RequiresInactive(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	kskBody := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>ksk-ref-del</CallerReference>
+  <HostedZoneId>%s</HostedZoneId>
+  <KeyManagementServiceArn>arn:aws:kms:us-east-1:123456789012:key/mrk-abc</KeyManagementServiceArn>
+  <Name>active-key</Name>
+  <Status>ACTIVE</Status>
+</CreateKeySigningKeyRequest>`, zoneID)
+
+	rec = send(t, h, http.MethodPost, "/2013-04-01/keysigningkey", kskBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Delete without deactivating first — must fail.
+	rec = send(t, h, http.MethodDelete,
+		"/2013-04-01/keysigningkey/"+zoneID+"/active-key", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "KeySigningKeyNotInactive")
+
+	// Deactivate then delete — must succeed.
+	rec = send(t, h, http.MethodPost,
+		"/2013-04-01/keysigningkey/"+zoneID+"/active-key/deactivate", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = send(t, h, http.MethodDelete,
+		"/2013-04-01/keysigningkey/"+zoneID+"/active-key", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeleteKeySigningKeyResponse")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B8: GeoProximityLocation validation
+// ----------------------------------------
+
+func TestGeoProximityLocation_RequiresOneField(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	// No AWSRegion/Coordinates/LocalZoneGroup — must fail.
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>geo.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <SetIdentifier>reg1</SetIdentifier>
+          <GeoProximityLocation>
+            <Bias>0</Bias>
+          </GeoProximityLocation>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		"/2013-04-01/hostedzone/"+zoneID+"/rrset", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+func TestGeoProximityLocation_BiasTooLarge(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>geo.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <SetIdentifier>reg1</SetIdentifier>
+          <GeoProximityLocation>
+            <AWSRegion>us-east-1</AWSRegion>
+            <Bias>100</Bias>
+          </GeoProximityLocation>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		"/2013-04-01/hostedzone/"+zoneID+"/rrset", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+func TestGeoProximityLocation_ValidAWSRegion(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>geo.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <SetIdentifier>reg1</SetIdentifier>
+          <GeoProximityLocation>
+            <AWSRegion>us-east-1</AWSRegion>
+            <Bias>10</Bias>
+          </GeoProximityLocation>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		"/2013-04-01/hostedzone/"+zoneID+"/rrset", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestGeoProximityLocation_InvalidCoordinateLatitude(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>geo.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <SetIdentifier>reg1</SetIdentifier>
+          <GeoProximityLocation>
+            <Coordinates>
+              <Latitude>91.5</Latitude>
+              <Longitude>0.0</Longitude>
+            </Coordinates>
+          </GeoProximityLocation>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		"/2013-04-01/hostedzone/"+zoneID+"/rrset", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B9: CreateTrafficPolicyInstance TTL >= 1
+// ----------------------------------------
+
+func TestCreateTrafficPolicyInstance_TTLValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>ttl-test-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+</CreateTrafficPolicyRequest>`
+
+	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tpr struct {
+		TrafficPolicy struct {
+			ID string `xml:"Id"`
+		} `xml:"TrafficPolicy"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &tpr))
+	tpID := tpr.TrafficPolicy.ID
+
+	// TTL = 0 must fail.
+	instBody := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyInstanceRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>%s</HostedZoneId>
+  <Name>www.example.com</Name>
+  <TrafficPolicyId>%s</TrafficPolicyId>
+  <TrafficPolicyVersion>1</TrafficPolicyVersion>
+  <TTL>0</TTL>
+</CreateTrafficPolicyInstanceRequest>`, zoneID, tpID)
+
+	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicyinstance", instBody)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInput")
+}
+
+// ----------------------------------------
+// Batch-2 Gap B10: UpdateTrafficPolicyComment stores comment
+// ----------------------------------------
+
+func TestUpdateTrafficPolicyComment(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>comment-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+  <Comment>original comment</Comment>
+</CreateTrafficPolicyRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tpr struct {
+		TrafficPolicy struct {
+			ID string `xml:"Id"`
+		} `xml:"TrafficPolicy"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &tpr))
+	tpID := tpr.TrafficPolicy.ID
+
+	// Update the comment.
+	updateBody := `<?xml version="1.0" encoding="UTF-8"?>
+<UpdateTrafficPolicyCommentRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Comment>updated comment</Comment>
+</UpdateTrafficPolicyCommentRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		fmt.Sprintf("/2013-04-01/trafficpolicy/%s/1", tpID), updateBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UpdateTrafficPolicyCommentResponse")
+	assert.Contains(t, rec.Body.String(), "updated comment")
+
+	// Verify persisted by getting the policy.
+	rec = send(t, h, http.MethodGet,
+		fmt.Sprintf("/2013-04-01/trafficpolicy/%s/1", tpID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "updated comment")
+}
+
+func TestUpdateTrafficPolicyComment_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<UpdateTrafficPolicyCommentRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Comment>nope</Comment>
+</UpdateTrafficPolicyCommentRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy/NONEXISTENT/1", body)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// ----------------------------------------
+// Batch-2 Gap B11: ListTrafficPolicies TrafficPolicyCount
+// ----------------------------------------
+
+func TestListTrafficPolicies_VersionCount(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Create a policy and add two more versions.
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>versioned-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+</CreateTrafficPolicyRequest>`
+
+	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tpr struct {
+		TrafficPolicy struct {
+			ID string `xml:"Id"`
+		} `xml:"TrafficPolicy"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &tpr))
+	tpID := tpr.TrafficPolicy.ID
+
+	// Create version 2.
+	v2Body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}</Document>
+</CreateTrafficPolicyVersionRequest>`
+
+	rec = send(t, h, http.MethodPost,
+		fmt.Sprintf("/2013-04-01/trafficpolicy/%s", tpID), v2Body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Create version 3.
+	rec = send(t, h, http.MethodPost,
+		fmt.Sprintf("/2013-04-01/trafficpolicy/%s", tpID), v2Body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// ListTrafficPolicies should show LatestVersion=3 and TrafficPolicyCount=3.
+	rec = send(t, h, http.MethodGet, "/2013-04-01/trafficpolicies", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body2 := rec.Body.String()
+
+	assert.Contains(t, body2, "<LatestVersion>3</LatestVersion>")
+	assert.Contains(t, body2, "<TrafficPolicyCount>3</TrafficPolicyCount>")
+}
