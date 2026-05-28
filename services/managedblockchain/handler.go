@@ -1090,36 +1090,38 @@ func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []by
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	var logConfig *MemberLogPublishingConfigState
-
-	if req.LogPublishingConfiguration != nil {
-		logConfig = &MemberLogPublishingConfigState{}
-
-		if req.LogPublishingConfiguration.Fabric != nil {
-			fabric := &MemberFabricLogState{}
-
-			if req.LogPublishingConfiguration.Fabric.CaLogs != nil {
-				caLogs := &LogConfigState{}
-
-				if req.LogPublishingConfiguration.Fabric.CaLogs.CloudWatch != nil {
-					caLogs.CloudWatch = &CloudWatchLogState{
-						Enabled: req.LogPublishingConfiguration.Fabric.CaLogs.CloudWatch.Enabled,
-					}
-				}
-
-				fabric.CALogs = caLogs
-			}
-
-			logConfig.Fabric = fabric
-		}
-	}
-
-	_, err := h.Backend.UpdateMember(networkID, memberID, logConfig)
+	_, err := h.Backend.UpdateMember(networkID, memberID, buildMemberLogConfig(req.LogPublishingConfiguration))
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func buildMemberLogConfig(req *memberLogPublishingConfigReq) *MemberLogPublishingConfigState {
+	if req == nil {
+		return nil
+	}
+
+	logConfig := &MemberLogPublishingConfigState{}
+
+	if req.Fabric == nil {
+		return logConfig
+	}
+
+	fabric := &MemberFabricLogState{}
+
+	if req.Fabric.CaLogs != nil {
+		caLogs := &LogConfigState{}
+		if req.Fabric.CaLogs.CloudWatch != nil {
+			caLogs.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.CaLogs.CloudWatch.Enabled}
+		}
+		fabric.CALogs = caLogs
+	}
+
+	logConfig.Fabric = fabric
+
+	return logConfig
 }
 
 func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte) error {

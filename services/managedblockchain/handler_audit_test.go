@@ -515,7 +515,7 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 			proposal := b.AddProposalInternal(testRegion, testAccountID, n.ID, m.ID, "vote test")
 
 			totalMembers := 1 + tt.extraMembers
-			require.Equal(t, int32(totalMembers), proposal.OutstandingVoteCount) //nolint:gosec
+			require.Equal(t, int32(totalMembers), proposal.OutstandingVoteCount)
 
 			// Cast votes
 			h := managedblockchain.NewHandler(b)
@@ -556,7 +556,7 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 
 			p := getResp["Proposal"].(map[string]any)
-			outstanding := int32(p["OutstandingVoteCount"].(float64)) //nolint:gosec
+			outstanding := int32(p["OutstandingVoteCount"].(float64))
 			assert.Equal(t, tt.wantOutstandingAfterVotes, outstanding)
 		})
 	}
@@ -641,13 +641,13 @@ func TestAudit_ProposalStatusTransitions(t *testing.T) {
 			extraMemberIDs := make([]string, 0, tt.totalMembers-1)
 
 			for i := 1; i < tt.totalMembers; i++ {
-				rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
+				memRec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
 					"MemberConfiguration": map[string]any{"Name": fmt.Sprintf("m%d", i)},
 				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, http.StatusOK, memRec.Code)
 
 				var createMemResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createMemResp))
+				require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &createMemResp))
 				extraMemberIDs = append(extraMemberIDs, createMemResp["MemberId"].(string))
 			}
 
@@ -672,11 +672,11 @@ func TestAudit_ProposalStatusTransitions(t *testing.T) {
 					break
 				}
 
-				rec := doRequest(t, h, http.MethodPost, votePath, map[string]any{
+				voteRec := doRequest(t, h, http.MethodPost, votePath, map[string]any{
 					"VoterMemberId": allMemberIDs[i],
 					"Vote":          vote,
 				})
-				require.Equal(t, http.StatusNoContent, rec.Code)
+				require.Equal(t, http.StatusNoContent, voteRec.Code)
 			}
 
 			// Check proposal status

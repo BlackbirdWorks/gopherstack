@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"sort"
 	"time"
 
@@ -905,7 +906,7 @@ func (b *InMemoryBackend) CreateProposal(
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
-	memberCount := int32(len(members)) //nolint:gosec
+	memberCount := int32(min(len(members), math.MaxInt32))
 	outstandingVotes := memberCount
 
 	proposal := &Proposal{
@@ -1226,7 +1227,7 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 	var memberCount int32
 
 	if members, ok := b.members[networkID]; ok {
-		memberCount = int32(len(members)) //nolint:gosec
+		memberCount = int32(min(len(members), math.MaxInt32))
 
 		if m, exists := members[memberID]; exists {
 			memberName = m.Name
@@ -1426,7 +1427,7 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	}
 
 	// Recalculate outstanding votes.
-	totalMembers := int32(len(b.members[networkID])) //nolint:gosec
+	totalMembers := int32(min(len(b.members[networkID]), math.MaxInt32))
 	proposal.OutstandingVoteCount = totalMembers - proposal.YesVoteCount - proposal.NoVoteCount
 
 	// Apply threshold policy if network has one.
@@ -1435,6 +1436,8 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 
 	return nil
 }
+
+const percentBase int32 = 100
 
 // applyVoteThresholdLocked checks vote counts against the network's voting policy
 // and transitions the proposal status when thresholds are met. Must be called with mu held.
@@ -1451,8 +1454,8 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 		return
 	}
 
-	yesPercent := (proposal.YesVoteCount * 100) / totalMembers
-	noPercent := (proposal.NoVoteCount * 100) / totalMembers
+	yesPercent := (proposal.YesVoteCount * percentBase) / totalMembers
+	noPercent := (proposal.NoVoteCount * percentBase) / totalMembers
 
 	var yesApproved bool
 
@@ -1467,7 +1470,7 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 
 	var noRejected bool
 
-	rejectionThreshold := int32(100) - threshold
+	rejectionThreshold := percentBase - threshold
 
 	switch comparator {
 	case "GREATER_THAN":
