@@ -40,6 +40,8 @@ github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 h1:bpd8vxhlQi2r1hiueO
 github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23/go.mod h1:15DfR2nw+CRHIk0tqNyifu3G1YdAOy68RftkhMDDwYk=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24 h1:OQqn11BtaYv1WLUowvcA30MpzIu8Ti4pcLPIIyoKZrA=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24/go.mod h1:X5ZJyfwVrWA96GzPmUCWFQaEARPR7gCrpq2E92PJwAE=
+github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0 h1:SG+cxHh/AWWo4TWg/UzjZPEBbDuVEC1i4lfrK+bdMwE=
+github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0/go.mod h1:CP5pWLCGRZJDXLkeUvxTulAvFkPnfK+TqJNtJtH/Jmo=
 github.com/aws/aws-sdk-go-v2/service/acm v1.37.21 h1:AUceKJhgt+FOwImMUPbOHKLpe5O9a8N/RtC+tLQ+sxc=
 github.com/aws/aws-sdk-go-v2/service/acm v1.37.21/go.mod h1:kkbySLpdZk0UNdU23rBaef7IfuSRy0/jEM84BGCcvKM=
 github.com/aws/aws-sdk-go-v2/service/acmpca v1.46.10 h1:gS51h/TsRA0bi9cceJBSFFFWA9ctn/AKQX9+v/78LU0=
@@ -234,6 +236,8 @@ github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22 h1:jBDyp8U20i5DrLNS
 github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22/go.mod h1:HtWUcDglvVRVkAt3jn2Q/iNG6CsZWArBcdnSkWoUUgY=
 github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.31.8 h1:mGgiunl7ZwOwhpJwJNF4JfsZFYJp08wjyS3NqFQe3ws=
 github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.31.8/go.mod h1:KdM2EhXeHfeBQz5keOvv/FM7kbesjCWm7HEEyJe3frs=
+github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0 h1:BD6q8KEiom1qJpDC7kmBrKwMXCRkuSy7JXWPhQThFkI=
+github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0/go.mod h1:kJgqmGmlOPqTe9cntPrSgMdIQ3cAama8TAW+NKaDCzE=
 github.com/aws/aws-sdk-go-v2/service/route53 v1.62.3 h1:JRPXnIr0WwFsSHBmuCvT/uh0Vgys+crvwkOghbJEqi8=
 github.com/aws/aws-sdk-go-v2/service/route53 v1.62.3/go.mod h1:DHddp7OO4bY467WVCqWBzk5+aEWn7vqYkap7UigJzGk=
 github.com/aws/aws-sdk-go-v2/service/route53resolver v1.42.3 h1:Cc5BYTPA7c0kSAEm+LOBuJ8wz4j0rSRKDtyvI9s/itY=

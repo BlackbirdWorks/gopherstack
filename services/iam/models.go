@@ -917,11 +917,25 @@ type GetAccountAuthorizationDetailsResult struct {
 
 // ---- SimulatePrincipalPolicy XML types ----
 
+// EvalDecisionDetailEntry is a single entry in the EvalDecisionDetails map.
+type EvalDecisionDetailEntry struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+// PermBoundaryDecisionXML carries the boundary evaluation outcome.
+type PermBoundaryDecisionXML struct {
+	AllowedByPermissionsBoundary bool `xml:"AllowedByPermissionsBoundary"`
+}
+
 // SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
 type SimulationEvalResultXML struct {
-	EvalActionName   string `xml:"EvalActionName"`
-	EvalResourceName string `xml:"EvalResourceName"`
-	EvalDecision     string `xml:"EvalDecision"`
+	// PermissionsBoundaryDecisionDetail is present when the principal has a permissions boundary.
+	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML  `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
+	EvalActionName                    string                    `xml:"EvalActionName"`
+	EvalResourceName                  string                    `xml:"EvalResourceName"`
+	EvalDecision                      string                    `xml:"EvalDecision"`
+	EvalDecisionDetails               []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
 }
 
 // SimulatePrincipalPolicyResponse is the XML response for SimulatePrincipalPolicy.
