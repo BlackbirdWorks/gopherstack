@@ -153,6 +153,15 @@ type StorageBackend interface {
 	ListQueuedMessages(wirelessDeviceID string) []QueuedMessage
 	DeleteQueuedMessages(wirelessDeviceID string) error
 
+	StartWirelessDeviceImportTask(accountID, region, destinationName string) (*WirelessDeviceImportTask, error)
+	StartSingleWirelessDeviceImportTask(
+		accountID, region, destinationName string,
+	) (*SingleWirelessDeviceImportTask, error)
+	GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error)
+	DeleteWirelessDeviceImportTask(id string) error
+	UpdateWirelessDeviceImportTask(id, destinationName string) error
+	ListWirelessDeviceImportTasks() []*WirelessDeviceImportTask
+
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) (map[string]string, error)
@@ -179,20 +188,22 @@ type InMemoryBackend struct {
 	multicastGroups        map[resourceKey]*MulticastGroup
 	networkAnalyzerConfigs map[resourceKey]*NetworkAnalyzerConfig
 	resourceTags           map[string]map[string]string
-	partnerAccounts        map[string]string                 // partnerAccountID -> arn
-	fuotaTaskMulticast     map[string]string                 // fuotaTaskID -> multicastGroupID
-	fuotaTaskDevices       map[string]string                 // fuotaTaskID -> wirelessDeviceID
-	multicastGroupDevices  map[string]string                 // multicastGroupID -> wirelessDeviceID
-	multicastGroupSessions map[string]bool                   // multicastGroupIDs with active sessions
-	wirelessDeviceThings   map[string]string                 // wirelessDeviceID -> thingArn
-	wirelessGatewayCerts   map[string]string                 // gatewayID -> iotCertificateID
-	wirelessGatewayThings  map[string]string                 // gatewayID -> thingArn
-	logLevels              map[string]string                 // "default" -> logLevel
-	resourceLogLevels      map[string]string                 // resourceID -> logLevel
-	gatewayTasks           map[string]*GatewayTask           // gatewayID -> task
-	gatewayTaskDefs        map[string]*GatewayTaskDefinition // taskDefID -> definition
-	positions              map[string]map[string]any         // resourceID -> position data
-	queuedMessages         map[string][]QueuedMessage        // wirelessDeviceID -> messages
+	partnerAccounts        map[string]string                          // partnerAccountID -> arn
+	fuotaTaskMulticast     map[string]string                          // fuotaTaskID -> multicastGroupID
+	fuotaTaskDevices       map[string]string                          // fuotaTaskID -> wirelessDeviceID
+	multicastGroupDevices  map[string]string                          // multicastGroupID -> wirelessDeviceID
+	multicastGroupSessions map[string]bool                            // multicastGroupIDs with active sessions
+	wirelessDeviceThings   map[string]string                          // wirelessDeviceID -> thingArn
+	wirelessGatewayCerts   map[string]string                          // gatewayID -> iotCertificateID
+	wirelessGatewayThings  map[string]string                          // gatewayID -> thingArn
+	logLevels              map[string]string                          // "default" -> logLevel
+	resourceLogLevels      map[string]string                          // resourceID -> logLevel
+	gatewayTasks           map[string]*GatewayTask                    // gatewayID -> task
+	gatewayTaskDefs        map[string]*GatewayTaskDefinition          // taskDefID -> definition
+	positions              map[string]map[string]any                  // resourceID -> position data
+	queuedMessages         map[string][]QueuedMessage                 // wirelessDeviceID -> messages
+	importTasks            map[string]*WirelessDeviceImportTask       // id -> task
+	singleImportTasks      map[string]*SingleWirelessDeviceImportTask // arn -> task
 	mu                     sync.RWMutex
 }
 
@@ -222,6 +233,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		gatewayTaskDefs:        make(map[string]*GatewayTaskDefinition),
 		positions:              make(map[string]map[string]any),
 		queuedMessages:         make(map[string][]QueuedMessage),
+		importTasks:            make(map[string]*WirelessDeviceImportTask),
+		singleImportTasks:      make(map[string]*SingleWirelessDeviceImportTask),
 	}
 }
 
@@ -285,6 +298,8 @@ func (b *InMemoryBackend) Reset() {
 	b.gatewayTaskDefs = make(map[string]*GatewayTaskDefinition)
 	b.positions = make(map[string]map[string]any)
 	b.queuedMessages = make(map[string][]QueuedMessage)
+	b.importTasks = make(map[string]*WirelessDeviceImportTask)
+	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask)
 }
 
 // copyWirelessDevice returns a shallow copy of d with an independent Tags map.
