@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"time"
@@ -19,6 +20,12 @@ import (
 const (
 	errRepoDoesNotExist             = "RepositoryDoesNotExistException"
 	errApprovalRuleTemplateNotExist = "ApprovalRuleTemplateDoesNotExistException"
+
+	prStatusOpen   = "OPEN"
+	prStatusClosed = "CLOSED"
+
+	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
+	maxBatchGetRepositories = 25
 )
 
 var (
@@ -43,7 +50,31 @@ var (
 	ErrCommitNotFound = awserr.New("CommitDoesNotExistException", awserr.ErrNotFound)
 	// ErrPullRequestNotFound is returned when a pull request is not found.
 	ErrPullRequestNotFound = awserr.New("PullRequestDoesNotExistException", awserr.ErrNotFound)
+	// ErrPullRequestAlreadyMerged is returned when a PR is already merged.
+	ErrPullRequestAlreadyMerged = awserr.New("PullRequestAlreadyClosedException", awserr.ErrConflict)
+	// ErrInvalidRepositoryName is returned when a repository name is invalid.
+	ErrInvalidRepositoryName = awserr.New("InvalidRepositoryNameException", awserr.ErrInvalidParameter)
+	// ErrMaxRepositoriesExceeded is returned when too many repositories are requested.
+	ErrMaxRepositoriesExceeded = awserr.New("MaximumRepositoryNamesExceededException", awserr.ErrInvalidParameter)
 )
+
+// repoNameRe matches valid CodeCommit repository names: alphanumeric, _, -, .
+var repoNameRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// ValidateRepositoryName returns an error if name is not a valid CodeCommit repository name.
+func ValidateRepositoryName(name string) error {
+	if len(name) == 0 || len(name) > 100 {
+		return fmt.Errorf("%w: repository name must be between 1 and 100 characters", ErrInvalidRepositoryName)
+	}
+	if !repoNameRe.MatchString(name) {
+		return fmt.Errorf(
+			"%w: repository name may only contain alphanumeric characters, underscores, hyphens, and periods",
+			ErrInvalidRepositoryName,
+		)
+	}
+
+	return nil
+}
 
 // ApprovalRuleTemplate represents an AWS CodeCommit approval rule template.
 type ApprovalRuleTemplate struct {
@@ -221,6 +252,10 @@ func (b *InMemoryBackend) CreateRepository(name, description string, kv map[stri
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
+	if err := ValidateRepositoryName(name); err != nil {
+		return nil, err
+	}
+
 	if _, ok := b.repositories[name]; ok {
 		return nil, fmt.Errorf("%w: repository %s already exists", ErrAlreadyExists, name)
 	}
@@ -351,7 +386,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // BatchGetRepositories returns repositories by name, splitting results into found/notFound.
-func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, []string) {
+// AWS enforces a maximum of 25 repository names per request.
+func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, []string, error) {
+	if len(names) > maxBatchGetRepositories {
+		return nil, nil, fmt.Errorf(
+			"%w: a maximum of %d repository names may be specified",
+			ErrMaxRepositoriesExceeded,
+			maxBatchGetRepositories,
+		)
+	}
+
 	b.mu.RLock("BatchGetRepositories")
 	defer b.mu.RUnlock()
 
@@ -369,7 +413,7 @@ func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, [
 		found = append(found, &cp)
 	}
 
-	return found, notFound
+	return found, notFound, nil
 }
 
 // CreateApprovalRuleTemplate creates a new approval rule template.
@@ -549,6 +593,15 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 
 	if _, ok := b.repositories[repositoryName]; !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	// Validate that the commitID exists in the repository.
+	if repoCommits := b.commits[repositoryName]; repoCommits != nil {
+		if _, ok := repoCommits[commitID]; !ok {
+			return fmt.Errorf("%w: commit %s not found in repository %s", ErrCommitNotFound, commitID, repositoryName)
+		}
+	} else {
+		return fmt.Errorf("%w: commit %s not found in repository %s", ErrCommitNotFound, commitID, repositoryName)
 	}
 
 	if b.branches[repositoryName] == nil {
@@ -784,7 +837,7 @@ func (b *InMemoryBackend) CreatePullRequest(
 		PullRequestID:      prID,
 		Title:              title,
 		Description:        description,
-		PullRequestStatus:  "OPEN",
+		PullRequestStatus:  prStatusOpen,
 		CreationDate:       now,
 		LastActivityDate:   now,
 		ClientRequestToken: clientRequestToken,
@@ -894,8 +947,9 @@ func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
 	return &cp, nil
 }
 
-// ListPullRequests returns all pull request IDs for a repository in sorted order.
-func (b *InMemoryBackend) ListPullRequests(repositoryName string) ([]string, error) {
+// ListPullRequests returns pull request IDs for a repository, optionally filtered by status.
+// IDs are returned in numeric descending order (newest first), matching AWS behaviour.
+func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus string) ([]string, error) {
 	b.mu.RLock("ListPullRequests")
 	defer b.mu.RUnlock()
 
@@ -906,6 +960,10 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName string) ([]string, err
 	ids := make([]string, 0, len(b.pullRequests))
 
 	for id, pr := range b.pullRequests {
+		if pullRequestStatus != "" && pr.PullRequestStatus != pullRequestStatus {
+			continue
+		}
+
 		for _, t := range pr.PullRequestTargets {
 			if t.RepositoryName == repositoryName {
 				ids = append(ids, id)
@@ -915,7 +973,16 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName string) ([]string, err
 		}
 	}
 
-	sort.Strings(ids)
+	// Sort numerically descending (newest first) — AWS returns highest IDs first.
+	sort.Slice(ids, func(i, j int) bool {
+		ni, ei := strconv.Atoi(ids[i])
+		nj, ej := strconv.Atoi(ids[j])
+		if ei == nil && ej == nil {
+			return ni > nj
+		}
+
+		return ids[i] > ids[j]
+	})
 
 	return ids, nil
 }
