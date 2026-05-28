@@ -2,7 +2,9 @@ package iotwireless
 
 import (
 	"errors"
+	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -11,6 +13,8 @@ import (
 var (
 	// ErrPartnerAccountNotFound is returned when a partner account does not exist.
 	ErrPartnerAccountNotFound = errors.New("ResourceNotFoundException: Partner account not found")
+	// ErrImportTaskNotFound is returned when a wireless device import task does not exist.
+	ErrImportTaskNotFound = errors.New("ResourceNotFoundException: Wireless device import task not found")
 	// ErrGatewayTaskNotFound is returned when a wireless gateway task does not exist.
 	ErrGatewayTaskNotFound = errors.New(
 		"ResourceNotFoundException: Wireless gateway task not found",
@@ -511,4 +515,135 @@ func (b *InMemoryBackend) DeleteQueuedMessages(wirelessDeviceID string) error {
 type QueuedMessage struct {
 	MessageID     string
 	PayloadBase64 string
+}
+
+// wirelessDeviceImportTaskARN generates an ARN for a wireless device import task.
+func wirelessDeviceImportTaskARN(region, accountID, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:ImportTask/%s", region, accountID, id)
+}
+
+// singleWirelessDeviceImportTaskARN generates an ARN for a single wireless device import task.
+func singleWirelessDeviceImportTaskARN(region, accountID, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:ImportTask/%s", region, accountID, id)
+}
+
+// copyImportTask returns a shallow copy of a WirelessDeviceImportTask.
+func copyImportTask(t *WirelessDeviceImportTask) *WirelessDeviceImportTask {
+	cp := *t
+
+	return &cp
+}
+
+// copySingleImportTask returns a shallow copy of a SingleWirelessDeviceImportTask.
+func copySingleImportTask(t *SingleWirelessDeviceImportTask) *SingleWirelessDeviceImportTask {
+	cp := *t
+
+	return &cp
+}
+
+// --- Wireless Device Import Task operations ---
+
+// StartWirelessDeviceImportTask creates a bulk wireless device import task.
+func (b *InMemoryBackend) StartWirelessDeviceImportTask(
+	accountID, region, destinationName string,
+) (*WirelessDeviceImportTask, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := wirelessDeviceImportTaskARN(region, accountID, id)
+
+	task := &WirelessDeviceImportTask{
+		ID:              id,
+		ARN:             arn,
+		DestinationName: destinationName,
+		Status:          "Initialized",
+		CreatedAt:       time.Now(),
+	}
+
+	b.importTasks[id] = task
+
+	return copyImportTask(task), nil
+}
+
+// StartSingleWirelessDeviceImportTask creates a single wireless device import task.
+func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
+	accountID, region, destinationName string,
+) (*SingleWirelessDeviceImportTask, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := singleWirelessDeviceImportTaskARN(region, accountID, id)
+	wirelessDeviceID := uuid.NewString()
+
+	task := &SingleWirelessDeviceImportTask{
+		ARN:              arn,
+		WirelessDeviceID: wirelessDeviceID,
+		DestinationName:  destinationName,
+		Status:           "Initialized",
+		CreatedAt:        time.Now(),
+	}
+
+	b.singleImportTasks[arn] = task
+
+	return copySingleImportTask(task), nil
+}
+
+// GetWirelessDeviceImportTask returns a wireless device import task by ID.
+func (b *InMemoryBackend) GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	task, ok := b.importTasks[id]
+	if !ok {
+		return nil, ErrImportTaskNotFound
+	}
+
+	return copyImportTask(task), nil
+}
+
+// DeleteWirelessDeviceImportTask removes a wireless device import task.
+func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.importTasks[id]; !ok {
+		return ErrImportTaskNotFound
+	}
+
+	delete(b.importTasks, id)
+
+	return nil
+}
+
+// UpdateWirelessDeviceImportTask updates the destination name of a wireless device import task.
+func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	task, ok := b.importTasks[id]
+	if !ok {
+		return ErrImportTaskNotFound
+	}
+
+	if destinationName != "" {
+		task.DestinationName = destinationName
+	}
+
+	return nil
+}
+
+// ListWirelessDeviceImportTasks returns all wireless device import tasks.
+func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImportTask {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*WirelessDeviceImportTask, 0, len(b.importTasks))
+
+	for _, task := range b.importTasks {
+		result = append(result, copyImportTask(task))
+	}
+
+	return result
 }
