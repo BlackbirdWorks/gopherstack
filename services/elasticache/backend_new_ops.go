@@ -83,13 +83,13 @@ type ServerlessCache struct {
 	Status                 string                   `json:"status"`
 	ARN                    string                   `json:"arn"`
 	Engine                 string                   `json:"engine"`
-	KmsKeyId               string                   `json:"kmsKeyId,omitempty"`
-	UserGroupId            string                   `json:"userGroupId,omitempty"`
+	KmsKeyID               string                   `json:"kmsKeyId,omitempty"`
+	UserGroupID            string                   `json:"userGroupId,omitempty"`
 	SubnetGroupName        string                   `json:"subnetGroupName,omitempty"`
 	DailySnapshotTime      string                   `json:"dailySnapshotTime,omitempty"`
 	MajorEngineVersion     string                   `json:"majorEngineVersion,omitempty"`
 	SubnetIDs              []string                 `json:"subnetIds,omitempty"`
-	SecurityGroupIds       []string                 `json:"securityGroupIds,omitempty"`
+	SecurityGroupIDs       []string                 `json:"securityGroupIds,omitempty"`
 	SnapshotRetentionLimit int32                    `json:"snapshotRetentionLimit,omitempty"`
 }
 
@@ -232,7 +232,11 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 
 	nodeGroupCount := int32(1)
 	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok && len(rg.NodeGroups) > 0 {
-		nodeGroupCount = int32(len(rg.NodeGroups))
+		var cnt int32
+		for range rg.NodeGroups {
+			cnt++
+		}
+		nodeGroupCount = cnt
 	}
 
 	grg := &GlobalReplicationGroup{
@@ -323,7 +327,7 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 		Status:              statusAvailable,
 		ARN:                 b.serverlessCacheSnapshotARN(snapshotName),
 		ServerlessCacheName: serverlessCacheName,
-		SnapshotType:        "manual",
+		SnapshotType:        snapshotSourceManual,
 		CreatedAt:           time.Now(),
 		Tags:                tags.New("elasticache.serverlesssnap." + snapshotName + ".tags"),
 	}

@@ -17,20 +17,20 @@ func TestBackend_CreateServerlessCacheFull_AllFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		opts        elasticache.ServerlessCreateOpts
-		name        string
-		wantKms     string
-		wantGroup   string
-		wantSnap    string
-		wantRetain  int32
+		name       string
+		wantKms    string
+		wantGroup  string
+		wantSnap   string
+		opts       elasticache.ServerlessCreateOpts
+		wantRetain int32
 	}{
 		{
 			name: "with_kms_and_user_group",
 			opts: elasticache.ServerlessCreateOpts{
 				Name:                   "sc-kms",
 				Engine:                 "redis",
-				KmsKeyId:               "arn:aws:kms:us-east-1:123456789012:key/mrk-abc123",
-				UserGroupId:            "my-group",
+				KmsKeyID:               "arn:aws:kms:us-east-1:123456789012:key/mrk-abc123",
+				UserGroupID:            "my-group",
 				DailySnapshotTime:      "05:00",
 				SnapshotRetentionLimit: 7,
 			},
@@ -51,8 +51,8 @@ func TestBackend_CreateServerlessCacheFull_AllFields(t *testing.T) {
 			opts: elasticache.ServerlessCreateOpts{
 				Name:             "sc-sgs",
 				Engine:           "redis",
-				SecurityGroupIds: []string{"sg-111", "sg-222"},
-				SubnetIds:        []string{"subnet-aaa", "subnet-bbb"},
+				SecurityGroupIDs: []string{"sg-111", "sg-222"},
+				SubnetIDs:        []string{"subnet-aaa", "subnet-bbb"},
 			},
 		},
 	}
@@ -70,11 +70,11 @@ func TestBackend_CreateServerlessCacheFull_AllFields(t *testing.T) {
 			assert.NotEmpty(t, sc.Status)
 
 			if tt.wantKms != "" {
-				assert.Equal(t, tt.wantKms, sc.KmsKeyId)
+				assert.Equal(t, tt.wantKms, sc.KmsKeyID)
 			}
 
 			if tt.wantGroup != "" {
-				assert.Equal(t, tt.wantGroup, sc.UserGroupId)
+				assert.Equal(t, tt.wantGroup, sc.UserGroupID)
 			}
 
 			if tt.wantSnap != "" {
@@ -110,25 +110,29 @@ func TestBackend_ModifyServerlessCacheFull(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		opts    elasticache.ServerlessModifyOpts
 		name    string
 		wantUG  string
-		noUG    bool
+		opts    elasticache.ServerlessModifyOpts
 		wantRet int32
+		noUG    bool
 	}{
 		{
 			name: "update_description_and_snapshot",
 			opts: elasticache.ServerlessModifyOpts{
-				Description:            "updated desc",
-				DailySnapshotTime:      "03:00",
-				SnapshotRetentionLimit: func() *int32 { v := int32(14); return &v }(),
+				Description:       "updated desc",
+				DailySnapshotTime: "03:00",
+				SnapshotRetentionLimit: func() *int32 {
+					v := int32(14)
+
+					return &v
+				}(),
 			},
 			wantRet: 14,
 		},
 		{
 			name: "add_user_group",
 			opts: elasticache.ServerlessModifyOpts{
-				UserGroupId: "grp-abc",
+				UserGroupID: "grp-abc",
 			},
 			wantUG: "grp-abc",
 		},
@@ -150,7 +154,10 @@ func TestBackend_ModifyServerlessCacheFull(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.noUG {
-				_, err = b.ModifyServerlessCacheFull("mod-sc", elasticache.ServerlessModifyOpts{UserGroupId: "pre-group"})
+				_, err = b.ModifyServerlessCacheFull(
+					"mod-sc",
+					elasticache.ServerlessModifyOpts{UserGroupID: "pre-group"},
+				)
 				require.NoError(t, err)
 			}
 
@@ -162,11 +169,11 @@ func TestBackend_ModifyServerlessCacheFull(t *testing.T) {
 			}
 
 			if tt.wantUG != "" {
-				assert.Equal(t, tt.wantUG, sc.UserGroupId)
+				assert.Equal(t, tt.wantUG, sc.UserGroupID)
 			}
 
 			if tt.noUG {
-				assert.Empty(t, sc.UserGroupId)
+				assert.Empty(t, sc.UserGroupID)
 			}
 		})
 	}
@@ -222,7 +229,7 @@ func TestBackend_CopySnapshotFull_WithKmsKey(t *testing.T) {
 	copied, err := b.CopySnapshotFull("original-snap", "encrypted-copy", "arn:aws:kms:us-east-1:000000000000:key/key-1")
 	require.NoError(t, err)
 	assert.Equal(t, "encrypted-copy", copied.SnapshotName)
-	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/key-1", copied.KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/key-1", copied.KmsKeyID)
 	assert.NotEmpty(t, copied.ARN)
 }
 

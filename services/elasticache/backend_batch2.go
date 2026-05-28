@@ -3,6 +3,7 @@ package elasticache
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -13,9 +14,9 @@ import (
 // ----------------------------------------
 
 var (
-	ErrUserNotInGroup         = errors.New("user is a member of a user group and cannot be deleted")
-	ErrUserNotFound2          = ErrUserNotFound
-	ErrGroupUserNotFound      = errors.New("one or more specified user IDs do not exist")
+	ErrUserNotInGroup    = errors.New("user is a member of a user group and cannot be deleted")
+	ErrUserNotFound2     = ErrUserNotFound
+	ErrGroupUserNotFound = errors.New("one or more specified user IDs do not exist")
 )
 
 // ----------------------------------------
@@ -25,27 +26,27 @@ var (
 // ServerlessCreateOpts carries all fields for serverless cache creation.
 type ServerlessCreateOpts struct {
 	Tags                   map[string]string
-	SecurityGroupIds       []string
-	SubnetIds              []string
 	Name                   string
 	Description            string
 	Engine                 string
-	KmsKeyId               string
-	UserGroupId            string
+	KmsKeyID               string
+	UserGroupID            string
 	SubnetGroupName        string
 	DailySnapshotTime      string
 	MajorEngineVersion     string
+	SecurityGroupIDs       []string
+	SubnetIDs              []string
 	SnapshotRetentionLimit int32
 }
 
 // ServerlessModifyOpts carries all fields for serverless cache modification.
 type ServerlessModifyOpts struct {
-	SecurityGroupIds       []string
-	Description            string
-	UserGroupId            string
-	DailySnapshotTime      string
-	RemoveUserGroup        bool
 	SnapshotRetentionLimit *int32
+	Description            string
+	UserGroupID            string
+	DailySnapshotTime      string
+	SecurityGroupIDs       []string
+	RemoveUserGroup        bool
 }
 
 // ----------------------------------------
@@ -88,13 +89,13 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(opts ServerlessCreateOpts) (
 		Status:                 statusServerlessAvailable,
 		ARN:                    b.serverlessCacheARN(opts.Name),
 		Engine:                 engine,
-		KmsKeyId:               opts.KmsKeyId,
-		UserGroupId:            opts.UserGroupId,
+		KmsKeyID:               opts.KmsKeyID,
+		UserGroupID:            opts.UserGroupID,
 		SubnetGroupName:        opts.SubnetGroupName,
 		DailySnapshotTime:      opts.DailySnapshotTime,
 		MajorEngineVersion:     majorVer,
-		SubnetIDs:              opts.SubnetIds,
-		SecurityGroupIds:       opts.SecurityGroupIds,
+		SubnetIDs:              opts.SubnetIDs,
+		SecurityGroupIDs:       opts.SecurityGroupIDs,
 		SnapshotRetentionLimit: opts.SnapshotRetentionLimit,
 		CreatedAt:              time.Now(),
 		Tags:                   tags.New("elasticache.serverless." + opts.Name + ".tags"),
@@ -146,10 +147,10 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(name string, opts Serverless
 		sc.Description = opts.Description
 	}
 
-	if opts.UserGroupId != "" {
-		sc.UserGroupId = opts.UserGroupId
+	if opts.UserGroupID != "" {
+		sc.UserGroupID = opts.UserGroupID
 	} else if opts.RemoveUserGroup {
-		sc.UserGroupId = ""
+		sc.UserGroupID = ""
 	}
 
 	if opts.DailySnapshotTime != "" {
@@ -160,8 +161,8 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(name string, opts Serverless
 		sc.SnapshotRetentionLimit = *opts.SnapshotRetentionLimit
 	}
 
-	if len(opts.SecurityGroupIds) > 0 {
-		sc.SecurityGroupIds = opts.SecurityGroupIds
+	if len(opts.SecurityGroupIDs) > 0 {
+		sc.SecurityGroupIDs = opts.SecurityGroupIDs
 	}
 
 	result := *sc
@@ -174,7 +175,10 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(name string, opts Serverless
 // ----------------------------------------
 
 // CreateSubnetGroupFull creates a cache subnet group with an explicit VPC ID.
-func (b *InMemoryBackend) CreateSubnetGroupFull(name, description, vpcId string, subnetIDs []string) (*CacheSubnetGroup, error) {
+func (b *InMemoryBackend) CreateSubnetGroupFull(
+	name, description, vpcID string,
+	subnetIDs []string,
+) (*CacheSubnetGroup, error) {
 	b.mu.Lock("CreateSubnetGroupFull")
 	defer b.mu.Unlock()
 
@@ -185,7 +189,7 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(name, description, vpcId string,
 	sg := &CacheSubnetGroup{
 		Name:        name,
 		Description: description,
-		VpcID:       vpcId,
+		VpcID:       vpcID,
 		SubnetIDs:   subnetIDs,
 		ARN:         b.subnetGroupARN(name),
 		Tags:        tags.New("elasticache.sg." + name + ".tags"),
@@ -202,7 +206,9 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(name, description, vpcId string,
 // ----------------------------------------
 
 // CopySnapshotFull copies a snapshot and optionally re-encrypts with a different KMS key.
-func (b *InMemoryBackend) CopySnapshotFull(sourceSnapshotName, targetSnapshotName, kmsKeyId string) (*CacheSnapshot, error) {
+func (b *InMemoryBackend) CopySnapshotFull(
+	sourceSnapshotName, targetSnapshotName, kmsKeyID string,
+) (*CacheSnapshot, error) {
 	b.mu.Lock("CopySnapshotFull")
 	defer b.mu.Unlock()
 
@@ -219,11 +225,11 @@ func (b *InMemoryBackend) CopySnapshotFull(sourceSnapshotName, targetSnapshotNam
 	cp.SnapshotName = targetSnapshotName
 	cp.ARN = b.snapshotARN(targetSnapshotName)
 	cp.CreatedAt = time.Now()
-	cp.SnapshotSource = "manual"
+	cp.SnapshotSource = snapshotSourceManual
 	cp.Tags = tags.New("elasticache.snapshot." + targetSnapshotName + ".tags")
 
-	if kmsKeyId != "" {
-		cp.KmsKeyId = kmsKeyId
+	if kmsKeyID != "" {
+		cp.KmsKeyID = kmsKeyID
 	}
 
 	b.snapshots[targetSnapshotName] = &cp
@@ -239,7 +245,10 @@ func (b *InMemoryBackend) CopySnapshotFull(sourceSnapshotName, targetSnapshotNam
 // ----------------------------------------
 
 // CreateUserGroupValidated creates a user group, validating that all specified user IDs exist.
-func (b *InMemoryBackend) CreateUserGroupValidated(groupID, description, engine string, userIDs []string) (*UserGroup, error) {
+func (b *InMemoryBackend) CreateUserGroupValidated(
+	groupID, description, engine string,
+	userIDs []string,
+) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroupValidated")
 	defer b.mu.Unlock()
 
@@ -290,10 +299,8 @@ func (b *InMemoryBackend) DeleteUserSafe(userID string) (*User, error) {
 	}
 
 	for _, ug := range b.userGroups {
-		for _, uid := range ug.UserIDs {
-			if uid == userID {
-				return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
-			}
+		if slices.Contains(ug.UserIDs, userID) {
+			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
 		}
 	}
 
@@ -387,8 +394,8 @@ func (b *InMemoryBackend) DescribeServiceUpdatesFull(
 
 // serviceUpdatePageResult is a simple pagination result for service updates.
 type serviceUpdatePageResult struct {
-	data []ServiceUpdate
 	next string
+	data []ServiceUpdate
 }
 
 func newServiceUpdatePage(items []ServiceUpdate, marker string, maxRecords int) serviceUpdatePageResult {
@@ -407,11 +414,7 @@ func newServiceUpdatePage(items []ServiceUpdate, marker string, maxRecords int) 
 		}
 	}
 
-	end := start + maxRecords
-	if end > len(items) {
-		end = len(items)
-	}
-
+	end := min(start+maxRecords, len(items))
 	page := items[start:end]
 	next := ""
 
@@ -459,11 +462,7 @@ func (b *InMemoryBackend) DescribeUpdateActionsFull(
 		}
 	}
 
-	end := start + maxRecords
-	if end > len(all) {
-		end = len(all)
-	}
-
+	end := min(start+maxRecords, len(all))
 	page := all[start:end]
 	next := ""
 

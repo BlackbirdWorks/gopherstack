@@ -4,8 +4,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
@@ -81,7 +81,6 @@ func TestHandler_DescribeReplicationGroups_LogDeliveryConfigs_InResponse(t *test
 	assert.Equal(t, elasticachetypes.DestinationTypeCloudWatchLogs, rg.LogDeliveryConfigurations[0].DestinationType)
 }
 
-
 // ----------------------------------------
 // GlobalReplicationGroup NodeGroupCount in response
 // ----------------------------------------
@@ -97,9 +96,12 @@ func TestHandler_CreateGlobalReplicationGroup_NodeGroupCountTracked(t *testing.T
 	})
 	require.NoError(t, err)
 
-	out, err := client.DescribeGlobalReplicationGroups(t.Context(), &elasticachesdk.DescribeGlobalReplicationGroupsInput{
-		GlobalReplicationGroupId: aws.String("ldgnf-nodecount-grg"),
-	})
+	out, err := client.DescribeGlobalReplicationGroups(
+		t.Context(),
+		&elasticachesdk.DescribeGlobalReplicationGroupsInput{
+			GlobalReplicationGroupId: aws.String("ldgnf-nodecount-grg"),
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, out.GlobalReplicationGroups, 1)
 	grg := out.GlobalReplicationGroups[0]
@@ -236,7 +238,13 @@ func TestHandler_DescribeEngineDefaultParameters_ReturnsRealParams(t *testing.T)
 				names[aws.ToString(p.ParameterName)] = true
 			}
 
-			assert.True(t, names[tt.wantParam], "expected parameter %q in defaults for family %q", tt.wantParam, tt.family)
+			assert.True(
+				t,
+				names[tt.wantParam],
+				"expected parameter %q in defaults for family %q",
+				tt.wantParam,
+				tt.family,
+			)
 		})
 	}
 }
@@ -250,11 +258,14 @@ func TestHandler_PurchaseReservedCacheNode_ARNInResponse(t *testing.T) {
 
 	client := newTestStack(t)
 
-	out, err := client.PurchaseReservedCacheNodesOffering(t.Context(), &elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
-		ReservedCacheNodesOfferingId: aws.String("31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa"),
-		ReservedCacheNodeId:          aws.String("my-reserved-node"),
-		CacheNodeCount:               aws.Int32(1),
-	})
+	out, err := client.PurchaseReservedCacheNodesOffering(
+		t.Context(),
+		&elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
+			ReservedCacheNodesOfferingId: aws.String("31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa"),
+			ReservedCacheNodeId:          aws.String("my-reserved-node"),
+			CacheNodeCount:               aws.Int32(1),
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, out.ReservedCacheNode)
 	assert.Equal(t, "my-reserved-node", aws.ToString(out.ReservedCacheNode.ReservedCacheNodeId))
@@ -302,7 +313,7 @@ func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 	opts := elasticache.ServerlessCreateOpts{
 		Name:        "sc-ug",
 		Engine:      "redis",
-		UserGroupId: "grp-xyz",
+		UserGroupID: "grp-xyz",
 	}
 	_, err := b.CreateServerlessCacheFull(opts)
 	require.NoError(t, err)
@@ -310,5 +321,5 @@ func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 	p, err := b.DescribeServerlessCaches("sc-ug", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
-	assert.Equal(t, "grp-xyz", p.Data[0].UserGroupId)
+	assert.Equal(t, "grp-xyz", p.Data[0].UserGroupID)
 }
