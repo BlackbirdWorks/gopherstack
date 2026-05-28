@@ -831,7 +831,8 @@ func TestSimulatePrincipalPolicy_RoleBoundary_Enforced(t *testing.T) {
 
 	b := newBackend(t)
 
-	trustPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	trustPolicy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
 	boundary, err := b.CreatePolicy("RoleBoundary", "/",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`)

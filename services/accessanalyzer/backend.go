@@ -602,10 +602,7 @@ func cloneFilter(f map[string]FilterCriterion) map[string]FilterCriterion {
 	}
 
 	out := make(map[string]FilterCriterion, len(f))
-
-	for k, v := range f {
-		out[k] = v
-	}
+	maps.Copy(out, f)
 
 	return out
 }

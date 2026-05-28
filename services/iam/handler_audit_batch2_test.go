@@ -7,6 +7,7 @@ package iam_test
 import (
 	"encoding/xml"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -601,9 +602,9 @@ func TestHandler_SimulateCustomPolicy_IndexedParams(t *testing.T) {
 // iamRequestIndexed builds a request with indexed member parameters.
 // params is a flat map; caller must encode member indices in keys.
 func iamRequestWithMembers(action string, params map[string]string, indexed map[string][]string) *http.Request {
-	base := map[string]string{}
-	for k, v := range params {
-		base[k] = v
+	base := maps.Clone(params)
+	if base == nil {
+		base = map[string]string{}
 	}
 
 	for prefix, values := range indexed {
@@ -622,11 +623,9 @@ func TestHandler_SimulatePrincipalPolicy_MultipleResources(t *testing.T) {
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("multi-res-user", "/", "")
 
-	pol, _ := b.CreatePolicy(
-		"AllowS3",
-		"/",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-a/*"}]}`,
-	)
+	s3Policy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-a/*"}]}`
+	pol, _ := b.CreatePolicy("AllowS3", "/", s3Policy)
 	_ = b.AttachUserPolicy("multi-res-user", pol.Arn)
 
 	req := iamRequestWithMembers("SimulatePrincipalPolicy",

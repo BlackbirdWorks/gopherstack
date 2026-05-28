@@ -206,13 +206,13 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 
 		return r, c, true, e
 	case opDeleteAnalyzer:
-		r, c, e := h.handleDeleteAnalyzer(path)
+		c, e := h.handleDeleteAnalyzer(path)
 
-		return r, c, true, e
+		return nil, c, true, e
 	case opCreateArchiveRule:
-		r, c, e := h.handleCreateArchiveRule(path, body)
+		c, e := h.handleCreateArchiveRule(path, body)
 
-		return r, c, true, e
+		return nil, c, true, e
 	case opGetArchiveRule:
 		r, c, e := h.handleGetArchiveRule(path)
 
@@ -222,13 +222,13 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 
 		return r, c, true, e
 	case opDeleteArchiveRule:
-		r, c, e := h.handleDeleteArchiveRule(path)
+		c, e := h.handleDeleteArchiveRule(path)
 
-		return r, c, true, e
+		return nil, c, true, e
 	case opUpdateArchiveRule:
-		r, c, e := h.handleUpdateArchiveRule(path, body)
+		c, e := h.handleUpdateArchiveRule(path, body)
 
-		return r, c, true, e
+		return nil, c, true, e
 	}
 
 	return nil, 0, false, nil
@@ -245,13 +245,13 @@ func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bo
 
 		return r, c, true, e
 	case opUpdateFindings:
-		r, c, e := h.handleUpdateFindings(path, body)
+		c, e := h.handleUpdateFindings(path, body)
 
-		return r, c, true, e
+		return nil, c, true, e
 	case opStartResourceScan:
-		r, c, e := h.handleStartResourceScan(body)
+		c, e := h.handleStartResourceScan(body)
 
-		return r, c, true, e
+		return nil, c, true, e
 	}
 
 	return nil, 0, false, nil
@@ -334,17 +334,17 @@ func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
 	return map[string]any{"analyzers": list}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteAnalyzer(path string) (any, int, error) {
+func (h *Handler) handleDeleteAnalyzer(path string) (int, error) {
 	name := extractAnalyzerName(path)
 
 	if err := h.Backend.DeleteAnalyzer(name); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
-func (h *Handler) handleCreateArchiveRule(path string, body []byte) (any, int, error) {
+func (h *Handler) handleCreateArchiveRule(path string, body []byte) (int, error) {
 	analyzerName := extractAnalyzerName(path)
 
 	var req struct {
@@ -353,14 +353,14 @@ func (h *Handler) handleCreateArchiveRule(path string, body []byte) (any, int, e
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
+		return 0, ErrValidation
 	}
 
 	if _, err := h.Backend.CreateArchiveRule(analyzerName, req.RuleName, req.Filter); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
@@ -391,17 +391,17 @@ func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
 	return map[string]any{"archiveRules": list}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteArchiveRule(path string) (any, int, error) {
+func (h *Handler) handleDeleteArchiveRule(path string) (int, error) {
 	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
 
 	if err := h.Backend.DeleteArchiveRule(analyzerName, ruleName); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (int, error) {
 	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
 
 	var req struct {
@@ -409,14 +409,14 @@ func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (any, int, e
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
+		return 0, ErrValidation
 	}
 
 	if _, err := h.Backend.UpdateArchiveRule(analyzerName, ruleName, req.Filter); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleGetFinding(path string) (any, int, error) {
@@ -465,7 +465,7 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateFindings(path string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateFindings(path string, body []byte) (int, error) {
 	analyzerName := extractAnalyzerName(path)
 
 	var req struct {
@@ -475,31 +475,31 @@ func (h *Handler) handleUpdateFindings(path string, body []byte) (any, int, erro
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
+		return 0, ErrValidation
 	}
 
 	if err := h.Backend.UpdateFindings(analyzerName, req.IDs, FindingStatus(req.Status)); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
-func (h *Handler) handleStartResourceScan(body []byte) (any, int, error) {
+func (h *Handler) handleStartResourceScan(body []byte) (int, error) {
 	var req struct {
 		AnalyzerArn string `json:"analyzerArn"`
 		ResourceArn string `json:"resourceArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
+		return 0, ErrValidation
 	}
 
 	if err := h.Backend.StartResourceScan(req.AnalyzerArn, req.ResourceArn); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleTagResource(path string, body []byte) (any, int, error) {

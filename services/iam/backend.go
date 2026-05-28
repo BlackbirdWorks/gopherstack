@@ -1980,17 +1980,11 @@ type AccountAuthorizationDetails struct {
 
 // SimulationResult is the outcome of evaluating a single action/resource pair.
 type SimulationResult struct {
-	ActionName   string
-	ResourceName string
-	Decision     string // "allowed", "implicitDeny", or "explicitDeny"
-
-	// EvalDecisionDetails maps each policy source ID (ARN for managed, name for inline)
-	// to the decision that policy alone would produce.  Populated when caller requests detail.
-	EvalDecisionDetails map[string]string
-
-	// AllowedByPermissionsBoundary is non-nil when the principal has a permissions boundary.
-	// true → boundary permits this action; false → boundary denies it.
+	EvalDecisionDetails          map[string]string
 	AllowedByPermissionsBoundary *bool
+	ActionName                   string
+	ResourceName                 string
+	Decision                     string
 }
 
 // namedPolicyDoc pairs a policy source ID with its JSON document.

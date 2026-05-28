@@ -108,6 +108,7 @@ func (h *Handler) GetSupportedOperations() []string {
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
 		return strings.HasPrefix(path, "/"+pathTrustanchors) ||
 			strings.HasPrefix(path, "/"+pathTrustanchor+"/") ||
 			strings.HasPrefix(path, "/"+pathProfiles) ||
@@ -183,71 +184,85 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
-	if result, code, err, ok := h.dispatchTrustAnchorOps(op, path, query, body); ok {
+	if result, code, ok, err := h.dispatchTrustAnchorOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, err, ok := h.dispatchProfileOps(op, path, query, body); ok {
+	if result, code, ok, err := h.dispatchProfileOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
 	return h.dispatchTagOps(op, query, body)
 }
 
-func (h *Handler) dispatchTrustAnchorOps(op, path, query string, body []byte) (any, int, error, bool) {
+func (h *Handler) dispatchTrustAnchorOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateTrustAnchor:
 		r, c, e := h.handleCreateTrustAnchor(body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opGetTrustAnchor:
 		r, c, e := h.handleGetTrustAnchor(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opListTrustAnchors:
 		r, c, e := h.handleListTrustAnchors(query)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDeleteTrustAnchor:
-		r, c, e := h.handleDeleteTrustAnchor(path)
-		return r, c, e, true
+		c, e := h.handleDeleteTrustAnchor(path)
+
+		return nil, c, true, e
 	case opUpdateTrustAnchor:
 		r, c, e := h.handleUpdateTrustAnchor(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opEnableTrustAnchor:
 		r, c, e := h.handleEnableTrustAnchor(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDisableTrustAnchor:
 		r, c, e := h.handleDisableTrustAnchor(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	}
 
-	return nil, 0, nil, false
+	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchProfileOps(op, path, query string, body []byte) (any, int, error, bool) {
+func (h *Handler) dispatchProfileOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateProfile:
 		r, c, e := h.handleCreateProfile(body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opGetProfile:
 		r, c, e := h.handleGetProfile(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opListProfiles:
 		r, c, e := h.handleListProfiles(query)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDeleteProfile:
-		r, c, e := h.handleDeleteProfile(path)
-		return r, c, e, true
+		c, e := h.handleDeleteProfile(path)
+
+		return nil, c, true, e
 	case opUpdateProfile:
 		r, c, e := h.handleUpdateProfile(path, body)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opEnableProfile:
 		r, c, e := h.handleEnableProfile(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	case opDisableProfile:
 		r, c, e := h.handleDisableProfile(path)
-		return r, c, e, true
+
+		return r, c, true, e
 	}
 
-	return nil, 0, nil, false
+	return nil, 0, false, nil
 }
 
 func (h *Handler) dispatchTagOps(op, query string, body []byte) (any, int, error) {
@@ -318,14 +333,14 @@ func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteTrustAnchor(path string) (any, int, error) {
+func (h *Handler) handleDeleteTrustAnchor(path string) (int, error) {
 	id := extractID(path, pathTrustanchor)
 
 	if err := h.Backend.DeleteTrustAnchor(id); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, error) {
@@ -433,14 +448,14 @@ func (h *Handler) handleListProfiles(query string) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteProfile(path string) (any, int, error) {
+func (h *Handler) handleDeleteProfile(path string) (int, error) {
 	id := extractID(path, pathProfile)
 
 	if err := h.Backend.DeleteProfile(id); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error) {
@@ -517,7 +532,7 @@ func (h *Handler) handleUntagResource(query string) (any, int, error) {
 
 	var tagKeys []string
 
-	for _, part := range strings.Split(query, "&") {
+	for part := range strings.SplitSeq(query, "&") {
 		if after, ok := strings.CutPrefix(part, "resourceArn="); ok {
 			resourceARN = after
 		}
@@ -537,7 +552,7 @@ func (h *Handler) handleUntagResource(query string) (any, int, error) {
 func (h *Handler) handleListTagsForResource(query string) (any, int, error) {
 	var resourceARN string
 
-	for _, part := range strings.Split(query, "&") {
+	for part := range strings.SplitSeq(query, "&") {
 		if after, ok := strings.CutPrefix(part, "resourceArn="); ok {
 			resourceARN = after
 		}
@@ -728,7 +743,7 @@ func parsePageParams(query string) (string, int) {
 
 	var maxResults int
 
-	for _, part := range strings.Split(query, "&") {
+	for part := range strings.SplitSeq(query, "&") {
 		if after, ok := strings.CutPrefix(part, "nextToken="); ok {
 			nextToken = after
 		}

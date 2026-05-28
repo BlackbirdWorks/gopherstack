@@ -3,6 +3,7 @@ package rolesanywhere
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -554,11 +555,7 @@ func copyTrustAnchor(ta *TrustAnchor) *TrustAnchor {
 	src := ta.Source
 	if src.SourceData != nil {
 		sd := make(map[string]string, len(src.SourceData))
-
-		for k, v := range src.SourceData {
-			sd[k] = v
-		}
-
+		maps.Copy(sd, src.SourceData)
 		src.SourceData = sd
 	}
 

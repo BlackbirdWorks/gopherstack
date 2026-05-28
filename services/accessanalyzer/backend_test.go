@@ -77,8 +77,9 @@ func TestDeleteAnalyzer_RemovesFindings(t *testing.T) {
 
 	b := newBackend(t)
 	_, _ = b.CreateAnalyzer("del-analyzer", accessanalyzer.AnalyzerTypeAccount, nil)
+	isPublicFinding := true
 	_, _ = b.AddFinding("del-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::my-bucket",
-		[]string{"s3:GetObject"}, nil, boolPtr(true))
+		[]string{"s3:GetObject"}, nil, &isPublicFinding)
 
 	require.NoError(t, b.DeleteAnalyzer("del-analyzer"))
 
@@ -273,5 +274,3 @@ func TestReset_ClearsState(t *testing.T) {
 	analyzers, _ := b.ListAnalyzers("")
 	assert.Empty(t, analyzers)
 }
-
-func boolPtr(v bool) *bool { return &v }
