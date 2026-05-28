@@ -198,8 +198,8 @@ type Table struct {
 	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
 	Items                      []map[string]any                        `json:"Items"`
-	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamShards               []StreamShard                           // shard genealogy for this table's stream
+	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                  int64
 	streamTrimSeq              int64 // oldest sequence still in the ring buffer (0 if buffer not yet full)
 	StreamHead                 int   `json:"StreamHead,omitempty"`

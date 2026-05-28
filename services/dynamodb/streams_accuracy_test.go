@@ -231,7 +231,7 @@ func TestUnit_Streams_GetShardIterator_AllIteratorTypes(t *testing.T) {
 
 	// Write 3 records to have a non-empty stream.
 	for i := range 3 {
-		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", "pk", i))
+		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", i))
 		require.NoError(t, err)
 	}
 
@@ -337,7 +337,7 @@ func TestUnit_Streams_Shards_ShardSplitOnRingBufferWrap(t *testing.T) {
 
 	// Write exactly maxStreamRecords (1000) items — buffer fills up but no wrap yet.
 	for i := range 1000 {
-		_, err = db.PutItem(ctx, makePutItemN("SplitTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("SplitTable", i))
 		require.NoError(t, err)
 	}
 
@@ -348,7 +348,7 @@ func TestUnit_Streams_Shards_ShardSplitOnRingBufferWrap(t *testing.T) {
 
 	// Write one more item — this is the first write to enter the else branch with StreamHead==0,
 	// which triggers the first shard split.
-	_, err = db.PutItem(ctx, makePutItemN("SplitTable", "pk", 1001))
+	_, err = db.PutItem(ctx, makePutItemN("SplitTable", 1001))
 	require.NoError(t, err)
 
 	shards = db.StreamShards("SplitTable")
@@ -376,7 +376,7 @@ func TestUnit_Streams_Shards_DescribeStreamReturnsGenealogy(t *testing.T) {
 
 	// Force a shard split by writing 2001 items.
 	for i := range 2001 {
-		_, err = db.PutItem(ctx, makePutItemN("GenTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("GenTable", i))
 		require.NoError(t, err)
 	}
 
@@ -455,7 +455,7 @@ func TestUnit_Streams_TrimHorizon_AdvancesWhenBufferWraps(t *testing.T) {
 
 	// Buffer not full — trim horizon should be 0.
 	for i := range 500 {
-		_, err = db.PutItem(ctx, makePutItemN("TrimTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("TrimTable", i))
 		require.NoError(t, err)
 	}
 	assert.Equal(t, int64(0), db.StreamTrimSeq("TrimTable"),
@@ -463,14 +463,14 @@ func TestUnit_Streams_TrimHorizon_AdvancesWhenBufferWraps(t *testing.T) {
 
 	// Fill buffer to capacity.
 	for i := 500; i < 1000; i++ {
-		_, err = db.PutItem(ctx, makePutItemN("TrimTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("TrimTable", i))
 		require.NoError(t, err)
 	}
 	assert.Equal(t, int64(0), db.StreamTrimSeq("TrimTable"),
 		"trim horizon must still be 0 when buffer just hits capacity")
 
 	// Write one more — buffer wraps, trim horizon advances.
-	_, err = db.PutItem(ctx, makePutItemN("TrimTable", "pk", 1001))
+	_, err = db.PutItem(ctx, makePutItemN("TrimTable", 1001))
 	require.NoError(t, err)
 
 	trimSeq := db.StreamTrimSeq("TrimTable")
@@ -490,7 +490,7 @@ func TestUnit_Streams_TrimmedDataAccess_GetRecordsReturnsError(t *testing.T) {
 
 	// Fill buffer and cause it to wrap — seq 1 will be evicted.
 	for i := range 1002 {
-		_, err = db.PutItem(ctx, makePutItemN("TrimErrTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("TrimErrTable", i))
 		require.NoError(t, err)
 	}
 
@@ -568,7 +568,7 @@ func TestUnit_Streams_DescribeStream_Pagination(t *testing.T) {
 
 	// Create 2 shards by causing a ring-buffer wrap.
 	for i := range 2001 {
-		_, err = db.PutItem(ctx, makePutItemN("PagTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("PagTable", i))
 		require.NoError(t, err)
 	}
 
@@ -617,7 +617,7 @@ func TestUnit_Streams_DescribeStream_SequenceNumberRange(t *testing.T) {
 
 	// Write a few records.
 	for i := range 5 {
-		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", "pk", i))
+		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", i))
 		require.NoError(t, err)
 	}
 
@@ -732,7 +732,7 @@ func TestUnit_Streams_GetRecords_Limit(t *testing.T) {
 	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "KEYS_ONLY"))
 
 	for i := range 10 {
-		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", "pk", i))
+		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", i))
 		require.NoError(t, err)
 	}
 
@@ -815,7 +815,7 @@ func TestUnit_Streams_GetRecords_SequenceContinuation(t *testing.T) {
 	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "KEYS_ONLY"))
 
 	for i := range 6 {
-		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", "pk", i))
+		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", i))
 		require.NoError(t, err)
 	}
 
@@ -1007,7 +1007,7 @@ func TestUnit_Streams_GetRecentEvents(t *testing.T) {
 	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "NEW_IMAGE"))
 
 	for i := range 3 {
-		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", "pk", i))
+		_, err := db.PutItem(ctx, makePutItemN("StreamsTestTable", i))
 		require.NoError(t, err)
 	}
 

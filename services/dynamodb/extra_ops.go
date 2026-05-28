@@ -371,7 +371,7 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 
 	if !found {
 		return nil, &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException",
+			Type:    errResourceNotFoundExceptionType,
 			Message: fmt.Sprintf("Kinesis stream %s not found for table %s", streamARN, tableName),
 		}
 	}
