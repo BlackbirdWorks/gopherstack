@@ -782,7 +782,7 @@ func TestParity_ImportTaskBackend_CRUD(t *testing.T) {
 			// Verify deleted.
 			_, err = b.GetWirelessDeviceImportTask(task.ID)
 			require.Error(t, err)
-			assert.ErrorIs(t, err, iotwireless.ErrImportTaskNotFound)
+			require.ErrorIs(t, err, iotwireless.ErrImportTaskNotFound)
 
 			// List should be empty.
 			tasks = b.ListWirelessDeviceImportTasks()

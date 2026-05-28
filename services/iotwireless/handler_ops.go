@@ -909,7 +909,7 @@ func (h *Handler) listDevicesForWirelessDeviceImportTask(c *echo.Context) error 
 }
 
 // ============================================================
-// Group 16 — Multicast send, bulk operations
+// Group 16 — Multicast send operations
 // ============================================================
 
 func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
@@ -918,27 +918,9 @@ func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
 	})
 }
 
-func (h *Handler) startBulkAssociateWirelessDeviceWithMulticastGroup(c *echo.Context, _ string) error {
-	c.Response().WriteHeader(http.StatusNoContent)
-
-	return nil
-}
-
-func (h *Handler) startBulkDisassociateWirelessDeviceFromMulticastGroup(c *echo.Context, _ string) error {
-	c.Response().WriteHeader(http.StatusNoContent)
-
-	return nil
-}
-
 // ============================================================
 // Group 17 — Metric, position, misc stateless operations
 // ============================================================
-
-func (h *Handler) updateMetricConfiguration(c *echo.Context) error {
-	c.Response().WriteHeader(http.StatusNoContent)
-
-	return nil
-}
 
 func (h *Handler) getMetrics(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, getMetricsResponse{
@@ -954,16 +936,4 @@ func (h *Handler) getResourcePosition(c *echo.Context, id string) error {
 	_ = h.Backend.GetPosition(id)
 
 	return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
-}
-
-func (h *Handler) updateResourcePosition(c *echo.Context, id string) error {
-	var req map[string]any
-
-	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
-	_ = h.Backend.UpdatePosition(id, req)
-
-	c.Response().WriteHeader(http.StatusNoContent)
-
-	return nil
 }

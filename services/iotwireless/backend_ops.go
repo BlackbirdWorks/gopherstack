@@ -530,12 +530,14 @@ func singleWirelessDeviceImportTaskARN(region, accountID, id string) string {
 // copyImportTask returns a shallow copy of a WirelessDeviceImportTask.
 func copyImportTask(t *WirelessDeviceImportTask) *WirelessDeviceImportTask {
 	cp := *t
+
 	return &cp
 }
 
 // copySingleImportTask returns a shallow copy of a SingleWirelessDeviceImportTask.
 func copySingleImportTask(t *SingleWirelessDeviceImportTask) *SingleWirelessDeviceImportTask {
 	cp := *t
+
 	return &cp
 }
 

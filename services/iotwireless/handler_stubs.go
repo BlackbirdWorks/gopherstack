@@ -250,11 +250,6 @@ type listDevicesForWirelessDeviceImportTaskResponse struct {
 	ImportedWirelessDeviceList []struct{} `json:"ImportedWirelessDeviceList"`
 }
 
-type listWirelessGatewayTaskDefinitionsResponse struct {
-	NextToken       string     `json:"NextToken"`
-	TaskDefinitions []struct{} `json:"TaskDefinitions"`
-}
-
 type sendDataToMulticastGroupResponse struct {
 	MessageID string `json:"MessageId"`
 }

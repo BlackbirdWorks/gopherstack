@@ -1168,10 +1168,11 @@ func (h *Handler) dispatchMulticastGroupCRUDOps(c *echo.Context, op, resource st
 // dispatchMulticastAssocOps handles multicast group association/disassociation and FUOTA task operations.
 func (h *Handler) dispatchMulticastAssocOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
 	switch op {
-	case opStartBulkAssociateWirelessDeviceWithMulticastGroup:
-		return true, h.startBulkAssociateWirelessDeviceWithMulticastGroup(c, resource)
-	case opStartBulkDisassociateWirelessDeviceFromMulticastGroup:
-		return true, h.startBulkDisassociateWirelessDeviceFromMulticastGroup(c, resource)
+	case opStartBulkAssociateWirelessDeviceWithMulticastGroup,
+		opStartBulkDisassociateWirelessDeviceFromMulticastGroup:
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return true, nil
 	case opDisassociateWirelessDeviceFromMulticastGroup:
 		return true, h.disassociateWirelessDeviceFromMulticastGroup(c, resource, "")
 	case opDisassociateMulticastGroupFromFuotaTask:
@@ -1233,7 +1234,9 @@ func (h *Handler) dispatchMetricsAndLogOps(c *echo.Context, op, resource string,
 	case opGetMetricConfiguration:
 		return true, h.getMetricConfiguration(c)
 	case opUpdateMetricConfiguration:
-		return true, h.updateMetricConfiguration(c)
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return true, nil
 	case opGetMetrics:
 		return true, h.getMetrics(c)
 	}
@@ -1259,7 +1262,15 @@ func (h *Handler) dispatchPositionOps(c *echo.Context, op, resource string) (boo
 	case opGetResourcePosition:
 		return true, h.getResourcePosition(c, resource)
 	case opUpdateResourcePosition:
-		return true, h.updateResourcePosition(c, resource)
+		var req map[string]any
+
+		body := readStubBody(c)
+		_ = json.Unmarshal(body, &req)
+		_ = h.Backend.UpdatePosition(resource, req)
+
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return true, nil
 	}
 
 	return false, nil
