@@ -65,6 +65,10 @@ const (
 	accessorDefaultType = "BILLING_TOKEN"
 	// proposalStatusInProgress is the status for an in-progress proposal.
 	proposalStatusInProgress = "IN_PROGRESS"
+	// proposalStatusApproved is the status for an approved proposal.
+	proposalStatusApproved = "APPROVED"
+	// proposalStatusRejected is the status for a rejected proposal.
+	proposalStatusRejected = "REJECTED"
 	// proposalExpirationHours is the number of hours before a proposal expires.
 	proposalExpirationHours = 24
 	// invitationStatusPending is the status for a pending invitation.
@@ -73,24 +77,49 @@ const (
 	invitationStatusRejected = "REJECTED"
 )
 
+// ListNetworksFilter contains optional filters for ListNetworks.
+type ListNetworksFilter struct {
+	Name      string
+	Framework string
+	Status    string
+}
+
+// ListMembersFilter contains optional filters for ListMembers.
+type ListMembersFilter struct {
+	IsOwned *bool
+	Name    string
+	Status  string
+}
+
+// ListNodesFilter contains optional filters for ListNodes.
+type ListNodesFilter struct {
+	Status string
+}
+
+// ListAccessorsFilter contains optional filters for ListAccessors.
+type ListAccessorsFilter struct {
+	NetworkType string
+}
+
 // StorageBackend is the interface for the Managed Blockchain in-memory backend.
 type StorageBackend interface {
 	CreateNetwork(
 		region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
 		tags map[string]string,
+		votingPolicy *VotingPolicy,
 	) (*Network, *Member, error)
 	GetNetwork(networkID string) (*Network, error)
-	ListNetworks() ([]*Network, error)
+	ListNetworks(filter ListNetworksFilter) ([]*Network, error)
 	CreateMember(region, accountID, networkID, name, description string, tags map[string]string) (*Member, error)
 	GetMember(networkID, memberID string) (*Member, error)
-	ListMembers(networkID string) ([]*Member, error)
+	ListMembers(networkID string, filter ListMembersFilter) ([]*Member, error)
 	DeleteMember(networkID, memberID string) error
 	CreateNode(
 		region, accountID, networkID, memberID, instanceType, availabilityZone string,
 		tags map[string]string,
 	) (*Node, error)
 	GetNode(networkID, memberID, nodeID string) (*Node, error)
-	ListNodes(networkID, memberID string) ([]*Node, error)
+	ListNodes(networkID, memberID string, filter ListNodesFilter) ([]*Node, error)
 	DeleteNode(networkID, memberID, nodeID string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	TagResource(resourceARN string, tags map[string]string) error
@@ -98,9 +127,10 @@ type StorageBackend interface {
 	CreateAccessor(region, accountID, accessorType, networkType string, tags map[string]string) (*Accessor, error)
 	GetAccessor(accessorID string) (*Accessor, error)
 	DeleteAccessor(accessorID string) error
-	ListAccessors() ([]*Accessor, error)
+	ListAccessors(filter ListAccessorsFilter) ([]*Accessor, error)
 	CreateProposal(
 		region, accountID, networkID, memberID, description string,
+		actions *ProposalActions,
 		tags map[string]string,
 	) (*Proposal, error)
 	GetProposal(networkID, proposalID string) (*Proposal, error)
@@ -108,8 +138,8 @@ type StorageBackend interface {
 	ListProposalVotes(networkID, proposalID string) ([]*ProposalVote, error)
 	ListInvitations() ([]*Invitation, error)
 	RejectInvitation(invitationID string) error
-	UpdateMember(networkID, memberID string) (*Member, error)
-	UpdateNode(networkID, memberID, nodeID string) (*Node, error)
+	UpdateMember(networkID, memberID string, logConfig *MemberLogPublishingConfigState) (*Member, error)
+	UpdateNode(networkID, memberID, nodeID string, logConfig *NodeLogPublishingConfigState) (*Node, error)
 	VoteOnProposal(networkID, proposalID, memberID, vote string) error
 }
 
@@ -179,6 +209,7 @@ func invitationARN(region, accountID, invitationID string) string {
 func (b *InMemoryBackend) CreateNetwork(
 	region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
 	tags map[string]string,
+	votingPolicy *VotingPolicy,
 ) (*Network, *Member, error) {
 	b.mu.Lock("CreateNetwork")
 	defer b.mu.Unlock()
@@ -216,6 +247,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		Status:           networkStatusAvailable,
 		CreationDate:     &now,
 		Tags:             t,
+		VotingPolicy:     cloneVotingPolicy(votingPolicy),
 	}
 
 	b.networks[networkID] = network
@@ -231,6 +263,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		Status:       memberStatusAvailable,
 		CreationDate: &now,
 		Tags:         make(map[string]string),
+		IsOwned:      true,
 	}
 
 	b.members[networkID][memberID] = member
@@ -239,10 +272,27 @@ func (b *InMemoryBackend) CreateNetwork(
 	return cloneNetwork(network), cloneMember(member), nil
 }
 
+// cloneVotingPolicy returns a deep copy of a VotingPolicy.
+func cloneVotingPolicy(vp *VotingPolicy) *VotingPolicy {
+	if vp == nil {
+		return nil
+	}
+
+	cp := *vp
+
+	if vp.ApprovalThresholdPolicy != nil {
+		atp := *vp.ApprovalThresholdPolicy
+		cp.ApprovalThresholdPolicy = &atp
+	}
+
+	return &cp
+}
+
 // cloneNetwork returns a deep copy of n with the Tags map cloned.
 func cloneNetwork(n *Network) *Network {
 	cp := *n
 	cp.Tags = maps.Clone(n.Tags)
+	cp.VotingPolicy = cloneVotingPolicy(n.VotingPolicy)
 
 	return &cp
 }
@@ -268,14 +318,26 @@ func (b *InMemoryBackend) GetNetwork(networkID string) (*Network, error) {
 	return cloneNetwork(network), nil
 }
 
-// ListNetworks returns all networks.
-func (b *InMemoryBackend) ListNetworks() ([]*Network, error) {
+// ListNetworks returns all networks, optionally filtered.
+func (b *InMemoryBackend) ListNetworks(filter ListNetworksFilter) ([]*Network, error) {
 	b.mu.RLock("ListNetworks")
 	defer b.mu.RUnlock()
 
 	all := make([]*Network, 0, len(b.networks))
 
 	for _, n := range b.networks {
+		if filter.Name != "" && n.Name != filter.Name {
+			continue
+		}
+
+		if filter.Framework != "" && n.Framework != filter.Framework {
+			continue
+		}
+
+		if filter.Status != "" && n.Status != filter.Status {
+			continue
+		}
+
 		all = append(all, cloneNetwork(n))
 	}
 
@@ -313,6 +375,7 @@ func (b *InMemoryBackend) CreateMember(
 		Status:       memberStatusAvailable,
 		CreationDate: &now,
 		Tags:         t,
+		IsOwned:      true,
 	}
 
 	if b.members[networkID] == nil {
@@ -347,8 +410,8 @@ func (b *InMemoryBackend) GetMember(networkID, memberID string) (*Member, error)
 	return cloneMember(member), nil
 }
 
-// ListMembers returns all members in a network.
-func (b *InMemoryBackend) ListMembers(networkID string) ([]*Member, error) {
+// ListMembers returns all members in a network, optionally filtered.
+func (b *InMemoryBackend) ListMembers(networkID string, filter ListMembersFilter) ([]*Member, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
@@ -360,6 +423,18 @@ func (b *InMemoryBackend) ListMembers(networkID string) ([]*Member, error) {
 	all := make([]*Member, 0, len(members))
 
 	for _, m := range members {
+		if filter.Name != "" && m.Name != filter.Name {
+			continue
+		}
+
+		if filter.Status != "" && m.Status != filter.Status {
+			continue
+		}
+
+		if filter.IsOwned != nil && m.IsOwned != *filter.IsOwned {
+			continue
+		}
+
 		all = append(all, cloneMember(m))
 	}
 
@@ -620,8 +695,8 @@ func (b *InMemoryBackend) GetNode(networkID, memberID, nodeID string) (*Node, er
 	return cloneNode(node), nil
 }
 
-// ListNodes returns all nodes for a member sorted by ID.
-func (b *InMemoryBackend) ListNodes(networkID, memberID string) ([]*Node, error) {
+// ListNodes returns all nodes for a member sorted by ID, optionally filtered.
+func (b *InMemoryBackend) ListNodes(networkID, memberID string, filter ListNodesFilter) ([]*Node, error) {
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
@@ -634,7 +709,12 @@ func (b *InMemoryBackend) ListNodes(networkID, memberID string) ([]*Node, error)
 	}
 
 	all := make([]*Node, 0, len(b.nodes[networkID][memberID]))
+
 	for _, n := range b.nodes[networkID][memberID] {
+		if filter.Status != "" && n.Status != filter.Status {
+			continue
+		}
+
 		all = append(all, cloneNode(n))
 	}
 
@@ -743,14 +823,18 @@ func (b *InMemoryBackend) DeleteAccessor(accessorID string) error {
 	return nil
 }
 
-// ListAccessors returns all accessors sorted by ID.
-func (b *InMemoryBackend) ListAccessors() ([]*Accessor, error) {
+// ListAccessors returns all accessors sorted by ID, optionally filtered.
+func (b *InMemoryBackend) ListAccessors(filter ListAccessorsFilter) ([]*Accessor, error) {
 	b.mu.RLock("ListAccessors")
 	defer b.mu.RUnlock()
 
 	all := make([]*Accessor, 0, len(b.accessors))
 
 	for _, a := range b.accessors {
+		if filter.NetworkType != "" && a.NetworkType != filter.NetworkType {
+			continue
+		}
+
 		all = append(all, cloneAccessor(a))
 	}
 
@@ -761,10 +845,32 @@ func (b *InMemoryBackend) ListAccessors() ([]*Accessor, error) {
 	return all, nil
 }
 
+// cloneProposalActions returns a deep copy of ProposalActions.
+func cloneProposalActions(a *ProposalActions) *ProposalActions {
+	if a == nil {
+		return nil
+	}
+
+	cp := &ProposalActions{}
+
+	if len(a.Invitations) > 0 {
+		cp.Invitations = make([]InviteAction, len(a.Invitations))
+		copy(cp.Invitations, a.Invitations)
+	}
+
+	if len(a.Removals) > 0 {
+		cp.Removals = make([]RemoveAction, len(a.Removals))
+		copy(cp.Removals, a.Removals)
+	}
+
+	return cp
+}
+
 // cloneProposal returns a deep copy of p with the Tags map cloned.
 func cloneProposal(p *Proposal) *Proposal {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
+	cp.Actions = cloneProposalActions(p.Actions)
 
 	return &cp
 }
@@ -772,6 +878,7 @@ func cloneProposal(p *Proposal) *Proposal {
 // CreateProposal creates a new governance proposal on a network.
 func (b *InMemoryBackend) CreateProposal(
 	region, accountID, networkID, memberID, description string,
+	actions *ProposalActions,
 	tags map[string]string,
 ) (*Proposal, error) {
 	b.mu.Lock("CreateProposal")
@@ -798,6 +905,9 @@ func (b *InMemoryBackend) CreateProposal(
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
+	memberCount := len(members)
+	outstandingVotes := memberCount
+
 	proposal := &Proposal{
 		ProposalID:           proposalID,
 		Arn:                  proposalARN(region, accountID, networkID, proposalID),
@@ -809,6 +919,8 @@ func (b *InMemoryBackend) CreateProposal(
 		CreationDate:         &now,
 		ExpirationDate:       &expiry,
 		Tags:                 t,
+		Actions:              cloneProposalActions(actions),
+		OutstandingVoteCount: outstandingVotes,
 	}
 
 	if b.proposals[networkID] == nil {
@@ -899,6 +1011,11 @@ func (b *InMemoryBackend) ListProposalVotes(networkID, proposalID string) ([]*Pr
 func cloneInvitation(inv *Invitation) *Invitation {
 	cp := *inv
 
+	if inv.NetworkSummary != nil {
+		ns := *inv.NetworkSummary
+		cp.NetworkSummary = &ns
+	}
+
 	return &cp
 }
 
@@ -943,13 +1060,34 @@ func (b *InMemoryBackend) AddInvitationInternal(region, accountID, networkID, ne
 	now := time.Now().UTC()
 	invitationID := uuid.NewString()
 
+	var netSummary *InvitationNetworkSummary
+
+	if n, ok := b.networks[networkID]; ok {
+		netSummary = &InvitationNetworkSummary{
+			ID:               n.ID,
+			Arn:              n.Arn,
+			Name:             n.Name,
+			Description:      n.Description,
+			Framework:        n.Framework,
+			FrameworkVersion: n.FrameworkVersion,
+			Status:           n.Status,
+			CreationDate:     n.CreationDate,
+		}
+	} else {
+		netSummary = &InvitationNetworkSummary{
+			ID:   networkID,
+			Name: networkName,
+		}
+	}
+
 	inv := &Invitation{
-		InvitationID: invitationID,
-		Arn:          invitationARN(region, accountID, invitationID),
-		NetworkID:    networkID,
-		NetworkName:  networkName,
-		Status:       invitationStatusPending,
-		CreationDate: &now,
+		InvitationID:   invitationID,
+		Arn:            invitationARN(region, accountID, invitationID),
+		NetworkID:      networkID,
+		NetworkName:    networkName,
+		Status:         invitationStatusPending,
+		CreationDate:   &now,
+		NetworkSummary: netSummary,
 	}
 
 	b.invitations[invitationID] = inv
@@ -1000,6 +1138,7 @@ func (b *InMemoryBackend) AddMemberInternal(region, accountID, networkID, name s
 		Status:       memberStatusAvailable,
 		CreationDate: &now,
 		Tags:         make(map[string]string),
+		IsOwned:      true,
 	}
 
 	if b.members[networkID] == nil {
@@ -1084,7 +1223,11 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 
 	var memberName string
 
+	var memberCount int
+
 	if members, ok := b.members[networkID]; ok {
+		memberCount = len(members)
+
 		if m, exists := members[memberID]; exists {
 			memberName = m.Name
 		}
@@ -1101,6 +1244,7 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 		CreationDate:         &now,
 		ExpirationDate:       &expiry,
 		Tags:                 make(map[string]string),
+		OutstandingVoteCount: memberCount,
 	}
 
 	if b.proposals[networkID] == nil {
@@ -1113,10 +1257,13 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 	return cloneProposal(proposal)
 }
 
-// UpdateMember validates the member exists; log publishing config is accepted but not stored in this mock.
-func (b *InMemoryBackend) UpdateMember(networkID, memberID string) (*Member, error) {
-	b.mu.RLock("UpdateMember")
-	defer b.mu.RUnlock()
+// UpdateMember updates a member's log publishing configuration.
+func (b *InMemoryBackend) UpdateMember(
+	networkID, memberID string,
+	logConfig *MemberLogPublishingConfigState,
+) (*Member, error) {
+	b.mu.Lock("UpdateMember")
+	defer b.mu.Unlock()
 
 	if _, exists := b.networks[networkID]; !exists {
 		return nil, ErrNetworkNotFound
@@ -1127,13 +1274,60 @@ func (b *InMemoryBackend) UpdateMember(networkID, memberID string) (*Member, err
 		return nil, ErrMemberNotFound
 	}
 
-	return cloneMember(members[memberID]), nil
+	m := members[memberID]
+
+	if logConfig != nil {
+		m.LogPublishingConfiguration = cloneMemberLogConfig(logConfig)
+	}
+
+	return cloneMember(m), nil
 }
 
-// UpdateNode validates the node exists; no mutable fields beyond creation in this mock.
-func (b *InMemoryBackend) UpdateNode(networkID, memberID, nodeID string) (*Node, error) {
-	b.mu.RLock("UpdateNode")
-	defer b.mu.RUnlock()
+// cloneMemberLogConfig returns a deep copy of MemberLogPublishingConfigState.
+func cloneMemberLogConfig(c *MemberLogPublishingConfigState) *MemberLogPublishingConfigState {
+	if c == nil {
+		return nil
+	}
+
+	cp := &MemberLogPublishingConfigState{}
+
+	if c.Fabric != nil {
+		fabric := &MemberFabricLogState{}
+
+		if c.Fabric.CALogs != nil {
+			caLogs := cloneLogConfig(c.Fabric.CALogs)
+			fabric.CALogs = caLogs
+		}
+
+		cp.Fabric = fabric
+	}
+
+	return cp
+}
+
+// cloneLogConfig returns a deep copy of LogConfigState.
+func cloneLogConfig(c *LogConfigState) *LogConfigState {
+	if c == nil {
+		return nil
+	}
+
+	cp := &LogConfigState{}
+
+	if c.CloudWatch != nil {
+		cw := *c.CloudWatch
+		cp.CloudWatch = &cw
+	}
+
+	return cp
+}
+
+// UpdateNode updates a node's log publishing configuration.
+func (b *InMemoryBackend) UpdateNode(
+	networkID, memberID, nodeID string,
+	logConfig *NodeLogPublishingConfigState,
+) (*Node, error) {
+	b.mu.Lock("UpdateNode")
+	defer b.mu.Unlock()
 
 	if _, exists := b.networks[networkID]; !exists {
 		return nil, ErrNetworkNotFound
@@ -1148,10 +1342,39 @@ func (b *InMemoryBackend) UpdateNode(networkID, memberID, nodeID string) (*Node,
 		return nil, ErrNodeNotFound
 	}
 
+	if logConfig != nil {
+		node.LogPublishingConfiguration = cloneNodeLogConfig(logConfig)
+	}
+
 	return cloneNode(node), nil
 }
 
-// VoteOnProposal records a YES or NO vote on a proposal.
+// cloneNodeLogConfig returns a deep copy of NodeLogPublishingConfigState.
+func cloneNodeLogConfig(c *NodeLogPublishingConfigState) *NodeLogPublishingConfigState {
+	if c == nil {
+		return nil
+	}
+
+	cp := &NodeLogPublishingConfigState{}
+
+	if c.Fabric != nil {
+		fabric := &NodeFabricLogState{}
+
+		if c.Fabric.ChaincodeLogs != nil {
+			fabric.ChaincodeLogs = cloneLogConfig(c.Fabric.ChaincodeLogs)
+		}
+
+		if c.Fabric.PeerLogs != nil {
+			fabric.PeerLogs = cloneLogConfig(c.Fabric.PeerLogs)
+		}
+
+		cp.Fabric = fabric
+	}
+
+	return cp
+}
+
+// VoteOnProposal records a YES or NO vote on a proposal and transitions its status when threshold met.
 func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote string) error {
 	b.mu.Lock("VoteOnProposal")
 	defer b.mu.Unlock()
@@ -1168,6 +1391,10 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	proposal, found := proposals[proposalID]
 	if !found {
 		return ErrProposalNotFound
+	}
+
+	if proposal.Status != proposalStatusInProgress {
+		return ErrValidation
 	}
 
 	if _, ok := b.members[networkID][memberID]; !ok {
@@ -1198,5 +1425,64 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 		proposal.NoVoteCount++
 	}
 
+	// Recalculate outstanding votes.
+	totalMembers := len(b.members[networkID])
+	proposal.OutstandingVoteCount = totalMembers - proposal.YesVoteCount - proposal.NoVoteCount
+
+	// Apply threshold policy if network has one.
+	network := b.networks[networkID]
+	b.applyVoteThresholdLocked(network, proposal, totalMembers)
+
 	return nil
+}
+
+const percentBase = 100
+
+// applyVoteThresholdLocked checks vote counts against the network's voting policy
+// and transitions the proposal status when thresholds are met. Must be called with mu held.
+func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *Proposal, totalMembers int) {
+	if network.VotingPolicy == nil || network.VotingPolicy.ApprovalThresholdPolicy == nil {
+		return
+	}
+
+	atp := network.VotingPolicy.ApprovalThresholdPolicy
+	threshold := int(atp.ThresholdPercentage)
+	comparator := atp.ThresholdComparator
+
+	if totalMembers == 0 || threshold == 0 {
+		return
+	}
+
+	yesPercent := (proposal.YesVoteCount * percentBase) / totalMembers
+	noPercent := (proposal.NoVoteCount * percentBase) / totalMembers
+
+	var yesApproved bool
+
+	switch comparator {
+	case "GREATER_THAN":
+		yesApproved = yesPercent > threshold
+	case "GREATER_THAN_OR_EQUAL_TO":
+		yesApproved = yesPercent >= threshold
+	default:
+		yesApproved = yesPercent > threshold
+	}
+
+	var noRejected bool
+
+	rejectionThreshold := percentBase - threshold
+
+	switch comparator {
+	case "GREATER_THAN":
+		noRejected = noPercent > rejectionThreshold
+	case "GREATER_THAN_OR_EQUAL_TO":
+		noRejected = noPercent >= rejectionThreshold
+	default:
+		noRejected = noPercent > rejectionThreshold
+	}
+
+	if yesApproved {
+		proposal.Status = proposalStatusApproved
+	} else if noRejected {
+		proposal.Status = proposalStatusRejected
+	}
 }
