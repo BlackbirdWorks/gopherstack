@@ -2580,7 +2580,12 @@ func (h *Handler) handleGetTriggers(
 }
 
 // getUnfilteredPartitionMetadataInput holds input for GetUnfilteredPartitionMetadata.
-type getUnfilteredPartitionMetadataInput struct{}
+type getUnfilteredPartitionMetadataInput struct {
+	DatabaseName        string   `json:"DatabaseName"`
+	TableName           string   `json:"TableName"`
+	PartitionValues     []string `json:"PartitionValues"`
+	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
+}
 
 // getUnfilteredPartitionMetadataOutput holds the result for GetUnfilteredPartitionMetadata.
 type getUnfilteredPartitionMetadataOutput struct {
@@ -2591,13 +2596,36 @@ type getUnfilteredPartitionMetadataOutput struct {
 
 func (h *Handler) handleGetUnfilteredPartitionMetadata(
 	_ context.Context,
-	_ *getUnfilteredPartitionMetadataInput,
+	in *getUnfilteredPartitionMetadataInput,
 ) (*getUnfilteredPartitionMetadataOutput, error) {
-	return &getUnfilteredPartitionMetadataOutput{AuthorizedColumns: []string{}}, nil
+	if in.DatabaseName == "" || in.TableName == "" {
+		return &getUnfilteredPartitionMetadataOutput{AuthorizedColumns: []string{}}, nil
+	}
+
+	p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUnfilteredPartitionMetadataOutput{
+		Partition:         p,
+		AuthorizedColumns: []string{},
+	}, nil
 }
 
 // getUnfilteredPartitionsMetadataInput holds input for GetUnfilteredPartitionsMetadata.
-type getUnfilteredPartitionsMetadataInput struct{}
+type getUnfilteredPartitionsMetadataInput struct {
+	DatabaseName             string `json:"DatabaseName"`
+	TableName                string `json:"TableName"`
+	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
+}
+
+// unfilteredPartitionEntry wraps a Partition for the unfiltered metadata response.
+type unfilteredPartitionEntry struct {
+	Partition             *Partition `json:"Partition"`
+	AuthorizedColumns     []string   `json:"AuthorizedColumns"`
+	IsRegisteredWithLakeFormation bool `json:"IsRegisteredWithLakeFormation"`
+}
 
 // getUnfilteredPartitionsMetadataOutput holds the result for GetUnfilteredPartitionsMetadata.
 type getUnfilteredPartitionsMetadataOutput struct {
@@ -2606,13 +2634,34 @@ type getUnfilteredPartitionsMetadataOutput struct {
 
 func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 	_ context.Context,
-	_ *getUnfilteredPartitionsMetadataInput,
+	in *getUnfilteredPartitionsMetadataInput,
 ) (*getUnfilteredPartitionsMetadataOutput, error) {
-	return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: []any{}}, nil
+	if in.DatabaseName == "" || in.TableName == "" {
+		return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: []any{}}, nil
+	}
+
+	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]any, 0, len(partitions))
+	for _, p := range partitions {
+		result = append(result, unfilteredPartitionEntry{
+			Partition:         p,
+			AuthorizedColumns: []string{},
+		})
+	}
+
+	return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: result}, nil
 }
 
 // getUnfilteredTableMetadataInput holds input for GetUnfilteredTableMetadata.
-type getUnfilteredTableMetadataInput struct{}
+type getUnfilteredTableMetadataInput struct {
+	DatabaseName             string   `json:"DatabaseName"`
+	Name                     string   `json:"Name"`
+	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
+}
 
 // getUnfilteredTableMetadataOutput holds the result for GetUnfilteredTableMetadata.
 type getUnfilteredTableMetadataOutput struct {
@@ -2623,9 +2672,21 @@ type getUnfilteredTableMetadataOutput struct {
 
 func (h *Handler) handleGetUnfilteredTableMetadata(
 	_ context.Context,
-	_ *getUnfilteredTableMetadataInput,
+	in *getUnfilteredTableMetadataInput,
 ) (*getUnfilteredTableMetadataOutput, error) {
-	return &getUnfilteredTableMetadataOutput{AuthorizedColumns: []string{}}, nil
+	if in.DatabaseName == "" || in.Name == "" {
+		return &getUnfilteredTableMetadataOutput{AuthorizedColumns: []string{}}, nil
+	}
+
+	tbl, err := h.Backend.GetTable(in.DatabaseName, in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUnfilteredTableMetadataOutput{
+		Table:             tbl,
+		AuthorizedColumns: []string{},
+	}, nil
 }
 
 // getUsageProfileInput holds input for GetUsageProfile.
