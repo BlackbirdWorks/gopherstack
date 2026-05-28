@@ -63,6 +63,7 @@ type GlobalReplicationGroup struct {
 	Engine                        string            `json:"engine"`
 	EngineVersion                 string            `json:"engineVersion"`
 	PrimaryReplicationGroupRegion string            `json:"primaryReplicationGroupRegion,omitempty"`
+	NodeGroupCount                int32             `json:"nodeGroupCount,omitempty"`
 }
 
 // ServerlessCacheEndpoint holds the address and port for a serverless cache endpoint.
@@ -73,16 +74,23 @@ type ServerlessCacheEndpoint struct {
 
 // ServerlessCache represents an ElastiCache serverless cache.
 type ServerlessCache struct {
-	CreatedAt      time.Time                `json:"createdAt"`
-	Tags           *tags.Tags               `json:"tags,omitempty"`
-	Endpoint       *ServerlessCacheEndpoint `json:"endpoint,omitempty"`
-	ReaderEndpoint *ServerlessCacheEndpoint `json:"readerEndpoint,omitempty"`
-	Name           string                   `json:"name"`
-	Description    string                   `json:"description"`
-	Status         string                   `json:"status"`
-	ARN            string                   `json:"arn"`
-	Engine         string                   `json:"engine"`
-	SubnetIDs      []string                 `json:"subnetIds,omitempty"`
+	CreatedAt              time.Time                `json:"createdAt"`
+	Tags                   *tags.Tags               `json:"tags,omitempty"`
+	Endpoint               *ServerlessCacheEndpoint `json:"endpoint,omitempty"`
+	ReaderEndpoint         *ServerlessCacheEndpoint `json:"readerEndpoint,omitempty"`
+	Name                   string                   `json:"name"`
+	Description            string                   `json:"description"`
+	Status                 string                   `json:"status"`
+	ARN                    string                   `json:"arn"`
+	Engine                 string                   `json:"engine"`
+	KmsKeyId               string                   `json:"kmsKeyId,omitempty"`
+	UserGroupId            string                   `json:"userGroupId,omitempty"`
+	SubnetGroupName        string                   `json:"subnetGroupName,omitempty"`
+	DailySnapshotTime      string                   `json:"dailySnapshotTime,omitempty"`
+	MajorEngineVersion     string                   `json:"majorEngineVersion,omitempty"`
+	SubnetIDs              []string                 `json:"subnetIds,omitempty"`
+	SecurityGroupIds       []string                 `json:"securityGroupIds,omitempty"`
+	SnapshotRetentionLimit int32                    `json:"snapshotRetentionLimit,omitempty"`
 }
 
 // ServerlessCacheSnapshot represents a snapshot of a serverless cache.
@@ -222,6 +230,11 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		}
 	}
 
+	nodeGroupCount := int32(1)
+	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok && len(rg.NodeGroups) > 0 {
+		nodeGroupCount = int32(len(rg.NodeGroups))
+	}
+
 	grg := &GlobalReplicationGroup{
 		GlobalReplicationGroupID:      id,
 		Description:                   description,
@@ -233,6 +246,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		SecondaryReplicationGroups:    make(map[string]string),
 		CreatedAt:                     time.Now(),
 		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
+		NodeGroupCount:                nodeGroupCount,
 	}
 	b.globalReplicationGroups[id] = grg
 	b.appendEventLocked(id, "global-replication-group", "global replication group created")
@@ -449,10 +463,22 @@ func (b *InMemoryBackend) BatchApplyUpdateAction(
 	replicationGroupIDs, cacheClusterIDs []string,
 	serviceUpdateName string,
 ) (*BatchUpdateResult, error) {
-	b.mu.RLock("BatchApplyUpdateAction")
-	defer b.mu.RUnlock()
+	b.mu.Lock("BatchApplyUpdateAction")
+	defer b.mu.Unlock()
 
-	return b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "scheduling"), nil
+	result := b.batchUpdateActions(replicationGroupIDs, cacheClusterIDs, serviceUpdateName, "scheduling")
+
+	for _, ua := range result.ProcessedUpdateActions {
+		action := &UpdateAction{
+			ReplicationGroupID: ua.ReplicationGroupID,
+			CacheClusterID:     ua.CacheClusterID,
+			ServiceUpdateName:  ua.ServiceUpdateName,
+			UpdateActionStatus: ua.UpdateActionStatus,
+		}
+		b.updateActions = append(b.updateActions, action)
+	}
+
+	return result, nil
 }
 
 // ----------------------------------------

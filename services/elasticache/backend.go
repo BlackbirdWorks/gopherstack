@@ -218,6 +218,7 @@ type CacheSnapshot struct {
 	Engine             string     `json:"engine"`
 	EngineVersion      string     `json:"engineVersion"`
 	NodeType           string     `json:"nodeType"`
+	KmsKeyId           string     `json:"kmsKeyId,omitempty"`
 	SnapshotSource     string     `json:"snapshotSource"` // "manual" or "automated"
 }
 
@@ -255,6 +256,7 @@ type StorageBackend interface {
 	ResetParameterGroup(name string, paramNames []string, resetAll bool) (*CacheParameterGroup, error)
 	DescribeParameters(name, marker string, maxRecords int) (page.Page[CacheParameter], error)
 	CreateSubnetGroup(name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
+	CreateSubnetGroupFull(name, description, vpcId string, subnetIDs []string) (*CacheSubnetGroup, error)
 	DeleteSubnetGroup(name string) error
 	DescribeSubnetGroups(name, marker string, maxRecords int) (page.Page[CacheSubnetGroup], error)
 	ModifySubnetGroup(name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
@@ -265,6 +267,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
+	CopySnapshotFull(sourceSnapshotName, targetSnapshotName, kmsKeyId string) (*CacheSnapshot, error)
 	DescribeEvents(
 		sourceIdentifier, sourceType, marker string,
 		startTime, endTime time.Time,
@@ -297,6 +300,7 @@ type StorageBackend interface {
 	ModifyUser(userID, accessString string, noPasswordRequired bool) (*User, error)
 	// UserGroup operations
 	CreateUserGroup(groupID, description, engine string, userIDs []string) (*UserGroup, error)
+	CreateUserGroupValidated(groupID, description, engine string, userIDs []string) (*UserGroup, error)
 	DeleteUserGroup(groupID string) (*UserGroup, error)
 	DescribeUserGroups(groupID, marker string, maxRecords int) (page.Page[UserGroup], error)
 	ModifyUserGroup(groupID string, userIDsToAdd, userIDsToRemove []string) (*UserGroup, error)
@@ -337,6 +341,8 @@ type StorageBackend interface {
 	) (page.Page[ServerlessCacheSnapshot], error)
 	ExportServerlessCacheSnapshot(snapshotName, s3BucketName string) (*ServerlessCacheSnapshot, error)
 	ModifyServerlessCache(name, description string) (*ServerlessCache, error)
+	CreateServerlessCacheFull(opts ServerlessCreateOpts) (*ServerlessCache, error)
+	ModifyServerlessCacheFull(name string, opts ServerlessModifyOpts) (*ServerlessCache, error)
 	// Migration operations
 	StartMigration(replicationGroupID string) (*ReplicationGroup, error)
 	TestMigration(replicationGroupID string) (*ReplicationGroup, error)
@@ -370,6 +376,9 @@ type StorageBackend interface {
 	ModifyReplicationGroupFull(id string, opts ReplicationGroupModifyOpts) (*ReplicationGroup, error)
 	// Audit1: auto snapshot scheduling
 	TriggerAutoSnapshot(replicationGroupID string) (*CacheSnapshot, error)
+	// Batch-2: update action tracking
+	AppendUpdateActions(actions []*UpdateAction)
+	ListUpdateActionsByServiceUpdate(serviceUpdateName string) []*UpdateAction
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -420,6 +429,7 @@ type InMemoryBackend struct {
 	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
 	userGroups                map[string]*UserGroup
 	reservedCacheNodes        map[string]*ReservedCacheNode
+	updateActions             []*UpdateAction
 	mu                        *lockmetrics.RWMutex
 	events                    *eventRing
 	accountID                 string
@@ -447,6 +457,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		users:                     make(map[string]*User),
 		userGroups:                make(map[string]*UserGroup),
 		reservedCacheNodes:        make(map[string]*ReservedCacheNode),
+		updateActions:             nil,
 		events:                    newEventRing(maxEvents),
 		engineMode:                engineMode,
 		accountID:                 accountID,
@@ -1521,6 +1532,7 @@ func (b *InMemoryBackend) Reset() {
 	b.users = make(map[string]*User)
 	b.userGroups = make(map[string]*UserGroup)
 	b.reservedCacheNodes = make(map[string]*ReservedCacheNode)
+	b.updateActions = nil
 	b.events.reset()
 	b.initDefaultParameterGroups()
 }

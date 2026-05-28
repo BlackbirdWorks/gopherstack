@@ -624,6 +624,30 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		opts.UserGroupIDs = append(opts.UserGroupIDs, id)
 	}
 
+	// Parse LogDeliveryConfigurations.
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("LogDeliveryConfigurations.member.%d.", i)
+		logType := form.Get(prefix + "LogType")
+		if logType == "" {
+			break
+		}
+
+		destType := form.Get(prefix + "DestinationType")
+		logFormat := form.Get(prefix + "LogFormat")
+		destDetails := form.Get(prefix + "DestinationDetails.CloudWatchLogsDetails.LogGroup")
+		if destDetails == "" {
+			destDetails = form.Get(prefix + "DestinationDetails.KinesisFirehoseDetails.DeliveryStream")
+		}
+
+		opts.LogDeliveryConfigurations = append(opts.LogDeliveryConfigurations, LogDeliveryConfig{
+			LogType:            logType,
+			DestinationType:    destType,
+			LogFormat:          logFormat,
+			DestinationDetails: destDetails,
+			Status:             statusEnabled,
+		})
+	}
+
 	// Parse Tags.
 	if t := parseFormTags(form); len(t) > 0 {
 		opts.Tags = t
@@ -731,32 +755,33 @@ type rgUserGroupIDsXML struct {
 
 // replicationGroupXML is the XML representation of a single replication group.
 type replicationGroupXML struct {
-	PendingModifiedValues      *rgPendingModifiedXML `xml:"PendingModifiedValues,omitempty"`
-	NodeGroups                 *nodeGroupsListXML    `xml:"NodeGroups,omitempty"`
-	UserGroupIDs               *rgUserGroupIDsXML    `xml:"UserGroupIds,omitempty"`
-	ReplicationGroupID         string                `xml:"ReplicationGroupId"`
-	Description                string                `xml:"Description"`
-	Status                     string                `xml:"Status"`
-	ARN                        string                `xml:"ARN"`
-	Engine                     string                `xml:"Engine,omitempty"`
-	CacheParameterGroupName    string                `xml:"CacheParameterGroupName,omitempty"`
-	AutomaticFailover          string                `xml:"AutomaticFailover,omitempty"`
-	MultiAZ                    string                `xml:"MultiAZ,omitempty"`
-	CacheNodeType              string                `xml:"CacheNodeType,omitempty"`
-	SnapshotWindow             string                `xml:"SnapshotWindow,omitempty"`
-	PreferredMaintenanceWindow string                `xml:"PreferredMaintenanceWindow,omitempty"`
-	EngineVersion              string                `xml:"EngineVersion,omitempty"`
-	CreatedAt                  string                `xml:"CreatingDate,omitempty"`
-	KmsKeyID                   string                `xml:"KmsKeyId,omitempty"`
-	NotificationTopicArn       string                `xml:"NotificationTopicArn,omitempty"`
-	TransitEncryptionMode      string                `xml:"TransitEncryptionMode,omitempty"`
-	DataTiering                string                `xml:"DataTiering,omitempty"`
-	SnapshotRetentionLimit     int                   `xml:"SnapshotRetentionLimit,omitempty"`
-	NumCacheClusters           int                   `xml:"NumCacheClusters,omitempty"`
-	ClusterEnabled             bool                  `xml:"ClusterEnabled,omitempty"`
-	AuthTokenEnabled           bool                  `xml:"AuthTokenEnabled,omitempty"`
-	AtRestEncryptionEnabled    bool                  `xml:"AtRestEncryptionEnabled,omitempty"`
-	TransitEncryptionEnabled   bool                  `xml:"TransitEncryptionEnabled,omitempty"`
+	PendingModifiedValues      *rgPendingModifiedXML  `xml:"PendingModifiedValues,omitempty"`
+	NodeGroups                 *nodeGroupsListXML     `xml:"NodeGroups,omitempty"`
+	UserGroupIDs               *rgUserGroupIDsXML     `xml:"UserGroupIds,omitempty"`
+	LogDeliveryConfigurations  *logDeliveryConfigsXML `xml:"LogDeliveryConfigurations,omitempty"`
+	ReplicationGroupID         string                 `xml:"ReplicationGroupId"`
+	Description                string                 `xml:"Description"`
+	Status                     string                 `xml:"Status"`
+	ARN                        string                 `xml:"ARN"`
+	Engine                     string                 `xml:"Engine,omitempty"`
+	CacheParameterGroupName    string                 `xml:"CacheParameterGroupName,omitempty"`
+	AutomaticFailover          string                 `xml:"AutomaticFailover,omitempty"`
+	MultiAZ                    string                 `xml:"MultiAZ,omitempty"`
+	CacheNodeType              string                 `xml:"CacheNodeType,omitempty"`
+	SnapshotWindow             string                 `xml:"SnapshotWindow,omitempty"`
+	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
+	EngineVersion              string                 `xml:"EngineVersion,omitempty"`
+	CreatedAt                  string                 `xml:"CreatingDate,omitempty"`
+	KmsKeyID                   string                 `xml:"KmsKeyId,omitempty"`
+	NotificationTopicArn       string                 `xml:"NotificationTopicArn,omitempty"`
+	TransitEncryptionMode      string                 `xml:"TransitEncryptionMode,omitempty"`
+	DataTiering                string                 `xml:"DataTiering,omitempty"`
+	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
+	NumCacheClusters           int                    `xml:"NumCacheClusters,omitempty"`
+	ClusterEnabled             bool                   `xml:"ClusterEnabled,omitempty"`
+	AuthTokenEnabled           bool                   `xml:"AuthTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool                   `xml:"AtRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled   bool                   `xml:"TransitEncryptionEnabled,omitempty"`
 }
 
 // dataTieringStatus converts a bool to the AWS DataTieringStatus string.
@@ -873,6 +898,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		NodeGroups:                 nodeGroupsToXML(rg.NodeGroups),
 		PendingModifiedValues:      pendingToXML(rg.PendingModifiedValues),
 		UserGroupIDs:               userGroupIDs,
+		LogDeliveryConfigurations:  logDeliveryConfigsToXML(rg.LogDeliveryConfigurations),
 	}
 }
 

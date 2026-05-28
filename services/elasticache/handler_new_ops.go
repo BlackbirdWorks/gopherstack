@@ -102,6 +102,7 @@ type globalReplicationGroupXML struct {
 	ARN                               string `xml:"ARN"`
 	Engine                            string `xml:"Engine,omitempty"`
 	EngineVersion                     string `xml:"EngineVersion,omitempty"`
+	NodeGroupCount                    int32  `xml:"NodeGroupCount,omitempty"`
 }
 
 func globalRGToXML(grg *GlobalReplicationGroup) globalReplicationGroupXML {
@@ -112,6 +113,7 @@ func globalRGToXML(grg *GlobalReplicationGroup) globalReplicationGroupXML {
 		ARN:                               grg.ARN,
 		Engine:                            grg.Engine,
 		EngineVersion:                     grg.EngineVersion,
+		NodeGroupCount:                    grg.NodeGroupCount,
 	}
 }
 
