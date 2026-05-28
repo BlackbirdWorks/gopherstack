@@ -85,100 +85,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	initSnapshotNilMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]*LogGroup)
-	}
-
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]map[string]*LogStream)
-	}
-
-	if snap.Events == nil {
-		snap.Events = make(map[string]map[string][]*OutputLogEvent)
-	}
-
-	if snap.SubscriptionFilters == nil {
-		snap.SubscriptionFilters = make(map[string][]*SubscriptionFilter)
-	}
-
-	if snap.ExportTasks == nil {
-		snap.ExportTasks = make(map[string]*ExportTask)
-	}
-
-	if snap.ImportTasks == nil {
-		snap.ImportTasks = make(map[string]*ImportTask)
-	}
-
-	if snap.Deliveries == nil {
-		snap.Deliveries = make(map[string]*Delivery)
-	}
-
-	if snap.LogAnomalyDetectors == nil {
-		snap.LogAnomalyDetectors = make(map[string]*LogAnomalyDetector)
-	}
-
-	if snap.ScheduledQueries == nil {
-		snap.ScheduledQueries = make(map[string]*ScheduledQuery)
-	}
-
-	if snap.AccountPolicies == nil {
-		snap.AccountPolicies = make(map[string]*AccountPolicy)
-	}
-
-	if snap.KmsKeys == nil {
-		snap.KmsKeys = make(map[string]string)
-	}
-
-	if snap.S3TableIntegrations == nil {
-		snap.S3TableIntegrations = make(map[string]string)
-	}
-
-	if snap.MetricFilters == nil {
-		snap.MetricFilters = make(map[string]map[string]*MetricFilter)
-	}
-
-	if snap.QueryDefinitions == nil {
-		snap.QueryDefinitions = make(map[string]*QueryDefinition)
-	}
-
-	if snap.DataProtectionPolicies == nil {
-		snap.DataProtectionPolicies = make(map[string]string)
-	}
-
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]ResourcePolicy)
-	}
-
-	if snap.DeliveryDestinations == nil {
-		snap.DeliveryDestinations = make(map[string]DeliveryDestination)
-	}
-
-	if snap.DeliverySources == nil {
-		snap.DeliverySources = make(map[string]DeliverySource)
-	}
-
-	if snap.Destinations == nil {
-		snap.Destinations = make(map[string]CWLDestination)
-	}
-
-	if snap.IndexPolicies == nil {
-		snap.IndexPolicies = make(map[string]IndexPolicy)
-	}
-
-	if snap.Transformers == nil {
-		snap.Transformers = make(map[string]Transformer)
-	}
-
-	if snap.Integrations == nil {
-		snap.Integrations = make(map[string]CWLIntegration)
-	}
-
-	if snap.DeletionProtected == nil {
-		snap.DeletionProtected = make(map[string]bool)
-	}
 
 	b.groups = snap.Groups
 	b.streams = snap.Streams
@@ -207,6 +117,88 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.region = snap.Region
 
 	return nil
+}
+
+// initSnapshotNilMaps replaces any nil map in snap with an empty map so the
+// restored backend never contains a nil map reference.
+func initSnapshotNilMaps(snap *backendSnapshot) {
+	initCoreNilMaps(snap)
+	initCompletenessNilMaps(snap)
+}
+
+func initCoreNilMaps(snap *backendSnapshot) {
+	if snap.Groups == nil {
+		snap.Groups = make(map[string]*LogGroup)
+	}
+	if snap.Streams == nil {
+		snap.Streams = make(map[string]map[string]*LogStream)
+	}
+	if snap.Events == nil {
+		snap.Events = make(map[string]map[string][]*OutputLogEvent)
+	}
+	if snap.SubscriptionFilters == nil {
+		snap.SubscriptionFilters = make(map[string][]*SubscriptionFilter)
+	}
+	if snap.ExportTasks == nil {
+		snap.ExportTasks = make(map[string]*ExportTask)
+	}
+	if snap.ImportTasks == nil {
+		snap.ImportTasks = make(map[string]*ImportTask)
+	}
+	if snap.Deliveries == nil {
+		snap.Deliveries = make(map[string]*Delivery)
+	}
+	if snap.LogAnomalyDetectors == nil {
+		snap.LogAnomalyDetectors = make(map[string]*LogAnomalyDetector)
+	}
+	if snap.ScheduledQueries == nil {
+		snap.ScheduledQueries = make(map[string]*ScheduledQuery)
+	}
+	if snap.AccountPolicies == nil {
+		snap.AccountPolicies = make(map[string]*AccountPolicy)
+	}
+	if snap.KmsKeys == nil {
+		snap.KmsKeys = make(map[string]string)
+	}
+	if snap.S3TableIntegrations == nil {
+		snap.S3TableIntegrations = make(map[string]string)
+	}
+}
+
+func initCompletenessNilMaps(snap *backendSnapshot) {
+	if snap.MetricFilters == nil {
+		snap.MetricFilters = make(map[string]map[string]*MetricFilter)
+	}
+	if snap.QueryDefinitions == nil {
+		snap.QueryDefinitions = make(map[string]*QueryDefinition)
+	}
+	if snap.DataProtectionPolicies == nil {
+		snap.DataProtectionPolicies = make(map[string]string)
+	}
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]ResourcePolicy)
+	}
+	if snap.DeliveryDestinations == nil {
+		snap.DeliveryDestinations = make(map[string]DeliveryDestination)
+	}
+	if snap.DeliverySources == nil {
+		snap.DeliverySources = make(map[string]DeliverySource)
+	}
+	if snap.Destinations == nil {
+		snap.Destinations = make(map[string]CWLDestination)
+	}
+	if snap.IndexPolicies == nil {
+		snap.IndexPolicies = make(map[string]IndexPolicy)
+	}
+	if snap.Transformers == nil {
+		snap.Transformers = make(map[string]Transformer)
+	}
+	if snap.Integrations == nil {
+		snap.Integrations = make(map[string]CWLIntegration)
+	}
+	if snap.DeletionProtected == nil {
+		snap.DeletionProtected = make(map[string]bool)
+	}
 }
 
 // handlerSnapshot is the full persisted state for a Handler, combining both

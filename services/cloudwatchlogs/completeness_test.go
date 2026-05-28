@@ -40,7 +40,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 				policies := b.DescribeResourcePolicies()
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
-				assert.Equal(t, `{"Version":"2012-10-17"}`, policies[0].PolicyDocument)
+				assert.JSONEq(t, `{"Version":"2012-10-17"}`, policies[0].PolicyDocument)
 			},
 		},
 		{
@@ -73,7 +73,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 				t.Helper()
 				policies := b.DescribeResourcePolicies()
 				require.Len(t, policies, 1)
-				assert.Equal(t, `{"new":"doc"}`, policies[0].PolicyDocument)
+				assert.JSONEq(t, `{"new":"doc"}`, policies[0].PolicyDocument)
 			},
 		},
 		{
@@ -278,7 +278,12 @@ func TestDeliverySource_CRUD(t *testing.T) {
 			name: "put_get_describe_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				src, err := b.PutDeliverySource("my-src", "APPLICATION_LOGS", []string{"arn:aws:ec2:::instance/i-123"}, nil)
+				src, err := b.PutDeliverySource(
+					"my-src",
+					"APPLICATION_LOGS",
+					[]string{"arn:aws:ec2:::instance/i-123"},
+					nil,
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "my-src", src.Name)
 				assert.NotEmpty(t, src.Arn)
@@ -546,7 +551,7 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 				t.Helper()
 				policies := b.DescribeIndexPolicies()
 				require.Len(t, policies, 1)
-				assert.Equal(t, `{"new":"policy"}`, policies[0].PolicyDocument)
+				assert.JSONEq(t, `{"new":"policy"}`, policies[0].PolicyDocument)
 			},
 		},
 		{
