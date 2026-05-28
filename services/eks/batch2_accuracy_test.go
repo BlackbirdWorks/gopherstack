@@ -460,7 +460,7 @@ func TestBatch2_Nodegroup_UpdateConfig_Create(t *testing.T) {
 	ng := parseResp(t, rec)["nodegroup"].(map[string]any)
 	uc, ok := ng["updateConfig"].(map[string]any)
 	require.True(t, ok, "updateConfig must be present")
-	assert.Equal(t, float64(2), uc["maxUnavailable"])
+	assert.InDelta(t, float64(2), uc["maxUnavailable"], 0.001)
 }
 
 func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
@@ -477,14 +477,14 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 			body: map[string]any{
 				"updateConfig": map[string]any{"maxUnavailable": 2},
 			},
-			wantMaxU: pFloat64(2),
+			wantMaxU: &[]float64{2}[0],
 		},
 		{
 			name: "set_max_unavailable_percentage",
 			body: map[string]any{
 				"updateConfig": map[string]any{"maxUnavailablePercentage": 25},
 			},
-			wantMaxPct: pFloat64(25),
+			wantMaxPct: &[]float64{25}[0],
 		},
 	}
 
@@ -508,17 +508,15 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 			require.True(t, ok, "updateConfig must be present after update")
 
 			if tt.wantMaxU != nil {
-				assert.Equal(t, *tt.wantMaxU, uc["maxUnavailable"])
+				assert.InDelta(t, *tt.wantMaxU, uc["maxUnavailable"], 0.001)
 			}
 
 			if tt.wantMaxPct != nil {
-				assert.Equal(t, *tt.wantMaxPct, uc["maxUnavailablePercentage"])
+				assert.InDelta(t, *tt.wantMaxPct, uc["maxUnavailablePercentage"], 0.001)
 			}
 		})
 	}
 }
-
-func pFloat64(f float64) *float64 { return &f }
 
 // ---------------------------------------------------------------------------
 // Gap 7: UpdateNodegroupConfig — labels and taints

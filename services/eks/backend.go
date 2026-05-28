@@ -777,9 +777,7 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 			ng.Labels = make(map[string]string)
 		}
 
-		for k, v := range upd.AddOrUpdateLabels {
-			ng.Labels[k] = v
-		}
+		maps.Copy(ng.Labels, upd.AddOrUpdateLabels)
 	}
 
 	for _, k := range upd.RemoveLabels {
@@ -804,8 +802,8 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 
 // mergeTaints adds or updates taints in the existing slice.
 func mergeTaints(existing []NodegroupTaint, updates []NodegroupTaint) []NodegroupTaint {
-	result := make([]NodegroupTaint, len(existing))
-	copy(result, existing)
+	result := make([]NodegroupTaint, 0, len(existing)+len(updates))
+	result = append(result, existing...)
 
 	for _, upd := range updates {
 		found := false

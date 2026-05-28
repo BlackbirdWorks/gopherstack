@@ -596,10 +596,7 @@ func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principa
 		}
 	}
 
-	entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, AccessEntryUpdate{
-		Username:         in.Username,
-		KubernetesGroups: in.KubernetesGroups,
-	})
+	entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, AccessEntryUpdate(in))
 	if err != nil {
 		return h.handleError(c, err)
 	}
