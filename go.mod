@@ -164,13 +164,12 @@ require (
 
 require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
 
-require github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
-
 require (
-	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18 // indirect
-	github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0
+	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0
+	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18
+	github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0
+	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
 )
 
 require (
