@@ -1064,7 +1064,7 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 				}
 
 				if r.AllowedByPermissionsBoundary != nil {
-					entry.PermissionsBoundaryDecisionDetail = &PermissionsBoundaryDecisionDetailXML{
+					entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
 						AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
 					}
 				}
