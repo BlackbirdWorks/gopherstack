@@ -1091,19 +1091,26 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 }
 
 type handleCreateESMInput struct {
-	Enabled                        *bool                 `json:"Enabled"`
-	FilterCriteria                 *FilterCriteria       `json:"FilterCriteria"`
-	DestinationConfig              *ESMDestinationConfig `json:"DestinationConfig"`
-	EventSourceARN                 string                `json:"EventSourceArn"`
-	FunctionName                   string                `json:"FunctionName"`
-	StartingPosition               string                `json:"StartingPosition"`
-	BatchSize                      int                   `json:"BatchSize"`
-	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds"`
-	TumblingWindowInSeconds        int                   `json:"TumblingWindowInSeconds"`
-	MaximumRecordAgeInSeconds      int                   `json:"MaximumRecordAgeInSeconds"`
-	MaximumRetryAttempts           int                   `json:"MaximumRetryAttempts"`
-	ParallelizationFactor          int                   `json:"ParallelizationFactor"`
-	BisectBatchOnFunctionError     bool                  `json:"BisectBatchOnFunctionError"`
+	Enabled                             *bool                                `json:"Enabled"`
+	FilterCriteria                      *FilterCriteria                      `json:"FilterCriteria"`
+	DestinationConfig                   *ESMDestinationConfig                `json:"DestinationConfig"`
+	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"AmazonManagedKafkaEventSourceConfig"`
+	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig"`
+	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource"`
+	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
+	Topics                              []string                             `json:"Topics"`
+	Queues                              []string                             `json:"Queues"`
+	EventSourceARN                      string                               `json:"EventSourceArn"`
+	FunctionName                        string                               `json:"FunctionName"`
+	StartingPosition                    string                               `json:"StartingPosition"`
+	BatchSize                           int                                  `json:"BatchSize"`
+	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
+	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`
+	MaximumRecordAgeInSeconds           int                                  `json:"MaximumRecordAgeInSeconds"`
+	MaximumRetryAttempts                int                                  `json:"MaximumRetryAttempts"`
+	ParallelizationFactor               int                                  `json:"ParallelizationFactor"`
+	BisectBatchOnFunctionError          bool                                 `json:"BisectBatchOnFunctionError"`
 }
 
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
@@ -1123,19 +1130,26 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 		enabled := req.Enabled == nil || *req.Enabled // default enabled=true
 
 		m, err := lambdaBk.CreateEventSourceMapping(&CreateEventSourceMappingInput{
-			EventSourceARN:                 req.EventSourceARN,
-			FunctionName:                   req.FunctionName,
-			StartingPosition:               req.StartingPosition,
-			BatchSize:                      req.BatchSize,
-			Enabled:                        enabled,
-			FilterCriteria:                 req.FilterCriteria,
-			DestinationConfig:              req.DestinationConfig,
-			MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
-			TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
-			MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,
-			MaximumRetryAttempts:           req.MaximumRetryAttempts,
-			ParallelizationFactor:          req.ParallelizationFactor,
-			BisectBatchOnFunctionError:     req.BisectBatchOnFunctionError,
+			EventSourceARN:                      req.EventSourceARN,
+			FunctionName:                        req.FunctionName,
+			StartingPosition:                    req.StartingPosition,
+			BatchSize:                           req.BatchSize,
+			Enabled:                             enabled,
+			FilterCriteria:                      req.FilterCriteria,
+			DestinationConfig:                   req.DestinationConfig,
+			AmazonManagedKafkaEventSourceConfig: req.AmazonManagedKafkaEventSourceConfig,
+			SelfManagedKafkaEventSourceConfig:   req.SelfManagedKafkaEventSourceConfig,
+			SelfManagedEventSource:              req.SelfManagedEventSource,
+			DocumentDBEventSourceConfig:         req.DocumentDBEventSourceConfig,
+			SourceAccessConfigurations:          req.SourceAccessConfigurations,
+			Topics:                              req.Topics,
+			Queues:                              req.Queues,
+			MaximumBatchingWindowInSeconds:      req.MaximumBatchingWindowInSeconds,
+			TumblingWindowInSeconds:             req.TumblingWindowInSeconds,
+			MaximumRecordAgeInSeconds:           req.MaximumRecordAgeInSeconds,
+			MaximumRetryAttempts:                req.MaximumRetryAttempts,
+			ParallelizationFactor:               req.ParallelizationFactor,
+			BisectBatchOnFunctionError:          req.BisectBatchOnFunctionError,
 		})
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
@@ -1194,16 +1208,19 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 
 // handleUpdateESMInput is the request body for UpdateEventSourceMapping.
 type handleUpdateESMInput struct {
-	Enabled                        *bool                 `json:"Enabled"`
-	FilterCriteria                 *FilterCriteria       `json:"FilterCriteria"`
-	DestinationConfig              *ESMDestinationConfig `json:"DestinationConfig"`
-	BisectBatchOnFunctionError     *bool                 `json:"BisectBatchOnFunctionError"`
-	BatchSize                      int                   `json:"BatchSize"`
-	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds"`
-	TumblingWindowInSeconds        int                   `json:"TumblingWindowInSeconds"`
-	MaximumRecordAgeInSeconds      int                   `json:"MaximumRecordAgeInSeconds"`
-	MaximumRetryAttempts           int                   `json:"MaximumRetryAttempts"`
-	ParallelizationFactor          int                   `json:"ParallelizationFactor"`
+	Enabled                        *bool                       `json:"Enabled"`
+	FilterCriteria                 *FilterCriteria             `json:"FilterCriteria"`
+	DestinationConfig              *ESMDestinationConfig       `json:"DestinationConfig"`
+	BisectBatchOnFunctionError     *bool                       `json:"BisectBatchOnFunctionError"`
+	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
+	Topics                         []string                    `json:"Topics"`
+	Queues                         []string                    `json:"Queues"`
+	BatchSize                      int                         `json:"BatchSize"`
+	MaximumBatchingWindowInSeconds int                         `json:"MaximumBatchingWindowInSeconds"`
+	TumblingWindowInSeconds        int                         `json:"TumblingWindowInSeconds"`
+	MaximumRecordAgeInSeconds      int                         `json:"MaximumRecordAgeInSeconds"`
+	MaximumRetryAttempts           int                         `json:"MaximumRetryAttempts"`
+	ParallelizationFactor          int                         `json:"ParallelizationFactor"`
 }
 
 // handleUpdateESM handles PUT /2015-03-31/event-source-mappings/{UUID}.
@@ -1228,6 +1245,9 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 		BatchSize:                      req.BatchSize,
 		FilterCriteria:                 req.FilterCriteria,
 		DestinationConfig:              req.DestinationConfig,
+		SourceAccessConfigurations:     req.SourceAccessConfigurations,
+		Topics:                         req.Topics,
+		Queues:                         req.Queues,
 		MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
 		TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
 		MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,

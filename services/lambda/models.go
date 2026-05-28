@@ -75,9 +75,10 @@ type EphemeralStorageConfig struct {
 
 // VpcConfig holds the VPC configuration for a Lambda function.
 type VpcConfig struct {
-	VpcID            string   `json:"VpcId,omitempty"`
-	SubnetIDs        []string `json:"SubnetIds,omitempty"`
-	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
+	SubnetIDs               []string `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs        []string `json:"SecurityGroupIds,omitempty"`
+	VpcID                   string   `json:"VpcId,omitempty"`
+	Ipv6AllowedForDualStack *bool    `json:"Ipv6AllowedForDualStack,omitempty"`
 }
 
 // TracingConfig holds the X-Ray tracing configuration for a Lambda function.

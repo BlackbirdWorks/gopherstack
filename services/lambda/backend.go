@@ -433,22 +433,29 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
-		UUID:                           id,
-		EventSourceARN:                 input.EventSourceARN,
-		FunctionARN:                    fnARN,
-		State:                          state,
-		BatchSize:                      batchSize,
-		StartingPosition:               startingPosition,
-		LastProcessingResult:           "No records processed",
-		LastModified:                   time.Now(),
-		FilterCriteria:                 input.FilterCriteria,
-		DestinationConfig:              input.DestinationConfig,
-		MaximumBatchingWindowInSeconds: input.MaximumBatchingWindowInSeconds,
-		TumblingWindowInSeconds:        input.TumblingWindowInSeconds,
-		MaximumRecordAgeInSeconds:      input.MaximumRecordAgeInSeconds,
-		MaximumRetryAttempts:           input.MaximumRetryAttempts,
-		ParallelizationFactor:          input.ParallelizationFactor,
-		BisectBatchOnFunctionError:     input.BisectBatchOnFunctionError,
+		UUID:                                id,
+		EventSourceARN:                      input.EventSourceARN,
+		FunctionARN:                         fnARN,
+		State:                               state,
+		BatchSize:                           batchSize,
+		StartingPosition:                    startingPosition,
+		LastProcessingResult:                "No records processed",
+		LastModified:                        time.Now(),
+		FilterCriteria:                      input.FilterCriteria,
+		DestinationConfig:                   input.DestinationConfig,
+		AmazonManagedKafkaEventSourceConfig: input.AmazonManagedKafkaEventSourceConfig,
+		SelfManagedKafkaEventSourceConfig:   input.SelfManagedKafkaEventSourceConfig,
+		SelfManagedEventSource:              input.SelfManagedEventSource,
+		DocumentDBEventSourceConfig:         input.DocumentDBEventSourceConfig,
+		SourceAccessConfigurations:          input.SourceAccessConfigurations,
+		Topics:                              input.Topics,
+		Queues:                              input.Queues,
+		MaximumBatchingWindowInSeconds:      input.MaximumBatchingWindowInSeconds,
+		TumblingWindowInSeconds:             input.TumblingWindowInSeconds,
+		MaximumRecordAgeInSeconds:           input.MaximumRecordAgeInSeconds,
+		MaximumRetryAttempts:                input.MaximumRetryAttempts,
+		ParallelizationFactor:               input.ParallelizationFactor,
+		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -3962,6 +3969,18 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if input.BisectBatchOnFunctionError != nil {
 		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+	}
+
+	if len(input.SourceAccessConfigurations) > 0 {
+		esm.SourceAccessConfigurations = input.SourceAccessConfigurations
+	}
+
+	if len(input.Topics) > 0 {
+		esm.Topics = input.Topics
+	}
+
+	if len(input.Queues) > 0 {
+		esm.Queues = input.Queues
 	}
 
 	esm.LastModified = time.Now()
