@@ -78,7 +78,10 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "dis-domain")
 				setupRepo(t, h, "dis-domain", "dis-repo")
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/repository/external-connection?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
 					nil,
 				)
@@ -537,8 +540,20 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 			name: "success_two_groups",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpg2-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg2-domain", map[string]any{"pattern": "/npm/*"})
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg2-domain", map[string]any{"pattern": "/pypi/*"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lpg2-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lpg2-domain",
+					map[string]any{"pattern": "/pypi/*"},
+				)
 			},
 			path:       "/v1/package-groups?domain=lpg2-domain",
 			wantStatus: http.StatusOK,
@@ -548,8 +563,20 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 			name: "success_prefix_filter",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpg3-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg3-domain", map[string]any{"pattern": "/npm/*"})
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lpg3-domain", map[string]any{"pattern": "/pypi/*"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lpg3-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lpg3-domain",
+					map[string]any{"pattern": "/pypi/*"},
+				)
 			},
 			path:       "/v1/package-groups?domain=lpg3-domain&prefix=/npm",
 			wantStatus: http.StatusOK,
@@ -605,7 +632,10 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpva-domain")
 				setupRepo(t, h, "lpva-domain", "lpva-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t,
+					h,
+					http.MethodGet,
 					"/v1/package/version?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)
@@ -683,7 +713,10 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpvd-domain")
 				setupRepo(t, h, "lpvd-domain", "lpvd-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t,
+					h,
+					http.MethodGet,
 					"/v1/package/version?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)
@@ -762,11 +795,17 @@ func TestHandler_ListPackageVersions(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lpv-domain")
 				setupRepo(t, h, "lpv-domain", "lpv-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t,
+					h,
+					http.MethodGet,
 					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.0",
 					nil,
 				)
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t,
+					h,
+					http.MethodGet,
 					"/v1/package/version?domain=lpv-domain&repository=lpv-repo&format=npm&package=lodash&version=4.17.21",
 					nil,
 				)
@@ -851,11 +890,17 @@ func TestHandler_ListPackages(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lp-domain")
 				setupRepo(t, h, "lp-domain", "lp-repo")
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=react&version=18.0.0",
 					nil,
 				)
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=lodash&version=4.0.0",
 					nil,
 				)
@@ -879,11 +924,17 @@ func TestHandler_ListPackages(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lp3-domain")
 				setupRepo(t, h, "lp3-domain", "lp3-repo")
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=npm&package=react&version=18.0.0",
 					nil,
 				)
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=pypi&package=boto3&version=1.0.0",
 					nil,
 				)
@@ -973,7 +1024,10 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "ppv2-domain")
 				setupRepo(t, h, "ppv2-domain", "ppv2-repo")
-				doRequest(t, h, http.MethodPost,
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
 					"/v1/package/versions/publish?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0",
 					nil,
 				)
@@ -1253,7 +1307,10 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "upvs-domain")
 				setupRepo(t, h, "upvs-domain", "upvs-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t,
+					h,
+					http.MethodGet,
 					"/v1/package/version?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)

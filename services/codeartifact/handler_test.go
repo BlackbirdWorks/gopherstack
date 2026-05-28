@@ -2143,9 +2143,27 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 			name: "success_with_subgroups",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=lspg-domain", nil)
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lspg-domain", map[string]any{"pattern": "/npm/*"})
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lspg-domain", map[string]any{"pattern": "/npm/react/*"})
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lspg-domain", map[string]any{"pattern": "/pypi/*"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/npm/react/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/pypi/*"},
+				)
 			},
 			path:       "/v1/sub-package-groups?domain=lspg-domain&packageGroup=/npm/*",
 			wantStatus: http.StatusOK,
@@ -2155,7 +2173,13 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 			name: "success_no_subgroups",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=lspg2-domain", nil)
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lspg2-domain", map[string]any{"pattern": "/npm/*"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg2-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
 			},
 			path:       "/v1/sub-package-groups?domain=lspg2-domain&packageGroup=/npm/*",
 			wantStatus: http.StatusOK,
@@ -2293,11 +2317,17 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pub-list-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pub-list-domain&repository=pub-list-repo", nil)
 
-	doRequest(t, h, http.MethodPost,
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/package/versions/publish?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react&version=18.0.0",
 		nil,
 	)
-	doRequest(t, h, http.MethodPost,
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/package/versions/publish?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react&version=19.0.0",
 		nil,
 	)
@@ -2349,7 +2379,10 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	setupRepo(t, h, "lifecycle-domain", "lifecycle-repo")
 
 	// Publish version.
-	pubRec := doRequest(t, h, http.MethodPost,
+	pubRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/package/versions/publish?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
 		nil,
 	)
@@ -2494,7 +2527,13 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	assert.Len(t, allPkgs, 4)
 
 	// Filter by npm format.
-	npmRec := doRequest(t, h, http.MethodPost, "/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=npm", nil)
+	npmRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=npm",
+		nil,
+	)
 	require.Equal(t, http.StatusOK, npmRec.Code)
 	var npmResp map[string]any
 	require.NoError(t, json.Unmarshal(npmRec.Body.Bytes(), &npmResp))
@@ -2502,7 +2541,13 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	assert.Len(t, npmPkgs, 2)
 
 	// Filter by pypi format.
-	pypiRec := doRequest(t, h, http.MethodPost, "/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=pypi", nil)
+	pypiRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=pypi",
+		nil,
+	)
 	require.Equal(t, http.StatusOK, pypiRec.Code)
 	var pypiResp map[string]any
 	require.NoError(t, json.Unmarshal(pypiRec.Body.Bytes(), &pypiResp))
@@ -2519,7 +2564,10 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 
 	// Associate multiple external connections.
 	for _, conn := range []string{"public:npmjs", "public:pypi", "public:maven-central"} {
-		rec := doRequest(t, h, http.MethodPost,
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
 			"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&externalConnection="+conn,
 			nil,
 		)
@@ -2539,7 +2587,10 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 	assert.Len(t, conns, 3)
 
 	// Disassociate one.
-	disRec := doRequest(t, h, http.MethodDelete,
+	disRec := doRequest(
+		t,
+		h,
+		http.MethodDelete,
 		"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&externalConnection=public:pypi",
 		nil,
 	)
@@ -2607,14 +2658,20 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 	)
 
 	// Copy to dst.
-	copyRec := doRequest(t, h, http.MethodPost,
+	copyRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/package/versions/copy?domain=self-copy-domain&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, copyRec.Code)
 
 	// Copy again (duplicate) to dst — should fail.
-	copyRec2 := doRequest(t, h, http.MethodPost,
+	copyRec2 := doRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/package/versions/copy?domain=self-copy-domain&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
@@ -2656,4 +2713,3 @@ func TestHandler_DomainSummaryVsFullDescription(t *testing.T) {
 	count, _ := dd["repositoryCount"].(float64)
 	assert.InEpsilon(t, float64(2), count, 0)
 }
-

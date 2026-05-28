@@ -289,40 +289,40 @@ func parseCodeArtifactPath(method, path string) codeartifactRoute {
 
 // parseDomainRepoPath handles domain, repository, tag and auth token routes.
 func parseDomainRepoPath(method, path string) codeartifactRoute {
+	if op, ok := domainRepoStaticRoutes[path]; ok {
+		return codeartifactRoute{operation: op}
+	}
+
 	switch path {
 	case pathV1Domain:
 		return parseDomainRoute(method)
-	case pathV1Domains:
-		return codeartifactRoute{operation: opListDomains}
-	case pathV1DomainRepositories:
-		return codeartifactRoute{operation: opListRepositoriesInDomain}
 	case pathV1DomainPermissions:
 		return parseDomainPermissionsRoute(method)
 	case pathV1Repository:
 		return parseRepositoryRoute(method)
-	case pathV1RepositoryEndpoint:
-		return codeartifactRoute{operation: opGetRepositoryEndpoint}
 	case pathV1RepositoryExternalConnection:
 		return parseRepositoryExternalConnectionRoute(method)
 	case pathV1RepositoryPermissions:
 		return parseRepositoryPermissionsRoute(method)
-	case pathV1Repositories:
-		return codeartifactRoute{operation: opListRepositories}
-	case pathV1Tags:
-		return codeartifactRoute{operation: opListTagsForResource}
-	case pathV1Tag:
-		return codeartifactRoute{operation: opTagResource}
-	case pathV1Untag:
-		return codeartifactRoute{operation: opUntagResource}
-	case pathV1AuthToken:
-		return codeartifactRoute{operation: opGetAuthorizationToken}
-	case pathV1SubPackageGroups:
-		return codeartifactRoute{operation: opListSubPackageGroups}
-	case pathV1AssociatedPackageGroup:
-		return codeartifactRoute{operation: opGetAssociatedPackageGroup}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
+}
+
+// domainRepoStaticRoutes maps domain/repo/tag/auth paths that need no method dispatch.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var domainRepoStaticRoutes = map[string]string{
+	pathV1Domains:                opListDomains,
+	pathV1DomainRepositories:     opListRepositoriesInDomain,
+	pathV1RepositoryEndpoint:     opGetRepositoryEndpoint,
+	pathV1Repositories:           opListRepositories,
+	pathV1Tags:                   opListTagsForResource,
+	pathV1Tag:                    opTagResource,
+	pathV1Untag:                  opUntagResource,
+	pathV1AuthToken:              opGetAuthorizationToken,
+	pathV1SubPackageGroups:       opListSubPackageGroups,
+	pathV1AssociatedPackageGroup: opGetAssociatedPackageGroup,
 }
 
 // packageOpStaticRoutes maps static paths (no method dispatch) to their operations.
