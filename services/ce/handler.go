@@ -16,7 +16,19 @@ import (
 )
 
 const (
-	ceTargetPrefix = "AWSInsightsIndexService."
+	ceTargetPrefix        = "AWSInsightsIndexService."
+	defaultStartDate      = "2024-01-01"
+	defaultEndDate        = "2024-02-01"
+	defaultForecastStart  = "2024-02-01"
+	defaultForecastEnd    = "2024-03-01"
+	defaultGranularity    = "MONTHLY"
+	handlerZeroAmount     = "0.0000"
+	handlerSavingsPlansType = "COMPUTE_SP"
+	handlerRegionDefault  = "us-east-1"
+	handlerCoverPct       = "65.0000"
+	handlerROI            = "25.0000"
+	handlerSPUtilPct      = "85.0000"
+	handlerCurrencyCode   = "USD"
 )
 
 var (
@@ -862,18 +874,18 @@ type groupBySpec struct {
 }
 
 type getCostAndUsageInput struct {
-	Filter      any               `json:"Filter"`
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
-	Metrics     []string          `json:"Metrics"`
-	GroupBy     []groupBySpec     `json:"GroupBy"`
-	NextPageToken string          `json:"NextPageToken"`
+	Filter        any               `json:"Filter"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	Granularity   string            `json:"Granularity"`
+	Metrics       []string          `json:"Metrics"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
+	NextPageToken string            `json:"NextPageToken"`
 }
 
 type getCostAndUsageOutput struct {
-	NextPageToken            string        `json:"NextPageToken,omitempty"`
+	NextPageToken            string         `json:"NextPageToken,omitempty"`
 	ResultsByTime            []ResultByTime `json:"ResultsByTime"`
-	DimensionValueAttributes []any         `json:"DimensionValueAttributes"`
+	DimensionValueAttributes []any          `json:"DimensionValueAttributes"`
 }
 
 func (h *Handler) handleGetCostAndUsage(
@@ -889,11 +901,11 @@ func (h *Handler) handleGetCostAndUsage(
 	}
 
 	if start == "" {
-		start = "2024-01-01"
+		start = defaultStartDate
 	}
 
 	if end == "" {
-		end = "2024-02-01"
+		end = defaultEndDate
 	}
 
 	granularity := in.Granularity
@@ -920,12 +932,12 @@ type dimensionValue struct {
 }
 
 type getDimensionValuesInput struct {
-	TimePeriod   map[string]string `json:"TimePeriod"`
-	Dimension    string            `json:"Dimension"`
-	SearchString string            `json:"SearchString"`
-	Context      string            `json:"Context"`
-	NextPageToken string           `json:"NextPageToken"`
-	MaxResults   int               `json:"MaxResults"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	Dimension     string            `json:"Dimension"`
+	SearchString  string            `json:"SearchString"`
+	Context       string            `json:"Context"`
+	NextPageToken string            `json:"NextPageToken"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getDimensionValuesOutput struct {
@@ -967,12 +979,12 @@ func (h *Handler) handleGetDimensionValues(
 }
 
 type getTagsInput struct {
-	TimePeriod   map[string]string `json:"TimePeriod"`
-	TagKey       string            `json:"TagKey"`
-	SearchString string            `json:"SearchString"`
-	Filter       any               `json:"Filter"`
-	NextPageToken string           `json:"NextPageToken"`
-	MaxResults   int               `json:"MaxResults"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	TagKey        string            `json:"TagKey"`
+	SearchString  string            `json:"SearchString"`
+	Filter        any               `json:"Filter"`
+	NextPageToken string            `json:"NextPageToken"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getTagsOutput struct {
@@ -1088,56 +1100,113 @@ func (h *Handler) handleUntagResource(
 	return &untagResourceOutput{}, nil
 }
 
-// --- Forecast stubs ---
+// --- Forecasts ---
 
 type getCostForecastInput struct {
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
-	Metric      string            `json:"Metric"`
-}
-
-type forecastResult struct {
-	MeanValue                    string `json:"MeanValue"`
-	PredictionIntervalLowerBound string `json:"PredictionIntervalLowerBound,omitempty"`
-	PredictionIntervalUpperBound string `json:"PredictionIntervalUpperBound,omitempty"`
+	TimePeriod              map[string]string `json:"TimePeriod"`
+	Granularity             string            `json:"Granularity"`
+	Metric                  string            `json:"Metric"`
+	Filter                  any               `json:"Filter"`
+	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
 type getCostForecastOutput struct {
-	Total                 *forecastResult `json:"Total,omitempty"`
-	ForecastResultsByTime []any           `json:"ForecastResultsByTime"`
+	Total                 *ForecastResult  `json:"Total,omitempty"`
+	ForecastResultsByTime []ForecastResult `json:"ForecastResultsByTime"`
 }
 
-// handleGetCostForecast returns a stub forecast response.
-// Real AWS returns predicted cost totals; the stub returns an empty forecast list.
 func (h *Handler) handleGetCostForecast(
 	_ context.Context,
-	_ *getCostForecastInput,
+	in *getCostForecastInput,
 ) (*getCostForecastOutput, error) {
+	start, end := defaultForecastStart, defaultForecastEnd
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = defaultGranularity
+	}
+
+	level := in.PredictionIntervalLevel
+	if level == 0 {
+		level = 80
+	}
+
+	buckets, totalMean, totalLo, totalHi := h.Backend.GetForecastByTime(
+		start,
+		end,
+		granularity,
+		level,
+	)
+
 	return &getCostForecastOutput{
-		Total:                 &forecastResult{MeanValue: "0"},
-		ForecastResultsByTime: []any{},
+		Total: &ForecastResult{
+			MeanValue:                    fmt.Sprintf("%.4f", totalMean),
+			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", totalLo),
+			PredictionIntervalUpperBound: fmt.Sprintf("%.4f", totalHi),
+		},
+		ForecastResultsByTime: buckets,
 	}, nil
 }
 
 type getUsageForecastInput struct {
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
-	Metric      string            `json:"Metric"`
+	TimePeriod              map[string]string `json:"TimePeriod"`
+	Granularity             string            `json:"Granularity"`
+	Metric                  string            `json:"Metric"`
+	Filter                  any               `json:"Filter"`
+	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
 type getUsageForecastOutput struct {
-	Total                 *forecastResult `json:"Total,omitempty"`
-	ForecastResultsByTime []any           `json:"ForecastResultsByTime"`
+	Total                 *ForecastResult  `json:"Total,omitempty"`
+	ForecastResultsByTime []ForecastResult `json:"ForecastResultsByTime"`
 }
 
-// handleGetUsageForecast returns a stub usage forecast response.
 func (h *Handler) handleGetUsageForecast(
 	_ context.Context,
-	_ *getUsageForecastInput,
+	in *getUsageForecastInput,
 ) (*getUsageForecastOutput, error) {
+	start, end := defaultForecastStart, defaultForecastEnd
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = defaultGranularity
+	}
+
+	level := in.PredictionIntervalLevel
+	if level == 0 {
+		level = 80
+	}
+
+	buckets, totalMean, totalLo, totalHi := h.Backend.GetForecastByTime(
+		start,
+		end,
+		granularity,
+		level,
+	)
+
 	return &getUsageForecastOutput{
-		Total:                 &forecastResult{MeanValue: "0"},
-		ForecastResultsByTime: []any{},
+		Total: &ForecastResult{
+			MeanValue:                    fmt.Sprintf("%.4f", totalMean),
+			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", totalLo),
+			PredictionIntervalUpperBound: fmt.Sprintf("%.4f", totalHi),
+		},
+		ForecastResultsByTime: buckets,
 	}, nil
 }
 
@@ -1158,23 +1227,23 @@ type getAnomaliesInput struct {
 }
 
 type anomalyImpact struct {
-	MaxImpact              float64 `json:"MaxImpact"`
-	TotalImpact            float64 `json:"TotalImpact"`
-	TotalActualSpend       float64 `json:"TotalActualSpend"`
-	TotalExpectedSpend     float64 `json:"TotalExpectedSpend"`
-	TotalImpactPercentage  float64 `json:"TotalImpactPercentage"`
+	MaxImpact             float64 `json:"MaxImpact"`
+	TotalImpact           float64 `json:"TotalImpact"`
+	TotalActualSpend      float64 `json:"TotalActualSpend"`
+	TotalExpectedSpend    float64 `json:"TotalExpectedSpend"`
+	TotalImpactPercentage float64 `json:"TotalImpactPercentage"`
 }
 
 type anomalySummary struct {
-	AnomalyID        string          `json:"AnomalyId"`
-	AnomalyStartDate string          `json:"AnomalyStartDate"`
-	AnomalyEndDate   string          `json:"AnomalyEndDate"`
-	DimensionValue   string          `json:"DimensionValue"`
-	MonitorArn       string          `json:"MonitorArn"`
-	SubscriptionArn  string          `json:"SubscriptionArn,omitempty"`
-	Feedback         string          `json:"Feedback,omitempty"`
-	AnomalyScore     AnomalyScore    `json:"AnomalyScore"`
-	Impact           anomalyImpact   `json:"Impact"`
+	AnomalyID        string             `json:"AnomalyId"`
+	AnomalyStartDate string             `json:"AnomalyStartDate"`
+	AnomalyEndDate   string             `json:"AnomalyEndDate"`
+	DimensionValue   string             `json:"DimensionValue"`
+	MonitorArn       string             `json:"MonitorArn"`
+	SubscriptionArn  string             `json:"SubscriptionArn,omitempty"`
+	Feedback         string             `json:"Feedback,omitempty"`
+	AnomalyScore     AnomalyScore       `json:"AnomalyScore"`
+	Impact           anomalyImpact      `json:"Impact"`
 	RootCauses       []AnomalyRootCause `json:"RootCauses,omitempty"`
 }
 
@@ -1238,23 +1307,41 @@ func (h *Handler) handleGetApproximateUsageRecords(
 	}, nil
 }
 
-// --- GetCommitmentPurchaseAnalysis stub ---
+// --- GetCommitmentPurchaseAnalysis ---
 
 type getCommitmentPurchaseAnalysisInput struct {
 	AnalysisID string `json:"AnalysisId"`
 }
 
 type getCommitmentPurchaseAnalysisOutput struct {
-	EstimatedSavings any    `json:"EstimatedSavings,omitempty"`
-	AnalysisID       string `json:"AnalysisId,omitempty"`
-	AnalysisStatus   string `json:"AnalysisStatus,omitempty"`
+	EstimatedSavings        any    `json:"EstimatedSavings,omitempty"`
+	AnalysisID              string `json:"AnalysisId,omitempty"`
+	AnalysisStatus          string `json:"AnalysisStatus,omitempty"`
+	AnalysisStartedTime     string `json:"AnalysisStartedTime,omitempty"`
+	EstimatedCompletionTime string `json:"EstimatedCompletionTime,omitempty"`
+	ErrorCode               string `json:"ErrorCode,omitempty"`
 }
 
 func (h *Handler) handleGetCommitmentPurchaseAnalysis(
 	_ context.Context,
-	_ *getCommitmentPurchaseAnalysisInput,
+	in *getCommitmentPurchaseAnalysisInput,
 ) (*getCommitmentPurchaseAnalysisOutput, error) {
-	return &getCommitmentPurchaseAnalysisOutput{}, nil
+	if in.AnalysisID == "" {
+		return nil, fmt.Errorf("%w: AnalysisId is required", errInvalidRequest)
+	}
+
+	a, err := h.Backend.GetCommitmentAnalysis(in.AnalysisID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCommitmentPurchaseAnalysisOutput{
+		AnalysisID:              a.AnalysisID,
+		AnalysisStatus:          a.AnalysisStatus,
+		AnalysisStartedTime:     a.AnalysisStartedTime,
+		EstimatedCompletionTime: a.EstimatedCompletionTime,
+		ErrorCode:               a.ErrorCode,
+	}, nil
 }
 
 // --- GetCostAndUsageComparisons stub ---
@@ -1359,29 +1446,56 @@ func (h *Handler) handleGetCostComparisonDrivers(
 	}, nil
 }
 
-// --- GetReservationCoverage stub ---
+// --- GetReservationCoverage ---
 
 type getReservationCoverageInput struct {
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
+	Filter        any               `json:"Filter"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	Granularity   string            `json:"Granularity"`
+	NextPageToken string            `json:"NextPageToken"`
 }
 
 type getReservationCoverageOutput struct {
-	Total           any    `json:"Total,omitempty"`
-	NextPageToken   string `json:"NextPageToken,omitempty"`
-	CoveragesByTime []any  `json:"CoveragesByTime"`
+	Total           *ReservationCoverageAgg     `json:"Total,omitempty"`
+	NextPageToken   string                      `json:"NextPageToken,omitempty"`
+	CoveragesByTime []ReservationCoverageByTime `json:"CoveragesByTime"`
 }
 
 func (h *Handler) handleGetReservationCoverage(
 	_ context.Context,
-	_ *getReservationCoverageInput,
+	in *getReservationCoverageInput,
 ) (*getReservationCoverageOutput, error) {
+	start, end := defaultStartDate, defaultEndDate
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = defaultGranularity
+	}
+
+	coverages := h.Backend.GetReservationCoverage(start, end, granularity)
+
+	var total *ReservationCoverageAgg
+	if len(coverages) > 0 {
+		agg := coverages[0].Total
+		total = &agg
+	}
+
 	return &getReservationCoverageOutput{
-		CoveragesByTime: []any{},
+		CoveragesByTime: coverages,
+		Total:           total,
 	}, nil
 }
 
-// --- GetReservationPurchaseRecommendation stub ---
+// --- GetReservationPurchaseRecommendation ---
 
 type getReservationPurchaseRecommendationInput struct {
 	Service              string `json:"Service"`
@@ -1390,66 +1504,127 @@ type getReservationPurchaseRecommendationInput struct {
 	TermInYears          string `json:"TermInYears"`
 	PaymentOption        string `json:"PaymentOption"`
 	NextPageToken        string `json:"NextPageToken"`
+	PageSize             int    `json:"PageSize"`
 }
 
 type getReservationPurchaseRecommendationOutput struct {
-	NextPageToken   string `json:"NextPageToken,omitempty"`
-	Metadata        any    `json:"Metadata,omitempty"`
-	Recommendations []any  `json:"Recommendations"`
+	NextPageToken   string                      `json:"NextPageToken,omitempty"`
+	Metadata        any                         `json:"Metadata,omitempty"`
+	Recommendations []ReservationRecommendation `json:"Recommendations"`
 }
 
 func (h *Handler) handleGetReservationPurchaseRecommendation(
 	_ context.Context,
-	_ *getReservationPurchaseRecommendationInput,
+	in *getReservationPurchaseRecommendationInput,
 ) (*getReservationPurchaseRecommendationOutput, error) {
+	recs := h.Backend.GetReservationPurchaseRecommendations(
+		in.Service, in.LookbackPeriodInDays, in.TermInYears, in.PaymentOption,
+	)
+
+	if recs == nil {
+		recs = []ReservationRecommendation{}
+	}
+
 	return &getReservationPurchaseRecommendationOutput{
-		Recommendations: []any{},
+		Recommendations: recs,
+		Metadata: map[string]string{
+			"RecommendationTotalCount": fmt.Sprintf("%d", len(recs)),
+			"CurrencyCode":             "USD",
+		},
 	}, nil
 }
 
-// --- GetReservationUtilization stub ---
+// --- GetReservationUtilization ---
 
 type getReservationUtilizationInput struct {
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
+	Filter        any               `json:"Filter"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	Granularity   string            `json:"Granularity"`
+	NextPageToken string            `json:"NextPageToken"`
 }
 
 type getReservationUtilizationOutput struct {
-	Total              any    `json:"Total,omitempty"`
-	NextPageToken      string `json:"NextPageToken,omitempty"`
-	UtilizationsByTime []any  `json:"UtilizationsByTime"`
+	Total              *ReservationUtilizationAgg     `json:"Total,omitempty"`
+	NextPageToken      string                         `json:"NextPageToken,omitempty"`
+	UtilizationsByTime []ReservationUtilizationByTime `json:"UtilizationsByTime"`
 }
 
 func (h *Handler) handleGetReservationUtilization(
 	_ context.Context,
-	_ *getReservationUtilizationInput,
+	in *getReservationUtilizationInput,
 ) (*getReservationUtilizationOutput, error) {
+	start, end := defaultStartDate, defaultEndDate
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = defaultGranularity
+	}
+
+	utils := h.Backend.GetReservationUtilization(start, end, granularity)
+
+	var total *ReservationUtilizationAgg
+	if len(utils) > 0 {
+		agg := utils[0].Total
+		total = &agg
+	}
+
 	return &getReservationUtilizationOutput{
-		UtilizationsByTime: []any{},
+		UtilizationsByTime: utils,
+		Total:              total,
 	}, nil
 }
 
-// --- GetRightsizingRecommendation stub ---
+// --- GetRightsizingRecommendation ---
 
 type getRightsizingRecommendationInput struct {
 	Service       string `json:"Service"`
+	Filter        any    `json:"Filter"`
+	Configuration any    `json:"Configuration"`
 	NextPageToken string `json:"NextPageToken"`
 	PageSize      int    `json:"PageSize"`
 }
 
 type getRightsizingRecommendationOutput struct {
-	Summary                    any    `json:"Summary,omitempty"`
-	Metadata                   any    `json:"Metadata,omitempty"`
-	NextPageToken              string `json:"NextPageToken,omitempty"`
-	RightsizingRecommendations []any  `json:"RightsizingRecommendations"`
+	Summary                    map[string]string           `json:"Summary,omitempty"`
+	Metadata                   any                         `json:"Metadata,omitempty"`
+	NextPageToken              string                      `json:"NextPageToken,omitempty"`
+	RightsizingRecommendations []RightsizingRecommendation `json:"RightsizingRecommendations"`
 }
 
 func (h *Handler) handleGetRightsizingRecommendation(
 	_ context.Context,
-	_ *getRightsizingRecommendationInput,
+	in *getRightsizingRecommendationInput,
 ) (*getRightsizingRecommendationOutput, error) {
+	recs := h.Backend.GetRightsizingRecommendations(in.Service)
+
+	if recs == nil {
+		recs = []RightsizingRecommendation{}
+	}
+
+	summary := map[string]string{
+		"TotalRecommendationCount":           fmt.Sprintf("%d", len(recs)),
+		"EstimatedTotalMonthlySavingsAmount": "0.0000",
+		"SavingsCurrencyCode":                "USD",
+		"SavingsPercentage":                  "0.0000",
+	}
+
+	if len(recs) > 0 {
+		summary["EstimatedTotalMonthlySavingsAmount"] = recs[0].CurrentInstance.MonthlyCost
+		summary["SavingsPercentage"] = "50.0000"
+	}
+
 	return &getRightsizingRecommendationOutput{
-		RightsizingRecommendations: []any{},
+		RightsizingRecommendations: recs,
+		Summary:                    summary,
 	}, nil
 }
 
@@ -1471,120 +1646,290 @@ func (h *Handler) handleGetSavingsPlanPurchaseRecommendationDetails(
 	return &getSavingsPlanPurchaseRecommendationDetailsOutput{}, nil
 }
 
-// --- GetSavingsPlansCoverage stub ---
+// --- GetSavingsPlansCoverage ---
 
 type getSavingsPlansCoverageInput struct {
+	Filter      any               `json:"Filter"`
+	GroupBy     []groupBySpec     `json:"GroupBy"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
+	Metrics     []string          `json:"Metrics"`
 	NextToken   string            `json:"NextToken"`
 	MaxResults  int               `json:"MaxResults"`
 }
 
+type savingsPlanCoverage struct {
+	Attributes map[string]string `json:"Attributes,omitempty"`
+	Coverage   map[string]string `json:"Coverage,omitempty"`
+	TimePeriod map[string]string `json:"TimePeriod,omitempty"`
+}
+
 type getSavingsPlansCoverageOutput struct {
-	NextToken             string `json:"NextToken,omitempty"`
-	SavingsPlansCoverages []any  `json:"SavingsPlansCoverages"`
+	NextToken             string                `json:"NextToken,omitempty"`
+	SavingsPlansCoverages []savingsPlanCoverage `json:"SavingsPlansCoverages"`
 }
 
 func (h *Handler) handleGetSavingsPlansCoverage(
 	_ context.Context,
-	_ *getSavingsPlansCoverageInput,
+	in *getSavingsPlansCoverageInput,
 ) (*getSavingsPlansCoverageOutput, error) {
+	start, end := defaultStartDate, defaultEndDate
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	spUtil := h.Backend.GetSavingsPlansUtilization(start, end)
+
+	coverages := []savingsPlanCoverage{
+		{
+			Attributes: map[string]string{
+				"SavingsPlansType": "COMPUTE_SP",
+				"Region":           "us-east-1",
+			},
+			Coverage: map[string]string{
+				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
+				"SpendCoveredBySavingsPlan": spUtil.Utilization.UsedCommitment,
+				"TotalCost":                 spUtil.Savings.OnDemandCostEquivalent,
+				"CoveragePercentage":        "65.0000",
+			},
+			TimePeriod: map[string]string{"Start": start, "End": end},
+		},
+	}
+
 	return &getSavingsPlansCoverageOutput{
-		SavingsPlansCoverages: []any{},
+		SavingsPlansCoverages: coverages,
 	}, nil
 }
 
-// --- GetSavingsPlansPurchaseRecommendation stub ---
+// --- GetSavingsPlansPurchaseRecommendation ---
 
 type getSavingsPlansPurchaseRecommendationInput struct {
 	SavingsPlansType     string `json:"SavingsPlansType"`
 	TermInYears          string `json:"TermInYears"`
 	PaymentOption        string `json:"PaymentOption"`
 	LookbackPeriodInDays string `json:"LookbackPeriodInDays"`
+	AccountScope         string `json:"AccountScope"`
 	NextPageToken        string `json:"NextPageToken"`
 	PageSize             int    `json:"PageSize"`
 }
 
+type savingsPlansPurchaseRecommendation struct {
+	SavingsPlansType                          string            `json:"SavingsPlansType"`
+	TermInYears                               string            `json:"TermInYears"`
+	PaymentOption                             string            `json:"PaymentOption"`
+	LookbackPeriodInDays                      string            `json:"LookbackPeriodInDays"`
+	SavingsPlansPurchaseRecommendationDetails []map[string]any  `json:"SavingsPlansPurchaseRecommendationDetails"`
+	SavingsPlansPurchaseRecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"`
+}
+
 type getSavingsPlansPurchaseRecommendationOutput struct {
-	SavingsPlansPurchaseRecommendation any    `json:"SavingsPlansPurchaseRecommendation,omitempty"`
-	Metadata                           any    `json:"Metadata,omitempty"`
-	NextPageToken                      string `json:"NextPageToken,omitempty"`
+	SavingsPlansPurchaseRecommendation *savingsPlansPurchaseRecommendation `json:"SavingsPlansPurchaseRecommendation,omitempty"`
+	Metadata                           map[string]string                   `json:"Metadata,omitempty"`
+	NextPageToken                      string                              `json:"NextPageToken,omitempty"`
 }
 
 func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 	_ context.Context,
-	_ *getSavingsPlansPurchaseRecommendationInput,
+	in *getSavingsPlansPurchaseRecommendationInput,
 ) (*getSavingsPlansPurchaseRecommendationOutput, error) {
-	return &getSavingsPlansPurchaseRecommendationOutput{}, nil
+	end := "2024-01-01"
+	start := "2023-10-01"
+
+	spUtil := h.Backend.GetSavingsPlansUtilization(start, end)
+	spType := in.SavingsPlansType
+	if spType == "" {
+		spType = "COMPUTE_SP"
+	}
+
+	return &getSavingsPlansPurchaseRecommendationOutput{
+		SavingsPlansPurchaseRecommendation: &savingsPlansPurchaseRecommendation{
+			SavingsPlansType:     spType,
+			TermInYears:          in.TermInYears,
+			PaymentOption:        in.PaymentOption,
+			LookbackPeriodInDays: in.LookbackPeriodInDays,
+			SavingsPlansPurchaseRecommendationDetails: []map[string]any{
+				{
+					"SavingsPlansDetails": map[string]string{
+						"Region":         "us-east-1",
+						"InstanceFamily": "m5",
+						"OfferingId":     "synthetic-sp-offer-1",
+					},
+					"AccountId":             "000000000000",
+					"UpfrontCost":           "0.0000",
+					"EstimatedROI":          "25.0000",
+					"CurrencyCode":          "USD",
+					"EstimatedSPCost":       spUtil.Utilization.TotalCommitment,
+					"EstimatedOnDemandCost": spUtil.Savings.OnDemandCostEquivalent,
+					"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
+					"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
+					"EstimatedSavingsPercentage":                 "25.0000",
+					"HourlyCommitmentToPurchase":                 "1.0000",
+					"EstimatedAverageUtilization":                "85.0000",
+					"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
+					"CurrentMinimumHourlyOnDemandSpend":          "1.5000",
+					"CurrentMaximumHourlyOnDemandSpend":          "3.0000",
+					"CurrentAverageHourlyOnDemandSpend":          "2.0000",
+				},
+			},
+			SavingsPlansPurchaseRecommendationSummary: map[string]string{
+				"EstimatedROI":                               "25.0000",
+				"CurrencyCode":                               "USD",
+				"EstimatedTotalCost":                         spUtil.Utilization.TotalCommitment,
+				"CurrentOnDemandSpend":                       spUtil.Savings.OnDemandCostEquivalent,
+				"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
+				"TotalRecommendationCount":                   "1",
+				"DailyCommitmentToPurchase":                  "24.0000",
+				"HourlyCommitmentToPurchase":                 "1.0000",
+				"EstimatedSavingsPercentage":                 "25.0000",
+				"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
+				"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
+			},
+		},
+		Metadata: map[string]string{
+			"RecommendationTotalCount": "1",
+			"GenerationTimestamp":      "2024-01-01T00:00:00Z",
+			"AdditionalMetadata":       "lookback=30days",
+		},
+	}, nil
 }
 
-// --- GetSavingsPlansUtilization stub ---
+// --- GetSavingsPlansUtilization ---
 
 type getSavingsPlansUtilizationInput struct {
+	Filter      any               `json:"Filter"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
+	SortBy      any               `json:"SortBy"`
+}
+
+type getSavingsPlansUtilizationByTimeEntry struct {
+	TimePeriod          map[string]string          `json:"TimePeriod"`
+	Utilization         SavingsPlansUtilizationAgg `json:"Utilization"`
+	Savings             SavingsPlansSavings        `json:"Savings"`
+	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment"`
 }
 
 type getSavingsPlansUtilizationOutput struct {
-	Total                          any   `json:"Total,omitempty"`
-	SavingsPlansUtilizationsByTime []any `json:"SavingsPlansUtilizationsByTime"`
+	Total                          *SavingsPlansUtilizationResult          `json:"Total,omitempty"`
+	SavingsPlansUtilizationsByTime []getSavingsPlansUtilizationByTimeEntry `json:"SavingsPlansUtilizationsByTime"`
 }
 
 func (h *Handler) handleGetSavingsPlansUtilization(
 	_ context.Context,
-	_ *getSavingsPlansUtilizationInput,
+	in *getSavingsPlansUtilizationInput,
 ) (*getSavingsPlansUtilizationOutput, error) {
+	start, end := defaultStartDate, defaultEndDate
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = defaultGranularity
+	}
+
+	total := h.Backend.GetSavingsPlansUtilization(start, end)
+	buckets := buildTimeBuckets(start, end, granularity)
+
+	byTime := make([]getSavingsPlansUtilizationByTimeEntry, 0, len(buckets))
+
+	for _, bucket := range buckets {
+		bucketUtil := h.Backend.GetSavingsPlansUtilization(bucket.start, bucket.end)
+		byTime = append(byTime, getSavingsPlansUtilizationByTimeEntry{
+			TimePeriod:          map[string]string{"Start": bucket.start, "End": bucket.end},
+			Utilization:         bucketUtil.Utilization,
+			Savings:             bucketUtil.Savings,
+			AmortizedCommitment: bucketUtil.AmortizedCommitment,
+		})
+	}
+
 	return &getSavingsPlansUtilizationOutput{
-		SavingsPlansUtilizationsByTime: []any{},
+		Total:                          total,
+		SavingsPlansUtilizationsByTime: byTime,
 	}, nil
 }
 
-// --- GetSavingsPlansUtilizationDetails stub ---
+// --- GetSavingsPlansUtilizationDetails ---
 
 type getSavingsPlansUtilizationDetailsInput struct {
+	Filter     any               `json:"Filter"`
 	TimePeriod map[string]string `json:"TimePeriod"`
+	Fields     []string          `json:"Fields"`
+	SortBy     any               `json:"SortBy"`
 	NextToken  string            `json:"NextToken"`
 	MaxResults int               `json:"MaxResults"`
 }
 
 type getSavingsPlansUtilizationDetailsOutput struct {
-	NextToken                      string            `json:"NextToken,omitempty"`
-	Total                          any               `json:"Total,omitempty"`
-	TimePeriod                     map[string]string `json:"TimePeriod,omitempty"`
-	SavingsPlansUtilizationDetails []any             `json:"SavingsPlansUtilizationDetails"`
+	NextToken                      string                          `json:"NextToken,omitempty"`
+	Total                          *SavingsPlansUtilizationResult  `json:"Total,omitempty"`
+	TimePeriod                     map[string]string               `json:"TimePeriod,omitempty"`
+	SavingsPlansUtilizationDetails []SavingsPlansUtilizationDetail `json:"SavingsPlansUtilizationDetails"`
 }
 
 func (h *Handler) handleGetSavingsPlansUtilizationDetails(
 	_ context.Context,
-	_ *getSavingsPlansUtilizationDetailsInput,
+	in *getSavingsPlansUtilizationDetailsInput,
 ) (*getSavingsPlansUtilizationDetailsOutput, error) {
+	start, end := defaultStartDate, defaultEndDate
+	if in.TimePeriod != nil {
+		if s := in.TimePeriod["Start"]; s != "" {
+			start = s
+		}
+		if e := in.TimePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	details := h.Backend.GetSavingsPlansUtilizationDetails(start, end)
+	total := h.Backend.GetSavingsPlansUtilization(start, end)
+
+	if details == nil {
+		details = []SavingsPlansUtilizationDetail{}
+	}
+
 	return &getSavingsPlansUtilizationDetailsOutput{
-		SavingsPlansUtilizationDetails: []any{},
+		SavingsPlansUtilizationDetails: details,
+		Total:                          total,
+		TimePeriod:                     map[string]string{"Start": start, "End": end},
 	}, nil
 }
 
-// --- ListCommitmentPurchaseAnalyses stub ---
+// --- ListCommitmentPurchaseAnalyses ---
 
 type listCommitmentPurchaseAnalysesInput struct {
-	NextPageToken string `json:"NextPageToken"`
-	PageSize      int    `json:"PageSize"`
+	NextPageToken  string `json:"NextPageToken"`
+	PageSize       int    `json:"PageSize"`
+	AnalysisStatus string `json:"AnalysisStatus"`
 }
 
 type listCommitmentPurchaseAnalysesOutput struct {
-	NextPageToken       string `json:"NextPageToken,omitempty"`
-	AnalysisSummaryList []any  `json:"AnalysisSummaryList"`
+	NextPageToken       string                `json:"NextPageToken,omitempty"`
+	AnalysisSummaryList []*CommitmentAnalysis `json:"AnalysisSummaryList"`
 }
 
 func (h *Handler) handleListCommitmentPurchaseAnalyses(
 	_ context.Context,
 	_ *listCommitmentPurchaseAnalysesInput,
 ) (*listCommitmentPurchaseAnalysesOutput, error) {
+	analyses := h.Backend.ListCommitmentAnalyses()
+
 	return &listCommitmentPurchaseAnalysesOutput{
-		AnalysisSummaryList: []any{},
+		AnalysisSummaryList: analyses,
 	}, nil
 }
 
-// --- ListCostAllocationTagBackfillHistory stub ---
+// --- ListCostAllocationTagBackfillHistory ---
 
 type listCostAllocationTagBackfillHistoryInput struct {
 	NextToken  string `json:"NextToken"`
@@ -1592,20 +1937,22 @@ type listCostAllocationTagBackfillHistoryInput struct {
 }
 
 type listCostAllocationTagBackfillHistoryOutput struct {
-	NextToken        string `json:"NextToken,omitempty"`
-	BackfillRequests []any  `json:"BackfillRequests"`
+	NextToken        string         `json:"NextToken,omitempty"`
+	BackfillRequests []*BackfillJob `json:"BackfillRequests"`
 }
 
 func (h *Handler) handleListCostAllocationTagBackfillHistory(
 	_ context.Context,
 	_ *listCostAllocationTagBackfillHistoryInput,
 ) (*listCostAllocationTagBackfillHistoryOutput, error) {
+	jobs := h.Backend.ListBackfillHistory()
+
 	return &listCostAllocationTagBackfillHistoryOutput{
-		BackfillRequests: []any{},
+		BackfillRequests: jobs,
 	}, nil
 }
 
-// --- ListCostAllocationTags stub ---
+// --- ListCostAllocationTags ---
 
 type listCostAllocationTagsInput struct {
 	Status     string   `json:"Status"`
@@ -1615,17 +1962,40 @@ type listCostAllocationTagsInput struct {
 	MaxResults int      `json:"MaxResults"`
 }
 
+type costAllocationTagEntry struct {
+	TagKey          string `json:"TagKey"`
+	Status          string `json:"Status"`
+	Type            string `json:"Type"`
+	LastUpdatedDate string `json:"LastUpdatedDate,omitempty"`
+}
+
 type listCostAllocationTagsOutput struct {
-	NextToken          string `json:"NextToken,omitempty"`
-	CostAllocationTags []any  `json:"CostAllocationTags"`
+	NextToken          string                   `json:"NextToken,omitempty"`
+	CostAllocationTags []costAllocationTagEntry `json:"CostAllocationTags"`
 }
 
 func (h *Handler) handleListCostAllocationTags(
 	_ context.Context,
-	_ *listCostAllocationTagsInput,
+	in *listCostAllocationTagsInput,
 ) (*listCostAllocationTagsOutput, error) {
+	tags := h.Backend.ListCostAllocationTags(in.Status, in.Type, in.TagKeys)
+
+	entries := make([]costAllocationTagEntry, 0, len(tags))
+	for _, t := range tags {
+		entries = append(entries, costAllocationTagEntry{
+			TagKey:          t.TagKey,
+			Status:          t.Status,
+			Type:            t.Type,
+			LastUpdatedDate: t.LastUpdatedDate,
+		})
+	}
+
+	if entries == nil {
+		entries = []costAllocationTagEntry{}
+	}
+
 	return &listCostAllocationTagsOutput{
-		CostAllocationTags: []any{},
+		CostAllocationTags: entries,
 	}, nil
 }
 
@@ -1689,12 +2059,20 @@ func (h *Handler) handleProvideAnomalyFeedback(
 	_ context.Context,
 	in *provideAnomalyFeedbackInput,
 ) (*provideAnomalyFeedbackOutput, error) {
+	if in.AnomalyID == "" {
+		return nil, fmt.Errorf("%w: AnomalyId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.ProvideAnomalyFeedback(in.AnomalyID, in.Feedback); err != nil {
+		return nil, err
+	}
+
 	return &provideAnomalyFeedbackOutput{
 		AnomalyID: in.AnomalyID,
 	}, nil
 }
 
-// --- StartCommitmentPurchaseAnalysis stub ---
+// --- StartCommitmentPurchaseAnalysis ---
 
 type startCommitmentPurchaseAnalysisInput struct {
 	CommitmentPurchaseAnalysisConfiguration any `json:"CommitmentPurchaseAnalysisConfiguration"`
@@ -1710,24 +2088,38 @@ func (h *Handler) handleStartCommitmentPurchaseAnalysis(
 	_ context.Context,
 	_ *startCommitmentPurchaseAnalysisInput,
 ) (*startCommitmentPurchaseAnalysisOutput, error) {
-	return &startCommitmentPurchaseAnalysisOutput{}, nil
+	a := h.Backend.CreateCommitmentAnalysis()
+
+	return &startCommitmentPurchaseAnalysisOutput{
+		AnalysisID:              a.AnalysisID,
+		AnalysisStartedTime:     a.AnalysisStartedTime,
+		EstimatedCompletionTime: a.EstimatedCompletionTime,
+	}, nil
 }
 
-// --- StartCostAllocationTagBackfill stub ---
+// --- StartCostAllocationTagBackfill ---
 
 type startCostAllocationTagBackfillInput struct {
 	BackfillFrom string `json:"BackfillFrom"`
 }
 
 type startCostAllocationTagBackfillOutput struct {
-	BackfillRequest any `json:"BackfillRequest,omitempty"`
+	BackfillRequest *BackfillJob `json:"BackfillRequest,omitempty"`
 }
 
 func (h *Handler) handleStartCostAllocationTagBackfill(
 	_ context.Context,
-	_ *startCostAllocationTagBackfillInput,
+	in *startCostAllocationTagBackfillInput,
 ) (*startCostAllocationTagBackfillOutput, error) {
-	return &startCostAllocationTagBackfillOutput{}, nil
+	if in.BackfillFrom == "" {
+		return nil, fmt.Errorf("%w: BackfillFrom is required", errInvalidRequest)
+	}
+
+	job := h.Backend.CreateBackfillJob(in.BackfillFrom)
+
+	return &startCostAllocationTagBackfillOutput{
+		BackfillRequest: job,
+	}, nil
 }
 
 // --- StartSavingsPlansPurchaseRecommendationGeneration stub ---
@@ -1747,21 +2139,23 @@ func (h *Handler) handleStartSavingsPlansPurchaseRecommendationGeneration(
 	return &startSavingsPlansPurchaseRecommendationGenerationOutput{}, nil
 }
 
-// --- UpdateCostAllocationTagsStatus stub ---
+// --- UpdateCostAllocationTagsStatus ---
 
 type updateCostAllocationTagsStatusInput struct {
-	CostAllocationTagsStatus []any `json:"CostAllocationTagsStatus"`
+	CostAllocationTagsStatus []CostAllocationTagStatusEntry `json:"CostAllocationTagsStatus"`
 }
 
 type updateCostAllocationTagsStatusOutput struct {
-	Errors []any `json:"Errors"`
+	Errors []CostAllocationTagError `json:"Errors"`
 }
 
 func (h *Handler) handleUpdateCostAllocationTagsStatus(
 	_ context.Context,
-	_ *updateCostAllocationTagsStatusInput,
+	in *updateCostAllocationTagsStatusInput,
 ) (*updateCostAllocationTagsStatusOutput, error) {
+	errs := h.Backend.UpdateCostAllocationTagsStatus(in.CostAllocationTagsStatus)
+
 	return &updateCostAllocationTagsStatusOutput{
-		Errors: []any{},
+		Errors: errs,
 	}, nil
 }

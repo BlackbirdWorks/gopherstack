@@ -21,6 +21,22 @@ import (
 // DefaultAnomalyTTL is the default time-to-live for detected anomalies.
 const DefaultAnomalyTTL = 30 * 24 * time.Hour
 
+const (
+	granularityMonthly     = "MONTHLY"
+	metricUnitUSD          = "USD"
+	metricUnitNA           = "N/A"
+	timePeriodKeyEnd       = "End"
+	timePeriodKeyStart     = "Start"
+	syntheticInstanceType  = "t3.medium"
+	spUtilizationPct       = "85.0000"
+	riCoveragePct          = "65.0000"
+	riUtilizationPct       = "88.0000"
+	zeroAmountStr          = "0.0000"
+	defaultSavingsPlansType = "COMPUTE_SP"
+	mapKeyRegion           = "Region"
+	mapKeyCurrencyCode     = "CurrencyCode"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -151,8 +167,8 @@ type CostEntry struct {
 // CostAllocationTag represents an AWS CE cost allocation tag.
 type CostAllocationTag struct {
 	TagKey          string `json:"tagKey"`
-	Status          string `json:"status"`          // Active | Inactive
-	Type            string `json:"type"`             // AWSGenerated | UserDefined
+	Status          string `json:"status"` // Active | Inactive
+	Type            string `json:"type"`   // AWSGenerated | UserDefined
 	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
@@ -237,25 +253,25 @@ type ReservationUtilizationByTime struct {
 
 // ReservationUtilizationAgg holds RI utilization aggregates.
 type ReservationUtilizationAgg struct {
-	UtilizationPercentage       string `json:"UtilizationPercentage"`
-	PurchasedHours              string `json:"PurchasedHours"`
-	TotalActualHours            string `json:"TotalActualHours"`
-	UnusedHours                 string `json:"UnusedHours"`
-	OnDemandCostOfRIHoursUsed   string `json:"OnDemandCostOfRIHoursUsed"`
-	NetRISavings                string `json:"NetRISavings"`
-	TotalPotentialRISavings     string `json:"TotalPotentialRISavings"`
-	AmortizedUpfrontFee         string `json:"AmortizedUpfrontFee"`
-	AmortizedRecurringFee       string `json:"AmortizedRecurringFee"`
-	TotalAmortizedFee           string `json:"TotalAmortizedFee"`
-	RICostForUnusedHours        string `json:"RICostForUnusedHours"`
-	RealizedSavings             string `json:"RealizedSavings"`
-	UnrealizedSavings           string `json:"UnrealizedSavings"`
+	UtilizationPercentage     string `json:"UtilizationPercentage"`
+	PurchasedHours            string `json:"PurchasedHours"`
+	TotalActualHours          string `json:"TotalActualHours"`
+	UnusedHours               string `json:"UnusedHours"`
+	OnDemandCostOfRIHoursUsed string `json:"OnDemandCostOfRIHoursUsed"`
+	NetRISavings              string `json:"NetRISavings"`
+	TotalPotentialRISavings   string `json:"TotalPotentialRISavings"`
+	AmortizedUpfrontFee       string `json:"AmortizedUpfrontFee"`
+	AmortizedRecurringFee     string `json:"AmortizedRecurringFee"`
+	TotalAmortizedFee         string `json:"TotalAmortizedFee"`
+	RICostForUnusedHours      string `json:"RICostForUnusedHours"`
+	RealizedSavings           string `json:"RealizedSavings"`
+	UnrealizedSavings         string `json:"UnrealizedSavings"`
 }
 
 // ReservationCoverageByTime holds RI coverage for a time period.
 type ReservationCoverageByTime struct {
-	TimePeriod map[string]string     `json:"TimePeriod"`
-	Groups     []any                 `json:"Groups"`
+	TimePeriod map[string]string      `json:"TimePeriod"`
+	Groups     []any                  `json:"Groups"`
 	Total      ReservationCoverageAgg `json:"Total"`
 }
 
@@ -723,7 +739,10 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 
 	if monitorType != "" {
 		if !isValidMonitorType(monitorType) {
-			return nil, fmt.Errorf("%w: MonitorType must be one of DIMENSIONAL, CUSTOM", ErrValidation)
+			return nil, fmt.Errorf(
+				"%w: MonitorType must be one of DIMENSIONAL, CUSTOM",
+				ErrValidation,
+			)
 		}
 	}
 
@@ -797,7 +816,9 @@ func (b *InMemoryBackend) GetAnomalyMonitors(monitorARNList []string) []*Anomaly
 }
 
 // UpdateAnomalyMonitor updates the name of an anomaly monitor.
-func (b *InMemoryBackend) UpdateAnomalyMonitor(monARN, monitorName string) (*AnomalyMonitor, error) {
+func (b *InMemoryBackend) UpdateAnomalyMonitor(
+	monARN, monitorName string,
+) (*AnomalyMonitor, error) {
 	b.mu.Lock("UpdateAnomalyMonitor")
 	defer b.mu.Unlock()
 
@@ -826,7 +847,10 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 
 	if frequency != "" {
 		if !isValidFrequency(frequency) {
-			return nil, fmt.Errorf("%w: Frequency must be one of DAILY, IMMEDIATE, WEEKLY", ErrValidation)
+			return nil, fmt.Errorf(
+				"%w: Frequency must be one of DAILY, IMMEDIATE, WEEKLY",
+				ErrValidation,
+			)
 		}
 	}
 
@@ -1124,7 +1148,7 @@ func buildTimeBuckets(start, end, granularity string) []timeBucket {
 	}
 
 	switch strings.ToUpper(granularity) {
-	case "MONTHLY":
+	case granularityMonthly:
 		cur := time.Date(startT.Year(), startT.Month(), 1, 0, 0, 0, 0, time.UTC)
 		for cur.Before(endT) {
 			next := cur.AddDate(0, 1, 0)
@@ -1192,9 +1216,9 @@ func getMetricValue(e CostEntry, metric string) float64 {
 func metricUnit(metric string) string {
 	switch strings.ToUpper(metric) {
 	case "USAGEQUANTITY", "NORMALIZEDUSAGEAMOUNT":
-		return "N/A"
+		return metricUnitNA
 	default:
-		return "USD"
+		return metricUnitUSD
 	}
 }
 
@@ -1250,7 +1274,7 @@ func (b *InMemoryBackend) GetCostAndUsage(
 		isEstimated := bucket.start >= now || bucket.end > now
 
 		r := ResultByTime{
-			TimePeriod: map[string]string{"Start": bucket.start, "End": bucket.end},
+			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
 			Estimated:  isEstimated,
 			Groups:     []CostGroup{},
 		}
@@ -1341,7 +1365,7 @@ func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 		case "LINKED_ACCOUNT":
 			val = e.Account
 		case "INSTANCE_TYPE":
-			val = "t3.medium"
+			val = syntheticInstanceType
 		case "OPERATING_SYSTEM":
 			val = "Linux"
 		case "TENANCY":
@@ -1416,7 +1440,9 @@ func (b *InMemoryBackend) GetTagValues(tagKey string) []string {
 }
 
 // GetSavingsPlansUtilization returns a synthetic savings-plans utilization aggregate.
-func (b *InMemoryBackend) GetSavingsPlansUtilization(start, end string) *SavingsPlansUtilizationResult {
+func (b *InMemoryBackend) GetSavingsPlansUtilization(
+	start, end string,
+) *SavingsPlansUtilizationResult {
 	b.mu.RLock("GetSavingsPlansUtilization")
 	defer b.mu.RUnlock()
 
@@ -1434,7 +1460,7 @@ func (b *InMemoryBackend) GetSavingsPlansUtilization(start, end string) *Savings
 			TotalCommitment:       fmt.Sprintf("%.4f", commitment),
 			UsedCommitment:        fmt.Sprintf("%.4f", used),
 			UnusedCommitment:      fmt.Sprintf("%.4f", unused),
-			UtilizationPercentage: "85.0000",
+			UtilizationPercentage: spUtilizationPct,
 		},
 		Savings: SavingsPlansSavings{
 			NetSavings:             fmt.Sprintf("%.4f", total*0.25),
@@ -1442,14 +1468,16 @@ func (b *InMemoryBackend) GetSavingsPlansUtilization(start, end string) *Savings
 		},
 		AmortizedCommitment: SavingsPlansAmortized{
 			AmortizedRecurringCommitment: fmt.Sprintf("%.4f", commitment),
-			AmortizedUpfrontCommitment:   "0.0000",
+			AmortizedUpfrontCommitment: zeroAmountStr,
 			TotalAmortizedCommitment:     fmt.Sprintf("%.4f", commitment),
 		},
 	}
 }
 
 // GetSavingsPlansUtilizationDetails returns per-plan utilization details.
-func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(start, end string) []SavingsPlansUtilizationDetail {
+func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
+	start, end string,
+) []SavingsPlansUtilizationDetail {
 	b.mu.RLock("GetSavingsPlansUtilizationDetails")
 	defer b.mu.RUnlock()
 
@@ -1467,12 +1495,15 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(start, end string) [
 
 	return []SavingsPlansUtilizationDetail{
 		{
-			SavingsPlanARN: fmt.Sprintf("arn:aws:savingsplans::%s:savingsplan/synthetic-sp-1", b.accountID),
+			SavingsPlanARN: fmt.Sprintf(
+				"arn:aws:savingsplans::%s:savingsplan/synthetic-sp-1",
+				b.accountID,
+			),
 			Utilization: SavingsPlansUtilizationAgg{
 				TotalCommitment:       fmt.Sprintf("%.4f", commitment),
 				UsedCommitment:        fmt.Sprintf("%.4f", used),
 				UnusedCommitment:      fmt.Sprintf("%.4f", commitment-used),
-				UtilizationPercentage: "85.0000",
+				UtilizationPercentage: spUtilizationPct,
 			},
 			Savings: SavingsPlansSavings{
 				NetSavings:             fmt.Sprintf("%.4f", total*0.25),
@@ -1480,12 +1511,12 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(start, end string) [
 			},
 			AmortizedCommitment: SavingsPlansAmortized{
 				AmortizedRecurringCommitment: fmt.Sprintf("%.4f", commitment),
-				AmortizedUpfrontCommitment:   "0.0000",
+				AmortizedUpfrontCommitment: zeroAmountStr,
 				TotalAmortizedCommitment:     fmt.Sprintf("%.4f", commitment),
 			},
 			Attributes: map[string]string{
-				"SavingsPlansType": "COMPUTE_SP",
-				"Region":           b.region,
+				"SavingsPlansType": defaultSavingsPlansType,
+				mapKeyRegion: b.region,
 				"InstanceFamily":   "m5",
 				"PaymentOption":    "No Upfront",
 			},
@@ -1494,7 +1525,9 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(start, end string) [
 }
 
 // GetReservationUtilization returns synthetic RI utilization by time.
-func (b *InMemoryBackend) GetReservationUtilization(start, end, granularity string) []ReservationUtilizationByTime {
+func (b *InMemoryBackend) GetReservationUtilization(
+	start, end, granularity string,
+) []ReservationUtilizationByTime {
 	b.mu.RLock("GetReservationUtilization")
 	defer b.mu.RUnlock()
 
@@ -1514,22 +1547,22 @@ func (b *InMemoryBackend) GetReservationUtilization(start, end, granularity stri
 		unused := purchased - actual
 
 		result = append(result, ReservationUtilizationByTime{
-			TimePeriod: map[string]string{"Start": bucket.start, "End": bucket.end},
+			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
 			Groups:     []any{},
 			Total: ReservationUtilizationAgg{
-				UtilizationPercentage:       "88.0000",
-				PurchasedHours:              fmt.Sprintf("%.4f", purchased*10),
-				TotalActualHours:            fmt.Sprintf("%.4f", actual*10),
-				UnusedHours:                 fmt.Sprintf("%.4f", unused*10),
-				OnDemandCostOfRIHoursUsed:   fmt.Sprintf("%.4f", actual),
-				NetRISavings:                fmt.Sprintf("%.4f", total*0.30),
-				TotalPotentialRISavings:     fmt.Sprintf("%.4f", total*0.35),
-				AmortizedUpfrontFee:         "0.0000",
-				AmortizedRecurringFee:       fmt.Sprintf("%.4f", purchased*0.70),
-				TotalAmortizedFee:           fmt.Sprintf("%.4f", purchased*0.70),
-				RICostForUnusedHours:        fmt.Sprintf("%.4f", unused*0.70),
-				RealizedSavings:             fmt.Sprintf("%.4f", total*0.28),
-				UnrealizedSavings:           fmt.Sprintf("%.4f", total*0.07),
+				UtilizationPercentage: riUtilizationPct,
+				PurchasedHours:            fmt.Sprintf("%.4f", purchased*10),
+				TotalActualHours:          fmt.Sprintf("%.4f", actual*10),
+				UnusedHours:               fmt.Sprintf("%.4f", unused*10),
+				OnDemandCostOfRIHoursUsed: fmt.Sprintf("%.4f", actual),
+				NetRISavings:              fmt.Sprintf("%.4f", total*0.30),
+				TotalPotentialRISavings:   fmt.Sprintf("%.4f", total*0.35),
+				AmortizedUpfrontFee: zeroAmountStr,
+				AmortizedRecurringFee:     fmt.Sprintf("%.4f", purchased*0.70),
+				TotalAmortizedFee:         fmt.Sprintf("%.4f", purchased*0.70),
+				RICostForUnusedHours:      fmt.Sprintf("%.4f", unused*0.70),
+				RealizedSavings:           fmt.Sprintf("%.4f", total*0.28),
+				UnrealizedSavings:         fmt.Sprintf("%.4f", total*0.07),
 			},
 		})
 	}
@@ -1538,7 +1571,9 @@ func (b *InMemoryBackend) GetReservationUtilization(start, end, granularity stri
 }
 
 // GetReservationCoverage returns synthetic RI coverage by time.
-func (b *InMemoryBackend) GetReservationCoverage(start, end, granularity string) []ReservationCoverageByTime {
+func (b *InMemoryBackend) GetReservationCoverage(
+	start, end, granularity string,
+) []ReservationCoverageByTime {
 	b.mu.RLock("GetReservationCoverage")
 	defer b.mu.RUnlock()
 
@@ -1556,20 +1591,20 @@ func (b *InMemoryBackend) GetReservationCoverage(start, end, granularity string)
 		odHours := hours - riHours
 
 		result = append(result, ReservationCoverageByTime{
-			TimePeriod: map[string]string{"Start": bucket.start, "End": bucket.end},
+			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
 			Groups:     []any{},
 			Total: ReservationCoverageAgg{
 				CoverageHours: ReservationCoverageHours{
 					OnDemandHours:           fmt.Sprintf("%.4f", odHours),
 					ReservedHours:           fmt.Sprintf("%.4f", riHours),
 					TotalRunningHours:       fmt.Sprintf("%.4f", hours),
-					CoverageHoursPercentage: "65.0000",
+					CoverageHoursPercentage: riCoveragePct,
 				},
 				CoverageNormalizedUnits: ReservationCoverageNormalizedUnits{
 					OnDemandNormalizedUnits:           fmt.Sprintf("%.4f", odHours*4),
 					ReservedNormalizedUnits:           fmt.Sprintf("%.4f", riHours*4),
 					TotalRunningNormalizedUnits:       fmt.Sprintf("%.4f", hours*4),
-					CoverageNormalizedUnitsPercentage: "65.0000",
+					CoverageNormalizedUnitsPercentage: riCoveragePct,
 				},
 				CoverageCost: ReservationCoverageCost{
 					OnDemandCost: fmt.Sprintf("%.4f", odHours*0.05),
@@ -1582,7 +1617,9 @@ func (b *InMemoryBackend) GetReservationCoverage(start, end, granularity string)
 }
 
 // GetReservationPurchaseRecommendations returns synthetic RI purchase recommendations.
-func (b *InMemoryBackend) GetReservationPurchaseRecommendations(service, lookback, term, payment string) []ReservationRecommendation {
+func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
+	service, lookback, term, payment string,
+) []ReservationRecommendation {
 	b.mu.RLock("GetReservationPurchaseRecommendations")
 	defer b.mu.RUnlock()
 
@@ -1639,38 +1676,55 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(service, lookbac
 			},
 			RecommendationDetails: []ReservationRecommendationDetail{
 				{
-					AccountID:                                 b.accountID,
-					InstanceDetails:                           map[string]any{"EC2InstanceDetails": map[string]string{"InstanceType": "t3.medium", "Region": b.region, "Platform": "Linux/UNIX"}},
-					RecommendedNumberOfInstancesToPurchase:    "2",
-					RecommendedNormalizedUnitsToPurchase:      "16",
-					MinimumNumberOfInstancesUsedPerHour:       "1",
-					MinimumNormalizedUnitsUsedPerHour:         "8",
-					MaximumNumberOfInstancesUsedPerHour:       "3",
-					MaximumNormalizedUnitsUsedPerHour:         "24",
-					AverageNumberOfInstancesUsedPerHour:       "2",
-					AverageNormalizedUnitsUsedPerHour:         "16",
-					AverageUtilization:                        "80.0000",
-					EstimatedBreakEvenInMonths:                fmt.Sprintf("%d", termMonths/2),
-					CurrencyCode:                              "USD",
-					EstimatedMonthlySavingsAmount:             fmt.Sprintf("%.4f", savings),
-					EstimatedMonthlySavingsPercentage:         "40.0000",
-					EstimatedMonthlyOnDemandCost:              fmt.Sprintf("%.4f", monthlyCost),
-					EstimatedReservationCostForLookbackPeriod: fmt.Sprintf("%.4f", riMonthlyCost*float64(termMonths)),
-					UpfrontCost:                               fmt.Sprintf("%.4f", riMonthlyCost*float64(termMonths)*0.50),
-					RecurringStandardMonthlyCost:              fmt.Sprintf("%.4f", riMonthlyCost*0.50),
+					AccountID: b.accountID,
+					InstanceDetails: map[string]any{
+						"EC2InstanceDetails": map[string]string{
+							"InstanceType": syntheticInstanceType,
+							mapKeyRegion: b.region,
+							"Platform":     "Linux/UNIX",
+						},
+					},
+					RecommendedNumberOfInstancesToPurchase: "2",
+					RecommendedNormalizedUnitsToPurchase:   "16",
+					MinimumNumberOfInstancesUsedPerHour:    "1",
+					MinimumNormalizedUnitsUsedPerHour:      "8",
+					MaximumNumberOfInstancesUsedPerHour:    "3",
+					MaximumNormalizedUnitsUsedPerHour:      "24",
+					AverageNumberOfInstancesUsedPerHour:    "2",
+					AverageNormalizedUnitsUsedPerHour:      "16",
+					AverageUtilization:                     "80.0000",
+					EstimatedBreakEvenInMonths:             fmt.Sprintf("%d", termMonths/2),
+					CurrencyCode: metricUnitUSD,
+					EstimatedMonthlySavingsAmount:          fmt.Sprintf("%.4f", savings),
+					EstimatedMonthlySavingsPercentage:      "40.0000",
+					EstimatedMonthlyOnDemandCost:           fmt.Sprintf("%.4f", monthlyCost),
+					EstimatedReservationCostForLookbackPeriod: fmt.Sprintf(
+						"%.4f",
+						riMonthlyCost*float64(termMonths),
+					),
+					UpfrontCost: fmt.Sprintf(
+						"%.4f",
+						riMonthlyCost*float64(termMonths)*0.50,
+					),
+					RecurringStandardMonthlyCost: fmt.Sprintf(
+						"%.4f",
+						riMonthlyCost*0.50,
+					),
 				},
 			},
 			RecommendationSummary: map[string]string{
 				"TotalEstimatedMonthlySavingsAmount":     fmt.Sprintf("%.4f", savings),
 				"TotalEstimatedMonthlySavingsPercentage": "40.0000",
-				"CurrencyCode":                           "USD",
+				"CurrencyCode": metricUnitUSD,
 			},
 		},
 	}
 }
 
 // GetRightsizingRecommendations returns synthetic rightsizing recommendations.
-func (b *InMemoryBackend) GetRightsizingRecommendations(service string) []RightsizingRecommendation {
+func (b *InMemoryBackend) GetRightsizingRecommendations(
+	service string,
+) []RightsizingRecommendation {
 	b.mu.RLock("GetRightsizingRecommendations")
 	defer b.mu.RUnlock()
 
@@ -1693,9 +1747,14 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(service string) []Rights
 
 	return []RightsizingRecommendation{
 		{
-			AccountID:           b.accountID,
-			CurrentInstance:     RightsizingCurrentInstance{ResourceID: resourceARN, InstanceType: "t3.large", MonthlyCost: fmt.Sprintf("%.4f", total/14*30), CurrencyCode: "USD"},
-			RightsizingType:     "MODIFY",
+			AccountID: b.accountID,
+			CurrentInstance: RightsizingCurrentInstance{
+				ResourceID:   resourceARN,
+				InstanceType: "t3.large",
+				MonthlyCost:  fmt.Sprintf("%.4f", total/14*30),
+				CurrencyCode: metricUnitUSD,
+			},
+			RightsizingType: "MODIFY",
 			ModifyRecommendationDetail: &RightsizingModifyDetail{
 				TargetInstances: []RightsizingTargetInstance{
 					{
@@ -1704,7 +1763,15 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(service string) []Rights
 						EstimatedSavingsPercentage: "50.0000",
 						CurrencyCode:               "USD",
 						DefaultTargetInstance:      true,
-						ResourceDetails:            map[string]any{"EC2ResourceDetails": map[string]string{"InstanceType": "t3.medium", "Region": b.region, "Platform": "Linux/UNIX", "Tenancy": "Shared", "OperatingSystem": "Linux"}},
+						ResourceDetails: map[string]any{
+							"EC2ResourceDetails": map[string]string{
+								"InstanceType":    "t3.medium",
+								mapKeyRegion: b.region,
+								"Platform":        "Linux/UNIX",
+								"Tenancy":         "Shared",
+								"OperatingSystem": "Linux",
+							},
+						},
 					},
 				},
 			},
@@ -1713,7 +1780,10 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(service string) []Rights
 }
 
 // ListCostAllocationTags returns cost allocation tags, optionally filtered.
-func (b *InMemoryBackend) ListCostAllocationTags(status, tagType string, tagKeys []string) []*CostAllocationTag {
+func (b *InMemoryBackend) ListCostAllocationTags(
+	status, tagType string,
+	tagKeys []string,
+) []*CostAllocationTag {
 	b.mu.RLock("ListCostAllocationTags")
 	defer b.mu.RUnlock()
 
@@ -1752,7 +1822,9 @@ func (b *InMemoryBackend) ListCostAllocationTags(status, tagType string, tagKeys
 
 // UpdateCostAllocationTagsStatus updates the Active/Inactive status of cost allocation tags.
 // Returns a list of errors for tags that could not be updated.
-func (b *InMemoryBackend) UpdateCostAllocationTagsStatus(updates []CostAllocationTagStatusEntry) []CostAllocationTagError {
+func (b *InMemoryBackend) UpdateCostAllocationTagsStatus(
+	updates []CostAllocationTagStatusEntry,
+) []CostAllocationTagError {
 	b.mu.Lock("UpdateCostAllocationTagsStatus")
 	defer b.mu.Unlock()
 
@@ -1898,7 +1970,10 @@ func (b *InMemoryBackend) ProvideAnomalyFeedback(anomalyID, feedback string) err
 }
 
 // GetForecastByTime returns per-bucket cost forecasts for a time range.
-func (b *InMemoryBackend) GetForecastByTime(start, end, granularity string, predictionIntervalLevel int) ([]ForecastResult, float64, float64, float64) {
+func (b *InMemoryBackend) GetForecastByTime(
+	start, end, granularity string,
+	predictionIntervalLevel int,
+) ([]ForecastResult, float64, float64, float64) {
 	b.mu.RLock("GetForecastByTime")
 	defer b.mu.RUnlock()
 
@@ -1940,12 +2015,19 @@ func (b *InMemoryBackend) GetForecastByTime(start, end, granularity string, pred
 		}
 
 		forecasts = append(forecasts, ForecastResult{
-			TimePeriod:                   map[string]string{"Start": bucket.start, "End": bucket.end},
+			TimePeriod: map[string]string{
+				"Start": bucket.start,
+				"End":   bucket.end,
+			},
 			MeanValue:                    fmt.Sprintf("%.4f", mean),
 			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", lo),
 			PredictionIntervalUpperBound: fmt.Sprintf("%.4f", mean+z*stddev),
 		})
 	}
 
-	return forecasts, totalMean, totalMean - z*stddev*float64(len(buckets)), totalMean + z*stddev*float64(len(buckets))
+	return forecasts, totalMean, totalMean - z*stddev*float64(
+			len(buckets),
+		), totalMean + z*stddev*float64(
+			len(buckets),
+		)
 }
