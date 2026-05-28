@@ -58,11 +58,28 @@ func decode(token string) int {
 	}
 
 	idx, err := strconv.Atoi(string(b))
-	if err != nil || idx < 0 {
+	if err != nil {
 		return 0
 	}
 
 	return idx
+}
+
+// ValidateToken checks if a continuation token is syntactically valid.
+// Returns an error if the token is not valid base64 or doesn't decode to an integer.
+func ValidateToken(token string) error {
+	if token == "" {
+		return nil
+	}
+
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return err
+	}
+
+	_, err = strconv.Atoi(string(b))
+
+	return err
 }
 
 // EncodeToken encodes a page index as an opaque continuation token.

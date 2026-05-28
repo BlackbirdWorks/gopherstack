@@ -2,6 +2,7 @@ package acm
 
 import (
 	"encoding/json"
+	"time"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -78,6 +79,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountConfig = snap.AccountConfig
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Restart timers for pending validations.
+	for arn, cert := range b.certs {
+		if cert.Status == statusPendingValidation {
+			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(a string) func() {
+				return func() { b.autoValidate(a) }
+			}(arn))
+			b.timers[arn] = t
+		} else if cert.RenewalSummary != nil && cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation {
+			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(a string) func() {
+				return func() { b.autoValidateRenewal(a) }
+			}(arn))
+			b.timers[arn] = t
+		}
+	}
 
 	return nil
 }

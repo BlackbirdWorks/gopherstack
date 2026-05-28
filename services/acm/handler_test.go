@@ -229,7 +229,7 @@ func TestACMHandler_ImportCertificate(t *testing.T) {
 
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 	// Request cert to get a PEM body and key
-	cert, err := b.RequestCertificate("import-test.example.com", "", "", "", "", nil)
+	cert, err := b.RequestCertificate("import-test.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	certPEM := cert.CertificateBody
@@ -314,7 +314,7 @@ func TestACMHandler_ExportCertificate(t *testing.T) {
 	t.Parallel()
 
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	cert, err := b.RequestCertificate("export-test.example.com", "", "", "", "", nil)
+	cert, err := b.RequestCertificate("export-test.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	importedCert, err := b.ImportCertificate(cert.CertificateBody, cert.PrivateKey, "", "")
@@ -1058,7 +1058,7 @@ func TestACMHandler_ImportCertificate_RealistFields(t *testing.T) {
 
 	// First create a cert to get PEM material
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	src, err := b.RequestCertificate("import-realism.example.com", "", "", "", "", nil)
+	src, err := b.RequestCertificate("import-realism.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(map[string]string{
@@ -1096,9 +1096,9 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create two certs to get two sets of PEM material
-	src1, err := b.RequestCertificate("reimport.example.com", "", "", "", "", nil)
+	src1, err := b.RequestCertificate("reimport.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
-	src2, err := b.RequestCertificate("reimport2.example.com", "", "", "", "", nil)
+	src2, err := b.RequestCertificate("reimport2.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Import first cert
@@ -1581,7 +1581,7 @@ func TestACMHandler_ExportCertificate_PassphraseRequired(t *testing.T) {
 	t.Parallel()
 
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	src, err := b.RequestCertificate("export-pass.example.com", "", "", "", "", nil)
+	src, err := b.RequestCertificate("export-pass.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	importedCert, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "", "")
@@ -1729,7 +1729,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 			name: "issued_to_expired",
 			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("lifecycle-expire.example.com", "", "", "", "", nil)
+				cert, err := b.RequestCertificate("lifecycle-expire.example.com", "", "", "", "", "", "", nil)
 				require.NoError(t, err)
 
 				return cert.ARN
@@ -1744,7 +1744,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 			name: "issued_to_inactive",
 			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("lifecycle-inactive.example.com", "", "", "", "", nil)
+				cert, err := b.RequestCertificate("lifecycle-inactive.example.com", "", "", "", "", "", "", nil)
 				require.NoError(t, err)
 
 				return cert.ARN
@@ -1759,7 +1759,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 			name: "pending_to_validation_timed_out",
 			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("lifecycle-timeout.example.com", "", "DNS", "", "", nil)
+				cert, err := b.RequestCertificate("lifecycle-timeout.example.com", "", "DNS", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.Equal(t, "PENDING_VALIDATION", cert.Status)
 
@@ -1775,7 +1775,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 			name: "pending_to_failed",
 			setupCert: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("lifecycle-fail.example.com", "", "EMAIL", "", "", nil)
+				cert, err := b.RequestCertificate("lifecycle-fail.example.com", "", "EMAIL", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.Equal(t, "PENDING_VALIDATION", cert.Status)
 
@@ -1829,7 +1829,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 			name: "filter_expired_status",
 			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("expired-list.example.com", "", "", "", "", nil)
+				cert, err := b.RequestCertificate("expired-list.example.com", "", "", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.NoError(t, b.ExpireCertificate(cert.ARN))
 
@@ -1842,7 +1842,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 			name: "filter_inactive_status",
 			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("inactive-list.example.com", "", "", "", "", nil)
+				cert, err := b.RequestCertificate("inactive-list.example.com", "", "", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.NoError(t, b.InactivateCertificate(cert.ARN))
 
@@ -1855,7 +1855,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 			name: "filter_timed_out_status",
 			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("timeout-list.example.com", "", "DNS", "", "", nil)
+				cert, err := b.RequestCertificate("timeout-list.example.com", "", "DNS", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.NoError(t, b.TimeoutPendingValidation(cert.ARN))
 
@@ -1868,7 +1868,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 			name: "filter_failed_status",
 			setupAndTransition: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("failed-list.example.com", "", "EMAIL", "", "", nil)
+				cert, err := b.RequestCertificate("failed-list.example.com", "", "EMAIL", "", "", "", "", nil)
 				require.NoError(t, err)
 				require.NoError(t, b.FailCertificate(cert.ARN, "CAA_ERROR"))
 
@@ -1914,7 +1914,7 @@ func TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent(t *testing.T
 	t.Parallel()
 
 	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	src, err := b.RequestCertificate("chain-test.example.com", "", "", "", "", nil)
+	src, err := b.RequestCertificate("chain-test.example.com", "", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Import without chain
