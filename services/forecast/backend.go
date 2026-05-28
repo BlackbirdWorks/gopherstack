@@ -111,7 +111,6 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
-
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
 	}
 
@@ -120,7 +119,6 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 
 	items := b.ensureKind(kind)
 	if _, ok := items[name]; ok {
-
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
 
@@ -153,7 +151,6 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
-
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -172,7 +169,6 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
-
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -191,7 +187,6 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
-
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -220,7 +215,6 @@ func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEv
 	defer b.mu.RUnlock()
 
 	if _, ok := b.lookupLocked(kindMonitor, monitorARN); !ok {
-
 		return nil, fmt.Errorf("%w: monitor %q", ErrNotFound, monitorARN)
 	}
 
@@ -242,7 +236,6 @@ func (b *InMemoryBackend) ensureKind(kind resourceKind) map[string]*Resource {
 func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Resource, bool) {
 	for name, resource := range b.resources[kind] {
 		if name == nameOrARN || resource.ARN == nameOrARN {
-
 			return resource, true
 		}
 	}
@@ -251,7 +244,6 @@ func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Re
 }
 
 func newEvaluation(monitor *Resource) MonitorEvaluation {
-
 	return MonitorEvaluation{
 		CreationTime:    monitor.CreatedAt,
 		EvaluationTime:  monitor.CreatedAt,
@@ -273,19 +265,16 @@ func cloneResource(resource *Resource) *Resource {
 
 func cloneMap(data map[string]any) map[string]any {
 	if data == nil {
-
 		return make(map[string]any)
 	}
 
 	encoded, err := json.Marshal(data)
 	if err != nil {
-
 		return make(map[string]any)
 	}
 
 	var result map[string]any
 	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
-
 		return make(map[string]any)
 	}
 
@@ -293,7 +282,6 @@ func cloneMap(data map[string]any) map[string]any {
 }
 
 func cloneValue(value any) any {
-
 	return cloneMap(map[string]any{"value": value})["value"]
 }
 
@@ -347,7 +335,6 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 	defer b.mu.RUnlock()
 
 	if _, ok := b.lookupLocked(kindPredictor, predictorArn); !ok {
-
 		return nil, fmt.Errorf("%w: predictor %q", ErrNotFound, predictorArn)
 	}
 

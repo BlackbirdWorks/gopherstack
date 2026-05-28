@@ -11,8 +11,6 @@ func paginateKeys(keys []string, maxResults int, nextToken string) ([]string, st
 			if k > nextToken {
 				startIdx = i
 
-
-
 				break
 			}
 		}
@@ -24,13 +22,8 @@ func paginateKeys(keys []string, maxResults int, nextToken string) ([]string, st
 		next = keys[endIdx-1]
 	}
 	if startIdx < len(keys) {
-
-
-
 		return keys[startIdx:endIdx], next
 	}
-
-
 
 	return nil, ""
 }
