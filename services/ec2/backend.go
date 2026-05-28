@@ -271,47 +271,47 @@ type InMemoryBackend struct {
 	verifiedAccessInstances      map[string]*VerifiedAccessInstance
 	verifiedAccessTrustProviders map[string]*VerifiedAccessTrustProvider
 	// batch3 additions
-	instanceConnectEndpoints  map[string]*InstanceConnectEndpoint
-	instanceEventWindows      map[string]*InstanceEventWindow
-	imageImportTasks          map[string]*ImageImportTask
-	snapshotImportTasks       map[string]*SnapshotImportTask
-	recycleBinImages          map[string]*RecycleBinImage
-	recycleBinSnapshots       map[string]*Snapshot
-	recycleBinVolumes         map[string]*RecycleBinVolume
-	fastLaunchImages          map[string]bool
-	fastSnapshotRestores      map[string]bool
-	vpnConnectionRoutes       map[string]*VpnConnectionRoute
-	spotDatafeed              *SpotDatafeed
+	instanceConnectEndpoints map[string]*InstanceConnectEndpoint
+	instanceEventWindows     map[string]*InstanceEventWindow
+	imageImportTasks         map[string]*ImageImportTask
+	snapshotImportTasks      map[string]*SnapshotImportTask
+	recycleBinImages         map[string]*RecycleBinImage
+	recycleBinSnapshots      map[string]*Snapshot
+	recycleBinVolumes        map[string]*RecycleBinVolume
+	fastLaunchImages         map[string]bool
+	fastSnapshotRestores     map[string]bool
+	vpnConnectionRoutes      map[string]*VpnConnectionRoute
+	spotDatafeed             *SpotDatafeed
 	// batch5 additions
-	trafficMirrorFilters                map[string]*TrafficMirrorFilter
-	trafficMirrorFilterRules            map[string]*TrafficMirrorFilterRule
-	trafficMirrorSessions               map[string]*TrafficMirrorSession
-	trafficMirrorTargets                map[string]*TrafficMirrorTarget
-	fleets                              map[string]*Fleet
-	networkInsightsPaths                map[string]*NetworkInsightsPath
-	networkInsightsAnalyses             map[string]*NetworkInsightsAnalysis
-	networkInsightsAccessScopes         map[string]*NetworkInsightsAccessScope
-	networkInsightsAccessScopeAnalyses  map[string]*NetworkInsightsAccessScopeAnalysis
-	carrierGateways                     map[string]*CarrierGateway
-	reservedInstances                   map[string]*ReservedInstance
-	reservedInstancesOfferings          map[string]*ReservedInstancesOffering
-	reservedInstancesListings           map[string]*ReservedInstancesListing
-	reservedInstancesModifications      map[string]*ReservedInstancesModification
-	mu                                  *lockmetrics.RWMutex
-	eniIDByAttachment         map[string]string
-	eniIDsByInstance          map[string]map[string]struct{}
-	instanceIDsByVPC          map[string]map[string]struct{}
-	snapshotBlockPublicAccess string
-	ebsDefaultKmsKeyID        string
-	imageBlockPublicAccess    string
-	defaultCreditSpec         string
-	Region                    string
-	AccountID                 string
-	freePrivateIPs            []string
-	nextPrivateIPIndex        int
-	nextElasticIPIndex        int
-	ebsEncryptionByDefault    bool
-	serialConsoleAccess       bool
+	trafficMirrorFilters               map[string]*TrafficMirrorFilter
+	trafficMirrorFilterRules           map[string]*TrafficMirrorFilterRule
+	trafficMirrorSessions              map[string]*TrafficMirrorSession
+	trafficMirrorTargets               map[string]*TrafficMirrorTarget
+	fleets                             map[string]*Fleet
+	networkInsightsPaths               map[string]*NetworkInsightsPath
+	networkInsightsAnalyses            map[string]*NetworkInsightsAnalysis
+	networkInsightsAccessScopes        map[string]*NetworkInsightsAccessScope
+	networkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis
+	carrierGateways                    map[string]*CarrierGateway
+	reservedInstances                  map[string]*ReservedInstance
+	reservedInstancesOfferings         map[string]*ReservedInstancesOffering
+	reservedInstancesListings          map[string]*ReservedInstancesListing
+	reservedInstancesModifications     map[string]*ReservedInstancesModification
+	mu                                 *lockmetrics.RWMutex
+	eniIDByAttachment                  map[string]string
+	eniIDsByInstance                   map[string]map[string]struct{}
+	instanceIDsByVPC                   map[string]map[string]struct{}
+	snapshotBlockPublicAccess          string
+	ebsDefaultKmsKeyID                 string
+	imageBlockPublicAccess             string
+	defaultCreditSpec                  string
+	Region                             string
+	AccountID                          string
+	freePrivateIPs                     []string
+	nextPrivateIPIndex                 int
+	nextElasticIPIndex                 int
+	ebsEncryptionByDefault             bool
+	serialConsoleAccess                bool
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -407,9 +407,9 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		fastLaunchImages:               make(map[string]bool),
 		fastSnapshotRestores:           make(map[string]bool),
 		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
-		instanceIDsByVPC:  make(map[string]map[string]struct{}),
-		eniIDsByInstance:  make(map[string]map[string]struct{}),
-		eniIDByAttachment: make(map[string]string),
+		instanceIDsByVPC:               make(map[string]map[string]struct{}),
+		eniIDsByInstance:               make(map[string]map[string]struct{}),
+		eniIDByAttachment:              make(map[string]string),
 	}
 	initBatch5Maps(b)
 
@@ -417,20 +417,20 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 }
 
 func initBatch5Maps(b *InMemoryBackend) {
-	b.trafficMirrorFilters               = make(map[string]*TrafficMirrorFilter)
-	b.trafficMirrorFilterRules           = make(map[string]*TrafficMirrorFilterRule)
-	b.trafficMirrorSessions              = make(map[string]*TrafficMirrorSession)
-	b.trafficMirrorTargets               = make(map[string]*TrafficMirrorTarget)
-	b.fleets                             = make(map[string]*Fleet)
-	b.networkInsightsPaths               = make(map[string]*NetworkInsightsPath)
-	b.networkInsightsAnalyses            = make(map[string]*NetworkInsightsAnalysis)
-	b.networkInsightsAccessScopes        = make(map[string]*NetworkInsightsAccessScope)
+	b.trafficMirrorFilters = make(map[string]*TrafficMirrorFilter)
+	b.trafficMirrorFilterRules = make(map[string]*TrafficMirrorFilterRule)
+	b.trafficMirrorSessions = make(map[string]*TrafficMirrorSession)
+	b.trafficMirrorTargets = make(map[string]*TrafficMirrorTarget)
+	b.fleets = make(map[string]*Fleet)
+	b.networkInsightsPaths = make(map[string]*NetworkInsightsPath)
+	b.networkInsightsAnalyses = make(map[string]*NetworkInsightsAnalysis)
+	b.networkInsightsAccessScopes = make(map[string]*NetworkInsightsAccessScope)
 	b.networkInsightsAccessScopeAnalyses = make(map[string]*NetworkInsightsAccessScopeAnalysis)
-	b.carrierGateways                    = make(map[string]*CarrierGateway)
-	b.reservedInstances                  = make(map[string]*ReservedInstance)
-	b.reservedInstancesOfferings         = make(map[string]*ReservedInstancesOffering)
-	b.reservedInstancesListings          = make(map[string]*ReservedInstancesListing)
-	b.reservedInstancesModifications     = make(map[string]*ReservedInstancesModification)
+	b.carrierGateways = make(map[string]*CarrierGateway)
+	b.reservedInstances = make(map[string]*ReservedInstance)
+	b.reservedInstancesOfferings = make(map[string]*ReservedInstancesOffering)
+	b.reservedInstancesListings = make(map[string]*ReservedInstancesListing)
+	b.reservedInstancesModifications = make(map[string]*ReservedInstancesModification)
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.

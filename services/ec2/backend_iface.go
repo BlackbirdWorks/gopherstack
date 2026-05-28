@@ -1023,7 +1023,10 @@ type Backend interface {
 	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
 
 	// ---- batch5: NetworkInsights ----
-	CreateNetworkInsightsPath(sourceID, destinationID, protocol string, destinationPort int) (*NetworkInsightsPath, error)
+	CreateNetworkInsightsPath(
+		sourceID, destinationID, protocol string,
+		destinationPort int,
+	) (*NetworkInsightsPath, error)
 	DeleteNetworkInsightsPath(id string) error
 	DescribeNetworkInsightsPaths(ids []string) []*NetworkInsightsPath
 	StartNetworkInsightsAnalysis(pathID string) (*NetworkInsightsAnalysis, error)

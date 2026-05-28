@@ -160,7 +160,11 @@ func TestBatch5_TrafficMirrorTarget(t *testing.T) {
 	})
 
 	t.Run("create target with nlb arn", func(t *testing.T) {
-		target, err := b.CreateTrafficMirrorTarget("", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/test/abc", "nlb target")
+		target, err := b.CreateTrafficMirrorTarget(
+			"",
+			"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/test/abc",
+			"nlb target",
+		)
 		require.NoError(t, err)
 		assert.NotEmpty(t, target.TrafficMirrorTargetID)
 		assert.NotEmpty(t, target.NetworkLoadBalancerArn)
@@ -571,7 +575,16 @@ func TestBatch5_ReservedInstances(t *testing.T) {
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed an offering for purchase
-	b.SeedReservedInstancesOffering("rio-test-offering-001", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", 94608000, 500.0, 0.0)
+	b.SeedReservedInstancesOffering(
+		"rio-test-offering-001",
+		"t3.medium",
+		"us-east-1a",
+		"Linux/UNIX",
+		"All Upfront",
+		94608000,
+		500.0,
+		0.0,
+	)
 
 	t.Run("describe offerings returns seeded offering", func(t *testing.T) {
 		offerings := b.DescribeReservedInstancesOfferings("", "", "")

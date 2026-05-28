@@ -229,14 +229,14 @@ type fleetItem struct {
 }
 
 type createFleetResponse struct {
-	XMLName   xml.Name  `xml:"CreateFleetResponse"`
-	RequestID string    `xml:"requestId"`
-	FleetID   string    `xml:"fleetId"`
+	XMLName   xml.Name `xml:"CreateFleetResponse"`
+	RequestID string   `xml:"requestId"`
+	FleetID   string   `xml:"fleetId"`
 }
 
 type deleteFleetsResponse struct {
-	XMLName              xml.Name `xml:"DeleteFleetsResponse"`
-	RequestID            string   `xml:"requestId"`
+	XMLName                  xml.Name `xml:"DeleteFleetsResponse"`
+	RequestID                string   `xml:"requestId"`
 	SuccessfulFleetDeletions struct {
 		Items []fleetItem `xml:"item"`
 	} `xml:"successfulFleetDeletionSet"`
@@ -290,9 +290,9 @@ type startNetworkInsightsAnalysisResponse struct {
 }
 
 type describeNetworkInsightsAnalysesResponse struct {
-	XMLName                   xml.Name `xml:"DescribeNetworkInsightsAnalysesResponse"`
-	RequestID                 string   `xml:"requestId"`
-	NetworkInsightsAnalyses   struct {
+	XMLName                 xml.Name `xml:"DescribeNetworkInsightsAnalysesResponse"`
+	RequestID               string   `xml:"requestId"`
+	NetworkInsightsAnalyses struct {
 		Items []networkInsightsAnalysisItem `xml:"item"`
 	} `xml:"networkInsightsAnalysisSet"`
 }
@@ -330,25 +330,25 @@ type networkInsightsAccessScopeAnalysisItem struct {
 }
 
 type startNetworkInsightsAccessScopeAnalysisResponse struct {
-	XMLName                              xml.Name                               `xml:"StartNetworkInsightsAccessScopeAnalysisResponse"`
-	RequestID                            string                                 `xml:"requestId"`
-	NetworkInsightsAccessScopeAnalysis   networkInsightsAccessScopeAnalysisItem `xml:"networkInsightsAccessScopeAnalysis"`
+	XMLName                            xml.Name                               `xml:"StartNetworkInsightsAccessScopeAnalysisResponse"`
+	RequestID                          string                                 `xml:"requestId"`
+	NetworkInsightsAccessScopeAnalysis networkInsightsAccessScopeAnalysisItem `xml:"networkInsightsAccessScopeAnalysis"`
 }
 
 type describeNetworkInsightsAccessScopeAnalysesResponse struct {
-	XMLName                              xml.Name `xml:"DescribeNetworkInsightsAccessScopeAnalysesResponse"`
-	RequestID                            string   `xml:"requestId"`
-	NetworkInsightsAccessScopeAnalyses   struct {
+	XMLName                            xml.Name `xml:"DescribeNetworkInsightsAccessScopeAnalysesResponse"`
+	RequestID                          string   `xml:"requestId"`
+	NetworkInsightsAccessScopeAnalyses struct {
 		Items []networkInsightsAccessScopeAnalysisItem `xml:"item"`
 	} `xml:"networkInsightsAccessScopeAnalysisSet"`
 }
 
 type getNetworkInsightsAccessScopeAnalysisFindingsResponse struct {
-	XMLName      xml.Name `xml:"GetNetworkInsightsAccessScopeAnalysisFindingsResponse"`
-	RequestID    string   `xml:"requestId"`
-	AnalysisID   string   `xml:"analysisId,omitempty"`
-	AnalysisStatus string `xml:"analysisStatus,omitempty"`
-	Findings     struct {
+	XMLName        xml.Name `xml:"GetNetworkInsightsAccessScopeAnalysisFindingsResponse"`
+	RequestID      string   `xml:"requestId"`
+	AnalysisID     string   `xml:"analysisId,omitempty"`
+	AnalysisStatus string   `xml:"analysisStatus,omitempty"`
+	Findings       struct {
 		Items []struct{} `xml:"item"`
 	} `xml:"accessScopeAnalysisFindingSet"`
 }
@@ -617,7 +617,10 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(vals url.Values, reqID 
 
 	resp := &describeTrafficMirrorFilterRulesResponse{RequestID: reqID}
 	for _, r := range rules {
-		resp.TrafficMirrorFilterRules.Items = append(resp.TrafficMirrorFilterRules.Items, toTrafficMirrorFilterRuleItem(r))
+		resp.TrafficMirrorFilterRules.Items = append(
+			resp.TrafficMirrorFilterRules.Items,
+			toTrafficMirrorFilterRuleItem(r),
+		)
 	}
 
 	return resp, nil
@@ -844,8 +847,8 @@ func (h *Handler) handleModifyFleet(vals url.Values, reqID string) (any, error) 
 
 func (h *Handler) handleDescribeFleetHistory(_ url.Values, reqID string) (any, error) {
 	type describeFleetHistoryResponse struct {
-		XMLName   xml.Name `xml:"DescribeFleetHistoryResponse"`
-		RequestID string   `xml:"requestId"`
+		XMLName        xml.Name `xml:"DescribeFleetHistoryResponse"`
+		RequestID      string   `xml:"requestId"`
 		HistoryRecords struct {
 			Items []struct{} `xml:"item"`
 		} `xml:"historyRecords"`
@@ -856,9 +859,9 @@ func (h *Handler) handleDescribeFleetHistory(_ url.Values, reqID string) (any, e
 
 func (h *Handler) handleDescribeFleetInstances(_ url.Values, reqID string) (any, error) {
 	type describeFleetInstancesResponse struct {
-		XMLName           xml.Name `xml:"DescribeFleetInstancesResponse"`
-		RequestID         string   `xml:"requestId"`
-		ActiveInstances   struct {
+		XMLName         xml.Name `xml:"DescribeFleetInstancesResponse"`
+		RequestID       string   `xml:"requestId"`
+		ActiveInstances struct {
 			Items []struct{} `xml:"item"`
 		} `xml:"activeInstanceSet"`
 	}
@@ -967,7 +970,10 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(vals url.Values, reqID s
 
 	resp := &describeNetworkInsightsAnalysesResponse{RequestID: reqID}
 	for _, a := range analyses {
-		resp.NetworkInsightsAnalyses.Items = append(resp.NetworkInsightsAnalyses.Items, toNetworkInsightsAnalysisItem(a))
+		resp.NetworkInsightsAnalyses.Items = append(
+			resp.NetworkInsightsAnalyses.Items,
+			toNetworkInsightsAnalysisItem(a),
+		)
 	}
 
 	return resp, nil
@@ -1058,8 +1064,8 @@ func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(vals url.Values,
 	}
 
 	return &startNetworkInsightsAccessScopeAnalysisResponse{
-		RequestID:                            reqID,
-		NetworkInsightsAccessScopeAnalysis:   toNetworkInsightsAccessScopeAnalysisItem(a),
+		RequestID:                          reqID,
+		NetworkInsightsAccessScopeAnalysis: toNetworkInsightsAccessScopeAnalysisItem(a),
 	}, nil
 }
 

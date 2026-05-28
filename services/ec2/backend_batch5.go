@@ -31,9 +31,9 @@ var (
 
 // TrafficMirrorFilter holds a traffic mirror filter.
 type TrafficMirrorFilter struct {
-	TrafficMirrorFilterID string                    `json:"trafficMirrorFilterId"`
-	Description           string                    `json:"description"`
-	NetworkServices       []string                  `json:"networkServices"`
+	TrafficMirrorFilterID string                     `json:"trafficMirrorFilterId"`
+	Description           string                     `json:"description"`
+	NetworkServices       []string                   `json:"networkServices"`
 	IngressFilterRules    []*TrafficMirrorFilterRule `json:"ingressFilterRules"`
 	EgressFilterRules     []*TrafficMirrorFilterRule `json:"egressFilterRules"`
 }
@@ -63,25 +63,25 @@ type TrafficMirrorSession struct {
 
 // TrafficMirrorTarget holds a traffic mirror target.
 type TrafficMirrorTarget struct {
-	TrafficMirrorTargetID string `json:"trafficMirrorTargetId"`
-	NetworkInterfaceID    string `json:"networkInterfaceId"`
+	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId"`
+	NetworkInterfaceID     string `json:"networkInterfaceId"`
 	NetworkLoadBalancerArn string `json:"networkLoadBalancerArn"`
-	Description           string `json:"description"`
+	Description            string `json:"description"`
 }
 
 // ---- EC2 Fleet ----
 
 // Fleet holds an EC2 Fleet.
 type Fleet struct {
-	FleetID               string `json:"fleetId"`
-	FleetState            string `json:"fleetState"`
-	FleetType             string `json:"fleetType"`
-	TargetCapacityUnitType string `json:"targetCapacityUnitType"`
-	TotalTargetCapacity   int    `json:"totalTargetCapacity"`
-	OnDemandTargetCapacity int   `json:"onDemandTargetCapacity"`
-	SpotTargetCapacity    int    `json:"spotTargetCapacity"`
-	ExcessCapacityTerminationPolicy string `json:"excessCapacityTerminationPolicy"`
-	TerminateInstancesWithExpiration bool  `json:"terminateInstancesWithExpiration"`
+	FleetID                          string `json:"fleetId"`
+	FleetState                       string `json:"fleetState"`
+	FleetType                        string `json:"fleetType"`
+	TargetCapacityUnitType           string `json:"targetCapacityUnitType"`
+	TotalTargetCapacity              int    `json:"totalTargetCapacity"`
+	OnDemandTargetCapacity           int    `json:"onDemandTargetCapacity"`
+	SpotTargetCapacity               int    `json:"spotTargetCapacity"`
+	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy"`
+	TerminateInstancesWithExpiration bool   `json:"terminateInstancesWithExpiration"`
 }
 
 // ---- Network Insights ----
@@ -98,10 +98,10 @@ type NetworkInsightsPath struct {
 
 // NetworkInsightsAnalysis holds a network insights analysis.
 type NetworkInsightsAnalysis struct {
-	NetworkInsightsAnalysisID  string `json:"networkInsightsAnalysisId"`
-	NetworkInsightsPathID      string `json:"networkInsightsPathId"`
-	Status                     string `json:"status"`
-	NetworkPathFound           bool   `json:"networkPathFound"`
+	NetworkInsightsAnalysisID string `json:"networkInsightsAnalysisId"`
+	NetworkInsightsPathID     string `json:"networkInsightsPathId"`
+	Status                    string `json:"status"`
+	NetworkPathFound          bool   `json:"networkPathFound"`
 }
 
 // NetworkInsightsAccessScope holds a network insights access scope.
@@ -112,10 +112,10 @@ type NetworkInsightsAccessScope struct {
 
 // NetworkInsightsAccessScopeAnalysis holds an access scope analysis.
 type NetworkInsightsAccessScopeAnalysis struct {
-	NetworkInsightsAccessScopeAnalysisID  string `json:"networkInsightsAccessScopeAnalysisId"`
-	NetworkInsightsAccessScopeID          string `json:"networkInsightsAccessScopeId"`
-	Status                                string `json:"status"`
-	AnalyzedEniCount                      int    `json:"analyzedEniCount"`
+	NetworkInsightsAccessScopeAnalysisID string `json:"networkInsightsAccessScopeAnalysisId"`
+	NetworkInsightsAccessScopeID         string `json:"networkInsightsAccessScopeId"`
+	Status                               string `json:"status"`
+	AnalyzedEniCount                     int    `json:"analyzedEniCount"`
 }
 
 // ---- Carrier Gateways ----
@@ -132,14 +132,14 @@ type CarrierGateway struct {
 
 // ReservedInstance holds a reserved instance.
 type ReservedInstance struct {
-	ReservedInstancesID string `json:"reservedInstancesId"`
-	InstanceType        string `json:"instanceType"`
-	AvailabilityZone    string `json:"availabilityZone"`
-	InstanceCount       int    `json:"instanceCount"`
-	ProductDescription  string `json:"productDescription"`
-	State               string `json:"state"`
-	OfferingType        string `json:"offeringType"`
-	Duration            int64  `json:"duration"`
+	ReservedInstancesID string  `json:"reservedInstancesId"`
+	InstanceType        string  `json:"instanceType"`
+	AvailabilityZone    string  `json:"availabilityZone"`
+	InstanceCount       int     `json:"instanceCount"`
+	ProductDescription  string  `json:"productDescription"`
+	State               string  `json:"state"`
+	OfferingType        string  `json:"offeringType"`
+	Duration            int64   `json:"duration"`
 	FixedPrice          float64 `json:"fixedPrice"`
 	UsagePrice          float64 `json:"usagePrice"`
 }
@@ -517,10 +517,10 @@ func (b *InMemoryBackend) CreateFleet(fleetType string, totalTargetCapacity int)
 
 	id := "fleet-" + uuid.New().String()[:8]
 	f := &Fleet{
-		FleetID:             id,
-		FleetState:          SpotFleetStateActive,
-		FleetType:           fleetType,
-		TotalTargetCapacity: totalTargetCapacity,
+		FleetID:                         id,
+		FleetState:                      SpotFleetStateActive,
+		FleetType:                       fleetType,
+		TotalTargetCapacity:             totalTargetCapacity,
 		ExcessCapacityTerminationPolicy: "termination",
 	}
 	b.fleets[id] = f
@@ -969,7 +969,9 @@ func (b *InMemoryBackend) DescribeReservedInstances(ids []string) []*ReservedIns
 	return result
 }
 
-func (b *InMemoryBackend) DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering {
+func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
+	instanceType, az, productDesc string,
+) []*ReservedInstancesOffering {
 	b.mu.RLock("DescribeReservedInstancesOfferings")
 	defer b.mu.RUnlock()
 
