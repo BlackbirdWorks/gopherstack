@@ -1098,12 +1098,12 @@ type handleCreateESMInput struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig"`
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig"`
-	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
-	Topics                              []string                             `json:"Topics"`
-	Queues                              []string                             `json:"Queues"`
 	EventSourceARN                      string                               `json:"EventSourceArn"`
 	FunctionName                        string                               `json:"FunctionName"`
 	StartingPosition                    string                               `json:"StartingPosition"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
+	Topics                              []string                             `json:"Topics"`
+	Queues                              []string                             `json:"Queues"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`

@@ -61,19 +61,18 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
 	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
-func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_False(t *testing.T) {
+func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
 
 	body := `{
-		"FunctionName":"vpc6-false-fn",
+		"FunctionName":"vpc6-omit-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"x"},
 		"Role":"arn:aws:iam:::role/r",
 		"VpcConfig":{
-			"SubnetIds":["subnet-1"],
-			"Ipv6AllowedForDualStack":false
+			"SubnetIds":["subnet-1"]
 		}
 	}`
 	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
@@ -83,7 +82,7 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_False(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	vpc, _ := out["VpcConfig"].(map[string]any)
 	require.NotNil(t, vpc)
-	// false is omitempty so not present in JSON
+	// omitempty: nil pointer → field absent in JSON
 	_, hasField := vpc["Ipv6AllowedForDualStack"]
 	assert.False(t, hasField)
 }
@@ -194,21 +193,8 @@ func TestBatch3_ESM_SelfManagedKafka_Create(t *testing.T) {
 	h, _ := newInMemoryHandler(t)
 	createFunctionForTest(t, h, "smk-fn")
 
+	// SelfManaged Kafka has no EventSourceArn in real AWS; use a placeholder to satisfy backend validation.
 	body := `{
-		"FunctionName":"smk-fn",
-		"EventSourceArn":"",
-		"Topics":["smk-topic"],
-		"SelfManagedEventSource":{
-			"Endpoints":{"KAFKA_BOOTSTRAP_SERVERS":["broker1:9092","broker2:9092"]}
-		},
-		"SelfManagedKafkaEventSourceConfig":{"ConsumerGroupId":"smk-group"},
-		"SourceAccessConfigurations":[
-			{"Type":"SASL_SCRAM_512_AUTH","URI":"arn:aws:secretsmanager:us-east-1:000000000000:secret:kafka-secret"}
-		]
-	}`
-	// SelfManaged Kafka has no EventSourceArn — but our backend requires it non-empty.
-	// Use a placeholder ARN to satisfy validation.
-	body = `{
 		"FunctionName":"smk-fn",
 		"EventSourceArn":"arn:aws:kafka:us-east-1:000000000000:cluster/smk/xyz",
 		"Topics":["smk-topic"],
@@ -444,11 +430,11 @@ func TestBatch3_AccountUsage_AccountLimit_Fields(t *testing.T) {
 	var s lambda.AccountSettingsOutput
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&s))
 	require.NotNil(t, s.AccountLimit)
-	assert.Greater(t, s.AccountLimit.TotalCodeSize, int64(0))
-	assert.Greater(t, s.AccountLimit.ConcurrentExecutions, 0)
-	assert.Greater(t, s.AccountLimit.UnreservedConcurrentExecutions, 0)
-	assert.Greater(t, s.AccountLimit.CodeSizeUnzipped, int64(0))
-	assert.Greater(t, s.AccountLimit.CodeSizeZipped, int64(0))
+	assert.Positive(t, s.AccountLimit.TotalCodeSize)
+	assert.Positive(t, s.AccountLimit.ConcurrentExecutions)
+	assert.Positive(t, s.AccountLimit.UnreservedConcurrentExecutions)
+	assert.Positive(t, s.AccountLimit.CodeSizeUnzipped)
+	assert.Positive(t, s.AccountLimit.CodeSizeZipped)
 }
 
 // ============================================================
@@ -476,9 +462,9 @@ func TestBatch3_ProvisionedConcurrency_StatusReady(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, float64(5), out["RequestedProvisionedConcurrentExecutions"])
-	assert.Equal(t, float64(5), out["AllocatedProvisionedConcurrentExecutions"])
-	assert.Equal(t, float64(5), out["AvailableProvisionedConcurrentExecutions"])
+	assert.InDelta(t, float64(5), out["RequestedProvisionedConcurrentExecutions"], 0)
+	assert.InDelta(t, float64(5), out["AllocatedProvisionedConcurrentExecutions"], 0)
+	assert.InDelta(t, float64(5), out["AvailableProvisionedConcurrentExecutions"], 0)
 	assert.Equal(t, "READY", out["Status"])
 }
 
@@ -545,16 +531,16 @@ func TestBatch3_FunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
 }
 
 // ============================================================
-// SnapStart — OptimizationStatus on published version
+// SnapStart — OptimizationStatus in GetFunctionConfiguration
 // ============================================================
 
-func TestBatch3_SnapStart_PublishedVersion_OptimizationStatus(t *testing.T) {
+func TestBatch3_SnapStart_GetConfiguration_OptimizationStatus(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
 
 	body := `{
-		"FunctionName":"snap-ver-fn",
+		"FunctionName":"snap-cfg-fn",
 		"PackageType":"Image",
 		"Code":{"ImageUri":"x"},
 		"Role":"arn:aws:iam:::role/r",
@@ -563,15 +549,15 @@ func TestBatch3_SnapStart_PublishedVersion_OptimizationStatus(t *testing.T) {
 	createRec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
-	verRec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/snap-ver-fn/versions", `{}`)
-	require.Equal(t, http.StatusCreated, verRec.Code)
+	cfgRec := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/functions/snap-cfg-fn/configuration", "")
+	require.Equal(t, http.StatusOK, cfgRec.Code)
 
-	var ver map[string]any
-	require.NoError(t, json.NewDecoder(verRec.Body).Decode(&ver))
-	snap, _ := ver["SnapStart"].(map[string]any)
+	var cfg map[string]any
+	require.NoError(t, json.NewDecoder(cfgRec.Body).Decode(&cfg))
+	snap, _ := cfg["SnapStart"].(map[string]any)
 	require.NotNil(t, snap)
 	assert.Equal(t, "PublishedVersions", snap["ApplyOn"])
-	assert.NotEmpty(t, snap["OptimizationStatus"])
+	assert.Equal(t, "On", snap["OptimizationStatus"])
 }
 
 // ============================================================

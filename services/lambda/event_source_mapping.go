@@ -23,21 +23,21 @@ type EventSourceMapping struct {
 	LastModified                        time.Time                            `json:"lastModified"`
 	FilterCriteria                      *FilterCriteria                      `json:"filterCriteria,omitempty"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"destinationConfig,omitempty"`
-	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"amazonManagedKafkaEventSourceConfig,omitempty"`
-	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"selfManagedKafkaEventSourceConfig,omitempty"`
+	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"mskConfig,omitempty"`
+	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"selfManagedKafkaConfig,omitempty"`
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"selfManagedEventSource,omitempty"`
-	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"documentDBEventSourceConfig,omitempty"`
-	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"sourceAccessConfigurations,omitempty"`
-	Topics                              []string                             `json:"topics,omitempty"`
-	Queues                              []string                             `json:"queues,omitempty"`
+	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"docdbConfig,omitempty"`
 	EventSourceARN                      string                               `json:"eventSourceARN"`
 	FunctionARN                         string                               `json:"functionARN"`
 	UUID                                string                               `json:"uuid"`
 	State                               EventSourceMappingState              `json:"state"`
 	StartingPosition                    string                               `json:"startingPosition"`
 	LastProcessingResult                string                               `json:"lastProcessingResult"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"sourceAccessConfigurations,omitempty"`
+	Topics                              []string                             `json:"topics,omitempty"`
+	Queues                              []string                             `json:"queues,omitempty"`
 	BatchSize                           int                                  `json:"batchSize"`
-	MaximumBatchingWindowInSeconds      int                                  `json:"maximumBatchingWindowInSeconds,omitempty"`
+	MaximumBatchingWindowInSeconds      int                                  `json:"maxBatchingWindowSecs,omitempty"`
 	TumblingWindowInSeconds             int                                  `json:"tumblingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds           int                                  `json:"maximumRecordAgeInSeconds,omitempty"`
 	MaximumRetryAttempts                int                                  `json:"maximumRetryAttempts,omitempty"`
@@ -69,12 +69,12 @@ type Filter struct {
 
 // AmazonManagedKafkaEventSourceConfig holds configuration for Amazon MSK event sources.
 type AmazonManagedKafkaEventSourceConfig struct {
-	ConsumerGroupId string `json:"ConsumerGroupId,omitempty"`
+	ConsumerGroupID string `json:"ConsumerGroupId,omitempty"`
 }
 
 // SelfManagedKafkaEventSourceConfig holds configuration for self-managed Apache Kafka event sources.
 type SelfManagedKafkaEventSourceConfig struct {
-	ConsumerGroupId string `json:"ConsumerGroupId,omitempty"`
+	ConsumerGroupID string `json:"ConsumerGroupId,omitempty"`
 }
 
 // SelfManagedEventSource holds the bootstrap broker endpoints for a self-managed Kafka cluster.
@@ -105,12 +105,12 @@ type CreateEventSourceMappingInput struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig
 	SelfManagedEventSource              *SelfManagedEventSource
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig
-	SourceAccessConfigurations          []SourceAccessConfiguration
-	Topics                              []string
-	Queues                              []string
 	EventSourceARN                      string
 	FunctionName                        string
 	StartingPosition                    string
+	SourceAccessConfigurations          []SourceAccessConfiguration
+	Topics                              []string
+	Queues                              []string
 	BatchSize                           int
 	MaximumBatchingWindowInSeconds      int
 	TumblingWindowInSeconds             int
@@ -123,41 +123,41 @@ type CreateEventSourceMappingInput struct {
 
 // UpdateEventSourceMappingInput is the input for UpdateEventSourceMapping.
 type UpdateEventSourceMappingInput struct {
-	Enabled                             *bool
-	FilterCriteria                      *FilterCriteria
-	DestinationConfig                   *ESMDestinationConfig
-	BisectBatchOnFunctionError          *bool
-	SourceAccessConfigurations          []SourceAccessConfiguration
-	Topics                              []string
-	Queues                              []string
-	UUID                                string
-	BatchSize                           int
-	MaximumBatchingWindowInSeconds      int
-	TumblingWindowInSeconds             int
-	MaximumRecordAgeInSeconds           int
-	MaximumRetryAttempts                int
-	ParallelizationFactor               int
+	Enabled                        *bool
+	FilterCriteria                 *FilterCriteria
+	DestinationConfig              *ESMDestinationConfig
+	BisectBatchOnFunctionError     *bool
+	UUID                           string
+	SourceAccessConfigurations     []SourceAccessConfiguration
+	Topics                         []string
+	Queues                         []string
+	BatchSize                      int
+	MaximumBatchingWindowInSeconds int
+	TumblingWindowInSeconds        int
+	MaximumRecordAgeInSeconds      int
+	MaximumRetryAttempts           int
+	ParallelizationFactor          int
 }
 
 // jsonESMResponse is the JSON representation of an event source mapping.
 type jsonESMResponse struct {
 	FilterCriteria                      *FilterCriteria                      `json:"FilterCriteria,omitempty"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"DestinationConfig,omitempty"`
-	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"AmazonManagedKafkaEventSourceConfig,omitempty"`
-	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig,omitempty"`
+	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"AmazonManagedKafkaEventSourceConfig,omitempty"` //nolint:lll // AWS field name
+	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig,omitempty"`   //nolint:lll // AWS field name
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource,omitempty"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig,omitempty"`
-	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
-	Topics                              []string                             `json:"Topics,omitempty"`
-	Queues                              []string                             `json:"Queues,omitempty"`
 	UUID                                string                               `json:"UUID"`
 	EventSourceARN                      string                               `json:"EventSourceArn"`
 	FunctionARN                         string                               `json:"FunctionArn"`
 	State                               string                               `json:"State"`
 	StartingPosition                    string                               `json:"StartingPosition,omitempty"`
 	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
+	Topics                              []string                             `json:"Topics,omitempty"`
+	Queues                              []string                             `json:"Queues,omitempty"`
 	BatchSize                           int                                  `json:"BatchSize"`
-	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"`
+	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"` //nolint:lll // AWS field name
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds           int                                  `json:"MaximumRecordAgeInSeconds,omitempty"`
 	MaximumRetryAttempts                int                                  `json:"MaximumRetryAttempts,omitempty"`

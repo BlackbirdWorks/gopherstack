@@ -3911,21 +3911,11 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 	return cfgs
 }
 
-// UpdateEventSourceMapping updates an existing event source mapping.
-func (b *InMemoryBackend) UpdateEventSourceMapping(
-	id string,
-	input *UpdateEventSourceMappingInput,
-) (*EventSourceMapping, error) {
-	b.mu.Lock("UpdateEventSourceMapping")
-
-	esm, ok := b.eventSourceMappings[id]
-	if !ok {
-		b.mu.Unlock()
-
-		return nil, ErrESMNotFound
-	}
-
+// applyESMUpdate patches esm fields from input (non-zero / non-nil values only).
+// Returns true if the mapping was enabled by this update.
+func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) bool {
 	var nowEnabled bool
+
 	if input.Enabled != nil {
 		if *input.Enabled {
 			esm.State = ESMStateEnabled
@@ -3947,6 +3937,20 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		esm.DestinationConfig = input.DestinationConfig
 	}
 
+	if input.BisectBatchOnFunctionError != nil {
+		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+	}
+
+	applyESMWindowFields(esm, input)
+	applyESMSourceFields(esm, input)
+
+	esm.LastModified = time.Now()
+
+	return nowEnabled
+}
+
+// applyESMWindowFields applies the windowing / retry fields from input.
+func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
 	if input.MaximumBatchingWindowInSeconds > 0 {
 		esm.MaximumBatchingWindowInSeconds = input.MaximumBatchingWindowInSeconds
 	}
@@ -3966,11 +3970,10 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	if input.ParallelizationFactor > 0 {
 		esm.ParallelizationFactor = input.ParallelizationFactor
 	}
+}
 
-	if input.BisectBatchOnFunctionError != nil {
-		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
-	}
-
+// applyESMSourceFields applies source-access, topics, and queues from input.
+func applyESMSourceFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
 	if len(input.SourceAccessConfigurations) > 0 {
 		esm.SourceAccessConfigurations = input.SourceAccessConfigurations
 	}
@@ -3982,8 +3985,23 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	if len(input.Queues) > 0 {
 		esm.Queues = input.Queues
 	}
+}
 
-	esm.LastModified = time.Now()
+// UpdateEventSourceMapping updates an existing event source mapping.
+func (b *InMemoryBackend) UpdateEventSourceMapping(
+	id string,
+	input *UpdateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("UpdateEventSourceMapping")
+
+	esm, ok := b.eventSourceMappings[id]
+	if !ok {
+		b.mu.Unlock()
+
+		return nil, ErrESMNotFound
+	}
+
+	nowEnabled := applyESMUpdate(esm, input)
 
 	poller := b.kinesisPoller
 	b.mu.Unlock()
