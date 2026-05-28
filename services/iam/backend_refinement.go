@@ -623,21 +623,20 @@ func (b *InMemoryBackend) SimulateCustomPolicy(
 		for _, resource := range resourceArns {
 			evalResult := EvaluatePolicies(policyInputList, action, resource, ConditionContext{})
 
-			var decision string
+			// Per-policy detail: label each input policy by its index.
+			detail := make(map[string]string, len(policyInputList))
 
-			switch evalResult {
-			case EvalAllow:
-				decision = "allowed"
-			case EvalExplicitDeny:
-				decision = "explicitDeny"
-			default:
-				decision = "implicitDeny"
+			for i, doc := range policyInputList {
+				r := EvaluatePolicies([]string{doc}, action, resource, ConditionContext{})
+				key := fmt.Sprintf("InputPolicy%d", i+1)
+				detail[key] = evalDecisionStr(r)
 			}
 
 			results = append(results, SimulationResult{
-				ActionName:   action,
-				ResourceName: resource,
-				Decision:     decision,
+				ActionName:          action,
+				ResourceName:        resource,
+				Decision:            evalDecisionStr(evalResult),
+				EvalDecisionDetails: detail,
 			})
 		}
 	}

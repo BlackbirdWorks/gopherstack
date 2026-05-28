@@ -1,0 +1,53 @@
+package rolesanywhere
+
+// StorageBackend defines the interface for Roles Anywhere backend implementations.
+// All mutating methods must be safe for concurrent use.
+type StorageBackend interface {
+	// Trust anchor operations
+	CreateTrustAnchor(name string, source TrustAnchorSource, tags []TagEntry) (*TrustAnchor, error)
+	GetTrustAnchor(id string) (*TrustAnchor, error)
+	ListTrustAnchors(pageToken string, maxResults int) ([]*TrustAnchor, string, error)
+	DeleteTrustAnchor(id string) error
+	UpdateTrustAnchor(id, name string, source *TrustAnchorSource) (*TrustAnchor, error)
+	EnableTrustAnchor(id string) (*TrustAnchor, error)
+	DisableTrustAnchor(id string) (*TrustAnchor, error)
+
+	// Profile operations
+	CreateProfile(
+		name string,
+		roleArns []string,
+		tags []TagEntry,
+		durationSeconds *int32,
+		managedPolicyArns []string,
+		sessionPolicy string,
+		requireInstanceProperties bool,
+	) (*Profile, error)
+	GetProfile(id string) (*Profile, error)
+	ListProfiles(pageToken string, maxResults int) ([]*Profile, string, error)
+	DeleteProfile(id string) error
+	UpdateProfile(
+		id, name string,
+		roleArns []string,
+		durationSeconds *int32,
+		managedPolicyArns []string,
+		sessionPolicy string,
+		requireInstanceProperties *bool,
+	) (*Profile, error)
+	EnableProfile(id string) (*Profile, error)
+	DisableProfile(id string) (*Profile, error)
+
+	// Tag operations
+	TagResource(resourceARN string, tags []TagEntry) error
+	UntagResource(resourceARN string, tagKeys []string) error
+	ListTagsForResource(resourceARN string) ([]TagEntry, error)
+
+	// Lifecycle
+	Reset()
+	Region() string
+	AccountID() string
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// compile-time assertion.
+var _ StorageBackend = (*InMemoryBackend)(nil)

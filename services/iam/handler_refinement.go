@@ -486,11 +486,18 @@ func (h *Handler) iamSimulateCustomPolicyDispatch() map[string]iamActionFn {
 
 			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
 			for _, r := range results {
-				xmlResults = append(xmlResults, SimulationEvalResultXML{
+				entry := SimulationEvalResultXML{
 					EvalActionName:   r.ActionName,
 					EvalResourceName: r.ResourceName,
 					EvalDecision:     r.Decision,
-				})
+				}
+
+				for policyID, decision := range r.EvalDecisionDetails {
+					entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
+						EvalDecisionDetailEntry{Key: policyID, Value: decision})
+				}
+
+				xmlResults = append(xmlResults, entry)
 			}
 
 			return &SimulateCustomPolicyResponse{

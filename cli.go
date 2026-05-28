@@ -58,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/version"
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -149,6 +150,7 @@ import (
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -2667,7 +2669,9 @@ func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
+		&accessanalyzerbackend.Provider{},
 		&rambackend.Provider{},
+		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},

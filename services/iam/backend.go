@@ -1980,9 +1980,18 @@ type AccountAuthorizationDetails struct {
 
 // SimulationResult is the outcome of evaluating a single action/resource pair.
 type SimulationResult struct {
-	ActionName   string
-	ResourceName string
-	Decision     string // "allowed", "implicitDeny", or "explicitDeny"
+	EvalDecisionDetails          map[string]string
+	AllowedByPermissionsBoundary *bool
+	ActionName                   string
+	ResourceName                 string
+	Decision                     string
+}
+
+// namedPolicyDoc pairs a policy source ID with its JSON document.
+type namedPolicyDoc struct {
+	// SourceID is the ARN for managed policies or the inline policy name.
+	SourceID string
+	Doc      string
 }
 
 // GetAccountAuthorizationDetails returns a full dump of all IAM entities and their policies.
@@ -2078,51 +2087,75 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 	b.mu.RLock("SimulatePrincipalPolicy")
 	defer b.mu.RUnlock()
 
-	policyDocs, err := b.collectPrincipalPolicies(principalArn)
+	namedPolicies, err := b.collectNamedPrincipalPolicies(principalArn)
 	if err != nil {
 		return nil, err
 	}
 
 	// Collect permission boundary document (if any).
 	boundaryDoc := b.collectBoundaryDoc(principalArn)
+	hasBoundary := boundaryDoc != ""
 
 	if len(resourceArns) == 0 {
 		resourceArns = []string{"*"}
 	}
 
+	// Build plain docs slice for combined evaluation.
+	docs := make([]string, 0, len(namedPolicies))
+	for _, np := range namedPolicies {
+		docs = append(docs, np.Doc)
+	}
+
 	results := make([]SimulationResult, 0, len(actionNames)*len(resourceArns))
+
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			evalResult := EvaluatePolicies(policyDocs, action, resource, ConditionContext{})
+			evalResult := EvaluatePolicies(docs, action, resource, ConditionContext{})
 
-			// If boundary is set, it must also allow the action.
-			if evalResult == EvalAllow && boundaryDoc != "" {
+			// Per-policy detail map.
+			detail := make(map[string]string, len(namedPolicies))
+			for _, np := range namedPolicies {
+				r := EvaluatePolicies([]string{np.Doc}, action, resource, ConditionContext{})
+				detail[np.SourceID] = evalDecisionStr(r)
+			}
+
+			// Boundary enforcement.
+			var allowedByBoundary *bool
+
+			if hasBoundary {
 				boundaryResult := EvaluatePolicies([]string{boundaryDoc}, action, resource, ConditionContext{})
-				if boundaryResult != EvalAllow {
+				allowed := boundaryResult == EvalAllow
+
+				allowedByBoundary = &allowed
+
+				if evalResult == EvalAllow && !allowed {
 					evalResult = EvalImplicitDeny
 				}
 			}
 
-			var decision string
-
-			switch evalResult {
-			case EvalAllow:
-				decision = "allowed"
-			case EvalExplicitDeny:
-				decision = "explicitDeny"
-			default:
-				decision = "implicitDeny"
-			}
-
 			results = append(results, SimulationResult{
-				ActionName:   action,
-				ResourceName: resource,
-				Decision:     decision,
+				ActionName:                   action,
+				ResourceName:                 resource,
+				Decision:                     evalDecisionStr(evalResult),
+				EvalDecisionDetails:          detail,
+				AllowedByPermissionsBoundary: allowedByBoundary,
 			})
 		}
 	}
 
 	return results, nil
+}
+
+// evalDecisionStr converts an EvalResult to the AWS-compatible decision string.
+func evalDecisionStr(r EvaluationResult) string {
+	switch r {
+	case EvalAllow:
+		return "allowed"
+	case EvalExplicitDeny:
+		return "explicitDeny"
+	default:
+		return "implicitDeny"
+	}
 }
 
 // collectBoundaryDoc returns the policy document for the principal's permission boundary, or "".
@@ -2147,9 +2180,10 @@ func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
 	return ""
 }
 
-// collectPrincipalPolicies returns all policy documents for the given principal ARN.
-// It looks at both inline policies and attached managed policies.
-func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]string, error) {
+// collectNamedPrincipalPolicies returns named policy documents for the given principal ARN.
+// Each entry contains the policy source ID (ARN for managed, name for inline) and document.
+// Caller must hold b.mu read-locked.
+func (b *InMemoryBackend) collectNamedPrincipalPolicies(principalArn string) ([]namedPolicyDoc, error) {
 	const (
 		userPrefix = ":user/"
 		rolePrefix = ":role/"
@@ -2164,11 +2198,19 @@ func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]strin
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 
-		// Collect direct user policies plus group-inherited policies.
-		docs := b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
-		docs = append(docs, b.collectGroupPoliciesForUser(userName)...)
+		named := b.collectNamedEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
 
-		return docs, nil
+		// Add group-inherited policies.
+		for groupName, members := range b.groupMembers {
+			if !slices.Contains(members, userName) {
+				continue
+			}
+
+			named = append(named,
+				b.collectNamedEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])...)
+		}
+
+		return named, nil
 
 	case strings.Contains(principalArn, rolePrefix):
 		idx := strings.LastIndex(principalArn, rolePrefix)
@@ -2178,65 +2220,37 @@ func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]strin
 			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 		}
 
-		return b.collectEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
+		return b.collectNamedEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
 
 	default:
 		return nil, fmt.Errorf("%w: unsupported principal ARN format %q", ErrUserNotFound, principalArn)
 	}
 }
 
-// collectEntityPolicies collects policy documents from attached ARNs and inline policies.
-func (b *InMemoryBackend) collectEntityPolicies(
+// collectNamedEntityPolicies collects named policy docs from attached ARNs and inline policies.
+// Caller must hold b.mu read-locked.
+func (b *InMemoryBackend) collectNamedEntityPolicies(
 	attachedARNs []string, inlinePols map[string]string,
-) []string {
-	var docs []string
+) []namedPolicyDoc {
+	var named []namedPolicyDoc
 
 	for _, policyArn := range attachedARNs {
 		for _, p := range b.policies {
 			if p.Arn == policyArn && p.PolicyDocument != "" {
-				docs = append(docs, p.PolicyDocument)
+				named = append(named, namedPolicyDoc{SourceID: p.Arn, Doc: p.PolicyDocument})
 
 				break
 			}
 		}
 	}
 
-	for _, doc := range inlinePols {
+	for name, doc := range inlinePols {
 		if doc != "" {
-			docs = append(docs, doc)
+			named = append(named, namedPolicyDoc{SourceID: name, Doc: doc})
 		}
 	}
 
-	return docs
-}
-
-// collectGroupPoliciesForUser returns all policy documents inherited via group membership.
-// Real AWS evaluates group-attached and group-inline policies as part of the principal's
-// effective permissions.  Must be called with b.mu read-lock held.
-//
-// A seen-set prevents the same document being added twice when multiple groups share
-// the same managed policy.
-func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
-	var docs []string
-	seen := make(map[string]struct{})
-
-	for groupName, members := range b.groupMembers {
-		if !slices.Contains(members, userName) {
-			continue
-		}
-
-		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
-		for _, doc := range groupDocs {
-			if _, dup := seen[doc]; dup {
-				continue
-			}
-
-			seen[doc] = struct{}{}
-			docs = append(docs, doc)
-		}
-	}
-
-	return docs
+	return named
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
