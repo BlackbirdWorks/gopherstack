@@ -656,11 +656,11 @@ func (b *InMemoryBackend) AdvertiseByoipCidr(cidr string) (*ByoipCidr, error) {
 	if !ok {
 		entry = &ByoipCidr{
 			Cidr:  cidr,
-			State: "advertised",
+			State: stateByoipAdvertised,
 		}
 		b.byoipCidrs[cidr] = entry
 	} else {
-		entry.State = "advertised"
+		entry.State = stateByoipAdvertised
 	}
 
 	cp := *entry

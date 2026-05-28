@@ -198,8 +198,6 @@ github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19 h1:PNpmmxmn2nOaL
 github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19/go.mod h1:pH5sdA6BaztL9AVrhCb55BG7/SpW4sRvz83A40RO66E=
 github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3 h1:fE8GkCE/6hx0wQQjbRJxAC9V0TnIJpXkURKD/j5qaq8=
 github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3/go.mod h1:pVfXaRrT7FlwIIyK+4RTxY9ReVQpqAH+qO7XY+Pn9C8=
-github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 h1:Kv5zCgLXQcO88IwWqGJtN1byudkgu7U3H0Jficrz/Mw=
-github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19/go.mod h1:csvcQANBknUMKeom0XKfe30VkML9c0eYF8xuNxzJTW8=
 github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.23 h1:yxt0mlXvIz6tBqE6tE+8nT4HInWgEjzwnHDI6TxKm7E=
 github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.23/go.mod h1:8nxl+cuTs2USuUurU51GknJf37qAFtSRsrpSomYqqsA=
 github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.19 h1:xea+PTZrDDTfrKWJdz0ci4AjNzFD8WTWk7isytdn82U=
@@ -208,8 +206,6 @@ github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12 h1:BUd9RyiCSQ3gau/LAh6Zpp
 github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12/go.mod h1:rxCveQsDbPAecIQjIcDlzsH93PrHovX8bz3llcRAgt0=
 github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 h1:mW26pSlEZG2OGSoC2ZE0AJs2w8YEXHo1AgJDfGEFQFU=
 github.com/aws/aws-sdk-go-v2/service/mq v1.34.17/go.mod h1:3ru7bRS2mF6C5UbPdVNSaUeo2lwL+42YZUhm8bQypFk=
-github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 h1:FBnYlQS4WSAn3iuozteTEN71ReTPjcOAhaD7rV1g7I0=
-github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20/go.mod h1:VRhbEhUC5kwwhhB98pAhOZaJZOALvLS+KRHMz+AmdcQ=
 github.com/aws/aws-sdk-go-v2/service/mwaa v1.40.1 h1:fVJ6uZsjHWiMbT4tPsNPmA5VElniNCKj1pE4nb1J9gg=
 github.com/aws/aws-sdk-go-v2/service/mwaa v1.40.1/go.mod h1:O2kdYrYDkdHdUpvYcrWQoYaJgPJCGHdaLF06ep3HzKI=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 h1:Akp3PA62O+s8Tze5/4f3YthrAT6OHhay9QhUPv7zw6Y=
@@ -288,16 +284,12 @@ github.com/aws/aws-sdk-go-v2/service/support v1.31.23 h1:ysC9+TojW1tnZxm3dEoQAqw
 github.com/aws/aws-sdk-go-v2/service/support v1.31.23/go.mod h1:nGjCW7KSwHDN1N6wq+IfrgcHtKSW9OkoLn4mxQzd1Mc=
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14 h1:sVUF4SC5BzVw4tiOXX/yaa7GbruV9C/kirhINRDZUJc=
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14/go.mod h1:STMeULZQteHh1BkdnUiTCdtvA5zKRyDk/b5nObwHKVA=
-github.com/aws/aws-sdk-go-v2/service/textract v1.40.22 h1:5ZGc7TSqoCwkGpxoKFzNGcL6dQ2wv319WunuWoKTTH8=
-github.com/aws/aws-sdk-go-v2/service/textract v1.40.22/go.mod h1:DVJm/vId+1JFkZVZ99bYMOG+1C1agofTDw1D8k54Ccs=
 github.com/aws/aws-sdk-go-v2/service/textract v1.41.0 h1:rj8QI1RrE/bwogmpW7cU/vHxf1fbwgJM/Kvx+vCLh+o=
 github.com/aws/aws-sdk-go-v2/service/textract v1.41.0/go.mod h1:DVJm/vId+1JFkZVZ99bYMOG+1C1agofTDw1D8k54Ccs=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.16 h1:TZX5t1gkc86u5uZ4/bpDlMJueTECHoPW79Q3qFVAx0M=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.16/go.mod h1:cXS7lSuHPcQRj/KDvbqA55/a8/gUvNW+5aEpgpmrN9Y=
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19 h1:XkeqlcNouQtmViM1iIwmcpI3aQQYvBGzWLWEmK428eM=
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19/go.mod h1:wkELVGpfMlCbGh0codwFhQCkiunnDZiUkkGdydvHJwM=
-github.com/aws/aws-sdk-go-v2/service/transcribe v1.54.3 h1:WeBI1fflgrfW4Pb4bNBteD7D2mV0jyPh5iTlzpbbpGo=
-github.com/aws/aws-sdk-go-v2/service/transcribe v1.54.3/go.mod h1:a34Z+HfwbhoAljtj/tX6rL97QPYODw1p5h1OCvVlLDE=
 github.com/aws/aws-sdk-go-v2/service/transcribe v1.55.0 h1:RKV4MScftqxaWNft0S5MqGgz78zyFU6IK/pxNlH6MJs=
 github.com/aws/aws-sdk-go-v2/service/transcribe v1.55.0/go.mod h1:z29t64Pva4oeaYboSZrJhhYJDZu80VCV/AnMnqhNvwE=
 github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
