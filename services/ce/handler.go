@@ -854,50 +854,115 @@ func (h *Handler) handleUpdateAnomalySubscription(
 	return &updateAnomalySubscriptionOutput{SubscriptionArn: sub.SubscriptionARN}, nil
 }
 
-// --- Cost & Usage query stubs ---
+// --- Cost & Usage queries ---
+
+type groupBySpec struct {
+	Type string `json:"Type"`
+	Key  string `json:"Key"`
+}
 
 type getCostAndUsageInput struct {
+	Filter      any               `json:"Filter"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
 	Metrics     []string          `json:"Metrics"`
+	GroupBy     []groupBySpec     `json:"GroupBy"`
+	NextPageToken string          `json:"NextPageToken"`
 }
 
 type getCostAndUsageOutput struct {
-	ResultsByTime            []any `json:"ResultsByTime"`
-	DimensionValueAttributes []any `json:"DimensionValueAttributes"`
+	NextPageToken            string        `json:"NextPageToken,omitempty"`
+	ResultsByTime            []ResultByTime `json:"ResultsByTime"`
+	DimensionValueAttributes []any         `json:"DimensionValueAttributes"`
 }
 
 func (h *Handler) handleGetCostAndUsage(
 	_ context.Context,
-	_ *getCostAndUsageInput,
+	in *getCostAndUsageInput,
 ) (*getCostAndUsageOutput, error) {
+	start := ""
+	end := ""
+
+	if in.TimePeriod != nil {
+		start = in.TimePeriod["Start"]
+		end = in.TimePeriod["End"]
+	}
+
+	if start == "" {
+		start = "2024-01-01"
+	}
+
+	if end == "" {
+		end = "2024-02-01"
+	}
+
+	granularity := in.Granularity
+	if granularity == "" {
+		granularity = "DAILY"
+	}
+
+	groupBy := make([]GroupBySpec, 0, len(in.GroupBy))
+	for _, g := range in.GroupBy {
+		groupBy = append(groupBy, GroupBySpec{Type: g.Type, Key: g.Key})
+	}
+
+	results := h.Backend.GetCostAndUsage(start, end, granularity, in.Metrics, groupBy)
+
 	return &getCostAndUsageOutput{
-		ResultsByTime:            []any{},
+		ResultsByTime:            results,
 		DimensionValueAttributes: []any{},
 	}, nil
+}
+
+type dimensionValue struct {
+	Value      string            `json:"Value"`
+	Attributes map[string]string `json:"Attributes,omitempty"`
 }
 
 type getDimensionValuesInput struct {
 	TimePeriod   map[string]string `json:"TimePeriod"`
 	Dimension    string            `json:"Dimension"`
 	SearchString string            `json:"SearchString"`
+	Context      string            `json:"Context"`
+	NextPageToken string           `json:"NextPageToken"`
+	MaxResults   int               `json:"MaxResults"`
 }
 
 type getDimensionValuesOutput struct {
-	NextPageToken   string `json:"NextPageToken,omitempty"`
-	DimensionValues []any  `json:"DimensionValues"`
-	ReturnSize      int    `json:"ReturnSize"`
-	TotalSize       int    `json:"TotalSize"`
+	NextPageToken   string           `json:"NextPageToken,omitempty"`
+	DimensionValues []dimensionValue `json:"DimensionValues"`
+	ReturnSize      int              `json:"ReturnSize"`
+	TotalSize       int              `json:"TotalSize"`
 }
 
 func (h *Handler) handleGetDimensionValues(
 	_ context.Context,
-	_ *getDimensionValuesInput,
+	in *getDimensionValuesInput,
 ) (*getDimensionValuesOutput, error) {
+	vals := h.Backend.GetDimensionValues(in.Dimension)
+
+	if in.SearchString != "" {
+		filtered := vals[:0]
+		search := strings.ToLower(in.SearchString)
+
+		for _, v := range vals {
+			if strings.Contains(strings.ToLower(v), search) {
+				filtered = append(filtered, v)
+			}
+		}
+
+		vals = filtered
+	}
+
+	items := make([]dimensionValue, 0, len(vals))
+	for _, v := range vals {
+		items = append(items, dimensionValue{Value: v})
+	}
+
 	return &getDimensionValuesOutput{
-		DimensionValues: []any{},
-		ReturnSize:      0,
-		TotalSize:       0,
+		DimensionValues: items,
+		ReturnSize:      len(items),
+		TotalSize:       len(items),
 	}, nil
 }
 
@@ -905,6 +970,9 @@ type getTagsInput struct {
 	TimePeriod   map[string]string `json:"TimePeriod"`
 	TagKey       string            `json:"TagKey"`
 	SearchString string            `json:"SearchString"`
+	Filter       any               `json:"Filter"`
+	NextPageToken string           `json:"NextPageToken"`
+	MaxResults   int               `json:"MaxResults"`
 }
 
 type getTagsOutput struct {
@@ -916,12 +984,37 @@ type getTagsOutput struct {
 
 func (h *Handler) handleGetTags(
 	_ context.Context,
-	_ *getTagsInput,
+	in *getTagsInput,
 ) (*getTagsOutput, error) {
+	var tags []string
+
+	if in.TagKey != "" {
+		tags = h.Backend.GetTagValues(in.TagKey)
+	} else {
+		tags = h.Backend.GetTagKeys()
+	}
+
+	if in.SearchString != "" {
+		filtered := tags[:0]
+		search := strings.ToLower(in.SearchString)
+
+		for _, t := range tags {
+			if strings.Contains(strings.ToLower(t), search) {
+				filtered = append(filtered, t)
+			}
+		}
+
+		tags = filtered
+	}
+
+	if tags == nil {
+		tags = []string{}
+	}
+
 	return &getTagsOutput{
-		Tags:       []string{},
-		ReturnSize: 0,
-		TotalSize:  0,
+		Tags:       tags,
+		ReturnSize: len(tags),
+		TotalSize:  len(tags),
 	}, nil
 }
 
@@ -1064,16 +1157,25 @@ type getAnomaliesInput struct {
 	MaxResults    int                 `json:"MaxResults"`
 }
 
+type anomalyImpact struct {
+	MaxImpact              float64 `json:"MaxImpact"`
+	TotalImpact            float64 `json:"TotalImpact"`
+	TotalActualSpend       float64 `json:"TotalActualSpend"`
+	TotalExpectedSpend     float64 `json:"TotalExpectedSpend"`
+	TotalImpactPercentage  float64 `json:"TotalImpactPercentage"`
+}
+
 type anomalySummary struct {
-	AnomalyID        string  `json:"AnomalyId"`
-	AnomalyStartDate string  `json:"AnomalyStartDate"`
-	AnomalyEndDate   string  `json:"AnomalyEndDate"`
-	DimensionValue   string  `json:"DimensionValue"`
-	MonitorArn       string  `json:"MonitorArn"`
-	SubscriptionArn  string  `json:"SubscriptionArn,omitempty"`
-	Feedback         string  `json:"Feedback,omitempty"`
-	AnomalyScore     float64 `json:"AnomalyScore"`
-	Impact           float64 `json:"Impact"`
+	AnomalyID        string          `json:"AnomalyId"`
+	AnomalyStartDate string          `json:"AnomalyStartDate"`
+	AnomalyEndDate   string          `json:"AnomalyEndDate"`
+	DimensionValue   string          `json:"DimensionValue"`
+	MonitorArn       string          `json:"MonitorArn"`
+	SubscriptionArn  string          `json:"SubscriptionArn,omitempty"`
+	Feedback         string          `json:"Feedback,omitempty"`
+	AnomalyScore     AnomalyScore    `json:"AnomalyScore"`
+	Impact           anomalyImpact   `json:"Impact"`
+	RootCauses       []AnomalyRootCause `json:"RootCauses,omitempty"`
 }
 
 type getAnomaliesOutput struct {
@@ -1097,8 +1199,15 @@ func (h *Handler) handleGetAnomalies(
 			MonitorArn:       a.MonitorARN,
 			SubscriptionArn:  a.SubscriptionARN,
 			AnomalyScore:     a.AnomalyScore,
-			Impact:           a.TotalImpact,
-			Feedback:         a.FeedbackType,
+			Impact: anomalyImpact{
+				MaxImpact:             a.TotalImpact,
+				TotalImpact:           a.TotalImpact,
+				TotalActualSpend:      a.TotalImpact * 1.2,
+				TotalExpectedSpend:    a.TotalImpact * 0.9,
+				TotalImpactPercentage: 25.0,
+			},
+			Feedback:   a.FeedbackType,
+			RootCauses: a.RootCauses,
 		})
 	}
 
