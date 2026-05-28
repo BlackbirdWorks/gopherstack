@@ -14,57 +14,12 @@ import (
 // All rows are collected before evaluation so that ORDER BY and aggregate functions work correctly.
 func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	csvIn := req.InputSerialization.CSV
+	fileHeaderInfo := csvFileHeaderInfo(csvIn)
+	r := newCSVReader(csvIn, data)
 
-	fieldDelim := ','
-	if csvIn != nil && csvIn.FieldDelimiter != "" {
-		fieldDelim = rune(csvIn.FieldDelimiter[0])
-	}
-
-	fileHeaderInfo := "NONE"
-	if csvIn != nil && csvIn.FileHeaderInfo != "" {
-		fileHeaderInfo = strings.ToUpper(csvIn.FileHeaderInfo)
-	}
-
-	r := csv.NewReader(bytes.NewReader(data))
-	r.Comma = fieldDelim
-	r.LazyQuotes = true
-	r.TrimLeadingSpace = true
-
-	if csvIn != nil && csvIn.Comments != "" {
-		r.Comment = rune(csvIn.Comments[0])
-	}
-
-	var headers []string
-	var rows []map[string]string
-	firstRecord := true
-
-	for {
-		rec, err := r.Read()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			return 0, fmt.Errorf("reading CSV: %w", err)
-		}
-
-		if firstRecord {
-			firstRecord = false
-			headers = prepareCSVHeaders(fileHeaderInfo, rec)
-
-			if fileHeaderInfo == "USE" {
-				continue
-			}
-		}
-
-		rowMap := make(map[string]string, len(headers))
-		for i, h := range headers {
-			if i < len(rec) {
-				rowMap[h] = rec[i]
-			}
-		}
-
-		rows = append(rows, rowMap)
+	rows, err := readCSVRows(r, fileHeaderInfo)
+	if err != nil {
+		return 0, err
 	}
 
 	resultRows, err := evalQuery(query, rows)
@@ -90,6 +45,73 @@ func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequ
 	}
 
 	return int64(len(resultBytes)), nil
+}
+
+func csvFileHeaderInfo(csvIn *selectCSVInput) string {
+	if csvIn != nil && csvIn.FileHeaderInfo != "" {
+		return strings.ToUpper(csvIn.FileHeaderInfo)
+	}
+
+	return "NONE"
+}
+
+func newCSVReader(csvIn *selectCSVInput, data []byte) *csv.Reader {
+	fieldDelim := ','
+	if csvIn != nil && csvIn.FieldDelimiter != "" {
+		fieldDelim = rune(csvIn.FieldDelimiter[0])
+	}
+
+	r := csv.NewReader(bytes.NewReader(data))
+	r.Comma = fieldDelim
+	r.LazyQuotes = true
+	r.TrimLeadingSpace = true
+
+	if csvIn != nil && csvIn.Comments != "" {
+		r.Comment = rune(csvIn.Comments[0])
+	}
+
+	return r
+}
+
+func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, error) {
+	var headers []string
+	var rows []map[string]string
+	firstRecord := true
+
+	for {
+		rec, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("reading CSV: %w", err)
+		}
+
+		if firstRecord {
+			firstRecord = false
+			headers = prepareCSVHeaders(fileHeaderInfo, rec)
+
+			if fileHeaderInfo == "USE" {
+				continue
+			}
+		}
+
+		rows = append(rows, csvRecordToMap(headers, rec))
+	}
+
+	return rows, nil
+}
+
+func csvRecordToMap(headers []string, rec []string) map[string]string {
+	rowMap := make(map[string]string, len(headers))
+	for i, h := range headers {
+		if i < len(rec) {
+			rowMap[h] = rec[i]
+		}
+	}
+
+	return rowMap
 }
 
 func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {

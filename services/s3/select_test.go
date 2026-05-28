@@ -407,8 +407,10 @@ func TestHandler_SelectObjectContent_JSON(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:     "JSON lines - isTruthy float64 path",
-			jsonData: []byte(`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":0}` + "\n"),
+			name: "JSON lines - isTruthy float64 path",
+			jsonData: []byte(
+				`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":0}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.score</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -420,8 +422,10 @@ func TestHandler_SelectObjectContent_JSON(t *testing.T) {
 			wantAbsent: "Bob",
 		},
 		{
-			name:     "JSON lines - isTruthy bool path",
-			jsonData: []byte(`{"name":"Alice","active":true}` + "\n" + `{"name":"Bob","active":false}` + "\n"),
+			name: "JSON lines - isTruthy bool path",
+			jsonData: []byte(
+				`{"name":"Alice","active":true}` + "\n" + `{"name":"Bob","active":false}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.active</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -949,8 +953,10 @@ func TestHandler_SelectObjectContent_ExtraOperators(t *testing.T) {
 			wantAbsent: "Bob",
 		},
 		{
-			name:    "CSV output with JSON input positional",
-			csvData: []byte(`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":5.0}` + "\n"),
+			name: "CSV output with JSON input positional",
+			csvData: []byte(
+				`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":5.0}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.score &gt; 6</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -1402,8 +1408,10 @@ func TestHandler_SelectObjectContent_Aggregates(t *testing.T) {
 			wantResult: "2",
 		},
 		{
-			name:    "SUM with WHERE on JSON LINES",
-			csvData: []byte("{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n{\"name\":\"Charlie\",\"age\":20}\n"),
+			name: "SUM with WHERE on JSON LINES",
+			csvData: []byte(
+				"{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n{\"name\":\"Charlie\",\"age\":20}\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT SUM(age) FROM s3object WHERE age &gt; 22</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -1542,8 +1550,10 @@ func TestHandler_SelectObjectContent_OrderBy(t *testing.T) {
 			wantOrder:  []string{"Charlie", "Bob", "Alice"},
 		},
 		{
-			name:    "ORDER BY on JSON LINES",
-			csvData: []byte("{\"name\":\"Charlie\",\"age\":20}\n{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n"),
+			name: "ORDER BY on JSON LINES",
+			csvData: []byte(
+				"{\"name\":\"Charlie\",\"age\":20}\n{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s ORDER BY s.age ASC</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -1582,7 +1592,14 @@ func TestHandler_SelectObjectContent_OrderBy(t *testing.T) {
 			lastPos := 0
 			for _, want := range tt.wantOrder {
 				pos := strings.Index(body[lastPos:], want)
-				require.GreaterOrEqual(t, pos, 0, "expected %q after position %d in response", want, lastPos)
+				require.GreaterOrEqual(
+					t,
+					pos,
+					0,
+					"expected %q after position %d in response",
+					want,
+					lastPos,
+				)
 				lastPos += pos + len(want)
 			}
 

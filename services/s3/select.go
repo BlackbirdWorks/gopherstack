@@ -37,12 +37,12 @@ const (
 
 // selectRequest is the XML body for SelectObjectContent.
 type selectRequest struct {
-	OutputSerialization selectOutputSerialization  `xml:"OutputSerialization"`
-	XMLName             xml.Name                   `xml:"SelectObjectContentRequest"`
-	InputSerialization  selectInputSerialization   `xml:"InputSerialization"`
-	RequestProgress     *selectRequestProgress     `xml:"RequestProgress"`
-	Expression          string                     `xml:"Expression"`
-	ExpressionType      string                     `xml:"ExpressionType"`
+	OutputSerialization selectOutputSerialization `xml:"OutputSerialization"`
+	XMLName             xml.Name                  `xml:"SelectObjectContentRequest"`
+	InputSerialization  selectInputSerialization  `xml:"InputSerialization"`
+	RequestProgress     *selectRequestProgress    `xml:"RequestProgress"`
+	Expression          string                    `xml:"Expression"`
+	ExpressionType      string                    `xml:"ExpressionType"`
 }
 
 // selectRequestProgress controls whether Progress events are emitted.
