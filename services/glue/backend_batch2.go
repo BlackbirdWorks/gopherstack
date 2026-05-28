@@ -517,7 +517,7 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRun(runID string) error {
 	defer b.mu.Unlock()
 
 	if r, ok := b.columnStatTaskRuns[runID]; ok {
-		r.Status = "STOPPED"
+		r.Status = stateStopped
 	}
 
 	return nil
@@ -590,7 +590,7 @@ func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(taskRunID string) e
 	defer b.mu.Unlock()
 
 	if r, ok := b.materializedViewRuns[taskRunID]; ok {
-		r.Status = "STOPPED"
+		r.Status = stateStopped
 	}
 
 	return nil

@@ -34,6 +34,7 @@ const (
 	stateRunning          = "RUNNING"
 	stateStarting         = "STARTING"
 	stateStopping         = "STOPPING"
+	stateStopped          = "STOPPED"
 	stateReady            = "READY"
 	stateSucceeded        = "SUCCEEDED"
 	stateAvailable        = "AVAILABLE"

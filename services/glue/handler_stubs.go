@@ -2581,9 +2581,9 @@ func (h *Handler) handleGetTriggers(
 
 // getUnfilteredPartitionMetadataInput holds input for GetUnfilteredPartitionMetadata.
 type getUnfilteredPartitionMetadataInput struct {
-	DatabaseName        string   `json:"DatabaseName"`
-	TableName           string   `json:"TableName"`
-	PartitionValues     []string `json:"PartitionValues"`
+	DatabaseName             string   `json:"DatabaseName"`
+	TableName                string   `json:"TableName"`
+	PartitionValues          []string `json:"PartitionValues"`
 	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
 }
 
@@ -2615,16 +2615,16 @@ func (h *Handler) handleGetUnfilteredPartitionMetadata(
 
 // getUnfilteredPartitionsMetadataInput holds input for GetUnfilteredPartitionsMetadata.
 type getUnfilteredPartitionsMetadataInput struct {
-	DatabaseName             string `json:"DatabaseName"`
-	TableName                string `json:"TableName"`
+	DatabaseName             string   `json:"DatabaseName"`
+	TableName                string   `json:"TableName"`
 	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
 }
 
 // unfilteredPartitionEntry wraps a Partition for the unfiltered metadata response.
 type unfilteredPartitionEntry struct {
-	Partition             *Partition `json:"Partition"`
-	AuthorizedColumns     []string   `json:"AuthorizedColumns"`
-	IsRegisteredWithLakeFormation bool `json:"IsRegisteredWithLakeFormation"`
+	Partition                     *Partition `json:"Partition"`
+	AuthorizedColumns             []string   `json:"AuthorizedColumns"`
+	IsRegisteredWithLakeFormation bool       `json:"IsRegisteredWithLakeFormation"`
 }
 
 // getUnfilteredPartitionsMetadataOutput holds the result for GetUnfilteredPartitionsMetadata.

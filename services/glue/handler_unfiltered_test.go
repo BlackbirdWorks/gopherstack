@@ -23,7 +23,9 @@ func TestGetUnfilteredTableMetadata(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ AuthorizedColumns []string `json:"AuthorizedColumns"` }
+		var out struct {
+			AuthorizedColumns []string `json:"AuthorizedColumns"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.NotNil(t, out.AuthorizedColumns)
 	})
@@ -97,7 +99,9 @@ func TestGetUnfilteredPartitionMetadata(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ AuthorizedColumns []string `json:"AuthorizedColumns"` }
+		var out struct {
+			AuthorizedColumns []string `json:"AuthorizedColumns"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.NotNil(t, out.AuthorizedColumns)
 	})
@@ -158,7 +162,9 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ UnfilteredPartitions []any `json:"UnfilteredPartitions"` }
+		var out struct {
+			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Empty(t, out.UnfilteredPartitions)
 	})
@@ -186,7 +192,9 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ UnfilteredPartitions []any `json:"UnfilteredPartitions"` }
+		var out struct {
+			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Empty(t, out.UnfilteredPartitions)
 	})
@@ -205,7 +213,9 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ UnfilteredPartitions []any `json:"UnfilteredPartitions"` }
+		var out struct {
+			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.UnfilteredPartitions, 2)
 	})
@@ -273,7 +283,9 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, tblMetaRec.Code)
 
 	var tblMeta struct {
-		Table struct{ Name string `json:"Name"` } `json:"Table"`
+		Table struct {
+			Name string `json:"Name"`
+		} `json:"Table"`
 	}
 	require.NoError(t, json.Unmarshal(tblMetaRec.Body.Bytes(), &tblMeta))
 	assert.Equal(t, "integ-uf-tbl", tblMeta.Table.Name)
@@ -285,7 +297,9 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, partsMetaRec.Code)
 
-	var partsMeta struct{ UnfilteredPartitions []any `json:"UnfilteredPartitions"` }
+	var partsMeta struct {
+		UnfilteredPartitions []any `json:"UnfilteredPartitions"`
+	}
 	require.NoError(t, json.Unmarshal(partsMetaRec.Body.Bytes(), &partsMeta))
 	assert.Len(t, partsMeta.UnfilteredPartitions, 1)
 
@@ -298,7 +312,9 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, partMetaRec.Code)
 
 	var partMeta struct {
-		Partition struct{ Values []string `json:"Values"` } `json:"Partition"`
+		Partition struct {
+			Values []string `json:"Values"`
+		} `json:"Partition"`
 	}
 	require.NoError(t, json.Unmarshal(partMetaRec.Body.Bytes(), &partMeta))
 	assert.Equal(t, []string{"2024", "06"}, partMeta.Partition.Values)

@@ -142,7 +142,7 @@ func (b *InMemoryBackend) CancelMLTaskRun(transformID, taskRunID string) error {
 		return ErrMLTaskRunNotFound
 	}
 
-	run.Status = "STOPPED"
+	run.Status = stateStopped
 	run.CompletedOn = float64(time.Now().Unix())
 
 	return nil

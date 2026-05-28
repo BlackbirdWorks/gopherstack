@@ -35,10 +35,10 @@ func TestMLEvaluationTaskRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setupFn    func(t *testing.T, h *glue.Handler) (transformID string)
+		name        string
+		setupFn     func(t *testing.T, h *glue.Handler) (transformID string)
 		transformID string // override if not using setup
-		wantCode   int
+		wantCode    int
 	}{
 		{
 			name: "unknown_transform_returns_400",
@@ -96,18 +96,18 @@ func TestMLExportImportLabels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		action  string
 		extraInput map[string]any
+		name       string
+		action     string
 	}{
 		{
-			name:   "export_labels",
-			action: "StartExportLabelsTaskRun",
+			name:       "export_labels",
+			action:     "StartExportLabelsTaskRun",
 			extraInput: map[string]any{"OutputS3Path": "s3://bucket/labels/"},
 		},
 		{
-			name:   "import_labels",
-			action: "StartImportLabelsTaskRun",
+			name:       "import_labels",
+			action:     "StartImportLabelsTaskRun",
 			extraInput: map[string]any{"InputS3Path": "s3://bucket/import/"},
 		},
 	}
@@ -147,7 +147,9 @@ func TestGetMLTaskRun(t *testing.T) {
 		rec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Status string `json:"Status"` }
+		var out struct {
+			Status string `json:"Status"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Equal(t, "SUCCEEDED", out.Status)
 	})
@@ -174,7 +176,9 @@ func TestGetMLTaskRun(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, startRec.Code)
 
-		var startOut struct{ TaskRunID string `json:"TaskRunId"` }
+		var startOut struct {
+			TaskRunID string `json:"TaskRunId"`
+		}
 		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 
 		getRec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{
@@ -205,7 +209,9 @@ func TestGetMLTaskRun(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, getRec2.Code)
 
-		var getOut2 struct{ Status string `json:"Status"` }
+		var getOut2 struct {
+			Status string `json:"Status"`
+		}
 		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
 		assert.Equal(t, "STOPPED", getOut2.Status)
 	})
@@ -222,7 +228,9 @@ func TestGetMLTaskRuns(t *testing.T) {
 		rec := doGlueRequest(t, h, "GetMLTaskRuns", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ TaskRuns []any `json:"TaskRuns"` }
+		var out struct {
+			TaskRuns []any `json:"TaskRuns"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Empty(t, out.TaskRuns)
 	})
@@ -245,7 +253,9 @@ func TestGetMLTaskRuns(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ TaskRuns []any `json:"TaskRuns"` }
+		var out struct {
+			TaskRuns []any `json:"TaskRuns"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.TaskRuns, 3)
 	})
@@ -256,8 +266,8 @@ func TestCancelMLTaskRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		input    map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -288,9 +298,9 @@ func TestListMLTransforms_Stateful(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		name        string
 		createCount int
-		wantLen    int
+		wantLen     int
 	}{
 		{name: "empty", createCount: 0, wantLen: 0},
 		{name: "one_transform", createCount: 1, wantLen: 1},
@@ -309,7 +319,9 @@ func TestListMLTransforms_Stateful(t *testing.T) {
 			rec := doGlueRequest(t, h, "ListMLTransforms", map[string]any{})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var out struct{ TransformIDs []string `json:"TransformIds"` }
+			var out struct {
+				TransformIDs []string `json:"TransformIds"`
+			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Len(t, out.TransformIDs, tc.wantLen)
 		})
@@ -327,7 +339,9 @@ func TestDataQualityEvaluationRuns_Stateful(t *testing.T) {
 		rec := doGlueRequest(t, h, "ListDataQualityRulesetEvaluationRuns", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Runs []any `json:"Runs"` }
+		var out struct {
+			Runs []any `json:"Runs"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Empty(t, out.Runs)
 	})
@@ -353,7 +367,9 @@ func TestDataQualityEvaluationRuns_Stateful(t *testing.T) {
 		rec := doGlueRequest(t, h, "ListDataQualityRulesetEvaluationRuns", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Runs []any `json:"Runs"` }
+		var out struct {
+			Runs []any `json:"Runs"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Runs, 1)
 	})
@@ -370,7 +386,9 @@ func TestListDataQualityResults_Stateful(t *testing.T) {
 		rec := doGlueRequest(t, h, "ListDataQualityResults", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Results []any `json:"Results"` }
+		var out struct {
+			Results []any `json:"Results"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Empty(t, out.Results)
 	})
@@ -387,7 +405,9 @@ func TestListDataQualityResults_Stateful(t *testing.T) {
 		rec := doGlueRequest(t, h, "ListDataQualityResults", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Results []any `json:"Results"` }
+		var out struct {
+			Results []any `json:"Results"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Results, 2)
 	})
@@ -398,9 +418,9 @@ func TestUsageProfile_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		input    map[string]any
 		name     string
 		action   string
-		input    map[string]any
 		wantCode int
 	}{
 		{
@@ -445,8 +465,8 @@ func TestBlueprintRun_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		input    map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -477,8 +497,8 @@ func TestDataQualityRecommendationRun_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		input    map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -519,7 +539,9 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, startRec.Code)
 
-		var startOut struct{ RunID string `json:"RunId"` }
+		var startOut struct {
+			RunID string `json:"RunId"`
+		}
 		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 		assert.NotEmpty(t, startOut.RunID)
 
@@ -546,7 +568,9 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, getRec2.Code)
 
-		var getOut2 struct{ Status string `json:"Status"` }
+		var getOut2 struct {
+			Status string `json:"Status"`
+		}
 		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
 		assert.Equal(t, "STOPPED", getOut2.Status)
 	})
@@ -574,7 +598,9 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 		rec := doGlueRequest(t, h, "GetMaterializedViewRefreshTaskRun", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 
-		var out struct{ Status string `json:"Status"` }
+		var out struct {
+			Status string `json:"Status"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Equal(t, "RUNNING", out.Status)
 	})
@@ -594,7 +620,9 @@ func TestGlueIdentityCenter_Stateful(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetGlueIdentityCenterConfiguration", map[string]any{})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
-	var getOut struct{ InstanceArn string `json:"InstanceArn"` }
+	var getOut struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 	assert.Equal(t, "arn:aws:sso:::instance/ssoins-1234", getOut.InstanceArn)
 
@@ -612,10 +640,10 @@ func TestCustomEntityType_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		action   string
 		setup    func(t *testing.T, h *glue.Handler)
 		input    map[string]any
+		name     string
+		action   string
 		wantCode int
 	}{
 		{
@@ -698,9 +726,9 @@ func TestIntegration_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		input    map[string]any
 		name     string
 		action   string
-		input    map[string]any
 		wantCode int
 	}{
 		{
@@ -747,7 +775,9 @@ func TestDataQualityRecommendationRun_Stateful(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 
-	var startOut struct{ RunID string `json:"RunId"` }
+	var startOut struct {
+		RunID string `json:"RunId"`
+	}
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	assert.NotEmpty(t, startOut.RunID)
 
