@@ -504,13 +504,13 @@ func (h *Handler) handleGetTrailStatus(c *echo.Context, body []byte) error {
 		"IsLogging": t.IsLogging,
 	}
 	if t.StartLoggingTime != nil {
-		resp["StartLoggingTime"] = t.StartLoggingTime
+		resp["StartLoggingTime"] = float64(t.StartLoggingTime.Unix())
 	}
 	if t.StopLoggingTime != nil {
-		resp["StopLoggingTime"] = t.StopLoggingTime
+		resp["StopLoggingTime"] = float64(t.StopLoggingTime.Unix())
 	}
 	if t.LatestDeliveryTime != nil {
-		resp["LatestDeliveryTime"] = t.LatestDeliveryTime
+		resp["LatestDeliveryTime"] = float64(t.LatestDeliveryTime.Unix())
 	}
 
 	return c.JSON(http.StatusOK, resp)
