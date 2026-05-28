@@ -37,7 +37,9 @@ func TestHandler_ErrorPropagation_ResourceNotFound(t *testing.T) {
 		{
 			name:      "GetShardIterator with unknown ARN",
 			operation: "GetShardIterator",
-			body:      `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/NoSuch/stream/2024-01-01T00:00:00.000","ShardId":"shardId-00000000000000000001-00000001","ShardIteratorType":"TRIM_HORIZON"}`,
+			body: `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/NoSuch/stream/` +
+				`2024-01-01T00:00:00.000","ShardId":"shardId-00000000000000000001-00000001",` +
+				`"ShardIteratorType":"TRIM_HORIZON"}`,
 		},
 	}
 
@@ -79,9 +81,10 @@ func TestHandler_ErrorPropagation_ValidationException(t *testing.T) {
 			wantErrType: "ValidationException",
 		},
 		{
-			name:        "GetShardIterator missing ShardId",
-			operation:   "GetShardIterator",
-			body:        `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/stream/2024-01-01T00:00:00.000","ShardIteratorType":"TRIM_HORIZON"}`,
+			name:      "GetShardIterator missing ShardId",
+			operation: "GetShardIterator",
+			body: `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/` +
+				`stream/2024-01-01T00:00:00.000","ShardIteratorType":"TRIM_HORIZON"}`,
 			wantErrType: "ValidationException",
 		},
 	}
@@ -314,7 +317,7 @@ func TestHandler_OpaqueIterator_TokenNotDecodable(t *testing.T) {
 // splitN splits s by sep, returning at most n parts. Helper to avoid import.
 func splitN(s, sep string, n int) []string {
 	var parts []string
-	for i := 0; i < n-1; i++ {
+	for range n - 1 {
 		idx := indexOf(s, sep)
 		if idx < 0 {
 			break
@@ -323,6 +326,7 @@ func splitN(s, sep string, n int) []string {
 		s = s[idx+len(sep):]
 	}
 	parts = append(parts, s)
+
 	return parts
 }
 
@@ -332,6 +336,7 @@ func indexOf(s, sub string) int {
 			return i
 		}
 	}
+
 	return -1
 }
 

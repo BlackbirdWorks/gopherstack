@@ -125,11 +125,11 @@ func TestUnit_Streams_OpaqueIterator_SweepRemovesExpiredTokens(t *testing.T) {
 		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
 	})
 	require.NoError(t, err)
-	require.Greater(t, db.IteratorStoreSize(), 0)
+	require.Positive(t, db.IteratorStoreSize())
 
 	// Sweeping before TTL should leave the token in place.
 	db.SweepIterators()
-	assert.Greater(t, db.IteratorStoreSize(), 0,
+	assert.Positive(t, db.IteratorStoreSize(),
 		"Sweep must not remove unexpired tokens")
 }
 
@@ -182,7 +182,9 @@ func TestUnit_Streams_GetShardIterator_Validation(t *testing.T) {
 		{
 			name: "stream not found",
 			input: &dynamodbstreams.GetShardIteratorInput{
-				StreamArn:         aws.String("arn:aws:dynamodb:us-east-1:123456789012:table/NoTable/stream/2024-01-01T00:00:00.000"),
+				StreamArn: aws.String(
+					"arn:aws:dynamodb:us-east-1:123456789012:table/NoTable/stream/2024-01-01T00:00:00.000",
+				),
 				ShardId:           aws.String(ddb.StreamShardID),
 				ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
 			},
@@ -472,7 +474,7 @@ func TestUnit_Streams_TrimHorizon_AdvancesWhenBufferWraps(t *testing.T) {
 	require.NoError(t, err)
 
 	trimSeq := db.StreamTrimSeq("TrimTable")
-	assert.Greater(t, trimSeq, int64(0),
+	assert.Positive(t, trimSeq,
 		"trim horizon must advance once the ring buffer starts overwriting records")
 }
 
@@ -493,7 +495,7 @@ func TestUnit_Streams_TrimmedDataAccess_GetRecordsReturnsError(t *testing.T) {
 	}
 
 	trimSeq := db.StreamTrimSeq("TrimErrTable")
-	require.Greater(t, trimSeq, int64(0))
+	require.Positive(t, trimSeq)
 
 	table, ok := db.GetTable("TrimErrTable")
 	require.True(t, ok)
@@ -878,8 +880,8 @@ func TestUnit_Streams_SeqNum_ParseRoundTrip(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		input   int64
 		wantStr string
+		input   int64
 	}{
 		{name: "zero", input: 0, wantStr: ""},
 		{name: "one", input: 1, wantStr: "00000000000000000001"},
@@ -893,6 +895,7 @@ func TestUnit_Streams_SeqNum_ParseRoundTrip(t *testing.T) {
 			if tt.input <= 0 {
 				result := ddb.SeqNumString(tt.input)
 				assert.Empty(t, result)
+
 				return
 			}
 

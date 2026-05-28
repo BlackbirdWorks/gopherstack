@@ -21,7 +21,6 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-
 const (
 	targetPrefix = "DynamoDBStreams_20120810."
 )
@@ -207,12 +206,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 	var backendErr *ddbbackend.Error
 	if errors.As(reqErr, &backendErr) {
 		httpStatus := http.StatusBadRequest
-		// Certain error types map to non-400 status codes.
-		for suffix, code := range streamsErrStatus {
-			if strings.HasSuffix(backendErr.Type, "#"+suffix) {
-				httpStatus = code
-				break
-			}
+		// InternalServerError maps to 500; all other DynamoDB Streams errors map to 400.
+		if strings.HasSuffix(backendErr.Type, "#InternalServerError") {
+			httpStatus = http.StatusInternalServerError
 		}
 
 		body, _ := json.Marshal(map[string]string{

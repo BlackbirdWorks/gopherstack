@@ -20,16 +20,16 @@ import (
 
 // Sentinel errors for streams operations.
 var (
-	ErrInvalidAttributeValue  = errors.New("expected map[string]any for attribute value")
-	ErrInvalidTypeKeyCount    = errors.New("expected exactly 1 type key")
-	ErrTypeMismatchS          = errors.New("expected string for S")
-	ErrTypeMismatchN          = errors.New("expected string for N")
-	ErrTypeMismatchBOOL       = errors.New("expected bool for BOOL")
-	ErrTypeMismatchM          = errors.New("expected map for M")
-	ErrTypeMismatchL          = errors.New("expected slice for L")
-	ErrTypeMismatchB          = errors.New("expected []byte or base64 string for B")
-	ErrUnknownAttributeType   = errors.New("unknown attribute type")
-	ErrEmptySequenceNumber    = errors.New("empty sequence number")
+	ErrInvalidAttributeValue = errors.New("expected map[string]any for attribute value")
+	ErrInvalidTypeKeyCount   = errors.New("expected exactly 1 type key")
+	ErrTypeMismatchS         = errors.New("expected string for S")
+	ErrTypeMismatchN         = errors.New("expected string for N")
+	ErrTypeMismatchBOOL      = errors.New("expected bool for BOOL")
+	ErrTypeMismatchM         = errors.New("expected map for M")
+	ErrTypeMismatchL         = errors.New("expected slice for L")
+	ErrTypeMismatchB         = errors.New("expected []byte or base64 string for B")
+	ErrUnknownAttributeType  = errors.New("unknown attribute type")
+	ErrEmptySequenceNumber   = errors.New("empty sequence number")
 )
 
 const (
@@ -176,6 +176,7 @@ func (db *InMemoryDB) DescribeStream(
 			if s.ShardID == exclusiveStart {
 				shards = shards[i+1:]
 				found = true
+
 				break
 			}
 		}
@@ -258,6 +259,7 @@ func buildSDKShards(shards []StreamShard) []streamstypes.Shard {
 		}
 		out = append(out, shard)
 	}
+
 	return out
 }
 
@@ -266,6 +268,7 @@ func seqNumString(seq int64) string {
 	if seq <= 0 {
 		return ""
 	}
+
 	return fmt.Sprintf("%0*d", seqNumWidth, seq)
 }
 
@@ -274,6 +277,7 @@ func parseSeqNum(s string) (int64, error) {
 	if s == "" {
 		return 0, ErrEmptySequenceNumber
 	}
+
 	return strconv.ParseInt(strings.TrimLeft(s, "0"), 10, 64)
 }
 
@@ -325,52 +329,15 @@ func (db *InMemoryDB) GetShardIterator(
 		if s.ShardID == requestedShardID {
 			shardStartSeq = s.StartingSequenceNum
 			shardEndSeq = s.EndingSequenceNum
+
 			break
 		}
 	}
 
 	// Determine start sequence from iterator type.
-	var startSeq int64
-
-	switch input.ShardIteratorType {
-	case streamstypes.ShardIteratorTypeLatest:
-		startSeq = currentSeq + 1
-	case streamstypes.ShardIteratorTypeAtSequenceNumber,
-		streamstypes.ShardIteratorTypeAfterSequenceNumber:
-		seqStr := aws.ToString(input.SequenceNumber)
-		if seqStr == "" {
-			return nil, NewValidationException(
-				"SequenceNumber is required for AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types",
-			)
-		}
-		seq, err := parseSeqNum(seqStr)
-		if err != nil {
-			return nil, NewValidationException("Invalid SequenceNumber: " + seqStr)
-		}
-		if seq < trimSeq && trimSeq > 0 {
-			return nil, NewTrimmedDataAccessException(
-				fmt.Sprintf("Sequence number %s has been trimmed; earliest available is %s",
-					seqStr, seqNumString(trimSeq)),
-			)
-		}
-		if input.ShardIteratorType == streamstypes.ShardIteratorTypeAfterSequenceNumber {
-			startSeq = seq + 1
-		} else {
-			startSeq = seq
-		}
-	default: // TrimHorizon — start from beginning of shard
-		startSeq = shardStartSeq
-		if startSeq == 0 {
-			startSeq = 1
-		}
-		if trimSeq > startSeq {
-			startSeq = trimSeq
-		}
-	}
-
-	// For closed shards, clamp startSeq to the shard's sequence range.
-	if shardEndSeq > 0 && startSeq > shardEndSeq {
-		startSeq = shardEndSeq + 1
+	startSeq, seqErr := resolveStartSeq(input, currentSeq, trimSeq, shardStartSeq, shardEndSeq)
+	if seqErr != nil {
+		return nil, seqErr
 	}
 
 	token, err := db.iteratorStore.Put(found.Name, startSeq)
@@ -381,6 +348,63 @@ func (db *InMemoryDB) GetShardIterator(
 	return &dynamodbstreams.GetShardIteratorOutput{
 		ShardIterator: aws.String(token),
 	}, nil
+}
+
+// resolveStartSeq resolves the starting sequence number for a new shard iterator
+// based on the requested iterator type and stream state.
+func resolveStartSeq(
+	input *dynamodbstreams.GetShardIteratorInput,
+	currentSeq, trimSeq, shardStartSeq, shardEndSeq int64,
+) (int64, error) {
+	var startSeq int64
+
+	switch input.ShardIteratorType {
+	case streamstypes.ShardIteratorTypeLatest:
+		startSeq = currentSeq + 1
+	case streamstypes.ShardIteratorTypeAtSequenceNumber,
+		streamstypes.ShardIteratorTypeAfterSequenceNumber:
+		seqStr := aws.ToString(input.SequenceNumber)
+		if seqStr == "" {
+			return 0, NewValidationException(
+				"SequenceNumber is required for AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types",
+			)
+		}
+
+		seq, err := parseSeqNum(seqStr)
+		if err != nil {
+			return 0, NewValidationException("Invalid SequenceNumber: " + seqStr)
+		}
+
+		if trimSeq > 0 && seq < trimSeq {
+			return 0, NewTrimmedDataAccessException(
+				fmt.Sprintf("Sequence number %s has been trimmed; earliest available is %s",
+					seqStr, seqNumString(trimSeq)),
+			)
+		}
+
+		if input.ShardIteratorType == streamstypes.ShardIteratorTypeAfterSequenceNumber {
+			startSeq = seq + 1
+		} else {
+			startSeq = seq
+		}
+
+	default: // TrimHorizon — start from beginning of shard
+		startSeq = shardStartSeq
+		if startSeq == 0 {
+			startSeq = 1
+		}
+
+		if trimSeq > startSeq {
+			startSeq = trimSeq
+		}
+	}
+
+	// For closed shards, clamp startSeq beyond the shard's end so GetRecords returns nothing.
+	if shardEndSeq > 0 && startSeq > shardEndSeq {
+		startSeq = shardEndSeq + 1
+	}
+
+	return startSeq, nil
 }
 
 // isValidShardID checks whether the given shardID is known for the stream.
@@ -396,6 +420,7 @@ func isValidShardID(shardID string, shards []StreamShard) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -465,8 +490,10 @@ func (db *InMemoryDB) resolveIterator(token string) (string, int64, error) {
 	if entry != nil {
 		if time.Now().After(entry.ExpiresAt) {
 			db.iteratorStore.Delete(token)
+
 			return "", 0, NewExpiredIteratorException("Shard iterator has expired")
 		}
+
 		return entry.TableName, entry.StartSeq, nil
 	}
 
@@ -549,6 +576,7 @@ func (db *InMemoryDB) ListStreams(
 		for i, s := range collected {
 			if s.arn == exclusiveStart {
 				collected = collected[i+1:]
+
 				break
 			}
 		}
