@@ -6,6 +6,7 @@ type backendSnapshot struct {
 	Connections        map[string]*Connection        `json:"connections"`
 	ConnectionsByName  map[string]string             `json:"connectionsByName"`
 	Hosts              map[string]*Host              `json:"hosts"`
+	HostsByName        map[string]string             `json:"hostsByName"`
 	RepositoryLinks    map[string]*RepositoryLink    `json:"repositoryLinks"`
 	SyncConfigurations map[string]*SyncConfiguration `json:"syncConfigurations"`
 	AccountID          string                        `json:"accountID"`
@@ -22,6 +23,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Connections:        b.connections,
 		ConnectionsByName:  b.connectionsByName,
 		Hosts:              b.hosts,
+		HostsByName:        b.hostsByName,
 		RepositoryLinks:    b.repositoryLinks,
 		SyncConfigurations: b.syncConfigurations,
 		AccountID:          b.accountID,
@@ -60,6 +62,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Hosts = make(map[string]*Host)
 	}
 
+	if snap.HostsByName == nil {
+		snap.HostsByName = make(map[string]string)
+	}
+
 	if snap.RepositoryLinks == nil {
 		snap.RepositoryLinks = make(map[string]*RepositoryLink)
 	}
@@ -71,6 +77,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.connections = snap.Connections
 	b.connectionsByName = snap.ConnectionsByName
 	b.hosts = snap.Hosts
+	b.hostsByName = snap.HostsByName
 	b.repositoryLinks = snap.RepositoryLinks
 	b.syncConfigurations = snap.SyncConfigurations
 	b.accountID = snap.AccountID
