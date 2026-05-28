@@ -577,6 +577,14 @@ func resolveErrCode(opErr error) (string, int) {
 		{ErrHsmConfigAlreadyExists, "HsmConfigurationAlreadyExists"},
 		{ErrScheduledActionNotFound, "ScheduledActionNotFound"},
 		{ErrScheduledActionAlreadyExists, "ScheduledActionAlreadyExists"},
+		{ErrCustomDomainNotFound, "CustomDomainAssociationNotFoundFault"},
+		{ErrCustomDomainAlreadyExists, "CustomDomainAssociationAlreadyExistsFault"},
+		{ErrEndpointAccessNotFound, "EndpointNotFound"},
+		{ErrEndpointAccessAlreadyExists, "EndpointAlreadyExists"},
+		{ErrIntegrationNotFound, "IntegrationNotFound"},
+		{ErrIntegrationAlreadyExists, "IntegrationAlreadyExists"},
+		{ErrIdcApplicationNotFound, "IdcApplicationNotExistsFault"},
+		{ErrIdcApplicationAlreadyExists, "IdcApplicationAlreadyExistsFault"},
 	}
 
 	for _, entry := range table {
