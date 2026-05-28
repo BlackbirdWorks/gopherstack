@@ -1222,16 +1222,31 @@ func TestHandler_UpdatePullRequestStatus_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		status     string
-		wantStatus int
+		name        string
+		status      string
 		wantErrType string
+		wantStatus  int
 	}{
 		{name: "close_pr", status: "CLOSED", wantStatus: http.StatusOK},
 		{name: "reopen_pr", status: "OPEN", wantStatus: http.StatusOK},
-		{name: "merged_rejected", status: "MERGED", wantStatus: http.StatusBadRequest, wantErrType: "InvalidParameterException"},
-		{name: "empty_rejected", status: "", wantStatus: http.StatusBadRequest, wantErrType: "InvalidParameterException"},
-		{name: "bad_value_rejected", status: "DONE", wantStatus: http.StatusBadRequest, wantErrType: "InvalidParameterException"},
+		{
+			name:        "merged_rejected",
+			status:      "MERGED",
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidParameterException",
+		},
+		{
+			name:        "empty_rejected",
+			status:      "",
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidParameterException",
+		},
+		{
+			name:        "bad_value_rejected",
+			status:      "DONE",
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidParameterException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1339,11 +1354,11 @@ func TestHandler_DisassociateApprovalRuleTemplateFromRepository_TableDriven(t *t
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		tmplName     string
-		repoName     string
-		seedAssoc    bool
-		wantStatus   int
+		name       string
+		tmplName   string
+		repoName   string
+		seedAssoc  bool
+		wantStatus int
 	}{
 		{
 			name:       "success",
@@ -1666,12 +1681,12 @@ func TestHandler_BatchGetCommits_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		wantCode      int
-		includeReal   bool
-		includeFake   bool
-		wantFoundLen  int
-		wantErrLen    int
+		name         string
+		wantCode     int
+		includeReal  bool
+		includeFake  bool
+		wantFoundLen int
+		wantErrLen   int
 	}{
 		{
 			name:         "real_commit_found",
@@ -1746,9 +1761,9 @@ func TestHandler_GetCommentsForPullRequest_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		name         string
 		commentCount int
-		wantCode   int
+		wantCode     int
 	}{
 		{name: "no_comments", commentCount: 0, wantCode: http.StatusOK},
 		{name: "one_comment", commentCount: 1, wantCode: http.StatusOK},
@@ -1762,7 +1777,7 @@ func TestHandler_GetCommentsForPullRequest_TableDriven(t *testing.T) {
 			h := newTestHandler(t)
 			prID := setupPR(t, h, "repo")
 
-			for i := 0; i < tt.commentCount; i++ {
+			for i := range tt.commentCount {
 				doRequest(t, h, "PostCommentForPullRequest", map[string]any{
 					"pullRequestId":  prID,
 					"repositoryName": "repo",
@@ -1862,10 +1877,10 @@ func TestHandler_ApprovalRuleTemplate_CRUD_TableDriven(t *testing.T) {
 		wantCode    int
 	}{
 		{
-			name:        "minimal_content",
-			tmplName:    "tmpl-min",
-			content:     `{"Version":"2018-11-08","Statements":[]}`,
-			wantCode:    http.StatusOK,
+			name:     "minimal_content",
+			tmplName: "tmpl-min",
+			content:  `{"Version":"2018-11-08","Statements":[]}`,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:        "with_description",
@@ -1941,8 +1956,8 @@ func TestHandler_BatchAssociateAndDisassociate_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		repoNames   []string
+		name         string
+		repoNames    []string
 		wantAssocLen int
 		wantErrLen   int
 	}{
@@ -2125,7 +2140,7 @@ func TestHandler_GetPullRequestApprovalStates_TableDriven(t *testing.T) {
 			h := newTestHandler(t)
 			prID := setupPR(t, h, "repo")
 
-			for i := 0; i < tt.approveUsers; i++ {
+			for range tt.approveUsers {
 				doRequest(t, h, "UpdatePullRequestApprovalState", map[string]any{
 					"pullRequestId": prID,
 					"revisionId":    "rev-1",
@@ -2156,10 +2171,10 @@ func TestHandler_DescribePullRequestEvents_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		doOverride  bool
-		wantEvents  int
-		wantCode    int
+		name       string
+		doOverride bool
+		wantEvents int
+		wantCode   int
 	}{
 		{
 			name:       "no_events",
@@ -2207,8 +2222,8 @@ func TestHandler_GetCommentsForComparedCommit_TableDriven(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		commentCount int
 		afterCommit  string
+		commentCount int
 		wantCode     int
 	}{
 		{name: "no_comments", commentCount: 0, afterCommit: "abc123", wantCode: http.StatusOK},
@@ -2222,7 +2237,7 @@ func TestHandler_GetCommentsForComparedCommit_TableDriven(t *testing.T) {
 			h := newTestHandler(t)
 			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
 
-			for i := 0; i < tt.commentCount; i++ {
+			for i := range tt.commentCount {
 				doRequest(t, h, "PostCommentForComparedCommit", map[string]any{
 					"repositoryName": "repo",
 					"beforeCommitId": "before",
@@ -2255,7 +2270,6 @@ func TestHandler_MergeBranches_AllStrategies(t *testing.T) {
 	}
 
 	for _, strategy := range strategies {
-		strategy := strategy
 		t.Run(strategy, func(t *testing.T) {
 			t.Parallel()
 
@@ -2342,7 +2356,7 @@ func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
 			h := newTestHandler(t)
 			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
 
-			for i := 0; i < tt.seedCommits; i++ {
+			for i := range tt.seedCommits {
 				doRequest(t, h, "CreateCommit", map[string]any{
 					"repositoryName": "repo",
 					"branchName":     "main",
@@ -2438,10 +2452,10 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		mergeOption string
-		filePaths   []string
-		wantCode    int
+		name          string
+		mergeOption   string
+		filePaths     []string
+		wantCode      int
 		wantConflicts int
 	}{
 		{

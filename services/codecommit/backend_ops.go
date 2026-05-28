@@ -929,7 +929,7 @@ func (b *InMemoryBackend) MergePullRequestByFastForward(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == "CLOSED" {
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.PullRequestStatus = prStatusMerged
@@ -950,7 +950,7 @@ func (b *InMemoryBackend) MergePullRequestBySquash(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == "CLOSED" {
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.PullRequestStatus = prStatusMerged
@@ -971,7 +971,7 @@ func (b *InMemoryBackend) MergePullRequestByThreeWay(
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
-	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == "CLOSED" {
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
 		return nil, fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.PullRequestStatus = prStatusMerged

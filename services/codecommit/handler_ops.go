@@ -360,7 +360,7 @@ func (h *Handler) handleUpdatePullRequestStatus(body []byte) (any, error) {
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
-	if req.PullRequestStatus != "OPEN" && req.PullRequestStatus != "CLOSED" {
+	if req.PullRequestStatus != prStatusOpen && req.PullRequestStatus != prStatusClosed {
 		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
 	}
 

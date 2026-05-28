@@ -1132,7 +1132,7 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	if in.PullRequestStatus != "" && in.PullRequestStatus != "OPEN" && in.PullRequestStatus != "CLOSED" {
+	if in.PullRequestStatus != "" && in.PullRequestStatus != prStatusOpen && in.PullRequestStatus != prStatusClosed {
 		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
 	}
 

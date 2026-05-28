@@ -2210,10 +2210,10 @@ func TestHandler_ListPullRequests_StatusFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		filterStatus  string
-		wantCount     int
-		wantHTTPCode  int
+		name         string
+		filterStatus string
+		wantCount    int
+		wantHTTPCode int
 	}{
 		{
 			name:         "all_no_filter",
@@ -2294,7 +2294,7 @@ func TestHandler_ListPullRequests_NumericDescendingOrder(t *testing.T) {
 	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
 
 	// Create 3 PRs — expect IDs 1, 2, 3.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		doRequest(t, h, "CreatePullRequest", map[string]any{
 			"title": fmt.Sprintf("PR %d", i),
 			"targets": []map[string]any{
@@ -2327,7 +2327,6 @@ func TestHandler_MergePullRequest_AlreadyMerged(t *testing.T) {
 	}
 
 	for _, strategy := range strategies {
-		strategy := strategy
 		t.Run(strategy, func(t *testing.T) {
 			t.Parallel()
 
@@ -2601,7 +2600,6 @@ func TestHandler_MergePullRequest_StatusBecomesmerged(t *testing.T) {
 	}
 
 	for _, strategy := range strategies {
-		strategy := strategy
 		t.Run(strategy, func(t *testing.T) {
 			t.Parallel()
 
@@ -2666,11 +2664,11 @@ func TestHandler_ErrorTypes_Comprehensive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		action    string
-		body      map[string]any
-		wantCode  int
-		wantType  string
+		body     map[string]any
+		name     string
+		action   string
+		wantType string
+		wantCode int
 	}{
 		{
 			name:     "repo_not_found",

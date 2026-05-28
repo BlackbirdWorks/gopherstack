@@ -20,6 +20,12 @@ import (
 const (
 	errRepoDoesNotExist             = "RepositoryDoesNotExistException"
 	errApprovalRuleTemplateNotExist = "ApprovalRuleTemplateDoesNotExistException"
+
+	prStatusOpen   = "OPEN"
+	prStatusClosed = "CLOSED"
+
+	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
+	maxBatchGetRepositories = 25
 )
 
 var (
@@ -830,7 +836,7 @@ func (b *InMemoryBackend) CreatePullRequest(
 		PullRequestID:      prID,
 		Title:              title,
 		Description:        description,
-		PullRequestStatus:  "OPEN",
+		PullRequestStatus:  prStatusOpen,
 		CreationDate:       now,
 		LastActivityDate:   now,
 		ClientRequestToken: clientRequestToken,
