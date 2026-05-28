@@ -12,12 +12,14 @@ type backendSnapshot struct {
 	EventDataStores  map[string]*EventDataStore `json:"eventDataStores,omitempty"`
 	Queries          map[string]*Query          `json:"queries,omitempty"`
 	ResourcePolicies map[string]*ResourcePolicy `json:"resourcePolicies,omitempty"`
+	Imports          map[string]*Import         `json:"imports,omitempty"`
 	AccountID        string                     `json:"accountID"`
 	Region           string                     `json:"region"`
 	ChannelCounter   int                        `json:"channelCounter"`
 	DashboardCounter int                        `json:"dashboardCounter"`
 	EDSCounter       int                        `json:"edsCounter"`
 	QueryCounter     int                        `json:"queryCounter"`
+	ImportCounter    int                        `json:"importCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -34,12 +36,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		EventDataStores:  b.eventDataStores,
 		Queries:          b.queries,
 		ResourcePolicies: b.resourcePolicies,
+		Imports:          b.imports,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		ChannelCounter:   b.channelCounter,
 		DashboardCounter: b.dashboardCounter,
 		EDSCounter:       b.edsCounter,
 		QueryCounter:     b.queryCounter,
+		ImportCounter:    b.importCounter,
 	}
 
 	data, err := json.Marshal(snap)
@@ -62,27 +66,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Trails == nil {
-		snap.Trails = make(map[string]*Trail)
-	}
-	if snap.TrailsByARN == nil {
-		snap.TrailsByARN = make(map[string]string)
-	}
-	if snap.Channels == nil {
-		snap.Channels = make(map[string]*Channel)
-	}
-	if snap.Dashboards == nil {
-		snap.Dashboards = make(map[string]*Dashboard)
-	}
-	if snap.EventDataStores == nil {
-		snap.EventDataStores = make(map[string]*EventDataStore)
-	}
-	if snap.Queries == nil {
-		snap.Queries = make(map[string]*Query)
-	}
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
-	}
+	ensureSnapMaps(&snap)
 
 	b.trails = snap.Trails
 	b.trailsByARN = snap.TrailsByARN
@@ -91,12 +75,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventDataStores = snap.EventDataStores
 	b.queries = snap.Queries
 	b.resourcePolicies = snap.ResourcePolicies
+	b.imports = snap.Imports
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.channelCounter = snap.ChannelCounter
 	b.dashboardCounter = snap.DashboardCounter
 	b.edsCounter = snap.EDSCounter
 	b.queryCounter = snap.QueryCounter
+	b.importCounter = snap.ImportCounter
 
 	// Rebuild secondary indexes from restored state.
 	b.channelsByARN = make(map[string]string, len(b.channels))
@@ -119,6 +105,33 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	return nil
+}
+
+func ensureSnapMaps(snap *backendSnapshot) {
+	if snap.Trails == nil {
+		snap.Trails = make(map[string]*Trail)
+	}
+	if snap.TrailsByARN == nil {
+		snap.TrailsByARN = make(map[string]string)
+	}
+	if snap.Channels == nil {
+		snap.Channels = make(map[string]*Channel)
+	}
+	if snap.Dashboards == nil {
+		snap.Dashboards = make(map[string]*Dashboard)
+	}
+	if snap.EventDataStores == nil {
+		snap.EventDataStores = make(map[string]*EventDataStore)
+	}
+	if snap.Queries == nil {
+		snap.Queries = make(map[string]*Query)
+	}
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
+	}
+	if snap.Imports == nil {
+		snap.Imports = make(map[string]*Import)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
