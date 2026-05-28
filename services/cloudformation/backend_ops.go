@@ -16,6 +16,10 @@ const (
 	statusEnabled               = "ENABLED"
 	resourceScanCompletePercent = 100
 	typeKindResource            = "RESOURCE"
+	typeVisibilityPublic        = "PUBLIC"
+	typeVisibilityPrivate       = "PRIVATE"
+	typeStatusDeprecated        = "DEPRECATED"
+	driftStatusDrifted          = "DRIFTED"
 )
 
 // ---- Stack Sets ----
@@ -107,6 +111,7 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 			for _, existing := range b.stackInstances[stackSetName] {
 				if existing.Account == acct && existing.Region == region {
 					alreadyExists = true
+
 					break
 				}
 			}
@@ -299,18 +304,23 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackSetOperationResults(stackSetName, operationID, _ string) ([]StackSetOperationResult, error) {
+func (b *InMemoryBackend) ListStackSetOperationResults(
+	stackSetName, operationID, _ string,
+) ([]StackSetOperationResult, error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
-	if opResults, ok := b.stackSetOpResults[stackSetName]; ok {
-		if results, ok := opResults[operationID]; ok {
-			out := make([]StackSetOperationResult, len(results))
-			copy(out, results)
-			return out, nil
-		}
+	opResults, ok := b.stackSetOpResults[stackSetName]
+	if !ok {
+		return []StackSetOperationResult{}, nil
 	}
+	results, ok := opResults[operationID]
+	if !ok {
+		return []StackSetOperationResult{}, nil
+	}
+	out := make([]StackSetOperationResult, len(results))
+	copy(out, results)
 
-	return []StackSetOperationResult{}, nil
+	return out, nil
 }
 
 func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error) {
@@ -372,27 +382,31 @@ func (b *InMemoryBackend) CreateGeneratedTemplate(name string, resourceIDs []str
 	return gt, nil
 }
 
-// buildGeneratedTemplateBody synthesises a minimal CloudFormation template
-// from a list of resource identifiers (Type/LogicalID pairs).
-// Caller must hold the lock.
-func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) string {
-	type cfnResource struct {
-		Type       string         `json:"Type"`
-		Properties map[string]any `json:"Properties"`
-	}
+type cfnResource struct {
+	Properties map[string]any `json:"Properties"`
+	Type       string         `json:"Type"`
+}
+
+type cfnTemplate struct {
+	Resources                map[string]cfnResource `json:"Resources"`
+	AWSTemplateFormatVersion string                 `json:"AWSTemplateFormatVersion"`
+	Description              string                 `json:"Description"`
+}
+
+// parseResourceIDs converts a slice of "Type/LogicalID" strings into a cfnResource map.
+func parseResourceIDs(resourceIDs []string) map[string]cfnResource {
 	resources := make(map[string]cfnResource)
 	for i, rid := range resourceIDs {
 		resType := "AWS::CloudFormation::WaitConditionHandle"
 		logicalID := fmt.Sprintf("GeneratedResource%d", i+1)
-		// Attempt to parse "Type/LogicalID" form.
 		if idx := strings.Index(rid, "/"); idx > 0 {
 			resType = rid[:idx]
 			rawLogical := rid[idx+1:]
-			// Sanitise to valid logical ID: strip non-alphanumeric.
 			sanitised := strings.Map(func(r rune) rune {
 				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 					return r
 				}
+
 				return -1
 			}, rawLogical)
 			if sanitised != "" {
@@ -404,29 +418,12 @@ func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) strin
 			Properties: map[string]any{},
 		}
 	}
-	type cfnTemplate struct {
-		AWSTemplateFormatVersion string                 `json:"AWSTemplateFormatVersion"`
-		Description              string                 `json:"Description"`
-		Resources                map[string]cfnResource `json:"Resources"`
-	}
-	if len(resources) == 0 {
-		// Build from existing stack resources as a convenience.
-		for _, stack := range b.stacks {
-			if stack.StackStatus == statusDeleteComplete {
-				continue
-			}
-			for _, res := range b.resources[stack.StackID] {
-				logicalID := res.LogicalID
-				resources[logicalID] = cfnResource{
-					Type:       res.Type,
-					Properties: map[string]any{},
-				}
-			}
-		}
-	}
-	if len(resources) == 0 {
-		return `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`
-	}
+
+	return resources
+}
+
+// marshalGeneratedTemplate marshals a cfnResource map into a CloudFormation template JSON string.
+func marshalGeneratedTemplate(resources map[string]cfnResource) string {
 	body, err := json.Marshal(cfnTemplate{
 		AWSTemplateFormatVersion: "2010-09-09",
 		Description:              "Generated template",
@@ -437,6 +434,32 @@ func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) strin
 	}
 
 	return string(body)
+}
+
+// buildGeneratedTemplateBody synthesises a minimal CloudFormation template
+// from a list of resource identifiers (Type/LogicalID pairs).
+// Caller must hold the lock.
+func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) string {
+	resources := parseResourceIDs(resourceIDs)
+	if len(resources) == 0 {
+		// Build from existing stack resources as a convenience.
+		for _, stack := range b.stacks {
+			if stack.StackStatus == statusDeleteComplete {
+				continue
+			}
+			for _, res := range b.resources[stack.StackID] {
+				resources[res.LogicalID] = cfnResource{
+					Type:       res.Type,
+					Properties: map[string]any{},
+				}
+			}
+		}
+	}
+	if len(resources) == 0 {
+		return `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`
+	}
+
+	return marshalGeneratedTemplate(resources)
 }
 
 func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
@@ -669,7 +692,7 @@ func (b *InMemoryBackend) DeregisterType(typeArn string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
-	t.Status = "DEPRECATED"
+	t.Status = typeStatusDeprecated
 
 	return nil
 }
@@ -726,13 +749,13 @@ func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 	defer b.mu.RUnlock()
 	result := make([]TypeSummary, 0, len(b.typeRegistry))
 	for _, t := range b.typeRegistry {
-		if t.Status == "DEPRECATED" {
+		if t.Status == typeStatusDeprecated {
 			continue
 		}
 		if t.Status == statusComplete || t.IsActivated {
 			visibility := "PRIVATE"
 			if t.IsPublished {
-				visibility = "PUBLIC"
+				visibility = typeVisibilityPublic
 			}
 			result = append(result, TypeSummary{
 				TypeName:    t.TypeName,
@@ -757,6 +780,7 @@ func (b *InMemoryBackend) ListTypeVersions(typeName, _ string) ([]string, error)
 		for _, v := range versions {
 			ids = append(ids, v.VersionID)
 		}
+
 		return ids, nil
 	}
 	// Fallback: if no version records but type exists, return its current version.

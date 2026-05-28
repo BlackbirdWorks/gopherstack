@@ -408,9 +408,9 @@ func TestUpdateStack_IAMCapabilityRequired(t *testing.T) {
 	}`
 
 	tests := []struct {
-		name         string
-		updateOpts   cloudformation.StackOptions
-		wantErr      bool
+		name       string
+		updateOpts cloudformation.StackOptions
+		wantErr    bool
 	}{
 		{
 			name:       "update with IAM template and no capabilities fails",
@@ -685,10 +685,10 @@ func TestStackSetOperationResults_HTTP(t *testing.T) {
 		"TemplateBody": {simpleTemplate},
 	})
 	postFormValues(t, h, url.Values{
-		"Action":              {"CreateStackInstances"},
-		"StackSetName":        {"http-op-ss"},
-		"Accounts.member.1":   {"111111111111"},
-		"Regions.member.1":    {"us-east-1"},
+		"Action":            {"CreateStackInstances"},
+		"StackSetName":      {"http-op-ss"},
+		"Accounts.member.1": {"111111111111"},
+		"Regions.member.1":  {"us-east-1"},
 	})
 
 	// Get operation IDs.
@@ -773,10 +773,10 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		stacks        []string
-		wantMinItems  int
-		wantContains  []string
+		name         string
+		stacks       []string
+		wantMinItems int
+		wantContains []string
 	}{
 		{
 			name:         "no stacks yields synthetic S3 resource",
@@ -847,8 +847,8 @@ func TestGeneratedTemplate_Body(t *testing.T) {
 		wantContains []string
 	}{
 		{
-			name:         "empty resource list generates template from existing stacks",
-			resourceIDs:  nil,
+			name:        "empty resource list generates template from existing stacks",
+			resourceIDs: nil,
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.CreateStack(t.Context(), "gen-tmpl-src", simpleTemplate, nil,
 					cloudformation.StackOptions{})
@@ -861,8 +861,8 @@ func TestGeneratedTemplate_Body(t *testing.T) {
 			wantContains: []string{"AWS::SQS::Queue", "AWS::SNS::Topic", "AWSTemplateFormatVersion"},
 		},
 		{
-			name:        "no resource IDs and no stacks yields empty resources",
-			resourceIDs: nil,
+			name:         "no resource IDs and no stacks yields empty resources",
+			resourceIDs:  nil,
 			wantContains: []string{"AWSTemplateFormatVersion"},
 		},
 	}
@@ -980,11 +980,11 @@ func TestListTypes_Visibility(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		setup           func(*cloudformation.InMemoryBackend)
-		wantPrivate     []string
-		wantPublic      []string
-		wantNotPresent  []string
+		name           string
+		setup          func(*cloudformation.InMemoryBackend)
+		wantPrivate    []string
+		wantPublic     []string
+		wantNotPresent []string
 	}{
 		{
 			name: "registered type is PRIVATE",
@@ -1231,12 +1231,12 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		createAccounts  []string
-		createRegions   []string
-		deleteAccounts  []string
-		deleteRegions   []string
-		wantRemaining   int
+		name           string
+		createAccounts []string
+		createRegions  []string
+		deleteAccounts []string
+		deleteRegions  []string
+		wantRemaining  int
 	}{
 		{
 			name:           "delete half of instances",

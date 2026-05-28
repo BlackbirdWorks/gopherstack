@@ -360,7 +360,7 @@ func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
 			Schema:           string(schemaBytes),
 			Type:             typeKindResource,
 			TypeName:         typeName,
-			Visibility:       "PUBLIC",
+			Visibility:       typeVisibilityPublic,
 		},
 	})
 }

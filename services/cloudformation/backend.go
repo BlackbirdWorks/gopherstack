@@ -19,29 +19,29 @@ import (
 )
 
 var (
-	ErrStackNotFound                = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists           = errors.New("stack already exists")
-	ErrChangeSetNotFound            = errors.New("change set not found")
-	ErrChangeSetExists              = errors.New("change set already exists")
-	ErrChangeSetAlreadyExecuted     = errors.New("change set has already been executed")
-	ErrResourceNotFound             = errors.New("resource not found in stack")
-	ErrExportNotFound               = errors.New("export with given name not found")
-	ErrDuplicateExport              = errors.New("export already exists and is owned by another stack")
-	ErrDriftDetectionNotFound       = errors.New("drift detection not found")
-	ErrStackSetNotFound             = errors.New("stack set not found")
-	ErrStackSetAlreadyExists        = errors.New("stack set already exists")
-	ErrStackInstanceNotFound        = errors.New("stack instance not found")
-	ErrStackInstanceAlreadyExists   = errors.New("stack instance already exists in this account/region")
-	ErrGeneratedTemplateNotFound    = errors.New("generated template not found")
-	ErrResourceScanNotFound         = errors.New("resource scan not found")
-	ErrOperationNotFound            = errors.New("operation not found in stack set")
-	ErrOperationNotRunning          = errors.New("operation is not in RUNNING state")
-	ErrTypeNotFound                 = errors.New("type not found")
-	ErrTypeVersionNotFound          = errors.New("type version not found")
-	ErrRegistrationTokenNotFound    = errors.New("registration token not found")
-	ErrPublisherNotFound            = errors.New("publisher not found")
-	ErrInvalidRoleARN               = errors.New("invalid IAM role ARN format")
-	ErrInsufficientCapabilities     = errors.New("requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM")
+	ErrStackNotFound              = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists         = errors.New("stack already exists")
+	ErrChangeSetNotFound          = errors.New("change set not found")
+	ErrChangeSetExists            = errors.New("change set already exists")
+	ErrChangeSetAlreadyExecuted   = errors.New("change set has already been executed")
+	ErrResourceNotFound           = errors.New("resource not found in stack")
+	ErrExportNotFound             = errors.New("export with given name not found")
+	ErrDuplicateExport            = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound     = errors.New("drift detection not found")
+	ErrStackSetNotFound           = errors.New("stack set not found")
+	ErrStackSetAlreadyExists      = errors.New("stack set already exists")
+	ErrStackInstanceNotFound      = errors.New("stack instance not found")
+	ErrStackInstanceAlreadyExists = errors.New("stack instance already exists in this account/region")
+	ErrGeneratedTemplateNotFound  = errors.New("generated template not found")
+	ErrResourceScanNotFound       = errors.New("resource scan not found")
+	ErrOperationNotFound          = errors.New("operation not found in stack set")
+	ErrOperationNotRunning        = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound               = errors.New("type not found")
+	ErrTypeVersionNotFound        = errors.New("type version not found")
+	ErrRegistrationTokenNotFound  = errors.New("registration token not found")
+	ErrPublisherNotFound          = errors.New("publisher not found")
+	ErrInvalidRoleARN             = errors.New("invalid IAM role ARN format")
+	ErrInsufficientCapabilities   = errors.New("requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM")
 )
 
 // StackOptions carries optional attributes for CreateStack and UpdateStack.
@@ -187,17 +187,17 @@ type InMemoryBackend struct {
 	stackSetOperations map[string]map[string]*StackSetOperation // stackSetName → operationID → op
 	generatedTemplates map[string]*GeneratedTemplate
 	resourceScans      map[string]*ResourceScan
-	typeRegistry       map[string]*RegisteredType         // typeArn → type
-	typeRegistrations  map[string]*TypeRegistrationRecord // token → record
-	typeConfigs        map[string]string                  // typeName → config json
-	publishers         map[string]*Publisher              // publisherID → publisher
-	stackRefactors     map[string]*StackRefactor          // refactorID → refactor
-	hookResults        map[string]*HookResult                       // token → result
-	handlerProgress    map[string]string                            // bearerToken → status
-	signals            map[string][]SignalRecord                    // stackName+logicalID → records
+	typeRegistry       map[string]*RegisteredType                      // typeArn → type
+	typeRegistrations  map[string]*TypeRegistrationRecord              // token → record
+	typeConfigs        map[string]string                               // typeName → config json
+	publishers         map[string]*Publisher                           // publisherID → publisher
+	stackRefactors     map[string]*StackRefactor                       // refactorID → refactor
+	hookResults        map[string]*HookResult                          // token → result
+	handlerProgress    map[string]string                               // bearerToken → status
+	signals            map[string][]SignalRecord                       // stackName+logicalID → records
 	stackSetOpResults  map[string]map[string][]StackSetOperationResult // stackSetName → opID → results
-	typeVersions       map[string][]*RegisteredTypeVersion           // typeArn → versions
-	resourceScanItems  map[string][]ScannedResource                  // scanID → scanned resources
+	typeVersions       map[string][]*RegisteredTypeVersion             // typeArn → versions
+	resourceScanItems  map[string][]ScannedResource                    // scanID → scanned resources
 	creator            *ResourceCreator
 	resolver           DynamicRefResolver
 	mu                 *lockmetrics.RWMutex

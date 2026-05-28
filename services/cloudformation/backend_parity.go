@@ -71,13 +71,13 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 	}
 
 	isDefaultVersion := resolvedVersionID == reg.DefaultVersion
-	visibility := "PRIVATE"
+	visibility := typeVisibilityPrivate
 	if reg.IsPublished {
-		visibility = "PUBLIC"
+		visibility = typeVisibilityPublic
 	}
 	deprecatedStatus := "LIVE"
-	if reg.Status == "DEPRECATED" {
-		deprecatedStatus = "DEPRECATED"
+	if reg.Status == typeStatusDeprecated {
+		deprecatedStatus = typeStatusDeprecated
 	}
 
 	return &TypeDetails{
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) SimulateDrift(stackName string) error {
 	b.driftDetections[detectionID] = &DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
-		StackDriftStatus:          "DRIFTED",
+		StackDriftStatus:          driftStatusDrifted,
 		DetectionStatus:           "DETECTION_COMPLETE",
 		DriftedStackResourceCount: len(resMap),
 		Timestamp:                 time.Now(),
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	// Check if there is a DRIFTED detection for this stack.
 	drifted := false
 	for _, det := range b.driftDetections {
-		if det.StackID == stack.StackID && det.StackDriftStatus == "DRIFTED" {
+		if det.StackID == stack.StackID && det.StackDriftStatus == driftStatusDrifted {
 			drifted = true
 			break
 		}
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	for _, res := range resMap {
 		status := driftStatusInSync
 		if drifted {
-			status = "DRIFTED"
+			status = driftStatusDrifted
 		}
 		drifts = append(drifts, StackResourceDrift{
 			StackID:                  stack.StackID,
