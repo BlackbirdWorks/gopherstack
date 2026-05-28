@@ -148,6 +148,20 @@ func NewExpiredIteratorException(msg string) *Error {
 	}
 }
 
+func NewTrimmedDataAccessException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#TrimmedDataAccessException",
+		Message: msg,
+	}
+}
+
+func NewShardIteratorCreationException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException",
+		Message: msg,
+	}
+}
+
 // NewBackupInUseException returns an error indicating that a backup with the same name
 // already exists for the table, or the backup ARN is already in use.
 func NewBackupInUseException(msg string) *Error {

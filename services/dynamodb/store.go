@@ -110,6 +110,7 @@ type InMemoryDB struct {
 	fisReplicationPaused map[string]time.Time          // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
+	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
 	mu                   *lockmetrics.RWMutex
 	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
 	kinesisEmitter KinesisEmitter
@@ -198,8 +199,10 @@ type Table struct {
 	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
 	Items                      []map[string]any                        `json:"Items"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	streamShards               []StreamShard                           // shard genealogy for this table's stream
 	streamSeq                  int64
-	StreamHead                 int  `json:"StreamHead,omitempty"`
+	streamTrimSeq              int64 // oldest sequence still in the ring buffer (0 if buffer not yet full)
+	StreamHead                 int   `json:"StreamHead,omitempty"`
 	PITREnabled                bool `json:"PITREnabled,omitempty"`
 	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
 	StreamsEnabled             bool `json:"StreamsEnabled"`
@@ -222,6 +225,7 @@ func NewInMemoryDB() *InMemoryDB {
 		streamARNIndex:       make(map[string]*Table),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
+		iteratorStore:        NewShardIteratorStore(),
 		defaultRegion:        config.DefaultRegion,
 		accountID:            config.DefaultAccountID,
 		mu:                   lockmetrics.New("ddb"),
@@ -315,6 +319,29 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	if len(t.StreamRecords) < maxStreamRecords {
 		t.StreamRecords = append(t.StreamRecords, record)
 	} else {
+		// Buffer is full. Check if this is the start of a new cycle (StreamHead==0
+		// means we completed a full rotation and are wrapping around again).
+		// Model this as a shard split: close the current open shard and open a new child.
+		if t.StreamHead == 0 && len(t.streamShards) > 0 {
+			last := &t.streamShards[len(t.streamShards)-1]
+			if last.EndingSequenceNum == 0 {
+				last.EndingSequenceNum = t.streamSeq - int64(maxStreamRecords)
+				if last.EndingSequenceNum < last.StartingSequenceNum {
+					last.EndingSequenceNum = last.StartingSequenceNum
+				}
+				newIdx := int64(len(t.streamShards) + 1)
+				t.streamShards = append(t.streamShards, StreamShard{
+					ShardID:             fmt.Sprintf("shardId-%020d-00000001", newIdx),
+					ParentShardID:       last.ShardID,
+					StartingSequenceNum: t.streamSeq - int64(maxStreamRecords) + 1,
+				})
+			}
+		}
+		// Advance the trim horizon: the record being overwritten is now gone.
+		trimmedRecord := t.StreamRecords[t.StreamHead]
+		if seq, perr := parseSeqNum(trimmedRecord.SequenceNumber); perr == nil {
+			t.streamTrimSeq = seq + 1
+		}
 		t.StreamRecords[t.StreamHead] = record
 		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
 	}
@@ -708,6 +735,7 @@ func (db *InMemoryDB) Reset() {
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
+	db.iteratorStore = NewShardIteratorStore()
 	if db.exprCache != nil {
 		db.exprCache.Close()
 	}
