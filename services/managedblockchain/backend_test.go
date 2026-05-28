@@ -62,6 +62,7 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 					tt.memberName,
 					"",
 					nil,
+				nil,
 				)
 				require.NoError(t, err)
 			}
@@ -76,6 +77,7 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 				tt.memberName,
 				"",
 				nil,
+			nil,
 			)
 
 			if tt.wantErr {
@@ -133,6 +135,7 @@ func TestInMemoryBackend_GetNetwork(t *testing.T) {
 				"member1",
 				"",
 				nil,
+			nil,
 			)
 			require.NoError(t, err)
 
@@ -185,11 +188,11 @@ func TestInMemoryBackend_ListNetworks(t *testing.T) {
 			b := newBackend()
 
 			for _, name := range tt.networkNames {
-				_, _, err := b.CreateNetwork(testRegion, testAccountID, name, "", "", "", "m1", "", nil)
+				_, _, err := b.CreateNetwork(testRegion, testAccountID, name, "", "", "", "m1", "", nil, nil)
 				require.NoError(t, err)
 			}
 
-			networks, err := b.ListNetworks()
+			networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 			require.NoError(t, err)
 			assert.Len(t, networks, tt.wantCount)
 
@@ -229,6 +232,7 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 				"initial",
 				"",
 				nil,
+			nil,
 			)
 			require.NoError(t, err)
 
@@ -245,7 +249,7 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 			assert.Equal(t, tt.memberName, got.Name)
 
 			// ListMembers - should have initial + new member
-			members, err := b.ListMembers(network.ID)
+			members, err := b.ListMembers(network.ID, managedblockchain.ListMembersFilter{})
 			require.NoError(t, err)
 			assert.Len(t, members, 2)
 
@@ -276,7 +280,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			b := newBackend()
 
-			network, _, err := b.CreateNetwork(testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil)
+			network, _, err := b.CreateNetwork(testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil, nil)
 			require.NoError(t, err)
 
 			// TagResource on network
@@ -326,6 +330,7 @@ func TestInMemoryBackend_TagOperationsOnMember(t *testing.T) {
 				"initial",
 				"",
 				nil,
+			nil,
 			)
 			require.NoError(t, err)
 

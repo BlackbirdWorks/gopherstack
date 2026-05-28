@@ -28,7 +28,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				networks, err := b.ListNetworks()
+				networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 				require.NoError(t, err)
 				assert.Empty(t, networks)
 			},
@@ -44,13 +44,14 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 					"HYPERLEDGER_FABRIC", "1.4",
 					"founder", "founder member",
 					map[string]string{"env": "test"},
+					nil,
 				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				networks, err := b.ListNetworks()
+				networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
@@ -64,7 +65,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				assert.Equal(t, "my-network", got.Name)
 
 				// Verify the founding member was restored.
-				members, err := b.ListMembers(n.ID)
+				members, err := b.ListMembers(n.ID, managedblockchain.ListMembersFilter{})
 				require.NoError(t, err)
 				require.Len(t, members, 1)
 				assert.Equal(t, "founder", members[0].Name)
@@ -77,7 +78,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 
 				n, _, err := b.CreateNetwork(
 					region, accountID,
-					"tag-network", "", "", "", "m1", "", nil,
+					"tag-network", "", "", "", "m1", "", nil, nil,
 				)
 				require.NoError(t, err)
 
@@ -86,7 +87,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				networks, err := b.ListNetworks()
+				networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
@@ -102,7 +103,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 
 				n, _, err := b.CreateNetwork(
 					region, accountID,
-					"multi-member", "", "", "", "member1", "", nil,
+					"multi-member", "", "", "", "member1", "", nil, nil,
 				)
 				require.NoError(t, err)
 
@@ -112,11 +113,11 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				networks, err := b.ListNetworks()
+				networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
-				members, err := b.ListMembers(networks[0].ID)
+				members, err := b.ListMembers(networks[0].ID, managedblockchain.ListMembersFilter{})
 				require.NoError(t, err)
 				assert.Len(t, members, 2)
 			},
@@ -132,7 +133,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				accessors, err := b.ListAccessors()
+				accessors, err := b.ListAccessors(managedblockchain.ListAccessorsFilter{})
 				require.NoError(t, err)
 				require.Len(t, accessors, 1)
 				assert.Equal(t, "ETHEREUM_MAINNET", accessors[0].NetworkType)
@@ -144,16 +145,16 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m, err := b.CreateNetwork(region, accountID,
-					"prop-net", "", "", "", "founder", "", nil)
+					"prop-net", "", "", "", "founder", "", nil, nil)
 				require.NoError(t, err)
 
-				_, err = b.CreateProposal(region, accountID, n.ID, m.ID, "test proposal", nil)
+				_, err = b.CreateProposal(region, accountID, n.ID, m.ID, "test proposal", nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
 				t.Helper()
 
-				networks, err := b.ListNetworks()
+				networks, err := b.ListNetworks(managedblockchain.ListNetworksFilter{})
 				require.NoError(t, err)
 				require.Len(t, networks, 1)
 
