@@ -443,8 +443,8 @@ func TestParity_ListWirelessGatewayTaskDefinitions_ReturnsRealData(t *testing.T)
 			// Verify each created definition appears in the list.
 			foundIDs := make(map[string]bool)
 			for _, d := range defs {
-				defMap, ok := d.(map[string]any)
-				require.True(t, ok)
+				defMap, isMap := d.(map[string]any)
+				require.True(t, isMap)
 				id, _ := defMap["Id"].(string)
 				foundIDs[id] = true
 			}
