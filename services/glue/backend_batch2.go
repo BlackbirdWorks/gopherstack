@@ -328,6 +328,10 @@ func (b *InMemoryBackend) DeleteCustomEntityType(name string) error {
 	b.mu.Lock("DeleteCustomEntityType")
 	defer b.mu.Unlock()
 
+	if _, ok := b.customEntityTypes[name]; !ok {
+		return fmt.Errorf("custom entity type %q not found: %w", name, ErrNotFound)
+	}
+
 	delete(b.customEntityTypes, name)
 
 	return nil
@@ -513,7 +517,7 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRun(runID string) error {
 	defer b.mu.Unlock()
 
 	if r, ok := b.columnStatTaskRuns[runID]; ok {
-		r.Status = "STOPPED"
+		r.Status = stateStopped
 	}
 
 	return nil
@@ -586,7 +590,7 @@ func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(taskRunID string) e
 	defer b.mu.Unlock()
 
 	if r, ok := b.materializedViewRuns[taskRunID]; ok {
-		r.Status = "STOPPED"
+		r.Status = stateStopped
 	}
 
 	return nil
@@ -648,6 +652,10 @@ func (b *InMemoryBackend) CreateIntegration(name string, tags map[string]string)
 func (b *InMemoryBackend) DeleteIntegration(name string) error {
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
+
+	if _, ok := b.integrations[name]; !ok {
+		return fmt.Errorf("integration %q not found: %w", name, ErrNotFound)
+	}
 
 	delete(b.integrations, name)
 

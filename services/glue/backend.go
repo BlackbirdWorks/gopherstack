@@ -34,6 +34,7 @@ const (
 	stateRunning          = "RUNNING"
 	stateStarting         = "STARTING"
 	stateStopping         = "STOPPING"
+	stateStopped          = "STOPPED"
 	stateReady            = "READY"
 	stateSucceeded        = "SUCCEEDED"
 	stateAvailable        = "AVAILABLE"
@@ -339,6 +340,7 @@ type InMemoryBackend struct {
 	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
+	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
@@ -389,6 +391,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		columnStatTaskRuns:        make(map[string]*ColumnStatisticsTaskRun),
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
+		mlTaskRuns:                make(map[string]*MLTaskRun),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
@@ -441,6 +444,7 @@ func (b *InMemoryBackend) Reset() {
 	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
+	b.mlTaskRuns = make(map[string]*MLTaskRun)
 	b.glueIdentityCenterConfig = nil
 }
 

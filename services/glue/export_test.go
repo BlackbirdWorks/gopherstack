@@ -126,3 +126,11 @@ func DataQualityEvalRunCount(b *InMemoryBackend) int {
 
 	return len(b.dataQualityEvalRuns)
 }
+
+// MLTaskRunCount returns the total number of ML task runs across all transforms. Used only in tests.
+func MLTaskRunCount(b *InMemoryBackend) int {
+	b.mu.RLock("MLTaskRunCount")
+	defer b.mu.RUnlock()
+
+	return len(b.mlTaskRuns)
+}

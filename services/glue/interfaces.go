@@ -358,6 +358,19 @@ type StorageBackend interface {
 	GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error)
 	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
 	DeleteGlueIdentityCenterConfiguration() error
+
+	// ML transform task run operations.
+	StartMLEvaluationTaskRun(transformID string) (*MLTaskRun, error)
+	StartMLLabelingSetGenerationTaskRun(transformID string) (*MLTaskRun, error)
+	StartExportLabelsTaskRun(transformID, outputPath string) (*MLTaskRun, error)
+	StartImportLabelsTaskRun(transformID, inputPath string) (*MLTaskRun, error)
+	GetMLTaskRun(transformID, taskRunID string) (*MLTaskRun, error)
+	GetMLTaskRuns(transformID string) ([]*MLTaskRun, error)
+	CancelMLTaskRun(transformID, taskRunID string) error
+
+	// DataQuality listing operations.
+	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
+	ListDataQualityResults() []*DataQualityResult
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
