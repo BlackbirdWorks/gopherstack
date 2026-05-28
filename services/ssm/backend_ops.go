@@ -3,6 +3,7 @@ package ssm
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -19,6 +20,13 @@ var (
 	ErrInventoryNotFound = errors.New("InventoryTypeNotFound")
 	// ErrDocumentVersionNotFound is returned when a document version is not found.
 	ErrDocumentVersionNotFound = errors.New("InvalidDocumentVersion")
+)
+
+const (
+	inventorySchemaV10           = "1.0"
+	inventorySchemaV11           = "1.1"
+	complianceStatusCompliant    = "COMPLIANT"
+	complianceStatusNonCompliant = "NON_COMPLIANT"
 )
 
 // ---------------------------------------------------------------------------
@@ -224,19 +232,19 @@ func (b *InMemoryBackend) GetInventory(input *GetInventoryInput) (*GetInventoryO
 // When TypeName is provided, only schemas matching that prefix are returned.
 func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
 	all := []InventorySchemaItem{
-		{TypeName: "AWS:Application", Version: "1.1"},
-		{TypeName: "AWS:AWSComponent", Version: "1.0"},
-		{TypeName: "AWS:ComplianceItem", Version: "1.1"},
-		{TypeName: "AWS:ComplianceSummary", Version: "1.1"},
-		{TypeName: "AWS:InstanceDetailedInformation", Version: "1.0"},
-		{TypeName: "AWS:InstanceInformation", Version: "1.0"},
-		{TypeName: "AWS:Network", Version: "1.0"},
-		{TypeName: "AWS:PatchCompliance", Version: "1.1"},
-		{TypeName: "AWS:PatchSummary", Version: "1.0"},
-		{TypeName: "AWS:WindowsRegistry", Version: "1.0"},
-		{TypeName: "AWS:WindowsRole", Version: "1.0"},
-		{TypeName: "AWS:WindowsUpdate", Version: "1.0"},
-		{TypeName: "Custom:Application", Version: "1.0"},
+		{TypeName: "AWS:Application", Version: inventorySchemaV11},
+		{TypeName: "AWS:AWSComponent", Version: inventorySchemaV10},
+		{TypeName: "AWS:ComplianceItem", Version: inventorySchemaV11},
+		{TypeName: "AWS:ComplianceSummary", Version: inventorySchemaV11},
+		{TypeName: "AWS:InstanceDetailedInformation", Version: inventorySchemaV10},
+		{TypeName: "AWS:InstanceInformation", Version: inventorySchemaV10},
+		{TypeName: "AWS:Network", Version: inventorySchemaV10},
+		{TypeName: "AWS:PatchCompliance", Version: inventorySchemaV11},
+		{TypeName: "AWS:PatchSummary", Version: inventorySchemaV10},
+		{TypeName: "AWS:WindowsRegistry", Version: inventorySchemaV10},
+		{TypeName: "AWS:WindowsRole", Version: inventorySchemaV10},
+		{TypeName: "AWS:WindowsUpdate", Version: inventorySchemaV10},
+		{TypeName: "Custom:Application", Version: inventorySchemaV10},
 	}
 
 	if input.TypeName == "" {
@@ -244,6 +252,7 @@ func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*G
 		for i, s := range all {
 			schemas[i] = s
 		}
+
 		return &GetInventorySchemaOutput{Schemas: schemas}, nil
 	}
 
@@ -254,6 +263,7 @@ func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*G
 			filtered = append(filtered, s)
 		}
 	}
+
 	return &GetInventorySchemaOutput{Schemas: filtered}, nil
 }
 
@@ -420,7 +430,7 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 				tallies[ct] = &tally{}
 			}
 
-			if item.Status == "COMPLIANT" {
+			if item.Status == complianceStatusCompliant {
 				tallies[ct].compliantCount++
 			} else {
 				tallies[ct].nonCompliantCount++
@@ -463,16 +473,16 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 		nonCompliant := 0
 
 		for _, item := range items {
-			if item.Status == "COMPLIANT" {
+			if item.Status == complianceStatusCompliant {
 				compliant++
 			} else {
 				nonCompliant++
 			}
 		}
 
-		status := "COMPLIANT"
+		status := complianceStatusCompliant
 		if nonCompliant > 0 {
-			status = "NON_COMPLIANT"
+			status = complianceStatusNonCompliant
 		}
 
 		summaries = append(summaries, ResourceComplianceSummaryItem{
@@ -740,7 +750,6 @@ func (b *InMemoryBackend) GetMaintenanceWindowTask(
 	return &GetMaintenanceWindowTaskOutput{MaintenanceWindowTask: task}, nil
 }
 
-// DescribeMaintenanceWindowsForTarget returns an empty list.
 // DescribeMaintenanceWindowsForTarget returns windows that have registered targets
 // matching the given resource type and target key/value filters.
 func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
@@ -749,7 +758,6 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 	b.mu.RLock("DescribeMaintenanceWindowsForTarget")
 	defer b.mu.RUnlock()
 
-	// Collect window IDs that match any of the requested targets.
 	matchedWindowIDs := make(map[string]struct{})
 
 	for _, windowTarget := range b.maintenanceWindowTargets {
@@ -757,23 +765,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 			continue
 		}
 
-		if len(input.Targets) == 0 {
+		if len(input.Targets) == 0 || windowTargetMatchesFilters(windowTarget.Targets, input.Targets) {
 			matchedWindowIDs[windowTarget.WindowID] = struct{}{}
-			continue
-		}
-
-		for _, reqTarget := range input.Targets {
-			for _, wt := range windowTarget.Targets {
-				if wt.Key == reqTarget.Key {
-					for _, reqVal := range reqTarget.Values {
-						for _, wVal := range wt.Values {
-							if wVal == reqVal {
-								matchedWindowIDs[windowTarget.WindowID] = struct{}{}
-							}
-						}
-					}
-				}
-			}
 		}
 	}
 
@@ -795,6 +788,26 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 	return &DescribeMaintenanceWindowsForTargetOutput{
 		WindowIdentities: identities,
 	}, nil
+}
+
+// windowTargetMatchesFilters reports whether any registered target key/value
+// pair satisfies at least one of the requested filter targets.
+func windowTargetMatchesFilters(registered []WindowTarget, requested []WindowTarget) bool {
+	for _, req := range requested {
+		for _, reg := range registered {
+			if reg.Key != req.Key {
+				continue
+			}
+
+			for _, reqVal := range req.Values {
+				if slices.Contains(reg.Values, reqVal) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // UpdateMaintenanceWindowTarget updates target fields.

@@ -85,9 +85,9 @@ func TestBatch2_DocumentVersions_TableDriven(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		versions     int
 		setDefault   string
 		wantDefault  string
+		versions     int
 		wantVersions int
 	}{
 		{
@@ -908,7 +908,10 @@ func TestBatch2_OpsItem_OperationalData_CreateAndUpdate(t *testing.T) {
 		Title:  "DB Connection Failure",
 		Source: "ec2",
 		OperationalData: map[string]ssm.OpsItemDataValue{
-			"/aws/resources": {Type: "SearchableString", Value: `[{"arn":"arn:aws:ec2:us-east-1:123456789012:instance/i-abc"}]`},
+			"/aws/resources": {
+				Type:  "SearchableString",
+				Value: `[{"arn":"arn:aws:ec2:us-east-1:123456789012:instance/i-abc"}]`,
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -1230,7 +1233,7 @@ func TestBatch2_FleetManager_ListNodes_FromActivations(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create activations — each produces a node.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := b.CreateActivation(&ssm.CreateActivationInput{
 			IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
 			RegistrationLimit: 1,
@@ -1533,10 +1536,10 @@ func TestBatch2_ServiceSettings_LifecycleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		settingID    string
-		setValue     string
-		wantCustom   bool
+		name       string
+		settingID  string
+		setValue   string
+		wantCustom bool
 	}{
 		{
 			name:       "parameter_store_advanced_tier",
@@ -1661,7 +1664,9 @@ func TestBatch2_ResourcePolicies_FullCRUD(t *testing.T) {
 		{
 			name:        "parameter_policy",
 			resourceArn: "arn:aws:ssm:us-east-1:123456789012:parameter/my-param",
-			policy:      `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111111111111:root"},"Action":"ssm:GetParameter","Resource":"*"}]}`,
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"arn:aws:iam::111111111111:root"},` +
+				`"Action":"ssm:GetParameter","Resource":"*"}]}`,
 		},
 		{
 			name:        "opsmetadata_policy",

@@ -1073,16 +1073,7 @@ func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 			continue
 		}
 
-		matched := false
-		for _, v := range f.Values {
-			if fieldValue == v {
-				matched = true
-
-				break
-			}
-		}
-
-		if !matched {
+		if !slices.Contains(f.Values, fieldValue) {
 			return false
 		}
 	}

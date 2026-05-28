@@ -499,20 +499,20 @@ type ComplianceCountSummary struct {
 
 // ComplianceSummaryItem represents a rolled-up compliance summary by type.
 type ComplianceSummaryItem struct {
+	ComplianceType      string                 `json:"ComplianceType"`
 	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
 	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
-	ComplianceType      string                 `json:"ComplianceType"`
 }
 
 // ResourceComplianceSummaryItem represents per-resource compliance status.
 type ResourceComplianceSummaryItem struct {
-	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
-	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
 	ResourceID          string                 `json:"ResourceId"`
 	ResourceType        string                 `json:"ResourceType"`
 	ComplianceType      string                 `json:"ComplianceType"`
 	OverallSeverity     string                 `json:"OverallSeverity"`
 	Status              string                 `json:"Status"`
+	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
+	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
 }
 
 // ListResourceComplianceSummariesInput is the request payload.

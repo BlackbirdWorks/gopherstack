@@ -302,9 +302,9 @@ type PatchBaselineFilter struct {
 
 // DescribePatchBaselinesInput is the request payload for DescribePatchBaselines.
 type DescribePatchBaselinesInput struct {
-	Filters    []PatchBaselineFilter `json:"Filters,omitempty"`
 	MaxResults *int64                `json:"MaxResults,omitempty"`
 	NextToken  string                `json:"NextToken,omitempty"`
+	Filters    []PatchBaselineFilter `json:"Filters,omitempty"`
 }
 
 // DescribePatchBaselinesOutput is the response payload for DescribePatchBaselines.
@@ -345,8 +345,8 @@ type GetAutomationExecutionOutput struct{}
 
 // GetCalendarStateInput is the request payload.
 type GetCalendarStateInput struct {
-	CalendarNames []string `json:"CalendarNames,omitempty"`
 	AtTime        string   `json:"AtTime,omitempty"`
+	CalendarNames []string `json:"CalendarNames,omitempty"`
 }
 
 // GetCalendarStateOutput is the response payload.
@@ -749,9 +749,9 @@ type UpdatePatchBaselineInput struct {
 	BaselineID                     string   `json:"BaselineId"`
 	Name                           string   `json:"Name,omitempty"`
 	Description                    string   `json:"Description,omitempty"`
+	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	ApprovedPatches                []string `json:"ApprovedPatches,omitempty"`
 	RejectedPatches                []string `json:"RejectedPatches,omitempty"`
-	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
 }
 
 // UpdatePatchBaselineOutput is the response payload for UpdatePatchBaseline.
@@ -1082,15 +1082,7 @@ func patchBaselineMatchesFilters(bl PatchBaseline, filters []PatchBaselineFilter
 			continue
 		}
 
-		matched := false
-		for _, v := range f.Values {
-			if fieldValue == v {
-				matched = true
-				break
-			}
-		}
-
-		if !matched {
+		if !slices.Contains(f.Values, fieldValue) {
 			return false
 		}
 	}
@@ -1452,9 +1444,7 @@ func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput,
 			item.OperationalData = make(map[string]OpsItemDataValue)
 		}
 
-		for k, v := range input.OperationalData {
-			item.OperationalData[k] = v
-		}
+		maps.Copy(item.OperationalData, input.OperationalData)
 	}
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
