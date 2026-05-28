@@ -175,6 +175,11 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0 // indirect
+)
+
+require (
 	github.com/cedar-policy/cedar-go v1.6.2
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
