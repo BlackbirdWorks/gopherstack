@@ -29,6 +29,7 @@ const (
 	keySubscription   = "subscription"
 	keyFargateProfile = "fargateProfile"
 	keyTags           = "tags"
+	keyEnabled        = "enabled"
 )
 
 const (
@@ -951,78 +952,80 @@ func clusterToJSON(c *Cluster) map[string]any {
 		m["roleArn"] = c.RoleARN
 	}
 	if c.OIDCIssuer != "" {
-		m["identity"] = map[string]any{
-			"oidc": map[string]string{
-				"issuer": c.OIDCIssuer,
-			},
-		}
+		m["identity"] = map[string]any{"oidc": map[string]string{"issuer": c.OIDCIssuer}}
 	}
-
 	if c.VpcConfig != nil {
 		m["resourcesVpcConfig"] = clusterVpcConfigJSON(c.VpcConfig)
 	}
-
-	if c.KubernetesNetworkConfig != nil {
-		net := map[string]any{}
-		if c.KubernetesNetworkConfig.IPFamily != "" {
-			net["ipFamily"] = c.KubernetesNetworkConfig.IPFamily
-		}
-		if c.KubernetesNetworkConfig.ServiceIPv4CIDR != "" {
-			net["serviceIpv4Cidr"] = c.KubernetesNetworkConfig.ServiceIPv4CIDR
-		}
-		if c.KubernetesNetworkConfig.ServiceIPv6CIDR != "" {
-			net["serviceIpv6Cidr"] = c.KubernetesNetworkConfig.ServiceIPv6CIDR
-		}
-		if len(net) > 0 {
-			m["kubernetesNetworkConfig"] = net
-		}
+	if net := clusterNetConfigJSON(c.KubernetesNetworkConfig); net != nil {
+		m["kubernetesNetworkConfig"] = net
 	}
-
 	if len(c.ClusterLogging) > 0 {
-		entries := make([]map[string]any, len(c.ClusterLogging))
-		for i, e := range c.ClusterLogging {
-			entries[i] = map[string]any{
-				"types":   e.Types,
-				"enabled": e.Enabled,
-			}
-		}
-		m["logging"] = map[string]any{"clusterLogging": entries}
+		m["logging"] = map[string]any{"clusterLogging": clusterLoggingJSON(c.ClusterLogging)}
 	}
-
 	if len(c.EncryptionConfig) > 0 {
 		m["encryptionConfig"] = c.EncryptionConfig
 	}
-
 	if c.AccessConfig != nil {
 		m["accessConfig"] = map[string]any{
 			"authenticationMode":                      c.AccessConfig.AuthenticationMode,
 			"bootstrapClusterCreatorAdminPermissions": c.AccessConfig.BootstrapClusterCreatorAdminPermissions,
 		}
 	}
-
 	if c.ComputeConfig != nil {
-		cc := map[string]any{"enabled": c.ComputeConfig.Enabled}
-		if c.ComputeConfig.NodeRoleARN != "" {
-			cc["nodeRoleArn"] = c.ComputeConfig.NodeRoleARN
-		}
-
-		if len(c.ComputeConfig.NodePools) > 0 {
-			cc["nodePools"] = c.ComputeConfig.NodePools
-		}
-
-		m["computeConfig"] = cc
+		m["computeConfig"] = clusterComputeConfigJSON(c.ComputeConfig)
 	}
-
 	if c.StorageConfig != nil && c.StorageConfig.BlockStorage != nil {
 		m["storageConfig"] = map[string]any{
-			"blockStorage": map[string]any{"enabled": c.StorageConfig.BlockStorage.Enabled},
+			"blockStorage": map[string]any{keyEnabled: c.StorageConfig.BlockStorage.Enabled},
+		}
+	}
+	if c.NetworkingConfig != nil && c.NetworkingConfig.ElasticLoadBalancing != nil {
+		m["networkingConfig"] = map[string]any{
+			"elasticLoadBalancing": map[string]any{keyEnabled: c.NetworkingConfig.ElasticLoadBalancing.Enabled},
 		}
 	}
 
-	if c.NetworkingConfig != nil && c.NetworkingConfig.ElasticLoadBalancing != nil {
-		m["networkingConfig"] = map[string]any{
-			"elasticLoadBalancing": map[string]any{"enabled": c.NetworkingConfig.ElasticLoadBalancing.Enabled},
-		}
+	return m
+}
+
+func clusterNetConfigJSON(cfg *KubernetesNetworkConfig) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	net := map[string]any{}
+	if cfg.IPFamily != "" {
+		net["ipFamily"] = cfg.IPFamily
+	}
+	if cfg.ServiceIPv4CIDR != "" {
+		net["serviceIpv4Cidr"] = cfg.ServiceIPv4CIDR
+	}
+	if cfg.ServiceIPv6CIDR != "" {
+		net["serviceIpv6Cidr"] = cfg.ServiceIPv6CIDR
+	}
+	if len(net) == 0 {
+		return nil
+	}
+
+	return net
+}
+
+func clusterLoggingJSON(entries []ClusterLogEntry) []map[string]any {
+	out := make([]map[string]any, len(entries))
+	for i, e := range entries {
+		out[i] = map[string]any{"types": e.Types, keyEnabled: e.Enabled}
+	}
+
+	return out
+}
+
+func clusterComputeConfigJSON(cc *ComputeConfig) map[string]any {
+	m := map[string]any{keyEnabled: cc.Enabled}
+	if cc.NodeRoleARN != "" {
+		m["nodeRoleArn"] = cc.NodeRoleARN
+	}
+	if len(cc.NodePools) > 0 {
+		m["nodePools"] = cc.NodePools
 	}
 
 	return m
@@ -1242,13 +1245,32 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		}
 	}
 
+	cluster, err := h.Backend.CreateCluster(
+		in.Name,
+		in.Version,
+		in.RoleArn,
+		vpcCfg,
+		netCfg,
+		in.Tags,
+		buildClusterOptConfig(in),
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyCluster: clusterToJSON(cluster),
+	})
+}
+
+func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
 	var opt ClusterOptionalConfig
+
 	if in.AccessConfig != nil {
 		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
 		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
 			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
 		}
-
 		opt.AccessConfig = ac
 	}
 
@@ -1257,7 +1279,6 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		if in.ComputeConfig.Enabled != nil {
 			cc.Enabled = *in.ComputeConfig.Enabled
 		}
-
 		opt.ComputeConfig = cc
 	}
 
@@ -1266,7 +1287,6 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		if in.StorageConfig.BlockStorage.Enabled != nil {
 			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
 		}
-
 		opt.StorageConfig = sc
 	}
 
@@ -1275,18 +1295,10 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		if in.NetworkingConfig.ElasticLoadBalancing.Enabled != nil {
 			nc.ElasticLoadBalancing.Enabled = *in.NetworkingConfig.ElasticLoadBalancing.Enabled
 		}
-
 		opt.NetworkingConfig = nc
 	}
 
-	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, vpcCfg, netCfg, in.Tags, opt)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyCluster: clusterToJSON(cluster),
-	})
+	return opt
 }
 
 func (h *Handler) handleDescribeCluster(c *echo.Context, name string) error {
@@ -1350,22 +1362,22 @@ type nodegroupUpdateConfigJSON struct {
 }
 
 type createNodegroupBody struct {
-	Tags           map[string]string       `json:"tags"`
-	Labels         map[string]string       `json:"labels"`
-	RemoteAccess   *remoteAccessJSON       `json:"remoteAccess"`
-	LaunchTemplate *launchTemplateJSON     `json:"launchTemplate"`
+	Tags           map[string]string          `json:"tags"`
+	Labels         map[string]string          `json:"labels"`
+	RemoteAccess   *remoteAccessJSON          `json:"remoteAccess"`
+	LaunchTemplate *launchTemplateJSON        `json:"launchTemplate"`
 	UpdateConfig   *nodegroupUpdateConfigJSON `json:"updateConfig"`
-	NodegroupName  string                  `json:"nodegroupName"`
-	NodeRole       string                  `json:"nodeRole"`
-	AMIType        string                  `json:"amiType"`
-	CapacityType   string                  `json:"capacityType"`
-	Version        string                  `json:"version"`
-	ReleaseVersion string                  `json:"releaseVersion"`
-	InstanceTypes  []string                `json:"instanceTypes"`
-	Subnets        []string                `json:"subnets"`
-	Taints         []nodegroupTaintJSON    `json:"taints"`
-	ScalingConfig  scalingConfigJSON       `json:"scalingConfig"`
-	DiskSize       int32                   `json:"diskSize"`
+	NodegroupName  string                     `json:"nodegroupName"`
+	NodeRole       string                     `json:"nodeRole"`
+	AMIType        string                     `json:"amiType"`
+	CapacityType   string                     `json:"capacityType"`
+	Version        string                     `json:"version"`
+	ReleaseVersion string                     `json:"releaseVersion"`
+	InstanceTypes  []string                   `json:"instanceTypes"`
+	Subnets        []string                   `json:"subnets"`
+	Taints         []nodegroupTaintJSON       `json:"taints"`
+	ScalingConfig  scalingConfigJSON          `json:"scalingConfig"`
+	DiskSize       int32                      `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1641,7 +1653,14 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "principalArn is required"))
 	}
 
-	entry, err := h.Backend.CreateAccessEntry(clusterName, in.PrincipalArn, in.Type, in.Username, in.KubernetesGroups, in.Tags)
+	entry, err := h.Backend.CreateAccessEntry(
+		clusterName,
+		in.PrincipalArn,
+		in.Type,
+		in.Username,
+		in.KubernetesGroups,
+		in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

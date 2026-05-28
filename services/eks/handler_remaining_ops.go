@@ -886,6 +886,23 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 		}
 	}
 
+	cfgUpd := buildClusterConfigUpdate(in)
+
+	update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	if vpcErr := h.applyVpcEndpointUpdate(c, clusterName, in.ResourcesVpcConfig, update); vpcErr != nil {
+		return vpcErr
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyUpdate: updateToJSON(update),
+	})
+}
+
+func buildClusterConfigUpdate(in updateClusterConfigBody) ClusterConfigUpdate {
 	cfgUpd := ClusterConfigUpdate{}
 
 	if in.Logging != nil {
@@ -904,7 +921,6 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
 			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
 		}
-
 		cfgUpd.AccessConfig = ac
 	}
 
@@ -913,7 +929,6 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 		if in.ComputeConfig.Enabled != nil {
 			cc.Enabled = *in.ComputeConfig.Enabled
 		}
-
 		cfgUpd.ComputeConfig = cc
 	}
 
@@ -922,35 +937,34 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 		if in.StorageConfig.BlockStorage.Enabled != nil {
 			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
 		}
-
 		cfgUpd.StorageConfig = sc
 	}
 
-	update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
+	return cfgUpd
+}
+
+func (h *Handler) applyVpcEndpointUpdate(
+	c *echo.Context, clusterName string,
+	vpcIn *updateClusterConfigVpcConfig, update *Update,
+) error {
+	if vpcIn == nil {
+		return nil
+	}
+	vpcUpd := VpcEndpointUpdate{
+		EndpointPublicAccess:  vpcIn.EndpointPublicAccess,
+		EndpointPrivateAccess: vpcIn.EndpointPrivateAccess,
+		PublicAccessCIDRs:     vpcIn.PublicAccessCidrs,
+	}
+	if vpcUpd.EndpointPublicAccess == nil && vpcUpd.EndpointPrivateAccess == nil && vpcUpd.PublicAccessCIDRs == nil {
+		return nil
+	}
+	vpcUpdate, err := h.Backend.UpdateClusterVpcEndpoint(clusterName, vpcUpd)
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	update.Params = append(update.Params, vpcUpdate.Params...)
 
-	if in.ResourcesVpcConfig != nil {
-		vpcUpd := VpcEndpointUpdate{
-			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
-			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
-			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCidrs,
-		}
-
-		if vpcUpd.EndpointPublicAccess != nil || vpcUpd.EndpointPrivateAccess != nil || vpcUpd.PublicAccessCIDRs != nil {
-			vpcUpdate, vpcErr := h.Backend.UpdateClusterVpcEndpoint(clusterName, vpcUpd)
-			if vpcErr != nil {
-				return h.handleError(c, vpcErr)
-			}
-
-			update.Params = append(update.Params, vpcUpdate.Params...)
-		}
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: updateToJSON(update),
-	})
+	return nil
 }
 
 type updateClusterVersionBody struct {

@@ -740,7 +740,10 @@ type AccessEntryUpdate struct {
 }
 
 // UpdateAccessEntry updates an access entry's username and kubernetes groups.
-func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN string, upd AccessEntryUpdate) (*AccessEntry, error) {
+func (b *InMemoryBackend) UpdateAccessEntry(
+	clusterName, principalARN string,
+	upd AccessEntryUpdate,
+) (*AccessEntry, error) {
 	b.mu.Lock("UpdateAccessEntry")
 	defer b.mu.Unlock()
 

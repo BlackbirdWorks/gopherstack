@@ -184,10 +184,10 @@ func TestBatch2_AccessConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body             map[string]any
-		name             string
-		wantAuthMode     string
-		wantBootstrap    bool
+		body          map[string]any
+		name          string
+		wantAuthMode  string
+		wantBootstrap bool
 	}{
 		{
 			name: "access_config_api_mode",

@@ -361,17 +361,7 @@ func (b *InMemoryBackend) CreateCluster(
 
 	var vpcCopy *VpcConfig
 	if vpcConfig != nil {
-		cp := *vpcConfig
-		cp.SubnetIDs = cloneStrings(vpcConfig.SubnetIDs)
-		cp.SecurityGroupIDs = cloneStrings(vpcConfig.SecurityGroupIDs)
-		cp.PublicAccessCIDRs = cloneStrings(vpcConfig.PublicAccessCIDRs)
-		if cp.ClusterSecurityGroupID == "" {
-			cp.ClusterSecurityGroupID = "sg-" + stableID(name)
-		}
-		if cp.VpcID == "" {
-			cp.VpcID = "vpc-" + stableID(name)
-		}
-		vpcCopy = &cp
+		vpcCopy = cloneVpcConfig(vpcConfig, name)
 	}
 
 	var netCopy *KubernetesNetworkConfig
@@ -442,6 +432,21 @@ func (b *InMemoryBackend) CreateCluster(
 	cp := *c
 
 	return &cp, nil
+}
+
+func cloneVpcConfig(src *VpcConfig, clusterName string) *VpcConfig {
+	cp := *src
+	cp.SubnetIDs = cloneStrings(src.SubnetIDs)
+	cp.SecurityGroupIDs = cloneStrings(src.SecurityGroupIDs)
+	cp.PublicAccessCIDRs = cloneStrings(src.PublicAccessCIDRs)
+	if cp.ClusterSecurityGroupID == "" {
+		cp.ClusterSecurityGroupID = "sg-" + stableID(clusterName)
+	}
+	if cp.VpcID == "" {
+		cp.VpcID = "vpc-" + stableID(clusterName)
+	}
+
+	return &cp
 }
 
 // DescribeCluster returns a cluster by name.
@@ -734,7 +739,10 @@ type NodegroupConfigUpdate struct {
 
 // UpdateNodegroupConfig updates the configuration of a node group including scaling,
 // labels, taints, and update strategy.
-func (b *InMemoryBackend) UpdateNodegroupConfig(clusterName, nodegroupName string, upd NodegroupConfigUpdate) (*Nodegroup, error) {
+func (b *InMemoryBackend) UpdateNodegroupConfig(
+	clusterName, nodegroupName string,
+	upd NodegroupConfigUpdate,
+) (*Nodegroup, error) {
 	b.mu.Lock("UpdateNodegroupConfig")
 	defer b.mu.Unlock()
 
