@@ -8,6 +8,7 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,9 @@ var (
 	ErrInvalidMXRecord                 = errors.New("invalid MX record value")
 	ErrInvalidSRVRecord                = errors.New("invalid SRV record value")
 	ErrInvalidCAARecord                = errors.New("invalid CAA record value")
+	ErrTrafficPolicyInUse              = errors.New("TrafficPolicyInUse")
+	ErrKeySigningKeyNotInactive        = errors.New("KeySigningKeyNotInactive")
+	ErrTrafficPolicyAlreadyExists      = errors.New("TrafficPolicyAlreadyExists")
 )
 
 const (
@@ -336,6 +340,12 @@ type TrafficPolicyInstance struct {
 	State                string `json:"state"`
 	TTL                  int64  `json:"ttl"`
 	TrafficPolicyVersion int32  `json:"trafficPolicyVersion"`
+}
+
+// TrafficPolicySummary is returned by ListTrafficPolicies and includes the version count.
+type TrafficPolicySummary struct {
+	TrafficPolicy
+	VersionCount int32
 }
 
 // vpcAssociation records a VPC associated with a hosted zone.
@@ -659,6 +669,126 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 		return fmt.Errorf("%w: Weight must be in range [0, 255]", ErrInvalidInput)
 	}
 
+	if err := validateGeoProximityLocation(rrs.GeoProximityLocation); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// geoProximityLocationFieldCount counts how many of the three mutually exclusive
+// routing fields are set on a GeoProximityLocation.
+func geoProximityLocationFieldCount(gpl *GeoProximityLocation) int {
+	count := 0
+	if gpl.AWSRegion != "" {
+		count++
+	}
+	if gpl.Coordinates != nil {
+		count++
+	}
+	if gpl.LocalZoneGroup != "" {
+		count++
+	}
+
+	return count
+}
+
+// validateGeoProximityCoordinates validates the lat/lon values inside a Coordinates block.
+func validateGeoProximityCoordinates(coords *GeoProximityCoordinates) error {
+	const (
+		latMin = -90.0
+		latMax = 90.0
+		lonMin = -180.0
+		lonMax = 180.0
+	)
+
+	lat, err := strconv.ParseFloat(coords.Latitude, 64)
+	if err != nil || lat < latMin || lat > latMax {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation Coordinates Latitude must be a number in [%g, %g]",
+			ErrInvalidInput, latMin, latMax,
+		)
+	}
+
+	lon, err := strconv.ParseFloat(coords.Longitude, 64)
+	if err != nil || lon < lonMin || lon > lonMax {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation Coordinates Longitude must be a number in [%g, %g]",
+			ErrInvalidInput, lonMin, lonMax,
+		)
+	}
+
+	return nil
+}
+
+// validateGeoProximityLocation enforces AWS constraints on GeoProximityLocation routing config.
+func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
+	if gpl == nil {
+		return nil
+	}
+
+	count := geoProximityLocationFieldCount(gpl)
+
+	if count == 0 {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation requires one of AWSRegion, Coordinates, or LocalZoneGroup",
+			ErrInvalidInput,
+		)
+	}
+
+	if count > 1 {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation must specify exactly one of AWSRegion, Coordinates, or LocalZoneGroup",
+			ErrInvalidInput,
+		)
+	}
+
+	const (
+		biasMin = -99
+		biasMax = 99
+	)
+
+	if gpl.Bias < biasMin || gpl.Bias > biasMax {
+		return fmt.Errorf(
+			"%w: GeoProximityLocation Bias must be in range [%d, %d]",
+			ErrInvalidInput, biasMin, biasMax,
+		)
+	}
+
+	if gpl.Coordinates != nil {
+		return validateGeoProximityCoordinates(gpl.Coordinates)
+	}
+
+	return nil
+}
+
+// validateHealthCheckConfig enforces AWS type-specific constraints on a HealthCheckConfig.
+func validateHealthCheckConfig(cfg HealthCheckConfig) error {
+	if cfg.Type == HealthCheckTypeCloudWatchMetric && cfg.AlarmIdentifier == nil {
+		return fmt.Errorf(
+			"%w: CLOUDWATCH_METRIC health checks require AlarmIdentifier",
+			ErrInvalidInput,
+		)
+	}
+
+	if cfg.Type == HealthCheckTypeRecoveryControl && cfg.RoutingControlArn == "" {
+		return fmt.Errorf(
+			"%w: RECOVERY_CONTROL health checks require RoutingControlArn",
+			ErrInvalidInput,
+		)
+	}
+
+	if cfg.InsufficientDataHealthStatus != "" {
+		switch cfg.InsufficientDataHealthStatus {
+		case defaultHealthStatus, "Unhealthy", "LastKnownStatus":
+		default:
+			return fmt.Errorf(
+				"%w: InsufficientDataHealthStatus must be Healthy, Unhealthy, or LastKnownStatus",
+				ErrInvalidInput,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -951,6 +1081,10 @@ func (b *InMemoryBackend) CreateHealthCheck(
 		return nil, fmt.Errorf("%w: health check type is required", ErrInvalidInput)
 	}
 
+	if err := validateHealthCheckConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateHealthCheck")
 	defer b.mu.Unlock()
 
@@ -1214,17 +1348,27 @@ func (b *InMemoryBackend) DeactivateKeySigningKey(
 }
 
 // DeleteKeySigningKey deletes a key signing key.
+// The KSK must be INACTIVE; deleting an ACTIVE KSK returns ErrKeySigningKeyNotInactive.
 func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
 	b.mu.Lock("DeleteKeySigningKey")
 	defer b.mu.Unlock()
 
 	key := kskKey(hostedZoneID, name)
-	if _, ok := b.keySigningKeys[key]; !ok {
+	ksk, ok := b.keySigningKeys[key]
+	if !ok {
 		return fmt.Errorf(
 			"%w: key signing key %s not found in zone %s",
 			ErrKeySigningKeyNotFound,
 			name,
 			hostedZoneID,
+		)
+	}
+
+	if ksk.Status == kskStatusActive {
+		return fmt.Errorf(
+			"%w: key signing key %s must be INACTIVE before deletion",
+			ErrKeySigningKeyNotInactive,
+			name,
 		)
 	}
 
@@ -1829,6 +1973,16 @@ func (b *InMemoryBackend) CreateTrafficPolicy(
 	b.mu.Lock("CreateTrafficPolicy")
 	defer b.mu.Unlock()
 
+	for _, versions := range b.trafficPolicies {
+		if len(versions) > 0 && versions[0].Name == name {
+			return nil, fmt.Errorf(
+				"%w: traffic policy with name %s already exists",
+				ErrTrafficPolicyAlreadyExists,
+				name,
+			)
+		}
+	}
+
 	id := randomTrafficPolicyID()
 	tp := &TrafficPolicy{
 		ID:       id,
@@ -1902,6 +2056,10 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 
 	if tpID == "" {
 		return nil, fmt.Errorf("%w: trafficPolicyId is required", ErrInvalidInput)
+	}
+
+	if ttl < 1 {
+		return nil, fmt.Errorf("%w: TTL must be >= 1 for traffic policy instances", ErrInvalidInput)
 	}
 
 	b.mu.Lock("CreateTrafficPolicyInstance")
@@ -1980,6 +2138,18 @@ func (b *InMemoryBackend) DeleteTrafficPolicy(id string, version int32) error {
 		)
 	}
 
+	for _, inst := range b.trafficPolicyInstances {
+		if inst.TrafficPolicyID == id && inst.TrafficPolicyVersion == version {
+			return fmt.Errorf(
+				"%w: traffic policy %s version %d is still in use by instance %s",
+				ErrTrafficPolicyInUse,
+				id,
+				version,
+				inst.ID,
+			)
+		}
+	}
+
 	if len(versions) == 1 {
 		delete(b.trafficPolicies, id)
 
@@ -2054,19 +2224,52 @@ func (b *InMemoryBackend) GetTrafficPolicyInstance(id string) (*TrafficPolicyIns
 	return &cp, nil
 }
 
-// ListTrafficPolicies returns the latest version of each traffic policy.
-func (b *InMemoryBackend) ListTrafficPolicies() ([]*TrafficPolicy, error) {
+// UpdateTrafficPolicyComment updates the comment on a specific version of a traffic policy.
+func (b *InMemoryBackend) UpdateTrafficPolicyComment(
+	id string, version int32, comment string,
+) (*TrafficPolicy, error) {
+	b.mu.Lock("UpdateTrafficPolicyComment")
+	defer b.mu.Unlock()
+
+	versions, ok := b.trafficPolicies[id]
+	if !ok || len(versions) == 0 {
+		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+	}
+
+	for _, tp := range versions {
+		if tp.Version == version {
+			tp.Comment = comment
+			cp := *tp
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"%w: traffic policy %s version %d not found",
+		ErrTrafficPolicyNotFound,
+		id,
+		version,
+	)
+}
+
+// ListTrafficPolicies returns the latest version of each traffic policy with its version count.
+func (b *InMemoryBackend) ListTrafficPolicies() ([]*TrafficPolicySummary, error) {
 	b.mu.RLock("ListTrafficPolicies")
 	defer b.mu.RUnlock()
 
-	result := make([]*TrafficPolicy, 0, len(b.trafficPolicies))
+	result := make([]*TrafficPolicySummary, 0, len(b.trafficPolicies))
 	for _, versions := range b.trafficPolicies {
 		if len(versions) == 0 {
 			continue
 		}
 
-		cp := *versions[len(versions)-1]
-		result = append(result, &cp)
+		latest := versions[len(versions)-1]
+		cp := *latest
+		result = append(result, &TrafficPolicySummary{
+			TrafficPolicy: cp,
+			VersionCount:  int32(len(versions)), //nolint:gosec // version count fits in int32
+		})
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })

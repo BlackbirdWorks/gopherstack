@@ -759,16 +759,51 @@ func (h *Handler) listTrafficPolicyInstancesByPolicy(c *echo.Context) error {
 	})
 }
 
-type updateTPCommentResponse struct {
-	XMLName       xml.Name                `xml:"UpdateTrafficPolicyCommentResponse"`
-	Xmlns         string                  `xml:"xmlns,attr"`
-	TrafficPolicy xmlTrafficPolicySummary `xml:"TrafficPolicy"`
+type updateTPCommentRequest struct {
+	XMLName xml.Name `xml:"UpdateTrafficPolicyCommentRequest"`
+	Comment string   `xml:"Comment"`
 }
 
-func (h *Handler) updateTrafficPolicyComment(c *echo.Context, _ string) error {
+type updateTPCommentResponse struct {
+	XMLName       xml.Name         `xml:"UpdateTrafficPolicyCommentResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	TrafficPolicy xmlTrafficPolicy `xml:"TrafficPolicy"`
+}
+
+func (h *Handler) updateTrafficPolicyComment(c *echo.Context, path string) error {
+	// path: /2013-04-01/trafficpolicy/{id}/{version}
+	rest := strings.TrimPrefix(path, route53TrafficPolicyPrefix)
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split id and version
+
+	if len(parts) != 2 { //nolint:mnd // path has two segments: id and version
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid traffic policy path")
+	}
+
+	id := parts[0]
+
+	version64, err := strconv.ParseInt(parts[1], 10, 32)
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid version number")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req updateTPCommentRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	tp, err := h.Backend.UpdateTrafficPolicyComment(id, int32(version64), req.Comment)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, updateTPCommentResponse{
 		Xmlns:         route53Namespace,
-		TrafficPolicy: xmlTrafficPolicySummary{},
+		TrafficPolicy: toXMLTrafficPolicy(tp),
 	})
 }
 
