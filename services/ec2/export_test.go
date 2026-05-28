@@ -157,6 +157,27 @@ func (b *InMemoryBackend) ByoipCidrCount() int {
 	return len(b.byoipCidrs)
 }
 
+// SeedReservedInstancesOffering inserts a reserved instances offering directly (for tests).
+func (b *InMemoryBackend) SeedReservedInstancesOffering(
+	offeringID, instanceType, az, productDesc, offeringType string,
+	duration int64,
+	fixedPrice, usagePrice float64,
+) {
+	b.mu.Lock("SeedReservedInstancesOffering")
+	defer b.mu.Unlock()
+
+	b.reservedInstancesOfferings[offeringID] = &ReservedInstancesOffering{
+		ReservedInstancesOfferingID: offeringID,
+		InstanceType:                instanceType,
+		AvailabilityZone:            az,
+		ProductDescription:          productDesc,
+		OfferingType:                offeringType,
+		Duration:                    duration,
+		FixedPrice:                  fixedPrice,
+		UsagePrice:                  usagePrice,
+	}
+}
+
 // DedicatedHostCount returns the number of dedicated hosts in the backend.
 func (b *InMemoryBackend) DedicatedHostCount() int {
 	b.mu.RLock("DedicatedHostCount")
