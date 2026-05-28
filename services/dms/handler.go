@@ -2705,10 +2705,10 @@ type describeEngineVersionsOutput struct {
 func dmsEngineVersionList() []engineVersionJSON {
 	return []engineVersionJSON{
 		{Version: defaultEngineVersion, Lifecycle: statusAvailable, LaunchDate: "2023-11-01"},
-		{Version: "3.5.2", Lifecycle: "available", LaunchDate: "2023-07-01"},
-		{Version: "3.5.1", Lifecycle: "available", LaunchDate: "2023-03-01"},
-		{Version: "3.4.7", Lifecycle: "available", LaunchDate: "2022-11-01"},
-		{Version: "3.4.6", Lifecycle: "available", LaunchDate: "2022-07-01"},
+		{Version: "3.5.2", Lifecycle: statusAvailable, LaunchDate: "2023-07-01"},
+		{Version: "3.5.1", Lifecycle: statusAvailable, LaunchDate: "2023-03-01"},
+		{Version: "3.4.7", Lifecycle: statusAvailable, LaunchDate: "2022-11-01"},
+		{Version: "3.4.6", Lifecycle: statusAvailable, LaunchDate: "2022-07-01"},
 		{Version: "3.4.5", Lifecycle: "deprecated", LaunchDate: "2022-03-01", DeprecationDate: "2023-06-01"},
 	}
 }
@@ -3242,16 +3242,66 @@ func dmsOrderableInstanceList() []orderableInstanceSpec {
 		{class: "dms.t3.small", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
 		{class: "dms.t3.medium", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
 		{class: "dms.t3.large", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
-		{class: "dms.c5.large", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.c5.xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.c5.2xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.c5.4xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.large", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.2xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.4xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.8xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
-		{class: "dms.r5.16xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{
+			class:          "dms.c5.large",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.2xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.4xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.large",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.2xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.4xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.8xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.16xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
 	}
 }
 

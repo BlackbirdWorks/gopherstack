@@ -684,6 +684,7 @@ func (b *InMemoryBackend) DeleteReplicationTask(arnOrID string) (*ReplicationTas
 		rt.Tags.Close()
 		delete(b.replicationTasksByARN, rt.ReplicationTaskArn)
 		delete(b.replicationTasks, id)
+
 		return &cp, nil
 	}
 
