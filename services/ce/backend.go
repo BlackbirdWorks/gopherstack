@@ -22,19 +22,54 @@ import (
 const DefaultAnomalyTTL = 30 * 24 * time.Hour
 
 const (
-	granularityMonthly     = "MONTHLY"
-	metricUnitUSD          = "USD"
-	metricUnitNA           = "N/A"
-	timePeriodKeyEnd       = "End"
-	timePeriodKeyStart     = "Start"
-	syntheticInstanceType  = "t3.medium"
-	spUtilizationPct       = "85.0000"
-	riCoveragePct          = "65.0000"
-	riUtilizationPct       = "88.0000"
-	zeroAmountStr          = "0.0000"
+	granularityMonthly      = "MONTHLY"
+	metricUnitUSD           = "USD"
+	metricUnitNA            = "N/A"
+	timePeriodKeyEnd        = "End"
+	timePeriodKeyStart      = "Start"
+	syntheticInstanceType   = "t3.medium"
+	spUtilizationPct        = "85.0000"
+	riCoveragePct           = "65.0000"
+	riUtilizationPct        = "88.0000"
+	zeroAmountStr           = "0.0000"
 	defaultSavingsPlansType = "COMPUTE_SP"
-	mapKeyRegion           = "Region"
-	mapKeyCurrencyCode     = "CurrencyCode"
+	mapKeyRegion            = "Region"
+	mapKeyCurrencyCode      = "CurrencyCode"
+)
+
+// Synthetic data ratio constants used in cost simulation.
+const (
+	syntheticJitterRange    = 5    // half-range for YearDay jitter (±5 units → ±5% variation)
+	unblendedCostFactor     = 0.98 // UnblendedCost = BlendedCost * 98%
+	usageQuantityFactor     = 10   // UsageQuantity units per cost dollar
+	amortizedCostFactor     = 0.99 // AmortizedCost = UnblendedCost * 99%
+	netUnblendedCostFactor  = 0.97 // NetUnblendedCost = UnblendedCost * 97%
+	normalizedUsageFactor   = 4    // normalized usage units per quantity unit
+	stddevMinThreshold      = 0.01 // minimum stddev; values below use fallback
+	stddevFallbackRatio     = 0.05 // fallback stddev = mean * 5%
+	spCommitmentRatio       = 0.60 // SP commitment = total cost * 60%
+	spUsedCommitmentRatio   = 0.85 // SP used commitment = total commitment * 85%
+	spNetSavingsRatio       = 0.25 // SP net savings = total cost * 25%
+	riPurchasedCostRatio    = 0.40 // RI purchased hours ratio relative to total cost
+	riActualUsageRatio      = 0.88 // RI actual hours = purchased * 88%
+	costToHoursMultiplier   = 10   // synthetic hours per cost dollar
+	riNetSavingsRatio       = 0.30 // RI net savings = total * 30%
+	riPotentialSavingsRatio = 0.35 // RI potential savings = total * 35%
+	riAmortizedFeeRatio     = 0.70 // RI amortized fee = purchased * 70%
+	riRealizedSavingsRatio  = 0.28 // RI realized savings = total * 28%
+	riUnrealizedSavingsRatio = 0.07 // RI unrealized savings = total * 7%
+	riCoverageRatio         = 0.65 // RI covered hours fraction
+	normalizedUnitsPerHour  = 4    // normalized units per running hour
+	onDemandCostRate        = 0.05 // on-demand cost per synthetic hour
+	daysPerMonth            = 30   // synthetic month length in days
+	riMonthlyCostRatio      = 0.60 // RI monthly cost = on-demand cost * 60%
+	riBreakEvenDivisor      = 2    // break-even months = term months / 2
+	riUpfrontSplitRatio     = 0.50 // upfront and recurring each at 50% of RI cost
+	rightsizingSavingsRatio = 0.5  // rightsizing target saves 50% of current cost
+	analysisETAMinutes      = 5    // estimated minutes until commitment analysis completes
+	forecastMinLevel        = 51   // minimum valid prediction interval level
+	forecastMaxLevel        = 99   // maximum valid prediction interval level
+	forecastDefaultLevel    = 80   // default prediction interval level
 )
 
 var (
@@ -139,9 +174,9 @@ type Anomaly struct {
 	MonitorARN       string             `json:"monitorARN"`
 	SubscriptionARN  string             `json:"subscriptionARN"`
 	FeedbackType     string             `json:"feedbackType"`
+	RootCauses       []AnomalyRootCause `json:"rootCauses,omitempty"`
 	AnomalyScore     AnomalyScore       `json:"anomalyScore"`
 	TotalImpact      float64            `json:"totalImpact"`
-	RootCauses       []AnomalyRootCause `json:"rootCauses,omitempty"`
 }
 
 // Subscriber represents a CE anomaly subscription notification target.
@@ -153,12 +188,12 @@ type Subscriber struct {
 
 // CostEntry is a synthetic cost ledger entry for a single day+service combination.
 type CostEntry struct {
+	Tags          map[string]string `json:"tags"`
 	Date          string            `json:"date"`
 	Service       string            `json:"service"`
 	Region        string            `json:"region"`
 	UsageType     string            `json:"usageType"`
 	Account       string            `json:"account"`
-	Tags          map[string]string `json:"tags"`
 	BlendedCost   float64           `json:"blendedCost"`
 	UnblendedCost float64           `json:"unblendedCost"`
 	UsageQuantity float64           `json:"usageQuantity"`
@@ -206,8 +241,8 @@ type ResultByTime struct {
 
 // CostGroup represents a group in a cost result.
 type CostGroup struct {
-	Keys    []string               `json:"Keys"`
 	Metrics map[string]MetricValue `json:"Metrics"`
+	Keys    []string               `json:"Keys"`
 }
 
 // MetricValue holds Amount+Unit for a cost metric.
@@ -247,8 +282,8 @@ type SavingsPlansAmortized struct {
 // ReservationUtilizationByTime holds RI utilization for a time period.
 type ReservationUtilizationByTime struct {
 	TimePeriod map[string]string         `json:"TimePeriod"`
-	Groups     []any                     `json:"Groups"`
 	Total      ReservationUtilizationAgg `json:"Total"`
+	Groups     []any                     `json:"Groups"`
 }
 
 // ReservationUtilizationAgg holds RI utilization aggregates.
@@ -271,8 +306,8 @@ type ReservationUtilizationAgg struct {
 // ReservationCoverageByTime holds RI coverage for a time period.
 type ReservationCoverageByTime struct {
 	TimePeriod map[string]string      `json:"TimePeriod"`
-	Groups     []any                  `json:"Groups"`
 	Total      ReservationCoverageAgg `json:"Total"`
+	Groups     []any                  `json:"Groups"`
 }
 
 // ReservationCoverageAgg holds RI coverage aggregates.
@@ -305,22 +340,22 @@ type ReservationCoverageCost struct {
 
 // SavingsPlansUtilizationDetail is a per-plan utilization entry.
 type SavingsPlansUtilizationDetail struct {
-	SavingsPlanARN      string                     `json:"SavingsPlanArn"`
-	Utilization         SavingsPlansUtilizationAgg `json:"Utilization"`
-	Savings             SavingsPlansSavings        `json:"Savings"`
-	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment"`
 	Attributes          map[string]string          `json:"Attributes,omitempty"`
+	Utilization         SavingsPlansUtilizationAgg `json:"Utilization"`
+	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment"`
+	Savings             SavingsPlansSavings        `json:"Savings"`
+	SavingsPlanARN      string                     `json:"SavingsPlanArn"`
 }
 
 // ReservationRecommendation holds a single RI recommendation group.
 type ReservationRecommendation struct {
+	ServiceSpecification  map[string]any                    `json:"ServiceSpecification,omitempty"`
+	RecommendationSummary map[string]string                 `json:"RecommendationSummary,omitempty"`
 	AccountScope          string                            `json:"AccountScope,omitempty"`
 	LookbackPeriodInDays  string                            `json:"LookbackPeriodInDays,omitempty"`
 	TermInYears           string                            `json:"TermInYears,omitempty"`
 	PaymentOption         string                            `json:"PaymentOption,omitempty"`
-	ServiceSpecification  map[string]any                    `json:"ServiceSpecification,omitempty"`
 	RecommendationDetails []ReservationRecommendationDetail `json:"RecommendationDetails"`
-	RecommendationSummary map[string]string                 `json:"RecommendationSummary,omitempty"`
 }
 
 // ReservationRecommendationDetail is one RI recommendation.
@@ -348,11 +383,11 @@ type ReservationRecommendationDetail struct {
 
 // RightsizingRecommendation is a single rightsizing recommendation.
 type RightsizingRecommendation struct {
-	AccountID                     string                      `json:"AccountId"`
-	CurrentInstance               RightsizingCurrentInstance  `json:"CurrentInstance"`
-	RightsizingType               string                      `json:"RightsizingType"`
 	ModifyRecommendationDetail    *RightsizingModifyDetail    `json:"ModifyRecommendationDetail,omitempty"`
 	TerminateRecommendationDetail *RightsizingTerminateDetail `json:"TerminateRecommendationDetail,omitempty"`
+	CurrentInstance               RightsizingCurrentInstance  `json:"CurrentInstance"`
+	AccountID                     string                      `json:"AccountId"`
+	RightsizingType               string                      `json:"RightsizingType"`
 }
 
 // RightsizingCurrentInstance holds details about the current instance.
@@ -376,12 +411,12 @@ type RightsizingTerminateDetail struct {
 
 // RightsizingTargetInstance is a recommended replacement instance.
 type RightsizingTargetInstance struct {
+	ResourceDetails            map[string]any `json:"ResourceDetails,omitempty"`
 	EstimatedMonthlyCost       string         `json:"EstimatedMonthlyCost"`
 	EstimatedMonthlySavings    string         `json:"EstimatedMonthlySavings"`
 	EstimatedSavingsPercentage string         `json:"EstimatedSavingsPercentage"`
 	CurrencyCode               string         `json:"CurrencyCode"`
 	DefaultTargetInstance      bool           `json:"DefaultTargetInstance"`
-	ResourceDetails            map[string]any `json:"ResourceDetails,omitempty"`
 }
 
 // CostAllocationTagStatusEntry is a TagKey+Status pair for UpdateCostAllocationTagsStatus.
@@ -412,13 +447,13 @@ type InMemoryBackend struct {
 	anomalySubscriptions map[string]*AnomalySubscription
 	anomalies            map[string]*Anomaly
 	mu                   *lockmetrics.RWMutex
+	costAllocationTags   map[string]*CostAllocationTag
+	commitmentAnalyses   map[string]*CommitmentAnalysis
 	accountID            string
 	region               string
-	anomalyTTL           time.Duration
 	costLedger           []CostEntry
-	costAllocationTags   map[string]*CostAllocationTag
 	backfillJobs         []*BackfillJob
-	commitmentAnalyses   map[string]*CommitmentAnalysis
+	anomalyTTL           time.Duration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -1103,7 +1138,7 @@ func (b *InMemoryBackend) seedCostLedger() {
 			dayMultiplier = 0.8
 		}
 
-		jitter := 1.0 + float64(d.YearDay()%10-5)*0.01
+		jitter := 1.0 + float64(d.YearDay()%10-syntheticJitterRange)*0.01
 
 		for _, svc := range services {
 			amount := totalDailyBase * svc.weight * dayMultiplier * jitter
@@ -1114,8 +1149,8 @@ func (b *InMemoryBackend) seedCostLedger() {
 				UsageType:     svc.usageType,
 				Account:       b.accountID,
 				BlendedCost:   amount,
-				UnblendedCost: amount * 0.98,
-				UsageQuantity: amount * 10,
+				UnblendedCost: amount * unblendedCostFactor,
+				UsageQuantity: amount * usageQuantityFactor,
 			})
 		}
 	}
@@ -1201,13 +1236,13 @@ func getMetricValue(e CostEntry, metric string) float64 {
 	case "UNBLENDEDCOST":
 		return e.UnblendedCost
 	case "AMORTIZEDCOST", "NETAMORTIZEDCOST":
-		return e.UnblendedCost * 0.99
+		return e.UnblendedCost * amortizedCostFactor
 	case "NETUNBLENDEDCOST":
-		return e.UnblendedCost * 0.97
+		return e.UnblendedCost * netUnblendedCostFactor
 	case "USAGEQUANTITY":
 		return e.UsageQuantity
 	case "NORMALIZEDUSAGEAMOUNT":
-		return e.UsageQuantity * 4
+		return e.UsageQuantity * normalizedUsageFactor
 	default:
 		return e.BlendedCost
 	}
@@ -1243,16 +1278,74 @@ func calcMeanStddev(values []float64) (float64, float64) {
 	}
 
 	if len(values) > 1 {
-		sd = sd / float64(len(values)-1)
+		sd /= float64(len(values) - 1)
 	}
 
 	sd = math.Sqrt(sd)
 
-	if sd < 0.01 {
-		sd = avg * 0.05
+	if sd < stddevMinThreshold {
+		sd = avg * stddevFallbackRatio
 	}
 
 	return avg, sd
+}
+
+// buildMetricValues converts a map of metric amounts into MetricValue structs.
+func buildMetricValues(amounts map[string]float64, metrics []string) map[string]MetricValue {
+	mv := make(map[string]MetricValue, len(metrics))
+	for _, m := range metrics {
+		mv[m] = MetricValue{
+			Amount: fmt.Sprintf("%.4f", amounts[m]),
+			Unit:   metricUnit(m),
+		}
+	}
+	return mv
+}
+
+// aggregateByGroup groups entries by GroupBy keys and returns sorted CostGroups.
+func aggregateByGroup(entries []CostEntry, groupBy []GroupBySpec, metrics []string) []CostGroup {
+	groupMap := make(map[string]map[string]float64)
+	keyMap := make(map[string][]string)
+
+	for _, e := range entries {
+		keys := extractGroupKeys(e, groupBy)
+		gkey := strings.Join(keys, "|")
+
+		if _, ok := groupMap[gkey]; !ok {
+			groupMap[gkey] = make(map[string]float64)
+			keyMap[gkey] = keys
+		}
+
+		for _, m := range metrics {
+			groupMap[gkey][m] += getMetricValue(e, m)
+		}
+	}
+
+	gkeys := make([]string, 0, len(groupMap))
+	for gk := range groupMap {
+		gkeys = append(gkeys, gk)
+	}
+	sort.Strings(gkeys)
+
+	groups := make([]CostGroup, 0, len(gkeys))
+	for _, gk := range gkeys {
+		groups = append(groups, CostGroup{
+			Keys:    keyMap[gk],
+			Metrics: buildMetricValues(groupMap[gk], metrics),
+		})
+	}
+	return groups
+}
+
+// aggregateTotals sums entries across all metrics and returns MetricValue structs.
+func aggregateTotals(entries []CostEntry, metrics []string) map[string]MetricValue {
+	totals := make(map[string]float64)
+	for _, e := range entries {
+		for _, m := range metrics {
+			totals[m] += getMetricValue(e, m)
+		}
+	}
+	return buildMetricValues(totals, metrics)
 }
 
 // GetCostAndUsage aggregates cost ledger entries by granularity, applying optional GroupBy.
@@ -1270,77 +1363,21 @@ func (b *InMemoryBackend) GetCostAndUsage(
 
 	buckets := buildTimeBuckets(start, end, granularity)
 	results := make([]ResultByTime, 0, len(buckets))
-
 	now := time.Now().UTC().Format("2006-01-02")
 
 	for _, bucket := range buckets {
 		entries := b.costLedgerInBucket(bucket.start, bucket.end)
-		isEstimated := bucket.start >= now || bucket.end > now
-
 		r := ResultByTime{
 			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
-			Estimated:  isEstimated,
+			Estimated:  bucket.start >= now || bucket.end > now,
 			Groups:     []CostGroup{},
 		}
 
 		if len(groupBy) > 0 {
-			groupMap := make(map[string]map[string]float64)
-			keyMap := make(map[string][]string)
-
-			for _, e := range entries {
-				keys := extractGroupKeys(e, groupBy)
-				gkey := strings.Join(keys, "|")
-
-				if _, ok := groupMap[gkey]; !ok {
-					groupMap[gkey] = make(map[string]float64)
-					keyMap[gkey] = keys
-				}
-
-				for _, m := range metrics {
-					groupMap[gkey][m] += getMetricValue(e, m)
-				}
-			}
-
-			gkeys := make([]string, 0, len(groupMap))
-			for gk := range groupMap {
-				gkeys = append(gkeys, gk)
-			}
-
-			sort.Strings(gkeys)
-
-			for _, gk := range gkeys {
-				mv := make(map[string]MetricValue, len(metrics))
-
-				for _, m := range metrics {
-					mv[m] = MetricValue{
-						Amount: fmt.Sprintf("%.4f", groupMap[gk][m]),
-						Unit:   metricUnit(m),
-					}
-				}
-
-				r.Groups = append(r.Groups, CostGroup{
-					Keys:    keyMap[gk],
-					Metrics: mv,
-				})
-			}
-
+			r.Groups = aggregateByGroup(entries, groupBy, metrics)
 			r.Total = map[string]MetricValue{}
 		} else {
-			totals := make(map[string]float64)
-
-			for _, e := range entries {
-				for _, m := range metrics {
-					totals[m] += getMetricValue(e, m)
-				}
-			}
-
-			r.Total = make(map[string]MetricValue, len(metrics))
-			for _, m := range metrics {
-				r.Total[m] = MetricValue{
-					Amount: fmt.Sprintf("%.4f", totals[m]),
-					Unit:   metricUnit(m),
-				}
-			}
+			r.Total = aggregateTotals(entries, metrics)
 		}
 
 		results = append(results, r)
@@ -1455,8 +1492,8 @@ func (b *InMemoryBackend) GetSavingsPlansUtilization(
 		total += e.BlendedCost
 	}
 
-	commitment := total * 0.60
-	used := commitment * 0.85
+	commitment := total * spCommitmentRatio
+	used := commitment * spUsedCommitmentRatio
 	unused := commitment - used
 
 	return &SavingsPlansUtilizationResult{
@@ -1472,7 +1509,7 @@ func (b *InMemoryBackend) GetSavingsPlansUtilization(
 		},
 		AmortizedCommitment: SavingsPlansAmortized{
 			AmortizedRecurringCommitment: fmt.Sprintf("%.4f", commitment),
-			AmortizedUpfrontCommitment: zeroAmountStr,
+			AmortizedUpfrontCommitment:   zeroAmountStr,
 			TotalAmortizedCommitment:     fmt.Sprintf("%.4f", commitment),
 		},
 	}
@@ -1494,8 +1531,8 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 		return nil
 	}
 
-	commitment := total * 0.60
-	used := commitment * 0.85
+	commitment := total * spCommitmentRatio
+	used := commitment * spUsedCommitmentRatio
 
 	return []SavingsPlansUtilizationDetail{
 		{
@@ -1510,17 +1547,17 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 				UtilizationPercentage: spUtilizationPct,
 			},
 			Savings: SavingsPlansSavings{
-				NetSavings:             fmt.Sprintf("%.4f", total*0.25),
+				NetSavings:             fmt.Sprintf("%.4f", total*spNetSavingsRatio),
 				OnDemandCostEquivalent: fmt.Sprintf("%.4f", total),
 			},
 			AmortizedCommitment: SavingsPlansAmortized{
 				AmortizedRecurringCommitment: fmt.Sprintf("%.4f", commitment),
-				AmortizedUpfrontCommitment: zeroAmountStr,
+				AmortizedUpfrontCommitment:   zeroAmountStr,
 				TotalAmortizedCommitment:     fmt.Sprintf("%.4f", commitment),
 			},
 			Attributes: map[string]string{
 				"SavingsPlansType": defaultSavingsPlansType,
-				mapKeyRegion: b.region,
+				mapKeyRegion:       b.region,
 				"InstanceFamily":   "m5",
 				"PaymentOption":    "No Upfront",
 			},
@@ -1546,27 +1583,27 @@ func (b *InMemoryBackend) GetReservationUtilization(
 			}
 		}
 
-		purchased := total * 0.40
-		actual := purchased * 0.88
+		purchased := total * riPurchasedCostRatio
+		actual := purchased * riActualUsageRatio
 		unused := purchased - actual
 
 		result = append(result, ReservationUtilizationByTime{
 			TimePeriod: map[string]string{timePeriodKeyStart: bucket.start, timePeriodKeyEnd: bucket.end},
 			Groups:     []any{},
 			Total: ReservationUtilizationAgg{
-				UtilizationPercentage: riUtilizationPct,
-				PurchasedHours:            fmt.Sprintf("%.4f", purchased*10),
-				TotalActualHours:          fmt.Sprintf("%.4f", actual*10),
-				UnusedHours:               fmt.Sprintf("%.4f", unused*10),
+				UtilizationPercentage:     riUtilizationPct,
+				PurchasedHours:            fmt.Sprintf("%.4f", purchased*costToHoursMultiplier),
+				TotalActualHours:          fmt.Sprintf("%.4f", actual*costToHoursMultiplier),
+				UnusedHours:               fmt.Sprintf("%.4f", unused*costToHoursMultiplier),
 				OnDemandCostOfRIHoursUsed: fmt.Sprintf("%.4f", actual),
-				NetRISavings:              fmt.Sprintf("%.4f", total*0.30),
-				TotalPotentialRISavings:   fmt.Sprintf("%.4f", total*0.35),
-				AmortizedUpfrontFee: zeroAmountStr,
-				AmortizedRecurringFee:     fmt.Sprintf("%.4f", purchased*0.70),
-				TotalAmortizedFee:         fmt.Sprintf("%.4f", purchased*0.70),
-				RICostForUnusedHours:      fmt.Sprintf("%.4f", unused*0.70),
-				RealizedSavings:           fmt.Sprintf("%.4f", total*0.28),
-				UnrealizedSavings:         fmt.Sprintf("%.4f", total*0.07),
+				NetRISavings:              fmt.Sprintf("%.4f", total*riNetSavingsRatio),
+				TotalPotentialRISavings:   fmt.Sprintf("%.4f", total*riPotentialSavingsRatio),
+				AmortizedUpfrontFee:       zeroAmountStr,
+				AmortizedRecurringFee:     fmt.Sprintf("%.4f", purchased*riAmortizedFeeRatio),
+				TotalAmortizedFee:         fmt.Sprintf("%.4f", purchased*riAmortizedFeeRatio),
+				RICostForUnusedHours:      fmt.Sprintf("%.4f", unused*riAmortizedFeeRatio),
+				RealizedSavings:           fmt.Sprintf("%.4f", total*riRealizedSavingsRatio),
+				UnrealizedSavings:         fmt.Sprintf("%.4f", total*riUnrealizedSavingsRatio),
 			},
 		})
 	}
@@ -1590,8 +1627,8 @@ func (b *InMemoryBackend) GetReservationCoverage(
 			total += e.BlendedCost
 		}
 
-		hours := total * 10
-		riHours := hours * 0.65
+		hours := total * costToHoursMultiplier
+		riHours := hours * riCoverageRatio
 		odHours := hours - riHours
 
 		result = append(result, ReservationCoverageByTime{
@@ -1605,13 +1642,13 @@ func (b *InMemoryBackend) GetReservationCoverage(
 					CoverageHoursPercentage: riCoveragePct,
 				},
 				CoverageNormalizedUnits: ReservationCoverageNormalizedUnits{
-					OnDemandNormalizedUnits:           fmt.Sprintf("%.4f", odHours*4),
-					ReservedNormalizedUnits:           fmt.Sprintf("%.4f", riHours*4),
-					TotalRunningNormalizedUnits:       fmt.Sprintf("%.4f", hours*4),
+					OnDemandNormalizedUnits:           fmt.Sprintf("%.4f", odHours*normalizedUnitsPerHour),
+					ReservedNormalizedUnits:           fmt.Sprintf("%.4f", riHours*normalizedUnitsPerHour),
+					TotalRunningNormalizedUnits:       fmt.Sprintf("%.4f", hours*normalizedUnitsPerHour),
 					CoverageNormalizedUnitsPercentage: riCoveragePct,
 				},
 				CoverageCost: ReservationCoverageCost{
-					OnDemandCost: fmt.Sprintf("%.4f", odHours*0.05),
+					OnDemandCost: fmt.Sprintf("%.4f", odHours*onDemandCostRate),
 				},
 			},
 		})
@@ -1662,11 +1699,11 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 	termMonths := 12
 	if term == "THREE_YEARS" {
 		termMonths = 36
-		upfrontMultiplier *= 0.85
+		upfrontMultiplier *= spUsedCommitmentRatio
 	}
 
-	monthlyCost := total / float64(days) * 30
-	riMonthlyCost := monthlyCost * upfrontMultiplier * 0.60
+	monthlyCost := total / float64(days) * daysPerMonth
+	riMonthlyCost := monthlyCost * upfrontMultiplier * riMonthlyCostRatio
 	savings := monthlyCost - riMonthlyCost
 
 	return []ReservationRecommendation{
@@ -1686,7 +1723,7 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 					InstanceDetails: map[string]any{
 						"EC2InstanceDetails": map[string]string{
 							"InstanceType": syntheticInstanceType,
-							mapKeyRegion: b.region,
+							mapKeyRegion:   b.region,
 							"Platform":     "Linux/UNIX",
 						},
 					},
@@ -1699,8 +1736,8 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 					AverageNumberOfInstancesUsedPerHour:    "2",
 					AverageNormalizedUnitsUsedPerHour:      "16",
 					AverageUtilization:                     "80.0000",
-					EstimatedBreakEvenInMonths:             fmt.Sprintf("%d", termMonths/2),
-					CurrencyCode: metricUnitUSD,
+					EstimatedBreakEvenInMonths:             fmt.Sprintf("%d", termMonths/riBreakEvenDivisor),
+					CurrencyCode:                           metricUnitUSD,
 					EstimatedMonthlySavingsAmount:          fmt.Sprintf("%.4f", savings),
 					EstimatedMonthlySavingsPercentage:      "40.0000",
 					EstimatedMonthlyOnDemandCost:           fmt.Sprintf("%.4f", monthlyCost),
@@ -1710,18 +1747,18 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 					),
 					UpfrontCost: fmt.Sprintf(
 						"%.4f",
-						riMonthlyCost*float64(termMonths)*0.50,
+						riMonthlyCost*float64(termMonths)*riUpfrontSplitRatio,
 					),
 					RecurringStandardMonthlyCost: fmt.Sprintf(
 						"%.4f",
-						riMonthlyCost*0.50,
+						riMonthlyCost*riUpfrontSplitRatio,
 					),
 				},
 			},
 			RecommendationSummary: map[string]string{
 				"TotalEstimatedMonthlySavingsAmount":     fmt.Sprintf("%.4f", savings),
 				"TotalEstimatedMonthlySavingsPercentage": "40.0000",
-				"CurrencyCode": metricUnitUSD,
+				"CurrencyCode":                           metricUnitUSD,
 			},
 		},
 	}
@@ -1757,22 +1794,22 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(
 			CurrentInstance: RightsizingCurrentInstance{
 				ResourceID:   resourceARN,
 				InstanceType: "t3.large",
-				MonthlyCost:  fmt.Sprintf("%.4f", total/14*30),
+				MonthlyCost:  fmt.Sprintf("%.4f", total/14*daysPerMonth),
 				CurrencyCode: metricUnitUSD,
 			},
 			RightsizingType: "MODIFY",
 			ModifyRecommendationDetail: &RightsizingModifyDetail{
 				TargetInstances: []RightsizingTargetInstance{
 					{
-						EstimatedMonthlyCost:       fmt.Sprintf("%.4f", total/14*30*0.5),
-						EstimatedMonthlySavings:    fmt.Sprintf("%.4f", total/14*30*0.5),
+						EstimatedMonthlyCost:       fmt.Sprintf("%.4f", total/14*daysPerMonth*rightsizingSavingsRatio),
+						EstimatedMonthlySavings:    fmt.Sprintf("%.4f", total/14*daysPerMonth*rightsizingSavingsRatio),
 						EstimatedSavingsPercentage: "50.0000",
 						CurrencyCode:               "USD",
 						DefaultTargetInstance:      true,
 						ResourceDetails: map[string]any{
 							"EC2ResourceDetails": map[string]string{
 								"InstanceType":    "t3.medium",
-								mapKeyRegion: b.region,
+								mapKeyRegion:      b.region,
 								"Platform":        "Linux/UNIX",
 								"Tenancy":         "Shared",
 								"OperatingSystem": "Linux",
@@ -1909,7 +1946,7 @@ func (b *InMemoryBackend) CreateCommitmentAnalysis() *CommitmentAnalysis {
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	estimated := now.Add(5 * time.Minute)
+	estimated := now.Add(analysisETAMinutes * time.Minute)
 	a := &CommitmentAnalysis{
 		AnalysisID:              uuid.NewString(),
 		AnalysisStatus:          "PROCESSING",
@@ -2000,15 +2037,15 @@ func (b *InMemoryBackend) GetForecastByTime(
 
 	mean, stddev := calcMeanStddev(histValues)
 
-	if predictionIntervalLevel < 51 {
-		predictionIntervalLevel = 80
+	if predictionIntervalLevel < forecastMinLevel {
+		predictionIntervalLevel = forecastDefaultLevel
 	}
 
-	if predictionIntervalLevel > 99 {
-		predictionIntervalLevel = 99
+	if predictionIntervalLevel > forecastMaxLevel {
+		predictionIntervalLevel = forecastMaxLevel
 	}
 
-	z := 1.28 + float64(predictionIntervalLevel-80)*0.02
+	z := 1.28 + float64(predictionIntervalLevel-forecastDefaultLevel)*0.02
 
 	buckets := buildTimeBuckets(start, end, granularity)
 	forecasts := make([]ForecastResult, 0, len(buckets))
@@ -2023,8 +2060,8 @@ func (b *InMemoryBackend) GetForecastByTime(
 
 		forecasts = append(forecasts, ForecastResult{
 			TimePeriod: map[string]string{
-				"Start": bucket.start,
-				"End":   bucket.end,
+				timePeriodKeyStart: bucket.start,
+				timePeriodKeyEnd:   bucket.end,
 			},
 			MeanValue:                    fmt.Sprintf("%.4f", mean),
 			PredictionIntervalLowerBound: fmt.Sprintf("%.4f", lo),

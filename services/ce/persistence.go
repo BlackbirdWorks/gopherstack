@@ -12,9 +12,9 @@ type backendSnapshot struct {
 	Anomalies            map[string]*Anomaly             `json:"anomalies"`
 	CostAllocationTags   map[string]*CostAllocationTag   `json:"costAllocationTags"`
 	CommitmentAnalyses   map[string]*CommitmentAnalysis  `json:"commitmentAnalyses"`
-	BackfillJobs         []*BackfillJob                  `json:"backfillJobs"`
 	AccountID            string                          `json:"accountID"`
 	Region               string                          `json:"region"`
+	BackfillJobs         []*BackfillJob                  `json:"backfillJobs"`
 	AnomalyTTL           time.Duration                   `json:"anomalyTTL"`
 }
 

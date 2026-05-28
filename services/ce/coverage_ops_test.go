@@ -517,8 +517,8 @@ func TestCoverage_GetRightsizingRecommendation_IncludesSummary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		RightsizingRecommendations []any             `json:"RightsizingRecommendations"`
 		Summary                    map[string]string `json:"Summary"`
+		RightsizingRecommendations []any             `json:"RightsizingRecommendations"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	assert.NotEmpty(t, out.RightsizingRecommendations)

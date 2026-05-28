@@ -111,8 +111,8 @@ func TestParity_GetCostAndUsage_GroupByProducesGroups(t *testing.T) {
 		ResultsByTime []struct {
 			TimePeriod map[string]string `json:"TimePeriod"`
 			Groups     []struct {
-				Keys    []string                     `json:"Keys"`
 				Metrics map[string]map[string]string `json:"Metrics"`
+				Keys    []string                     `json:"Keys"`
 			} `json:"Groups"`
 		} `json:"ResultsByTime"`
 	}
@@ -378,14 +378,14 @@ func TestParity_GetSavingsPlansUtilizationDetails_ReturnsDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
+		Total                          map[string]any    `json:"Total"`
+		TimePeriod                     map[string]string `json:"TimePeriod"`
 		SavingsPlansUtilizationDetails []struct {
 			SavingsPlanArn string `json:"SavingsPlanArn"`
 			Utilization    struct {
 				UtilizationPercentage string `json:"UtilizationPercentage"`
 			} `json:"Utilization"`
 		} `json:"SavingsPlansUtilizationDetails"`
-		Total      map[string]any    `json:"Total"`
-		TimePeriod map[string]string `json:"TimePeriod"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	assert.NotEmpty(t, out.SavingsPlansUtilizationDetails)
@@ -411,6 +411,7 @@ func TestParity_GetReservationCoverage_Structure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
+		Total           map[string]any `json:"Total"`
 		CoveragesByTime []struct {
 			TimePeriod map[string]string `json:"TimePeriod"`
 			Total      struct {
@@ -421,7 +422,6 @@ func TestParity_GetReservationCoverage_Structure(t *testing.T) {
 				} `json:"CoverageHours"`
 			} `json:"Total"`
 		} `json:"CoveragesByTime"`
-		Total map[string]any `json:"Total"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	require.NotEmpty(t, out.CoveragesByTime)
@@ -445,6 +445,7 @@ func TestParity_GetReservationUtilization_Structure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
+		Total              map[string]any `json:"Total"`
 		UtilizationsByTime []struct {
 			TimePeriod map[string]string `json:"TimePeriod"`
 			Total      struct {
@@ -452,7 +453,6 @@ func TestParity_GetReservationUtilization_Structure(t *testing.T) {
 				NetRISavings          string `json:"NetRISavings"`
 			} `json:"Total"`
 		} `json:"UtilizationsByTime"`
-		Total map[string]any `json:"Total"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	require.NotEmpty(t, out.UtilizationsByTime)
@@ -501,6 +501,7 @@ func TestParity_GetReservationPurchaseRecommendation_FieldShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
+				Metadata        map[string]string `json:"Metadata"`
 				Recommendations []struct {
 					RecommendationDetails []struct {
 						EstimatedMonthlySavingsAmount          string `json:"EstimatedMonthlySavingsAmount"`
@@ -508,7 +509,6 @@ func TestParity_GetReservationPurchaseRecommendation_FieldShape(t *testing.T) {
 						RecommendedNumberOfInstancesToPurchase string `json:"RecommendedNumberOfInstancesToPurchase"`
 					} `json:"RecommendationDetails"`
 				} `json:"Recommendations"`
-				Metadata map[string]string `json:"Metadata"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			require.NotEmpty(t, out.Recommendations)
@@ -533,6 +533,7 @@ func TestParity_GetRightsizingRecommendation_FieldShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
+		Summary                    map[string]string `json:"Summary"`
 		RightsizingRecommendations []struct {
 			AccountID       string `json:"AccountId"`
 			RightsizingType string `json:"RightsizingType"`
@@ -547,7 +548,6 @@ func TestParity_GetRightsizingRecommendation_FieldShape(t *testing.T) {
 				} `json:"TargetInstances"`
 			} `json:"ModifyRecommendationDetail"`
 		} `json:"RightsizingRecommendations"`
-		Summary map[string]string `json:"Summary"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	require.NotEmpty(t, out.RightsizingRecommendations)
@@ -806,8 +806,8 @@ func TestParity_ProvideAnomalyFeedback_PersistsAndValidates(t *testing.T) {
 	tests := []struct {
 		name           string
 		feedback       string
-		wantStatusCode int
 		wantFeedback   string
+		wantStatusCode int
 	}{
 		{
 			name:           "yes_feedback",
@@ -975,11 +975,11 @@ func TestParity_GetSavingsPlansPurchaseRecommendation_ReturnsRecommendation(t *t
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
+				Metadata                           map[string]string `json:"Metadata"`
 				SavingsPlansPurchaseRecommendation struct {
 					SavingsPlansType                          string           `json:"SavingsPlansType"`
 					SavingsPlansPurchaseRecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
 				} `json:"SavingsPlansPurchaseRecommendation"`
-				Metadata map[string]string `json:"Metadata"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			assert.NotEmpty(t, out.SavingsPlansPurchaseRecommendation.SavingsPlansType)

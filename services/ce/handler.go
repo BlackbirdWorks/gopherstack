@@ -17,19 +17,23 @@ import (
 )
 
 const (
-	ceTargetPrefix        = "AWSInsightsIndexService."
-	defaultStartDate      = "2024-01-01"
-	defaultEndDate        = "2024-02-01"
-	defaultForecastStart  = "2024-02-01"
-	defaultForecastEnd    = "2024-03-01"
-	defaultGranularity    = "MONTHLY"
-	handlerZeroAmount     = "0.0000"
+	ceTargetPrefix          = "AWSInsightsIndexService."
+	defaultStartDate        = "2024-01-01"
+	defaultEndDate          = "2024-02-01"
+	defaultForecastStart    = "2024-02-01"
+	defaultForecastEnd      = "2024-03-01"
+	defaultGranularity      = "MONTHLY"
+	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"
-	handlerRegionDefault  = "us-east-1"
-	handlerCoverPct       = "65.0000"
-	handlerROI            = "25.0000"
-	handlerSPUtilPct      = "85.0000"
-	handlerCurrencyCode   = "USD"
+	handlerRegionDefault    = "us-east-1"
+	handlerCoverPct         = "65.0000"
+	handlerROI              = "25.0000"
+	handlerSPUtilPct        = "85.0000"
+	handlerCurrencyCode     = "USD"
+
+	anomalyActualSpendMultiplier   = 1.2  // actual spend is 20% above impact
+	anomalyExpectedSpendMultiplier = 0.9  // expected spend is 10% below impact
+	anomalyImpactPercentage        = 25.0 // synthetic impact percentage
 )
 
 var (
@@ -878,9 +882,9 @@ type getCostAndUsageInput struct {
 	Filter        any               `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
 	Granularity   string            `json:"Granularity"`
+	NextPageToken string            `json:"NextPageToken"`
 	Metrics       []string          `json:"Metrics"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
-	NextPageToken string            `json:"NextPageToken"`
 }
 
 type getCostAndUsageOutput struct {
@@ -928,8 +932,8 @@ func (h *Handler) handleGetCostAndUsage(
 }
 
 type dimensionValue struct {
-	Value      string            `json:"Value"`
 	Attributes map[string]string `json:"Attributes,omitempty"`
+	Value      string            `json:"Value"`
 }
 
 type getDimensionValuesInput struct {
@@ -1104,10 +1108,10 @@ func (h *Handler) handleUntagResource(
 // --- Forecasts ---
 
 type getCostForecastInput struct {
+	Filter                  any               `json:"Filter"`
 	TimePeriod              map[string]string `json:"TimePeriod"`
 	Granularity             string            `json:"Granularity"`
 	Metric                  string            `json:"Metric"`
-	Filter                  any               `json:"Filter"`
 	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
@@ -1158,10 +1162,10 @@ func (h *Handler) handleGetCostForecast(
 }
 
 type getUsageForecastInput struct {
+	Filter                  any               `json:"Filter"`
 	TimePeriod              map[string]string `json:"TimePeriod"`
 	Granularity             string            `json:"Granularity"`
 	Metric                  string            `json:"Metric"`
-	Filter                  any               `json:"Filter"`
 	PredictionIntervalLevel int               `json:"PredictionIntervalLevel"`
 }
 
@@ -1243,9 +1247,9 @@ type anomalySummary struct {
 	MonitorArn       string             `json:"MonitorArn"`
 	SubscriptionArn  string             `json:"SubscriptionArn,omitempty"`
 	Feedback         string             `json:"Feedback,omitempty"`
-	AnomalyScore     AnomalyScore       `json:"AnomalyScore"`
-	Impact           anomalyImpact      `json:"Impact"`
 	RootCauses       []AnomalyRootCause `json:"RootCauses,omitempty"`
+	Impact           anomalyImpact      `json:"Impact"`
+	AnomalyScore     AnomalyScore       `json:"AnomalyScore"`
 }
 
 type getAnomaliesOutput struct {
@@ -1272,9 +1276,9 @@ func (h *Handler) handleGetAnomalies(
 			Impact: anomalyImpact{
 				MaxImpact:             a.TotalImpact,
 				TotalImpact:           a.TotalImpact,
-				TotalActualSpend:      a.TotalImpact * 1.2,
-				TotalExpectedSpend:    a.TotalImpact * 0.9,
-				TotalImpactPercentage: 25.0,
+				TotalActualSpend:      a.TotalImpact * anomalyActualSpendMultiplier,
+				TotalExpectedSpend:    a.TotalImpact * anomalyExpectedSpendMultiplier,
+				TotalImpactPercentage: anomalyImpactPercentage,
 			},
 			Feedback:   a.FeedbackType,
 			RootCauses: a.RootCauses,
@@ -1451,10 +1455,10 @@ func (h *Handler) handleGetCostComparisonDrivers(
 
 type getReservationCoverageInput struct {
 	Filter        any               `json:"Filter"`
-	GroupBy       []groupBySpec     `json:"GroupBy"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
 }
 
 type getReservationCoverageOutput struct {
@@ -1530,7 +1534,7 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		Recommendations: recs,
 		Metadata: map[string]string{
 			"RecommendationTotalCount": strconv.Itoa(len(recs)),
-			handlerCurrencyCode: metricUnitUSD,
+			handlerCurrencyCode:        metricUnitUSD,
 		},
 	}, nil
 }
@@ -1539,10 +1543,10 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 
 type getReservationUtilizationInput struct {
 	Filter        any               `json:"Filter"`
-	GroupBy       []groupBySpec     `json:"GroupBy"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
 }
 
 type getReservationUtilizationOutput struct {
@@ -1614,8 +1618,8 @@ func (h *Handler) handleGetRightsizingRecommendation(
 	summary := map[string]string{
 		"TotalRecommendationCount":           strconv.Itoa(len(recs)),
 		"EstimatedTotalMonthlySavingsAmount": handlerZeroAmount,
-		"SavingsCurrencyCode": metricUnitUSD,
-		"SavingsPercentage": handlerZeroAmount,
+		"SavingsCurrencyCode":                metricUnitUSD,
+		"SavingsPercentage":                  handlerZeroAmount,
 	}
 
 	if len(recs) > 0 {
@@ -1651,11 +1655,11 @@ func (h *Handler) handleGetSavingsPlanPurchaseRecommendationDetails(
 
 type getSavingsPlansCoverageInput struct {
 	Filter      any               `json:"Filter"`
-	GroupBy     []groupBySpec     `json:"GroupBy"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
-	Metrics     []string          `json:"Metrics"`
 	NextToken   string            `json:"NextToken"`
+	GroupBy     []groupBySpec     `json:"GroupBy"`
+	Metrics     []string          `json:"Metrics"`
 	MaxResults  int               `json:"MaxResults"`
 }
 
@@ -1696,9 +1700,9 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
 				"SpendCoveredBySavingsPlan": spUtil.Utilization.UsedCommitment,
 				"TotalCost":                 spUtil.Savings.OnDemandCostEquivalent,
-				"CoveragePercentage": handlerCoverPct,
+				"CoveragePercentage":        handlerCoverPct,
 			},
-			TimePeriod: map[string]string{"Start": start, "End": end},
+			TimePeriod: map[string]string{timePeriodKeyStart: start, timePeriodKeyEnd: end},
 		},
 	}
 
@@ -1720,19 +1724,18 @@ type getSavingsPlansPurchaseRecommendationInput struct {
 }
 
 type savingsPlansPurchaseRecommendation struct {
-	SavingsPlansType                          string            `json:"SavingsPlansType"`
-	TermInYears                               string            `json:"TermInYears"`
-	PaymentOption                             string            `json:"PaymentOption"`
-	LookbackPeriodInDays                      string            `json:"LookbackPeriodInDays"`
-	SavingsPlansPurchaseRecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
-	//nolint:lll
-	SavingsPlansPurchaseRecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"` //nolint:lll
+	RecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"`
+	RecommendationDetails []map[string]any  `json:"SavingsPlansPurchaseRecommendationDetails"`
+	SavingsPlansType      string            `json:"SavingsPlansType"`
+	TermInYears           string            `json:"TermInYears"`
+	PaymentOption         string            `json:"PaymentOption"`
+	LookbackPeriodInDays  string            `json:"LookbackPeriodInDays"`
 }
 
 type getSavingsPlansPurchaseRecommendationOutput struct {
-	SavingsPlansPurchaseRecommendation *savingsPlansPurchaseRecommendation `json:"SavingsPlansPurchaseRecommendation,omitempty"` //nolint:lll
-	Metadata                           map[string]string                   `json:"Metadata,omitempty"`
-	NextPageToken                      string                              `json:"NextPageToken,omitempty"`
+	Metadata               map[string]string                   `json:"Metadata,omitempty"`
+	PurchaseRecommendation *savingsPlansPurchaseRecommendation `json:"SavingsPlansPurchaseRecommendation,omitempty"`
+	NextPageToken          string                              `json:"NextPageToken,omitempty"`
 }
 
 func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
@@ -1749,12 +1752,12 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 	}
 
 	return &getSavingsPlansPurchaseRecommendationOutput{
-		SavingsPlansPurchaseRecommendation: &savingsPlansPurchaseRecommendation{
+		PurchaseRecommendation: &savingsPlansPurchaseRecommendation{
 			SavingsPlansType:     spType,
 			TermInYears:          in.TermInYears,
 			PaymentOption:        in.PaymentOption,
 			LookbackPeriodInDays: in.LookbackPeriodInDays,
-			SavingsPlansPurchaseRecommendationDetails: []map[string]any{
+			RecommendationDetails: []map[string]any{
 				{
 					"SavingsPlansDetails": map[string]string{
 						"Region":         "us-east-1",
@@ -1762,32 +1765,32 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 						"OfferingId":     "synthetic-sp-offer-1",
 					},
 					"AccountId":             "000000000000",
-					"UpfrontCost": handlerZeroAmount,
-					"EstimatedROI": handlerROI,
-					handlerCurrencyCode: metricUnitUSD,
+					"UpfrontCost":           handlerZeroAmount,
+					"EstimatedROI":          handlerROI,
+					handlerCurrencyCode:     metricUnitUSD,
 					"EstimatedSPCost":       spUtil.Utilization.TotalCommitment,
 					"EstimatedOnDemandCost": spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
-					"EstimatedSavingsPercentage": handlerROI,
+					"EstimatedSavingsPercentage":                 handlerROI,
 					"HourlyCommitmentToPurchase":                 "1.0000",
-					"EstimatedAverageUtilization": handlerSPUtilPct,
+					"EstimatedAverageUtilization":                handlerSPUtilPct,
 					"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
 					"CurrentMinimumHourlyOnDemandSpend":          "1.5000",
 					"CurrentMaximumHourlyOnDemandSpend":          "3.0000",
 					"CurrentAverageHourlyOnDemandSpend":          "2.0000",
 				},
 			},
-			SavingsPlansPurchaseRecommendationSummary: map[string]string{
-				"EstimatedROI": handlerROI,
-				handlerCurrencyCode: metricUnitUSD,
+			RecommendationSummary: map[string]string{
+				"EstimatedROI":                               handlerROI,
+				handlerCurrencyCode:                          metricUnitUSD,
 				"EstimatedTotalCost":                         spUtil.Utilization.TotalCommitment,
 				"CurrentOnDemandSpend":                       spUtil.Savings.OnDemandCostEquivalent,
 				"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
 				"TotalRecommendationCount":                   "1",
 				"DailyCommitmentToPurchase":                  "24.0000",
 				"HourlyCommitmentToPurchase":                 "1.0000",
-				"EstimatedSavingsPercentage": handlerROI,
+				"EstimatedSavingsPercentage":                 handlerROI,
 				"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
 				"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 			},
@@ -1804,9 +1807,9 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 
 type getSavingsPlansUtilizationInput struct {
 	Filter      any               `json:"Filter"`
+	SortBy      any               `json:"SortBy"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
-	SortBy      any               `json:"SortBy"`
 }
 
 type getSavingsPlansUtilizationByTimeEntry struct {
@@ -1865,10 +1868,10 @@ func (h *Handler) handleGetSavingsPlansUtilization(
 
 type getSavingsPlansUtilizationDetailsInput struct {
 	Filter     any               `json:"Filter"`
-	TimePeriod map[string]string `json:"TimePeriod"`
-	Fields     []string          `json:"Fields"`
 	SortBy     any               `json:"SortBy"`
+	TimePeriod map[string]string `json:"TimePeriod"`
 	NextToken  string            `json:"NextToken"`
+	Fields     []string          `json:"Fields"`
 	MaxResults int               `json:"MaxResults"`
 }
 
@@ -1911,8 +1914,8 @@ func (h *Handler) handleGetSavingsPlansUtilizationDetails(
 
 type listCommitmentPurchaseAnalysesInput struct {
 	NextPageToken  string `json:"NextPageToken"`
-	PageSize       int    `json:"PageSize"`
 	AnalysisStatus string `json:"AnalysisStatus"`
+	PageSize       int    `json:"PageSize"`
 }
 
 type listCommitmentPurchaseAnalysesOutput struct {
