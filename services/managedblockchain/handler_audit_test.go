@@ -17,7 +17,13 @@ import (
 )
 
 // doRequestWithQuery sends an HTTP request with optional query parameters.
-func doRequestWithQuery(t *testing.T, h *managedblockchain.Handler, method, path string, body any, query map[string]string) *httptest.ResponseRecorder {
+func doRequestWithQuery(
+	t *testing.T,
+	h *managedblockchain.Handler,
+	method, path string,
+	body any,
+	query map[string]string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -63,8 +69,8 @@ func TestAudit_VotingPolicy_StoredAndReturned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		votingPolicy     map[string]any
+		name             string
 		wantPolicyStored bool
 	}{
 		{
@@ -137,10 +143,10 @@ func TestAudit_ListNetworks_Filters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		query      map[string]string
-		wantCount  int
-		wantNames  []string
+		query     map[string]string
+		name      string
+		wantNames []string
+		wantCount int
 	}{
 		{
 			name:      "no filter returns all",
@@ -213,8 +219,8 @@ func TestAudit_ListMembers_Filters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		query     map[string]string
+		name      string
 		wantCount int
 	}{
 		{
@@ -280,8 +286,8 @@ func TestAudit_ListNodes_Filters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		query     map[string]string
+		name      string
 		wantCount int
 	}{
 		{
@@ -333,8 +339,8 @@ func TestAudit_ListAccessors_Filters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		query     map[string]string
+		name      string
 		wantCount int
 	}{
 		{
@@ -388,8 +394,8 @@ func TestAudit_ProposalActions_StoredAndReturned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		actions     map[string]any
+		name        string
 		wantInvites int
 		wantRemoves int
 	}{
@@ -472,9 +478,9 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		extraMembers           int
-		votesToCast            int
+		name                      string
+		extraMembers              int
+		votesToCast               int
 		wantOutstandingAfterVotes int32
 	}{
 		{
@@ -537,7 +543,13 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 			}
 
 			// Check outstanding via GetProposal
-			rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/networks/%s/proposals/%s", n.ID, proposal.ProposalID), nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				fmt.Sprintf("/networks/%s/proposals/%s", n.ID, proposal.ProposalID),
+				nil,
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
@@ -556,10 +568,10 @@ func TestAudit_ProposalStatusTransitions(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		votes        []string
 		wantStatus   string
-		threshold    int
 		comparator   string
+		votes        []string
+		threshold    int
 		totalMembers int
 	}{
 		{
@@ -862,8 +874,8 @@ func TestAudit_UpdateMember_LogPublishingConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		logEnabled  bool
+		name       string
+		logEnabled bool
 	}{
 		{
 			name:       "enable CA log → stored and returned in GetMember",
@@ -927,19 +939,19 @@ func TestAudit_UpdateNode_LogPublishingConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
+		name             string
 		chaincodeEnabled bool
-		peerEnabled     bool
+		peerEnabled      bool
 	}{
 		{
-			name:            "enable chaincode and peer logs",
+			name:             "enable chaincode and peer logs",
 			chaincodeEnabled: true,
-			peerEnabled:     true,
+			peerEnabled:      true,
 		},
 		{
-			name:            "disable both logs",
+			name:             "disable both logs",
 			chaincodeEnabled: false,
-			peerEnabled:     false,
+			peerEnabled:      false,
 		},
 	}
 
@@ -1124,8 +1136,8 @@ func TestAudit_BackendFilter_ListMembers(t *testing.T) {
 	falseVal := false
 
 	tests := []struct {
-		name      string
 		filter    managedblockchain.ListMembersFilter
+		name      string
 		wantCount int
 	}{
 		{

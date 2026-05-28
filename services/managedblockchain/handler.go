@@ -1136,48 +1136,46 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte
 		}
 	}
 
-	var logConfig *NodeLogPublishingConfigState
-
-	if req.LogPublishingConfiguration != nil {
-		logConfig = &NodeLogPublishingConfigState{}
-
-		if req.LogPublishingConfiguration.Fabric != nil {
-			fabric := &NodeFabricLogState{}
-
-			if req.LogPublishingConfiguration.Fabric.ChaincodeLogs != nil {
-				cl := &LogConfigState{}
-
-				if req.LogPublishingConfiguration.Fabric.ChaincodeLogs.CloudWatch != nil {
-					cl.CloudWatch = &CloudWatchLogState{
-						Enabled: req.LogPublishingConfiguration.Fabric.ChaincodeLogs.CloudWatch.Enabled,
-					}
-				}
-
-				fabric.ChaincodeLogs = cl
-			}
-
-			if req.LogPublishingConfiguration.Fabric.PeerLogs != nil {
-				pl := &LogConfigState{}
-
-				if req.LogPublishingConfiguration.Fabric.PeerLogs.CloudWatch != nil {
-					pl.CloudWatch = &CloudWatchLogState{
-						Enabled: req.LogPublishingConfiguration.Fabric.PeerLogs.CloudWatch.Enabled,
-					}
-				}
-
-				fabric.PeerLogs = pl
-			}
-
-			logConfig.Fabric = fabric
-		}
-	}
-
-	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID, logConfig)
+	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID, buildNodeLogConfig(req.LogPublishingConfiguration))
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func buildNodeLogConfig(req *nodeLogPublishingConfigReq) *NodeLogPublishingConfigState {
+	if req == nil {
+		return nil
+	}
+
+	logConfig := &NodeLogPublishingConfigState{}
+
+	if req.Fabric == nil {
+		return logConfig
+	}
+
+	fabric := &NodeFabricLogState{}
+
+	if req.Fabric.ChaincodeLogs != nil {
+		cl := &LogConfigState{}
+		if req.Fabric.ChaincodeLogs.CloudWatch != nil {
+			cl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.ChaincodeLogs.CloudWatch.Enabled}
+		}
+		fabric.ChaincodeLogs = cl
+	}
+
+	if req.Fabric.PeerLogs != nil {
+		pl := &LogConfigState{}
+		if req.Fabric.PeerLogs.CloudWatch != nil {
+			pl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.PeerLogs.CloudWatch.Enabled}
+		}
+		fabric.PeerLogs = pl
+	}
+
+	logConfig.Fabric = fabric
+
+	return logConfig
 }
 
 func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []byte) error {

@@ -62,7 +62,7 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 					tt.memberName,
 					"",
 					nil,
-				nil,
+					nil,
 				)
 				require.NoError(t, err)
 			}
@@ -77,7 +77,7 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 				tt.memberName,
 				"",
 				nil,
-			nil,
+				nil,
 			)
 
 			if tt.wantErr {
@@ -135,7 +135,7 @@ func TestInMemoryBackend_GetNetwork(t *testing.T) {
 				"member1",
 				"",
 				nil,
-			nil,
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -232,7 +232,7 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 				"initial",
 				"",
 				nil,
-			nil,
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -330,7 +330,7 @@ func TestInMemoryBackend_TagOperationsOnMember(t *testing.T) {
 				"initial",
 				"",
 				nil,
-			nil,
+				nil,
 			)
 			require.NoError(t, err)
 

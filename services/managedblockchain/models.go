@@ -23,9 +23,9 @@ type VotingPolicy struct {
 
 // ApprovalThresholdPolicy defines the threshold for proposal approval.
 type ApprovalThresholdPolicy struct {
-	ThresholdComparator  string `json:"thresholdComparator,omitempty"`
-	ProposalDurationInHours int32 `json:"proposalDurationInHours,omitempty"`
-	ThresholdPercentage  int32  `json:"thresholdPercentage,omitempty"`
+	ThresholdComparator     string `json:"thresholdComparator,omitempty"`
+	ProposalDurationInHours int32  `json:"proposalDurationInHours,omitempty"`
+	ThresholdPercentage     int32  `json:"thresholdPercentage,omitempty"`
 }
 
 // NetworkSummary is the short form returned by ListNetworks.
@@ -160,16 +160,16 @@ type createNetworkResponse struct {
 
 // networkObject is the JSON representation of a network for GetNetwork.
 type networkObject struct {
-	CreationDate     *time.Time           `json:"CreationDate,omitempty"`
-	Tags             map[string]string    `json:"Tags,omitempty"`
-	VotingPolicy     *votingPolicyObject  `json:"VotingPolicy,omitempty"`
-	Arn              string               `json:"Arn"`
-	Description      string               `json:"Description,omitempty"`
-	Framework        string               `json:"Framework"`
-	FrameworkVersion string               `json:"FrameworkVersion"`
-	ID               string               `json:"Id"`
-	Name             string               `json:"Name"`
-	Status           string               `json:"Status"`
+	CreationDate     *time.Time          `json:"CreationDate,omitempty"`
+	Tags             map[string]string   `json:"Tags,omitempty"`
+	VotingPolicy     *votingPolicyObject `json:"VotingPolicy,omitempty"`
+	Arn              string              `json:"Arn"`
+	Description      string              `json:"Description,omitempty"`
+	Framework        string              `json:"Framework"`
+	FrameworkVersion string              `json:"FrameworkVersion"`
+	ID               string              `json:"Id"`
+	Name             string              `json:"Name"`
+	Status           string              `json:"Status"`
 }
 
 // votingPolicyObject is the JSON representation of a VotingPolicy in responses.
@@ -229,16 +229,16 @@ type createMemberResponse struct {
 
 // memberObject is the JSON representation of a member for GetMember.
 type memberObject struct {
-	CreationDate               *time.Time                         `json:"CreationDate,omitempty"`
-	Tags                       map[string]string                  `json:"Tags,omitempty"`
-	LogPublishingConfiguration *memberLogPublishingConfigRespObj   `json:"LogPublishingConfiguration,omitempty"`
-	Arn                        string                             `json:"Arn"`
-	Description                string                             `json:"Description,omitempty"`
-	ID                         string                             `json:"Id"`
-	Name                       string                             `json:"Name"`
-	NetworkID                  string                             `json:"NetworkId"`
-	Status                     string                             `json:"Status"`
-	IsOwned                    bool                               `json:"IsOwned"`
+	CreationDate               *time.Time                        `json:"CreationDate,omitempty"`
+	Tags                       map[string]string                 `json:"Tags,omitempty"`
+	LogPublishingConfiguration *memberLogPublishingConfigRespObj `json:"LogPublishingConfiguration,omitempty"`
+	Arn                        string                            `json:"Arn"`
+	Description                string                            `json:"Description,omitempty"`
+	ID                         string                            `json:"Id"`
+	Name                       string                            `json:"Name"`
+	NetworkID                  string                            `json:"NetworkId"`
+	Status                     string                            `json:"Status"`
+	IsOwned                    bool                              `json:"IsOwned"`
 }
 
 // memberLogPublishingConfigRespObj is the response JSON for member log publishing config.
@@ -311,16 +311,16 @@ type createNodeResponse struct {
 
 // nodeObject is the JSON representation of a node for GetNode.
 type nodeObject struct {
-	CreationDate               *time.Time                       `json:"CreationDate,omitempty"`
-	Tags                       map[string]string                `json:"Tags,omitempty"`
-	LogPublishingConfiguration *nodeLogPublishingConfigRespObj  `json:"LogPublishingConfiguration,omitempty"`
-	Arn                        string                           `json:"Arn"`
-	AvailabilityZone           string                           `json:"AvailabilityZone,omitempty"`
-	ID                         string                           `json:"Id"`
-	InstanceType               string                           `json:"InstanceType"`
-	MemberID                   string                           `json:"MemberId"`
-	NetworkID                  string                           `json:"NetworkId"`
-	Status                     string                           `json:"Status"`
+	CreationDate               *time.Time                      `json:"CreationDate,omitempty"`
+	Tags                       map[string]string               `json:"Tags,omitempty"`
+	LogPublishingConfiguration *nodeLogPublishingConfigRespObj `json:"LogPublishingConfiguration,omitempty"`
+	Arn                        string                          `json:"Arn"`
+	AvailabilityZone           string                          `json:"AvailabilityZone,omitempty"`
+	ID                         string                          `json:"Id"`
+	InstanceType               string                          `json:"InstanceType"`
+	MemberID                   string                          `json:"MemberId"`
+	NetworkID                  string                          `json:"NetworkId"`
+	Status                     string                          `json:"Status"`
 }
 
 // nodeLogPublishingConfigRespObj is the response JSON for node log publishing config.

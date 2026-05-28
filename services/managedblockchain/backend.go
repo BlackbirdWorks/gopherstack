@@ -86,9 +86,9 @@ type ListNetworksFilter struct {
 
 // ListMembersFilter contains optional filters for ListMembers.
 type ListMembersFilter struct {
+	IsOwned *bool
 	Name    string
 	Status  string
-	IsOwned *bool
 }
 
 // ListNodesFilter contains optional filters for ListNodes.
@@ -1258,7 +1258,10 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 }
 
 // UpdateMember updates a member's log publishing configuration.
-func (b *InMemoryBackend) UpdateMember(networkID, memberID string, logConfig *MemberLogPublishingConfigState) (*Member, error) {
+func (b *InMemoryBackend) UpdateMember(
+	networkID, memberID string,
+	logConfig *MemberLogPublishingConfigState,
+) (*Member, error) {
 	b.mu.Lock("UpdateMember")
 	defer b.mu.Unlock()
 
@@ -1319,7 +1322,10 @@ func cloneLogConfig(c *LogConfigState) *LogConfigState {
 }
 
 // UpdateNode updates a node's log publishing configuration.
-func (b *InMemoryBackend) UpdateNode(networkID, memberID, nodeID string, logConfig *NodeLogPublishingConfigState) (*Node, error) {
+func (b *InMemoryBackend) UpdateNode(
+	networkID, memberID, nodeID string,
+	logConfig *NodeLogPublishingConfigState,
+) (*Node, error) {
 	b.mu.Lock("UpdateNode")
 	defer b.mu.Unlock()
 
