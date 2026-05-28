@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-// evaluateCSVQuery reads CSV rows from data, applies the SQL query, and streams results.
+// evaluateCSVQuery reads all CSV rows from data, applies the SQL query, and streams results.
+// All rows are collected before evaluation so that ORDER BY and aggregate functions work correctly.
 func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	csvIn := req.InputSerialization.CSV
 
@@ -34,38 +35,61 @@ func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequ
 	}
 
 	var headers []string
-	var totalBytesReturned int64
-	var returnedRowsCount int
-	rowCount := 0
+	var rows []map[string]string
+	firstRecord := true
 
-	for query.limit <= 0 || returnedRowsCount < query.limit {
+	for {
 		rec, err := r.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
+
 		if err != nil {
-			return totalBytesReturned, fmt.Errorf("reading CSV: %w", err)
+			return 0, fmt.Errorf("reading CSV: %w", err)
 		}
 
-		if rowCount == 0 {
+		if firstRecord {
+			firstRecord = false
 			headers = prepareCSVHeaders(fileHeaderInfo, rec)
-			if fileHeaderInfo == "USE" {
-				rowCount++
 
+			if fileHeaderInfo == "USE" {
 				continue
 			}
 		}
 
-		rowCount++
-		rowBytes, returnedRows, evalErr := processCSVRow(w, query, headers, rec, req)
-		if evalErr != nil {
-			return totalBytesReturned, evalErr
+		rowMap := make(map[string]string, len(headers))
+		for i, h := range headers {
+			if i < len(rec) {
+				rowMap[h] = rec[i]
+			}
 		}
-		totalBytesReturned += rowBytes
-		returnedRowsCount += returnedRows
+
+		rows = append(rows, rowMap)
 	}
 
-	return totalBytesReturned, nil
+	resultRows, err := evalQuery(query, rows)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(resultRows) == 0 {
+		return 0, nil
+	}
+
+	resultBytes, err := serializeCSVQueryResults(resultRows, req.OutputSerialization)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(resultBytes) == 0 {
+		return 0, nil
+	}
+
+	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
+		return 0, wErr
+	}
+
+	return int64(len(resultBytes)), nil
 }
 
 func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
@@ -146,44 +170,4 @@ func mapStringToAny(m map[string]string) map[string]any {
 	}
 
 	return out
-}
-
-func processCSVRow(
-	w io.Writer,
-	query *sqlQuery,
-	headers []string,
-	rec []string,
-	req *selectRequest,
-) (int64, int, error) {
-	rowMap := make(map[string]string, len(headers))
-	for i, h := range headers {
-		if i < len(rec) {
-			rowMap[h] = rec[i]
-		}
-	}
-
-	// Evaluate query on this single row
-	resultRows, evalErr := evalQuery(query, []map[string]string{rowMap})
-	if evalErr != nil {
-		return 0, 0, evalErr
-	}
-
-	if len(resultRows) == 0 {
-		return 0, 0, nil
-	}
-
-	resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
-	if serialErr != nil {
-		return 0, 0, serialErr
-	}
-
-	if len(resultBytes) == 0 {
-		return 0, 0, nil
-	}
-
-	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
-		return 0, 0, wErr
-	}
-
-	return int64(len(resultBytes)), len(resultRows), nil
 }

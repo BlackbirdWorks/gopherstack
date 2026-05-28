@@ -253,6 +253,7 @@ type sqlQuery struct {
 	condition  sqlExpr
 	tableAlias string
 	columns    []selectColumn
+	orderBy    []sqlOrderByClause
 	limit      int
 	selectAll  bool
 }
@@ -261,6 +262,12 @@ type sqlQuery struct {
 type selectColumn struct {
 	expr  sqlExpr
 	alias string
+}
+
+// sqlOrderByClause is a single ORDER BY sort key.
+type sqlOrderByClause struct {
+	expr sqlExpr
+	desc bool
 }
 
 // sqlExpr is a node in the SQL expression AST.
@@ -350,6 +357,25 @@ func (p *sqlParser) parseWhereLimit(q *sqlQuery) error {
 		if q.condition, err = p.parseOr(); err != nil {
 			return err
 		}
+	}
+
+	// optional ORDER BY
+	tok, peekErr = p.tok.peek()
+	if peekErr == nil && tok.typ == tokIdent && strings.EqualFold(tok.val, "ORDER") {
+		if _, peekErr = p.tok.next(); peekErr != nil {
+			return peekErr
+		}
+
+		if err := p.expectKeyword("BY"); err != nil {
+			return err
+		}
+
+		orderBy, err := p.parseOrderByList()
+		if err != nil {
+			return err
+		}
+
+		q.orderBy = orderBy
 	}
 
 	// optional LIMIT
@@ -772,6 +798,8 @@ func (p *sqlParser) parseIdentExpr(name string) (sqlExpr, error) {
 		return &sqlLiteral{val: sqlValFalse}, nil
 	case "CAST":
 		return p.parseCast()
+	case "COUNT", "SUM", "AVG", "MIN", "MAX":
+		return p.parseAggFunc(sqlAggFuncName(upper))
 	default:
 		return p.parseColumnRef(name)
 	}
@@ -872,7 +900,8 @@ func (p *sqlParser) expectToken(t sqlTokenType) error {
 func isKeyword(s string) bool {
 	switch strings.ToUpper(s) {
 	case "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "LIKE", "IS", "NULL",
-		"LIMIT", "AS", "CAST", "BETWEEN", "IN", "TRUE", "FALSE":
+		"LIMIT", "AS", "CAST", "BETWEEN", "IN", "TRUE", "FALSE",
+		"ORDER", "BY", "ASC", "DESC":
 		return true
 	default:
 		return false
@@ -1309,6 +1338,11 @@ func likeMatch(pattern, s string) bool {
 // evalQuery applies a parsed sqlQuery to a set of rows.
 // Each row is a map of column name → string value.
 func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, error) {
+	if q.hasAggregates() {
+		return evalAggQuery(q, rows)
+	}
+
+	needsBuffer := len(q.orderBy) > 0
 	result := make([]map[string]string, 0, len(rows))
 
 	for _, rawRow := range rows {
@@ -1332,8 +1366,16 @@ func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, erro
 
 		result = append(result, projected)
 
-		if q.limit > 0 && len(result) >= q.limit {
+		if q.limit > 0 && !needsBuffer && len(result) >= q.limit {
 			break
+		}
+	}
+
+	if len(q.orderBy) > 0 {
+		sortStringRows(result, q.orderBy)
+
+		if q.limit > 0 && len(result) > q.limit {
+			result = result[:q.limit]
 		}
 	}
 
@@ -1362,6 +1404,11 @@ func projectStringRow(q *sqlQuery, row sqlRow, rawRow map[string]string) (map[st
 
 // evalQueryJSON applies a parsed sqlQuery to JSON rows (map[string]any).
 func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error) {
+	if q.hasAggregates() {
+		return evalAggQueryJSON(q, rows)
+	}
+
+	needsBuffer := len(q.orderBy) > 0
 	result := make([]map[string]any, 0, len(rows))
 
 	for _, rawRow := range rows {
@@ -1385,8 +1432,16 @@ func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error)
 
 		result = append(result, projected)
 
-		if q.limit > 0 && len(result) >= q.limit {
+		if q.limit > 0 && !needsBuffer && len(result) >= q.limit {
 			break
+		}
+	}
+
+	if len(q.orderBy) > 0 {
+		sortJSONRows(result, q.orderBy)
+
+		if q.limit > 0 && len(result) > q.limit {
+			result = result[:q.limit]
 		}
 	}
 
@@ -1500,4 +1555,401 @@ func positionalIndex(s string) (int, bool) {
 	}
 
 	return n, true
+}
+
+// ---- Aggregate functions ----
+
+// sqlAggFuncName identifies a SQL aggregate function.
+type sqlAggFuncName string
+
+const (
+	aggFuncCount sqlAggFuncName = "COUNT"
+	aggFuncSum   sqlAggFuncName = "SUM"
+	aggFuncAvg   sqlAggFuncName = "AVG"
+	aggFuncMin   sqlAggFuncName = "MIN"
+	aggFuncMax   sqlAggFuncName = "MAX"
+)
+
+// sqlAggExpr represents a SQL aggregate function call (COUNT, SUM, AVG, MIN, MAX).
+// arg is nil for COUNT(*).
+type sqlAggExpr struct {
+	fn  sqlAggFuncName
+	arg sqlExpr
+}
+
+func (a *sqlAggExpr) eval(_ sqlRow) (any, error) {
+	return nil, fmt.Errorf("aggregate %s must be evaluated across all rows, not per-row", a.fn)
+}
+
+// parseAggFunc parses an aggregate function call: FN(expr) or COUNT(*).
+func (p *sqlParser) parseAggFunc(fn sqlAggFuncName) (sqlExpr, error) {
+	if err := p.expectToken(tokLParen); err != nil {
+		return nil, err
+	}
+
+	next, peekErr := p.tok.peek()
+	if peekErr != nil {
+		return nil, peekErr
+	}
+
+	var arg sqlExpr
+
+	if next.typ == tokStar {
+		if _, err := p.tok.next(); err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+
+		arg, err = p.parseExprAtom()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := p.expectToken(tokRParen); err != nil {
+		return nil, err
+	}
+
+	return &sqlAggExpr{fn: fn, arg: arg}, nil
+}
+
+// hasAggregates reports whether any SELECT column uses an aggregate function.
+func (q *sqlQuery) hasAggregates() bool {
+	for _, col := range q.columns {
+		if _, ok := col.expr.(*sqlAggExpr); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseOrderByList parses one or more ORDER BY sort keys.
+func (p *sqlParser) parseOrderByList() ([]sqlOrderByClause, error) {
+	var clauses []sqlOrderByClause
+
+	for {
+		expr, err := p.parseExprAtom()
+		if err != nil {
+			return nil, err
+		}
+
+		clause := sqlOrderByClause{expr: expr}
+
+		tok, peekErr := p.tok.peek()
+		if peekErr == nil && tok.typ == tokIdent {
+			upper := strings.ToUpper(tok.val)
+			if upper == "ASC" {
+				if _, err = p.tok.next(); err != nil {
+					return nil, err
+				}
+			} else if upper == "DESC" {
+				if _, err = p.tok.next(); err != nil {
+					return nil, err
+				}
+
+				clause.desc = true
+			}
+		}
+
+		clauses = append(clauses, clause)
+
+		tok, peekErr = p.tok.peek()
+		if peekErr != nil || tok.typ != tokComma {
+			break
+		}
+
+		if _, err = p.tok.next(); err != nil {
+			return nil, err
+		}
+	}
+
+	return clauses, nil
+}
+
+// ---- Aggregate evaluation ----
+
+// aggAccumulator accumulates running state for one aggregate expression.
+type aggAccumulator struct {
+	fn       sqlAggFuncName
+	sum      float64
+	count    int64
+	minVal   float64
+	maxVal   float64
+	hasValue bool
+}
+
+func (a *aggAccumulator) accumulate(val any, countStar bool) {
+	switch a.fn {
+	case aggFuncCount:
+		if countStar || (val != nil && val != "" && val != sqlNullValue) {
+			a.count++
+		}
+
+	case aggFuncSum:
+		if n, ok := toFloat64(val); ok {
+			a.sum += n
+			a.count++
+		}
+
+	case aggFuncAvg:
+		if n, ok := toFloat64(val); ok {
+			a.sum += n
+			a.count++
+		}
+
+	case aggFuncMin:
+		if n, ok := toFloat64(val); ok {
+			if !a.hasValue || n < a.minVal {
+				a.minVal = n
+				a.hasValue = true
+			}
+		}
+
+	case aggFuncMax:
+		if n, ok := toFloat64(val); ok {
+			if !a.hasValue || n > a.maxVal {
+				a.maxVal = n
+				a.hasValue = true
+			}
+		}
+	}
+}
+
+func (a *aggAccumulator) result() string {
+	switch a.fn {
+	case aggFuncCount:
+		return strconv.FormatInt(a.count, 10)
+
+	case aggFuncSum:
+		return strconv.FormatFloat(a.sum, 'f', -1, 64)
+
+	case aggFuncAvg:
+		if a.count == 0 {
+			return ""
+		}
+
+		return strconv.FormatFloat(a.sum/float64(a.count), 'f', -1, 64)
+
+	case aggFuncMin:
+		if !a.hasValue {
+			return ""
+		}
+
+		return strconv.FormatFloat(a.minVal, 'f', -1, 64)
+
+	case aggFuncMax:
+		if !a.hasValue {
+			return ""
+		}
+
+		return strconv.FormatFloat(a.maxVal, 'f', -1, 64)
+
+	default:
+		return ""
+	}
+}
+
+// evalAggQuery evaluates a query with aggregate functions over string rows.
+// Returns a single result row with the computed aggregate values.
+func evalAggQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, error) {
+	accs := make([]*aggAccumulator, len(q.columns))
+
+	for i, col := range q.columns {
+		if agg, ok := col.expr.(*sqlAggExpr); ok {
+			accs[i] = &aggAccumulator{fn: agg.fn}
+		}
+	}
+
+	for _, rawRow := range rows {
+		row := &stringRow{data: rawRow}
+
+		if q.condition != nil {
+			val, err := q.condition.eval(row)
+			if err != nil {
+				return nil, err
+			}
+
+			if !isTruthy(val) {
+				continue
+			}
+		}
+
+		for i, col := range q.columns {
+			if accs[i] == nil {
+				continue
+			}
+
+			agg := col.expr.(*sqlAggExpr)
+			countStar := agg.arg == nil
+
+			var val any
+
+			if !countStar {
+				var err error
+
+				val, err = agg.arg.eval(row)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			accs[i].accumulate(val, countStar)
+		}
+	}
+
+	result := make(map[string]string, len(q.columns))
+
+	for i, col := range q.columns {
+		name := columnName(col, i)
+		if accs[i] != nil {
+			result[name] = accs[i].result()
+		}
+	}
+
+	return []map[string]string{result}, nil
+}
+
+// evalAggQueryJSON evaluates a query with aggregate functions over JSON rows.
+func evalAggQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error) {
+	accs := make([]*aggAccumulator, len(q.columns))
+
+	for i, col := range q.columns {
+		if agg, ok := col.expr.(*sqlAggExpr); ok {
+			accs[i] = &aggAccumulator{fn: agg.fn}
+		}
+	}
+
+	for _, rawRow := range rows {
+		row := &jsonRow{data: rawRow}
+
+		if q.condition != nil {
+			val, err := q.condition.eval(row)
+			if err != nil {
+				return nil, err
+			}
+
+			if !isTruthy(val) {
+				continue
+			}
+		}
+
+		for i, col := range q.columns {
+			if accs[i] == nil {
+				continue
+			}
+
+			agg := col.expr.(*sqlAggExpr)
+			countStar := agg.arg == nil
+
+			var val any
+
+			if !countStar {
+				var err error
+
+				val, err = agg.arg.eval(row)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			accs[i].accumulate(val, countStar)
+		}
+	}
+
+	result := make(map[string]any, len(q.columns))
+
+	for i, col := range q.columns {
+		name := columnName(col, i)
+		if accs[i] != nil {
+			result[name] = accs[i].result()
+		}
+	}
+
+	return []map[string]any{result}, nil
+}
+
+// ---- ORDER BY helpers ----
+
+// toFloat64 converts any value to float64 for numeric comparisons and aggregates.
+func toFloat64(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case int64:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case string:
+		n, err := strconv.ParseFloat(val, 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+// compareAnyForSort compares two values for ORDER BY sorting.
+// Numbers are compared numerically; all other values are compared as strings.
+func compareAnyForSort(a, b any) int {
+	as := fmt.Sprintf("%v", a)
+	bs := fmt.Sprintf("%v", b)
+
+	an, aerr := strconv.ParseFloat(as, 64)
+	bn, berr := strconv.ParseFloat(bs, 64)
+
+	if aerr == nil && berr == nil {
+		switch {
+		case an < bn:
+			return -1
+		case an > bn:
+			return 1
+		default:
+			return 0
+		}
+	}
+
+	return strings.Compare(as, bs)
+}
+
+// sortStringRows sorts rows in-place by the ORDER BY clauses.
+func sortStringRows(rows []map[string]string, orderBy []sqlOrderByClause) {
+	slices.SortStableFunc(rows, func(a, b map[string]string) int {
+		for _, clause := range orderBy {
+			av, _ := clause.expr.eval(&stringRow{data: a})
+			bv, _ := clause.expr.eval(&stringRow{data: b})
+			cmp := compareAnyForSort(av, bv)
+
+			if cmp != 0 {
+				if clause.desc {
+					return -cmp
+				}
+
+				return cmp
+			}
+		}
+
+		return 0
+	})
+}
+
+// sortJSONRows sorts JSON rows in-place by the ORDER BY clauses.
+func sortJSONRows(rows []map[string]any, orderBy []sqlOrderByClause) {
+	slices.SortStableFunc(rows, func(a, b map[string]any) int {
+		for _, clause := range orderBy {
+			av, _ := clause.expr.eval(&jsonRow{data: a})
+			bv, _ := clause.expr.eval(&jsonRow{data: b})
+			cmp := compareAnyForSort(av, bv)
+
+			if cmp != 0 {
+				if clause.desc {
+					return -cmp
+				}
+
+				return cmp
+			}
+		}
+
+		return 0
+	})
 }
