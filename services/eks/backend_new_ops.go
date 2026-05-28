@@ -5,19 +5,22 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AccessEntry represents an EKS access entry that grants a principal access to a cluster.
 type AccessEntry struct {
-	CreatedAt    time.Time  `json:"createdAt"`
-	Tags         *tags.Tags `json:"tags,omitempty"`
-	PrincipalARN string     `json:"principalArn"`
-	ClusterName  string     `json:"clusterName"`
-	ARN          string     `json:"accessEntryArn"`
-	Type         string     `json:"type"`
-	Username     string     `json:"username,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	Tags             *tags.Tags `json:"tags,omitempty"`
+	PrincipalARN     string     `json:"principalArn"`
+	ClusterName      string     `json:"clusterName"`
+	ARN              string     `json:"accessEntryArn"`
+	Type             string     `json:"type"`
+	Username         string     `json:"username,omitempty"`
+	KubernetesGroups []string   `json:"kubernetesGroups,omitempty"`
 }
 
 // AccessPolicyAssociation represents an access policy associated with an access entry.
@@ -96,6 +99,7 @@ type FargateProfileSelector struct {
 type FargateProfile struct {
 	CreatedAt           time.Time                `json:"createdAt"`
 	Tags                *tags.Tags               `json:"tags,omitempty"`
+	Subnets             []string                 `json:"subnets,omitempty"`
 	ClusterName         string                   `json:"clusterName"`
 	FargateProfileName  string                   `json:"fargateProfileName"`
 	ARN                 string                   `json:"fargateProfileArn"`
@@ -114,11 +118,13 @@ type PodIdentityAssociation struct {
 	Namespace      string     `json:"namespace"`
 	ServiceAccount string     `json:"serviceAccount"`
 	RoleARN        string     `json:"roleArn,omitempty"`
+	OwnerARN       string     `json:"ownerArn,omitempty"`
 }
 
 // CreateAccessEntry creates an access entry that grants a principal access to a cluster.
 func (b *InMemoryBackend) CreateAccessEntry(
 	clusterName, principalARN, entryType, username string,
+	kubernetesGroups []string,
 	kv map[string]string,
 ) (*AccessEntry, error) {
 	b.mu.Lock("CreateAccessEntry")
@@ -158,13 +164,14 @@ func (b *InMemoryBackend) CreateAccessEntry(
 	}
 
 	entry := &AccessEntry{
-		PrincipalARN: principalARN,
-		ClusterName:  clusterName,
-		ARN:          entryARN,
-		Type:         entryType,
-		Username:     username,
-		CreatedAt:    time.Now().UTC(),
-		Tags:         t,
+		PrincipalARN:     principalARN,
+		ClusterName:      clusterName,
+		ARN:              entryARN,
+		Type:             entryType,
+		Username:         username,
+		KubernetesGroups: cloneStrings(kubernetesGroups),
+		CreatedAt:        time.Now().UTC(),
+		Tags:             t,
 	}
 	b.accessEntries[clusterName][principalARN] = entry
 	cp := *entry
@@ -491,6 +498,7 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 func (b *InMemoryBackend) CreateFargateProfile(
 	clusterName, profileName, podExecutionRoleARN string,
 	selectors []FargateProfileSelector,
+	subnets []string,
 	kv map[string]string,
 ) (*FargateProfile, error) {
 	b.mu.Lock("CreateFargateProfile")
@@ -535,6 +543,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		PodExecutionRoleARN: podExecutionRoleARN,
 		Status:              statusActive,
 		Selectors:           sels,
+		Subnets:             cloneStrings(subnets),
 		CreatedAt:           time.Now().UTC(),
 		Tags:                t,
 	}
@@ -542,6 +551,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	cp := *profile
 	cp.Selectors = make([]FargateProfileSelector, len(profile.Selectors))
 	copy(cp.Selectors, profile.Selectors)
+	cp.Subnets = cloneStrings(profile.Subnets)
 
 	return &cp, nil
 }
@@ -562,7 +572,7 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 		b.podIdentityAssociations[clusterName] = make(map[string]*PodIdentityAssociation)
 	}
 
-	assocID := stableID(clusterName + "/" + namespace + "/" + serviceAccount)
+	assocID := uuid.NewString()
 	assocARN := arn.Build("eks", b.region, b.accountID, "podidentityassociation/"+clusterName+"/"+assocID)
 
 	t := tags.New("eks.podidentity." + clusterName + "." + assocID + ".tags")

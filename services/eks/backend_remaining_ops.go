@@ -591,6 +591,16 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 
 // --- Fargate Profile CRUD ---
 
+// deepCopyFargateProfile returns a deep copy of a FargateProfile.
+func deepCopyFargateProfile(p *FargateProfile) *FargateProfile {
+	cp := *p
+	cp.Selectors = make([]FargateProfileSelector, len(p.Selectors))
+	copy(cp.Selectors, p.Selectors)
+	cp.Subnets = cloneStrings(p.Subnets)
+
+	return &cp
+}
+
 // DeleteFargateProfile removes a Fargate profile from a cluster.
 func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) (*FargateProfile, error) {
 	b.mu.Lock("DeleteFargateProfile")
@@ -610,9 +620,7 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
 	}
 
-	cp := *profile
-	cp.Selectors = make([]FargateProfileSelector, len(profile.Selectors))
-	copy(cp.Selectors, profile.Selectors)
+	cp := deepCopyFargateProfile(profile)
 
 	if profile.Tags != nil {
 		profile.Tags.Close()
@@ -622,7 +630,7 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 
 	cp.Status = statusDeleting
 
-	return &cp, nil
+	return cp, nil
 }
 
 // DescribeFargateProfile returns a Fargate profile by name.
@@ -644,11 +652,7 @@ func (b *InMemoryBackend) DescribeFargateProfile(clusterName, profileName string
 		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
 	}
 
-	cp := *profile
-	cp.Selectors = make([]FargateProfileSelector, len(profile.Selectors))
-	copy(cp.Selectors, profile.Selectors)
-
-	return &cp, nil
+	return deepCopyFargateProfile(profile), nil
 }
 
 // ListFargateProfiles returns all Fargate profile names in a cluster sorted alphabetically.
@@ -729,8 +733,17 @@ func (b *InMemoryBackend) ListAccessEntries(clusterName string) ([]string, error
 	return arns, nil
 }
 
-// UpdateAccessEntry updates an access entry's username.
-func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN, username string) (*AccessEntry, error) {
+// AccessEntryUpdate holds the mutable fields for UpdateAccessEntry.
+type AccessEntryUpdate struct {
+	Username         string
+	KubernetesGroups []string
+}
+
+// UpdateAccessEntry updates an access entry's username and kubernetes groups.
+func (b *InMemoryBackend) UpdateAccessEntry(
+	clusterName, principalARN string,
+	upd AccessEntryUpdate,
+) (*AccessEntry, error) {
 	b.mu.Lock("UpdateAccessEntry")
 	defer b.mu.Unlock()
 
@@ -758,8 +771,12 @@ func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN, username 
 		)
 	}
 
-	if username != "" {
-		entry.Username = username
+	if upd.Username != "" {
+		entry.Username = upd.Username
+	}
+
+	if upd.KubernetesGroups != nil {
+		entry.KubernetesGroups = cloneStrings(upd.KubernetesGroups)
 	}
 
 	cp := *entry
@@ -1037,9 +1054,17 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 
 // --- Cluster updates ---
 
-// UpdateClusterConfig updates the cluster configuration including logging settings.
-// logEntries may be nil (no change) or a structured list of log type groups.
-func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []ClusterLogEntry) (*Update, error) {
+// ClusterConfigUpdate holds mutable cluster config fields for UpdateClusterConfig.
+type ClusterConfigUpdate struct {
+	AccessConfig  *AccessConfig
+	ComputeConfig *ComputeConfig
+	StorageConfig *StorageConfig
+	LogEntries    []ClusterLogEntry
+	SubnetIDs     []string
+}
+
+// UpdateClusterConfig updates the cluster configuration including logging, subnets, and access settings.
+func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterConfigUpdate) (*Update, error) {
 	b.mu.Lock("UpdateClusterConfig")
 	defer b.mu.Unlock()
 
@@ -1048,8 +1073,36 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, logEntries []C
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if logEntries != nil {
-		c.ClusterLogging = mergeClusterLogEntries(c.ClusterLogging, logEntries)
+	if upd.LogEntries != nil {
+		c.ClusterLogging = mergeClusterLogEntries(c.ClusterLogging, upd.LogEntries)
+	}
+
+	if len(upd.SubnetIDs) > 0 {
+		if c.VpcConfig == nil {
+			c.VpcConfig = &VpcConfig{}
+		}
+
+		c.VpcConfig.SubnetIDs = cloneStrings(upd.SubnetIDs)
+	}
+
+	if upd.AccessConfig != nil {
+		if c.AccessConfig == nil {
+			c.AccessConfig = &AccessConfig{}
+		}
+
+		if upd.AccessConfig.AuthenticationMode != "" {
+			c.AccessConfig.AuthenticationMode = upd.AccessConfig.AuthenticationMode
+		}
+
+		c.AccessConfig.BootstrapClusterCreatorAdminPermissions = upd.AccessConfig.BootstrapClusterCreatorAdminPermissions
+	}
+
+	if upd.ComputeConfig != nil {
+		c.ComputeConfig = upd.ComputeConfig
+	}
+
+	if upd.StorageConfig != nil {
+		c.StorageConfig = upd.StorageConfig
 	}
 
 	return &Update{

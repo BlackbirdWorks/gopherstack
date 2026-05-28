@@ -29,6 +29,7 @@ const (
 	keySubscription   = "subscription"
 	keyFargateProfile = "fargateProfile"
 	keyTags           = "tags"
+	keyEnabled        = "enabled"
 )
 
 const (
@@ -951,46 +952,80 @@ func clusterToJSON(c *Cluster) map[string]any {
 		m["roleArn"] = c.RoleARN
 	}
 	if c.OIDCIssuer != "" {
-		m["identity"] = map[string]any{
-			"oidc": map[string]string{
-				"issuer": c.OIDCIssuer,
-			},
-		}
+		m["identity"] = map[string]any{"oidc": map[string]string{"issuer": c.OIDCIssuer}}
 	}
-
 	if c.VpcConfig != nil {
 		m["resourcesVpcConfig"] = clusterVpcConfigJSON(c.VpcConfig)
 	}
-
-	if c.KubernetesNetworkConfig != nil {
-		net := map[string]any{}
-		if c.KubernetesNetworkConfig.IPFamily != "" {
-			net["ipFamily"] = c.KubernetesNetworkConfig.IPFamily
-		}
-		if c.KubernetesNetworkConfig.ServiceIPv4CIDR != "" {
-			net["serviceIpv4Cidr"] = c.KubernetesNetworkConfig.ServiceIPv4CIDR
-		}
-		if c.KubernetesNetworkConfig.ServiceIPv6CIDR != "" {
-			net["serviceIpv6Cidr"] = c.KubernetesNetworkConfig.ServiceIPv6CIDR
-		}
-		if len(net) > 0 {
-			m["kubernetesNetworkConfig"] = net
-		}
+	if net := clusterNetConfigJSON(c.KubernetesNetworkConfig); net != nil {
+		m["kubernetesNetworkConfig"] = net
 	}
-
 	if len(c.ClusterLogging) > 0 {
-		entries := make([]map[string]any, len(c.ClusterLogging))
-		for i, e := range c.ClusterLogging {
-			entries[i] = map[string]any{
-				"types":   e.Types,
-				"enabled": e.Enabled,
-			}
-		}
-		m["logging"] = map[string]any{"clusterLogging": entries}
+		m["logging"] = map[string]any{"clusterLogging": clusterLoggingJSON(c.ClusterLogging)}
 	}
-
 	if len(c.EncryptionConfig) > 0 {
 		m["encryptionConfig"] = c.EncryptionConfig
+	}
+	if c.AccessConfig != nil {
+		m["accessConfig"] = map[string]any{
+			"authenticationMode":                      c.AccessConfig.AuthenticationMode,
+			"bootstrapClusterCreatorAdminPermissions": c.AccessConfig.BootstrapClusterCreatorAdminPermissions,
+		}
+	}
+	if c.ComputeConfig != nil {
+		m["computeConfig"] = clusterComputeConfigJSON(c.ComputeConfig)
+	}
+	if c.StorageConfig != nil && c.StorageConfig.BlockStorage != nil {
+		m["storageConfig"] = map[string]any{
+			"blockStorage": map[string]any{keyEnabled: c.StorageConfig.BlockStorage.Enabled},
+		}
+	}
+	if c.NetworkingConfig != nil && c.NetworkingConfig.ElasticLoadBalancing != nil {
+		m["networkingConfig"] = map[string]any{
+			"elasticLoadBalancing": map[string]any{keyEnabled: c.NetworkingConfig.ElasticLoadBalancing.Enabled},
+		}
+	}
+
+	return m
+}
+
+func clusterNetConfigJSON(cfg *KubernetesNetworkConfig) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	net := map[string]any{}
+	if cfg.IPFamily != "" {
+		net["ipFamily"] = cfg.IPFamily
+	}
+	if cfg.ServiceIPv4CIDR != "" {
+		net["serviceIpv4Cidr"] = cfg.ServiceIPv4CIDR
+	}
+	if cfg.ServiceIPv6CIDR != "" {
+		net["serviceIpv6Cidr"] = cfg.ServiceIPv6CIDR
+	}
+	if len(net) == 0 {
+		return nil
+	}
+
+	return net
+}
+
+func clusterLoggingJSON(entries []ClusterLogEntry) []map[string]any {
+	out := make([]map[string]any, len(entries))
+	for i, e := range entries {
+		out[i] = map[string]any{"types": e.Types, keyEnabled: e.Enabled}
+	}
+
+	return out
+}
+
+func clusterComputeConfigJSON(cc *ComputeConfig) map[string]any {
+	m := map[string]any{keyEnabled: cc.Enabled}
+	if cc.NodeRoleARN != "" {
+		m["nodeRoleArn"] = cc.NodeRoleARN
+	}
+	if len(cc.NodePools) > 0 {
+		m["nodePools"] = cc.NodePools
 	}
 
 	return m
@@ -1069,6 +1104,18 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
 	}
+	if ng.UpdateConfig != nil {
+		uc := map[string]any{}
+		if ng.UpdateConfig.MaxUnavailable != nil {
+			uc["maxUnavailable"] = *ng.UpdateConfig.MaxUnavailable
+		}
+
+		if ng.UpdateConfig.MaxUnavailablePercentage != nil {
+			uc["maxUnavailablePercentage"] = *ng.UpdateConfig.MaxUnavailablePercentage
+		}
+
+		m["updateConfig"] = uc
+	}
 	if ng.Tags != nil {
 		m[keyTags] = ng.Tags.Clone()
 	} else {
@@ -1128,10 +1175,41 @@ type kubernetesNetworkConfigJSON struct {
 	ServiceIPv6CIDR string `json:"serviceIpv6Cidr"`
 }
 
+type accessConfigJSON struct {
+	BootstrapClusterCreatorAdminPermissions *bool  `json:"bootstrapClusterCreatorAdminPermissions,omitempty"`
+	AuthenticationMode                      string `json:"authenticationMode"`
+}
+
+type computeConfigJSON struct {
+	Enabled     *bool    `json:"enabled,omitempty"`
+	NodeRoleArn string   `json:"nodeRoleArn,omitempty"`
+	NodePools   []string `json:"nodePools,omitempty"`
+}
+
+type blockStorageConfigJSON struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type storageConfigJSON struct {
+	BlockStorage *blockStorageConfigJSON `json:"blockStorage,omitempty"`
+}
+
+type elasticLoadBalancingConfigJSON struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type networkingConfigJSON struct {
+	ElasticLoadBalancing *elasticLoadBalancingConfigJSON `json:"elasticLoadBalancing,omitempty"`
+}
+
 type createClusterBody struct {
 	Tags                    map[string]string            `json:"tags"`
 	ResourcesVpcConfig      *vpcConfigJSON               `json:"resourcesVpcConfig"`
 	KubernetesNetworkConfig *kubernetesNetworkConfigJSON `json:"kubernetesNetworkConfig"`
+	AccessConfig            *accessConfigJSON            `json:"accessConfig"`
+	ComputeConfig           *computeConfigJSON           `json:"computeConfig"`
+	StorageConfig           *storageConfigJSON           `json:"storageConfig"`
+	NetworkingConfig        *networkingConfigJSON        `json:"networkingConfig"`
 	Name                    string                       `json:"name"`
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
@@ -1167,7 +1245,15 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		}
 	}
 
-	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, vpcCfg, netCfg, in.Tags)
+	cluster, err := h.Backend.CreateCluster(
+		in.Name,
+		in.Version,
+		in.RoleArn,
+		vpcCfg,
+		netCfg,
+		in.Tags,
+		buildClusterOptConfig(in),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1175,6 +1261,44 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyCluster: clusterToJSON(cluster),
 	})
+}
+
+func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
+	var opt ClusterOptionalConfig
+
+	if in.AccessConfig != nil {
+		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
+		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
+			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
+		}
+		opt.AccessConfig = ac
+	}
+
+	if in.ComputeConfig != nil {
+		cc := &ComputeConfig{NodeRoleARN: in.ComputeConfig.NodeRoleArn, NodePools: in.ComputeConfig.NodePools}
+		if in.ComputeConfig.Enabled != nil {
+			cc.Enabled = *in.ComputeConfig.Enabled
+		}
+		opt.ComputeConfig = cc
+	}
+
+	if in.StorageConfig != nil && in.StorageConfig.BlockStorage != nil {
+		sc := &StorageConfig{BlockStorage: &BlockStorageConfig{}}
+		if in.StorageConfig.BlockStorage.Enabled != nil {
+			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
+		}
+		opt.StorageConfig = sc
+	}
+
+	if in.NetworkingConfig != nil && in.NetworkingConfig.ElasticLoadBalancing != nil {
+		nc := &NetworkingConfig{ElasticLoadBalancing: &ElasticLoadBalancingConfig{}}
+		if in.NetworkingConfig.ElasticLoadBalancing.Enabled != nil {
+			nc.ElasticLoadBalancing.Enabled = *in.NetworkingConfig.ElasticLoadBalancing.Enabled
+		}
+		opt.NetworkingConfig = nc
+	}
+
+	return opt
 }
 
 func (h *Handler) handleDescribeCluster(c *echo.Context, name string) error {
@@ -1232,22 +1356,28 @@ type launchTemplateJSON struct {
 	Version string `json:"version,omitempty"`
 }
 
+type nodegroupUpdateConfigJSON struct {
+	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
+	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+}
+
 type createNodegroupBody struct {
-	Tags           map[string]string    `json:"tags"`
-	Labels         map[string]string    `json:"labels"`
-	RemoteAccess   *remoteAccessJSON    `json:"remoteAccess"`
-	LaunchTemplate *launchTemplateJSON  `json:"launchTemplate"`
-	NodegroupName  string               `json:"nodegroupName"`
-	NodeRole       string               `json:"nodeRole"`
-	AMIType        string               `json:"amiType"`
-	CapacityType   string               `json:"capacityType"`
-	Version        string               `json:"version"`
-	ReleaseVersion string               `json:"releaseVersion"`
-	InstanceTypes  []string             `json:"instanceTypes"`
-	Subnets        []string             `json:"subnets"`
-	Taints         []nodegroupTaintJSON `json:"taints"`
-	ScalingConfig  scalingConfigJSON    `json:"scalingConfig"`
-	DiskSize       int32                `json:"diskSize"`
+	Tags           map[string]string          `json:"tags"`
+	Labels         map[string]string          `json:"labels"`
+	RemoteAccess   *remoteAccessJSON          `json:"remoteAccess"`
+	LaunchTemplate *launchTemplateJSON        `json:"launchTemplate"`
+	UpdateConfig   *nodegroupUpdateConfigJSON `json:"updateConfig"`
+	NodegroupName  string                     `json:"nodegroupName"`
+	NodeRole       string                     `json:"nodeRole"`
+	AMIType        string                     `json:"amiType"`
+	CapacityType   string                     `json:"capacityType"`
+	Version        string                     `json:"version"`
+	ReleaseVersion string                     `json:"releaseVersion"`
+	InstanceTypes  []string                   `json:"instanceTypes"`
+	Subnets        []string                   `json:"subnets"`
+	Taints         []nodegroupTaintJSON       `json:"taints"`
+	ScalingConfig  scalingConfigJSON          `json:"scalingConfig"`
+	DiskSize       int32                      `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1282,6 +1412,14 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		}
 	}
 
+	var ngUpdateCfg *NodegroupUpdateConfig
+	if in.UpdateConfig != nil {
+		ngUpdateCfg = &NodegroupUpdateConfig{
+			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
+			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+		}
+	}
+
 	ng, err := h.Backend.CreateNodegroup(
 		clusterName, in.NodegroupName, in.NodeRole,
 		in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
@@ -1294,6 +1432,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 			Subnets:        in.Subnets,
 			Taints:         taints,
 			DiskSize:       in.DiskSize,
+			UpdateConfig:   ngUpdateCfg,
 		},
 		in.Tags,
 	)
@@ -1383,12 +1522,32 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	})
 }
 
+type updateNodegroupScalingConfigJSON struct {
+	DesiredSize *int32 `json:"desiredSize,omitempty"`
+	MinSize     *int32 `json:"minSize,omitempty"`
+	MaxSize     *int32 `json:"maxSize,omitempty"`
+}
+
+type updateNodegroupLabelsPayload struct {
+	AddOrUpdateLabels map[string]string `json:"addOrUpdateLabels,omitempty"`
+	RemoveLabels      []string          `json:"removeLabels,omitempty"`
+}
+
+type updateNodegroupTaintsPayload struct {
+	AddOrUpdateTaints []nodegroupTaintJSON `json:"addOrUpdateTaints,omitempty"`
+	RemoveTaints      []nodegroupTaintJSON `json:"removeTaints,omitempty"`
+}
+
+type updateNodegroupUpdateConfigJSON struct {
+	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
+	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+}
+
 type updateNodegroupConfigInput struct {
-	ScalingConfig *struct {
-		DesiredSize *int32 `json:"desiredSize,omitempty"`
-		MinSize     *int32 `json:"minSize,omitempty"`
-		MaxSize     *int32 `json:"maxSize,omitempty"`
-	} `json:"scalingConfig,omitempty"`
+	ScalingConfig *updateNodegroupScalingConfigJSON `json:"scalingConfig,omitempty"`
+	Labels        *updateNodegroupLabelsPayload     `json:"labels,omitempty"`
+	Taints        *updateNodegroupTaintsPayload     `json:"taints,omitempty"`
+	UpdateConfig  *updateNodegroupUpdateConfigJSON  `json:"updateConfig,omitempty"`
 }
 
 func (h *Handler) handleUpdateNodegroupConfig(
@@ -1403,14 +1562,36 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		}
 	}
 
-	var desiredSize, minSize, maxSize *int32
+	upd := NodegroupConfigUpdate{}
 	if in.ScalingConfig != nil {
-		desiredSize = in.ScalingConfig.DesiredSize
-		minSize = in.ScalingConfig.MinSize
-		maxSize = in.ScalingConfig.MaxSize
+		upd.DesiredSize = in.ScalingConfig.DesiredSize
+		upd.MinSize = in.ScalingConfig.MinSize
+		upd.MaxSize = in.ScalingConfig.MaxSize
 	}
 
-	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, desiredSize, minSize, maxSize)
+	if in.Labels != nil {
+		upd.AddOrUpdateLabels = in.Labels.AddOrUpdateLabels
+		upd.RemoveLabels = in.Labels.RemoveLabels
+	}
+
+	if in.Taints != nil {
+		for _, t := range in.Taints.AddOrUpdateTaints {
+			upd.AddOrUpdateTaints = append(upd.AddOrUpdateTaints, NodegroupTaint(t))
+		}
+
+		for _, t := range in.Taints.RemoveTaints {
+			upd.RemoveTaints = append(upd.RemoveTaints, NodegroupTaint(t))
+		}
+	}
+
+	if in.UpdateConfig != nil {
+		upd.UpdateConfig = &NodegroupUpdateConfig{
+			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
+			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+		}
+	}
+
+	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, upd)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1430,10 +1611,11 @@ func (h *Handler) handleUpdateNodegroupConfig(
 // --- New operation handlers ---
 
 type createAccessEntryBody struct {
-	Tags         map[string]string `json:"tags"`
-	PrincipalArn string            `json:"principalArn"`
-	Type         string            `json:"type"`
-	Username     string            `json:"username"`
+	Tags             map[string]string `json:"tags"`
+	PrincipalArn     string            `json:"principalArn"`
+	Type             string            `json:"type"`
+	Username         string            `json:"username"`
+	KubernetesGroups []string          `json:"kubernetesGroups"`
 }
 
 func accessEntryToJSON(entry *AccessEntry) map[string]any {
@@ -1445,6 +1627,13 @@ func accessEntryToJSON(entry *AccessEntry) map[string]any {
 		keyUsername:       entry.Username,
 		keyCreatedAt:      entry.CreatedAt.Unix(),
 	}
+
+	if len(entry.KubernetesGroups) > 0 {
+		m["kubernetesGroups"] = entry.KubernetesGroups
+	} else {
+		m["kubernetesGroups"] = []string{}
+	}
+
 	if entry.Tags != nil {
 		m[keyTags] = entry.Tags.Clone()
 	} else {
@@ -1464,7 +1653,14 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "principalArn is required"))
 	}
 
-	entry, err := h.Backend.CreateAccessEntry(clusterName, in.PrincipalArn, in.Type, in.Username, in.Tags)
+	entry, err := h.Backend.CreateAccessEntry(
+		clusterName,
+		in.PrincipalArn,
+		in.Type,
+		in.Username,
+		in.KubernetesGroups,
+		in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1713,6 +1909,7 @@ type fargateProfileSelectorJSON struct {
 
 type createFargateProfileBody struct {
 	Tags                map[string]string            `json:"tags"`
+	Subnets             []string                     `json:"subnets"`
 	FargateProfileName  string                       `json:"fargateProfileName"`
 	PodExecutionRoleArn string                       `json:"podExecutionRoleArn"`
 	Selectors           []fargateProfileSelectorJSON `json:"selectors"`
@@ -1738,6 +1935,7 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 		in.FargateProfileName,
 		in.PodExecutionRoleArn,
 		selectors,
+		in.Subnets,
 		in.Tags,
 	)
 	if err != nil {

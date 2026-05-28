@@ -423,6 +423,13 @@ func fargateProfileToJSON(p *FargateProfile) map[string]any {
 		"selectors":           p.Selectors,
 		keyCreatedAt:          p.CreatedAt.Unix(),
 	}
+
+	if len(p.Subnets) > 0 {
+		m["subnets"] = p.Subnets
+	} else {
+		m["subnets"] = []string{}
+	}
+
 	if p.Tags != nil {
 		m["tags"] = p.Tags.Clone()
 	} else {
@@ -519,6 +526,11 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 		"roleArn":        a.RoleARN,
 		keyCreatedAt:     a.CreatedAt.Unix(),
 	}
+
+	if a.OwnerARN != "" {
+		m["ownerArn"] = a.OwnerARN
+	}
+
 	if a.Tags != nil {
 		m["tags"] = a.Tags.Clone()
 	} else {
@@ -572,7 +584,8 @@ func (h *Handler) handleListAccessEntries(c *echo.Context, clusterName string) e
 }
 
 type updateAccessEntryBody struct {
-	Username string `json:"username"`
+	Username         string   `json:"username"`
+	KubernetesGroups []string `json:"kubernetesGroups"`
 }
 
 func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principalARN string, body []byte) error {
@@ -583,7 +596,7 @@ func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principa
 		}
 	}
 
-	entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, in.Username)
+	entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, AccessEntryUpdate(in))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -798,7 +811,7 @@ func insightToJSON(ins *Insight) map[string]any {
 		"id":                 ins.ID,
 		keyClusterName:       ins.ClusterName,
 		"category":           ins.Category,
-		keyStatusField:       ins.Status,
+		"insightStatus":      map[string]any{"status": ins.Status, "reason": ins.Recommendation},
 		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
 		"lastTransitionTime": ins.LastTransition.Unix(),
 	}
@@ -847,6 +860,7 @@ type updateClusterConfigLogging struct {
 }
 
 type updateClusterConfigVpcConfig struct {
+	SubnetIDs             []string `json:"subnetIds"`
 	EndpointPublicAccess  *bool    `json:"endpointPublicAccess"`
 	EndpointPrivateAccess *bool    `json:"endpointPrivateAccess"`
 	PublicAccessCidrs     []string `json:"publicAccessCidrs"`
@@ -855,46 +869,99 @@ type updateClusterConfigVpcConfig struct {
 type updateClusterConfigBody struct {
 	Logging            *updateClusterConfigLogging   `json:"logging"`
 	ResourcesVpcConfig *updateClusterConfigVpcConfig `json:"resourcesVpcConfig"`
+	AccessConfig       *accessConfigJSON             `json:"accessConfig"`
+	ComputeConfig      *computeConfigJSON            `json:"computeConfig"`
+	StorageConfig      *storageConfigJSON            `json:"storageConfig"`
 }
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in updateClusterConfigBody
-	var logEntries []ClusterLogEntry
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
-
-		if in.Logging != nil {
-			logEntries = make([]ClusterLogEntry, len(in.Logging.ClusterLogging))
-			for i, entry := range in.Logging.ClusterLogging {
-				logEntries[i] = ClusterLogEntry{Types: entry.Types, Enabled: entry.Enabled}
-			}
-		}
 	}
 
-	update, err := h.Backend.UpdateClusterConfig(clusterName, logEntries)
+	cfgUpd := buildClusterConfigUpdate(in)
+
+	update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	if in.ResourcesVpcConfig != nil {
-		vpcUpd := VpcEndpointUpdate{
-			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
-			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
-			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCidrs,
-		}
-		vpcUpdate, vpcErr := h.Backend.UpdateClusterVpcEndpoint(clusterName, vpcUpd)
-		if vpcErr != nil {
-			return h.handleError(c, vpcErr)
-		}
-		update.Params = append(update.Params, vpcUpdate.Params...)
+	if vpcErr := h.applyVpcEndpointUpdate(c, clusterName, in.ResourcesVpcConfig, update); vpcErr != nil {
+		return vpcErr
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyUpdate: updateToJSON(update),
 	})
+}
+
+func buildClusterConfigUpdate(in updateClusterConfigBody) ClusterConfigUpdate {
+	cfgUpd := ClusterConfigUpdate{}
+
+	if in.Logging != nil {
+		cfgUpd.LogEntries = make([]ClusterLogEntry, len(in.Logging.ClusterLogging))
+		for i, entry := range in.Logging.ClusterLogging {
+			cfgUpd.LogEntries[i] = ClusterLogEntry{Types: entry.Types, Enabled: entry.Enabled}
+		}
+	}
+
+	if in.ResourcesVpcConfig != nil && len(in.ResourcesVpcConfig.SubnetIDs) > 0 {
+		cfgUpd.SubnetIDs = in.ResourcesVpcConfig.SubnetIDs
+	}
+
+	if in.AccessConfig != nil {
+		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
+		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
+			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
+		}
+		cfgUpd.AccessConfig = ac
+	}
+
+	if in.ComputeConfig != nil {
+		cc := &ComputeConfig{NodeRoleARN: in.ComputeConfig.NodeRoleArn, NodePools: in.ComputeConfig.NodePools}
+		if in.ComputeConfig.Enabled != nil {
+			cc.Enabled = *in.ComputeConfig.Enabled
+		}
+		cfgUpd.ComputeConfig = cc
+	}
+
+	if in.StorageConfig != nil && in.StorageConfig.BlockStorage != nil {
+		sc := &StorageConfig{BlockStorage: &BlockStorageConfig{}}
+		if in.StorageConfig.BlockStorage.Enabled != nil {
+			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
+		}
+		cfgUpd.StorageConfig = sc
+	}
+
+	return cfgUpd
+}
+
+func (h *Handler) applyVpcEndpointUpdate(
+	c *echo.Context, clusterName string,
+	vpcIn *updateClusterConfigVpcConfig, update *Update,
+) error {
+	if vpcIn == nil {
+		return nil
+	}
+	vpcUpd := VpcEndpointUpdate{
+		EndpointPublicAccess:  vpcIn.EndpointPublicAccess,
+		EndpointPrivateAccess: vpcIn.EndpointPrivateAccess,
+		PublicAccessCIDRs:     vpcIn.PublicAccessCidrs,
+	}
+	if vpcUpd.EndpointPublicAccess == nil && vpcUpd.EndpointPrivateAccess == nil && vpcUpd.PublicAccessCIDRs == nil {
+		return nil
+	}
+	vpcUpdate, err := h.Backend.UpdateClusterVpcEndpoint(clusterName, vpcUpd)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+	update.Params = append(update.Params, vpcUpdate.Params...)
+
+	return nil
 }
 
 type updateClusterVersionBody struct {
@@ -963,11 +1030,15 @@ func (h *Handler) handleListUpdates(c *echo.Context, clusterName string) error {
 	})
 }
 
+type connectorConfigJSON struct {
+	Provider string `json:"provider"`
+	RoleArn  string `json:"roleArn"`
+}
+
 type registerClusterBody struct {
-	Tags                    map[string]string `json:"tags"`
-	Name                    string            `json:"name"`
-	ConnectorConfigProvider string            `json:"connectorConfig.provider"`
-	ConnectorConfigRoleArn  string            `json:"connectorConfig.roleArn"`
+	Tags            map[string]string    `json:"tags"`
+	ConnectorConfig *connectorConfigJSON `json:"connectorConfig"`
+	Name            string               `json:"name"`
 }
 
 func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
@@ -980,7 +1051,13 @@ func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
 	}
 
-	cluster, err := h.Backend.RegisterCluster(in.Name, in.ConnectorConfigProvider, in.ConnectorConfigRoleArn, in.Tags)
+	var provider, roleArn string
+	if in.ConnectorConfig != nil {
+		provider = in.ConnectorConfig.Provider
+		roleArn = in.ConnectorConfig.RoleArn
+	}
+
+	cluster, err := h.Backend.RegisterCluster(in.Name, provider, roleArn, in.Tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
