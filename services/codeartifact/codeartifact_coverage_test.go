@@ -82,11 +82,13 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 					t,
 					h,
 					http.MethodPost,
-					"/v1/repository/external-connection?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
+					"/v1/repository/external-connection" +
+						"?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
 					nil,
 				)
 			},
-			path:       "/v1/repository/external-connection?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
+			path: "/v1/repository/external-connection" +
+				"?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -95,7 +97,8 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 				setupDomain(t, h, "dis2-domain")
 				setupRepo(t, h, "dis2-domain", "dis2-repo")
 			},
-			path:       "/v1/repository/external-connection?domain=dis2-domain&repository=dis2-repo&externalConnection=public:npmjs",
+			path: "/v1/repository/external-connection" +
+				"?domain=dis2-domain&repository=dis2-repo&externalConnection=public:npmjs",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -115,7 +118,8 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 		},
 		{
 			name:       "repo_not_found",
-			path:       "/v1/repository/external-connection?domain=dis-domain&repository=nope&externalConnection=public:npmjs",
+			path: "/v1/repository/external-connection" +
+				"?domain=dis-domain&repository=nope&externalConnection=public:npmjs",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -160,7 +164,8 @@ func TestHandler_DisposePackageVersions(t *testing.T) {
 				setupDomain(t, h, "dp-domain")
 				setupRepo(t, h, "dp-domain", "dp-repo")
 				doRequest(t, h, http.MethodGet,
-					"/v1/package/version?domain=dp-domain&repository=dp-repo&format=npm&package=lodash&version=1.0.0",
+					"/v1/package/version"+
+						"?domain=dp-domain&repository=dp-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)
 			},
@@ -260,11 +265,13 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 				setupDomain(t, h, "pva-domain")
 				setupRepo(t, h, "pva-domain", "pva-repo")
 				doRequest(t, h, http.MethodGet,
-					"/v1/package/version?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
+					"/v1/package/version"+
+						"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)
 			},
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0&asset=lodash-1.0.0.tgz",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0&asset=lodash-1.0.0.tgz",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -279,17 +286,20 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 		},
 		{
 			name:       "missing_format",
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&package=lodash&version=1.0.0&asset=x.tgz",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&package=lodash&version=1.0.0&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_package",
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&version=1.0.0&asset=x.tgz",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&format=npm&version=1.0.0&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_version",
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&asset=x.tgz",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -299,7 +309,8 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 		},
 		{
 			name:       "version_not_found",
-			path:       "/v1/package/version/asset?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=9.9.9&asset=x.tgz",
+			path: "/v1/package/version/asset" +
+				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=9.9.9&asset=x.tgz",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -370,7 +381,8 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 		},
 		{
 			name:       "version_not_found",
-			path:       "/v1/package/version/readme?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=9.9.9",
+			path: "/v1/package/version/readme" +
+				"?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -640,7 +652,8 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 					nil,
 				)
 			},
-			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
+			path: "/v1/package/version/assets" +
+				"?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=1.0.0",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -670,7 +683,8 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 		},
 		{
 			name:       "version_not_found",
-			path:       "/v1/package/version/assets?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=9.9.9",
+			path: "/v1/package/version/assets" +
+				"?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -721,7 +735,8 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 					nil,
 				)
 			},
-			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
+			path: "/v1/package/version/dependencies" +
+				"?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=1.0.0",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -736,7 +751,8 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 		},
 		{
 			name:       "missing_format",
-			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&package=lodash&version=1.0.0",
+			path: "/v1/package/version/dependencies" +
+				"?domain=lpvd-domain&repository=lpvd-repo&package=lodash&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -751,7 +767,8 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 		},
 		{
 			name:       "version_not_found",
-			path:       "/v1/package/version/dependencies?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=9.9.9",
+			path: "/v1/package/version/dependencies" +
+				"?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -1016,7 +1033,8 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 				setupDomain(t, h, "ppv-domain")
 				setupRepo(t, h, "ppv-domain", "ppv-repo")
 			},
-			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
+			path: "/v1/package/versions/publish" +
+				"?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -1032,7 +1050,8 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 					nil,
 				)
 			},
-			path:       "/v1/package/versions/publish?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0",
+			path: "/v1/package/versions/publish" +
+				"?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -1315,7 +1334,8 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 					nil,
 				)
 			},
-			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
+			path: "/v1/package/versions/update_status" +
+				"?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
 			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
 			wantStatus: http.StatusOK,
 		},
@@ -1325,7 +1345,8 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 				setupDomain(t, h, "upvs2-domain")
 				setupRepo(t, h, "upvs2-domain", "upvs2-repo")
 			},
-			path:       "/v1/package/versions/update_status?domain=upvs2-domain&repository=upvs2-repo&format=npm&package=lodash",
+			path: "/v1/package/versions/update_status" +
+				"?domain=upvs2-domain&repository=upvs2-repo&format=npm&package=lodash",
 			body:       map[string]any{"targetStatus": "Archived", "versions": []string{"9.9.9"}},
 			wantStatus: http.StatusOK,
 		},
@@ -1355,8 +1376,9 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 		},
 		{
 			name:       "missing_target_status",
-			path:       "/v1/package/versions/update_status?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
-			body:       map[string]any{"versions": []string{"1.0.0"}},
+			path: "/v1/package/versions/update_status" +
+				"?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
+			body: map[string]any{"versions": []string{"1.0.0"}},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
