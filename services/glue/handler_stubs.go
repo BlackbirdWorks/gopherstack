@@ -221,13 +221,20 @@ func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 }
 
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.
-type cancelMLTaskRunInput struct{}
+type cancelMLTaskRunInput struct {
+	TransformID string `json:"TransformId"`
+	TaskRunID   string `json:"TaskRunId"`
+}
 
 func (h *Handler) handleCancelMLTaskRun(
 	_ context.Context,
-	_ *cancelMLTaskRunInput,
+	in *cancelMLTaskRunInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	if in.TransformID == "" || in.TaskRunID == "" {
+		return &emptyOutput{}, nil
+	}
+
+	return &emptyOutput{}, h.Backend.CancelMLTaskRun(in.TransformID, in.TaskRunID)
 }
 
 // cancelStatementInput holds input for CancelStatement.
@@ -339,11 +346,11 @@ func (h *Handler) handleCreateColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *createColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	_, _ = h.Backend.CreateColumnStatisticsTaskSettings(
+	_, err := h.Backend.CreateColumnStatisticsTaskSettings(
 		in.DatabaseName, in.TableName, in.RoleArn, in.ColumnNameList,
 	)
 
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, err
 }
 
 // createCustomEntityTypeInput holds input for CreateCustomEntityType.
@@ -362,7 +369,9 @@ func (h *Handler) handleCreateCustomEntityType(
 	_ context.Context,
 	in *createCustomEntityTypeInput,
 ) (*createCustomEntityTypeOutput, error) {
-	_, _ = h.Backend.CreateCustomEntityType(in.Name, in.RegexString, in.ContextWords)
+	if _, err := h.Backend.CreateCustomEntityType(in.Name, in.RegexString, in.ContextWords); err != nil {
+		return nil, err
+	}
 
 	return &createCustomEntityTypeOutput{Name: in.Name}, nil
 }
@@ -391,34 +400,39 @@ func (h *Handler) handleCreateDevEndpoint(
 }
 
 // createIdentityCenterConfigurationInput holds input for CreateGlueIdentityCenterConfiguration.
-type createIdentityCenterConfigurationInput struct{}
+type createIdentityCenterConfigurationInput struct {
+	InstanceArn string `json:"InstanceArn,omitempty"`
+}
 
 func (h *Handler) handleCreateGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *createIdentityCenterConfigurationInput,
+	in *createIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.CreateGlueIdentityCenterConfiguration("")
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CreateGlueIdentityCenterConfiguration(in.InstanceArn)
 }
 
 // createIntegrationInput holds input for CreateIntegration.
 type createIntegrationInput struct {
-	IntegrationName string `json:"IntegrationName"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	IntegrationName string            `json:"IntegrationName"`
 }
 
 // createIntegrationOutput holds the result for CreateIntegration.
 type createIntegrationOutput struct {
 	IntegrationName string `json:"IntegrationName"`
+	Status          string `json:"Status"`
 }
 
 func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
-	_, _ = h.Backend.CreateIntegration(in.IntegrationName, nil)
+	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.Tags)
+	if err != nil {
+		return nil, err
+	}
 
-	return &createIntegrationOutput{IntegrationName: in.IntegrationName}, nil
+	return &createIntegrationOutput{IntegrationName: ig.IntegrationName, Status: ig.Status}, nil
 }
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
@@ -752,7 +766,9 @@ func (h *Handler) handleCreateUsageProfile(
 	_ context.Context,
 	in *createUsageProfileInput,
 ) (*createUsageProfileOutput, error) {
-	_, _ = h.Backend.CreateUsageProfile(in.Name, in.Description, in.Tags)
+	if _, err := h.Backend.CreateUsageProfile(in.Name, in.Description, in.Tags); err != nil {
+		return nil, err
+	}
 
 	return &createUsageProfileOutput{Name: in.Name}, nil
 }
@@ -899,9 +915,7 @@ func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *deleteColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.DeleteColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
 }
 
 // deleteConnectionTypeInput holds input for DeleteConnectionType.
@@ -928,7 +942,9 @@ func (h *Handler) handleDeleteCustomEntityType(
 	_ context.Context,
 	in *deleteCustomEntityTypeInput,
 ) (*deleteCustomEntityTypeOutput, error) {
-	_ = h.Backend.DeleteCustomEntityType(in.Name)
+	if err := h.Backend.DeleteCustomEntityType(in.Name); err != nil {
+		return nil, err
+	}
 
 	return &deleteCustomEntityTypeOutput{Name: in.Name}, nil
 }
@@ -956,9 +972,7 @@ func (h *Handler) handleDeleteGlueIdentityCenterConfiguration(
 	_ context.Context,
 	_ *deleteIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.DeleteGlueIdentityCenterConfiguration()
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteGlueIdentityCenterConfiguration()
 }
 
 // deleteIntegrationInput holds input for DeleteIntegration.
@@ -975,7 +989,9 @@ func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
-	_ = h.Backend.DeleteIntegration(in.IntegrationIdentifier)
+	if err := h.Backend.DeleteIntegration(in.IntegrationIdentifier); err != nil {
+		return nil, err
+	}
 
 	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
 }
@@ -1242,9 +1258,7 @@ func (h *Handler) handleDeleteUsageProfile(
 	_ context.Context,
 	in *deleteUsageProfileInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.DeleteUsageProfile(in.Name)
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.DeleteUsageProfile(in.Name)
 }
 
 // deleteUserDefinedFunctionInput holds input for DeleteUserDefinedFunction.
@@ -1387,9 +1401,10 @@ func (h *Handler) handleGetBlueprintRun(
 	if in.RunID == "" {
 		return &getBlueprintRunOutput{}, nil
 	}
+
 	run, err := h.Backend.GetBlueprintRun(in.BlueprintName, in.RunID)
 	if err != nil {
-		return &getBlueprintRunOutput{}, nil //nolint:nilerr // graceful empty
+		return nil, err
 	}
 
 	return &getBlueprintRunOutput{Run: run}, nil
@@ -1790,10 +1805,10 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	if in.RunID == "" {
 		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
 	}
+
 	run, err := h.Backend.GetDataQualityRuleRecommendationRun(in.RunID)
 	if err != nil {
-		//nolint:nilerr // graceful degradation: return stub on not-found
-		return &getDataQualityRuleRecommendationRunOutput{Status: stateSucceeded}, nil
+		return nil, err
 	}
 
 	return &getDataQualityRuleRecommendationRunOutput{RunID: run.RecommendationRunID, Status: run.Status}, nil
@@ -1919,7 +1934,10 @@ func (h *Handler) handleGetIntegrationTableProperties(
 }
 
 // getMLTaskRunInput holds input for GetMLTaskRun.
-type getMLTaskRunInput struct{}
+type getMLTaskRunInput struct {
+	TransformID string `json:"TransformId"`
+	TaskRunID   string `json:"TaskRunId"`
+}
 
 // getMLTaskRunOutput holds the result for GetMLTaskRun.
 type getMLTaskRunOutput struct {
@@ -1930,13 +1948,28 @@ type getMLTaskRunOutput struct {
 
 func (h *Handler) handleGetMLTaskRun(
 	_ context.Context,
-	_ *getMLTaskRunInput,
+	in *getMLTaskRunInput,
 ) (*getMLTaskRunOutput, error) {
-	return &getMLTaskRunOutput{Status: stateSucceeded}, nil
+	if in.TransformID == "" || in.TaskRunID == "" {
+		return &getMLTaskRunOutput{Status: stateSucceeded}, nil
+	}
+
+	run, err := h.Backend.GetMLTaskRun(in.TransformID, in.TaskRunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getMLTaskRunOutput{
+		TransformID: run.TransformID,
+		TaskRunID:   run.TaskRunID,
+		Status:      run.Status,
+	}, nil
 }
 
 // getMLTaskRunsInput holds input for GetMLTaskRuns.
-type getMLTaskRunsInput struct{}
+type getMLTaskRunsInput struct {
+	TransformID string `json:"TransformId"`
+}
 
 // getMLTaskRunsOutput holds the result for GetMLTaskRuns.
 type getMLTaskRunsOutput struct {
@@ -1945,9 +1978,23 @@ type getMLTaskRunsOutput struct {
 
 func (h *Handler) handleGetMLTaskRuns(
 	_ context.Context,
-	_ *getMLTaskRunsInput,
+	in *getMLTaskRunsInput,
 ) (*getMLTaskRunsOutput, error) {
-	return &getMLTaskRunsOutput{TaskRuns: []any{}}, nil
+	if in.TransformID == "" {
+		return &getMLTaskRunsOutput{TaskRuns: []any{}}, nil
+	}
+
+	runs, err := h.Backend.GetMLTaskRuns(in.TransformID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]any, 0, len(runs))
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &getMLTaskRunsOutput{TaskRuns: result}, nil
 }
 
 // getMLTransformInput holds input for GetMLTransform.
@@ -2008,7 +2055,9 @@ func (h *Handler) handleGetMapping(
 }
 
 // getMaterializedViewRefreshTaskRunInput holds input for GetMaterializedViewRefreshTaskRun.
-type getMaterializedViewRefreshTaskRunInput struct{}
+type getMaterializedViewRefreshTaskRunInput struct {
+	RunId string `json:"RunId"`
+}
 
 // getMaterializedViewRefreshTaskRunOutput holds the result for GetMaterializedViewRefreshTaskRun.
 type getMaterializedViewRefreshTaskRunOutput struct {
@@ -2018,8 +2067,17 @@ type getMaterializedViewRefreshTaskRunOutput struct {
 
 func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
-	_ *getMaterializedViewRefreshTaskRunInput,
+	in *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
+	if in.RunId != "" {
+		run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.RunId)
+		if err != nil {
+			return nil, err
+		}
+
+		return &getMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID, Status: run.Status}, nil
+	}
+
 	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
 	if len(runs) == 0 {
 		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
@@ -2587,10 +2645,10 @@ func (h *Handler) handleGetUsageProfile(
 	if in.Name == "" {
 		return &getUsageProfileOutput{}, nil
 	}
+
 	p, err := h.Backend.GetUsageProfile(in.Name)
 	if err != nil {
-		//nolint:nilerr // graceful: return empty on not-found
-		return &getUsageProfileOutput{Name: in.Name}, nil
+		return nil, err
 	}
 
 	return &getUsageProfileOutput{Name: p.Name}, nil
@@ -2836,7 +2894,14 @@ func (h *Handler) handleListDataQualityResults(
 	_ context.Context,
 	_ *listDataQualityResultsInput,
 ) (*listDataQualityResultsOutput, error) {
-	return &listDataQualityResultsOutput{Results: []any{}}, nil
+	results := h.Backend.ListDataQualityResults()
+	list := make([]any, 0, len(results))
+
+	for _, r := range results {
+		list = append(list, r)
+	}
+
+	return &listDataQualityResultsOutput{Results: list}, nil
 }
 
 // listDataQualityRuleRecommendationRunsInput holds input for ListDataQualityRuleRecommendationRuns.
@@ -2872,7 +2937,14 @@ func (h *Handler) handleListDataQualityRulesetEvaluationRuns(
 	_ context.Context,
 	_ *listDataQualityRulesetEvaluationRunsInput,
 ) (*listDataQualityRulesetEvaluationRunsOutput, error) {
-	return &listDataQualityRulesetEvaluationRunsOutput{Runs: []any{}}, nil
+	runs := h.Backend.ListDataQualityEvaluationRuns()
+	result := make([]any, 0, len(runs))
+
+	for _, r := range runs {
+		result = append(result, r)
+	}
+
+	return &listDataQualityRulesetEvaluationRunsOutput{Runs: result}, nil
 }
 
 // listDataQualityStatisticAnnotationsInput holds input for ListDataQualityStatisticAnnotations.
@@ -2987,7 +3059,14 @@ func (h *Handler) handleListMLTransforms(
 	_ context.Context,
 	_ *listMLTransformsInput,
 ) (*listMLTransformsOutput, error) {
-	return &listMLTransformsOutput{TransformIDs: []string{}}, nil
+	transforms := h.Backend.GetMLTransforms()
+	ids := make([]string, 0, len(transforms))
+
+	for _, m := range transforms {
+		ids = append(ids, m.TransformID)
+	}
+
+	return &listMLTransformsOutput{TransformIDs: ids}, nil
 }
 
 // listMaterializedViewRefreshTaskRunsInput holds input for ListMaterializedViewRefreshTaskRuns.
@@ -3214,7 +3293,9 @@ func (h *Handler) handleModifyIntegration(
 	_ context.Context,
 	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
-	_ = h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+	if err := h.Backend.ModifyIntegration(in.IntegrationIdentifier); err != nil {
+		return nil, err
+	}
 
 	return &modifyIntegrationOutput{Status: stateActive}, nil
 }
@@ -3501,7 +3582,13 @@ func (h *Handler) handleStartColumnStatisticsTaskRunSchedule(
 }
 
 // startDataQualityRuleRecommendationRunInput holds input for StartDataQualityRuleRecommendationRun.
-type startDataQualityRuleRecommendationRunInput struct{}
+type startDataQualityRuleRecommendationRunInput struct {
+	DataSource struct {
+		GlueTable *GlueTable `json:"GlueTable,omitempty"`
+	} `json:"DataSource,omitzero"`
+	OutputS3Path string `json:"OutputS3Path,omitempty"`
+	Role         string `json:"Role,omitempty"`
+}
 
 // startDataQualityRuleRecommendationRunOutput holds the result for StartDataQualityRuleRecommendationRun.
 type startDataQualityRuleRecommendationRunOutput struct {
@@ -3510,9 +3597,9 @@ type startDataQualityRuleRecommendationRunOutput struct {
 
 func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 	_ context.Context,
-	_ *startDataQualityRuleRecommendationRunInput,
+	in *startDataQualityRuleRecommendationRunInput,
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
-	run, err := h.Backend.StartDataQualityRuleRecommendationRun("")
+	run, err := h.Backend.StartDataQualityRuleRecommendationRun(in.OutputS3Path)
 	if err != nil {
 		return nil, err
 	}
@@ -3521,7 +3608,10 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 }
 
 // startExportLabelsTaskRunInput holds input for StartExportLabelsTaskRun.
-type startExportLabelsTaskRunInput struct{}
+type startExportLabelsTaskRunInput struct {
+	TransformID  string `json:"TransformId"`
+	OutputS3Path string `json:"OutputS3Path,omitempty"`
+}
 
 // startExportLabelsTaskRunOutput holds the result for StartExportLabelsTaskRun.
 type startExportLabelsTaskRunOutput struct {
@@ -3530,13 +3620,25 @@ type startExportLabelsTaskRunOutput struct {
 
 func (h *Handler) handleStartExportLabelsTaskRun(
 	_ context.Context,
-	_ *startExportLabelsTaskRunInput,
+	in *startExportLabelsTaskRunInput,
 ) (*startExportLabelsTaskRunOutput, error) {
-	return &startExportLabelsTaskRunOutput{TaskRunID: "export-labels-stub"}, nil
+	if in.TransformID == "" {
+		return &startExportLabelsTaskRunOutput{TaskRunID: ""}, nil
+	}
+
+	run, err := h.Backend.StartExportLabelsTaskRun(in.TransformID, in.OutputS3Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startExportLabelsTaskRunOutput{TaskRunID: run.TaskRunID}, nil
 }
 
 // startImportLabelsTaskRunInput holds input for StartImportLabelsTaskRun.
-type startImportLabelsTaskRunInput struct{}
+type startImportLabelsTaskRunInput struct {
+	TransformID string `json:"TransformId"`
+	InputS3Path string `json:"InputS3Path,omitempty"`
+}
 
 // startImportLabelsTaskRunOutput holds the result for StartImportLabelsTaskRun.
 type startImportLabelsTaskRunOutput struct {
@@ -3545,13 +3647,24 @@ type startImportLabelsTaskRunOutput struct {
 
 func (h *Handler) handleStartImportLabelsTaskRun(
 	_ context.Context,
-	_ *startImportLabelsTaskRunInput,
+	in *startImportLabelsTaskRunInput,
 ) (*startImportLabelsTaskRunOutput, error) {
-	return &startImportLabelsTaskRunOutput{TaskRunID: "import-labels-stub"}, nil
+	if in.TransformID == "" {
+		return &startImportLabelsTaskRunOutput{TaskRunID: ""}, nil
+	}
+
+	run, err := h.Backend.StartImportLabelsTaskRun(in.TransformID, in.InputS3Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startImportLabelsTaskRunOutput{TaskRunID: run.TaskRunID}, nil
 }
 
 // startMLEvaluationTaskRunInput holds input for StartMLEvaluationTaskRun.
-type startMLEvaluationTaskRunInput struct{}
+type startMLEvaluationTaskRunInput struct {
+	TransformID string `json:"TransformId"`
+}
 
 // startMLEvaluationTaskRunOutput holds the result for StartMLEvaluationTaskRun.
 type startMLEvaluationTaskRunOutput struct {
@@ -3560,13 +3673,24 @@ type startMLEvaluationTaskRunOutput struct {
 
 func (h *Handler) handleStartMLEvaluationTaskRun(
 	_ context.Context,
-	_ *startMLEvaluationTaskRunInput,
+	in *startMLEvaluationTaskRunInput,
 ) (*startMLEvaluationTaskRunOutput, error) {
-	return &startMLEvaluationTaskRunOutput{TaskRunID: "ml-eval-stub"}, nil
+	if in.TransformID == "" {
+		return &startMLEvaluationTaskRunOutput{TaskRunID: ""}, nil
+	}
+
+	run, err := h.Backend.StartMLEvaluationTaskRun(in.TransformID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMLEvaluationTaskRunOutput{TaskRunID: run.TaskRunID}, nil
 }
 
 // startMLLabelingSetGenerationTaskRunInput holds input for StartMLLabelingSetGenerationTaskRun.
-type startMLLabelingSetGenerationTaskRunInput struct{}
+type startMLLabelingSetGenerationTaskRunInput struct {
+	TransformID string `json:"TransformId"`
+}
 
 // startMLLabelingSetGenerationTaskRunOutput holds the result for StartMLLabelingSetGenerationTaskRun.
 type startMLLabelingSetGenerationTaskRunOutput struct {
@@ -3575,13 +3699,25 @@ type startMLLabelingSetGenerationTaskRunOutput struct {
 
 func (h *Handler) handleStartMLLabelingSetGenerationTaskRun(
 	_ context.Context,
-	_ *startMLLabelingSetGenerationTaskRunInput,
+	in *startMLLabelingSetGenerationTaskRunInput,
 ) (*startMLLabelingSetGenerationTaskRunOutput, error) {
-	return &startMLLabelingSetGenerationTaskRunOutput{TaskRunID: "ml-label-stub"}, nil
+	if in.TransformID == "" {
+		return &startMLLabelingSetGenerationTaskRunOutput{TaskRunID: ""}, nil
+	}
+
+	run, err := h.Backend.StartMLLabelingSetGenerationTaskRun(in.TransformID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMLLabelingSetGenerationTaskRunOutput{TaskRunID: run.TaskRunID}, nil
 }
 
 // startMaterializedViewRefreshTaskRunInput holds input for StartMaterializedViewRefreshTaskRun.
-type startMaterializedViewRefreshTaskRunInput struct{}
+type startMaterializedViewRefreshTaskRunInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+}
 
 // startMaterializedViewRefreshTaskRunOutput holds the result for StartMaterializedViewRefreshTaskRun.
 type startMaterializedViewRefreshTaskRunOutput struct {
@@ -3590,9 +3726,9 @@ type startMaterializedViewRefreshTaskRunOutput struct {
 
 func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 	_ context.Context,
-	_ *startMaterializedViewRefreshTaskRunInput,
+	in *startMaterializedViewRefreshTaskRunInput,
 ) (*startMaterializedViewRefreshTaskRunOutput, error) {
-	run, err := h.Backend.StartMaterializedViewRefreshTaskRun("", "")
+	run, err := h.Backend.StartMaterializedViewRefreshTaskRun(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -3652,11 +3788,11 @@ func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ context.Context,
 	in *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
-	if in.ColumnStatisticsTaskRunID != "" {
-		_ = h.Backend.StopColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
+	if in.ColumnStatisticsTaskRunID == "" {
+		return &emptyOutput{}, nil
 	}
 
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.StopColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
 }
 
 // stopColumnStatisticsTaskRunScheduleInput holds input for StopColumnStatisticsTaskRunSchedule.
@@ -3678,11 +3814,11 @@ func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
-	if in.RunID != "" {
-		_ = h.Backend.StopMaterializedViewRefreshTaskRun(in.RunID)
+	if in.RunID == "" {
+		return &emptyOutput{}, nil
 	}
 
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.StopMaterializedViewRefreshTaskRun(in.RunID)
 }
 
 // stopSessionInput holds input for StopSession.
@@ -3769,7 +3905,9 @@ func (h *Handler) handleUpdateBlueprint(
 	_ context.Context,
 	in *updateBlueprintInput,
 ) (*updateBlueprintOutput, error) {
-	_, _ = h.Backend.UpdateBlueprint(in.Name)
+	if _, err := h.Backend.UpdateBlueprint(in.Name); err != nil {
+		return nil, err
+	}
 
 	return &updateBlueprintOutput{Name: in.Name}, nil
 }
@@ -3878,13 +4016,19 @@ func (h *Handler) handleUpdateColumnStatisticsForTable(
 }
 
 // updateColumnStatisticsTaskSettingsInput holds input for UpdateColumnStatisticsTaskSettings.
-type updateColumnStatisticsTaskSettingsInput struct{}
+type updateColumnStatisticsTaskSettingsInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	RoleArn      string `json:"RoleArn,omitempty"`
+}
 
 func (h *Handler) handleUpdateColumnStatisticsTaskSettings(
 	_ context.Context,
-	_ *updateColumnStatisticsTaskSettingsInput,
+	in *updateColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateColumnStatisticsTaskSettings(
+		in.DatabaseName, in.TableName, in.RoleArn,
+	)
 }
 
 // updateConnectionInput holds input for UpdateConnection.
@@ -3922,15 +4066,15 @@ func (h *Handler) handleUpdateDevEndpoint(
 }
 
 // updateIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.
-type updateIdentityCenterConfigurationInput struct{}
+type updateIdentityCenterConfigurationInput struct {
+	InstanceArn string `json:"InstanceArn,omitempty"`
+}
 
 func (h *Handler) handleUpdateGlueIdentityCenterConfiguration(
 	_ context.Context,
-	_ *updateIdentityCenterConfigurationInput,
+	in *updateIdentityCenterConfigurationInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.UpdateGlueIdentityCenterConfiguration("")
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.UpdateGlueIdentityCenterConfiguration(in.InstanceArn)
 }
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.
@@ -4180,7 +4324,9 @@ func (h *Handler) handleUpdateUsageProfile(
 	_ context.Context,
 	in *updateUsageProfileInput,
 ) (*updateUsageProfileOutput, error) {
-	_, _ = h.Backend.UpdateUsageProfile(in.Name, "")
+	if _, err := h.Backend.UpdateUsageProfile(in.Name, ""); err != nil {
+		return nil, err
+	}
 
 	return &updateUsageProfileOutput{Name: in.Name}, nil
 }
