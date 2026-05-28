@@ -100,7 +100,7 @@ func TestListDatasets(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateDataset("b", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, nil)
 	require.NoError(t, err)
-	list := b.ListDatasets()
+	list, _ := b.ListDatasets(100, "")
 	assert.Len(t, list, 2)
 }
 
@@ -207,7 +207,7 @@ func TestListRecipes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateRecipe("r2", "", nil, nil)
 	require.NoError(t, err)
-	list := b.ListRecipes()
+	list, _ := b.ListRecipes(100, "")
 	assert.Len(t, list, 2)
 }
 
@@ -324,7 +324,7 @@ func TestListProjects(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateProject("p2", "", "r", "", databrew.Sample{}, nil)
 	require.NoError(t, err)
-	list := b.ListProjects()
+	list, _ := b.ListProjects(100, "")
 	assert.Len(t, list, 2)
 }
 
@@ -432,7 +432,7 @@ func TestListJobs(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateJob("j2", "RECIPE", "ds", "", "r", "", nil, nil)
 	require.NoError(t, err)
-	list := b.ListJobs()
+	list, _ := b.ListJobs(100, "")
 	assert.Len(t, list, 2)
 }
 
@@ -501,7 +501,7 @@ func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 
 	// Poll for async state transition instead of fixed sleep.
 	require.Eventually(t, func() bool {
-		runs, listErr := b.ListJobRuns("run-j2")
+		runs, _, listErr := b.ListJobRuns("run-j2", 100, "")
 
 		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
 	}, 3*time.Second, 25*time.Millisecond)
@@ -519,7 +519,7 @@ func TestListJobRuns_Empty(t *testing.T) {
 	b := newTestBackend()
 	_, err := b.CreateJob("empty-j", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	runs, err := b.ListJobRuns("empty-j")
+	runs, _, err := b.ListJobRuns("empty-j", 100, "")
 	require.NoError(t, err)
 	assert.Empty(t, runs)
 }
@@ -527,7 +527,7 @@ func TestListJobRuns_Empty(t *testing.T) {
 func TestListJobRuns_JobNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.ListJobRuns("no-such")
+	_, _, err := b.ListJobRuns("no-such", 100, "")
 	require.Error(t, err)
 }
 
@@ -540,7 +540,7 @@ func TestListJobRuns_MultipleRuns(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.StartJobRun("multi-j")
 	require.NoError(t, err)
-	runs, err := b.ListJobRuns("multi-j")
+	runs, _, err := b.ListJobRuns("multi-j", 100, "")
 	require.NoError(t, err)
 	assert.Len(t, runs, 2)
 }
@@ -561,8 +561,12 @@ func TestReset(t *testing.T) {
 
 	b.Reset()
 
-	assert.Empty(t, b.ListDatasets())
-	assert.Empty(t, b.ListRecipes())
-	assert.Empty(t, b.ListProjects())
-	assert.Empty(t, b.ListJobs())
+	dsList, _ := b.ListDatasets(100, "")
+	assert.Empty(t, dsList)
+	rList, _ := b.ListRecipes(100, "")
+	assert.Empty(t, rList)
+	pList, _ := b.ListProjects(100, "")
+	assert.Empty(t, pList)
+	jList, _ := b.ListJobs(100, "")
+	assert.Empty(t, jList)
 }

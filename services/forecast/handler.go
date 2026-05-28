@@ -64,6 +64,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		result = append(result, operation)
 	}
 	result = append(result, "ListMonitorEvaluations")
+	result = append(result, "DeleteResourceTree")
+	result = append(result, "ResumeResource")
+	result = append(result, "StopResource")
+	result = append(result, "GetAccuracyMetrics")
+	result = append(result, "ListTagsForResource")
+	result = append(result, "TagResource")
+	result = append(result, "UntagResource")
 
 	return result
 }
@@ -109,6 +116,27 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 
 	if action == "ListMonitorEvaluations" {
 		return h.dispatchListMonitorEvaluations(input)
+	}
+	if action == "DeleteResourceTree" {
+		return h.dispatchDeleteResourceTree(input)
+	}
+	if action == "ResumeResource" {
+		return h.dispatchResumeResource(input)
+	}
+	if action == "StopResource" {
+		return h.dispatchStopResource(input)
+	}
+	if action == "GetAccuracyMetrics" {
+		return h.dispatchGetAccuracyMetrics(input)
+	}
+	if action == "ListTagsForResource" {
+		return h.dispatchListTagsForResource(input)
+	}
+	if action == "TagResource" {
+		return h.dispatchTagResource(input)
+	}
+	if action == "UntagResource" {
+		return h.dispatchUntagResource(input)
 	}
 
 	spec, ok := h.ops[action]
@@ -159,8 +187,10 @@ func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]
 
 		return map[string]any{}, nil
 	case modeList:
+
 		return listOutput(spec, h.Backend.list(spec.kind)), nil
 	default:
+
 		return nil, fmt.Errorf("%w: unsupported operation mode", ErrValidation)
 	}
 }
@@ -172,6 +202,87 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 	}
 
 	return json.Marshal(map[string]any{"PredictorMonitorEvaluations": evaluations})
+}
+
+func (h *Handler) dispatchDeleteResourceTree(input map[string]any) ([]byte, error) {
+	err := h.Backend.DeleteResourceTree(stringValue(input["ResourceArn"]))
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
+	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), statusActive)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
+	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), "STOPPED")
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) dispatchGetAccuracyMetrics(input map[string]any) ([]byte, error) {
+	metrics, err := h.Backend.GetAccuracyMetrics(stringValue(input["PredictorArn"]))
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(metrics)
+}
+
+func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, error) {
+	tags, err := h.Backend.ListTagsForResource(stringValue(input["ResourceArn"]))
+	if err != nil {
+		return nil, err
+	}
+	var tagList []map[string]string
+	for k, v := range tags {
+		tagList = append(tagList, map[string]string{"Key": k, "Value": v})
+	}
+
+	return json.Marshal(map[string]any{"Tags": tagList})
+}
+
+func (h *Handler) dispatchTagResource(input map[string]any) ([]byte, error) {
+	tags := make(map[string]string)
+	if tagsInput, ok := input["Tags"].([]any); ok {
+		for _, tag := range tagsInput {
+			if t, okTag := tag.(map[string]any); okTag {
+				tags[stringValue(t["Key"])] = stringValue(t["Value"])
+			}
+		}
+	}
+	err := h.Backend.TagResource(stringValue(input["ResourceArn"]), tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
+}
+
+func (h *Handler) dispatchUntagResource(input map[string]any) ([]byte, error) {
+	var tagKeys []string
+	if keys, ok := input["TagKeys"].([]any); ok {
+		for _, k := range keys {
+			tagKeys = append(tagKeys, stringValue(k))
+		}
+	}
+	err := h.Backend.UntagResource(stringValue(input["ResourceArn"]), tagKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{})
 }
 
 func resourceIdentifier(spec operationSpec, input map[string]any) string {
@@ -222,12 +333,16 @@ func createFails(kind resourceKind, input map[string]any) bool {
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
+
 		return c.JSON(http.StatusBadRequest, errorPayload("ResourceNotFoundException", err))
 	case errors.Is(err, ErrAlreadyExists):
+
 		return c.JSON(http.StatusBadRequest, errorPayload("ResourceAlreadyExistsException", err))
 	case errors.Is(err, ErrValidation):
+
 		return c.JSON(http.StatusBadRequest, errorPayload("InvalidInputException", err))
 	default:
+
 		return c.JSON(http.StatusInternalServerError, errorPayload("InternalServerException", err))
 	}
 }
@@ -314,8 +429,21 @@ func forecastOperations() map[string]operationSpec {
 		false,
 	)
 	addCRUD(operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Monitors", false)
+	addCRUD(
+		operations,
+		"Explainability",
+		kindExplainability,
+		"ExplainabilityName",
+		"ExplainabilityArn",
+		"Explainabilities",
+		false,
+	)
 	operations["CreateAutoPredictor"] = operationSpec{
 		kind: kindPredictor, mode: modeCreate, nameField: "PredictorName",
+		arnField: "PredictorArn", listField: "Predictors",
+	}
+	operations["DescribeAutoPredictor"] = operationSpec{
+		kind: kindPredictor, mode: modeDescribe, nameField: "PredictorName",
 		arnField: "PredictorArn", listField: "Predictors",
 	}
 
@@ -352,8 +480,13 @@ func withMode(spec operationSpec, mode operationMode) operationSpec {
 func plural(base string) string {
 	switch base {
 	case "WhatIfAnalysis":
+
 		return "WhatIfAnalyses"
+	case "Explainability":
+
+		return "Explainabilities"
 	default:
+
 		return base + "s"
 	}
 }
