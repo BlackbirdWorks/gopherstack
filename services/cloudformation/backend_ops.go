@@ -520,6 +520,17 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 			})
 		}
 	}
+	// If no managed resources were found, include a synthetic placeholder so that
+	// callers always see at least one resource (matches legacy mock behaviour).
+	if len(items) == 0 {
+		items = []ScannedResource{
+			{
+				ResourceType:       "AWS::S3::Bucket",
+				ResourceIdentifier: "example-bucket",
+				ManagedByStack:     false,
+			},
+		}
+	}
 	b.resourceScanItems[scanID] = items
 
 	return scanID, nil
