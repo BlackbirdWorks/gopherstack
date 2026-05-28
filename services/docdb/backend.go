@@ -66,47 +66,57 @@ const (
 )
 
 type DBCluster struct {
-	Tags                        map[string]string `json:"tags"`
-	DBClusterArn                string            `json:"dbClusterArn"`
-	EngineVersion               string            `json:"engineVersion"`
-	Engine                      string            `json:"engine"`
-	PreferredMaintenanceWindow  string            `json:"preferredMaintenanceWindow"`
-	MasterUsername              string            `json:"masterUsername"`
-	DatabaseName                string            `json:"databaseName"`
-	DBClusterParameterGroupName string            `json:"dbClusterParameterGroupName"`
-	Endpoint                    string            `json:"endpoint"`
-	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
-	ReaderEndpoint              string            `json:"readerEndpoint"`
-	Status                      string            `json:"status"`
-	DBSubnetGroupName           string            `json:"dbSubnetGroupName"`
-	PreferredBackupWindow       string            `json:"preferredBackupWindow"`
-	ClusterCreateTime           string            `json:"clusterCreateTime"`
-	AvailabilityZones           []string          `json:"availabilityZones"`
-	Port                        int               `json:"port"`
-	BackupRetentionPeriod       int               `json:"backupRetentionPeriod"`
-	StorageEncrypted            bool              `json:"storageEncrypted"`
-	MultiAZ                     bool              `json:"multiAZ"`
-	DeletionProtection          bool              `json:"deletionProtection"`
+	Tags                             map[string]string `json:"tags"`
+	DBClusterArn                     string            `json:"dbClusterArn"`
+	EngineVersion                    string            `json:"engineVersion"`
+	Engine                           string            `json:"engine"`
+	PreferredMaintenanceWindow       string            `json:"preferredMaintenanceWindow"`
+	MasterUsername                   string            `json:"masterUsername"`
+	DatabaseName                     string            `json:"databaseName"`
+	DBClusterParameterGroupName      string            `json:"dbClusterParameterGroupName"`
+	Endpoint                         string            `json:"endpoint"`
+	DBClusterIdentifier              string            `json:"dbClusterIdentifier"`
+	ReaderEndpoint                   string            `json:"readerEndpoint"`
+	Status                           string            `json:"status"`
+	DBSubnetGroupName                string            `json:"dbSubnetGroupName"`
+	PreferredBackupWindow            string            `json:"preferredBackupWindow"`
+	ClusterCreateTime                string            `json:"clusterCreateTime"`
+	HostedZoneId                     string            `json:"hostedZoneId"`
+	KmsKeyId                         string            `json:"kmsKeyId"`
+	ReplicationSourceIdentifier      string            `json:"replicationSourceIdentifier"`
+	AvailabilityZones                []string          `json:"availabilityZones"`
+	VpcSecurityGroupIds              []string          `json:"vpcSecurityGroupIds"`
+	EnabledCloudwatchLogsExports     []string          `json:"enabledCloudwatchLogsExports"`
+	ReadReplicaIdentifiers           []string          `json:"readReplicaIdentifiers"`
+	Port                             int               `json:"port"`
+	BackupRetentionPeriod            int               `json:"backupRetentionPeriod"`
+	StorageEncrypted                 bool              `json:"storageEncrypted"`
+	MultiAZ                         bool              `json:"multiAZ"`
+	DeletionProtection               bool              `json:"deletionProtection"`
+	IAMDatabaseAuthenticationEnabled bool              `json:"iamDatabaseAuthenticationEnabled"`
 }
 
 type DBInstance struct {
-	Tags                       map[string]string `json:"tags"`
-	DBInstanceIdentifier       string            `json:"dbInstanceIdentifier"`
-	DBClusterIdentifier        string            `json:"dbClusterIdentifier"`
-	DBInstanceClass            string            `json:"dbInstanceClass"`
-	Engine                     string            `json:"engine"`
-	DBInstanceStatus           string            `json:"dbInstanceStatus"`
-	Endpoint                   string            `json:"endpoint"`
-	DBInstanceArn              string            `json:"dbInstanceArn"`
-	EngineVersion              string            `json:"engineVersion"`
-	AvailabilityZone           string            `json:"availabilityZone"`
-	DBSubnetGroupName          string            `json:"dbSubnetGroupName"`
-	PreferredMaintenanceWindow string            `json:"preferredMaintenanceWindow"`
-	Port                       int               `json:"port"`
-	PromotionTier              int               `json:"promotionTier"`
-	StorageEncrypted           bool              `json:"storageEncrypted"`
-	AutoMinorVersionUpgrade    bool              `json:"autoMinorVersionUpgrade"`
-	PubliclyAccessible         bool              `json:"publiclyAccessible"`
+	Tags                         map[string]string `json:"tags"`
+	DBInstanceIdentifier         string            `json:"dbInstanceIdentifier"`
+	DBClusterIdentifier          string            `json:"dbClusterIdentifier"`
+	DBInstanceClass              string            `json:"dbInstanceClass"`
+	Engine                       string            `json:"engine"`
+	DBInstanceStatus             string            `json:"dbInstanceStatus"`
+	Endpoint                     string            `json:"endpoint"`
+	DBInstanceArn                string            `json:"dbInstanceArn"`
+	EngineVersion                string            `json:"engineVersion"`
+	AvailabilityZone             string            `json:"availabilityZone"`
+	DBSubnetGroupName            string            `json:"dbSubnetGroupName"`
+	PreferredMaintenanceWindow   string            `json:"preferredMaintenanceWindow"`
+	CACertificateIdentifier      string            `json:"caCertificateIdentifier"`
+	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports"`
+	Port                         int               `json:"port"`
+	PromotionTier                int               `json:"promotionTier"`
+	StorageEncrypted             bool              `json:"storageEncrypted"`
+	AutoMinorVersionUpgrade      bool              `json:"autoMinorVersionUpgrade"`
+	PubliclyAccessible           bool              `json:"publiclyAccessible"`
+	CopyTagsToSnapshot           bool              `json:"copyTagsToSnapshot"`
 }
 
 type DBSubnetGroup struct {
@@ -302,6 +312,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	preferredBackupWindow, preferredMaintenanceWindow string,
 	availabilityZones []string,
 	tags map[string]string,
+	opts *CreateDBClusterOptions,
 ) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
@@ -337,27 +348,51 @@ func (b *InMemoryBackend) CreateDBCluster(
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", id, b.region)
 	azs := make([]string, len(availabilityZones))
 	copy(azs, availabilityZones)
+
+	var (
+		kmsKeyId                         string
+		vpcSecurityGroupIds              []string
+		enabledCloudwatchLogsExports     []string
+		iamDatabaseAuthenticationEnabled bool
+	)
+	if opts != nil {
+		kmsKeyId = opts.KmsKeyId
+		iamDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
+		if len(opts.VpcSecurityGroupIds) > 0 {
+			vpcSecurityGroupIds = make([]string, len(opts.VpcSecurityGroupIds))
+			copy(vpcSecurityGroupIds, opts.VpcSecurityGroupIds)
+		}
+		if len(opts.EnabledCloudwatchLogsExports) > 0 {
+			enabledCloudwatchLogsExports = make([]string, len(opts.EnabledCloudwatchLogsExports))
+			copy(enabledCloudwatchLogsExports, opts.EnabledCloudwatchLogsExports)
+		}
+	}
+
 	cluster := &DBCluster{
-		DBClusterIdentifier:         id,
-		Engine:                      engine,
-		Status:                      statusAvailable,
-		MasterUsername:              masterUser,
-		DatabaseName:                dbName,
-		DBClusterParameterGroupName: paramGroupName,
-		DBSubnetGroupName:           subnetGroupName,
-		Endpoint:                    endpoint,
-		ReaderEndpoint:              readerEndpoint,
-		Port:                        port,
-		DBClusterArn:                clusterArn,
-		EngineVersion:               engineVersion,
-		StorageEncrypted:            storageEncrypted,
-		DeletionProtection:          deletionProtection,
-		BackupRetentionPeriod:       backupRetentionPeriod,
-		PreferredBackupWindow:       preferredBackupWindow,
-		PreferredMaintenanceWindow:  preferredMaintenanceWindow,
-		AvailabilityZones:           azs,
-		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
-		Tags:                        copyTags(tags),
+		DBClusterIdentifier:              id,
+		Engine:                           engine,
+		Status:                           statusAvailable,
+		MasterUsername:                   masterUser,
+		DatabaseName:                     dbName,
+		DBClusterParameterGroupName:      paramGroupName,
+		DBSubnetGroupName:                subnetGroupName,
+		Endpoint:                         endpoint,
+		ReaderEndpoint:                   readerEndpoint,
+		Port:                             port,
+		DBClusterArn:                     clusterArn,
+		EngineVersion:                    engineVersion,
+		StorageEncrypted:                 storageEncrypted,
+		DeletionProtection:               deletionProtection,
+		BackupRetentionPeriod:            backupRetentionPeriod,
+		PreferredBackupWindow:            preferredBackupWindow,
+		PreferredMaintenanceWindow:       preferredMaintenanceWindow,
+		AvailabilityZones:                azs,
+		ClusterCreateTime:                time.Now().UTC().Format(time.RFC3339),
+		Tags:                             copyTags(tags),
+		KmsKeyId:                         kmsKeyId,
+		VpcSecurityGroupIds:              vpcSecurityGroupIds,
+		EnabledCloudwatchLogsExports:     enabledCloudwatchLogsExports,
+		IAMDatabaseAuthenticationEnabled: iamDatabaseAuthenticationEnabled,
 	}
 	b.clusters[id] = cluster
 	if len(tags) > 0 {
@@ -365,6 +400,14 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	return copyCluster(cluster), nil
+}
+
+// CreateDBClusterOptions holds optional parameters for CreateDBCluster.
+type CreateDBClusterOptions struct {
+	KmsKeyId                         string
+	VpcSecurityGroupIds              []string
+	EnabledCloudwatchLogsExports     []string
+	IAMDatabaseAuthenticationEnabled bool
 }
 
 func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
