@@ -56,16 +56,16 @@ type LookupAttribute struct {
 	AttributeValue string `json:"AttributeValue"`
 }
 
-// CloudTrailEvent represents a recorded management or data event.
-type CloudTrailEvent struct {
-	EventID      string         `json:"EventId"`
-	EventName    string         `json:"EventName"`
-	EventSource  string         `json:"EventSource"`
-	EventTime    time.Time      `json:"EventTime"`
-	Username     string         `json:"Username,omitempty"`
-	Resources    []EventResource `json:"Resources,omitempty"`
-	ReadOnly     string         `json:"ReadOnly,omitempty"`
-	AccessKeyID  string         `json:"AccessKeyId,omitempty"`
+// Event represents a recorded management or data event.
+type Event struct {
+	EventTime   time.Time       `json:"EventTime"`
+	EventID     string          `json:"EventId"`
+	EventName   string          `json:"EventName"`
+	EventSource string          `json:"EventSource"`
+	Username    string          `json:"Username,omitempty"`
+	ReadOnly    string          `json:"ReadOnly,omitempty"`
+	AccessKeyID string          `json:"AccessKeyId,omitempty"`
+	Resources   []EventResource `json:"Resources,omitempty"`
 }
 
 // EventResource represents a resource associated with a CloudTrail event.
@@ -559,7 +559,9 @@ func (b *InMemoryBackend) PutEventSelectors(
 }
 
 // GetEventSelectors returns both basic and advanced event selectors for a trail.
-func (b *InMemoryBackend) GetEventSelectors(nameOrARN string) (string, []EventSelector, []AdvancedEventSelector, error) {
+func (b *InMemoryBackend) GetEventSelectors(
+	nameOrARN string,
+) (string, []EventSelector, []AdvancedEventSelector, error) {
 	b.mu.RLock("GetEventSelectors")
 	defer b.mu.RUnlock()
 
@@ -919,7 +921,11 @@ func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
 		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	if eds.TerminationProtected {
-		return fmt.Errorf("%w: event data store %s has termination protection enabled", ErrTerminationProtected, edsIDOrARN)
+		return fmt.Errorf(
+			"%w: event data store %s has termination protection enabled",
+			ErrTerminationProtected,
+			edsIDOrARN,
+		)
 	}
 	delete(b.edsByARN, eds.EventDataStoreARN)
 	delete(b.edsByName, eds.Name)
@@ -1564,28 +1570,31 @@ func (b *InMemoryBackend) ListImportFailures(_ string) []map[string]any {
 
 // LookupEventsInput holds parameters for a LookupEvents call.
 type LookupEventsInput struct {
-	LookupAttributes []LookupAttribute
 	StartTime        *time.Time
 	EndTime          *time.Time
-	MaxResults       int32
 	NextToken        string
+	LookupAttributes []LookupAttribute
+	MaxResults       int32
 }
 
 // LookupEventsOutput holds the result of a LookupEvents call.
 type LookupEventsOutput struct {
-	Events    []CloudTrailEvent
 	NextToken string
+	Events    []Event
 }
 
 // LookupEvents returns management events matching the given filters. Since the emulator
 // does not actively record events from API calls, this returns the stored events slice
 // filtered by the provided lookup attributes and time range.
-func (b *InMemoryBackend) LookupEvents(in LookupEventsInput) LookupEventsOutput {
-	return LookupEventsOutput{Events: []CloudTrailEvent{}}
+func (b *InMemoryBackend) LookupEvents(_ LookupEventsInput) LookupEventsOutput {
+	return LookupEventsOutput{Events: []Event{}}
 }
 
 // PutEDSInsightSelectors sets insight selectors for an event data store.
-func (b *InMemoryBackend) PutEDSInsightSelectors(edsIDOrARN string, selectors []InsightSelector) (*EventDataStore, error) {
+func (b *InMemoryBackend) PutEDSInsightSelectors(
+	edsIDOrARN string,
+	selectors []InsightSelector,
+) (*EventDataStore, error) {
 	b.mu.Lock("PutEDSInsightSelectors")
 	defer b.mu.Unlock()
 

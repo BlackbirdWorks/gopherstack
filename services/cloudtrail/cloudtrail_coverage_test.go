@@ -471,9 +471,9 @@ func TestCloudTrailCoverage_MiscStubs(t *testing.T) {
 	h := newTestCloudTrailHandler()
 
 	tests := []struct {
+		body map[string]any
 		name string
 		op   string
-		body map[string]any
 	}{
 		{
 			name: "list_public_keys",
@@ -503,7 +503,6 @@ func TestCloudTrailCoverage_MiscStubs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			rec := doCloudTrailOp(t, h, tt.op, tt.body)
@@ -519,8 +518,8 @@ func TestCloudTrailCoverage_LookupEvents(t *testing.T) {
 	h := newTestCloudTrailHandler()
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "no_filters",
@@ -562,7 +561,6 @@ func TestCloudTrailCoverage_LookupEvents(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			rec := doCloudTrailOp(t, h, "LookupEvents", tt.body)

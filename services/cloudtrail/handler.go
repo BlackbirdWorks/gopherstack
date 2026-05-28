@@ -723,18 +723,21 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 // --- LookupEvents ---
 
 type lookupEventsBody struct {
-	LookupAttributes []LookupAttribute `json:"LookupAttributes"`
 	StartTime        *int64            `json:"StartTime"`
 	EndTime          *int64            `json:"EndTime"`
-	MaxResults       int32             `json:"MaxResults"`
 	NextToken        string            `json:"NextToken"`
+	LookupAttributes []LookupAttribute `json:"LookupAttributes"`
+	MaxResults       int32             `json:"MaxResults"`
 }
 
 func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 	var in lookupEventsBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
 		}
 	}
 
@@ -875,17 +878,17 @@ func (h *Handler) handleDeleteDashboard(c *echo.Context, body []byte) error {
 
 type createEventDataStoreBody struct {
 	Name                   string                  `json:"Name"`
+	BillingMode            string                  `json:"BillingMode"`
+	KMSKeyID               string                  `json:"KmsKeyId"`
+	AdvancedEventSelectors []AdvancedEventSelector `json:"AdvancedEventSelectors"`
 	Tags                   []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"TagsList"`
-	AdvancedEventSelectors       []AdvancedEventSelector `json:"AdvancedEventSelectors"`
-	BillingMode                  string                  `json:"BillingMode"`
-	KMSKeyID                     string                  `json:"KmsKeyId"`
-	RetentionPeriod              int32                   `json:"RetentionPeriod"`
-	MultiRegionEnabled           bool                    `json:"MultiRegionEnabled"`
-	OrganizationEnabled          bool                    `json:"OrganizationEnabled"`
-	TerminationProtectionEnabled bool                    `json:"TerminationProtectionEnabled"`
+	RetentionPeriod              int32 `json:"RetentionPeriod"`
+	MultiRegionEnabled           bool  `json:"MultiRegionEnabled"`
+	OrganizationEnabled          bool  `json:"OrganizationEnabled"`
+	TerminationProtectionEnabled bool  `json:"TerminationProtectionEnabled"`
 }
 
 func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error {
@@ -1066,11 +1069,11 @@ type updateEventDataStoreBody struct {
 	MultiRegionEnabled           *bool                   `json:"MultiRegionEnabled"`
 	OrganizationEnabled          *bool                   `json:"OrganizationEnabled"`
 	TerminationProtectionEnabled *bool                   `json:"TerminationProtectionEnabled"`
-	AdvancedEventSelectors       []AdvancedEventSelector `json:"AdvancedEventSelectors"`
 	EventDataStore               string                  `json:"EventDataStore"`
 	Name                         string                  `json:"Name"`
 	BillingMode                  string                  `json:"BillingMode"`
 	KMSKeyID                     string                  `json:"KmsKeyId"`
+	AdvancedEventSelectors       []AdvancedEventSelector `json:"AdvancedEventSelectors"`
 }
 
 func (h *Handler) handleUpdateEventDataStore(c *echo.Context, body []byte) error {
@@ -1599,7 +1602,10 @@ func (h *Handler) handleDisableFederation(c *echo.Context, body []byte) error {
 	}
 
 	if in.EventDataStore == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "EventDataStore is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "EventDataStore is required"),
+		)
 	}
 
 	eds, err := h.Backend.DisableFederation(in.EventDataStore)
@@ -1627,7 +1633,10 @@ func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
 	}
 
 	if in.EventDataStore == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "EventDataStore is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "EventDataStore is required"),
+		)
 	}
 
 	eds, err := h.Backend.EnableFederation(in.EventDataStore, in.FederationRoleArn)

@@ -66,30 +66,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Trails == nil {
-		snap.Trails = make(map[string]*Trail)
-	}
-	if snap.TrailsByARN == nil {
-		snap.TrailsByARN = make(map[string]string)
-	}
-	if snap.Channels == nil {
-		snap.Channels = make(map[string]*Channel)
-	}
-	if snap.Dashboards == nil {
-		snap.Dashboards = make(map[string]*Dashboard)
-	}
-	if snap.EventDataStores == nil {
-		snap.EventDataStores = make(map[string]*EventDataStore)
-	}
-	if snap.Queries == nil {
-		snap.Queries = make(map[string]*Query)
-	}
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
-	}
-	if snap.Imports == nil {
-		snap.Imports = make(map[string]*Import)
-	}
+	ensureSnapMaps(&snap)
 
 	b.trails = snap.Trails
 	b.trailsByARN = snap.TrailsByARN
@@ -128,6 +105,33 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	return nil
+}
+
+func ensureSnapMaps(snap *backendSnapshot) {
+	if snap.Trails == nil {
+		snap.Trails = make(map[string]*Trail)
+	}
+	if snap.TrailsByARN == nil {
+		snap.TrailsByARN = make(map[string]string)
+	}
+	if snap.Channels == nil {
+		snap.Channels = make(map[string]*Channel)
+	}
+	if snap.Dashboards == nil {
+		snap.Dashboards = make(map[string]*Dashboard)
+	}
+	if snap.EventDataStores == nil {
+		snap.EventDataStores = make(map[string]*EventDataStore)
+	}
+	if snap.Queries == nil {
+		snap.Queries = make(map[string]*Query)
+	}
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
+	}
+	if snap.Imports == nil {
+		snap.Imports = make(map[string]*Import)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
