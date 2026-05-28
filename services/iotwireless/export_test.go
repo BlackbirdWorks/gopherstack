@@ -101,3 +101,46 @@ func FuotaTaskCount(b *InMemoryBackend, accountID, region string) int {
 
 	return count
 }
+
+// MulticastGroupCount returns the number of multicast groups in the backend for the given account and region.
+// Intended for test assertions only.
+func MulticastGroupCount(b *InMemoryBackend, accountID, region string) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	count := 0
+
+	for k := range b.multicastGroups {
+		if k.AccountID == accountID && k.Region == region {
+			count++
+		}
+	}
+
+	return count
+}
+
+// NetworkAnalyzerConfigCount returns the number of network analyzer configs in the backend.
+// Intended for test assertions only.
+func NetworkAnalyzerConfigCount(b *InMemoryBackend, accountID, region string) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	count := 0
+
+	for k := range b.networkAnalyzerConfigs {
+		if k.AccountID == accountID && k.Region == region {
+			count++
+		}
+	}
+
+	return count
+}
+
+// ImportTaskCount returns the number of import tasks in the backend.
+// Intended for test assertions only.
+func ImportTaskCount(b *InMemoryBackend) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.importTasks)
+}
