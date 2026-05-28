@@ -932,10 +932,10 @@ type PermissionsBoundaryDecisionDetailXML struct {
 type SimulationEvalResultXML struct {
 	// PermissionsBoundaryDecisionDetail is present when the principal has a permissions boundary.
 	PermissionsBoundaryDecisionDetail *PermissionsBoundaryDecisionDetailXML `xml:"PermissionsBoundaryDecisionDetail,omitempty"` //nolint:lll // XML tag requires full name
-	EvalActionName                    string                                 `xml:"EvalActionName"`
-	EvalResourceName                  string                                 `xml:"EvalResourceName"`
-	EvalDecision                      string                                 `xml:"EvalDecision"`
-	EvalDecisionDetails               []EvalDecisionDetailEntry              `xml:"EvalDecisionDetails>entry,omitempty"`
+	EvalActionName                    string                                `xml:"EvalActionName"`
+	EvalResourceName                  string                                `xml:"EvalResourceName"`
+	EvalDecision                      string                                `xml:"EvalDecision"`
+	EvalDecisionDetails               []EvalDecisionDetailEntry             `xml:"EvalDecisionDetails>entry,omitempty"`
 }
 
 // SimulatePrincipalPolicyResponse is the XML response for SimulatePrincipalPolicy.

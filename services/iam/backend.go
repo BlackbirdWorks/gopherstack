@@ -2180,44 +2180,6 @@ func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
 	return ""
 }
 
-// collectPrincipalPolicies returns all policy documents for the given principal ARN.
-// It looks at both inline policies and attached managed policies.
-func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]string, error) {
-	const (
-		userPrefix = ":user/"
-		rolePrefix = ":role/"
-	)
-
-	switch {
-	case strings.Contains(principalArn, userPrefix):
-		idx := strings.LastIndex(principalArn, userPrefix)
-		userName := principalArn[idx+len(userPrefix):]
-
-		if _, exists := b.users[userName]; !exists {
-			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
-		}
-
-		// Collect direct user policies plus group-inherited policies.
-		docs := b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
-		docs = append(docs, b.collectGroupPoliciesForUser(userName)...)
-
-		return docs, nil
-
-	case strings.Contains(principalArn, rolePrefix):
-		idx := strings.LastIndex(principalArn, rolePrefix)
-		roleName := principalArn[idx+len(rolePrefix):]
-
-		if _, exists := b.roles[roleName]; !exists {
-			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
-		}
-
-		return b.collectEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
-
-	default:
-		return nil, fmt.Errorf("%w: unsupported principal ARN format %q", ErrUserNotFound, principalArn)
-	}
-}
-
 // collectNamedPrincipalPolicies returns named policy documents for the given principal ARN.
 // Each entry contains the policy source ID (ARN for managed, name for inline) and document.
 // Caller must hold b.mu read-locked.
@@ -2289,60 +2251,6 @@ func (b *InMemoryBackend) collectNamedEntityPolicies(
 	}
 
 	return named
-}
-
-// collectEntityPolicies collects policy documents from attached ARNs and inline policies.
-func (b *InMemoryBackend) collectEntityPolicies(
-	attachedARNs []string, inlinePols map[string]string,
-) []string {
-	var docs []string
-
-	for _, policyArn := range attachedARNs {
-		for _, p := range b.policies {
-			if p.Arn == policyArn && p.PolicyDocument != "" {
-				docs = append(docs, p.PolicyDocument)
-
-				break
-			}
-		}
-	}
-
-	for _, doc := range inlinePols {
-		if doc != "" {
-			docs = append(docs, doc)
-		}
-	}
-
-	return docs
-}
-
-// collectGroupPoliciesForUser returns all policy documents inherited via group membership.
-// Real AWS evaluates group-attached and group-inline policies as part of the principal's
-// effective permissions.  Must be called with b.mu read-lock held.
-//
-// A seen-set prevents the same document being added twice when multiple groups share
-// the same managed policy.
-func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
-	var docs []string
-	seen := make(map[string]struct{})
-
-	for groupName, members := range b.groupMembers {
-		if !slices.Contains(members, userName) {
-			continue
-		}
-
-		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
-		for _, doc := range groupDocs {
-			if _, dup := seen[doc]; dup {
-				continue
-			}
-
-			seen[doc] = struct{}{}
-			docs = append(docs, doc)
-		}
-	}
-
-	return docs
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
