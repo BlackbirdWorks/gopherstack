@@ -1789,8 +1789,9 @@ func (h *Handler) handleGetPackageVersionAsset(
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 
-func (h *Handler) handleGetPackageVersionReadme(
-	c *echo.Context, domainName, repoName, format, namespace, name, version string,
+func (h *Handler) validatePackageVersionParams(
+	c *echo.Context,
+	domainName, repoName, format, name, version string,
 ) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
@@ -1806,6 +1807,16 @@ func (h *Handler) handleGetPackageVersionReadme(
 	}
 	if version == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
+	}
+
+	return nil
+}
+
+func (h *Handler) handleGetPackageVersionReadme(
+	c *echo.Context, domainName, repoName, format, namespace, name, version string,
+) error {
+	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
+		return err
 	}
 
 	readme, err := h.Backend.GetPackageVersionReadme(domainName, repoName, format, namespace, name, version)
@@ -1874,20 +1885,8 @@ func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix st
 func (h *Handler) handleListPackageVersionAssets(
 	c *echo.Context, domainName, repoName, format, namespace, name, version string,
 ) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
+	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
+		return err
 	}
 
 	assets, err := h.Backend.ListPackageVersionAssets(domainName, repoName, format, namespace, name, version)
@@ -1901,20 +1900,8 @@ func (h *Handler) handleListPackageVersionAssets(
 func (h *Handler) handleListPackageVersionDependencies(
 	c *echo.Context, domainName, repoName, format, namespace, name, version string,
 ) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
+	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
+		return err
 	}
 
 	deps, err := h.Backend.ListPackageVersionDependencies(domainName, repoName, format, namespace, name, version)

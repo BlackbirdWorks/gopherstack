@@ -2321,14 +2321,16 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/publish?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react&version=18.0.0",
+		"/v1/package/versions/publish?domain=pub-list-domain"+
+			"&repository=pub-list-repo&format=npm&package=react&version=18.0.0",
 		nil,
 	)
 	doRequest(
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/publish?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react&version=19.0.0",
+		"/v1/package/versions/publish?domain=pub-list-domain"+
+			"&repository=pub-list-repo&format=npm&package=react&version=19.0.0",
 		nil,
 	)
 
@@ -2383,7 +2385,8 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/publish?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
+		"/v1/package/versions/publish?domain=lifecycle-domain"+
+			"&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
 		nil,
 	)
 	require.Equal(t, http.StatusOK, pubRec.Code)
@@ -2591,7 +2594,8 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 		t,
 		h,
 		http.MethodDelete,
-		"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&externalConnection=public:pypi",
+		"/v1/repository/external-connection?domain=multi-conn-domain"+
+			"&repository=multi-conn-repo&externalConnection=public:pypi",
 		nil,
 	)
 	require.Equal(t, http.StatusOK, disRec.Code)
@@ -2662,7 +2666,8 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/copy?domain=self-copy-domain&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+		"/v1/package/versions/copy?domain=self-copy-domain"+
+			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, copyRec.Code)
@@ -2672,7 +2677,8 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/copy?domain=self-copy-domain&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+		"/v1/package/versions/copy?domain=self-copy-domain"+
+			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, copyRec2.Code)

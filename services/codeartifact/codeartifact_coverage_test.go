@@ -82,7 +82,7 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 					t,
 					h,
 					http.MethodPost,
-					"/v1/repository/external-connection" +
+					"/v1/repository/external-connection"+
 						"?domain=dis-domain&repository=dis-repo&externalConnection=public:npmjs",
 					nil,
 				)
@@ -117,7 +117,7 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "repo_not_found",
+			name: "repo_not_found",
 			path: "/v1/repository/external-connection" +
 				"?domain=dis-domain&repository=nope&externalConnection=public:npmjs",
 			wantStatus: http.StatusNotFound,
@@ -285,19 +285,19 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_format",
+			name: "missing_format",
 			path: "/v1/package/version/asset" +
 				"?domain=pva-domain&repository=pva-repo&package=lodash&version=1.0.0&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_package",
+			name: "missing_package",
 			path: "/v1/package/version/asset" +
 				"?domain=pva-domain&repository=pva-repo&format=npm&version=1.0.0&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_version",
+			name: "missing_version",
 			path: "/v1/package/version/asset" +
 				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&asset=x.tgz",
 			wantStatus: http.StatusBadRequest,
@@ -309,7 +309,7 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "version_not_found",
+			name: "version_not_found",
 			path: "/v1/package/version/asset" +
 				"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=9.9.9&asset=x.tgz",
 			wantStatus: http.StatusNotFound,
@@ -382,7 +382,7 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "version_not_found",
+			name: "version_not_found",
 			path: "/v1/package/version/readme" +
 				"?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
@@ -684,7 +684,7 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "version_not_found",
+			name: "version_not_found",
 			path: "/v1/package/version/assets" +
 				"?domain=lpva-domain&repository=lpva-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
@@ -752,7 +752,7 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_format",
+			name: "missing_format",
 			path: "/v1/package/version/dependencies" +
 				"?domain=lpvd-domain&repository=lpvd-repo&package=lodash&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
@@ -768,7 +768,7 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "version_not_found",
+			name: "version_not_found",
 			path: "/v1/package/version/dependencies" +
 				"?domain=lpvd-domain&repository=lpvd-repo&format=npm&package=lodash&version=9.9.9",
 			wantStatus: http.StatusNotFound,
@@ -1377,10 +1377,10 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_target_status",
+			name: "missing_target_status",
 			path: "/v1/package/versions/update_status" +
 				"?domain=upvs-domain&repository=upvs-repo&format=npm&package=lodash",
-			body: map[string]any{"versions": []string{"1.0.0"}},
+			body:       map[string]any{"versions": []string{"1.0.0"}},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
