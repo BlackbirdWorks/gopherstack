@@ -1156,10 +1156,8 @@ type startReplicationTaskOutput struct {
 	ReplicationTask replicationTaskJSON `json:"ReplicationTask"`
 }
 
-var validStartReplicationTaskTypes = map[string]bool{
-	"start-replication": true,
-	"resume-processing": true,
-	"reload-target":     true,
+func isValidStartReplicationTaskType(s string) bool {
+	return s == "start-replication" || s == "resume-processing" || s == "reload-target"
 }
 
 func (h *Handler) handleStartReplicationTask(
@@ -1170,7 +1168,7 @@ func (h *Handler) handleStartReplicationTask(
 		taskType = "start-replication"
 	}
 
-	if !validStartReplicationTaskTypes[taskType] {
+	if !isValidStartReplicationTaskType(taskType) {
 		return nil, fmt.Errorf(
 			"%w: invalid StartReplicationTaskType %q; valid: start-replication, resume-processing, reload-target",
 			ErrValidation,
@@ -2391,6 +2389,14 @@ type describeAccountAttributesOutput struct {
 	AccountQuotas           []accountQuotaJSON `json:"AccountQuotas"`
 }
 
+const (
+	quotaMaxReplicationInstances = float64(60)
+	quotaMaxAllocatedStorage     = float64(6000)
+	quotaMaxEndpoints            = float64(1000)
+	quotaMaxReplicationTasks     = float64(200)
+	quotaStoragePerInstance      = int64(50)
+)
+
 func (h *Handler) handleDescribeAccountAttributes(
 	_ context.Context, _ *describeAccountAttributesInput,
 ) (*describeAccountAttributesOutput, error) {
@@ -2401,10 +2407,14 @@ func (h *Handler) handleDescribeAccountAttributes(
 	return &describeAccountAttributesOutput{
 		UniqueAccountIdentifier: h.Backend.AccountID(),
 		AccountQuotas: []accountQuotaJSON{
-			{AccountQuotaName: "ReplicationInstances", Used: float64(riCount), Max: 60},
-			{AccountQuotaName: "AllocatedStorage", Used: float64(riCount * 50), Max: 6000},
-			{AccountQuotaName: "Endpoints", Used: float64(epCount), Max: 1000},
-			{AccountQuotaName: "ReplicationTasks", Used: float64(taskCount), Max: 200},
+			{AccountQuotaName: "ReplicationInstances", Used: float64(riCount), Max: quotaMaxReplicationInstances},
+			{
+				AccountQuotaName: "AllocatedStorage",
+				Used:             float64(riCount * quotaStoragePerInstance),
+				Max:              quotaMaxAllocatedStorage,
+			},
+			{AccountQuotaName: "Endpoints", Used: float64(epCount), Max: quotaMaxEndpoints},
+			{AccountQuotaName: "ReplicationTasks", Used: float64(taskCount), Max: quotaMaxReplicationTasks},
 		},
 	}, nil
 }
@@ -2678,13 +2688,13 @@ type describeEngineVersionsInput struct {
 }
 
 type engineVersionJSON struct {
-	Version           string `json:"Version"`
-	Lifecycle         string `json:"Lifecycle"`
-	ReleaseNotes      string `json:"ReleaseNotes,omitempty"`
-	LaunchDate        string `json:"LaunchDate,omitempty"`
-	AutoUpgradeDate   string `json:"AutoUpgradeDate,omitempty"`
-	DeprecationDate   string `json:"DeprecationDate,omitempty"`
-	ForceUpgradeDate  string `json:"ForceUpgradeDate,omitempty"`
+	Version          string `json:"Version"`
+	Lifecycle        string `json:"Lifecycle"`
+	ReleaseNotes     string `json:"ReleaseNotes,omitempty"`
+	LaunchDate       string `json:"LaunchDate,omitempty"`
+	AutoUpgradeDate  string `json:"AutoUpgradeDate,omitempty"`
+	DeprecationDate  string `json:"DeprecationDate,omitempty"`
+	ForceUpgradeDate string `json:"ForceUpgradeDate,omitempty"`
 }
 
 type describeEngineVersionsOutput struct {
@@ -2692,19 +2702,22 @@ type describeEngineVersionsOutput struct {
 	EngineVersions []engineVersionJSON `json:"EngineVersions"`
 }
 
-var dmsEngineVersions = []engineVersionJSON{
-	{Version: "3.5.3", Lifecycle: "available", LaunchDate: "2023-11-01"},
-	{Version: "3.5.2", Lifecycle: "available", LaunchDate: "2023-07-01"},
-	{Version: "3.5.1", Lifecycle: "available", LaunchDate: "2023-03-01"},
-	{Version: "3.4.7", Lifecycle: "available", LaunchDate: "2022-11-01"},
-	{Version: "3.4.6", Lifecycle: "available", LaunchDate: "2022-07-01"},
-	{Version: "3.4.5", Lifecycle: "deprecated", LaunchDate: "2022-03-01", DeprecationDate: "2023-06-01"},
+func dmsEngineVersionList() []engineVersionJSON {
+	return []engineVersionJSON{
+		{Version: defaultEngineVersion, Lifecycle: statusAvailable, LaunchDate: "2023-11-01"},
+		{Version: "3.5.2", Lifecycle: "available", LaunchDate: "2023-07-01"},
+		{Version: "3.5.1", Lifecycle: "available", LaunchDate: "2023-03-01"},
+		{Version: "3.4.7", Lifecycle: "available", LaunchDate: "2022-11-01"},
+		{Version: "3.4.6", Lifecycle: "available", LaunchDate: "2022-07-01"},
+		{Version: "3.4.5", Lifecycle: "deprecated", LaunchDate: "2022-03-01", DeprecationDate: "2023-06-01"},
+	}
 }
 
 func (h *Handler) handleDescribeEngineVersions(
 	_ context.Context, in *describeEngineVersionsInput,
 ) (*describeEngineVersionsOutput, error) {
-	data, nextMarker := dmsPaginate(dmsEngineVersions, in.Marker, in.MaxRecords)
+	data, nextMarker := dmsPaginate(dmsEngineVersionList(), in.Marker, in.MaxRecords)
+
 	return &describeEngineVersionsOutput{EngineVersions: data, Marker: nextMarker}, nil
 }
 
@@ -2719,42 +2732,45 @@ type describeEventCategoriesOutput struct {
 }
 
 type eventCategoryGroupJSON struct {
-	SourceType       string   `json:"SourceType"`
-	EventCategories  []string `json:"EventCategories"`
+	SourceType      string   `json:"SourceType"`
+	EventCategories []string `json:"EventCategories"`
 }
 
-var dmsEventCategoryGroups = []eventCategoryGroupJSON{
-	{
-		SourceType: "replication-instance",
-		EventCategories: []string{
-			"low storage",
-			"configuration change",
-			"maintenance",
-			"deletion",
-			"creation",
-			"failover",
-			"failure",
+func dmsEventCategoryGroupList() []eventCategoryGroupJSON {
+	return []eventCategoryGroupJSON{
+		{
+			SourceType: "replication-instance",
+			EventCategories: []string{
+				"low storage",
+				"configuration change",
+				"maintenance",
+				"deletion",
+				"creation",
+				"failover",
+				"failure",
+			},
 		},
-	},
-	{
-		SourceType: "replication-task",
-		EventCategories: []string{
-			"state change",
-			"configuration change",
-			"deletion",
-			"creation",
-			"failure",
+		{
+			SourceType: "replication-task",
+			EventCategories: []string{
+				"state change",
+				"configuration change",
+				"deletion",
+				"creation",
+				"failure",
+			},
 		},
-	},
+	}
 }
 
 func (h *Handler) handleDescribeEventCategories(
 	_ context.Context, in *describeEventCategoriesInput,
 ) (*describeEventCategoriesOutput, error) {
 	sourceType := ptrStr(in.SourceType)
-	result := make([]eventCategoryGroupJSON, 0, len(dmsEventCategoryGroups))
+	groups := dmsEventCategoryGroupList()
+	result := make([]eventCategoryGroupJSON, 0, len(groups))
 
-	for _, group := range dmsEventCategoryGroups {
+	for _, group := range groups {
 		if sourceType == "" || group.SourceType == sourceType {
 			result = append(result, group)
 		}
@@ -3212,28 +3228,40 @@ type orderableInstanceSpec struct {
 	maxStorage     int32
 }
 
-var dmsOrderableInstances = []orderableInstanceSpec{
-	{class: "dms.t3.micro", defaultStorage: 50, minStorage: 5, maxStorage: 200},
-	{class: "dms.t3.small", defaultStorage: 50, minStorage: 5, maxStorage: 200},
-	{class: "dms.t3.medium", defaultStorage: 50, minStorage: 5, maxStorage: 200},
-	{class: "dms.t3.large", defaultStorage: 50, minStorage: 5, maxStorage: 200},
-	{class: "dms.c5.large", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.c5.xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.c5.2xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.c5.4xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.large", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.2xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.4xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.8xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
-	{class: "dms.r5.16xlarge", defaultStorage: 100, minStorage: 5, maxStorage: 1024},
+const (
+	t3DefaultStorage   int32 = 50
+	t3MaxStorage       int32 = 200
+	c5r5DefaultStorage int32 = 100
+	c5r5MaxStorage     int32 = 1024
+	minStorageAll      int32 = 5
+)
+
+func dmsOrderableInstanceList() []orderableInstanceSpec {
+	return []orderableInstanceSpec{
+		{class: "dms.t3.micro", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.small", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.medium", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.large", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.c5.large", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.c5.xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.c5.2xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.c5.4xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.large", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.2xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.4xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.8xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+		{class: "dms.r5.16xlarge", defaultStorage: c5r5DefaultStorage, minStorage: minStorageAll, maxStorage: c5r5MaxStorage},
+	}
 }
 
 func (h *Handler) handleDescribeOrderableReplicationInstances(
 	_ context.Context, in *describeOrderableReplicationInstancesInput,
 ) (*describeOrderableReplicationInstancesOutput, error) {
-	all := make([]orderableReplicationInstanceJSON, 0, len(dmsOrderableInstances))
-	for _, spec := range dmsOrderableInstances {
+	specs := dmsOrderableInstanceList()
+	all := make([]orderableReplicationInstanceJSON, 0, len(specs))
+
+	for _, spec := range specs {
 		all = append(all, orderableReplicationInstanceJSON{
 			ReplicationInstanceClass: spec.class,
 			StorageType:              "gp2",
@@ -3245,6 +3273,7 @@ func (h *Handler) handleDescribeOrderableReplicationInstances(
 	}
 
 	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
 	return &describeOrderableReplicationInstancesOutput{
 		OrderableReplicationInstances: data,
 		Marker:                        nextMarker,

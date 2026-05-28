@@ -2907,6 +2907,7 @@ func TestHandler_StartReplicationTaskTypeValidation(t *testing.T) {
 		h.Backend.AddReplicationTaskInternal("srtt-task", "srtt-src", "srtt-tgt", "srtt-ri", "full-load")
 		descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
 		require.Equal(t, http.StatusOK, descRec.Code)
+
 		return parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
 	}
 
@@ -3081,7 +3082,8 @@ func TestHandler_DescribeAccountAttributes(t *testing.T) {
 				for _, q := range quotas {
 					qm := q.(map[string]any)
 					if qm["AccountQuotaName"] == "ReplicationInstances" {
-						assert.Equal(t, float64(1), qm["Used"])
+						assert.InEpsilon(t, float64(1), qm["Used"], 0.01)
+
 						return
 					}
 				}
@@ -3147,6 +3149,7 @@ func TestHandler_DescribeEngineVersions(t *testing.T) {
 				for _, v := range versions {
 					if v.(map[string]any)["Version"] == "3.5.3" {
 						found = true
+
 						break
 					}
 				}

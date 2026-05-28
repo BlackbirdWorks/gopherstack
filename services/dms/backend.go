@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	statusActive  = "active"
-	statusReady   = "ready"
-	statusRunning = "running"
-	statusStopped = "stopped"
+	statusActive         = "active"
+	statusReady          = "ready"
+	statusRunning        = "running"
+	statusStopped        = "stopped"
+	statusAvailable      = "available"
+	defaultEngineVersion = "3.5.3"
 )
 
 var (
@@ -293,18 +295,21 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // mustDescribeReplicationInstances returns all replication instances without error (for internal use).
 func (b *InMemoryBackend) mustDescribeReplicationInstances() []*ReplicationInstance {
 	list, _ := b.DescribeReplicationInstances("")
+
 	return list
 }
 
 // mustDescribeEndpoints returns all endpoints without error (for internal use).
 func (b *InMemoryBackend) mustDescribeEndpoints() []*Endpoint {
 	list, _ := b.DescribeEndpoints("")
+
 	return list
 }
 
 // mustDescribeReplicationTasks returns all replication tasks without error (for internal use).
 func (b *InMemoryBackend) mustDescribeReplicationTasks() []*ReplicationTask {
 	list, _ := b.DescribeReplicationTasks("")
+
 	return list
 }
 
@@ -336,7 +341,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	}
 
 	if engineVersion == "" {
-		engineVersion = "3.5.3"
+		engineVersion = defaultEngineVersion
 	}
 
 	if allocatedStorage == 0 {
@@ -353,7 +358,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		MultiAZ:                       multiAZ,
 		AutoMinorVersionUpgrade:       autoMinorVersionUpgrade,
 		PubliclyAccessible:            publiclyAccessible,
-		ReplicationInstanceStatus:     "available",
+		ReplicationInstanceStatus:     statusAvailable,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 		CreationTime:                  time.Now().UTC(),
@@ -421,6 +426,7 @@ func (b *InMemoryBackend) DeleteReplicationInstance(arnOrID string) error {
 		ri.Tags.Close()
 		delete(b.replicationInstancesByARN, ri.ReplicationInstanceArn)
 		delete(b.replicationInstances, id)
+
 		return nil
 	}
 
@@ -1135,8 +1141,8 @@ func (b *InMemoryBackend) AddReplicationInstanceInternal(identifier, class strin
 		ReplicationInstanceIdentifier: identifier,
 		ReplicationInstanceArn:        instanceARN,
 		ReplicationInstanceClass:      class,
-		EngineVersion:                 "3.5.3",
-		ReplicationInstanceStatus:     "available",
+		EngineVersion:                 defaultEngineVersion,
+		ReplicationInstanceStatus:     statusAvailable,
 		AllocatedStorage:              defaultAllocatedStorage,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
