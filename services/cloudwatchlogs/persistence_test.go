@@ -191,3 +191,201 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 	require.NotNil(t, groups[0].RetentionInDays)
 	assert.Equal(t, int32(14), *groups[0].RetentionInDays)
 }
+
+func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		verify func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "resource_policy_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutResourcePolicy("my-policy", `{"Version":"2012-10-17"}`)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				policies := b.DescribeResourcePolicies()
+				require.Len(t, policies, 1)
+				assert.Equal(t, "my-policy", policies[0].PolicyName)
+			},
+		},
+		{
+			name: "delivery_destination_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutDeliveryDestination("my-dest", "arn:aws:s3:::bucket", "JSON", nil)
+				require.NoError(t, err)
+				err = b.PutDeliveryDestinationPolicy("my-dest", `{"Statement":[]}`)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				got, err := b.GetDeliveryDestination("my-dest")
+				require.NoError(t, err)
+				assert.Equal(t, "arn:aws:s3:::bucket", got.TargetArn)
+				policy, err := b.GetDeliveryDestinationPolicy("my-dest")
+				require.NoError(t, err)
+				assert.Contains(t, policy, "Statement")
+			},
+		},
+		{
+			name: "delivery_source_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutDeliverySource("my-src", "APPLICATION_LOGS", []string{"arn:aws:ec2:::i-1"}, nil)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				got, err := b.GetDeliverySource("my-src")
+				require.NoError(t, err)
+				assert.Equal(t, "APPLICATION_LOGS", got.LogType)
+			},
+		},
+		{
+			name: "destination_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutDestination("my-dest", "arn:aws:kinesis:::stream/s", "arn:aws:iam:::role/r")
+				require.NoError(t, err)
+				err = b.PutDestinationPolicy("my-dest", `{"Statement":[]}`)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				dests := b.DescribeDestinations("")
+				require.Len(t, dests, 1)
+				assert.Equal(t, "my-dest", dests[0].DestinationName)
+				assert.Contains(t, dests[0].AccessPolicy, "Statement")
+			},
+		},
+		{
+			name: "index_policy_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutIndexPolicy("/aws/lambda/fn", `{"fields":["@message"]}`)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				policies := b.DescribeIndexPolicies()
+				require.Len(t, policies, 1)
+				assert.Equal(t, "/aws/lambda/fn", policies[0].LogGroupIdentifier)
+			},
+		},
+		{
+			name: "transformer_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				err := b.PutTransformer("/aws/lambda/fn", []map[string]any{{"parseJSON": map[string]any{}}})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				tr, err := b.GetTransformer("/aws/lambda/fn")
+				require.NoError(t, err)
+				require.Len(t, tr.Processors, 1)
+			},
+		},
+		{
+			name: "integration_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutIntegration("my-opensearch", "OPENSEARCH")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				ig, err := b.GetIntegration("my-opensearch")
+				require.NoError(t, err)
+				assert.Equal(t, "OPENSEARCH", ig.Type)
+			},
+		},
+		{
+			name: "deletion_protected_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				err := b.SetLogGroupDeletionProtection("/aws/lambda/fn", true)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				assert.True(t, b.IsLogGroupDeletionProtected("/aws/lambda/fn"))
+			},
+		},
+		{
+			name: "metric_filters_survive",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLogGroup("/grp", "", "")
+				require.NoError(t, err)
+				err = b.PutMetricFilter("/grp", "my-filter", "ERROR",
+					[]cloudwatchlogs.MetricTransformation{{
+						MetricName: "ErrCount", MetricNamespace: "App", MetricValue: "1",
+					}})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				filters, _, err := b.DescribeMetricFilters("/grp", "", "", "", "", 50)
+				require.NoError(t, err)
+				require.Len(t, filters, 1)
+				assert.Equal(t, "my-filter", filters[0].FilterName)
+			},
+		},
+		{
+			name: "query_definitions_survive",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutQueryDefinition("my-query", "fields @message | limit 20", "", nil)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				defs, _, err := b.DescribeQueryDefinitions("my-query", 100, "")
+				require.NoError(t, err)
+				require.Len(t, defs, 1)
+				assert.Equal(t, "my-query", defs[0].Name)
+			},
+		},
+		{
+			name: "data_protection_policies_survive",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				err := b.PutDataProtectionPolicy("/grp", `{"Name":"protect"}`)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				doc, err := b.GetDataProtectionPolicy("/grp")
+				require.NoError(t, err)
+				assert.Contains(t, doc, "protect")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(func() { original.Close() })
+
+			tt.setup(t, original)
+
+			snap := original.Snapshot()
+			require.NotNil(t, snap)
+
+			fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(func() { fresh.Close() })
+			require.NoError(t, fresh.Restore(snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}
