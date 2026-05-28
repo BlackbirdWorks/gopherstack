@@ -1058,6 +1058,38 @@ func (b *InMemoryBackend) GetDocument(input *GetDocumentInput) (*GetDocumentOutp
 	}, nil
 }
 
+// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
+// Supported filter keys: DocumentType, Name.
+func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "DocumentType":
+			fieldValue = doc.DocumentType
+		case "Name":
+			fieldValue = doc.Name
+		default:
+			continue
+		}
+
+		matched := false
+		for _, v := range f.Values {
+			if fieldValue == v {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribeDocument returns document metadata.
 func (b *InMemoryBackend) DescribeDocument(input *DescribeDocumentInput) (*DescribeDocumentOutput, error) {
 	b.mu.RLock("DescribeDocument")
@@ -1071,13 +1103,22 @@ func (b *InMemoryBackend) DescribeDocument(input *DescribeDocumentInput) (*Descr
 	return &DescribeDocumentOutput{Document: doc}, nil
 }
 
-// ListDocuments returns a list of document identifiers.
+// ListDocuments returns a list of document identifiers filtered by key-value criteria.
 func (b *InMemoryBackend) ListDocuments(input *ListDocumentsInput) (*ListDocumentsOutput, error) {
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
 
+	// Merge Filters and DocumentFilters (both carry the same shape).
+	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilters))
+	allFilters = append(allFilters, input.Filters...)
+	allFilters = append(allFilters, input.DocumentFilters...)
+
 	all := make([]DocumentIdentifier, 0, len(b.documents))
 	for _, doc := range b.documents {
+		if !documentMatchesFilters(doc, allFilters) {
+			continue
+		}
+
 		all = append(all, DocumentIdentifier{
 			Name:            doc.Name,
 			DocumentType:    doc.DocumentType,

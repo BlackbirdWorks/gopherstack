@@ -391,22 +391,28 @@ type UpdateMaintenanceWindowTargetOutput struct {
 // UpdateMaintenanceWindowTaskInput is the request payload for UpdateMaintenanceWindowTask.
 // Fields ordered for alignment.
 type UpdateMaintenanceWindowTaskInput struct {
-	Priority     *int32 `json:"Priority,omitempty"`
-	WindowID     string `json:"WindowId"`
-	WindowTaskID string `json:"WindowTaskId"`
-	TaskArn      string `json:"TaskArn,omitempty"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
+	Priority       *int32 `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId"`
+	WindowTaskID   string `json:"WindowTaskId"`
+	TaskArn        string `json:"TaskArn,omitempty"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
 }
 
 // UpdateMaintenanceWindowTaskOutput is the response payload for UpdateMaintenanceWindowTask.
 type UpdateMaintenanceWindowTaskOutput struct {
-	WindowID     string `json:"WindowId,omitempty"`
-	WindowTaskID string `json:"WindowTaskId,omitempty"`
-	TaskArn      string `json:"TaskArn,omitempty"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
-	Priority     int32  `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId,omitempty"`
+	WindowTaskID   string `json:"WindowTaskId,omitempty"`
+	TaskArn        string `json:"TaskArn,omitempty"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       int32  `json:"Priority,omitempty"`
 }
 
 // DescribeMaintenanceWindowsForTargetInput is the request payload.

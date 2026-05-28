@@ -784,13 +784,16 @@ type MaintenanceWindowTarget struct {
 
 // MaintenanceWindowTask represents a registered task for a maintenance window.
 type MaintenanceWindowTask struct {
-	WindowID     string `json:"WindowId"`
-	WindowTaskID string `json:"WindowTaskId"`
-	TaskArn      string `json:"TaskArn"`
-	TaskType     string `json:"TaskType"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
-	Priority     int32  `json:"Priority,omitempty"`
+	WindowID        string `json:"WindowId"`
+	WindowTaskID    string `json:"WindowTaskId"`
+	TaskArn         string `json:"TaskArn"`
+	TaskType        string `json:"TaskType"`
+	Name            string `json:"Name,omitempty"`
+	Description     string `json:"Description,omitempty"`
+	ServiceRoleArn  string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency  string `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string `json:"MaxErrors,omitempty"`
+	Priority        int32  `json:"Priority,omitempty"`
 }
 
 // SessionOutputS3 holds S3 output configuration for a session.

@@ -875,15 +875,30 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.Priority = *input.Priority
 	}
 
+	if input.ServiceRoleArn != "" {
+		task.ServiceRoleArn = input.ServiceRoleArn
+	}
+
+	if input.MaxConcurrency != "" {
+		task.MaxConcurrency = input.MaxConcurrency
+	}
+
+	if input.MaxErrors != "" {
+		task.MaxErrors = input.MaxErrors
+	}
+
 	b.maintenanceWindowTasks[input.WindowTaskID] = task
 
 	return &UpdateMaintenanceWindowTaskOutput{
-		WindowID:     task.WindowID,
-		WindowTaskID: task.WindowTaskID,
-		TaskArn:      task.TaskArn,
-		Name:         task.Name,
-		Description:  task.Description,
-		Priority:     task.Priority,
+		WindowID:       task.WindowID,
+		WindowTaskID:   task.WindowTaskID,
+		TaskArn:        task.TaskArn,
+		Name:           task.Name,
+		Description:    task.Description,
+		Priority:       task.Priority,
+		ServiceRoleArn: task.ServiceRoleArn,
+		MaxConcurrency: task.MaxConcurrency,
+		MaxErrors:      task.MaxErrors,
 	}, nil
 }
 

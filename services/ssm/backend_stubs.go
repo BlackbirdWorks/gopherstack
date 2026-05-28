@@ -552,12 +552,15 @@ type RegisterTargetWithMaintenanceWindowOutput struct {
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
 type RegisterTaskWithMaintenanceWindowInput struct {
-	WindowID    string `json:"WindowId"`
-	TaskArn     string `json:"TaskArn"`
-	TaskType    string `json:"TaskType"`
-	Name        string `json:"Name,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Priority    int32  `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId"`
+	TaskArn        string `json:"TaskArn"`
+	TaskType       string `json:"TaskType"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       int32  `json:"Priority,omitempty"`
 }
 
 // RegisterTaskWithMaintenanceWindowOutput is the response payload.
@@ -600,8 +603,12 @@ type StartAssociationsOnceInput struct {
 
 // StartAutomationExecutionInput is the request payload.
 type StartAutomationExecutionInput struct {
-	DocumentName    string `json:"DocumentName"`
-	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	DocumentName    string              `json:"DocumentName"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	Mode            string              `json:"Mode,omitempty"`
+	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string              `json:"MaxErrors,omitempty"`
 }
 
 // StartAutomationExecutionOutput is the response payload.
@@ -739,11 +746,12 @@ type UpdateOpsMetadataOutput struct {
 
 // UpdatePatchBaselineInput is the request payload for UpdatePatchBaseline.
 type UpdatePatchBaselineInput struct {
-	BaselineID      string   `json:"BaselineId"`
-	Name            string   `json:"Name,omitempty"`
-	Description     string   `json:"Description,omitempty"`
-	ApprovedPatches []string `json:"ApprovedPatches,omitempty"`
-	RejectedPatches []string `json:"RejectedPatches,omitempty"`
+	BaselineID                     string   `json:"BaselineId"`
+	Name                           string   `json:"Name,omitempty"`
+	Description                    string   `json:"Description,omitempty"`
+	ApprovedPatches                []string `json:"ApprovedPatches,omitempty"`
+	RejectedPatches                []string `json:"RejectedPatches,omitempty"`
+	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
 }
 
 // UpdatePatchBaselineOutput is the response payload for UpdatePatchBaseline.
@@ -1055,6 +1063,41 @@ func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*Descr
 	}, nil
 }
 
+// patchBaselineMatchesFilters returns true when bl satisfies all provided key-value filters.
+// Supported filter keys: OPERATING_SYSTEM, NAME_PREFIX.
+func patchBaselineMatchesFilters(bl PatchBaseline, filters []PatchBaselineFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "OPERATING_SYSTEM":
+			fieldValue = bl.OperatingSystem
+		case "NAME_PREFIX":
+			for _, v := range f.Values {
+				if len(bl.Name) >= len(v) && bl.Name[:len(v)] == v {
+					fieldValue = v
+				}
+			}
+		default:
+			continue
+		}
+
+		matched := false
+		for _, v := range f.Values {
+			if fieldValue == v {
+				matched = true
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribePatchBaselines lists patch baselines with optional OS and name filters.
 func (b *InMemoryBackend) DescribePatchBaselines(
 	input *DescribePatchBaselinesInput,
@@ -1229,13 +1272,16 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 
 	taskID := windowTaskIDPrefix + uuid.NewString()
 	task := MaintenanceWindowTask{
-		WindowID:     input.WindowID,
-		WindowTaskID: taskID,
-		TaskArn:      input.TaskArn,
-		TaskType:     input.TaskType,
-		Priority:     input.Priority,
-		Name:         input.Name,
-		Description:  input.Description,
+		WindowID:       input.WindowID,
+		WindowTaskID:   taskID,
+		TaskArn:        input.TaskArn,
+		TaskType:       input.TaskType,
+		Priority:       input.Priority,
+		Name:           input.Name,
+		Description:    input.Description,
+		ServiceRoleArn: input.ServiceRoleArn,
+		MaxConcurrency: input.MaxConcurrency,
+		MaxErrors:      input.MaxErrors,
 	}
 
 	b.maintenanceWindowTasks[taskID] = task
@@ -1471,6 +1517,10 @@ func (b *InMemoryBackend) UpdatePatchBaseline(input *UpdatePatchBaselineInput) (
 
 	if len(input.RejectedPatches) > 0 {
 		bl.RejectedPatches = input.RejectedPatches
+	}
+
+	if input.ApprovedPatchesComplianceLevel != "" {
+		bl.ApprovedPatchesComplianceLevel = input.ApprovedPatchesComplianceLevel
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())

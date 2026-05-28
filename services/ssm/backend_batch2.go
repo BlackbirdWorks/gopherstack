@@ -428,13 +428,21 @@ func (b *InMemoryBackend) StartAutomationExecution(
 	defer b.mu.Unlock()
 
 	execID := "auto-" + uuid.NewString()
+
+	mode := input.Mode
+	if mode == "" {
+		mode = "Auto"
+	}
+
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		DocumentVersion:       input.DocumentVersion,
+		Parameters:            input.Parameters,
 		Status:                automationStatusInProgress,
 		StartTime:             time.Now().UTC(),
 		ExecutionType:         "Standard",
+		Mode:                  mode,
 	}
 	b.automationExecutions[execID] = exec
 
@@ -492,11 +500,24 @@ func (b *InMemoryBackend) StopAutomationExecution(input *StopAutomationExecution
 }
 
 // SendAutomationSignal sends a signal to an automation execution.
+// Approve/Reject signals update the execution status accordingly.
 func (b *InMemoryBackend) SendAutomationSignal(input *SendAutomationSignalInput) (*StubOutput, error) {
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
-	_ = input
+	exec, exists := b.automationExecutions[input.AutomationExecutionID]
+	if !exists {
+		return &StubOutput{}, nil
+	}
+
+	switch input.SignalType {
+	case "Approve":
+		exec.Status = "Approved"
+	case "Reject":
+		exec.Status = "Rejected"
+	case "StopStep":
+		exec.Status = automationStatusStopped
+	}
 
 	return &StubOutput{}, nil
 }
