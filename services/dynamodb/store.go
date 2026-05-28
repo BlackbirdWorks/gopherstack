@@ -110,6 +110,7 @@ type InMemoryDB struct {
 	fisReplicationPaused map[string]time.Time          // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
+	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
 	mu                   *lockmetrics.RWMutex
 	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
 	kinesisEmitter KinesisEmitter
@@ -197,14 +198,16 @@ type Table struct {
 	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
 	Items                      []map[string]any                        `json:"Items"`
+	streamShards               []StreamShard                           // shard genealogy for this table's stream
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                  int64
-	StreamHead                 int  `json:"StreamHead,omitempty"`
-	PITREnabled                bool `json:"PITREnabled,omitempty"`
-	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
-	StreamsEnabled             bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
+	streamTrimSeq              int64 // oldest sequence still in the ring buffer (0 if buffer not yet full)
+	StreamHead                 int   `json:"StreamHead,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
+	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool  `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool  `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -222,6 +225,7 @@ func NewInMemoryDB() *InMemoryDB {
 		streamARNIndex:       make(map[string]*Table),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
+		iteratorStore:        NewShardIteratorStore(),
 		defaultRegion:        config.DefaultRegion,
 		accountID:            config.DefaultAccountID,
 		mu:                   lockmetrics.New("ddb"),
@@ -315,8 +319,7 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	if len(t.StreamRecords) < maxStreamRecords {
 		t.StreamRecords = append(t.StreamRecords, record)
 	} else {
-		t.StreamRecords[t.StreamHead] = record
-		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
+		t.overwriteRingSlot(record)
 	}
 
 	// Forward to any configured Kinesis destinations. The emitter is invoked
@@ -327,6 +330,43 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 			t.kinesisEmitter.EmitDynamoDBStreamRecord(arn, t.Name, record)
 		}
 	}
+}
+
+// overwriteRingSlot handles the full-buffer path: optionally splits the current shard,
+// advances the trim horizon, and overwrites the oldest ring slot.
+// Must be called with table.mu held (write lock).
+func (t *Table) overwriteRingSlot(record models.StreamRecord) {
+	// When StreamHead wraps to 0 we completed a full ring rotation — model as a shard split.
+	if t.StreamHead == 0 && len(t.streamShards) > 0 {
+		t.splitActiveShard()
+	}
+
+	// Advance the trim horizon: the record at StreamHead is being evicted.
+	trimmedRecord := t.StreamRecords[t.StreamHead]
+	if seq, perr := parseSeqNum(trimmedRecord.SequenceNumber); perr == nil {
+		t.streamTrimSeq = seq + 1
+	}
+
+	t.StreamRecords[t.StreamHead] = record
+	t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
+}
+
+// splitActiveShard closes the current open shard and opens a new child shard.
+// Must be called with table.mu held (write lock).
+func (t *Table) splitActiveShard() {
+	last := &t.streamShards[len(t.streamShards)-1]
+	if last.EndingSequenceNum != 0 {
+		return // already closed
+	}
+
+	endSeq := max(t.streamSeq-int64(maxStreamRecords), last.StartingSequenceNum)
+	last.EndingSequenceNum = endSeq
+	newIdx := int64(len(t.streamShards) + 1)
+	t.streamShards = append(t.streamShards, StreamShard{
+		ShardID:             fmt.Sprintf("shardId-%020d-00000001", newIdx),
+		ParentShardID:       last.ShardID,
+		StartingSequenceNum: t.streamSeq - int64(maxStreamRecords) + 1,
+	})
 }
 
 // KinesisEmitter forwards DynamoDB stream records to configured Kinesis destinations.
@@ -348,28 +388,6 @@ func (db *InMemoryDB) SetKinesisEmitter(emitter KinesisEmitter) {
 			t.kinesisEmitter = emitter
 		}
 	}
-}
-
-// streamSeqRange returns the first and last sequence numbers in the ring buffer
-// without allocating a new slice. Intended for DescribeStream which only needs
-// the range boundaries.
-// Must be called with table.mu held (at least read lock).
-func (t *Table) streamSeqRange() (string, string) {
-	n := len(t.StreamRecords)
-	if n == 0 {
-		return "", ""
-	}
-
-	if n < maxStreamRecords {
-		// Buffer not yet full: records are in insertion order.
-		return t.StreamRecords[0].SequenceNumber, t.StreamRecords[n-1].SequenceNumber
-	}
-
-	// Ring is full: oldest record is at StreamHead, newest is at (StreamHead-1+n) % n.
-	firstIdx := t.StreamHead
-	lastIdx := (t.StreamHead - 1 + maxStreamRecords) % maxStreamRecords
-
-	return t.StreamRecords[firstIdx].SequenceNumber, t.StreamRecords[lastIdx].SequenceNumber
 }
 
 // streamRecordsInOrder returns the two halves of the ring buffer in insertion
@@ -708,6 +726,7 @@ func (db *InMemoryDB) Reset() {
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
+	db.iteratorStore = NewShardIteratorStore()
 	if db.exprCache != nil {
 		db.exprCache.Close()
 	}

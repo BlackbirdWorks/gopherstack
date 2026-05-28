@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	errInternalServerErrorType = "com.amazonaws.dynamodb.v20120810#InternalServerError"
+	errInternalServerErrorType       = "com.amazonaws.dynamodb.v20120810#InternalServerError"
+	errResourceNotFoundExceptionType = "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException"
 )
 
 // ErrValidation is a sentinel used for validation-related errors so callers can
@@ -37,7 +38,7 @@ type CancellationReason struct {
 
 func NewResourceNotFoundException(msg string) *Error {
 	return &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException",
+		Type:    errResourceNotFoundExceptionType,
 		Message: msg,
 	}
 }
@@ -144,6 +145,20 @@ func NewTransactionInProgressException(msg string) *Error {
 func NewExpiredIteratorException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ExpiredIteratorException",
+		Message: msg,
+	}
+}
+
+func NewTrimmedDataAccessException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#TrimmedDataAccessException",
+		Message: msg,
+	}
+}
+
+func NewShardIteratorCreationException(msg string) *Error {
+	return &Error{
+		Type:    errResourceNotFoundExceptionType,
 		Message: msg,
 	}
 }

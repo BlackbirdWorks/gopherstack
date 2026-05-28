@@ -200,9 +200,30 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 		return c.JSONBlob(http.StatusBadRequest, body)
 	}
 
+	// If the backend returned a structured error (e.g. ResourceNotFoundException,
+	// ExpiredIteratorException), propagate its __type and message directly so the
+	// AWS SDK client can unmarshal the correct error type.
+	var backendErr *ddbbackend.Error
+	if errors.As(reqErr, &backendErr) {
+		httpStatus := http.StatusBadRequest
+		// InternalServerError maps to 500; all other DynamoDB Streams errors map to 400.
+		if strings.HasSuffix(backendErr.Type, "#InternalServerError") {
+			httpStatus = http.StatusInternalServerError
+		}
+
+		body, _ := json.Marshal(map[string]string{
+			"__type":  backendErr.Type,
+			"message": backendErr.Message,
+		})
+		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+		return c.JSONBlob(httpStatus, body)
+	}
+
+	// Generic fallback for errors without structured type information.
 	msg := reqErr.Error()
 	body, _ := json.Marshal(map[string]string{
-		"__type":  "com.amazonaws.dynamodbstreams#" + operation + "Exception",
+		"__type":  "com.amazonaws.dynamodbstreams.v20120810#" + operation + "Exception",
 		"message": msg,
 	})
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")

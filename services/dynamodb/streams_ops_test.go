@@ -183,7 +183,7 @@ func TestUnit_Streams_RingBufferCap(t *testing.T) {
 	// Write more than maxStreamRecords items
 	const writeCount = 1005
 	for i := range writeCount {
-		_, err = db.PutItem(ctx, makePutItemN("BufTable", "pk", i))
+		_, err = db.PutItem(ctx, makePutItemN("BufTable", i))
 		require.NoError(t, err)
 	}
 

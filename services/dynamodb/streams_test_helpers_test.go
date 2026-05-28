@@ -39,12 +39,12 @@ func makePutItem(tableName, pkAttr, pkVal string) *dynamodb.PutItemInput {
 	}
 }
 
-// makePutItemN creates a PutItemInput with a numeric (string-encoded) partition key.
-func makePutItemN(tableName, pkAttr string, pkNum int) *dynamodb.PutItemInput {
+// makePutItemN creates a PutItemInput with a numeric (string-encoded) partition key named "pk".
+func makePutItemN(tableName string, pkNum int) *dynamodb.PutItemInput {
 	return &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]types.AttributeValue{
-			pkAttr: &types.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", pkNum)},
+			"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", pkNum)},
 		},
 	}
 }
