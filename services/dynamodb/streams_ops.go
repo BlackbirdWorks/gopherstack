@@ -20,22 +20,23 @@ import (
 
 // Sentinel errors for streams operations.
 var (
-	ErrInvalidAttributeValue = errors.New("expected map[string]any for attribute value")
-	ErrInvalidTypeKeyCount   = errors.New("expected exactly 1 type key")
-	ErrTypeMismatchS         = errors.New("expected string for S")
-	ErrTypeMismatchN         = errors.New("expected string for N")
-	ErrTypeMismatchBOOL      = errors.New("expected bool for BOOL")
-	ErrTypeMismatchM         = errors.New("expected map for M")
-	ErrTypeMismatchL         = errors.New("expected slice for L")
-	ErrTypeMismatchB         = errors.New("expected []byte or base64 string for B")
-	ErrUnknownAttributeType  = errors.New("unknown attribute type")
+	ErrInvalidAttributeValue  = errors.New("expected map[string]any for attribute value")
+	ErrInvalidTypeKeyCount    = errors.New("expected exactly 1 type key")
+	ErrTypeMismatchS          = errors.New("expected string for S")
+	ErrTypeMismatchN          = errors.New("expected string for N")
+	ErrTypeMismatchBOOL       = errors.New("expected bool for BOOL")
+	ErrTypeMismatchM          = errors.New("expected map for M")
+	ErrTypeMismatchL          = errors.New("expected slice for L")
+	ErrTypeMismatchB          = errors.New("expected []byte or base64 string for B")
+	ErrUnknownAttributeType   = errors.New("unknown attribute type")
+	ErrEmptySequenceNumber    = errors.New("empty sequence number")
 )
 
 const (
 	streamShardID       = "shardId-00000000000000000001-00000001"
 	maxRecords          = 1000
 	iteratorPartCount   = 3 // tableName:sequenceNumber:timestamp (legacy; opaque tokens now used)
-	maxListStreamsLimit  = 100
+	maxListStreamsLimit = 100
 	maxDescribeShards   = 100
 	seqNumWidth         = 20 // zero-padded width for sequence numbers
 )
@@ -271,7 +272,7 @@ func seqNumString(seq int64) string {
 // parseSeqNum parses a zero-padded sequence number string to int64.
 func parseSeqNum(s string) (int64, error) {
 	if s == "" {
-		return 0, fmt.Errorf("empty sequence number")
+		return 0, ErrEmptySequenceNumber
 	}
 	return strconv.ParseInt(strings.TrimLeft(s, "0"), 10, 64)
 }

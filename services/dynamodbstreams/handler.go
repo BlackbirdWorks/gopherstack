@@ -21,11 +21,6 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-// streamsErrStatus maps DynamoDB Streams error type suffixes to HTTP status codes.
-// Most stream errors map to 400, but internal errors map to 500.
-var streamsErrStatus = map[string]int{
-	"InternalServerError": http.StatusInternalServerError,
-}
 
 const (
 	targetPrefix = "DynamoDBStreams_20120810."

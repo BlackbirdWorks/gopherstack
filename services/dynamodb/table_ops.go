@@ -100,6 +100,13 @@ func (db *InMemoryDB) CreateTable(
 		newTable.StreamsEnabled = true
 		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
 		newTable.StreamARN = db.buildStreamARN(tableName)
+		// Initialize the first shard so DescribeStream/GetShardIterator work immediately.
+		newTable.streamShards = []StreamShard{
+			{
+				ShardID:             streamShardID,
+				StartingSequenceNum: 1,
+			},
+		}
 	}
 
 	// Set initial table status based on createDelay setting.
@@ -1146,6 +1153,13 @@ func (db *InMemoryDB) applyStreamSpec(
 
 		if table.StreamARN == "" {
 			table.StreamARN = db.buildStreamARN(tableName)
+			// Initialize the first shard when streams are newly enabled via UpdateTable.
+			table.streamShards = []StreamShard{
+				{
+					ShardID:             streamShardID,
+					StartingSequenceNum: table.streamSeq + 1,
+				},
+			}
 		}
 
 		return oldARN, table.StreamARN
@@ -1154,6 +1168,8 @@ func (db *InMemoryDB) applyStreamSpec(
 	table.StreamsEnabled = false
 	table.StreamViewType = ""
 	table.StreamARN = ""
+	table.streamShards = nil
+	table.streamTrimSeq = 0
 
 	return oldARN, ""
 }

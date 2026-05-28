@@ -203,11 +203,11 @@ type Table struct {
 	streamSeq                  int64
 	streamTrimSeq              int64 // oldest sequence still in the ring buffer (0 if buffer not yet full)
 	StreamHead                 int   `json:"StreamHead,omitempty"`
-	PITREnabled                bool `json:"PITREnabled,omitempty"`
-	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
-	StreamsEnabled             bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
+	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool  `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool  `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
