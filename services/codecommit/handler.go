@@ -341,6 +341,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrPullRequestNotFound):
 		code = http.StatusNotFound
 		errType = "PullRequestDoesNotExistException"
+	case errors.Is(err, ErrPullRequestAlreadyMerged):
+		code = http.StatusBadRequest
+		errType = "PullRequestAlreadyClosedException"
+	case errors.Is(err, ErrInvalidRepositoryName):
+		code = http.StatusBadRequest
+		errType = "InvalidRepositoryNameException"
+	case errors.Is(err, ErrMaxRepositoriesExceeded):
+		code = http.StatusBadRequest
+		errType = "MaximumRepositoryNamesExceededException"
 	case errors.Is(err, ErrValidation):
 		code = http.StatusBadRequest
 		errType = "InvalidParameterException"
@@ -400,6 +409,12 @@ func repoMetadata(r *Repository) map[string]any {
 	}
 	if r.Description != "" {
 		m["repositoryDescription"] = r.Description
+	}
+	if r.DefaultBranch != "" {
+		m["defaultBranch"] = r.DefaultBranch
+	}
+	if r.KmsKeyID != "" {
+		m["kmsKeyId"] = r.KmsKeyID
 	}
 
 	return m
@@ -851,7 +866,10 @@ func (h *Handler) handleBatchGetRepositories(body []byte) (any, error) {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
-	found, notFound := h.Backend.BatchGetRepositories(in.RepositoryNames)
+	found, notFound, err := h.Backend.BatchGetRepositories(in.RepositoryNames)
+	if err != nil {
+		return nil, err
+	}
 
 	repos := make([]map[string]any, 0, len(found))
 	for _, r := range found {
@@ -1103,7 +1121,8 @@ func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
 
 func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 	var in struct {
-		RepositoryName string `json:"repositoryName"`
+		RepositoryName    string `json:"repositoryName"`
+		PullRequestStatus string `json:"pullRequestStatus"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
@@ -1113,7 +1132,11 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	ids, err := h.Backend.ListPullRequests(in.RepositoryName)
+	if in.PullRequestStatus != "" && in.PullRequestStatus != "OPEN" && in.PullRequestStatus != "CLOSED" {
+		return nil, fmt.Errorf("%w: pullRequestStatus must be OPEN or CLOSED", ErrValidation)
+	}
+
+	ids, err := h.Backend.ListPullRequests(in.RepositoryName, in.PullRequestStatus)
 	if err != nil {
 		return nil, err
 	}
