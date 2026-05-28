@@ -1344,22 +1344,28 @@ type launchTemplateJSON struct {
 	Version string `json:"version,omitempty"`
 }
 
+type nodegroupUpdateConfigJSON struct {
+	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
+	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+}
+
 type createNodegroupBody struct {
-	Tags           map[string]string    `json:"tags"`
-	Labels         map[string]string    `json:"labels"`
-	RemoteAccess   *remoteAccessJSON    `json:"remoteAccess"`
-	LaunchTemplate *launchTemplateJSON  `json:"launchTemplate"`
-	NodegroupName  string               `json:"nodegroupName"`
-	NodeRole       string               `json:"nodeRole"`
-	AMIType        string               `json:"amiType"`
-	CapacityType   string               `json:"capacityType"`
-	Version        string               `json:"version"`
-	ReleaseVersion string               `json:"releaseVersion"`
-	InstanceTypes  []string             `json:"instanceTypes"`
-	Subnets        []string             `json:"subnets"`
-	Taints         []nodegroupTaintJSON `json:"taints"`
-	ScalingConfig  scalingConfigJSON    `json:"scalingConfig"`
-	DiskSize       int32                `json:"diskSize"`
+	Tags           map[string]string       `json:"tags"`
+	Labels         map[string]string       `json:"labels"`
+	RemoteAccess   *remoteAccessJSON       `json:"remoteAccess"`
+	LaunchTemplate *launchTemplateJSON     `json:"launchTemplate"`
+	UpdateConfig   *nodegroupUpdateConfigJSON `json:"updateConfig"`
+	NodegroupName  string                  `json:"nodegroupName"`
+	NodeRole       string                  `json:"nodeRole"`
+	AMIType        string                  `json:"amiType"`
+	CapacityType   string                  `json:"capacityType"`
+	Version        string                  `json:"version"`
+	ReleaseVersion string                  `json:"releaseVersion"`
+	InstanceTypes  []string                `json:"instanceTypes"`
+	Subnets        []string                `json:"subnets"`
+	Taints         []nodegroupTaintJSON    `json:"taints"`
+	ScalingConfig  scalingConfigJSON       `json:"scalingConfig"`
+	DiskSize       int32                   `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1394,6 +1400,14 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		}
 	}
 
+	var ngUpdateCfg *NodegroupUpdateConfig
+	if in.UpdateConfig != nil {
+		ngUpdateCfg = &NodegroupUpdateConfig{
+			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
+			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+		}
+	}
+
 	ng, err := h.Backend.CreateNodegroup(
 		clusterName, in.NodegroupName, in.NodeRole,
 		in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
@@ -1406,6 +1420,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 			Subnets:        in.Subnets,
 			Taints:         taints,
 			DiskSize:       in.DiskSize,
+			UpdateConfig:   ngUpdateCfg,
 		},
 		in.Tags,
 	)

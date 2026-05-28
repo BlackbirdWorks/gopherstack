@@ -551,6 +551,7 @@ type NodegroupInput struct {
 	Labels         map[string]string
 	RemoteAccess   *RemoteAccess
 	LaunchTemplate *LaunchTemplate
+	UpdateConfig   *NodegroupUpdateConfig
 	Subnets        []string
 	Taints         []NodegroupTaint
 	DiskSize       int32
@@ -618,6 +619,12 @@ func (b *InMemoryBackend) CreateNodegroup(
 
 	asgName := "eks-" + nodegroupName + "-" + stableID(clusterName+"/"+nodegroupName)
 
+	var updateCfg *NodegroupUpdateConfig
+	if input.UpdateConfig != nil {
+		uc := *input.UpdateConfig
+		updateCfg = &uc
+	}
+
 	ng := &Nodegroup{
 		NodegroupName:  nodegroupName,
 		ClusterName:    clusterName,
@@ -638,6 +645,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 		Taints:         cloneTaints(input.Taints),
 		RemoteAccess:   cloneRemoteAccess(input.RemoteAccess),
 		LaunchTemplate: cloneLaunchTemplate(input.LaunchTemplate),
+		UpdateConfig:   updateCfg,
 		Resources: &NodegroupResources{
 			AutoScalingGroups: []AutoScalingGroup{{Name: asgName}},
 		},
