@@ -63,3 +63,11 @@ func (b *InMemoryBackend) InstanceProfileCount() int {
 
 	return len(b.instanceProfiles)
 }
+
+// ConnectionCount returns the number of stored connections. Used only in tests.
+func (b *InMemoryBackend) ConnectionCount() int {
+	b.mu.RLock("ConnectionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.connections)
+}

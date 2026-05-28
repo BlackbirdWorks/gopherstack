@@ -2585,3 +2585,941 @@ func TestRefinement1_InstanceProfileSeedHelper(t *testing.T) {
 	h.Backend.AddInstanceProfileInternal("seed-profile")
 	assert.Equal(t, 1, h.Backend.InstanceProfileCount())
 }
+
+// ---- AWS-accuracy audit: state machine tests ----
+
+func TestHandler_DeleteRunningTaskFails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "delete_running_task_rejected",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				h.Backend.AddReplicationInstanceInternal("sm-ri", "dms.t3.medium")
+				h.Backend.AddEndpointInternal("sm-src", "source", "mysql")
+				h.Backend.AddEndpointInternal("sm-tgt", "target", "s3")
+				h.Backend.AddReplicationTaskInternal("sm-task", "sm-src", "sm-tgt", "sm-ri", "full-load")
+
+				descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+				require.Equal(t, http.StatusOK, descRec.Code)
+				taskArn := parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+
+				startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+					"ReplicationTaskArn":       taskArn,
+					"StartReplicationTaskType": "start-replication",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				delRec := doDMS(t, h, "DeleteReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				assert.Equal(t, http.StatusBadRequest, delRec.Code)
+			},
+		},
+		{
+			name: "delete_stopped_task_succeeds",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				h.Backend.AddReplicationInstanceInternal("sm2-ri", "dms.t3.medium")
+				h.Backend.AddEndpointInternal("sm2-src", "source", "mysql")
+				h.Backend.AddEndpointInternal("sm2-tgt", "target", "s3")
+				h.Backend.AddReplicationTaskInternal("sm2-task", "sm2-src", "sm2-tgt", "sm2-ri", "full-load")
+
+				descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+				require.Equal(t, http.StatusOK, descRec.Code)
+				taskArn := parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+
+				startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+					"ReplicationTaskArn":       taskArn,
+					"StartReplicationTaskType": "start-replication",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				stopRec := doDMS(t, h, "StopReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+
+				delRec := doDMS(t, h, "DeleteReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
+			},
+		},
+		{
+			name: "delete_ready_task_succeeds",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				h.Backend.AddReplicationInstanceInternal("sm3-ri", "dms.t3.medium")
+				h.Backend.AddEndpointInternal("sm3-src", "source", "mysql")
+				h.Backend.AddEndpointInternal("sm3-tgt", "target", "s3")
+				h.Backend.AddReplicationTaskInternal("sm3-task", "sm3-src", "sm3-tgt", "sm3-ri", "full-load")
+
+				descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+				require.Equal(t, http.StatusOK, descRec.Code)
+				taskArn := parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+
+				delRec := doDMS(t, h, "DeleteReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_DeleteInstanceWithTasksFails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "delete_instance_with_attached_task_rejected",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createInst := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "inst-with-task",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, createInst.Code)
+				instArn := parseJSON(t, createInst)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "iwt-src",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				require.Equal(t, http.StatusOK, srcRec.Code)
+				srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+				dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "iwt-dst",
+					"EndpointType":       "TARGET",
+					"EngineName":         "s3",
+				})
+				require.Equal(t, http.StatusOK, dstRec.Code)
+				dstArn := parseJSON(t, dstRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+				doDMS(t, h, "CreateReplicationTask", map[string]any{
+					"ReplicationTaskIdentifier": "attached-task",
+					"SourceEndpointArn":         srcArn,
+					"TargetEndpointArn":         dstArn,
+					"ReplicationInstanceArn":    instArn,
+					"MigrationType":             "full-load",
+				})
+
+				delRec := doDMS(t, h, "DeleteReplicationInstance", map[string]any{
+					"ReplicationInstanceArn": instArn,
+				})
+				assert.Equal(t, http.StatusBadRequest, delRec.Code)
+			},
+		},
+		{
+			name: "delete_instance_after_task_deleted_succeeds",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createInst := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "inst-after-task-del",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, createInst.Code)
+				instArn := parseJSON(t, createInst)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "iatd-src",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				require.Equal(t, http.StatusOK, srcRec.Code)
+				srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+				dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "iatd-dst",
+					"EndpointType":       "TARGET",
+					"EngineName":         "s3",
+				})
+				require.Equal(t, http.StatusOK, dstRec.Code)
+				dstArn := parseJSON(t, dstRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+				taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+					"ReplicationTaskIdentifier": "iatd-task",
+					"SourceEndpointArn":         srcArn,
+					"TargetEndpointArn":         dstArn,
+					"ReplicationInstanceArn":    instArn,
+					"MigrationType":             "full-load",
+				})
+				require.Equal(t, http.StatusOK, taskRec.Code)
+				taskArn := parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+
+				delTask := doDMS(t, h, "DeleteReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				require.Equal(t, http.StatusOK, delTask.Code)
+
+				delInst := doDMS(t, h, "DeleteReplicationInstance", map[string]any{
+					"ReplicationInstanceArn": instArn,
+				})
+				assert.Equal(t, http.StatusOK, delInst.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_ModifyRunningTaskFails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "modify_running_task_rejected",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				h.Backend.AddReplicationInstanceInternal("mrt-ri", "dms.t3.medium")
+				h.Backend.AddEndpointInternal("mrt-src", "source", "mysql")
+				h.Backend.AddEndpointInternal("mrt-tgt", "target", "s3")
+				h.Backend.AddReplicationTaskInternal("mrt-task", "mrt-src", "mrt-tgt", "mrt-ri", "full-load")
+
+				descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+				require.Equal(t, http.StatusOK, descRec.Code)
+				taskArn := parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+
+				startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+					"ReplicationTaskArn":       taskArn,
+					"StartReplicationTaskType": "start-replication",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				modRec := doDMS(t, h, "ModifyReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+					"MigrationType":      "cdc",
+				})
+				assert.Equal(t, http.StatusBadRequest, modRec.Code)
+			},
+		},
+		{
+			name: "modify_stopped_task_succeeds",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				h.Backend.AddReplicationInstanceInternal("mst-ri", "dms.t3.medium")
+				h.Backend.AddEndpointInternal("mst-src", "source", "mysql")
+				h.Backend.AddEndpointInternal("mst-tgt", "target", "s3")
+				h.Backend.AddReplicationTaskInternal("mst-task", "mst-src", "mst-tgt", "mst-ri", "full-load")
+
+				descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+				require.Equal(t, http.StatusOK, descRec.Code)
+				taskArn := parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+
+				startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+					"ReplicationTaskArn":       taskArn,
+					"StartReplicationTaskType": "start-replication",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				stopRec := doDMS(t, h, "StopReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+
+				modRec := doDMS(t, h, "ModifyReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+					"MigrationType":      "cdc",
+				})
+				assert.Equal(t, http.StatusOK, modRec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: StartReplicationTask type validation ----
+
+func TestHandler_StartReplicationTaskTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		startType  string
+		wantStatus int
+	}{
+		{
+			name:       "start_replication_valid",
+			startType:  "start-replication",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "resume_processing_valid",
+			startType:  "resume-processing",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "reload_target_valid",
+			startType:  "reload-target",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_type_rejected",
+			startType:  "invalid-type",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "empty_type_defaults_to_start",
+			startType:  "",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	setupEnv := func(t *testing.T, h *dms.Handler) string {
+		t.Helper()
+		h.Backend.AddReplicationInstanceInternal("srtt-ri", "dms.t3.medium")
+		h.Backend.AddEndpointInternal("srtt-src", "source", "mysql")
+		h.Backend.AddEndpointInternal("srtt-tgt", "target", "s3")
+		h.Backend.AddReplicationTaskInternal("srtt-task", "srtt-src", "srtt-tgt", "srtt-ri", "full-load")
+		descRec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{})
+		require.Equal(t, http.StatusOK, descRec.Code)
+		return parseJSON(t, descRec)["ReplicationTasks"].([]any)[0].(map[string]any)["ReplicationTaskArn"].(string)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			taskArn := setupEnv(t, h)
+
+			body := map[string]any{"ReplicationTaskArn": taskArn}
+			if tt.startType != "" {
+				body["StartReplicationTaskType"] = tt.startType
+			}
+
+			rec := doDMS(t, h, "StartReplicationTask", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: stateful TestConnection + DescribeConnections ----
+
+func TestHandler_TestConnectionAndDescribeConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "test_connection_records_result",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "conn-ri",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, riRec.Code)
+				riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				epRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "conn-ep",
+					"EndpointType":       "source",
+					"EngineName":         "mysql",
+				})
+				require.Equal(t, http.StatusOK, epRec.Code)
+				epArn := parseJSON(t, epRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+				testRec := doDMS(t, h, "TestConnection", map[string]any{
+					"ReplicationInstanceArn": riArn,
+					"EndpointArn":            epArn,
+				})
+				assert.Equal(t, http.StatusOK, testRec.Code)
+				testResp := parseJSON(t, testRec)
+				conn, ok := testResp["Connection"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "successful", conn["Status"])
+				assert.Equal(t, "conn-ri", conn["ReplicationInstanceIdentifier"])
+				assert.Equal(t, "conn-ep", conn["EndpointIdentifier"])
+
+				descRec := doDMS(t, h, "DescribeConnections", map[string]any{})
+				assert.Equal(t, http.StatusOK, descRec.Code)
+				descResp := parseJSON(t, descRec)
+				conns, ok := descResp["Connections"].([]any)
+				require.True(t, ok)
+				assert.Len(t, conns, 1)
+				assert.Equal(t, "successful", conns[0].(map[string]any)["Status"])
+			},
+		},
+		{
+			name: "test_connection_missing_instance",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "TestConnection", map[string]any{
+					"ReplicationInstanceArn": "arn:nonexistent",
+					"EndpointArn":            "arn:ep",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "test_connection_missing_endpoint",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "conn2-ri",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, riRec.Code)
+				riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				rec := doDMS(t, h, "TestConnection", map[string]any{
+					"ReplicationInstanceArn": riArn,
+					"EndpointArn":            "arn:nonexistent-ep",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "describe_connections_empty_initially",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeConnections", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				conns := parseJSON(t, rec)["Connections"].([]any)
+				assert.Empty(t, conns)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: DescribeAccountAttributes ----
+
+func TestHandler_DescribeAccountAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "returns_configured_account_id",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeAccountAttributes", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "123456789012", resp["UniqueAccountIdentifier"])
+			},
+		},
+		{
+			name: "returns_quota_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeAccountAttributes", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				quotas, ok := resp["AccountQuotas"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, quotas)
+				// Verify expected quota names are present.
+				quotaNames := make([]string, 0, len(quotas))
+				for _, q := range quotas {
+					quotaNames = append(quotaNames, q.(map[string]any)["AccountQuotaName"].(string))
+				}
+				assert.Contains(t, quotaNames, "ReplicationInstances")
+				assert.Contains(t, quotaNames, "Endpoints")
+			},
+		},
+		{
+			name: "quota_used_reflects_resources",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "quota-inst",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+
+				rec := doDMS(t, h, "DescribeAccountAttributes", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				quotas := resp["AccountQuotas"].([]any)
+
+				for _, q := range quotas {
+					qm := q.(map[string]any)
+					if qm["AccountQuotaName"] == "ReplicationInstances" {
+						assert.Equal(t, float64(1), qm["Used"])
+						return
+					}
+				}
+				t.Fatal("ReplicationInstances quota not found")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: DescribeEngineVersions ----
+
+func TestHandler_DescribeEngineVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "returns_non_empty_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions, ok := resp["EngineVersions"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, versions)
+			},
+		},
+		{
+			name: "versions_have_version_and_lifecycle",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions := resp["EngineVersions"].([]any)
+				require.NotEmpty(t, versions)
+				v0 := versions[0].(map[string]any)
+				assert.NotEmpty(t, v0["Version"])
+				assert.NotEmpty(t, v0["Lifecycle"])
+			},
+		},
+		{
+			name: "contains_current_default_engine_version",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions := resp["EngineVersions"].([]any)
+
+				found := false
+				for _, v := range versions {
+					if v.(map[string]any)["Version"] == "3.5.3" {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected version 3.5.3 in engine versions list")
+			},
+		},
+		{
+			name: "supports_pagination",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{"MaxRecords": 2})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions, ok := resp["EngineVersions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, versions, 2)
+				_, hasMarker := resp["Marker"]
+				assert.True(t, hasMarker)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: DescribeOrderableReplicationInstances ----
+
+func TestHandler_DescribeOrderableReplicationInstances(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "returns_multiple_instance_types",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeOrderableReplicationInstances", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				instances, ok := resp["OrderableReplicationInstances"].([]any)
+				require.True(t, ok)
+				assert.Greater(t, len(instances), 1, "should have more than 1 instance type")
+			},
+		},
+		{
+			name: "includes_t3_and_r5_families",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeOrderableReplicationInstances", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				instances := resp["OrderableReplicationInstances"].([]any)
+
+				classes := make([]string, 0, len(instances))
+				for _, inst := range instances {
+					classes = append(classes, inst.(map[string]any)["ReplicationInstanceClass"].(string))
+				}
+				assert.Contains(t, classes, "dms.t3.medium")
+				assert.Contains(t, classes, "dms.r5.large")
+			},
+		},
+		{
+			name: "supports_pagination",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeOrderableReplicationInstances", map[string]any{"MaxRecords": 3})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				instances, ok := resp["OrderableReplicationInstances"].([]any)
+				require.True(t, ok)
+				assert.Len(t, instances, 3)
+				_, hasMarker := resp["Marker"]
+				assert.True(t, hasMarker)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: DescribeEventCategories ----
+
+func TestHandler_DescribeEventCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "returns_all_categories_no_filter",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEventCategories", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				groups, ok := resp["EventCategoryGroupList"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, groups)
+			},
+		},
+		{
+			name: "filter_by_replication_instance_source_type",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEventCategories", map[string]any{
+					"SourceType": "replication-instance",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				groups := resp["EventCategoryGroupList"].([]any)
+				require.Len(t, groups, 1)
+				g := groups[0].(map[string]any)
+				assert.Equal(t, "replication-instance", g["SourceType"])
+				cats, ok := g["EventCategories"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, cats)
+			},
+		},
+		{
+			name: "filter_by_replication_task_source_type",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEventCategories", map[string]any{
+					"SourceType": "replication-task",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				groups := resp["EventCategoryGroupList"].([]any)
+				require.Len(t, groups, 1)
+				g := groups[0].(map[string]any)
+				assert.Equal(t, "replication-task", g["SourceType"])
+			},
+		},
+		{
+			name: "unknown_source_type_returns_empty",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEventCategories", map[string]any{
+					"SourceType": "unknown-type",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				groups := resp["EventCategoryGroupList"].([]any)
+				assert.Empty(t, groups)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// ---- AWS-accuracy audit: tags on MigrationProject, ReplicationSubnetGroup, ReplicationConfig ----
+
+func TestHandler_TagsOnMigrationProject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_with_tags_and_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateMigrationProject", map[string]any{
+					"MigrationProjectName": "tagged-mp",
+					"Tags": []map[string]string{
+						{"Key": "env", "Value": "prod"},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				mpArn := parseJSON(t, createRec)["MigrationProject"].(map[string]any)["MigrationProjectArn"].(string)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": mpArn,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				require.Len(t, tagList, 1)
+				assert.Equal(t, "env", tagList[0].(map[string]any)["Key"])
+			},
+		},
+		{
+			name: "add_tags_after_create",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateMigrationProject", map[string]any{
+					"MigrationProjectName": "add-tag-mp",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				mpArn := parseJSON(t, createRec)["MigrationProject"].(map[string]any)["MigrationProjectArn"].(string)
+
+				addRec := doDMS(t, h, "AddTagsToResource", map[string]any{
+					"ResourceArn": mpArn,
+					"Tags":        []map[string]string{{"Key": "owner", "Value": "team"}},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{"ResourceArn": mpArn})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				assert.Len(t, tagList, 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_TagsOnReplicationSubnetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_with_tags_and_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateReplicationSubnetGroup", map[string]any{
+					"ReplicationSubnetGroupIdentifier":  "tagged-sg",
+					"ReplicationSubnetGroupDescription": "test",
+					"Tags": []map[string]string{
+						{"Key": "env", "Value": "test"},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": sgArn,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				require.Len(t, tagList, 1)
+				assert.Equal(t, "env", tagList[0].(map[string]any)["Key"])
+			},
+		},
+		{
+			name: "add_and_remove_tags",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateReplicationSubnetGroup", map[string]any{
+					"ReplicationSubnetGroupIdentifier":  "tag-rm-sg",
+					"ReplicationSubnetGroupDescription": "test",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)
+
+				doDMS(t, h, "AddTagsToResource", map[string]any{
+					"ResourceArn": sgArn,
+					"Tags": []map[string]string{
+						{"Key": "k1", "Value": "v1"},
+						{"Key": "k2", "Value": "v2"},
+					},
+				})
+
+				removeRec := doDMS(t, h, "RemoveTagsFromResource", map[string]any{
+					"ResourceArn": sgArn,
+					"TagKeys":     []string{"k1"},
+				})
+				assert.Equal(t, http.StatusOK, removeRec.Code)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{"ResourceArn": sgArn})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				assert.Len(t, tagList, 1)
+				assert.Equal(t, "k2", tagList[0].(map[string]any)["Key"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_TagsOnReplicationConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_with_tags_and_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateReplicationConfig", map[string]any{
+					"ReplicationConfigIdentifier": "tagged-rc",
+					"ReplicationType":             "full-load",
+					"SourceEndpointArn":           "arn:src",
+					"TargetEndpointArn":           "arn:tgt",
+					"Tags": []map[string]string{
+						{"Key": "tier", "Value": "prod"},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
+					"ResourceArn": rcArn,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				require.Len(t, tagList, 1)
+				assert.Equal(t, "tier", tagList[0].(map[string]any)["Key"])
+			},
+		},
+		{
+			name: "add_tags_to_existing_config",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				createRec := doDMS(t, h, "CreateReplicationConfig", map[string]any{
+					"ReplicationConfigIdentifier": "add-tag-rc",
+					"ReplicationType":             "cdc",
+					"SourceEndpointArn":           "arn:src",
+					"TargetEndpointArn":           "arn:tgt",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)
+
+				addRec := doDMS(t, h, "AddTagsToResource", map[string]any{
+					"ResourceArn": rcArn,
+					"Tags":        []map[string]string{{"Key": "owner", "Value": "dba"}},
+				})
+				assert.Equal(t, http.StatusOK, addRec.Code)
+
+				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{"ResourceArn": rcArn})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				tagList := parseJSON(t, listRec)["TagList"].([]any)
+				assert.Len(t, tagList, 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
