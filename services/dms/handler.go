@@ -1156,9 +1156,26 @@ type startReplicationTaskOutput struct {
 	ReplicationTask replicationTaskJSON `json:"ReplicationTask"`
 }
 
+func isValidStartReplicationTaskType(s string) bool {
+	return s == "start-replication" || s == "resume-processing" || s == "reload-target"
+}
+
 func (h *Handler) handleStartReplicationTask(
 	_ context.Context, in *startReplicationTaskInput,
 ) (*startReplicationTaskOutput, error) {
+	taskType := ptrStr(in.StartReplicationTaskType)
+	if taskType == "" {
+		taskType = "start-replication"
+	}
+
+	if !isValidStartReplicationTaskType(taskType) {
+		return nil, fmt.Errorf(
+			"%w: invalid StartReplicationTaskType %q; valid: start-replication, resume-processing, reload-target",
+			ErrValidation,
+			taskType,
+		)
+	}
+
 	rt, err := h.Backend.StartReplicationTask(ptrStr(in.ReplicationTaskArn))
 	if err != nil {
 		return nil, err
@@ -1914,8 +1931,9 @@ func ipToJSON(ip *InstanceProfile) instanceProfileJSON {
 // --- CreateMigrationProject handler ---
 
 type createMigrationProjectInput struct {
-	MigrationProjectName *string `json:"MigrationProjectName"`
-	Description          *string `json:"Description"`
+	MigrationProjectName *string    `json:"MigrationProjectName"`
+	Description          *string    `json:"Description"`
+	Tags                 []tagEntry `json:"Tags"`
 }
 
 type migrationProjectJSON struct {
@@ -1946,7 +1964,8 @@ func (h *Handler) handleCreateMigrationProject(
 		return nil, fmt.Errorf("%w: MigrationProjectName is required", ErrValidation)
 	}
 
-	mp, err := h.Backend.CreateMigrationProject(name, ptrStr(in.Description))
+	kv := tagsToMap(in.Tags)
+	mp, err := h.Backend.CreateMigrationProject(name, ptrStr(in.Description), kv)
 	if err != nil {
 		return nil, err
 	}
@@ -1957,10 +1976,11 @@ func (h *Handler) handleCreateMigrationProject(
 // --- CreateReplicationConfig handler ---
 
 type createReplicationConfigInput struct {
-	ReplicationConfigIdentifier *string `json:"ReplicationConfigIdentifier"`
-	ReplicationType             *string `json:"ReplicationType"`
-	SourceEndpointArn           *string `json:"SourceEndpointArn"`
-	TargetEndpointArn           *string `json:"TargetEndpointArn"`
+	ReplicationConfigIdentifier *string    `json:"ReplicationConfigIdentifier"`
+	ReplicationType             *string    `json:"ReplicationType"`
+	SourceEndpointArn           *string    `json:"SourceEndpointArn"`
+	TargetEndpointArn           *string    `json:"TargetEndpointArn"`
+	Tags                        []tagEntry `json:"Tags"`
 }
 
 type replicationConfigJSON struct {
@@ -1993,11 +2013,13 @@ func (h *Handler) handleCreateReplicationConfig(
 		return nil, fmt.Errorf("%w: ReplicationConfigIdentifier is required", ErrValidation)
 	}
 
+	kv := tagsToMap(in.Tags)
 	rc, err := h.Backend.CreateReplicationConfig(
 		identifier,
 		ptrStr(in.ReplicationType),
 		ptrStr(in.SourceEndpointArn),
 		ptrStr(in.TargetEndpointArn),
+		kv,
 	)
 	if err != nil {
 		return nil, err
@@ -2009,9 +2031,10 @@ func (h *Handler) handleCreateReplicationConfig(
 // --- CreateReplicationSubnetGroup handler ---
 
 type createReplicationSubnetGroupInput struct {
-	ReplicationSubnetGroupIdentifier  *string  `json:"ReplicationSubnetGroupIdentifier"`
-	ReplicationSubnetGroupDescription *string  `json:"ReplicationSubnetGroupDescription"`
-	SubnetIDs                         []string `json:"SubnetIds"`
+	ReplicationSubnetGroupIdentifier  *string    `json:"ReplicationSubnetGroupIdentifier"`
+	ReplicationSubnetGroupDescription *string    `json:"ReplicationSubnetGroupDescription"`
+	SubnetIDs                         []string   `json:"SubnetIds"`
+	Tags                              []tagEntry `json:"Tags"`
 }
 
 type replicationSubnetGroupFullJSON struct {
@@ -2042,10 +2065,12 @@ func (h *Handler) handleCreateReplicationSubnetGroup(
 		return nil, fmt.Errorf("%w: ReplicationSubnetGroupIdentifier is required", ErrValidation)
 	}
 
+	kv := tagsToMap(in.Tags)
 	sg, err := h.Backend.CreateReplicationSubnetGroup(
 		identifier,
 		ptrStr(in.ReplicationSubnetGroupDescription),
 		"",
+		kv,
 	)
 	if err != nil {
 		return nil, err
@@ -2364,12 +2389,33 @@ type describeAccountAttributesOutput struct {
 	AccountQuotas           []accountQuotaJSON `json:"AccountQuotas"`
 }
 
+const (
+	quotaMaxReplicationInstances = float64(60)
+	quotaMaxAllocatedStorage     = float64(6000)
+	quotaMaxEndpoints            = float64(1000)
+	quotaMaxReplicationTasks     = float64(200)
+	quotaStoragePerInstance      = int64(50)
+)
+
 func (h *Handler) handleDescribeAccountAttributes(
 	_ context.Context, _ *describeAccountAttributesInput,
 ) (*describeAccountAttributesOutput, error) {
+	riCount := int64(len(h.Backend.mustDescribeReplicationInstances()))
+	epCount := int64(len(h.Backend.mustDescribeEndpoints()))
+	taskCount := int64(len(h.Backend.mustDescribeReplicationTasks()))
+
 	return &describeAccountAttributesOutput{
-		UniqueAccountIdentifier: "000000000000",
-		AccountQuotas:           []accountQuotaJSON{},
+		UniqueAccountIdentifier: h.Backend.AccountID(),
+		AccountQuotas: []accountQuotaJSON{
+			{AccountQuotaName: "ReplicationInstances", Used: float64(riCount), Max: quotaMaxReplicationInstances},
+			{
+				AccountQuotaName: "AllocatedStorage",
+				Used:             float64(riCount * quotaStoragePerInstance),
+				Max:              quotaMaxAllocatedStorage,
+			},
+			{AccountQuotaName: "Endpoints", Used: float64(epCount), Max: quotaMaxEndpoints},
+			{AccountQuotaName: "ReplicationTasks", Used: float64(taskCount), Max: quotaMaxReplicationTasks},
+		},
 	}, nil
 }
 
@@ -2437,13 +2483,30 @@ type describeConnectionsInput struct {
 
 type describeConnectionsOutput struct {
 	Marker      *string          `json:"Marker,omitempty"`
-	Connections []map[string]any `json:"Connections"`
+	Connections []connectionJSON `json:"Connections"`
 }
 
 func (h *Handler) handleDescribeConnections(
-	_ context.Context, _ *describeConnectionsInput,
+	_ context.Context, in *describeConnectionsInput,
 ) (*describeConnectionsOutput, error) {
-	return &describeConnectionsOutput{Connections: []map[string]any{}}, nil
+	riArn := extractFilterValue(in.Filters, "replication-instance-id")
+	epArn := extractFilterValue(in.Filters, "endpoint-id")
+
+	list, err := h.Backend.DescribeConnections(riArn, epArn)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].EndpointIdentifier < list[j].EndpointIdentifier
+	})
+
+	all := make([]connectionJSON, 0, len(list))
+	for _, conn := range list {
+		all = append(all, connToJSON(conn))
+	}
+
+	return &describeConnectionsOutput{Connections: all}, nil
 }
 
 // --- DescribeConversionConfiguration handler ---
@@ -2624,15 +2687,38 @@ type describeEngineVersionsInput struct {
 	MaxRecords *int32  `json:"MaxRecords"`
 }
 
+type engineVersionJSON struct {
+	Version          string `json:"Version"`
+	Lifecycle        string `json:"Lifecycle"`
+	ReleaseNotes     string `json:"ReleaseNotes,omitempty"`
+	LaunchDate       string `json:"LaunchDate,omitempty"`
+	AutoUpgradeDate  string `json:"AutoUpgradeDate,omitempty"`
+	DeprecationDate  string `json:"DeprecationDate,omitempty"`
+	ForceUpgradeDate string `json:"ForceUpgradeDate,omitempty"`
+}
+
 type describeEngineVersionsOutput struct {
-	Marker         *string          `json:"Marker,omitempty"`
-	EngineVersions []map[string]any `json:"EngineVersions"`
+	Marker         *string             `json:"Marker,omitempty"`
+	EngineVersions []engineVersionJSON `json:"EngineVersions"`
+}
+
+func dmsEngineVersionList() []engineVersionJSON {
+	return []engineVersionJSON{
+		{Version: defaultEngineVersion, Lifecycle: statusAvailable, LaunchDate: "2023-11-01"},
+		{Version: "3.5.2", Lifecycle: statusAvailable, LaunchDate: "2023-07-01"},
+		{Version: "3.5.1", Lifecycle: statusAvailable, LaunchDate: "2023-03-01"},
+		{Version: "3.4.7", Lifecycle: statusAvailable, LaunchDate: "2022-11-01"},
+		{Version: "3.4.6", Lifecycle: statusAvailable, LaunchDate: "2022-07-01"},
+		{Version: "3.4.5", Lifecycle: "deprecated", LaunchDate: "2022-03-01", DeprecationDate: "2023-06-01"},
+	}
 }
 
 func (h *Handler) handleDescribeEngineVersions(
-	_ context.Context, _ *describeEngineVersionsInput,
+	_ context.Context, in *describeEngineVersionsInput,
 ) (*describeEngineVersionsOutput, error) {
-	return &describeEngineVersionsOutput{EngineVersions: []map[string]any{}}, nil
+	data, nextMarker := dmsPaginate(dmsEngineVersionList(), in.Marker, in.MaxRecords)
+
+	return &describeEngineVersionsOutput{EngineVersions: data, Marker: nextMarker}, nil
 }
 
 // --- DescribeEventCategories handler ---
@@ -2645,10 +2731,60 @@ type describeEventCategoriesOutput struct {
 	EventCategoryGroupList []map[string]any `json:"EventCategoryGroupList"`
 }
 
+type eventCategoryGroupJSON struct {
+	SourceType      string   `json:"SourceType"`
+	EventCategories []string `json:"EventCategories"`
+}
+
+func dmsEventCategoryGroupList() []eventCategoryGroupJSON {
+	return []eventCategoryGroupJSON{
+		{
+			SourceType: "replication-instance",
+			EventCategories: []string{
+				"low storage",
+				"configuration change",
+				"maintenance",
+				"deletion",
+				"creation",
+				"failover",
+				"failure",
+			},
+		},
+		{
+			SourceType: "replication-task",
+			EventCategories: []string{
+				"state change",
+				"configuration change",
+				"deletion",
+				"creation",
+				"failure",
+			},
+		},
+	}
+}
+
 func (h *Handler) handleDescribeEventCategories(
-	_ context.Context, _ *describeEventCategoriesInput,
+	_ context.Context, in *describeEventCategoriesInput,
 ) (*describeEventCategoriesOutput, error) {
-	return &describeEventCategoriesOutput{EventCategoryGroupList: []map[string]any{}}, nil
+	sourceType := ptrStr(in.SourceType)
+	groups := dmsEventCategoryGroupList()
+	result := make([]eventCategoryGroupJSON, 0, len(groups))
+
+	for _, group := range groups {
+		if sourceType == "" || group.SourceType == sourceType {
+			result = append(result, group)
+		}
+	}
+
+	out := make([]map[string]any, 0, len(result))
+	for _, g := range result {
+		out = append(out, map[string]any{
+			"SourceType":      g.SourceType,
+			"EventCategories": g.EventCategories,
+		})
+	}
+
+	return &describeEventCategoriesOutput{EventCategoryGroupList: out}, nil
 }
 
 // --- DescribeEventSubscriptions handler ---
@@ -3085,26 +3221,112 @@ type describeOrderableReplicationInstancesOutput struct {
 	OrderableReplicationInstances []orderableReplicationInstanceJSON `json:"OrderableReplicationInstances"`
 }
 
+type orderableInstanceSpec struct {
+	class          string
+	defaultStorage int32
+	minStorage     int32
+	maxStorage     int32
+}
+
+const (
+	t3DefaultStorage   int32 = 50
+	t3MaxStorage       int32 = 200
+	c5r5DefaultStorage int32 = 100
+	c5r5MaxStorage     int32 = 1024
+	minStorageAll      int32 = 5
+)
+
+func dmsOrderableInstanceList() []orderableInstanceSpec {
+	return []orderableInstanceSpec{
+		{class: "dms.t3.micro", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.small", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.medium", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{class: "dms.t3.large", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{
+			class:          "dms.c5.large",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.2xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.c5.4xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.large",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.2xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.4xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.8xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+		{
+			class:          "dms.r5.16xlarge",
+			defaultStorage: c5r5DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     c5r5MaxStorage,
+		},
+	}
+}
+
 func (h *Handler) handleDescribeOrderableReplicationInstances(
-	_ context.Context, _ *describeOrderableReplicationInstancesInput,
+	_ context.Context, in *describeOrderableReplicationInstancesInput,
 ) (*describeOrderableReplicationInstancesOutput, error) {
-	const (
-		defaultStorage = int32(50)
-		minStorage     = int32(5)
-		maxStorage     = int32(100)
-	)
+	specs := dmsOrderableInstanceList()
+	all := make([]orderableReplicationInstanceJSON, 0, len(specs))
+
+	for _, spec := range specs {
+		all = append(all, orderableReplicationInstanceJSON{
+			ReplicationInstanceClass: spec.class,
+			StorageType:              "gp2",
+			DefaultAllocatedStorage:  spec.defaultStorage,
+			MinAllocatedStorage:      spec.minStorage,
+			MaxAllocatedStorage:      spec.maxStorage,
+			ReleaseStatus:            "GA",
+		})
+	}
+
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
 
 	return &describeOrderableReplicationInstancesOutput{
-		OrderableReplicationInstances: []orderableReplicationInstanceJSON{
-			{
-				ReplicationInstanceClass: "dms.r5.large",
-				StorageType:              "gp2",
-				DefaultAllocatedStorage:  defaultStorage,
-				MinAllocatedStorage:      minStorage,
-				MaxAllocatedStorage:      maxStorage,
-				ReleaseStatus:            "GA",
-			},
-		},
+		OrderableReplicationInstances: data,
+		Marker:                        nextMarker,
 	}, nil
 }
 
@@ -4299,25 +4521,42 @@ type testConnectionInput struct {
 	EndpointArn            *string `json:"EndpointArn"`
 }
 
-type connectionStatusJSON struct {
-	Status string `json:"Status"`
+type connectionJSON struct {
+	ReplicationInstanceArn        string `json:"ReplicationInstanceArn,omitempty"`
+	ReplicationInstanceIdentifier string `json:"ReplicationInstanceIdentifier,omitempty"`
+	EndpointArn                   string `json:"EndpointArn,omitempty"`
+	EndpointIdentifier            string `json:"EndpointIdentifier,omitempty"`
+	Status                        string `json:"Status"`
+	LastFailureMessage            string `json:"LastFailureMessage,omitempty"`
 }
 
 type testConnectionOutput struct {
-	Connection connectionStatusJSON `json:"Connection"`
+	Connection connectionJSON `json:"Connection"`
+}
+
+func connToJSON(c *Connection) connectionJSON {
+	return connectionJSON{
+		ReplicationInstanceArn:        c.ReplicationInstanceArn,
+		ReplicationInstanceIdentifier: c.ReplicationInstanceIdentifier,
+		EndpointArn:                   c.EndpointArn,
+		EndpointIdentifier:            c.EndpointIdentifier,
+		Status:                        c.Status,
+		LastFailureMessage:            c.LastFailureMessage,
+	}
 }
 
 func (h *Handler) handleTestConnection(
 	_ context.Context, in *testConnectionInput,
 ) (*testConnectionOutput, error) {
-	if err := h.Backend.TestConnection(
+	conn, err := h.Backend.TestConnection(
 		ptrStr(in.ReplicationInstanceArn),
 		ptrStr(in.EndpointArn),
-	); err != nil {
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &testConnectionOutput{Connection: connectionStatusJSON{Status: "successful"}}, nil
+	return &testConnectionOutput{Connection: connToJSON(conn)}, nil
 }
 
 // --- UpdateSubscriptionsToEventBridge handler ---

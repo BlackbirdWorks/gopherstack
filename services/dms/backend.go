@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	statusActive  = "active"
-	statusReady   = "ready"
-	statusRunning = "running"
-	statusStopped = "stopped"
+	statusActive         = "active"
+	statusReady          = "ready"
+	statusRunning        = "running"
+	statusStopped        = "stopped"
+	statusAvailable      = "available"
+	defaultEngineVersion = "3.5.3"
 )
 
 var (
@@ -183,6 +185,7 @@ type Certificate struct {
 
 // ReplicationSubnetGroup represents a DMS replication subnet group.
 type ReplicationSubnetGroup struct {
+	Tags                              *tags.Tags `json:"-"`
 	ReplicationSubnetGroupIdentifier  string
 	ReplicationSubnetGroupArn         string
 	ReplicationSubnetGroupDescription string
@@ -193,6 +196,7 @@ type ReplicationSubnetGroup struct {
 
 // MigrationProject represents a DMS migration project.
 type MigrationProject struct {
+	Tags                       *tags.Tags `json:"-"`
 	MigrationProjectName       string
 	MigrationProjectArn        string
 	MigrationProjectIdentifier string
@@ -203,6 +207,7 @@ type MigrationProject struct {
 
 // ReplicationConfig represents a DMS replication config.
 type ReplicationConfig struct {
+	Tags                        *tags.Tags `json:"-"`
 	ReplicationConfigIdentifier string
 	ReplicationConfigArn        string
 	ReplicationType             string
@@ -212,58 +217,100 @@ type ReplicationConfig struct {
 	Region                      string
 }
 
+// Connection represents a DMS connection between a replication instance and an endpoint.
+type Connection struct {
+	ReplicationInstanceArn        string
+	ReplicationInstanceIdentifier string
+	EndpointArn                   string
+	EndpointIdentifier            string
+	Status                        string
+	LastFailureMessage            string
+}
+
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 type InMemoryBackend struct {
-	replicationInstances      map[string]*ReplicationInstance
-	endpoints                 map[string]*Endpoint
-	replicationTasks          map[string]*ReplicationTask
-	dataMigrations            map[string]*DataMigration
-	dataProviders             map[string]*DataProvider
-	eventSubscriptions        map[string]*EventSubscription
-	fleetAdvisorCollectors    map[string]*FleetAdvisorCollector
-	instanceProfiles          map[string]*InstanceProfile
-	replicationInstancesByARN map[string]*ReplicationInstance
-	endpointsByARN            map[string]*Endpoint
-	replicationTasksByARN     map[string]*ReplicationTask
-	dataMigrationsByARN       map[string]*DataMigration
-	dataProvidersByARN        map[string]*DataProvider
-	instanceProfilesByARN     map[string]*InstanceProfile
-	certificates              map[string]*Certificate
-	replicationSubnetGroups   map[string]*ReplicationSubnetGroup
-	migrationProjects         map[string]*MigrationProject
-	replicationConfigs        map[string]*ReplicationConfig
-	mu                        *lockmetrics.RWMutex
-	accountID                 string
-	region                    string
-	paginationSecret          string
+	replicationInstances         map[string]*ReplicationInstance
+	endpoints                    map[string]*Endpoint
+	replicationTasks             map[string]*ReplicationTask
+	dataMigrations               map[string]*DataMigration
+	dataProviders                map[string]*DataProvider
+	eventSubscriptions           map[string]*EventSubscription
+	fleetAdvisorCollectors       map[string]*FleetAdvisorCollector
+	instanceProfiles             map[string]*InstanceProfile
+	replicationInstancesByARN    map[string]*ReplicationInstance
+	endpointsByARN               map[string]*Endpoint
+	replicationTasksByARN        map[string]*ReplicationTask
+	dataMigrationsByARN          map[string]*DataMigration
+	dataProvidersByARN           map[string]*DataProvider
+	instanceProfilesByARN        map[string]*InstanceProfile
+	certificates                 map[string]*Certificate
+	replicationSubnetGroups      map[string]*ReplicationSubnetGroup
+	replicationSubnetGroupsByARN map[string]*ReplicationSubnetGroup
+	migrationProjects            map[string]*MigrationProject
+	migrationProjectsByARN       map[string]*MigrationProject
+	replicationConfigs           map[string]*ReplicationConfig
+	replicationConfigsByARN      map[string]*ReplicationConfig
+	connections                  map[string]*Connection // key: "riArn:epArn"
+	mu                           *lockmetrics.RWMutex
+	accountID                    string
+	region                       string
+	paginationSecret             string
 }
 
 // NewInMemoryBackend creates a new in-memory DMS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		replicationInstances:      make(map[string]*ReplicationInstance),
-		endpoints:                 make(map[string]*Endpoint),
-		replicationTasks:          make(map[string]*ReplicationTask),
-		dataMigrations:            make(map[string]*DataMigration),
-		dataProviders:             make(map[string]*DataProvider),
-		eventSubscriptions:        make(map[string]*EventSubscription),
-		fleetAdvisorCollectors:    make(map[string]*FleetAdvisorCollector),
-		instanceProfiles:          make(map[string]*InstanceProfile),
-		replicationInstancesByARN: make(map[string]*ReplicationInstance),
-		endpointsByARN:            make(map[string]*Endpoint),
-		replicationTasksByARN:     make(map[string]*ReplicationTask),
-		dataMigrationsByARN:       make(map[string]*DataMigration),
-		dataProvidersByARN:        make(map[string]*DataProvider),
-		instanceProfilesByARN:     make(map[string]*InstanceProfile),
-		certificates:              make(map[string]*Certificate),
-		replicationSubnetGroups:   make(map[string]*ReplicationSubnetGroup),
-		migrationProjects:         make(map[string]*MigrationProject),
-		replicationConfigs:        make(map[string]*ReplicationConfig),
-		accountID:                 accountID,
-		region:                    region,
-		paginationSecret:          uuid.NewString(),
-		mu:                        lockmetrics.New("dms"),
+		replicationInstances:         make(map[string]*ReplicationInstance),
+		endpoints:                    make(map[string]*Endpoint),
+		replicationTasks:             make(map[string]*ReplicationTask),
+		dataMigrations:               make(map[string]*DataMigration),
+		dataProviders:                make(map[string]*DataProvider),
+		eventSubscriptions:           make(map[string]*EventSubscription),
+		fleetAdvisorCollectors:       make(map[string]*FleetAdvisorCollector),
+		instanceProfiles:             make(map[string]*InstanceProfile),
+		replicationInstancesByARN:    make(map[string]*ReplicationInstance),
+		endpointsByARN:               make(map[string]*Endpoint),
+		replicationTasksByARN:        make(map[string]*ReplicationTask),
+		dataMigrationsByARN:          make(map[string]*DataMigration),
+		dataProvidersByARN:           make(map[string]*DataProvider),
+		instanceProfilesByARN:        make(map[string]*InstanceProfile),
+		certificates:                 make(map[string]*Certificate),
+		replicationSubnetGroups:      make(map[string]*ReplicationSubnetGroup),
+		replicationSubnetGroupsByARN: make(map[string]*ReplicationSubnetGroup),
+		migrationProjects:            make(map[string]*MigrationProject),
+		migrationProjectsByARN:       make(map[string]*MigrationProject),
+		replicationConfigs:           make(map[string]*ReplicationConfig),
+		replicationConfigsByARN:      make(map[string]*ReplicationConfig),
+		connections:                  make(map[string]*Connection),
+		accountID:                    accountID,
+		region:                       region,
+		paginationSecret:             uuid.NewString(),
+		mu:                           lockmetrics.New("dms"),
 	}
+}
+
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// mustDescribeReplicationInstances returns all replication instances without error (for internal use).
+func (b *InMemoryBackend) mustDescribeReplicationInstances() []*ReplicationInstance {
+	list, _ := b.DescribeReplicationInstances("")
+
+	return list
+}
+
+// mustDescribeEndpoints returns all endpoints without error (for internal use).
+func (b *InMemoryBackend) mustDescribeEndpoints() []*Endpoint {
+	list, _ := b.DescribeEndpoints("")
+
+	return list
+}
+
+// mustDescribeReplicationTasks returns all replication tasks without error (for internal use).
+func (b *InMemoryBackend) mustDescribeReplicationTasks() []*ReplicationTask {
+	list, _ := b.DescribeReplicationTasks("")
+
+	return list
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -294,7 +341,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	}
 
 	if engineVersion == "" {
-		engineVersion = "3.5.3"
+		engineVersion = defaultEngineVersion
 	}
 
 	if allocatedStorage == 0 {
@@ -311,7 +358,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		MultiAZ:                       multiAZ,
 		AutoMinorVersionUpgrade:       autoMinorVersionUpgrade,
 		PubliclyAccessible:            publiclyAccessible,
-		ReplicationInstanceStatus:     "available",
+		ReplicationInstanceStatus:     statusAvailable,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 		CreationTime:                  time.Now().UTC(),
@@ -360,26 +407,37 @@ func (b *InMemoryBackend) DescribeReplicationInstances(
 }
 
 // DeleteReplicationInstance deletes a replication instance by ARN or identifier.
+// AWS requires all replication tasks on the instance to be deleted first.
 func (b *InMemoryBackend) DeleteReplicationInstance(arnOrID string) error {
 	b.mu.Lock("DeleteReplicationInstance")
 	defer b.mu.Unlock()
 
-	// Try by identifier first.
-	if ri, ok := b.replicationInstances[arnOrID]; ok {
+	deleteInstance := func(ri *ReplicationInstance, id string) error {
+		// Check for tasks attached to this instance.
+		for _, rt := range b.replicationTasks {
+			if rt.ReplicationInstanceArn == ri.ReplicationInstanceArn {
+				return fmt.Errorf(
+					"%w: replication instance %s has tasks attached; delete all tasks first",
+					ErrInvalidState,
+					arnOrID,
+				)
+			}
+		}
 		ri.Tags.Close()
 		delete(b.replicationInstancesByARN, ri.ReplicationInstanceArn)
-		delete(b.replicationInstances, arnOrID)
+		delete(b.replicationInstances, id)
 
 		return nil
+	}
+
+	// Try by identifier first.
+	if ri, ok := b.replicationInstances[arnOrID]; ok {
+		return deleteInstance(ri, arnOrID)
 	}
 	// Try by ARN.
 	for id, ri := range b.replicationInstances {
 		if ri.ReplicationInstanceArn == arnOrID {
-			ri.Tags.Close()
-			delete(b.replicationInstancesByARN, arnOrID)
-			delete(b.replicationInstances, id)
-
-			return nil
+			return deleteInstance(ri, id)
 		}
 	}
 
@@ -609,28 +667,35 @@ func (b *InMemoryBackend) StopReplicationTask(arnOrID string) (*ReplicationTask,
 }
 
 // DeleteReplicationTask deletes a replication task by ARN or identifier.
+// AWS does not allow deleting a task while it is running.
 func (b *InMemoryBackend) DeleteReplicationTask(arnOrID string) (*ReplicationTask, error) {
 	b.mu.Lock("DeleteReplicationTask")
 	defer b.mu.Unlock()
 
-	// Try by identifier first.
-	if rt, ok := b.replicationTasks[arnOrID]; ok {
+	deleteTask := func(rt *ReplicationTask, id string) (*ReplicationTask, error) {
+		if rt.Status == statusRunning {
+			return nil, fmt.Errorf(
+				"%w: replication task %s cannot be deleted while running; stop it first",
+				ErrInvalidState,
+				arnOrID,
+			)
+		}
 		cp := *rt
 		rt.Tags.Close()
 		delete(b.replicationTasksByARN, rt.ReplicationTaskArn)
-		delete(b.replicationTasks, arnOrID)
+		delete(b.replicationTasks, id)
 
 		return &cp, nil
+	}
+
+	// Try by identifier first.
+	if rt, ok := b.replicationTasks[arnOrID]; ok {
+		return deleteTask(rt, arnOrID)
 	}
 	// Try by ARN.
 	for id, rt := range b.replicationTasks {
 		if rt.ReplicationTaskArn == arnOrID {
-			cp := *rt
-			rt.Tags.Close()
-			delete(b.replicationTasksByARN, arnOrID)
-			delete(b.replicationTasks, id)
-
-			return &cp, nil
+			return deleteTask(rt, id)
 		}
 	}
 
@@ -1037,6 +1102,16 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationInstancesByARN = make(map[string]*ReplicationInstance)
 	b.endpoints = make(map[string]*Endpoint)
 	b.endpointsByARN = make(map[string]*Endpoint)
+	for _, mp := range b.migrationProjects {
+		mp.Tags.Close()
+	}
+	for _, sg := range b.replicationSubnetGroups {
+		sg.Tags.Close()
+	}
+	for _, rc := range b.replicationConfigs {
+		rc.Tags.Close()
+	}
+
 	b.replicationTasks = make(map[string]*ReplicationTask)
 	b.replicationTasksByARN = make(map[string]*ReplicationTask)
 	b.dataMigrations = make(map[string]*DataMigration)
@@ -1049,8 +1124,12 @@ func (b *InMemoryBackend) Reset() {
 	b.instanceProfilesByARN = make(map[string]*InstanceProfile)
 	b.certificates = make(map[string]*Certificate)
 	b.replicationSubnetGroups = make(map[string]*ReplicationSubnetGroup)
+	b.replicationSubnetGroupsByARN = make(map[string]*ReplicationSubnetGroup)
 	b.migrationProjects = make(map[string]*MigrationProject)
+	b.migrationProjectsByARN = make(map[string]*MigrationProject)
 	b.replicationConfigs = make(map[string]*ReplicationConfig)
+	b.replicationConfigsByARN = make(map[string]*ReplicationConfig)
+	b.connections = make(map[string]*Connection)
 }
 
 // AddReplicationInstanceInternal seeds a replication instance directly without HTTP.
@@ -1063,8 +1142,8 @@ func (b *InMemoryBackend) AddReplicationInstanceInternal(identifier, class strin
 		ReplicationInstanceIdentifier: identifier,
 		ReplicationInstanceArn:        instanceARN,
 		ReplicationInstanceClass:      class,
-		EngineVersion:                 "3.5.3",
-		ReplicationInstanceStatus:     "available",
+		EngineVersion:                 defaultEngineVersion,
+		ReplicationInstanceStatus:     statusAvailable,
 		AllocatedStorage:              defaultAllocatedStorage,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
@@ -1329,6 +1408,7 @@ func (b *InMemoryBackend) findReplicationInstance(arnOrID string) *ReplicationIn
 }
 
 // ModifyReplicationTask updates task settings.
+// AWS does not allow modifying a running task.
 func (b *InMemoryBackend) ModifyReplicationTask(
 	arnOrID, migrationType, tableMappings, replicationTaskSettings string,
 ) (*ReplicationTask, error) {
@@ -1338,6 +1418,14 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 	rt := b.findTask(arnOrID)
 	if rt == nil {
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
+	}
+
+	if rt.Status == statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication task %s cannot be modified while running; stop it first",
+			ErrInvalidState,
+			arnOrID,
+		)
 	}
 
 	if migrationType != "" {
@@ -1507,6 +1595,18 @@ func (b *InMemoryBackend) findResourceTags(resourceArn string) *tags.Tags {
 
 	if ip, ok := b.instanceProfilesByARN[resourceArn]; ok {
 		return ip.Tags
+	}
+
+	if mp, ok := b.migrationProjectsByARN[resourceArn]; ok {
+		return mp.Tags
+	}
+
+	if sg, ok := b.replicationSubnetGroupsByARN[resourceArn]; ok {
+		return sg.Tags
+	}
+
+	if rc, ok := b.replicationConfigsByARN[resourceArn]; ok {
+		return rc.Tags
 	}
 
 	return nil
@@ -1745,24 +1845,57 @@ func (b *InMemoryBackend) MoveReplicationTask(
 	return &cp, nil
 }
 
-// TestConnection tests a DMS connection (always succeeds in memory).
-func (b *InMemoryBackend) TestConnection(replicationInstanceArn, endpointArn string) error {
-	b.mu.RLock("TestConnection")
-	defer b.mu.RUnlock()
+// TestConnection tests a DMS connection and records the result.
+func (b *InMemoryBackend) TestConnection(replicationInstanceArn, endpointArn string) (*Connection, error) {
+	b.mu.Lock("TestConnection")
+	defer b.mu.Unlock()
 
-	if _, ok := b.replicationInstancesByARN[replicationInstanceArn]; !ok {
-		return fmt.Errorf(
+	ri, ok := b.replicationInstancesByARN[replicationInstanceArn]
+	if !ok {
+		return nil, fmt.Errorf(
 			"%w: replication instance %s not found",
 			ErrNotFound,
 			replicationInstanceArn,
 		)
 	}
 
-	if _, ok := b.endpointsByARN[endpointArn]; !ok {
-		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointArn)
+	ep, ok := b.endpointsByARN[endpointArn]
+	if !ok {
+		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointArn)
 	}
 
-	return nil
+	key := replicationInstanceArn + ":" + endpointArn
+	conn := &Connection{
+		ReplicationInstanceArn:        replicationInstanceArn,
+		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
+		EndpointArn:                   endpointArn,
+		EndpointIdentifier:            ep.EndpointIdentifier,
+		Status:                        "successful",
+	}
+	b.connections[key] = conn
+	cp := *conn
+
+	return &cp, nil
+}
+
+// DescribeConnections returns stored connections, optionally filtered by replication instance ARN or endpoint ARN.
+func (b *InMemoryBackend) DescribeConnections(replicationInstanceArn, endpointArn string) ([]*Connection, error) {
+	b.mu.RLock("DescribeConnections")
+	defer b.mu.RUnlock()
+
+	list := make([]*Connection, 0, len(b.connections))
+	for _, conn := range b.connections {
+		if replicationInstanceArn != "" && conn.ReplicationInstanceArn != replicationInstanceArn {
+			continue
+		}
+		if endpointArn != "" && conn.EndpointArn != endpointArn {
+			continue
+		}
+		cp := *conn
+		list = append(list, &cp)
+	}
+
+	return list, nil
 }
 
 // ImportCertificate creates a certificate record.
@@ -1815,6 +1948,7 @@ func (b *InMemoryBackend) DeleteCertificate(identifierOrArn string) (*Certificat
 // CreateMigrationProject creates a migration project.
 func (b *InMemoryBackend) CreateMigrationProject(
 	name, description string,
+	kv map[string]string,
 ) (*MigrationProject, error) {
 	b.mu.Lock("CreateMigrationProject")
 	defer b.mu.Unlock()
@@ -1824,6 +1958,10 @@ func (b *InMemoryBackend) CreateMigrationProject(
 	}
 
 	projectARN := arn.Build("dms", b.region, b.accountID, "migration-project:"+uuid.NewString())
+	t := tags.New("dms.migration-project." + name + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
 	mp := &MigrationProject{
 		MigrationProjectName:       name,
 		MigrationProjectArn:        projectARN,
@@ -1831,8 +1969,10 @@ func (b *InMemoryBackend) CreateMigrationProject(
 		Description:                description,
 		AccountID:                  b.accountID,
 		Region:                     b.region,
+		Tags:                       t,
 	}
 	b.migrationProjects[name] = mp
+	b.migrationProjectsByARN[projectARN] = mp
 	cp := *mp
 
 	return &cp, nil
@@ -1843,7 +1983,9 @@ func (b *InMemoryBackend) DeleteMigrationProject(nameOrArn string) error {
 	b.mu.Lock("DeleteMigrationProject")
 	defer b.mu.Unlock()
 
-	if _, ok := b.migrationProjects[nameOrArn]; ok {
+	if mp, ok := b.migrationProjects[nameOrArn]; ok {
+		mp.Tags.Close()
+		delete(b.migrationProjectsByARN, mp.MigrationProjectArn)
 		delete(b.migrationProjects, nameOrArn)
 
 		return nil
@@ -1851,6 +1993,8 @@ func (b *InMemoryBackend) DeleteMigrationProject(nameOrArn string) error {
 
 	for name, mp := range b.migrationProjects {
 		if mp.MigrationProjectArn == nameOrArn {
+			mp.Tags.Close()
+			delete(b.migrationProjectsByARN, nameOrArn)
 			delete(b.migrationProjects, name)
 
 			return nil
@@ -1863,6 +2007,7 @@ func (b *InMemoryBackend) DeleteMigrationProject(nameOrArn string) error {
 // CreateReplicationSubnetGroup creates a subnet group.
 func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 	identifier, description, vpcID string,
+	kv map[string]string,
 ) (*ReplicationSubnetGroup, error) {
 	b.mu.Lock("CreateReplicationSubnetGroup")
 	defer b.mu.Unlock()
@@ -1876,6 +2021,10 @@ func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 	}
 
 	sgARN := arn.Build("dms", b.region, b.accountID, "subgrp:"+identifier)
+	t := tags.New("dms.replication-subnet-group." + identifier + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
 	sg := &ReplicationSubnetGroup{
 		ReplicationSubnetGroupIdentifier:  identifier,
 		ReplicationSubnetGroupArn:         sgARN,
@@ -1883,8 +2032,10 @@ func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 		VpcID:                             vpcID,
 		AccountID:                         b.accountID,
 		Region:                            b.region,
+		Tags:                              t,
 	}
 	b.replicationSubnetGroups[identifier] = sg
+	b.replicationSubnetGroupsByARN[sgARN] = sg
 	cp := *sg
 
 	return &cp, nil
@@ -1895,7 +2046,9 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(identifierOrArn string) e
 	b.mu.Lock("DeleteReplicationSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.replicationSubnetGroups[identifierOrArn]; ok {
+	if sg, ok := b.replicationSubnetGroups[identifierOrArn]; ok {
+		sg.Tags.Close()
+		delete(b.replicationSubnetGroupsByARN, sg.ReplicationSubnetGroupArn)
 		delete(b.replicationSubnetGroups, identifierOrArn)
 
 		return nil
@@ -1903,6 +2056,8 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(identifierOrArn string) e
 
 	for id, sg := range b.replicationSubnetGroups {
 		if sg.ReplicationSubnetGroupArn == identifierOrArn {
+			sg.Tags.Close()
+			delete(b.replicationSubnetGroupsByARN, identifierOrArn)
 			delete(b.replicationSubnetGroups, id)
 
 			return nil
@@ -1915,6 +2070,7 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(identifierOrArn string) e
 // CreateReplicationConfig creates a replication config.
 func (b *InMemoryBackend) CreateReplicationConfig(
 	identifier, replicationType, sourceEndpointArn, targetEndpointArn string,
+	kv map[string]string,
 ) (*ReplicationConfig, error) {
 	b.mu.Lock("CreateReplicationConfig")
 	defer b.mu.Unlock()
@@ -1928,6 +2084,10 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 	}
 
 	configARN := arn.Build("dms", b.region, b.accountID, "replication-config:"+uuid.NewString())
+	t := tags.New("dms.replication-config." + identifier + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
+	}
 	rc := &ReplicationConfig{
 		ReplicationConfigIdentifier: identifier,
 		ReplicationConfigArn:        configARN,
@@ -1936,8 +2096,10 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		TargetEndpointArn:           targetEndpointArn,
 		AccountID:                   b.accountID,
 		Region:                      b.region,
+		Tags:                        t,
 	}
 	b.replicationConfigs[identifier] = rc
+	b.replicationConfigsByARN[configARN] = rc
 	cp := *rc
 
 	return &cp, nil
@@ -1948,7 +2110,9 @@ func (b *InMemoryBackend) DeleteReplicationConfig(identifierOrArn string) error 
 	b.mu.Lock("DeleteReplicationConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.replicationConfigs[identifierOrArn]; ok {
+	if rc, ok := b.replicationConfigs[identifierOrArn]; ok {
+		rc.Tags.Close()
+		delete(b.replicationConfigsByARN, rc.ReplicationConfigArn)
 		delete(b.replicationConfigs, identifierOrArn)
 
 		return nil
@@ -1956,6 +2120,8 @@ func (b *InMemoryBackend) DeleteReplicationConfig(identifierOrArn string) error 
 
 	for id, rc := range b.replicationConfigs {
 		if rc.ReplicationConfigArn == identifierOrArn {
+			rc.Tags.Close()
+			delete(b.replicationConfigsByARN, identifierOrArn)
 			delete(b.replicationConfigs, id)
 
 			return nil
