@@ -303,9 +303,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateInferenceComponent":
 		return mustMarshal(m{keyInferenceComponentArn: ""}), true
 
-	case "CreateInferenceRecommendationsJob":
-		return mustMarshal(m{"JobArn": ""}), true
-
 	case "CreateLabelingJob":
 		return mustMarshal(m{keyLabelingJobArn: ""}), true
 
@@ -474,9 +471,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 			keyInferenceComponentArn: "", "InferenceComponentName": "", "InferenceComponentStatus": statusInService,
 		}), true
 
-	case "DescribeInferenceRecommendationsJob":
-		return mustMarshal(m{"JobArn": "", "JobName": "", keyStatus: statusCompletedUpper}), true
-
 	case "DescribeLabelingJob":
 		return mustMarshal(m{
 			keyLabelingJobArn: "", "LabelingJobName": "", "LabelingJobStatus": statusCompleted,
@@ -559,9 +553,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListAliases":
 		return mustMarshal(m{"SageMakerImageVersionAliases": []any{}}), true
 
-	case "ListAppImageConfigs":
-		return mustMarshal(m{"AppImageConfigs": []any{}}), true
-
 	case "ListApps", "ListMlflowApps":
 		return mustMarshal(m{"Apps": []any{}}), true
 
@@ -610,17 +601,11 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListEdgeDeploymentPlans":
 		return mustMarshal(m{"EdgeDeploymentPlanSummaries": []any{}}), true
 
-	case "ListEdgePackagingJobs":
-		return mustMarshal(m{"EdgePackagingJobSummaries": []any{}}), true
-
 	case "ListExperiments":
 		return mustMarshal(m{"ExperimentSummaries": []any{}}), true
 
 	case "ListFeatureGroups":
 		return mustMarshal(m{"FeatureGroupSummaries": []any{}}), true
-
-	case "ListFlowDefinitions":
-		return mustMarshal(m{"FlowDefinitionSummaries": []any{}}), true
 
 	case "ListHubContentVersions", "ListHubContents":
 		return mustMarshal(m{"HubContentSummaries": []any{}}), true
@@ -628,38 +613,14 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListHubs":
 		return mustMarshal(m{"HubSummaries": []any{}}), true
 
-	case "ListHumanTaskUis":
-		return mustMarshal(m{"HumanTaskUiSummaries": []any{}}), true
-
 	case "ListInferenceComponents":
 		return mustMarshal(m{"InferenceComponents": []any{}}), true
-
-	case "ListInferenceExperiments":
-		return mustMarshal(m{"InferenceExperiments": []any{}}), true
-
-	case "ListInferenceRecommendationsJobSteps":
-		return mustMarshal(m{"Steps": []any{}}), true
-
-	case "ListInferenceRecommendationsJobs":
-		return mustMarshal(m{"InferenceRecommendationsJobs": []any{}}), true
 
 	case "ListLabelingJobs", "ListLabelingJobsForWorkteam":
 		return mustMarshal(m{"LabelingJobSummaryList": []any{}}), true
 
 	case "ListLineageGroups":
 		return mustMarshal(m{"LineageGroupSummaries": []any{}}), true
-
-	case "ListMlflowTrackingServers":
-		return mustMarshal(m{"TrackingServerSummaries": []any{}}), true
-
-	case "ListModelCardExportJobs":
-		return mustMarshal(m{"ModelCardExportJobSummaries": []any{}}), true
-
-	case "ListModelCardVersions":
-		return mustMarshal(m{"ModelCardVersionSummaryList": []any{}}), true
-
-	case "ListModelCards":
-		return mustMarshal(m{"ModelCardSummaries": []any{}}), true
 
 	case "ListModelMetadata":
 		return mustMarshal(m{"ModelMetadataSummaries": []any{}}), true
@@ -672,9 +633,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListMonitoringExecutions":
 		return mustMarshal(m{"MonitoringExecutionSummaries": []any{}}), true
-
-	case "ListOptimizationJobs":
-		return mustMarshal(m{"OptimizationJobSummaries": []any{}}), true
 
 	case "ListPartnerApps":
 		return mustMarshal(m{"Summaries": []any{}}), true
@@ -694,14 +652,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListStageDevices":
 		return mustMarshal(m{"DeviceDeploymentSummaries": []any{}}), true
 
-	case "ListStudioLifecycleConfigs":
-		return mustMarshal(m{"StudioLifecycleConfigs": []any{}}), true
-
 	case "ListSubscribedWorkteams":
 		return mustMarshal(m{"SubscribedWorkteams": []any{}}), true
-
-	case "ListTrainingJobsForHyperParameterTuningJob":
-		return mustMarshal(m{keyTrainingJobSummaries: []any{}}), true
 
 	case "ListTrainingPlans":
 		return mustMarshal(m{"TrainingPlanSummaries": []any{}}), true
@@ -781,12 +733,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateMlflowApp", "UpdatePartnerApp":
 		return mustMarshal(m{keyGenericArn: ""}), true
 
-	case "UpdateMlflowTrackingServer":
-		return mustMarshal(m{keyTrackingServerArn: ""}), true
-
-	case "UpdateModelPackage":
-		return mustMarshal(m{keyModelPackageArn: ""}), true
-
 	case "UpdateMonitoringAlert":
 		return mustMarshal(m{keyMonitoringScheduleArn: "", keyMonitoringAlertName: ""}), true
 
@@ -798,12 +744,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateProject":
 		return mustMarshal(m{keyProjectArn: ""}), true
-
-	case "UpdateSpace":
-		return mustMarshal(m{keySpaceArn: ""}), true
-
-	case "UpdateUserProfile":
-		return mustMarshal(m{keyUserProfileArn: ""}), true
 
 	case "UpdateWorkteam":
 		return mustMarshal(m{"Workteam": m{keyWorkteamArn: ""}}), true

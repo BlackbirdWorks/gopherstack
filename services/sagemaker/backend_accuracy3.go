@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -23,17 +24,17 @@ var (
 
 // EdgePackagingJob represents a SageMaker edge packaging job.
 type EdgePackagingJob struct {
-	CreationTime         time.Time         `json:"CreationTime"`
-	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	EdgePackagingJobName string            `json:"EdgePackagingJobName"`
-	EdgePackagingJobArn  string            `json:"EdgePackagingJobArn"`
-	EdgePackagingJobStatus string          `json:"EdgePackagingJobStatus"`
-	ModelName            string            `json:"ModelName,omitempty"`
-	ModelVersion         string            `json:"ModelVersion,omitempty"`
-	RoleArn              string            `json:"RoleArn,omitempty"`
-	CompilationJobName   string            `json:"CompilationJobName,omitempty"`
-	FailureReason        string            `json:"FailureReason,omitempty"`
+	CreationTime           time.Time         `json:"CreationTime"`
+	LastModifiedTime       time.Time         `json:"LastModifiedTime"`
+	Tags                   map[string]string `json:"Tags,omitempty"`
+	EdgePackagingJobName   string            `json:"EdgePackagingJobName"`
+	EdgePackagingJobArn    string            `json:"EdgePackagingJobArn"`
+	EdgePackagingJobStatus string            `json:"EdgePackagingJobStatus"`
+	ModelName              string            `json:"ModelName,omitempty"`
+	ModelVersion           string            `json:"ModelVersion,omitempty"`
+	RoleArn                string            `json:"RoleArn,omitempty"`
+	CompilationJobName     string            `json:"CompilationJobName,omitempty"`
+	FailureReason          string            `json:"FailureReason,omitempty"`
 }
 
 func cloneEdgePackagingJob(j *EdgePackagingJob) *EdgePackagingJob {
@@ -63,7 +64,11 @@ func (b *InMemoryBackend) CreateEdgePackagingJob(opts CreateEdgePackagingJobOpti
 	}
 
 	if _, ok := b.edgePackagingJobs[opts.EdgePackagingJobName]; ok {
-		return nil, fmt.Errorf("%w: edge packaging job %q already exists", ErrEdgePackagingJobAlreadyExists, opts.EdgePackagingJobName)
+		return nil, fmt.Errorf(
+			"%w: edge packaging job %q already exists",
+			ErrEdgePackagingJobAlreadyExists,
+			opts.EdgePackagingJobName,
+		)
 	}
 
 	jobARN := arn.Build("sagemaker", b.region, b.accountID, "edge-packaging-job/"+opts.EdgePackagingJobName)
@@ -122,7 +127,10 @@ type ListEdgePackagingJobsFilter struct {
 }
 
 // ListEdgePackagingJobs returns edge packaging jobs with optional filters.
-func (b *InMemoryBackend) ListEdgePackagingJobs(nextToken string, filter ListEdgePackagingJobsFilter) ([]*EdgePackagingJob, string) {
+func (b *InMemoryBackend) ListEdgePackagingJobs(
+	nextToken string,
+	filter ListEdgePackagingJobsFilter,
+) ([]*EdgePackagingJob, string) {
 	b.mu.RLock("ListEdgePackagingJobs")
 	defer b.mu.RUnlock()
 
@@ -133,19 +141,8 @@ func (b *InMemoryBackend) ListEdgePackagingJobs(nextToken string, filter ListEdg
 			continue
 		}
 
-		if filter.NameContains != "" {
-			found := false
-			for i := 0; i <= len(name)-len(filter.NameContains); i++ {
-				if name[i:i+len(filter.NameContains)] == filter.NameContains {
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				continue
-			}
+		if filter.NameContains != "" && !strings.Contains(name, filter.NameContains) {
+			continue
 		}
 
 		keys = append(keys, name)
@@ -192,15 +189,15 @@ var (
 
 // InferenceRecommendationsJob represents a SageMaker inference recommendations job.
 type InferenceRecommendationsJob struct {
-	CreationTime    time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time        `json:"LastModifiedTime"`
-	Tags            map[string]string `json:"Tags,omitempty"`
-	JobName         string            `json:"JobName"`
-	JobArn          string            `json:"JobArn"`
-	JobType         string            `json:"JobType,omitempty"`
-	JobDescription  string            `json:"JobDescription,omitempty"`
-	Status          string            `json:"Status"`
-	RoleArn         string            `json:"RoleArn,omitempty"`
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	JobName          string            `json:"JobName"`
+	JobArn           string            `json:"JobArn"`
+	JobType          string            `json:"JobType,omitempty"`
+	JobDescription   string            `json:"JobDescription,omitempty"`
+	Status           string            `json:"Status"`
+	RoleArn          string            `json:"RoleArn,omitempty"`
 }
 
 func cloneInferenceRecommendationsJob(j *InferenceRecommendationsJob) *InferenceRecommendationsJob {
@@ -220,7 +217,9 @@ type CreateInferenceRecommendationsJobOptions struct {
 }
 
 // CreateInferenceRecommendationsJob creates an inference recommendations job.
-func (b *InMemoryBackend) CreateInferenceRecommendationsJob(opts CreateInferenceRecommendationsJobOptions) (*InferenceRecommendationsJob, error) {
+func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
+	opts CreateInferenceRecommendationsJobOptions,
+) (*InferenceRecommendationsJob, error) {
 	b.mu.Lock("CreateInferenceRecommendationsJob")
 	defer b.mu.Unlock()
 
@@ -229,7 +228,11 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(opts CreateInference
 	}
 
 	if _, ok := b.inferenceRecommendationsJobs[opts.JobName]; ok {
-		return nil, fmt.Errorf("%w: inference recommendations job %q already exists", ErrInferenceRecommendationsJobAlreadyExists, opts.JobName)
+		return nil, fmt.Errorf(
+			"%w: inference recommendations job %q already exists",
+			ErrInferenceRecommendationsJobAlreadyExists,
+			opts.JobName,
+		)
 	}
 
 	jobARN := arn.Build("sagemaker", b.region, b.accountID, "inference-recommendations-job/"+opts.JobName)
@@ -258,7 +261,11 @@ func (b *InMemoryBackend) DescribeInferenceRecommendationsJob(name string) (*Inf
 
 	j, ok := b.inferenceRecommendationsJobs[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: inference recommendations job %q not found", ErrInferenceRecommendationsJobNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: inference recommendations job %q not found",
+			ErrInferenceRecommendationsJobNotFound,
+			name,
+		)
 	}
 
 	return cloneInferenceRecommendationsJob(j), nil
@@ -271,7 +278,11 @@ func (b *InMemoryBackend) StopInferenceRecommendationsJob(name string) error {
 
 	j, ok := b.inferenceRecommendationsJobs[name]
 	if !ok {
-		return fmt.Errorf("%w: inference recommendations job %q not found", ErrInferenceRecommendationsJobNotFound, name)
+		return fmt.Errorf(
+			"%w: inference recommendations job %q not found",
+			ErrInferenceRecommendationsJobNotFound,
+			name,
+		)
 	}
 
 	j.Status = "STOPPING"
@@ -331,7 +342,12 @@ func (b *InMemoryBackend) UpdateUserProfile(domainID, userProfileName string) (*
 
 	up, ok := b.userProfiles[key]
 	if !ok {
-		return nil, fmt.Errorf("%w: user profile %q not found in domain %q", ErrUserProfileNotFound, userProfileName, domainID)
+		return nil, fmt.Errorf(
+			"%w: user profile %q not found in domain %q",
+			ErrUserProfileNotFound,
+			userProfileName,
+			domainID,
+		)
 	}
 
 	up.LastModifiedTime = time.Now()
@@ -707,7 +723,9 @@ func (b *InMemoryBackend) ListAppImageConfigs(nextToken string) ([]*AppImageConf
 
 // ListTrainingJobsForHyperParameterTuningJob returns training jobs for an HP tuning job.
 // Since this emulator does not launch training jobs automatically, it always returns empty.
-func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(jobName, nextToken string) ([]*TrainingJob, string, error) {
+func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(
+	jobName, _ string,
+) ([]*TrainingJob, string, error) {
 	b.mu.RLock("ListTrainingJobsForHyperParameterTuningJob")
 	defer b.mu.RUnlock()
 

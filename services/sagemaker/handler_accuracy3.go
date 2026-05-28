@@ -6,6 +6,36 @@ import (
 	"fmt"
 )
 
+// accuracy3 operation name constants.
+const (
+	opCreateEdgePackagingJob                     = "CreateEdgePackagingJob"
+	opDescribeEdgePackagingJob                   = "DescribeEdgePackagingJob"
+	opStopEdgePackagingJob                       = "StopEdgePackagingJob"
+	opListEdgePackagingJobs                      = "ListEdgePackagingJobs"
+	opCreateInferenceRecommendationsJob          = "CreateInferenceRecommendationsJob"
+	opDescribeInferenceRecommendationsJob        = "DescribeInferenceRecommendationsJob"
+	opStopInferenceRecommendationsJob            = "StopInferenceRecommendationsJob"
+	opListInferenceRecommendationsJobs           = "ListInferenceRecommendationsJobs"
+	opListInferenceRecommendationsJobSteps       = "ListInferenceRecommendationsJobSteps"
+	opListMlflowTrackingServers                  = "ListMlflowTrackingServers"
+	opUpdateMlflowTrackingServer                 = "UpdateMlflowTrackingServer"
+	opListModelCards                             = "ListModelCards"
+	opListModelCardVersions                      = "ListModelCardVersions"
+	opListModelCardExportJobs                    = "ListModelCardExportJobs"
+	opUpdateModelPackage                         = "UpdateModelPackage"
+	opUpdateSpace                                = "UpdateSpace"
+	opUpdateUserProfile                          = "UpdateUserProfile"
+	opListOptimizationJobs                       = "ListOptimizationJobs"
+	opListStudioLifecycleConfigs                 = "ListStudioLifecycleConfigs"
+	opListInferenceExperiments                   = "ListInferenceExperiments"
+	opListFlowDefinitions                        = "ListFlowDefinitions"
+	opListHumanTaskUis                           = "ListHumanTaskUis"
+	opListAppImageConfigs                        = "ListAppImageConfigs"
+	opListTrainingJobsForHyperParameterTuningJob = "ListTrainingJobsForHyperParameterTuningJob"
+	keyEdgePackagingJobArn                       = "EdgePackagingJobArn"
+	keyJobArn                                    = "JobArn"
+)
+
 // listResp builds a paginated list response with the given key and items.
 func listResp(key string, items []map[string]any, nextToken string) ([]byte, error) {
 	resp := map[string]any{key: items}
@@ -19,37 +49,30 @@ func listResp(key string, items []map[string]any, nextToken string) ([]byte, err
 // accuracy3OpsSupported returns the real stateful operations implemented in accuracy3.
 func accuracy3OpsSupported() []string {
 	return []string{
-		// EdgePackagingJob
-		"CreateEdgePackagingJob",
-		"DescribeEdgePackagingJob",
-		"StopEdgePackagingJob",
-		"ListEdgePackagingJobs",
-		// InferenceRecommendationsJob
-		"CreateInferenceRecommendationsJob",
-		"DescribeInferenceRecommendationsJob",
-		"StopInferenceRecommendationsJob",
-		"ListInferenceRecommendationsJobs",
-		"ListInferenceRecommendationsJobSteps",
-		// MLflow tracking server list + update
-		"ListMlflowTrackingServers",
-		"UpdateMlflowTrackingServer",
-		// ModelCard lists
-		"ListModelCards",
-		"ListModelCardVersions",
-		"ListModelCardExportJobs",
-		// Updates
-		"UpdateModelPackage",
-		"UpdateSpace",
-		"UpdateUserProfile",
-		// Batch3 resource lists
-		"ListOptimizationJobs",
-		"ListStudioLifecycleConfigs",
-		"ListInferenceExperiments",
-		"ListFlowDefinitions",
-		"ListHumanTaskUis",
-		"ListAppImageConfigs",
-		// HP tuning related
-		"ListTrainingJobsForHyperParameterTuningJob",
+		opCreateEdgePackagingJob,
+		opDescribeEdgePackagingJob,
+		opStopEdgePackagingJob,
+		opListEdgePackagingJobs,
+		opCreateInferenceRecommendationsJob,
+		opDescribeInferenceRecommendationsJob,
+		opStopInferenceRecommendationsJob,
+		opListInferenceRecommendationsJobs,
+		opListInferenceRecommendationsJobSteps,
+		opListMlflowTrackingServers,
+		opUpdateMlflowTrackingServer,
+		opListModelCards,
+		opListModelCardVersions,
+		opListModelCardExportJobs,
+		opUpdateModelPackage,
+		opUpdateSpace,
+		opUpdateUserProfile,
+		opListOptimizationJobs,
+		opListStudioLifecycleConfigs,
+		opListInferenceExperiments,
+		opListFlowDefinitions,
+		opListHumanTaskUis,
+		opListAppImageConfigs,
+		opListTrainingJobsForHyperParameterTuningJob,
 	}
 }
 
@@ -66,43 +89,46 @@ func (h *Handler) dispatchAccuracy3Ops(
 	return h.dispatchListAndUpdateOps(ctx, op, body)
 }
 
-//nolint:cyclop,gocyclo // dispatch table for edge/inference operations
 func (h *Handler) dispatchEdgeAndInferenceOps(
 	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "CreateEdgePackagingJob":
+	case opCreateEdgePackagingJob:
 		r, err := h.handleCreateEdgePackagingJob(ctx, body)
 
 		return r, true, err
-	case "DescribeEdgePackagingJob":
+	case opDescribeEdgePackagingJob:
 		r, err := h.handleDescribeEdgePackagingJob(body)
 
 		return r, true, err
-	case "StopEdgePackagingJob":
+	case opStopEdgePackagingJob:
 		return nil, true, h.handleStopEdgePackagingJob(body)
-	case "ListEdgePackagingJobs":
+	case opListEdgePackagingJobs:
 		r, err := h.handleListEdgePackagingJobs(body)
 
 		return r, true, err
-	case "CreateInferenceRecommendationsJob":
+	case opCreateInferenceRecommendationsJob:
 		r, err := h.handleCreateInferenceRecommendationsJob(ctx, body)
 
 		return r, true, err
-	case "DescribeInferenceRecommendationsJob":
+	case opDescribeInferenceRecommendationsJob:
 		r, err := h.handleDescribeInferenceRecommendationsJob(body)
 
 		return r, true, err
-	case "StopInferenceRecommendationsJob":
+	case opStopInferenceRecommendationsJob:
 		return nil, true, h.handleStopInferenceRecommendationsJob(body)
-	case "ListInferenceRecommendationsJobs":
+	case opListInferenceRecommendationsJobs:
 		r, err := h.handleListInferenceRecommendationsJobs(body)
 
 		return r, true, err
-	case "ListInferenceRecommendationsJobSteps":
+	case opListInferenceRecommendationsJobSteps:
 		r, err := h.handleListInferenceRecommendationsJobSteps(body)
+
+		return r, true, err
+	case opListTrainingJobsForHyperParameterTuningJob:
+		r, err := h.handleListTrainingJobsForHyperParameterTuningJob(body)
 
 		return r, true, err
 	}
@@ -110,71 +136,66 @@ func (h *Handler) dispatchEdgeAndInferenceOps(
 	return nil, false, nil
 }
 
-//nolint:cyclop,gocyclo // dispatch table for list and update operations
 func (h *Handler) dispatchListAndUpdateOps(
 	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "ListMlflowTrackingServers":
+	case opListMlflowTrackingServers:
 		r, err := h.handleListMlflowTrackingServers(body)
 
 		return r, true, err
-	case "UpdateMlflowTrackingServer":
+	case opUpdateMlflowTrackingServer:
 		r, err := h.handleUpdateMlflowTrackingServer(ctx, body)
 
 		return r, true, err
-	case "ListModelCards":
+	case opListModelCards:
 		r, err := h.handleListModelCards(body)
 
 		return r, true, err
-	case "ListModelCardVersions":
+	case opListModelCardVersions:
 		r, err := h.handleListModelCardVersions(body)
 
 		return r, true, err
-	case "ListModelCardExportJobs":
+	case opListModelCardExportJobs:
 		r, err := h.handleListModelCardExportJobs(body)
 
 		return r, true, err
-	case "UpdateModelPackage":
+	case opUpdateModelPackage:
 		r, err := h.handleUpdateModelPackage(ctx, body)
 
 		return r, true, err
-	case "UpdateSpace":
+	case opUpdateSpace:
 		r, err := h.handleUpdateSpace(ctx, body)
 
 		return r, true, err
-	case "UpdateUserProfile":
+	case opUpdateUserProfile:
 		r, err := h.handleUpdateUserProfile(ctx, body)
 
 		return r, true, err
-	case "ListOptimizationJobs":
+	case opListOptimizationJobs:
 		r, err := h.handleListOptimizationJobs(body)
 
 		return r, true, err
-	case "ListStudioLifecycleConfigs":
+	case opListStudioLifecycleConfigs:
 		r, err := h.handleListStudioLifecycleConfigs(body)
 
 		return r, true, err
-	case "ListInferenceExperiments":
+	case opListInferenceExperiments:
 		r, err := h.handleListInferenceExperiments(body)
 
 		return r, true, err
-	case "ListFlowDefinitions":
+	case opListFlowDefinitions:
 		r, err := h.handleListFlowDefinitions(body)
 
 		return r, true, err
-	case "ListHumanTaskUis":
+	case opListHumanTaskUis:
 		r, err := h.handleListHumanTaskUIs(body)
 
 		return r, true, err
-	case "ListAppImageConfigs":
+	case opListAppImageConfigs:
 		r, err := h.handleListAppImageConfigs(body)
-
-		return r, true, err
-	case "ListTrainingJobsForHyperParameterTuningJob":
-		r, err := h.handleListTrainingJobsForHyperParameterTuningJob(body)
 
 		return r, true, err
 	}
@@ -218,7 +239,7 @@ func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte)
 
 	_ = ctx
 
-	return json.Marshal(map[string]string{"EdgePackagingJobArn": j.EdgePackagingJobArn})
+	return json.Marshal(map[string]string{keyEdgePackagingJobArn: j.EdgePackagingJobArn})
 }
 
 func (h *Handler) handleDescribeEdgePackagingJob(body []byte) ([]byte, error) {
@@ -367,7 +388,7 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 
 	_ = ctx
 
-	return json.Marshal(map[string]string{"JobArn": j.JobArn})
+	return json.Marshal(map[string]string{keyJobArn: j.JobArn})
 }
 
 func (h *Handler) handleDescribeInferenceRecommendationsJob(body []byte) ([]byte, error) {
@@ -389,12 +410,12 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(body []byte) ([]byte
 	}
 
 	resp := map[string]any{
-		"JobName":          j.JobName,
-		"JobArn":           j.JobArn,
-		"Status":           j.Status,
+		"JobName":                  j.JobName,
+		keyJobArn:                  j.JobArn,
+		keyStatus:                  j.Status,
 		"InferenceRecommendations": []any{},
-		keyCreationTime:    epochSeconds(j.CreationTime),
-		keyLastModifiedTime: epochSeconds(j.LastModifiedTime),
+		keyCreationTime:            epochSeconds(j.CreationTime),
+		keyLastModifiedTime:        epochSeconds(j.LastModifiedTime),
 	}
 
 	if j.JobType != "" {
@@ -565,11 +586,11 @@ func (h *Handler) handleListModelCards(body []byte) ([]byte, error) {
 	items := make([]map[string]any, 0, len(cards))
 	for _, c := range cards {
 		items = append(items, map[string]any{
-			"ModelCardName":    c.ModelCardName,
-			"ModelCardArn":     c.ModelCardArn,
-			"ModelCardStatus":  c.ModelCardStatus,
-			"ModelCardVersion": c.ModelCardVersion,
-			keyCreationTime:    epochSeconds(c.CreationTime),
+			"ModelCardName":     c.ModelCardName,
+			"ModelCardArn":      c.ModelCardArn,
+			"ModelCardStatus":   c.ModelCardStatus,
+			"ModelCardVersion":  c.ModelCardVersion,
+			keyCreationTime:     epochSeconds(c.CreationTime),
 			keyLastModifiedTime: epochSeconds(c.LastModifiedTime),
 		})
 	}
@@ -598,11 +619,11 @@ func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
 
 	summaries := []map[string]any{
 		{
-			"ModelCardName":    card.ModelCardName,
-			"ModelCardArn":     card.ModelCardArn,
-			"ModelCardStatus":  card.ModelCardStatus,
-			"ModelCardVersion": card.ModelCardVersion,
-			keyCreationTime:    epochSeconds(card.CreationTime),
+			"ModelCardName":     card.ModelCardName,
+			"ModelCardArn":      card.ModelCardArn,
+			"ModelCardStatus":   card.ModelCardStatus,
+			"ModelCardVersion":  card.ModelCardVersion,
+			keyCreationTime:     epochSeconds(card.CreationTime),
 			keyLastModifiedTime: epochSeconds(card.LastModifiedTime),
 		},
 	}
@@ -782,7 +803,7 @@ func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
 		entry := map[string]any{
 			"Name":              e.Name,
 			"Arn":               e.Arn,
-			"Status":            e.Status,
+			keyStatus:           e.Status,
 			keyCreationTime:     epochSeconds(e.CreationTime),
 			keyLastModifiedTime: epochSeconds(e.LastModifiedTime),
 		}
