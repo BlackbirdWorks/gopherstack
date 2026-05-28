@@ -990,4 +990,74 @@ type Backend interface {
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
 	DetachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
+
+	// ---- batch5: TrafficMirror ----
+	CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error)
+	DeleteTrafficMirrorFilter(id string) error
+	DescribeTrafficMirrorFilters(ids []string) []*TrafficMirrorFilter
+	ModifyTrafficMirrorFilterNetworkServices(id string, add, remove []string) error
+	CreateTrafficMirrorFilterRule(
+		filterID, direction, action, srcCIDR, dstCIDR, description string,
+		ruleNumber, protocol int,
+	) (*TrafficMirrorFilterRule, error)
+	DeleteTrafficMirrorFilterRule(id string) error
+	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
+	ModifyTrafficMirrorFilterRule(id, action, description string) error
+	CreateTrafficMirrorSession(
+		networkInterfaceID, targetID, filterID, description string,
+		sessionNumber int,
+	) (*TrafficMirrorSession, error)
+	DeleteTrafficMirrorSession(id string) error
+	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
+	ModifyTrafficMirrorSession(id, targetID, filterID, description string) error
+	CreateTrafficMirrorTarget(
+		networkInterfaceID, networkLoadBalancerArn, description string,
+	) (*TrafficMirrorTarget, error)
+	DeleteTrafficMirrorTarget(id string) error
+	DescribeTrafficMirrorTargets(ids []string) []*TrafficMirrorTarget
+
+	// ---- batch5: EC2 Fleet ----
+	CreateFleet(fleetType string, totalTargetCapacity int) (*Fleet, error)
+	DeleteFleets(ids []string) []string
+	DescribeFleets(ids []string) []*Fleet
+	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
+
+	// ---- batch5: NetworkInsights ----
+	CreateNetworkInsightsPath(sourceID, destinationID, protocol string, destinationPort int) (*NetworkInsightsPath, error)
+	DeleteNetworkInsightsPath(id string) error
+	DescribeNetworkInsightsPaths(ids []string) []*NetworkInsightsPath
+	StartNetworkInsightsAnalysis(pathID string) (*NetworkInsightsAnalysis, error)
+	DeleteNetworkInsightsAnalysis(id string) error
+	DescribeNetworkInsightsAnalyses(ids []string) []*NetworkInsightsAnalysis
+	CreateNetworkInsightsAccessScope() (*NetworkInsightsAccessScope, error)
+	DeleteNetworkInsightsAccessScope(id string) error
+	DescribeNetworkInsightsAccessScopes(ids []string) []*NetworkInsightsAccessScope
+	StartNetworkInsightsAccessScopeAnalysis(scopeID string) (*NetworkInsightsAccessScopeAnalysis, error)
+	DeleteNetworkInsightsAccessScopeAnalysis(id string) error
+	DescribeNetworkInsightsAccessScopeAnalyses(ids []string) []*NetworkInsightsAccessScopeAnalysis
+
+	// ---- batch5: BYOIP ----
+	ProvisionByoipCidr(cidr, description string) (*ByoipCidr, error)
+	DeprovisionByoipCidr(cidr string) (*ByoipCidr, error)
+	WithdrawByoipCidr(cidr string) (*ByoipCidr, error)
+
+	// ---- batch5: CarrierGateway ----
+	CreateCarrierGateway(vpcID string) (*CarrierGateway, error)
+	DeleteCarrierGateway(id string) error
+	DescribeCarrierGateways(ids []string) []*CarrierGateway
+
+	// ---- batch5: ReservedInstances ----
+	DescribeReservedInstances(ids []string) []*ReservedInstance
+	DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering
+	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
+	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
+	CancelReservedInstancesListing(id string) error
+	DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing
+	DescribeReservedInstancesModifications(ids []string) []*ReservedInstancesModification
+	ModifyReservedInstances(
+		reservedInstancesIDs []string,
+		targetInstanceType string,
+		targetCount int,
+	) (*ReservedInstancesModification, error)
+	DeleteQueuedReservedInstances(ids []string)
 }

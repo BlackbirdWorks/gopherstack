@@ -282,7 +282,22 @@ type InMemoryBackend struct {
 	fastSnapshotRestores      map[string]bool
 	vpnConnectionRoutes       map[string]*VpnConnectionRoute
 	spotDatafeed              *SpotDatafeed
-	mu                        *lockmetrics.RWMutex
+	// batch5 additions
+	trafficMirrorFilters                map[string]*TrafficMirrorFilter
+	trafficMirrorFilterRules            map[string]*TrafficMirrorFilterRule
+	trafficMirrorSessions               map[string]*TrafficMirrorSession
+	trafficMirrorTargets                map[string]*TrafficMirrorTarget
+	fleets                              map[string]*Fleet
+	networkInsightsPaths                map[string]*NetworkInsightsPath
+	networkInsightsAnalyses             map[string]*NetworkInsightsAnalysis
+	networkInsightsAccessScopes         map[string]*NetworkInsightsAccessScope
+	networkInsightsAccessScopeAnalyses  map[string]*NetworkInsightsAccessScopeAnalysis
+	carrierGateways                     map[string]*CarrierGateway
+	reservedInstances                   map[string]*ReservedInstance
+	reservedInstancesOfferings          map[string]*ReservedInstancesOffering
+	reservedInstancesListings           map[string]*ReservedInstancesListing
+	reservedInstancesModifications      map[string]*ReservedInstancesModification
+	mu                                  *lockmetrics.RWMutex
 	eniIDByAttachment         map[string]string
 	eniIDsByInstance          map[string]map[string]struct{}
 	instanceIDsByVPC          map[string]map[string]struct{}
@@ -392,9 +407,23 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		fastLaunchImages:               make(map[string]bool),
 		fastSnapshotRestores:           make(map[string]bool),
 		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
-		instanceIDsByVPC:               make(map[string]map[string]struct{}),
-		eniIDsByInstance:               make(map[string]map[string]struct{}),
-		eniIDByAttachment:              make(map[string]string),
+		instanceIDsByVPC:                    make(map[string]map[string]struct{}),
+		eniIDsByInstance:                    make(map[string]map[string]struct{}),
+		eniIDByAttachment:                   make(map[string]string),
+		trafficMirrorFilters:                make(map[string]*TrafficMirrorFilter),
+		trafficMirrorFilterRules:            make(map[string]*TrafficMirrorFilterRule),
+		trafficMirrorSessions:               make(map[string]*TrafficMirrorSession),
+		trafficMirrorTargets:                make(map[string]*TrafficMirrorTarget),
+		fleets:                              make(map[string]*Fleet),
+		networkInsightsPaths:                make(map[string]*NetworkInsightsPath),
+		networkInsightsAnalyses:             make(map[string]*NetworkInsightsAnalysis),
+		networkInsightsAccessScopes:         make(map[string]*NetworkInsightsAccessScope),
+		networkInsightsAccessScopeAnalyses:  make(map[string]*NetworkInsightsAccessScopeAnalysis),
+		carrierGateways:                     make(map[string]*CarrierGateway),
+		reservedInstances:                   make(map[string]*ReservedInstance),
+		reservedInstancesOfferings:          make(map[string]*ReservedInstancesOffering),
+		reservedInstancesListings:           make(map[string]*ReservedInstancesListing),
+		reservedInstancesModifications:      make(map[string]*ReservedInstancesModification),
 	}
 }
 

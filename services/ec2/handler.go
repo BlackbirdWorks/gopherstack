@@ -455,6 +455,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerBatch2Ops(h, ops)
 	registerBatch3Ops(h, ops)
 	registerBatch4Ops(h, ops)
+	registerBatch5Ops(h, ops)
 	registerStubOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
