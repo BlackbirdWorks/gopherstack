@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -29,6 +30,180 @@ const (
 	// defaultTimestreamMaxResults is the default page size when MaxResults is not specified.
 	defaultTimestreamMaxResults = 100
 )
+
+// AWS API limits enforced by this handler.
+const (
+	// maxDatabaseNameLen is the maximum length for a Timestream database name per the AWS API.
+	maxDatabaseNameLen = 64
+	// maxTableNameLen is the maximum length for a Timestream table name per the AWS API.
+	maxTableNameLen = 256
+	// maxTagKeyLen is the maximum byte length of a tag key per the AWS API.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the maximum byte length of a tag value per the AWS API.
+	maxTagValueLen = 256
+	// maxTagsPerResource is the maximum number of tags allowed on a single resource per the AWS API.
+	maxTagsPerResource = 200
+	// maxRecordsPerRequest is the maximum number of records accepted in a single WriteRecords call
+	// per the AWS API.
+	maxRecordsPerRequest = 100
+
+	// minMemoryRetentionHours is the minimum allowed value for MemoryStoreRetentionPeriodInHours.
+	minMemoryRetentionHours = 1
+	// maxMemoryRetentionHours is the maximum allowed value for MemoryStoreRetentionPeriodInHours
+	// (approximately one year).
+	maxMemoryRetentionHours = 8766
+	// minMagneticRetentionDays is the minimum allowed value for MagneticStoreRetentionPeriodInDays.
+	minMagneticRetentionDays = 1
+	// maxMagneticRetentionDays is the maximum allowed value for MagneticStoreRetentionPeriodInDays
+	// (approximately 200 years).
+	maxMagneticRetentionDays = 73000
+)
+
+// resourceNameRE is the allowed character set for Timestream database and table names per the
+// AWS API: alphanumeric characters, hyphens, underscores, and dots.
+var resourceNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validateDatabaseName validates a Timestream database name against AWS length and format
+// constraints. The name must be non-empty, at most 64 characters, and contain only
+// alphanumeric characters, hyphens, underscores, or dots.
+func validateDatabaseName(name string) error {
+	if len(name) > maxDatabaseNameLen {
+		return fmt.Errorf(
+			"%w: DatabaseName %q must be at most %d characters long",
+			errInvalidRequest, name, maxDatabaseNameLen,
+		)
+	}
+
+	if !resourceNameRE.MatchString(name) {
+		return fmt.Errorf(
+			"%w: DatabaseName %q must contain only alphanumeric characters, hyphens, underscores, or dots",
+			errInvalidRequest, name,
+		)
+	}
+
+	return nil
+}
+
+// validateTableName validates a Timestream table name against AWS length and format constraints.
+// The name must be non-empty, at most 256 characters, and contain only alphanumeric characters,
+// hyphens, underscores, or dots.
+func validateTableName(name string) error {
+	if len(name) > maxTableNameLen {
+		return fmt.Errorf(
+			"%w: TableName %q must be at most %d characters long",
+			errInvalidRequest, name, maxTableNameLen,
+		)
+	}
+
+	if !resourceNameRE.MatchString(name) {
+		return fmt.Errorf(
+			"%w: TableName %q must contain only alphanumeric characters, hyphens, underscores, or dots",
+			errInvalidRequest, name,
+		)
+	}
+
+	return nil
+}
+
+// validateRetentionPropertiesInput validates retention period values against AWS limits.
+// A nil input is treated as valid (no retention properties set).
+func validateRetentionPropertiesInput(rp *retentionPropertiesInput) error {
+	if rp == nil {
+		return nil
+	}
+
+	if rp.MemoryStoreRetentionPeriodInHours < minMemoryRetentionHours ||
+		rp.MemoryStoreRetentionPeriodInHours > maxMemoryRetentionHours {
+		return fmt.Errorf(
+			"%w: MemoryStoreRetentionPeriodInHours must be between %d and %d, got %d",
+			errInvalidRequest,
+			minMemoryRetentionHours,
+			maxMemoryRetentionHours,
+			rp.MemoryStoreRetentionPeriodInHours,
+		)
+	}
+
+	if rp.MagneticStoreRetentionPeriodInDays < minMagneticRetentionDays ||
+		rp.MagneticStoreRetentionPeriodInDays > maxMagneticRetentionDays {
+		return fmt.Errorf(
+			"%w: MagneticStoreRetentionPeriodInDays must be between %d and %d, got %d",
+			errInvalidRequest,
+			minMagneticRetentionDays,
+			maxMagneticRetentionDays,
+			rp.MagneticStoreRetentionPeriodInDays,
+		)
+	}
+
+	return nil
+}
+
+// validateTagInputs validates a tag slice against AWS constraints: max 200 tags per resource,
+// keys must be 1–128 characters and non-empty, values must be 0–256 characters.
+func validateTagInputs(tags []tagInput) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: too many tags: max %d per resource, got %d",
+			errInvalidRequest, maxTagsPerResource, len(tags),
+		)
+	}
+
+	for _, t := range tags {
+		if t.Key == "" {
+			return fmt.Errorf("%w: tag key cannot be empty", errInvalidRequest)
+		}
+
+		if len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf(
+				"%w: tag key %q exceeds maximum length of %d characters",
+				errInvalidRequest, t.Key, maxTagKeyLen,
+			)
+		}
+
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d characters",
+				errInvalidRequest, t.Key, maxTagValueLen,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateSchemaPartitionKeys validates the CompositePartitionKey slice against AWS rules.
+// DIMENSION partition keys must specify a Name field.
+// An unknown Type is rejected with a ValidationException.
+func validateSchemaPartitionKeys(sc *schemaInput) error {
+	if sc == nil {
+		return nil
+	}
+
+	for i, pk := range sc.CompositePartitionKey {
+		switch pk.Type {
+		case PartitionKeyTypeDimension:
+			if pk.Name == "" {
+				return fmt.Errorf(
+					"%w: partition key at index %d has Type %q but is missing required Name field",
+					errInvalidRequest, i, PartitionKeyTypeDimension,
+				)
+			}
+		case PartitionKeyTypeMeasure:
+			// MEASURE partition keys: Name is not applicable and should not be set.
+		case "":
+			return fmt.Errorf(
+				"%w: partition key at index %d is missing required Type field",
+				errInvalidRequest, i,
+			)
+		default:
+			return fmt.Errorf(
+				"%w: partition key at index %d has unknown Type %q (must be %q or %q)",
+				errInvalidRequest, i, pk.Type, PartitionKeyTypeDimension, PartitionKeyTypeMeasure,
+			)
+		}
+	}
+
+	return nil
+}
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -235,6 +410,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 type createDatabaseInput struct {
 	DatabaseName string     `json:"DatabaseName"`
+	KmsKeyID     string     `json:"KmsKeyId,omitempty"`
 	Tags         []tagInput `json:"Tags"`
 }
 
@@ -564,11 +740,29 @@ func (h *Handler) handleCreateDatabase(
 		return nil, fmt.Errorf("%w: DatabaseName is required", errInvalidRequest)
 	}
 
+	// Validate database name format and length per AWS API constraints.
+	if err := validateDatabaseName(in.DatabaseName); err != nil {
+		return nil, err
+	}
+
+	// Validate tags per AWS API constraints.
+	if err := validateTagInputs(in.Tags); err != nil {
+		return nil, err
+	}
+
 	tags := tagsFromInput(in.Tags)
 
 	db, err := h.Backend.CreateDatabase(in.DatabaseName, tags)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply KmsKeyId if provided — the AWS API supports specifying a KMS key at creation time.
+	if in.KmsKeyID != "" {
+		db, err = h.Backend.UpdateDatabase(in.DatabaseName, in.KmsKeyID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &databaseOutput{Database: toDatabaseView(db)}, nil
@@ -613,7 +807,23 @@ func (h *Handler) handleDeleteDatabase(
 		return nil, fmt.Errorf("%w: DatabaseName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteDatabase(in.DatabaseName); err != nil {
+	// AWS API requires all tables to be deleted before a database can be deleted.
+	tbls, err := h.Backend.ListTables(in.DatabaseName)
+	if err != nil {
+		// Propagate not-found and other backend errors.
+		return nil, err
+	}
+
+	if len(tbls) > 0 {
+		return nil, fmt.Errorf(
+			"%w: database %q cannot be deleted: it still contains %d table(s); "+
+				"delete all tables before deleting the database",
+			errInvalidRequest, in.DatabaseName, len(tbls),
+		)
+	}
+
+	err = h.Backend.DeleteDatabase(in.DatabaseName)
+	if err != nil {
 		return nil, err
 	}
 
@@ -642,6 +852,26 @@ func (h *Handler) handleCreateTable(
 ) (*tableOutput, error) {
 	if in.DatabaseName == "" || in.TableName == "" {
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", errInvalidRequest)
+	}
+
+	// Validate table name format and length per AWS API constraints.
+	if err := validateTableName(in.TableName); err != nil {
+		return nil, err
+	}
+
+	// Validate retention properties ranges per AWS API constraints.
+	if err := validateRetentionPropertiesInput(in.RetentionProperties); err != nil {
+		return nil, err
+	}
+
+	// Validate schema partition key configuration per AWS API constraints.
+	if err := validateSchemaPartitionKeys(in.Schema); err != nil {
+		return nil, err
+	}
+
+	// Validate tags per AWS API constraints.
+	if err := validateTagInputs(in.Tags); err != nil {
+		return nil, err
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -718,6 +948,16 @@ func (h *Handler) handleUpdateTable(
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", errInvalidRequest)
 	}
 
+	// Validate retention properties ranges per AWS API constraints.
+	if err := validateRetentionPropertiesInput(in.RetentionProperties); err != nil {
+		return nil, err
+	}
+
+	// Validate schema partition key configuration per AWS API constraints.
+	if err := validateSchemaPartitionKeys(in.Schema); err != nil {
+		return nil, err
+	}
+
 	var inp *UpdateTableInput
 	cti := buildCreateTableInput(in.RetentionProperties, in.MagneticStoreWriteProperties, in.Schema)
 
@@ -745,6 +985,14 @@ func (h *Handler) handleWriteRecords(
 		return nil, fmt.Errorf("%w: DatabaseName and TableName are required", errInvalidRequest)
 	}
 
+	// AWS API enforces a maximum of 100 records per WriteRecords request.
+	if len(in.Records) > maxRecordsPerRequest {
+		return nil, fmt.Errorf(
+			"%w: WriteRecords accepts at most %d records per request, got %d",
+			errInvalidRequest, maxRecordsPerRequest, len(in.Records),
+		)
+	}
+
 	records := make([]Record, 0, len(in.Records))
 
 	for _, r := range in.Records {
@@ -760,6 +1008,7 @@ func (h *Handler) handleWriteRecords(
 	out := &writeRecordsOutput{}
 	out.RecordsIngested.Total = result.Total
 	out.RecordsIngested.MemoryStore = result.MemoryStore
+	out.RecordsIngested.MagneticStore = result.MagneticStore
 
 	return out, nil
 }
@@ -855,6 +1104,11 @@ func (h *Handler) handleTagResource(
 ) (*emptyOutput, error) {
 	if in.ResourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	// Validate tags per AWS API constraints before storing.
+	if err := validateTagInputs(in.Tags); err != nil {
+		return nil, err
 	}
 
 	tags := make(map[string]string, len(in.Tags))
