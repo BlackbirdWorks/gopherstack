@@ -2074,3 +2074,648 @@ func TestHandler_ErrValidationMapsTo400(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, rec.Code)
 	})
 }
+
+func TestHandler_GetAssociatedPackageGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name: "success_no_match",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=apg-domain", nil)
+			},
+			path:       "/v1/associated-package-group?domain=apg-domain&format=npm&package=mypkg",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/associated-package-group?format=npm&package=mypkg",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/associated-package-group?domain=apg-domain&package=mypkg",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/associated-package-group?domain=apg-domain&format=npm",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/associated-package-group?domain=nope&format=npm&package=mypkg",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListSubPackageGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codeartifact.Handler)
+		name       string
+		path       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "success_with_subgroups",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=lspg-domain", nil)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/npm/react/*"},
+				)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg-domain",
+					map[string]any{"pattern": "/pypi/*"},
+				)
+			},
+			path:       "/v1/sub-package-groups?domain=lspg-domain&packageGroup=/npm/*",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "success_no_subgroups",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=lspg2-domain", nil)
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=lspg2-domain",
+					map[string]any{"pattern": "/npm/*"},
+				)
+			},
+			path:       "/v1/sub-package-groups?domain=lspg2-domain&packageGroup=/npm/*",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:       "missing_domain",
+			path:       "/v1/sub-package-groups?packageGroup=/npm/*",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package_group",
+			path:       "/v1/sub-package-groups?domain=lspg-domain",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/sub-package-groups?domain=nope&packageGroup=/npm/*",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				groups, _ := resp["packageGroups"].([]any)
+				assert.Len(t, groups, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=disp-st-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=disp-st-domain&repository=disp-st-repo", nil)
+	doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg&version=1.0.0",
+		nil,
+	)
+
+	rec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions/dispose?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg",
+		map[string]any{"versions": []string{"1.0.0", "9.9.9"}},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	success, _ := resp["successfulVersions"].(map[string]any)
+	assert.Equal(t, "SUCCESS", success["1.0.0"])
+	assert.Equal(t, "NOT_FOUND", success["9.9.9"])
+
+	// Verify status changed to Disposed.
+	descRec := doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	pv, _ := descResp["packageVersion"].(map[string]any)
+	assert.Equal(t, "Disposed", pv["status"])
+}
+
+func TestHandler_UpdatePackageVersionsStatus_StatusChange(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=uvs-st-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=uvs-st-domain&repository=uvs-st-repo", nil)
+	doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+
+	rec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions/update_status?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react",
+		map[string]any{"targetStatus": "Archived", "versions": []string{"18.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify status changed.
+	descRec := doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	pv, _ := descResp["packageVersion"].(map[string]any)
+	assert.Equal(t, "Archived", pv["status"])
+}
+
+func TestHandler_UpdateRepository_DescriptionPersists(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=ur-desc-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
+		map[string]any{"description": "original"},
+	)
+
+	rec := doRequest(t, h, http.MethodPut, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
+		map[string]any{"description": "updated"},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, http.MethodGet, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo", nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	repo, _ := resp["repository"].(map[string]any)
+	assert.Equal(t, "updated", repo["description"])
+}
+
+func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pub-list-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pub-list-domain&repository=pub-list-repo", nil)
+
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package/versions/publish?domain=pub-list-domain"+
+			"&repository=pub-list-repo&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package/versions/publish?domain=pub-list-domain"+
+			"&repository=pub-list-repo&format=npm&package=react&version=19.0.0",
+		nil,
+	)
+
+	listRec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	versions, _ := resp["versions"].([]any)
+	assert.Len(t, versions, 2)
+}
+
+func TestHandler_PackageGroupTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pgt-domain", nil)
+
+	createRec := doRequest(t, h, http.MethodPost, "/v1/package-group?domain=pgt-domain", map[string]any{
+		"pattern": "/npm/*",
+		"tags":    []map[string]any{{"key": "env", "value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	pg, _ := createResp["packageGroup"].(map[string]any)
+	pgARN, _ := pg["arn"].(string)
+	require.NotEmpty(t, pgARN)
+
+	listRec := doRequest(t, h, http.MethodPost, "/v1/tags?resourceArn="+pgARN, nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tagList, _ := listResp["tags"].([]any)
+	assert.Len(t, tagList, 1)
+}
+
+func TestHandler_PackageVersionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "lifecycle-domain")
+	setupRepo(t, h, "lifecycle-domain", "lifecycle-repo")
+
+	// Publish version.
+	pubRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package/versions/publish?domain=lifecycle-domain"+
+			"&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, pubRec.Code)
+	var pubResp map[string]any
+	require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp))
+	assert.Equal(t, "1.0.0", pubResp["version"])
+	assert.Equal(t, "Published", pubResp["status"])
+
+	// Describe version.
+	descRec := doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	pv, _ := descResp["packageVersion"].(map[string]any)
+	assert.Equal(t, "Published", pv["status"])
+
+	// Archive version.
+	archRec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions/update_status?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
+		map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, archRec.Code)
+
+	// Verify archived.
+	descRec2 := doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec2.Code)
+	var descResp2 map[string]any
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	pv2, _ := descResp2["packageVersion"].(map[string]any)
+	assert.Equal(t, "Archived", pv2["status"])
+
+	// Dispose version.
+	dispRec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions/dispose?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
+		map[string]any{"versions": []string{"1.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, dispRec.Code)
+
+	// Verify disposed.
+	descRec3 := doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec3.Code)
+	var descResp3 map[string]any
+	require.NoError(t, json.Unmarshal(descRec3.Body.Bytes(), &descResp3))
+	pv3, _ := descResp3["packageVersion"].(map[string]any)
+	assert.Equal(t, "Disposed", pv3["status"])
+
+	// Delete version.
+	delRec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions/delete?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
+		map[string]any{"versions": []string{"1.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	// Verify gone from list.
+	listRec := doRequest(t, h, http.MethodPost,
+		"/v1/package/versions?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	versions, _ := listResp["versions"].([]any)
+	assert.Empty(t, versions)
+}
+
+func TestHandler_PackageGroupHierarchy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "hier-domain")
+
+	// Create parent and child package groups.
+	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/*"})
+	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/react/*"})
+	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/lodash/*"})
+	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/pypi/*"})
+
+	// ListPackageGroups should return all 4.
+	allRec := doRequest(t, h, http.MethodPost, "/v1/package-groups?domain=hier-domain", nil)
+	require.Equal(t, http.StatusOK, allRec.Code)
+	var allResp map[string]any
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
+	allGroups, _ := allResp["packageGroups"].([]any)
+	assert.Len(t, allGroups, 4)
+
+	// ListSubPackageGroups for /npm/* should return 2 sub-groups.
+	subRec := doRequest(t, h, http.MethodGet, "/v1/sub-package-groups?domain=hier-domain&packageGroup=/npm/*", nil)
+	require.Equal(t, http.StatusOK, subRec.Code)
+	var subResp map[string]any
+	require.NoError(t, json.Unmarshal(subRec.Body.Bytes(), &subResp))
+	subGroups, _ := subResp["packageGroups"].([]any)
+	assert.Len(t, subGroups, 2)
+
+	// ListSubPackageGroups for /pypi/* should return 0 sub-groups.
+	subRec2 := doRequest(t, h, http.MethodGet, "/v1/sub-package-groups?domain=hier-domain&packageGroup=/pypi/*", nil)
+	require.Equal(t, http.StatusOK, subRec2.Code)
+	var subResp2 map[string]any
+	require.NoError(t, json.Unmarshal(subRec2.Body.Bytes(), &subResp2))
+	subGroups2, _ := subResp2["packageGroups"].([]any)
+	assert.Empty(t, subGroups2)
+}
+
+func TestHandler_MultiFormatPackages(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "fmt-multi-domain")
+	setupRepo(t, h, "fmt-multi-domain", "fmt-multi-repo")
+
+	// Publish packages in different formats.
+	for _, tc := range []struct {
+		format, pkg, version string
+	}{
+		{"npm", "react", "18.0.0"},
+		{"npm", "lodash", "4.17.21"},
+		{"pypi", "boto3", "1.28.0"},
+		{"maven", "spring-boot", "3.0.0"},
+	} {
+		doRequest(t, h, http.MethodPost,
+			"/v1/package/versions/publish?domain=fmt-multi-domain&repository=fmt-multi-repo&format="+
+				tc.format+"&package="+tc.pkg+"&version="+tc.version,
+			nil,
+		)
+	}
+
+	// List all packages.
+	allRec := doRequest(t, h, http.MethodPost, "/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo", nil)
+	require.Equal(t, http.StatusOK, allRec.Code)
+	var allResp map[string]any
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
+	allPkgs, _ := allResp["packages"].([]any)
+	assert.Len(t, allPkgs, 4)
+
+	// Filter by npm format.
+	npmRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=npm",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, npmRec.Code)
+	var npmResp map[string]any
+	require.NoError(t, json.Unmarshal(npmRec.Body.Bytes(), &npmResp))
+	npmPkgs, _ := npmResp["packages"].([]any)
+	assert.Len(t, npmPkgs, 2)
+
+	// Filter by pypi format.
+	pypiRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo&format=pypi",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, pypiRec.Code)
+	var pypiResp map[string]any
+	require.NoError(t, json.Unmarshal(pypiRec.Body.Bytes(), &pypiResp))
+	pypiPkgs, _ := pypiResp["packages"].([]any)
+	assert.Len(t, pypiPkgs, 1)
+}
+
+func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "multi-conn-domain")
+	setupRepo(t, h, "multi-conn-domain", "multi-conn-repo")
+
+	// Associate multiple external connections.
+	for _, conn := range []string{"public:npmjs", "public:pypi", "public:maven-central"} {
+		rec := doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&externalConnection="+conn,
+			nil,
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Verify 3 connections via DescribeRepository.
+	descRec := doRequest(t, h, http.MethodGet,
+		"/v1/repository?domain=multi-conn-domain&repository=multi-conn-repo",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	repo, _ := descResp["repository"].(map[string]any)
+	conns, _ := repo["externalConnections"].([]any)
+	assert.Len(t, conns, 3)
+
+	// Disassociate one.
+	disRec := doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/v1/repository/external-connection?domain=multi-conn-domain"+
+			"&repository=multi-conn-repo&externalConnection=public:pypi",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, disRec.Code)
+	var disResp map[string]any
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	disRepo, _ := disResp["repository"].(map[string]any)
+	disConns, _ := disRepo["externalConnections"].([]any)
+	assert.Len(t, disConns, 2)
+}
+
+func TestHandler_AssociatedPackageGroup_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_domain",
+			path:       "/v1/associated-package-group?format=npm&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_format",
+			path:       "/v1/associated-package-group?domain=d&package=lodash",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_package",
+			path:       "/v1/associated-package-group?domain=d&format=npm",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "domain_not_found",
+			path:       "/v1/associated-package-group?domain=nope&format=npm&package=lodash",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "self-copy-domain")
+	setupRepo(t, h, "self-copy-domain", "src")
+	setupRepo(t, h, "self-copy-domain", "dst")
+
+	// Seed version in src.
+	doRequest(t, h, http.MethodGet,
+		"/v1/package/version?domain=self-copy-domain&repository=src&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+
+	// Copy to dst.
+	copyRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package/versions/copy?domain=self-copy-domain"+
+			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+		map[string]any{"versions": []string{"18.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, copyRec.Code)
+
+	// Copy again (duplicate) to dst — should fail.
+	copyRec2 := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package/versions/copy?domain=self-copy-domain"+
+			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+		map[string]any{"versions": []string{"18.0.0"}},
+	)
+	require.Equal(t, http.StatusOK, copyRec2.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(copyRec2.Body.Bytes(), &resp))
+	failed, _ := resp["failedVersions"].([]any)
+	assert.Len(t, failed, 1)
+	entry, _ := failed[0].(map[string]any)
+	assert.Equal(t, "18.0.0", entry["version"])
+	assert.Equal(t, "ALREADY_EXISTS", entry["errorCode"])
+}
+
+func TestHandler_DomainSummaryVsFullDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "summary-domain")
+	setupRepo(t, h, "summary-domain", "r1")
+	setupRepo(t, h, "summary-domain", "r2")
+
+	// ListDomains returns summary (no repositoryCount).
+	listRec := doRequest(t, h, http.MethodPost, "/v1/domains", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	domains, _ := listResp["domains"].([]any)
+	require.Len(t, domains, 1)
+	d, _ := domains[0].(map[string]any)
+	assert.NotEmpty(t, d["arn"])
+	assert.NotEmpty(t, d["name"])
+
+	// DescribeDomain returns full info with repositoryCount.
+	descRec := doRequest(t, h, http.MethodGet, "/v1/domain?domain=summary-domain", nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	dd, _ := descResp["domain"].(map[string]any)
+	count, _ := dd["repositoryCount"].(float64)
+	assert.InEpsilon(t, float64(2), count, 0)
+}

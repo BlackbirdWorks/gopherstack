@@ -1062,12 +1062,14 @@ func (b *InMemoryBackend) ListSubPackageGroups(domainName, pattern string) ([]*P
 
 	result := make([]*PackageGroup, 0, len(b.packageGroups))
 
+	parentRoot := strings.TrimSuffix(pattern, "*")
+
 	for _, pg := range b.packageGroups {
 		if pg.DomainName != domainName {
 			continue
 		}
 
-		if pg.Pattern == pattern || !strings.HasPrefix(pg.Pattern, pattern) {
+		if pg.Pattern == pattern || !strings.HasPrefix(pg.Pattern, parentRoot) {
 			continue
 		}
 
