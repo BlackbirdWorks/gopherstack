@@ -367,6 +367,63 @@ func (db *InMemoryDB) StreamRecordCount(tableName string) int {
 	return len(tbl.StreamRecords)
 }
 
+// StreamShards returns a copy of the shard genealogy for the named table's stream.
+func (db *InMemoryDB) StreamShards(tableName string) []StreamShard {
+	db.mu.RLock("StreamShards")
+	regionTables := db.Tables[db.defaultRegion]
+	tbl := regionTables[tableName]
+	db.mu.RUnlock()
+
+	if tbl == nil {
+		return nil
+	}
+
+	tbl.mu.RLock("StreamShards.table")
+	defer tbl.mu.RUnlock()
+
+	out := make([]StreamShard, len(tbl.streamShards))
+	copy(out, tbl.streamShards)
+
+	return out
+}
+
+// StreamTrimSeq returns the current trim horizon (oldest seq still in buffer) for the named table.
+func (db *InMemoryDB) StreamTrimSeq(tableName string) int64 {
+	db.mu.RLock("StreamTrimSeq")
+	regionTables := db.Tables[db.defaultRegion]
+	tbl := regionTables[tableName]
+	db.mu.RUnlock()
+
+	if tbl == nil {
+		return -1
+	}
+
+	tbl.mu.RLock("StreamTrimSeq.table")
+	defer tbl.mu.RUnlock()
+
+	return tbl.streamTrimSeq
+}
+
+// IteratorStoreSize returns the number of active iterator tokens in the store.
+func (db *InMemoryDB) IteratorStoreSize() int {
+	return db.iteratorStore.Size()
+}
+
+// SweepIterators removes expired iterator tokens from the store.
+func (db *InMemoryDB) SweepIterators() {
+	db.iteratorStore.Sweep()
+}
+
+// ParseSeqNum exposes parseSeqNum for tests.
+func ParseSeqNum(s string) (int64, error) {
+	return parseSeqNum(s)
+}
+
+// SeqNumString exposes seqNumString for tests.
+func SeqNumString(seq int64) string {
+	return seqNumString(seq)
+}
+
 // TxnTokensMaxCap exposes the package-level cap constant for testing.
 const TxnTokensMaxCap = txnTokensMaxCap
 

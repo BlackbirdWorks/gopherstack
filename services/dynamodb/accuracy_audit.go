@@ -513,6 +513,15 @@ func (s *ShardIteratorStore) Sweep() {
 	}
 }
 
+// Size returns the number of entries currently in the store (including expired ones
+// that have not yet been swept).
+func (s *ShardIteratorStore) Size() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.entries)
+}
+
 // generateOpaqueToken generates a cryptographically-random hex token.
 func generateOpaqueToken() (string, error) {
 	b := make([]byte, shardIteratorTokenLen)

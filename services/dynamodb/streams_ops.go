@@ -398,34 +398,21 @@ func isValidShardID(shardID string, shards []StreamShard) bool {
 	return false
 }
 
-// GetRecords reads stream records starting from the given shard iterator.
+// GetRecords reads stream records starting from the given opaque shard iterator.
 func (db *InMemoryDB) GetRecords(
 	ctx context.Context,
 	input *dynamodbstreams.GetRecordsInput,
 ) (*dynamodbstreams.GetRecordsOutput, error) {
-	iterator := aws.ToString(input.ShardIterator)
-	parts := strings.Split(iterator, ":")
-	if len(parts) != iteratorPartCount {
-		return nil, NewValidationException("Invalid shard iterator")
+	token := aws.ToString(input.ShardIterator)
+	if token == "" {
+		return nil, NewValidationException("ShardIterator is required")
 	}
 
-	tableName := parts[0]
-	startSeq, err := strconv.ParseInt(parts[1], 10, 64)
+	// Resolve the opaque token. Falls back to legacy "tableName:seq:ts" format
+	// for backward compatibility with tests that construct iterators directly.
+	tableName, startSeq, err := db.resolveIterator(token)
 	if err != nil {
-		return nil, NewValidationException("Invalid shard iterator: invalid sequence number")
-	}
-
-	ts, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return nil, NewValidationException("Invalid shard iterator: invalid timestamp")
-	}
-
-	// AWS: Shard iterators expire after 15 minutes.
-	// Reject future timestamps to prevent forged iterators from bypassing expiration.
-	iterTime := time.Unix(ts, 0)
-	now := time.Now()
-	if iterTime.After(now) || now.Sub(iterTime) > 15*time.Minute {
-		return nil, NewExpiredIteratorException("Shard iterator has expired")
+		return nil, err
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -439,27 +426,87 @@ func (db *InMemoryDB) GetRecords(
 	}
 
 	table.mu.RLock("GetRecords")
-	defer table.mu.RUnlock()
-
+	trimSeq := table.streamTrimSeq
+	currentSeq := table.streamSeq
 	tail, head := table.streamRecordsInOrder()
-	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, table.streamSeq, db.defaultRegion)
+	table.mu.RUnlock()
+
+	// If the requested start is before the trim horizon, the data has been evicted.
+	if trimSeq > 0 && startSeq < trimSeq {
+		return nil, NewTrimmedDataAccessException(
+			fmt.Sprintf("Sequence number %s has been trimmed; earliest available is %s",
+				seqNumString(startSeq), seqNumString(trimSeq)),
+		)
+	}
+
+	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, db.defaultRegion)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
-	nextIterator := fmt.Sprintf("%s:%d:%d", tableName, nextSeq, time.Now().Unix())
+	// Generate the next opaque iterator for continued reading.
+	nextToken, tokenErr := db.iteratorStore.Put(tableName, nextSeq)
+	if tokenErr != nil {
+		return nil, fmt.Errorf("create next shard iterator: %w", tokenErr)
+	}
 
 	return &dynamodbstreams.GetRecordsOutput{
 		Records:           records,
-		NextShardIterator: aws.String(nextIterator),
+		NextShardIterator: aws.String(nextToken),
 	}, nil
 }
 
+// resolveIterator resolves a shard iterator token to (tableName, startSeq).
+// It tries the opaque store first, then falls back to the legacy plain-text format
+// "tableName:startSeq:timestamp" so existing tests continue to work.
+func (db *InMemoryDB) resolveIterator(token string) (string, int64, error) {
+	// Try the opaque store.
+	entry := db.iteratorStore.Get(token)
+	if entry != nil {
+		if time.Now().After(entry.ExpiresAt) {
+			db.iteratorStore.Delete(token)
+			return "", 0, NewExpiredIteratorException("Shard iterator has expired")
+		}
+		return entry.TableName, entry.StartSeq, nil
+	}
+
+	// Fall back to legacy plain-text "tableName:startSeq:timestamp" format.
+	parts := strings.Split(token, ":")
+	if len(parts) != iteratorPartCount {
+		return "", 0, NewValidationException("Invalid shard iterator")
+	}
+
+	startSeq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", 0, NewValidationException("Invalid shard iterator: invalid sequence number")
+	}
+
+	ts, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return "", 0, NewValidationException("Invalid shard iterator: invalid timestamp")
+	}
+
+	iterTime := time.Unix(ts, 0)
+	now := time.Now()
+	if iterTime.After(now) || now.Sub(iterTime) > shardIteratorTTL {
+		return "", 0, NewExpiredIteratorException("Shard iterator has expired")
+	}
+
+	return parts[0], startSeq, nil
+}
+
 // ListStreams returns a list of all enabled streams, optionally filtered by table name.
+// Supports ExclusiveStartStreamArn and Limit for pagination.
 func (db *InMemoryDB) ListStreams(
 	_ context.Context,
 	input *dynamodbstreams.ListStreamsInput,
 ) (*dynamodbstreams.ListStreamsOutput, error) {
 	filterTable := aws.ToString(input.TableName)
+	exclusiveStart := aws.ToString(input.ExclusiveStartStreamArn)
+
+	limit := maxListStreamsLimit
+	if input.Limit != nil && *input.Limit > 0 && int(*input.Limit) < limit {
+		limit = int(*input.Limit)
+	}
 
 	// Snapshot the streamARNIndex under db.mu (read lock). This avoids holding
 	// db.mu while also acquiring table.mu, which would invert the lock order
@@ -471,13 +518,13 @@ func (db *InMemoryDB) ListStreams(
 
 	db.mu.RLock("ListStreams")
 	entries := make([]arnEntry, 0, len(db.streamARNIndex))
-	for arn, t := range db.streamARNIndex {
-		entries = append(entries, arnEntry{table: t, arn: arn})
+	for a, t := range db.streamARNIndex {
+		entries = append(entries, arnEntry{table: t, arn: a})
 	}
 	db.mu.RUnlock()
 
-	var streams []streamstypes.Stream
-
+	// Collect enabled, filtered streams and sort by ARN for deterministic pagination.
+	var collected []streamListEntry
 	for _, e := range entries {
 		e.table.mu.RLock("ListStreams.table")
 		name := e.table.Name
@@ -487,21 +534,60 @@ func (db *InMemoryDB) ListStreams(
 		if !enabled {
 			continue
 		}
-
 		if filterTable != "" && name != filterTable {
 			continue
 		}
+		collected = append(collected, streamListEntry{tableName: name, arn: e.arn})
+	}
 
+	// Sort by ARN for stable pagination.
+	sortStreamListEntries(collected)
+
+	// Apply ExclusiveStartStreamArn pagination.
+	if exclusiveStart != "" {
+		for i, s := range collected {
+			if s.arn == exclusiveStart {
+				collected = collected[i+1:]
+				break
+			}
+		}
+	}
+
+	// Apply limit.
+	var lastEvaluatedARN *string
+	if len(collected) > limit {
+		lastEvaluatedARN = aws.String(collected[limit-1].arn)
+		collected = collected[:limit]
+	}
+
+	streams := make([]streamstypes.Stream, 0, len(collected))
+	for _, se := range collected {
 		streams = append(streams, streamstypes.Stream{
-			TableName:   aws.String(name),
-			StreamArn:   aws.String(e.arn),
+			TableName:   aws.String(se.tableName),
+			StreamArn:   aws.String(se.arn),
 			StreamLabel: aws.String("latest"),
 		})
 	}
 
 	return &dynamodbstreams.ListStreamsOutput{
-		Streams: streams,
+		Streams:                streams,
+		LastEvaluatedStreamArn: lastEvaluatedARN,
 	}, nil
+}
+
+// streamListEntry is a (tableName, ARN) pair used during ListStreams pagination.
+type streamListEntry struct {
+	tableName string
+	arn       string
+}
+
+// sortStreamListEntries sorts entries by ARN for deterministic pagination.
+func sortStreamListEntries(entries []streamListEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].arn < entries[j-1].arn; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
 }
 
 func (db *InMemoryDB) GetRecentEvents(tableName string) []models.StreamRecord {
