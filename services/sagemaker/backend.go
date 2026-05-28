@@ -386,6 +386,7 @@ type ModelPackage struct {
 	ModelPackageArn         string            `json:"ModelPackageArn"`
 	ModelPackageGroupName   string            `json:"ModelPackageGroupName,omitempty"`
 	ModelPackageStatus      string            `json:"ModelPackageStatus"`
+	ModelApprovalStatus     string            `json:"ModelApprovalStatus,omitempty"`
 	ModelPackageDescription string            `json:"ModelPackageDescription,omitempty"`
 }
 
@@ -399,149 +400,153 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 
 // InMemoryBackend is an in-memory store for SageMaker resources.
 type InMemoryBackend struct {
-	models                     map[string]*Model
-	endpointConfigs            map[string]*EndpointConfig
-	endpoints                  map[string]*Endpoint                        // key: endpointName
-	trainingJobs               map[string]*TrainingJob                     // key: jobName
-	notebooks                  map[string]*NotebookInstance                // key: instanceName
-	hpTuningJobs               map[string]*HyperParameterTuningJob         // key: jobName
-	associations               map[string]*Association                     // key: sourceArn+"|"+destinationArn
-	trialComponentAssociations map[string]*TrialComponentAssociation       // key: trialName+"|"+componentName
-	actions                    map[string]*Action                          // key: actionName
-	algorithms                 map[string]*Algorithm                       // key: algorithmName
-	clusters                   map[string]*Cluster                         // key: clusterName
-	modelPackages              map[string]*ModelPackage                    // key: modelPackageArn
-	modelPackageGroups         map[string]*ModelPackageGroup               // key: groupName
-	autoMLJobs                 map[string]*AutoMLJob                       // key: jobName
-	codeRepositories           map[string]*CodeRepository                  // key: name
-	projects                   map[string]*Project                         // key: projectName
-	spaces                     map[string]*Space                           // key: domainID+"/"+spaceName
-	smImages                   map[string]*SMImage                         // key: imageName
-	imageVersions              map[string]map[int]*ImageVersion            // imageName → version → ImageVersion
-	imageVersionCounts         map[string]int                              // imageName → latest version number
-	compilationJobs            map[string]*CompilationJob                  // key: jobName
-	monitoringSchedules        map[string]*MonitoringSchedule              // key: scheduleName
-	workteams                  map[string]*Workteam                        // key: workteamName
-	dataQualityJobDefs         map[string]*JobDefinition                   // key: name
-	modelBiasJobDefs           map[string]*JobDefinition                   // key: name
-	modelQualityJobDefs        map[string]*JobDefinition                   // key: name
-	modelExplainJobDefs        map[string]*JobDefinition                   // key: name
-	humanTaskUis               map[string]*HumanTaskUI                     // key: name
-	workforces                 map[string]*Workforce                       // key: name
-	flowDefinitions            map[string]*FlowDefinition                  // key: name
-	appImageConfigs            map[string]*AppImageConfig                  // key: name
-	inferenceExperiments       map[string]*InferenceExperiment             // key: name
-	mlflowTrackingServers      map[string]*MlflowTrackingServer            // key: name
-	modelCards                 map[string]*ModelCard                       // key: name
-	optimizationJobs           map[string]*OptimizationJob                 // key: name
-	studioLifecycleConfigs     map[string]*StudioLifecycleConfig           // key: name
-	partnerApps                map[string]*PartnerApp                      // key: name (arn used as key)
-	trainingPlans              map[string]*TrainingPlan                    // key: name
-	modelARNIndex              map[string]string                           // ARN → model name
-	endpointConfigARNIndex     map[string]string                           // ARN → endpoint config name
-	endpointARNIndex           map[string]string                           // ARN → endpoint name
-	trainingJobARNIndex        map[string]string                           // ARN → training job name
-	notebookARNIndex           map[string]string                           // ARN → notebook instance name
-	hpTuningJobARNIndex        map[string]string                           // ARN → HP tuning job name
-	actionARNIndex             map[string]string                           // ARN → action name
-	algorithmARNIndex          map[string]string                           // ARN → algorithm name
-	clusterARNIndex            map[string]string                           // ARN → cluster name
-	modelPackageARNIndex       map[string]string                           // ARN → model package ARN
-	domains                    map[string]*Domain                          // key: domainID
-	userProfiles               map[userProfileKey]*UserProfile             // key: domainID+name
-	apps                       map[appKey]*App                             // key: domainID+userProfile+appType+appName
-	featureGroups              map[string]*FeatureGroup                    // key: featureGroupName
-	featureRecords             map[string]*FeatureRecord                   // key: groupName|recordID
-	featureMetadata            map[string]*FeatureMetadata                 // key: groupName/featureName
-	pipelines                  map[string]*Pipeline                        // key: pipelineName
-	pipelineExecutions         map[string]*PipelineExecution               // key: executionArn
-	pipelineExecSteps          map[string]*PipelineExecutionStep           // key: execArn|stepName
-	experiments                map[string]*Experiment                      // key: experimentName
-	trials                     map[string]*Trial                           // key: trialName
-	trialComponents            map[string]*TrialComponent                  // key: trialComponentName
-	notebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig // key: configName
-	processingJobs             map[string]*ProcessingJob                   // key: jobName
-	processingJobARNIndex      map[string]string                           // ARN → job name
-	transformJobs              map[string]*TransformJob                    // key: jobName
-	transformJobARNIndex       map[string]string                           // ARN → job name
-	lifecycleCtx               context.Context
-	lifecycleCancel            context.CancelFunc
-	mu                         *lockmetrics.RWMutex
-	accountID                  string
-	region                     string
+	models                       map[string]*Model
+	endpointConfigs              map[string]*EndpointConfig
+	endpoints                    map[string]*Endpoint                        // key: endpointName
+	trainingJobs                 map[string]*TrainingJob                     // key: jobName
+	notebooks                    map[string]*NotebookInstance                // key: instanceName
+	hpTuningJobs                 map[string]*HyperParameterTuningJob         // key: jobName
+	associations                 map[string]*Association                     // key: sourceArn+"|"+destinationArn
+	trialComponentAssociations   map[string]*TrialComponentAssociation       // key: trialName+"|"+componentName
+	actions                      map[string]*Action                          // key: actionName
+	algorithms                   map[string]*Algorithm                       // key: algorithmName
+	clusters                     map[string]*Cluster                         // key: clusterName
+	modelPackages                map[string]*ModelPackage                    // key: modelPackageArn
+	modelPackageGroups           map[string]*ModelPackageGroup               // key: groupName
+	autoMLJobs                   map[string]*AutoMLJob                       // key: jobName
+	codeRepositories             map[string]*CodeRepository                  // key: name
+	projects                     map[string]*Project                         // key: projectName
+	spaces                       map[string]*Space                           // key: domainID+"/"+spaceName
+	smImages                     map[string]*SMImage                         // key: imageName
+	imageVersions                map[string]map[int]*ImageVersion            // imageName → version → ImageVersion
+	imageVersionCounts           map[string]int                              // imageName → latest version number
+	compilationJobs              map[string]*CompilationJob                  // key: jobName
+	monitoringSchedules          map[string]*MonitoringSchedule              // key: scheduleName
+	workteams                    map[string]*Workteam                        // key: workteamName
+	dataQualityJobDefs           map[string]*JobDefinition                   // key: name
+	modelBiasJobDefs             map[string]*JobDefinition                   // key: name
+	modelQualityJobDefs          map[string]*JobDefinition                   // key: name
+	modelExplainJobDefs          map[string]*JobDefinition                   // key: name
+	humanTaskUis                 map[string]*HumanTaskUI                     // key: name
+	workforces                   map[string]*Workforce                       // key: name
+	flowDefinitions              map[string]*FlowDefinition                  // key: name
+	appImageConfigs              map[string]*AppImageConfig                  // key: name
+	inferenceExperiments         map[string]*InferenceExperiment             // key: name
+	mlflowTrackingServers        map[string]*MlflowTrackingServer            // key: name
+	modelCards                   map[string]*ModelCard                       // key: name
+	optimizationJobs             map[string]*OptimizationJob                 // key: name
+	studioLifecycleConfigs       map[string]*StudioLifecycleConfig           // key: name
+	partnerApps                  map[string]*PartnerApp                      // key: name (arn used as key)
+	trainingPlans                map[string]*TrainingPlan                    // key: name
+	modelARNIndex                map[string]string                           // ARN → model name
+	endpointConfigARNIndex       map[string]string                           // ARN → endpoint config name
+	endpointARNIndex             map[string]string                           // ARN → endpoint name
+	trainingJobARNIndex          map[string]string                           // ARN → training job name
+	notebookARNIndex             map[string]string                           // ARN → notebook instance name
+	hpTuningJobARNIndex          map[string]string                           // ARN → HP tuning job name
+	actionARNIndex               map[string]string                           // ARN → action name
+	algorithmARNIndex            map[string]string                           // ARN → algorithm name
+	clusterARNIndex              map[string]string                           // ARN → cluster name
+	modelPackageARNIndex         map[string]string                           // ARN → model package ARN
+	domains                      map[string]*Domain                          // key: domainID
+	userProfiles                 map[userProfileKey]*UserProfile             // key: domainID+name
+	apps                         map[appKey]*App                             // key: domainID+userProfile+appType+appName
+	featureGroups                map[string]*FeatureGroup                    // key: featureGroupName
+	featureRecords               map[string]*FeatureRecord                   // key: groupName|recordID
+	featureMetadata              map[string]*FeatureMetadata                 // key: groupName/featureName
+	pipelines                    map[string]*Pipeline                        // key: pipelineName
+	pipelineExecutions           map[string]*PipelineExecution               // key: executionArn
+	pipelineExecSteps            map[string]*PipelineExecutionStep           // key: execArn|stepName
+	experiments                  map[string]*Experiment                      // key: experimentName
+	trials                       map[string]*Trial                           // key: trialName
+	trialComponents              map[string]*TrialComponent                  // key: trialComponentName
+	notebookLifecycleConfigs     map[string]*NotebookInstanceLifecycleConfig // key: configName
+	processingJobs               map[string]*ProcessingJob                   // key: jobName
+	processingJobARNIndex        map[string]string                           // ARN → job name
+	transformJobs                map[string]*TransformJob                    // key: jobName
+	transformJobARNIndex         map[string]string                           // ARN → job name
+	edgePackagingJobs            map[string]*EdgePackagingJob                // key: jobName
+	inferenceRecommendationsJobs map[string]*InferenceRecommendationsJob     // key: jobName
+	lifecycleCtx                 context.Context
+	lifecycleCancel              context.CancelFunc
+	mu                           *lockmetrics.RWMutex
+	accountID                    string
+	region                       string
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		models:                     make(map[string]*Model),
-		endpointConfigs:            make(map[string]*EndpointConfig),
-		endpoints:                  make(map[string]*Endpoint),
-		trainingJobs:               make(map[string]*TrainingJob),
-		notebooks:                  make(map[string]*NotebookInstance),
-		hpTuningJobs:               make(map[string]*HyperParameterTuningJob),
-		associations:               make(map[string]*Association),
-		trialComponentAssociations: make(map[string]*TrialComponentAssociation),
-		actions:                    make(map[string]*Action),
-		algorithms:                 make(map[string]*Algorithm),
-		clusters:                   make(map[string]*Cluster),
-		modelPackages:              make(map[string]*ModelPackage),
-		modelPackageGroups:         make(map[string]*ModelPackageGroup),
-		autoMLJobs:                 make(map[string]*AutoMLJob),
-		codeRepositories:           make(map[string]*CodeRepository),
-		projects:                   make(map[string]*Project),
-		spaces:                     make(map[string]*Space),
-		smImages:                   make(map[string]*SMImage),
-		imageVersions:              make(map[string]map[int]*ImageVersion),
-		imageVersionCounts:         make(map[string]int),
-		compilationJobs:            make(map[string]*CompilationJob),
-		monitoringSchedules:        make(map[string]*MonitoringSchedule),
-		workteams:                  make(map[string]*Workteam),
-		dataQualityJobDefs:         make(map[string]*JobDefinition),
-		modelBiasJobDefs:           make(map[string]*JobDefinition),
-		modelQualityJobDefs:        make(map[string]*JobDefinition),
-		modelExplainJobDefs:        make(map[string]*JobDefinition),
-		humanTaskUis:               make(map[string]*HumanTaskUI),
-		workforces:                 make(map[string]*Workforce),
-		flowDefinitions:            make(map[string]*FlowDefinition),
-		appImageConfigs:            make(map[string]*AppImageConfig),
-		inferenceExperiments:       make(map[string]*InferenceExperiment),
-		mlflowTrackingServers:      make(map[string]*MlflowTrackingServer),
-		modelCards:                 make(map[string]*ModelCard),
-		optimizationJobs:           make(map[string]*OptimizationJob),
-		studioLifecycleConfigs:     make(map[string]*StudioLifecycleConfig),
-		partnerApps:                make(map[string]*PartnerApp),
-		trainingPlans:              make(map[string]*TrainingPlan),
-		modelARNIndex:              make(map[string]string),
-		endpointConfigARNIndex:     make(map[string]string),
-		endpointARNIndex:           make(map[string]string),
-		trainingJobARNIndex:        make(map[string]string),
-		notebookARNIndex:           make(map[string]string),
-		hpTuningJobARNIndex:        make(map[string]string),
-		actionARNIndex:             make(map[string]string),
-		algorithmARNIndex:          make(map[string]string),
-		clusterARNIndex:            make(map[string]string),
-		modelPackageARNIndex:       make(map[string]string),
-		domains:                    make(map[string]*Domain),
-		userProfiles:               make(map[userProfileKey]*UserProfile),
-		apps:                       make(map[appKey]*App),
-		featureGroups:              make(map[string]*FeatureGroup),
-		featureRecords:             make(map[string]*FeatureRecord),
-		featureMetadata:            make(map[string]*FeatureMetadata),
-		pipelines:                  make(map[string]*Pipeline),
-		pipelineExecutions:         make(map[string]*PipelineExecution),
-		pipelineExecSteps:          make(map[string]*PipelineExecutionStep),
-		experiments:                make(map[string]*Experiment),
-		trials:                     make(map[string]*Trial),
-		trialComponents:            make(map[string]*TrialComponent),
-		notebookLifecycleConfigs:   make(map[string]*NotebookInstanceLifecycleConfig),
-		processingJobs:             make(map[string]*ProcessingJob),
-		transformJobs:              make(map[string]*TransformJob),
-		transformJobARNIndex:       make(map[string]string),
-		processingJobARNIndex:      make(map[string]string),
-		accountID:                  accountID,
-		region:                     region,
-		mu:                         lockmetrics.New("sagemaker"),
+		models:                       make(map[string]*Model),
+		endpointConfigs:              make(map[string]*EndpointConfig),
+		endpoints:                    make(map[string]*Endpoint),
+		trainingJobs:                 make(map[string]*TrainingJob),
+		notebooks:                    make(map[string]*NotebookInstance),
+		hpTuningJobs:                 make(map[string]*HyperParameterTuningJob),
+		associations:                 make(map[string]*Association),
+		trialComponentAssociations:   make(map[string]*TrialComponentAssociation),
+		actions:                      make(map[string]*Action),
+		algorithms:                   make(map[string]*Algorithm),
+		clusters:                     make(map[string]*Cluster),
+		modelPackages:                make(map[string]*ModelPackage),
+		modelPackageGroups:           make(map[string]*ModelPackageGroup),
+		autoMLJobs:                   make(map[string]*AutoMLJob),
+		codeRepositories:             make(map[string]*CodeRepository),
+		projects:                     make(map[string]*Project),
+		spaces:                       make(map[string]*Space),
+		smImages:                     make(map[string]*SMImage),
+		imageVersions:                make(map[string]map[int]*ImageVersion),
+		imageVersionCounts:           make(map[string]int),
+		compilationJobs:              make(map[string]*CompilationJob),
+		monitoringSchedules:          make(map[string]*MonitoringSchedule),
+		workteams:                    make(map[string]*Workteam),
+		dataQualityJobDefs:           make(map[string]*JobDefinition),
+		modelBiasJobDefs:             make(map[string]*JobDefinition),
+		modelQualityJobDefs:          make(map[string]*JobDefinition),
+		modelExplainJobDefs:          make(map[string]*JobDefinition),
+		humanTaskUis:                 make(map[string]*HumanTaskUI),
+		workforces:                   make(map[string]*Workforce),
+		flowDefinitions:              make(map[string]*FlowDefinition),
+		appImageConfigs:              make(map[string]*AppImageConfig),
+		inferenceExperiments:         make(map[string]*InferenceExperiment),
+		mlflowTrackingServers:        make(map[string]*MlflowTrackingServer),
+		modelCards:                   make(map[string]*ModelCard),
+		optimizationJobs:             make(map[string]*OptimizationJob),
+		studioLifecycleConfigs:       make(map[string]*StudioLifecycleConfig),
+		partnerApps:                  make(map[string]*PartnerApp),
+		trainingPlans:                make(map[string]*TrainingPlan),
+		modelARNIndex:                make(map[string]string),
+		endpointConfigARNIndex:       make(map[string]string),
+		endpointARNIndex:             make(map[string]string),
+		trainingJobARNIndex:          make(map[string]string),
+		notebookARNIndex:             make(map[string]string),
+		hpTuningJobARNIndex:          make(map[string]string),
+		actionARNIndex:               make(map[string]string),
+		algorithmARNIndex:            make(map[string]string),
+		clusterARNIndex:              make(map[string]string),
+		modelPackageARNIndex:         make(map[string]string),
+		domains:                      make(map[string]*Domain),
+		userProfiles:                 make(map[userProfileKey]*UserProfile),
+		apps:                         make(map[appKey]*App),
+		featureGroups:                make(map[string]*FeatureGroup),
+		featureRecords:               make(map[string]*FeatureRecord),
+		featureMetadata:              make(map[string]*FeatureMetadata),
+		pipelines:                    make(map[string]*Pipeline),
+		pipelineExecutions:           make(map[string]*PipelineExecution),
+		pipelineExecSteps:            make(map[string]*PipelineExecutionStep),
+		experiments:                  make(map[string]*Experiment),
+		trials:                       make(map[string]*Trial),
+		trialComponents:              make(map[string]*TrialComponent),
+		notebookLifecycleConfigs:     make(map[string]*NotebookInstanceLifecycleConfig),
+		processingJobs:               make(map[string]*ProcessingJob),
+		transformJobs:                make(map[string]*TransformJob),
+		transformJobARNIndex:         make(map[string]string),
+		processingJobARNIndex:        make(map[string]string),
+		edgePackagingJobs:            make(map[string]*EdgePackagingJob),
+		inferenceRecommendationsJobs: make(map[string]*InferenceRecommendationsJob),
+		accountID:                    accountID,
+		region:                       region,
+		mu:                           lockmetrics.New("sagemaker"),
 	}
 	b.resetLifecycleContext()
 
@@ -626,6 +631,8 @@ func (b *InMemoryBackend) Reset() {
 	b.processingJobARNIndex = make(map[string]string)
 	b.transformJobs = make(map[string]*TransformJob)
 	b.transformJobARNIndex = make(map[string]string)
+	b.edgePackagingJobs = make(map[string]*EdgePackagingJob)
+	b.inferenceRecommendationsJobs = make(map[string]*InferenceRecommendationsJob)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
