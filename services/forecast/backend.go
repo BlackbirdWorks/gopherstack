@@ -93,6 +93,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
+
+
+
 	return &InMemoryBackend{
 		resources:   make(map[resourceKind]map[string]*Resource),
 		evaluations: make(map[string][]MonitorEvaluation),
@@ -110,6 +113,9 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
+
+
+
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
 	}
 
@@ -118,6 +124,9 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 
 	items := b.ensureKind(kind)
 	if _, ok := items[name]; ok {
+
+
+
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
 
@@ -141,6 +150,9 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
 	}
 
+
+
+
 	return cloneResource(resource), nil
 }
 
@@ -150,6 +162,9 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
+
+
+
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -158,6 +173,9 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
 	}
+
+
+
 
 	return result, nil
 }
@@ -168,6 +186,9 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
+
+
+
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -176,6 +197,9 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 	}
 	resource.Status = statusActive
 	resource.UpdatedAt = time.Now().UTC()
+
+
+
 
 	return cloneResource(resource), nil
 }
@@ -186,11 +210,17 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
+
+
+
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
 	resource.Status = statusDeleting
 	resource.UpdatedAt = time.Now().UTC()
+
+
+
 
 	return nil
 }
@@ -206,6 +236,9 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
+
+
+
 	return result
 }
 
@@ -214,12 +247,18 @@ func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEv
 	defer b.mu.RUnlock()
 
 	if _, ok := b.lookupLocked(kindMonitor, monitorARN); !ok {
+
+
+
 		return nil, fmt.Errorf("%w: monitor %q", ErrNotFound, monitorARN)
 	}
 
 	evaluations := b.evaluations[monitorARN]
 	result := make([]MonitorEvaluation, len(evaluations))
 	copy(result, evaluations)
+
+
+
 
 	return result, nil
 }
@@ -229,20 +268,32 @@ func (b *InMemoryBackend) ensureKind(kind resourceKind) map[string]*Resource {
 		b.resources[kind] = make(map[string]*Resource)
 	}
 
+
+
+
 	return b.resources[kind]
 }
 
 func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Resource, bool) {
 	for name, resource := range b.resources[kind] {
 		if name == nameOrARN || resource.ARN == nameOrARN {
+
+
+
 			return resource, true
 		}
 	}
+
+
+
 
 	return nil, false
 }
 
 func newEvaluation(monitor *Resource) MonitorEvaluation {
+
+
+
 	return MonitorEvaluation{
 		CreationTime:    monitor.CreatedAt,
 		EvaluationTime:  monitor.CreatedAt,
@@ -259,38 +310,59 @@ func cloneResource(resource *Resource) *Resource {
 	copyResource := *resource
 	copyResource.Data = cloneMap(resource.Data)
 
+
+
+
 	return &copyResource
 }
 
 func cloneMap(data map[string]any) map[string]any {
 	if data == nil {
+
+
+
 		return make(map[string]any)
 	}
 
 	encoded, err := json.Marshal(data)
 	if err != nil {
+
+
+
 		return make(map[string]any)
 	}
 
 	var result map[string]any
 	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
+
+
+
 		return make(map[string]any)
 	}
+
+
+
 
 	return result
 }
 
 func cloneValue(value any) any {
+
+
+
 	return cloneMap(map[string]any{"value": value})["value"]
 }
 
 func stringValue(value any) string {
 	result, _ := value.(string)
 
+
+
+
 	return result
 }
 
-// UpdateResourceStatus handles StopResource and ResumeResource
+// UpdateResourceStatus handles StopResource and ResumeResource.
 func (b *InMemoryBackend) UpdateResourceStatus(arn, newStatus string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -300,14 +372,20 @@ func (b *InMemoryBackend) UpdateResourceStatus(arn, newStatus string) error {
 			if resource.ARN == arn {
 				resource.Status = newStatus
 				resource.UpdatedAt = time.Now().UTC()
+
+
+
 				return nil
 			}
 		}
 	}
+
+
+
 	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
 }
 
-// DeleteResourceTree deletes a resource and its children (mock implementation deleting just the resource)
+// DeleteResourceTree deletes a resource and its children (mock implementation deleting just the resource).
 func (b *InMemoryBackend) DeleteResourceTree(arn string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -317,28 +395,40 @@ func (b *InMemoryBackend) DeleteResourceTree(arn string) error {
 			if resource.ARN == arn {
 				resource.Status = statusDeleting
 				resource.UpdatedAt = time.Now().UTC()
+
+
+
 				return nil
 			}
 		}
 	}
+
+
+
 	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
 }
 
-// GetAccuracyMetrics returns dummy accuracy metrics for a predictor
+// GetAccuracyMetrics returns dummy accuracy metrics for a predictor.
 func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]any, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if _, ok := b.lookupLocked(kindPredictor, predictorArn); !ok {
+
+
+
 		return nil, fmt.Errorf("%w: predictor %q", ErrNotFound, predictorArn)
 	}
+
+
+
 
 	return map[string]any{
 		"PredictorEvaluationResults": []map[string]any{},
 	}, nil
 }
 
-// TagResource adds tags to a resource
+// TagResource adds tags to a resource.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -346,13 +436,14 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	if b.tags[arn] == nil {
 		b.tags[arn] = make(map[string]string)
 	}
-	for k, v := range tags {
-		b.tags[arn][k] = v
-	}
+	maps.Copy(b.tags[arn], tags)
+
+
+
 	return nil
 }
 
-// UntagResource removes tags from a resource
+// UntagResource removes tags from a resource.
 func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -362,17 +453,21 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 			delete(b.tags[arn], k)
 		}
 	}
+
+
+
 	return nil
 }
 
-// ListTagsForResource lists tags for a resource
+// ListTagsForResource lists tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	result := make(map[string]string)
-	for k, v := range b.tags[arn] {
-		result[k] = v
-	}
+	maps.Copy(result, b.tags[arn])
+
+
+
 	return result, nil
 }

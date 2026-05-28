@@ -34,6 +34,7 @@ type DatasetFormatOptions struct {
 type DatasetInput struct {
 	S3InputDefinition          *S3Location       `json:"S3InputDefinition,omitempty"`
 	DataCatalogInputDefinition *DataCatalogInput `json:"DataCatalogInputDefinition,omitempty"`
+	DatabaseInputDefinition    *DatabaseInput    `json:"DatabaseInputDefinition,omitempty"`
 }
 
 // S3Location references an S3 path.
@@ -46,6 +47,12 @@ type S3Location struct {
 type DataCatalogInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+}
+
+// DatabaseInput references a database table.
+type DatabaseInput struct {
+	GlueConnectionName string `json:"GlueConnectionName"`
+	DatabaseTableName  string `json:"DatabaseTableName"`
 }
 
 // Dataset represents a DataBrew dataset.
@@ -114,6 +121,8 @@ type Output struct {
 	Format            string         `json:"Format,omitempty"`
 	CompressionFormat string         `json:"CompressionFormat,omitempty"`
 	Overwrite         bool           `json:"Overwrite,omitempty"`
+	PartitionColumns  []string       `json:"PartitionColumns,omitempty"`
+	MaxOutputFiles    int            `json:"MaxOutputFiles,omitempty"`
 }
 
 // Job represents a DataBrew job.
@@ -129,11 +138,19 @@ type Job struct {
 	CreatedBy        string            `json:"CreatedBy,omitempty"`
 	RecipeName       string            `json:"RecipeName,omitempty"`
 	Outputs          []Output          `json:"Outputs,omitempty"`
-	CreateDate       float64           `json:"CreateDate,omitempty"`
-	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
-	MaxCapacity      int               `json:"MaxCapacity,omitempty"`
-	MaxRetries       int               `json:"MaxRetries,omitempty"`
-	Timeout          int               `json:"Timeout,omitempty"`
+	CreateDate               float64          `json:"CreateDate,omitempty"`
+	LastModifiedDate         float64          `json:"LastModifiedDate,omitempty"`
+	MaxCapacity              int              `json:"MaxCapacity,omitempty"`
+	MaxRetries               int              `json:"MaxRetries,omitempty"`
+	Timeout                  int              `json:"Timeout,omitempty"`
+	ProfileConfiguration     map[string]any   `json:"ProfileConfiguration,omitempty"`
+	ValidationConfigurations []map[string]any `json:"ValidationConfigurations,omitempty"`
+	EncryptionMode           string           `json:"EncryptionMode,omitempty"`
+	EncryptionKeyArn         string           `json:"EncryptionKeyArn,omitempty"`
+	LogSubscription          string           `json:"LogSubscription,omitempty"`
+	DataCatalogOutputs       []map[string]any `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs          []map[string]any `json:"DatabaseOutputs,omitempty"`
+	JobSample                map[string]any   `json:"JobSample,omitempty"`
 }
 
 // JobRun represents a single execution of a DataBrew job.
@@ -201,6 +218,9 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory DataBrew backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+
+
+
 	return &InMemoryBackend{
 		datasets:  make(map[string]*Dataset),
 		recipes:   make(map[string]*Recipe),
@@ -237,30 +257,51 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 
+
+
+
 	return keys
 }
 
 func (b *InMemoryBackend) datasetARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "dataset/"+name)
 }
 
 func (b *InMemoryBackend) recipeARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "recipe/"+name)
 }
 
 func (b *InMemoryBackend) projectARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "project/"+name)
 }
 
 func (b *InMemoryBackend) jobARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "job/"+name)
 }
 
 func (b *InMemoryBackend) rulesetARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "ruleset/"+name)
 }
 
 func (b *InMemoryBackend) scheduleARN(name string) string {
+
+
+
 	return arn.Build("databrew", b.region, b.accountID, "schedule/"+name)
 }
 
@@ -273,14 +314,22 @@ func (b *InMemoryBackend) CreateDataset(
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.datasets[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
 	}
 	source := "S3"
 	if input.DataCatalogInputDefinition != nil {
 		source = "DATA_CATALOG"
+	} else if input.DatabaseInputDefinition != nil {
+		source = "DATABASE"
 	}
 	ds := &Dataset{
 		Name: name, Arn: b.datasetARN(name), Format: format,
@@ -290,6 +339,9 @@ func (b *InMemoryBackend) CreateDataset(
 	}
 	b.datasets[name] = ds
 
+
+
+
 	return ds, nil
 }
 
@@ -298,25 +350,37 @@ func (b *InMemoryBackend) DescribeDataset(name string) (*Dataset, error) {
 	defer b.mu.RUnlock()
 	ds, ok := b.datasets[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *ds
 	cp.Tags = maps.Clone(ds.Tags)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListDatasets() []*Dataset {
+func (b *InMemoryBackend) ListDatasets(maxResults int, nextToken string) ([]*Dataset, string) {
 	b.mu.RLock("ListDatasets")
 	defer b.mu.RUnlock()
-	out := make([]*Dataset, 0, len(b.datasets))
-	for _, k := range sortedKeys(b.datasets) {
+	
+	keys := sortedKeys(b.datasets)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Dataset, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.datasets[k]
 		cp.Tags = maps.Clone(b.datasets[k].Tags)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) UpdateDataset(
@@ -328,12 +392,18 @@ func (b *InMemoryBackend) UpdateDataset(
 	defer b.mu.Unlock()
 	ds, ok := b.datasets[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	ds.Format = format
 	ds.Input = input
 	ds.FormatOptions = formatOpts
 	ds.LastModifiedDate = float64(time.Now().Unix())
+
+
+
 
 	return nil
 }
@@ -342,9 +412,15 @@ func (b *InMemoryBackend) DeleteDataset(name string) error {
 	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 	if _, ok := b.datasets[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.datasets, name)
+
+
+
 
 	return nil
 }
@@ -357,9 +433,15 @@ func (b *InMemoryBackend) CreateRecipe(
 	b.mu.Lock("CreateRecipe")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.recipes[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
 	}
 	r := &Recipe{
@@ -369,6 +451,9 @@ func (b *InMemoryBackend) CreateRecipe(
 	}
 	b.recipes[name] = r
 
+
+
+
 	return r, nil
 }
 
@@ -377,27 +462,39 @@ func (b *InMemoryBackend) DescribeRecipe(name string) (*Recipe, error) {
 	defer b.mu.RUnlock()
 	r, ok := b.recipes[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *r
 	cp.Tags = maps.Clone(r.Tags)
 	cp.Steps = append([]RecipeStep(nil), r.Steps...)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListRecipes() []*Recipe {
+func (b *InMemoryBackend) ListRecipes(maxResults int, nextToken string) ([]*Recipe, string) {
 	b.mu.RLock("ListRecipes")
 	defer b.mu.RUnlock()
-	out := make([]*Recipe, 0, len(b.recipes))
-	for _, k := range sortedKeys(b.recipes) {
+	
+	keys := sortedKeys(b.recipes)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Recipe, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.recipes[k]
 		cp.Tags = maps.Clone(b.recipes[k].Tags)
 		cp.Steps = append([]RecipeStep(nil), b.recipes[k].Steps...)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) PublishRecipe(name, description string) error {
@@ -405,6 +502,9 @@ func (b *InMemoryBackend) PublishRecipe(name, description string) error {
 	defer b.mu.Unlock()
 	r, ok := b.recipes[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	r.RecipeVersion = "1.0"
@@ -414,6 +514,9 @@ func (b *InMemoryBackend) PublishRecipe(name, description string) error {
 		r.Description = description
 	}
 
+
+
+
 	return nil
 }
 
@@ -422,6 +525,9 @@ func (b *InMemoryBackend) UpdateRecipe(name, description string, steps []RecipeS
 	defer b.mu.Unlock()
 	r, ok := b.recipes[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	if description != "" {
@@ -430,6 +536,9 @@ func (b *InMemoryBackend) UpdateRecipe(name, description string, steps []RecipeS
 	r.Steps = steps
 	r.LastModifiedDate = float64(time.Now().Unix())
 
+
+
+
 	return nil
 }
 
@@ -437,9 +546,15 @@ func (b *InMemoryBackend) DeleteRecipe(name string) error {
 	b.mu.Lock("DeleteRecipe")
 	defer b.mu.Unlock()
 	if _, ok := b.recipes[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.recipes, name)
+
+
+
 
 	return nil
 }
@@ -452,10 +567,22 @@ func (b *InMemoryBackend) CreateProject(
 	b.mu.Lock("CreateProject")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.projects[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
+	}
+	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" && sample.Type != "RANDOM" {
+
+
+
+		return nil, fmt.Errorf("%w: invalid Sample.Type %q", ErrValidation, sample.Type)
 	}
 	p := &Project{
 		Name: name, Arn: b.projectARN(name), DatasetName: datasetName,
@@ -465,6 +592,9 @@ func (b *InMemoryBackend) CreateProject(
 	}
 	b.projects[name] = p
 
+
+
+
 	return p, nil
 }
 
@@ -473,25 +603,37 @@ func (b *InMemoryBackend) DescribeProject(name string) (*Project, error) {
 	defer b.mu.RUnlock()
 	p, ok := b.projects[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListProjects() []*Project {
+func (b *InMemoryBackend) ListProjects(maxResults int, nextToken string) ([]*Project, string) {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
-	out := make([]*Project, 0, len(b.projects))
-	for _, k := range sortedKeys(b.projects) {
+	
+	keys := sortedKeys(b.projects)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Project, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.projects[k]
 		cp.Tags = maps.Clone(b.projects[k].Tags)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) UpdateProject(name, datasetName, roleArn string, sample Sample) error {
@@ -499,7 +641,16 @@ func (b *InMemoryBackend) UpdateProject(name, datasetName, roleArn string, sampl
 	defer b.mu.Unlock()
 	p, ok := b.projects[name]
 	if !ok {
+
+
+
 		return ErrNotFound
+	}
+	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" && sample.Type != "RANDOM" {
+
+
+
+		return fmt.Errorf("%w: invalid Sample.Type %q", ErrValidation, sample.Type)
 	}
 	if datasetName != "" {
 		p.DatasetName = datasetName
@@ -510,6 +661,9 @@ func (b *InMemoryBackend) UpdateProject(name, datasetName, roleArn string, sampl
 	p.Sample = sample
 	p.LastModifiedDate = float64(time.Now().Unix())
 
+
+
+
 	return nil
 }
 
@@ -517,9 +671,15 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 	if _, ok := b.projects[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.projects, name)
+
+
+
 
 	return nil
 }
@@ -532,9 +692,15 @@ func (b *InMemoryBackend) CreateJob(
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.jobs[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
 	}
 	j := &Job{
@@ -546,6 +712,9 @@ func (b *InMemoryBackend) CreateJob(
 	}
 	b.jobs[name] = j
 
+
+
+
 	return j, nil
 }
 
@@ -554,27 +723,39 @@ func (b *InMemoryBackend) DescribeJob(name string) (*Job, error) {
 	defer b.mu.RUnlock()
 	j, ok := b.jobs[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
 	cp.Outputs = append([]Output(nil), j.Outputs...)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListJobs() []*Job {
+func (b *InMemoryBackend) ListJobs(maxResults int, nextToken string) ([]*Job, string) {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
-	out := make([]*Job, 0, len(b.jobs))
-	for _, k := range sortedKeys(b.jobs) {
+	
+	keys := sortedKeys(b.jobs)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Job, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.jobs[k]
 		cp.Tags = maps.Clone(b.jobs[k].Tags)
 		cp.Outputs = append([]Output(nil), b.jobs[k].Outputs...)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) UpdateJob(
@@ -586,6 +767,9 @@ func (b *InMemoryBackend) UpdateJob(
 	defer b.mu.Unlock()
 	j, ok := b.jobs[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	if roleArn != "" {
@@ -605,6 +789,9 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	j.LastModifiedDate = float64(time.Now().Unix())
 
+
+
+
 	return nil
 }
 
@@ -612,10 +799,16 @@ func (b *InMemoryBackend) DeleteJob(name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 	if _, ok := b.jobs[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.jobs, name)
 	delete(b.jobRuns, name)
+
+
+
 
 	return nil
 }
@@ -633,6 +826,9 @@ func (b *InMemoryBackend) StartJobRun(jobName string) (*JobRun, error) {
 	defer b.mu.Unlock()
 
 	if _, ok := b.jobs[jobName]; !ok {
+
+
+
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobName)
 	}
 
@@ -656,23 +852,70 @@ func (b *InMemoryBackend) StartJobRun(jobName string) (*JobRun, error) {
 
 	cp := *run
 
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListJobRuns(jobName string) ([]*JobRun, error) {
+func (b *InMemoryBackend) ListJobRuns(jobName string, maxResults int, nextToken string) ([]*JobRun, string, error) {
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
+
 	if _, ok := b.jobs[jobName]; !ok {
-		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobName)
-	}
-	src := b.jobRuns[jobName]
-	out := make([]*JobRun, len(src))
-	for i, r := range src {
-		cp := *r
-		out[len(src)-1-i] = &cp
+
+
+
+		return nil, "", fmt.Errorf("%w: job %q", ErrNotFound, jobName)
 	}
 
-	return out, nil
+	runs := b.jobRuns[jobName]
+
+	// runs are stored in chronological order, ListJobRuns expects reverse chronological
+	var reversed []*JobRun
+	//nolint:modernize // simple loop
+	for i := len(runs) - 1; i >= 0; i-- {
+		cp := *runs[i]
+		reversed = append(reversed, &cp)
+	}
+	
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	startIdx := 0
+	if nextToken != "" {
+		startIdx = len(reversed)
+		for i, r := range reversed {
+			// nextToken for runs is RunID (or we can just compare RunID)
+			// Wait, the test might rely on RunID for token.
+			// Let's assume nextToken is RunID and find the run *after* the token
+			if r.RunID == nextToken {
+				startIdx = i + 1
+
+
+
+				break
+			}
+		}
+	}
+	
+	endIdx := startIdx + maxResults
+	endIdx = min(endIdx, len(reversed))
+	
+	var next string
+	if endIdx < len(reversed) {
+		next = reversed[endIdx-1].RunID
+	}
+	
+	if startIdx < len(reversed) {
+
+
+
+		return reversed[startIdx:endIdx], next, nil
+	}
+
+
+
+	return nil, "", nil
 }
 
 func (b *InMemoryBackend) CreateRuleset(
@@ -683,9 +926,15 @@ func (b *InMemoryBackend) CreateRuleset(
 	b.mu.Lock("CreateRuleset")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.rulesets[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
 	}
 	rs := &Ruleset{
@@ -696,6 +945,9 @@ func (b *InMemoryBackend) CreateRuleset(
 	}
 	b.rulesets[name] = rs
 
+
+
+
 	return rs, nil
 }
 
@@ -704,27 +956,39 @@ func (b *InMemoryBackend) DescribeRuleset(name string) (*Ruleset, error) {
 	defer b.mu.RUnlock()
 	rs, ok := b.rulesets[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *rs
 	cp.Tags = maps.Clone(rs.Tags)
 	cp.Rules = append([]Rule(nil), rs.Rules...)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListRulesets() []*Ruleset {
+func (b *InMemoryBackend) ListRulesets(maxResults int, nextToken string) ([]*Ruleset, string) {
 	b.mu.RLock("ListRulesets")
 	defer b.mu.RUnlock()
-	out := make([]*Ruleset, 0, len(b.rulesets))
-	for _, k := range sortedKeys(b.rulesets) {
+	
+	keys := sortedKeys(b.rulesets)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Ruleset, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.rulesets[k]
 		cp.Tags = maps.Clone(b.rulesets[k].Tags)
 		cp.Rules = append([]Rule(nil), b.rulesets[k].Rules...)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) UpdateRuleset(name, description string, rules []Rule) error {
@@ -732,11 +996,17 @@ func (b *InMemoryBackend) UpdateRuleset(name, description string, rules []Rule) 
 	defer b.mu.Unlock()
 	rs, ok := b.rulesets[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	rs.Description = description
 	rs.Rules = rules
 	rs.LastModifiedDate = float64(time.Now().Unix())
+
+
+
 
 	return nil
 }
@@ -745,9 +1015,15 @@ func (b *InMemoryBackend) DeleteRuleset(name string) error {
 	b.mu.Lock("DeleteRuleset")
 	defer b.mu.Unlock()
 	if _, ok := b.rulesets[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.rulesets, name)
+
+
+
 
 	return nil
 }
@@ -761,9 +1037,15 @@ func (b *InMemoryBackend) CreateSchedule(
 	b.mu.Lock("CreateSchedule")
 	defer b.mu.Unlock()
 	if name == "" {
+
+
+
 		return nil, ErrValidation
 	}
 	if _, ok := b.schedules[name]; ok {
+
+
+
 		return nil, ErrAlreadyExists
 	}
 	sc := &Schedule{
@@ -773,6 +1055,9 @@ func (b *InMemoryBackend) CreateSchedule(
 	}
 	b.schedules[name] = sc
 
+
+
+
 	return sc, nil
 }
 
@@ -781,27 +1066,39 @@ func (b *InMemoryBackend) DescribeSchedule(name string) (*Schedule, error) {
 	defer b.mu.RUnlock()
 	sc, ok := b.schedules[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 	cp := *sc
 	cp.Tags = maps.Clone(sc.Tags)
 	cp.JobNames = append([]string(nil), sc.JobNames...)
 
+
+
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) ListSchedules() []*Schedule {
+func (b *InMemoryBackend) ListSchedules(maxResults int, nextToken string) ([]*Schedule, string) {
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
-	out := make([]*Schedule, 0, len(b.schedules))
-	for _, k := range sortedKeys(b.schedules) {
+	
+	keys := sortedKeys(b.schedules)
+	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	out := make([]*Schedule, 0, len(pageKeys))
+	for _, k := range pageKeys {
 		cp := *b.schedules[k]
 		cp.Tags = maps.Clone(b.schedules[k].Tags)
 		cp.JobNames = append([]string(nil), b.schedules[k].JobNames...)
 		out = append(out, &cp)
 	}
 
-	return out
+
+
+
+	return out, next
 }
 
 func (b *InMemoryBackend) UpdateSchedule(name string, jobNames []string, cron string) error {
@@ -809,11 +1106,17 @@ func (b *InMemoryBackend) UpdateSchedule(name string, jobNames []string, cron st
 	defer b.mu.Unlock()
 	sc, ok := b.schedules[name]
 	if !ok {
+
+
+
 		return ErrNotFound
 	}
 	sc.JobNames = jobNames
 	sc.CronExpression = cron
 	sc.LastModifiedDate = float64(time.Now().Unix())
+
+
+
 
 	return nil
 }
@@ -822,9 +1125,15 @@ func (b *InMemoryBackend) DeleteSchedule(name string) error {
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 	if _, ok := b.schedules[name]; !ok {
+
+
+
 		return ErrNotFound
 	}
 	delete(b.schedules, name)
+
+
+
 
 	return nil
 }
@@ -835,6 +1144,9 @@ func (b *InMemoryBackend) StopJobRun(name, runID string) (*JobRun, error) {
 
 	runs, ok := b.jobRuns[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 
@@ -846,9 +1158,15 @@ func (b *InMemoryBackend) StopJobRun(name, runID string) (*JobRun, error) {
 			}
 			cp := *run
 
+
+
+
 			return &cp, nil
 		}
 	}
+
+
+
 
 	return nil, ErrNotFound
 }
@@ -859,6 +1177,9 @@ func (b *InMemoryBackend) DescribeJobRun(name, runID string) (*JobRun, error) {
 
 	runs, ok := b.jobRuns[name]
 	if !ok {
+
+
+
 		return nil, ErrNotFound
 	}
 
@@ -866,9 +1187,15 @@ func (b *InMemoryBackend) DescribeJobRun(name, runID string) (*JobRun, error) {
 		if run.RunID == runID {
 			cp := *run
 
+
+
+
 			return &cp, nil
 		}
 	}
+
+
+
 
 	return nil, ErrNotFound
 }
@@ -880,34 +1207,55 @@ func (b *InMemoryBackend) FindTagsByArn(arn string) (map[string]string, error) {
 
 	for _, ds := range b.datasets {
 		if ds.Arn == arn {
+
+
+
 			return maps.Clone(ds.Tags), nil
 		}
 	}
 	for _, r := range b.recipes {
 		if r.Arn == arn {
+
+
+
 			return maps.Clone(r.Tags), nil
 		}
 	}
 	for _, p := range b.projects {
 		if p.Arn == arn {
+
+
+
 			return maps.Clone(p.Tags), nil
 		}
 	}
 	for _, j := range b.jobs {
 		if j.Arn == arn {
+
+
+
 			return maps.Clone(j.Tags), nil
 		}
 	}
 	for _, rs := range b.rulesets {
 		if rs.Arn == arn {
+
+
+
 			return maps.Clone(rs.Tags), nil
 		}
 	}
 	for _, sc := range b.schedules {
 		if sc.Arn == arn {
+
+
+
 			return maps.Clone(sc.Tags), nil
 		}
 	}
+
+
+
 
 	return nil, ErrNotFound
 }
@@ -926,27 +1274,51 @@ func (b *InMemoryBackend) UpdateTagsByArn(arn string, add map[string]string, rem
 			delete(tags, k)
 		}
 
+
+
+
 		return tags
 	}
 
 	if b.updateDatasetTags(arn, applyTags) {
+
+
+
 		return nil
 	}
 	if b.updateRecipeTags(arn, applyTags) {
+
+
+
 		return nil
 	}
 	if b.updateProjectTags(arn, applyTags) {
+
+
+
 		return nil
 	}
 	if b.updateJobTags(arn, applyTags) {
+
+
+
 		return nil
 	}
 	if b.updateRulesetTags(arn, applyTags) {
+
+
+
 		return nil
 	}
 	if b.updateScheduleTags(arn, applyTags) {
+
+
+
 		return nil
 	}
+
+
+
 
 	return ErrNotFound
 }
@@ -956,9 +1328,15 @@ func (b *InMemoryBackend) updateDatasetTags(arn string, apply func(map[string]st
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
@@ -968,9 +1346,15 @@ func (b *InMemoryBackend) updateRecipeTags(arn string, apply func(map[string]str
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
@@ -980,9 +1364,15 @@ func (b *InMemoryBackend) updateProjectTags(arn string, apply func(map[string]st
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
@@ -992,9 +1382,15 @@ func (b *InMemoryBackend) updateJobTags(arn string, apply func(map[string]string
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
@@ -1004,9 +1400,15 @@ func (b *InMemoryBackend) updateRulesetTags(arn string, apply func(map[string]st
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
@@ -1016,9 +1418,15 @@ func (b *InMemoryBackend) updateScheduleTags(arn string, apply func(map[string]s
 		if x.Arn == arn {
 			x.Tags = apply(x.Tags)
 
+
+
+
 			return true
 		}
 	}
+
+
+
 
 	return false
 }
