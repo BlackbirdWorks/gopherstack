@@ -1637,6 +1637,12 @@ func handleBackendError(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "VPCAssociationAuthorizationNotFound", err.Error())
 	case errors.Is(err, ErrKeySigningKeyWithActiveStatusNF):
 		return xmlError(c, http.StatusBadRequest, "KeySigningKeyWithActiveStatusNotFound", err.Error())
+	case errors.Is(err, ErrTrafficPolicyInUse):
+		return xmlError(c, http.StatusBadRequest, "TrafficPolicyInUse", err.Error())
+	case errors.Is(err, ErrKeySigningKeyNotInactive):
+		return xmlError(c, http.StatusBadRequest, "KeySigningKeyNotInactive", err.Error())
+	case errors.Is(err, ErrTrafficPolicyAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "TrafficPolicyAlreadyExists", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
@@ -1819,16 +1825,30 @@ func (h *Handler) createHealthCheck(c *echo.Context) error {
 	}
 
 	cfg := HealthCheckConfig{
-		IPAddress:                req.Config.IPAddress,
-		FullyQualifiedDomainName: req.Config.FullyQualifiedDomainName,
-		ResourcePath:             req.Config.ResourcePath,
-		Type:                     HealthCheckType(req.Config.Type),
-		Port:                     req.Config.Port,
-		RequestInterval:          req.Config.RequestInterval,
-		FailureThreshold:         req.Config.FailureThreshold,
-		HealthThreshold:          req.Config.HealthThreshold,
-		Inverted:                 req.Config.Inverted,
-		ChildHealthChecks:        req.Config.ChildHealthChecks,
+		IPAddress:                    req.Config.IPAddress,
+		FullyQualifiedDomainName:     req.Config.FullyQualifiedDomainName,
+		ResourcePath:                 req.Config.ResourcePath,
+		SearchString:                 req.Config.SearchString,
+		InsufficientDataHealthStatus: req.Config.InsufficientDataHealthStatus,
+		RoutingControlArn:            req.Config.RoutingControlArn,
+		Type:                         HealthCheckType(req.Config.Type),
+		Port:                         req.Config.Port,
+		RequestInterval:              req.Config.RequestInterval,
+		FailureThreshold:             req.Config.FailureThreshold,
+		HealthThreshold:              req.Config.HealthThreshold,
+		EnableSNI:                    req.Config.EnableSNI,
+		MeasureLatency:               req.Config.MeasureLatency,
+		Disabled:                     req.Config.Disabled,
+		Inverted:                     req.Config.Inverted,
+		ChildHealthChecks:            req.Config.ChildHealthChecks,
+		Regions:                      req.Config.Regions,
+	}
+
+	if req.Config.AlarmIdentifier != nil {
+		cfg.AlarmIdentifier = &AlarmIdentifier{
+			Name:   req.Config.AlarmIdentifier.Name,
+			Region: req.Config.AlarmIdentifier.Region,
+		}
 	}
 
 	hc, err := h.Backend.CreateHealthCheck(req.CallerReference, cfg)
@@ -3211,7 +3231,7 @@ func (h *Handler) listTrafficPolicies(c *echo.Context) error {
 			Name:               p.Name,
 			Type:               p.Type,
 			LatestVersion:      p.Version,
-			TrafficPolicyCount: 1,
+			TrafficPolicyCount: p.VersionCount,
 		})
 	}
 
