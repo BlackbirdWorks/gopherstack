@@ -356,14 +356,19 @@ func (b *InMemoryBackend) UpdateSpace(domainID, spaceName string) (*Space, error
 	return cloneSpace(s), nil
 }
 
-// UpdateModelPackage updates the approval status of a model package.
-func (b *InMemoryBackend) UpdateModelPackage(name, approvalStatus string) (*ModelPackage, error) {
+// UpdateModelPackage updates the approval status of a model package (by name or ARN).
+func (b *InMemoryBackend) UpdateModelPackage(nameOrArn, approvalStatus string) (*ModelPackage, error) {
 	b.mu.Lock("UpdateModelPackage")
 	defer b.mu.Unlock()
 
-	mp, ok := b.modelPackages[name]
+	arnStr := nameOrArn
+	if v, ok := b.modelPackageARNIndex[nameOrArn]; ok {
+		arnStr = v
+	}
+
+	mp, ok := b.modelPackages[arnStr]
 	if !ok {
-		return nil, fmt.Errorf("%w: model package %q not found", ErrModelPackageNotFound, name)
+		return nil, fmt.Errorf("%w: model package %q not found", ErrModelPackageNotFound, nameOrArn)
 	}
 
 	if approvalStatus != "" {

@@ -6,6 +6,16 @@ import (
 	"fmt"
 )
 
+// listResp builds a paginated list response with the given key and items.
+func listResp(key string, items []map[string]any, nextToken string) ([]byte, error) {
+	resp := map[string]any{key: items}
+	if nextToken != "" {
+		resp[keyNextToken] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
 // accuracy3OpsSupported returns the real stateful operations implemented in accuracy3.
 func accuracy3OpsSupported() []string {
 	return []string{
@@ -49,8 +59,20 @@ func (h *Handler) dispatchAccuracy3Ops(
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchEdgeAndInferenceOps(ctx, op, body); ok {
+		return r, ok, err
+	}
+
+	return h.dispatchListAndUpdateOps(ctx, op, body)
+}
+
+//nolint:cyclop,gocyclo // dispatch table for edge/inference operations
+func (h *Handler) dispatchEdgeAndInferenceOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
-	// EdgePackagingJob
 	case "CreateEdgePackagingJob":
 		r, err := h.handleCreateEdgePackagingJob(ctx, body)
 
@@ -65,8 +87,6 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleListEdgePackagingJobs(body)
 
 		return r, true, err
-
-	// InferenceRecommendationsJob
 	case "CreateInferenceRecommendationsJob":
 		r, err := h.handleCreateInferenceRecommendationsJob(ctx, body)
 
@@ -85,8 +105,18 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleListInferenceRecommendationsJobSteps(body)
 
 		return r, true, err
+	}
 
-	// MLflow tracking server
+	return nil, false, nil
+}
+
+//nolint:cyclop,gocyclo // dispatch table for list and update operations
+func (h *Handler) dispatchListAndUpdateOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "ListMlflowTrackingServers":
 		r, err := h.handleListMlflowTrackingServers(body)
 
@@ -95,8 +125,6 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleUpdateMlflowTrackingServer(ctx, body)
 
 		return r, true, err
-
-	// ModelCard lists
 	case "ListModelCards":
 		r, err := h.handleListModelCards(body)
 
@@ -109,8 +137,6 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleListModelCardExportJobs(body)
 
 		return r, true, err
-
-	// Update operations
 	case "UpdateModelPackage":
 		r, err := h.handleUpdateModelPackage(ctx, body)
 
@@ -123,8 +149,6 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleUpdateUserProfile(ctx, body)
 
 		return r, true, err
-
-	// Batch3 resource lists
 	case "ListOptimizationJobs":
 		r, err := h.handleListOptimizationJobs(body)
 
@@ -149,8 +173,6 @@ func (h *Handler) dispatchAccuracy3Ops(
 		r, err := h.handleListAppImageConfigs(body)
 
 		return r, true, err
-
-	// HP tuning related
 	case "ListTrainingJobsForHyperParameterTuningJob":
 		r, err := h.handleListTrainingJobsForHyperParameterTuningJob(body)
 
@@ -482,33 +504,23 @@ func (h *Handler) handleListMlflowTrackingServers(body []byte) ([]byte, error) {
 
 	servers, nextToken := h.Backend.ListMlflowTrackingServers(req.NextToken)
 
-	type trackingServerSummary struct {
-		TrackingServerName   string  `json:"TrackingServerName"`
-		TrackingServerArn    string  `json:"TrackingServerArn"`
-		TrackingServerStatus string  `json:"TrackingServerStatus"`
-		MlflowVersion        string  `json:"MlflowVersion,omitempty"`
-		CreationTime         float64 `json:"CreationTime"`
-		LastModifiedTime     float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]trackingServerSummary, 0, len(servers))
+	items := make([]map[string]any, 0, len(servers))
 	for _, s := range servers {
-		summaries = append(summaries, trackingServerSummary{
-			TrackingServerName:   s.TrackingServerName,
-			TrackingServerArn:    s.TrackingServerArn,
-			TrackingServerStatus: s.TrackingServerStatus,
-			MlflowVersion:        s.MlflowVersion,
-			CreationTime:         epochSeconds(s.CreationTime),
-			LastModifiedTime:     epochSeconds(s.LastModifiedTime),
-		})
+		entry := map[string]any{
+			"TrackingServerName":   s.TrackingServerName,
+			"TrackingServerArn":    s.TrackingServerArn,
+			"TrackingServerStatus": s.TrackingServerStatus,
+			keyCreationTime:        epochSeconds(s.CreationTime),
+			keyLastModifiedTime:    epochSeconds(s.LastModifiedTime),
+		}
+		if s.MlflowVersion != "" {
+			entry["MlflowVersion"] = s.MlflowVersion
+		}
+
+		items = append(items, entry)
 	}
 
-	resp := map[string]any{"TrackingServerSummaries": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("TrackingServerSummaries", items, nextToken)
 }
 
 func (h *Handler) handleUpdateMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
@@ -550,33 +562,19 @@ func (h *Handler) handleListModelCards(body []byte) ([]byte, error) {
 
 	cards, nextToken := h.Backend.ListModelCards(req.NextToken)
 
-	type modelCardSummary struct {
-		ModelCardName    string  `json:"ModelCardName"`
-		ModelCardArn     string  `json:"ModelCardArn"`
-		ModelCardStatus  string  `json:"ModelCardStatus"`
-		ModelCardVersion int     `json:"ModelCardVersion"`
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]modelCardSummary, 0, len(cards))
+	items := make([]map[string]any, 0, len(cards))
 	for _, c := range cards {
-		summaries = append(summaries, modelCardSummary{
-			ModelCardName:    c.ModelCardName,
-			ModelCardArn:     c.ModelCardArn,
-			ModelCardStatus:  c.ModelCardStatus,
-			ModelCardVersion: c.ModelCardVersion,
-			CreationTime:     epochSeconds(c.CreationTime),
-			LastModifiedTime: epochSeconds(c.LastModifiedTime),
+		items = append(items, map[string]any{
+			"ModelCardName":    c.ModelCardName,
+			"ModelCardArn":     c.ModelCardArn,
+			"ModelCardStatus":  c.ModelCardStatus,
+			"ModelCardVersion": c.ModelCardVersion,
+			keyCreationTime:    epochSeconds(c.CreationTime),
+			keyLastModifiedTime: epochSeconds(c.LastModifiedTime),
 		})
 	}
 
-	resp := map[string]any{"ModelCardSummaries": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("ModelCardSummaries", items, nextToken)
 }
 
 func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
@@ -598,23 +596,14 @@ func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	type modelCardVersionSummary struct {
-		ModelCardName    string  `json:"ModelCardName"`
-		ModelCardArn     string  `json:"ModelCardArn"`
-		ModelCardStatus  string  `json:"ModelCardStatus"`
-		ModelCardVersion int     `json:"ModelCardVersion"`
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := []modelCardVersionSummary{
+	summaries := []map[string]any{
 		{
-			ModelCardName:    card.ModelCardName,
-			ModelCardArn:     card.ModelCardArn,
-			ModelCardStatus:  card.ModelCardStatus,
-			ModelCardVersion: card.ModelCardVersion,
-			CreationTime:     epochSeconds(card.CreationTime),
-			LastModifiedTime: epochSeconds(card.LastModifiedTime),
+			"ModelCardName":    card.ModelCardName,
+			"ModelCardArn":     card.ModelCardArn,
+			"ModelCardStatus":  card.ModelCardStatus,
+			"ModelCardVersion": card.ModelCardVersion,
+			keyCreationTime:    epochSeconds(card.CreationTime),
+			keyLastModifiedTime: epochSeconds(card.LastModifiedTime),
 		},
 	}
 
@@ -739,31 +728,18 @@ func (h *Handler) handleListOptimizationJobs(body []byte) ([]byte, error) {
 
 	jobs, nextToken := h.Backend.ListOptimizationJobs(req.NextToken)
 
-	type optimizationJobSummary struct {
-		OptimizationJobName   string  `json:"OptimizationJobName"`
-		OptimizationJobArn    string  `json:"OptimizationJobArn"`
-		OptimizationJobStatus string  `json:"OptimizationJobStatus"`
-		CreationTime          float64 `json:"CreationTime"`
-		LastModifiedTime      float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]optimizationJobSummary, 0, len(jobs))
+	items := make([]map[string]any, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, optimizationJobSummary{
-			OptimizationJobName:   j.OptimizationJobName,
-			OptimizationJobArn:    j.OptimizationJobArn,
-			OptimizationJobStatus: j.OptimizationJobStatus,
-			CreationTime:          epochSeconds(j.CreationTime),
-			LastModifiedTime:      epochSeconds(j.LastModifiedTime),
+		items = append(items, map[string]any{
+			"OptimizationJobName":   j.OptimizationJobName,
+			"OptimizationJobArn":    j.OptimizationJobArn,
+			"OptimizationJobStatus": j.OptimizationJobStatus,
+			keyCreationTime:         epochSeconds(j.CreationTime),
+			keyLastModifiedTime:     epochSeconds(j.LastModifiedTime),
 		})
 	}
 
-	resp := map[string]any{"OptimizationJobSummaries": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("OptimizationJobSummaries", items, nextToken)
 }
 
 func (h *Handler) handleListStudioLifecycleConfigs(body []byte) ([]byte, error) {
@@ -777,29 +753,17 @@ func (h *Handler) handleListStudioLifecycleConfigs(body []byte) ([]byte, error) 
 
 	configs, nextToken := h.Backend.ListStudioLifecycleConfigs(req.NextToken)
 
-	type lifecycleConfigSummary struct {
-		StudioLifecycleConfigName string  `json:"StudioLifecycleConfigName"`
-		StudioLifecycleConfigArn  string  `json:"StudioLifecycleConfigArn"`
-		CreationTime              float64 `json:"CreationTime"`
-		LastModifiedTime          float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]lifecycleConfigSummary, 0, len(configs))
+	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
-		summaries = append(summaries, lifecycleConfigSummary{
-			StudioLifecycleConfigName: c.StudioLifecycleConfigName,
-			StudioLifecycleConfigArn:  c.StudioLifecycleConfigArn,
-			CreationTime:              epochSeconds(c.CreationTime),
-			LastModifiedTime:          epochSeconds(c.LastModifiedTime),
+		items = append(items, map[string]any{
+			"StudioLifecycleConfigName": c.StudioLifecycleConfigName,
+			"StudioLifecycleConfigArn":  c.StudioLifecycleConfigArn,
+			keyCreationTime:             epochSeconds(c.CreationTime),
+			keyLastModifiedTime:         epochSeconds(c.LastModifiedTime),
 		})
 	}
 
-	resp := map[string]any{"StudioLifecycleConfigs": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("StudioLifecycleConfigs", items, nextToken)
 }
 
 func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
@@ -813,33 +777,23 @@ func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
 
 	exps, nextToken := h.Backend.ListInferenceExperiments(req.NextToken)
 
-	type inferenceExperimentSummary struct {
-		Name             string  `json:"Name"`
-		Arn              string  `json:"Arn"`
-		Status           string  `json:"Status"`
-		Type             string  `json:"Type,omitempty"`
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]inferenceExperimentSummary, 0, len(exps))
+	items := make([]map[string]any, 0, len(exps))
 	for _, e := range exps {
-		summaries = append(summaries, inferenceExperimentSummary{
-			Name:             e.Name,
-			Arn:              e.Arn,
-			Status:           e.Status,
-			Type:             e.Type,
-			CreationTime:     epochSeconds(e.CreationTime),
-			LastModifiedTime: epochSeconds(e.LastModifiedTime),
-		})
+		entry := map[string]any{
+			"Name":              e.Name,
+			"Arn":               e.Arn,
+			"Status":            e.Status,
+			keyCreationTime:     epochSeconds(e.CreationTime),
+			keyLastModifiedTime: epochSeconds(e.LastModifiedTime),
+		}
+		if e.Type != "" {
+			entry["Type"] = e.Type
+		}
+
+		items = append(items, entry)
 	}
 
-	resp := map[string]any{"InferenceExperiments": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("InferenceExperiments", items, nextToken)
 }
 
 func (h *Handler) handleListFlowDefinitions(body []byte) ([]byte, error) {
@@ -853,29 +807,17 @@ func (h *Handler) handleListFlowDefinitions(body []byte) ([]byte, error) {
 
 	defs, nextToken := h.Backend.ListFlowDefinitions(req.NextToken)
 
-	type flowDefinitionSummary struct {
-		FlowDefinitionName   string  `json:"FlowDefinitionName"`
-		FlowDefinitionArn    string  `json:"FlowDefinitionArn"`
-		FlowDefinitionStatus string  `json:"FlowDefinitionStatus"`
-		CreationTime         float64 `json:"CreationTime"`
-	}
-
-	summaries := make([]flowDefinitionSummary, 0, len(defs))
+	items := make([]map[string]any, 0, len(defs))
 	for _, d := range defs {
-		summaries = append(summaries, flowDefinitionSummary{
-			FlowDefinitionName:   d.FlowDefinitionName,
-			FlowDefinitionArn:    d.FlowDefinitionArn,
-			FlowDefinitionStatus: d.FlowDefinitionStatus,
-			CreationTime:         epochSeconds(d.CreationTime),
+		items = append(items, map[string]any{
+			"FlowDefinitionName":   d.FlowDefinitionName,
+			"FlowDefinitionArn":    d.FlowDefinitionArn,
+			"FlowDefinitionStatus": d.FlowDefinitionStatus,
+			keyCreationTime:        epochSeconds(d.CreationTime),
 		})
 	}
 
-	resp := map[string]any{"FlowDefinitionSummaries": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("FlowDefinitionSummaries", items, nextToken)
 }
 
 func (h *Handler) handleListHumanTaskUIs(body []byte) ([]byte, error) {
@@ -889,27 +831,16 @@ func (h *Handler) handleListHumanTaskUIs(body []byte) ([]byte, error) {
 
 	uis, nextToken := h.Backend.ListHumanTaskUIs(req.NextToken)
 
-	type humanTaskUISummary struct {
-		HumanTaskUiName string  `json:"HumanTaskUiName"`
-		HumanTaskUiArn  string  `json:"HumanTaskUiArn"`
-		CreationTime    float64 `json:"CreationTime"`
-	}
-
-	summaries := make([]humanTaskUISummary, 0, len(uis))
+	items := make([]map[string]any, 0, len(uis))
 	for _, u := range uis {
-		summaries = append(summaries, humanTaskUISummary{
-			HumanTaskUiName: u.HumanTaskUIName,
-			HumanTaskUiArn:  u.HumanTaskUIArn,
-			CreationTime:    epochSeconds(u.CreationTime),
+		items = append(items, map[string]any{
+			"HumanTaskUiName": u.HumanTaskUIName,
+			"HumanTaskUiArn":  u.HumanTaskUIArn,
+			keyCreationTime:   epochSeconds(u.CreationTime),
 		})
 	}
 
-	resp := map[string]any{"HumanTaskUiSummaries": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("HumanTaskUiSummaries", items, nextToken)
 }
 
 func (h *Handler) handleListAppImageConfigs(body []byte) ([]byte, error) {
@@ -923,29 +854,17 @@ func (h *Handler) handleListAppImageConfigs(body []byte) ([]byte, error) {
 
 	configs, nextToken := h.Backend.ListAppImageConfigs(req.NextToken)
 
-	type appImageConfigSummary struct {
-		AppImageConfigName string  `json:"AppImageConfigName"`
-		AppImageConfigArn  string  `json:"AppImageConfigArn"`
-		CreationTime       float64 `json:"CreationTime"`
-		LastModifiedTime   float64 `json:"LastModifiedTime"`
-	}
-
-	summaries := make([]appImageConfigSummary, 0, len(configs))
+	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
-		summaries = append(summaries, appImageConfigSummary{
-			AppImageConfigName: c.AppImageConfigName,
-			AppImageConfigArn:  c.AppImageConfigArn,
-			CreationTime:       epochSeconds(c.CreationTime),
-			LastModifiedTime:   epochSeconds(c.LastModifiedTime),
+		items = append(items, map[string]any{
+			"AppImageConfigName": c.AppImageConfigName,
+			"AppImageConfigArn":  c.AppImageConfigArn,
+			keyCreationTime:      epochSeconds(c.CreationTime),
+			keyLastModifiedTime:  epochSeconds(c.LastModifiedTime),
 		})
 	}
 
-	resp := map[string]any{"AppImageConfigs": summaries}
-	if nextToken != "" {
-		resp[keyNextToken] = nextToken
-	}
-
-	return json.Marshal(resp)
+	return listResp("AppImageConfigs", items, nextToken)
 }
 
 func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(body []byte) ([]byte, error) {
