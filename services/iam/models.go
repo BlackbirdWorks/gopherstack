@@ -930,11 +930,11 @@ type PermissionsBoundaryDecisionDetailXML struct {
 
 // SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
 type SimulationEvalResultXML struct {
-	EvalActionName   string                                `xml:"EvalActionName"`
-	EvalResourceName string                                `xml:"EvalResourceName"`
-	EvalDecision     string                                `xml:"EvalDecision"`
+	EvalActionName   string `xml:"EvalActionName"`
+	EvalResourceName string `xml:"EvalResourceName"`
+	EvalDecision     string `xml:"EvalDecision"`
 	// EvalDecisionDetails maps each policy source ID to its individual decision.
-	EvalDecisionDetails          []EvalDecisionDetailEntry             `xml:"EvalDecisionDetails>entry,omitempty"`
+	EvalDecisionDetails []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
 	// PermissionsBoundaryDecisionDetail is present when the principal has a boundary.
 	PermissionsBoundaryDecisionDetail *PermissionsBoundaryDecisionDetailXML `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
 }

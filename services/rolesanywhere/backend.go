@@ -52,20 +52,20 @@ type TagEntry struct {
 
 // Profile represents an IAM Roles Anywhere profile.
 type Profile struct {
-	ProfileID   string     `json:"profileId"`
-	ProfileArn  string     `json:"profileArn"`
-	Name        string     `json:"name"`
-	RoleArns    []string   `json:"roleArns"`
-	Enabled     bool       `json:"enabled"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	Tags        []TagEntry `json:"tags,omitempty"`
+	ProfileID  string     `json:"profileId"`
+	ProfileArn string     `json:"profileArn"`
+	Name       string     `json:"name"`
+	RoleArns   []string   `json:"roleArns"`
+	Enabled    bool       `json:"enabled"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	Tags       []TagEntry `json:"tags,omitempty"`
 
 	// Optional fields
-	DurationSeconds      *int32  `json:"durationSeconds,omitempty"`
-	ManagedPolicyArns    []string `json:"managedPolicyArns,omitempty"`
-	RequireInstanceProperties bool `json:"requireInstanceProperties,omitempty"`
-	SessionPolicy        string  `json:"sessionPolicy,omitempty"`
+	DurationSeconds           *int32   `json:"durationSeconds,omitempty"`
+	ManagedPolicyArns         []string `json:"managedPolicyArns,omitempty"`
+	RequireInstanceProperties bool     `json:"requireInstanceProperties,omitempty"`
+	SessionPolicy             string   `json:"sessionPolicy,omitempty"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

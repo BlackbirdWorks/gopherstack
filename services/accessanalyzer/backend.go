@@ -31,9 +31,9 @@ var (
 type AnalyzerType string
 
 const (
-	AnalyzerTypeAccount              AnalyzerType = "ACCOUNT"
-	AnalyzerTypeOrganization         AnalyzerType = "ORGANIZATION"
-	AnalyzerTypeAccountUnusedAccess  AnalyzerType = "ACCOUNT_UNUSED_ACCESS"
+	AnalyzerTypeAccount                  AnalyzerType = "ACCOUNT"
+	AnalyzerTypeOrganization             AnalyzerType = "ORGANIZATION"
+	AnalyzerTypeAccountUnusedAccess      AnalyzerType = "ACCOUNT_UNUSED_ACCESS"
 	AnalyzerTypeOrganizationUnusedAccess AnalyzerType = "ORGANIZATION_UNUSED_ACCESS"
 )
 
@@ -41,10 +41,10 @@ const (
 type AnalyzerStatus string
 
 const (
-	AnalyzerStatusActive  AnalyzerStatus = "ACTIVE"
+	AnalyzerStatusActive   AnalyzerStatus = "ACTIVE"
 	AnalyzerStatusCreating AnalyzerStatus = "CREATING"
 	AnalyzerStatusDisabled AnalyzerStatus = "DISABLED"
-	AnalyzerStatusFailed  AnalyzerStatus = "FAILED"
+	AnalyzerStatusFailed   AnalyzerStatus = "FAILED"
 )
 
 // FindingStatus represents the status of a finding.
@@ -58,21 +58,21 @@ const (
 
 // FilterCriterion is a single criterion in a finding filter.
 type FilterCriterion struct {
-	Contains    []string `json:"contains,omitempty"`
-	Eq          []string `json:"eq,omitempty"`
-	Exists      *bool    `json:"exists,omitempty"`
-	Neq         []string `json:"neq,omitempty"`
+	Contains []string `json:"contains,omitempty"`
+	Eq       []string `json:"eq,omitempty"`
+	Exists   *bool    `json:"exists,omitempty"`
+	Neq      []string `json:"neq,omitempty"`
 }
 
 // Analyzer represents an IAM Access Analyzer analyzer.
 type Analyzer struct {
-	Arn          string            `json:"arn"`
-	Name         string            `json:"name"`
-	Type         AnalyzerType      `json:"type"`
-	Status       AnalyzerStatus    `json:"status"`
-	CreatedAt    time.Time         `json:"createdAt"`
-	LastResourceAnalyzedAt *time.Time `json:"lastResourceAnalyzedAt,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags,omitempty"`
+	LastResourceAnalyzedAt *time.Time        `json:"lastResourceAnalyzedAt,omitempty"`
+	CreatedAt              time.Time         `json:"createdAt"`
+	Arn                    string            `json:"arn"`
+	Name                   string            `json:"name"`
+	Type                   AnalyzerType      `json:"type"`
+	Status                 AnalyzerStatus    `json:"status"`
 }
 
 // ArchiveRule represents an archive rule for an analyzer.
@@ -104,10 +104,10 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 
-	analyzers    map[string]*Analyzer              // name → Analyzer
+	analyzers    map[string]*Analyzer               // name → Analyzer
 	archiveRules map[string]map[string]*ArchiveRule // analyzerName → ruleName → Rule
-	findings     map[string]map[string]*Finding    // analyzerName → findingID → Finding
-	tags         map[string]map[string]string      // resourceARN → tags
+	findings     map[string]map[string]*Finding     // analyzerName → findingID → Finding
+	tags         map[string]map[string]string       // resourceARN → tags
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -526,10 +526,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	type snap struct {
-		Analyzers    map[string]*Analyzer              `json:"analyzers"`
+		Analyzers    map[string]*Analyzer               `json:"analyzers"`
 		ArchiveRules map[string]map[string]*ArchiveRule `json:"archiveRules"`
-		Findings     map[string]map[string]*Finding    `json:"findings"`
-		Tags         map[string]map[string]string      `json:"tags"`
+		Findings     map[string]map[string]*Finding     `json:"findings"`
+		Tags         map[string]map[string]string       `json:"tags"`
 	}
 
 	data, _ := json.Marshal(snap{
@@ -548,10 +548,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	type snap struct {
-		Analyzers    map[string]*Analyzer              `json:"analyzers"`
+		Analyzers    map[string]*Analyzer               `json:"analyzers"`
 		ArchiveRules map[string]map[string]*ArchiveRule `json:"archiveRules"`
-		Findings     map[string]map[string]*Finding    `json:"findings"`
-		Tags         map[string]map[string]string      `json:"tags"`
+		Findings     map[string]map[string]*Finding     `json:"findings"`
+		Tags         map[string]map[string]string       `json:"tags"`
 	}
 
 	var s snap
@@ -637,4 +637,3 @@ func copyFinding(f *Finding) *Finding {
 
 	return &cp
 }
-

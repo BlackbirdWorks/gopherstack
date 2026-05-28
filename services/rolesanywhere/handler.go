@@ -19,15 +19,15 @@ const (
 	rolesAnywhereService = "rolesanywhere"
 	matchPriority        = service.PriorityPathVersioned
 
-	pathTrustanchors = "trustanchors"
-	pathTrustanchor  = "trustanchor"
-	pathProfiles     = "profiles"
-	pathProfile      = "profile"
-	pathEnable       = "enable"
-	pathDisable      = "disable"
-	pathTagResource  = "TagResource"
+	pathTrustanchors  = "trustanchors"
+	pathTrustanchor   = "trustanchor"
+	pathProfiles      = "profiles"
+	pathProfile       = "profile"
+	pathEnable        = "enable"
+	pathDisable       = "disable"
+	pathTagResource   = "TagResource"
 	pathUntagResource = "UntagResource"
-	pathListTags     = "ListTagsForResource"
+	pathListTags      = "ListTagsForResource"
 
 	opCreateTrustAnchor   = "CreateTrustAnchor"
 	opGetTrustAnchor      = "GetTrustAnchor"
@@ -47,6 +47,12 @@ const (
 	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
 	opUnknown             = "Unknown"
+
+	keyTrustAnchor  = "trustAnchor"
+	keyTrustAnchors = "trustAnchors"
+	keyProfile      = "profile"
+	keyProfiles     = "profiles"
+	keyTags         = "tags"
 )
 
 // Handler handles Roles Anywhere HTTP requests.
@@ -167,35 +173,75 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
+	if result, code, err, ok := h.dispatchTrustAnchorOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
+	if result, code, err, ok := h.dispatchProfileOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
+	return h.dispatchTagOps(op, query, body)
+}
+
+func (h *Handler) dispatchTrustAnchorOps(op, path, query string, body []byte) (any, int, error, bool) {
 	switch op {
 	case opCreateTrustAnchor:
-		return h.handleCreateTrustAnchor(body)
+		r, c, e := h.handleCreateTrustAnchor(body)
+		return r, c, e, true
 	case opGetTrustAnchor:
-		return h.handleGetTrustAnchor(path)
+		r, c, e := h.handleGetTrustAnchor(path)
+		return r, c, e, true
 	case opListTrustAnchors:
-		return h.handleListTrustAnchors(query)
+		r, c, e := h.handleListTrustAnchors(query)
+		return r, c, e, true
 	case opDeleteTrustAnchor:
-		return h.handleDeleteTrustAnchor(path)
+		r, c, e := h.handleDeleteTrustAnchor(path)
+		return r, c, e, true
 	case opUpdateTrustAnchor:
-		return h.handleUpdateTrustAnchor(path, body)
+		r, c, e := h.handleUpdateTrustAnchor(path, body)
+		return r, c, e, true
 	case opEnableTrustAnchor:
-		return h.handleEnableTrustAnchor(path)
+		r, c, e := h.handleEnableTrustAnchor(path)
+		return r, c, e, true
 	case opDisableTrustAnchor:
-		return h.handleDisableTrustAnchor(path)
+		r, c, e := h.handleDisableTrustAnchor(path)
+		return r, c, e, true
+	}
+
+	return nil, 0, nil, false
+}
+
+func (h *Handler) dispatchProfileOps(op, path, query string, body []byte) (any, int, error, bool) {
+	switch op {
 	case opCreateProfile:
-		return h.handleCreateProfile(body)
+		r, c, e := h.handleCreateProfile(body)
+		return r, c, e, true
 	case opGetProfile:
-		return h.handleGetProfile(path)
+		r, c, e := h.handleGetProfile(path)
+		return r, c, e, true
 	case opListProfiles:
-		return h.handleListProfiles(query)
+		r, c, e := h.handleListProfiles(query)
+		return r, c, e, true
 	case opDeleteProfile:
-		return h.handleDeleteProfile(path)
+		r, c, e := h.handleDeleteProfile(path)
+		return r, c, e, true
 	case opUpdateProfile:
-		return h.handleUpdateProfile(path, body)
+		r, c, e := h.handleUpdateProfile(path, body)
+		return r, c, e, true
 	case opEnableProfile:
-		return h.handleEnableProfile(path)
+		r, c, e := h.handleEnableProfile(path)
+		return r, c, e, true
 	case opDisableProfile:
-		return h.handleDisableProfile(path)
+		r, c, e := h.handleDisableProfile(path)
+		return r, c, e, true
+	}
+
+	return nil, 0, nil, false
+}
+
+func (h *Handler) dispatchTagOps(op, query string, body []byte) (any, int, error) {
+	switch op {
 	case opTagResource:
 		return h.handleTagResource(body)
 	case opUntagResource:
@@ -225,7 +271,7 @@ func (h *Handler) handleCreateTrustAnchor(body []byte) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"trustAnchor": trustAnchorToJSON(ta)}, http.StatusCreated, nil
+	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusCreated, nil
 }
 
 func (h *Handler) handleGetTrustAnchor(path string) (any, int, error) {
@@ -236,7 +282,7 @@ func (h *Handler) handleGetTrustAnchor(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"trustAnchor": trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
@@ -253,7 +299,7 @@ func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
 		list = append(list, trustAnchorToJSON(ta))
 	}
 
-	resp := map[string]any{"trustAnchors": list}
+	resp := map[string]any{keyTrustAnchors: list}
 
 	if next != "" {
 		resp["nextToken"] = next
@@ -289,7 +335,7 @@ func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, e
 		return nil, 0, err
 	}
 
-	return map[string]any{"trustAnchor": trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleEnableTrustAnchor(path string) (any, int, error) {
@@ -300,7 +346,7 @@ func (h *Handler) handleEnableTrustAnchor(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"trustAnchor": trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDisableTrustAnchor(path string) (any, int, error) {
@@ -311,7 +357,7 @@ func (h *Handler) handleDisableTrustAnchor(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"trustAnchor": trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
 // ---- Profile handlers ----
@@ -340,7 +386,7 @@ func (h *Handler) handleCreateProfile(body []byte) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"profile": profileToJSON(p)}, http.StatusCreated, nil
+	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusCreated, nil
 }
 
 func (h *Handler) handleGetProfile(path string) (any, int, error) {
@@ -351,7 +397,7 @@ func (h *Handler) handleGetProfile(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"profile": profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListProfiles(query string) (any, int, error) {
@@ -368,7 +414,7 @@ func (h *Handler) handleListProfiles(query string) (any, int, error) {
 		list = append(list, profileToJSON(p))
 	}
 
-	resp := map[string]any{"profiles": list}
+	resp := map[string]any{keyProfiles: list}
 
 	if next != "" {
 		resp["nextToken"] = next
@@ -412,7 +458,7 @@ func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error
 		return nil, 0, err
 	}
 
-	return map[string]any{"profile": profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleEnableProfile(path string) (any, int, error) {
@@ -423,7 +469,7 @@ func (h *Handler) handleEnableProfile(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"profile": profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDisableProfile(path string) (any, int, error) {
@@ -434,7 +480,7 @@ func (h *Handler) handleDisableProfile(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"profile": profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
 // ---- Tag handlers ----
@@ -496,7 +542,7 @@ func (h *Handler) handleListTagsForResource(query string) (any, int, error) {
 		tags = []TagEntry{}
 	}
 
-	return map[string]any{"tags": tags}, http.StatusOK, nil
+	return map[string]any{keyTags: tags}, http.StatusOK, nil
 }
 
 // handleError writes an error response.

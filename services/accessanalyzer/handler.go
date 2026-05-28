@@ -16,36 +16,45 @@ import (
 )
 
 const (
-	accessAnalyzerService  = "access-analyzer"
-	matchPriority          = service.PriorityPathVersioned
-	pathAnalyzer           = "analyzer"
-	pathArchiveRule        = "archive-rule"
-	pathFindings           = "findings"
-	pathFinding            = "finding"
-	pathTags               = "tags"
-	pathResource           = "resource"
-	pathScan               = "scan"
-	pathEnable             = "enable"
-	pathDisable            = "disable"
-	pathAnalyzedResource   = "analyzedResource"
+	accessAnalyzerService = "access-analyzer"
+	matchPriority         = service.PriorityPathVersioned
+	pathAnalyzer          = "analyzer"
+	pathArchiveRule       = "archive-rule"
+	pathFindings          = "findings"
+	pathFinding           = "finding"
+	pathTags              = "tags"
+	pathResource          = "resource"
+	pathScan              = "scan"
+	pathEnable            = "enable"
+	pathDisable           = "disable"
+	pathAnalyzedResource  = "analyzedResource"
 
-	opCreateAnalyzer     = "CreateAnalyzer"
-	opGetAnalyzer        = "GetAnalyzer"
-	opListAnalyzers      = "ListAnalyzers"
-	opDeleteAnalyzer     = "DeleteAnalyzer"
-	opCreateArchiveRule  = "CreateArchiveRule"
-	opGetArchiveRule     = "GetArchiveRule"
-	opListArchiveRules   = "ListArchiveRules"
-	opDeleteArchiveRule  = "DeleteArchiveRule"
-	opUpdateArchiveRule  = "UpdateArchiveRule"
-	opGetFinding         = "GetFinding"
-	opListFindings       = "ListFindings"
-	opUpdateFindings     = "UpdateFindings"
-	opStartResourceScan  = "StartResourceScan"
-	opTagResource        = "TagResource"
-	opUntagResource      = "UntagResource"
+	opCreateAnalyzer      = "CreateAnalyzer"
+	opGetAnalyzer         = "GetAnalyzer"
+	opListAnalyzers       = "ListAnalyzers"
+	opDeleteAnalyzer      = "DeleteAnalyzer"
+	opCreateArchiveRule   = "CreateArchiveRule"
+	opGetArchiveRule      = "GetArchiveRule"
+	opListArchiveRules    = "ListArchiveRules"
+	opDeleteArchiveRule   = "DeleteArchiveRule"
+	opUpdateArchiveRule   = "UpdateArchiveRule"
+	opGetFinding          = "GetFinding"
+	opListFindings        = "ListFindings"
+	opUpdateFindings      = "UpdateFindings"
+	opStartResourceScan   = "StartResourceScan"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
-	opUnknown            = "Unknown"
+	opUnknown             = "Unknown"
+
+	keyCreatedAt  = "createdAt"
+	keyUpdatedAt  = "updatedAt"
+	keyAnalyzer   = "analyzer"
+	keyArchiveRule = "archiveRule"
+	keyFinding    = "finding"
+	keyFindings   = "findings"
+	keyARN        = "arn"
+	keyTags       = "tags"
 )
 
 // Handler handles Access Analyzer HTTP requests.
@@ -166,33 +175,72 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
+	if result, code, err, handled := h.dispatchAnalyzerOps(op, path, query, body); handled {
+		return result, code, err
+	}
+
+	if result, code, err, handled := h.dispatchFindingOps(op, path, body); handled {
+		return result, code, err
+	}
+
+	return h.dispatchTagOps(op, path, query, body)
+}
+
+func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any, int, error, bool) {
 	switch op {
 	case opCreateAnalyzer:
-		return h.handleCreateAnalyzer(body)
+		r, c, e := h.handleCreateAnalyzer(body)
+		return r, c, e, true
 	case opGetAnalyzer:
-		return h.handleGetAnalyzer(path)
+		r, c, e := h.handleGetAnalyzer(path)
+		return r, c, e, true
 	case opListAnalyzers:
-		return h.handleListAnalyzers(query)
+		r, c, e := h.handleListAnalyzers(query)
+		return r, c, e, true
 	case opDeleteAnalyzer:
-		return h.handleDeleteAnalyzer(path)
+		r, c, e := h.handleDeleteAnalyzer(path)
+		return r, c, e, true
 	case opCreateArchiveRule:
-		return h.handleCreateArchiveRule(path, body)
+		r, c, e := h.handleCreateArchiveRule(path, body)
+		return r, c, e, true
 	case opGetArchiveRule:
-		return h.handleGetArchiveRule(path)
+		r, c, e := h.handleGetArchiveRule(path)
+		return r, c, e, true
 	case opListArchiveRules:
-		return h.handleListArchiveRules(path)
+		r, c, e := h.handleListArchiveRules(path)
+		return r, c, e, true
 	case opDeleteArchiveRule:
-		return h.handleDeleteArchiveRule(path)
+		r, c, e := h.handleDeleteArchiveRule(path)
+		return r, c, e, true
 	case opUpdateArchiveRule:
-		return h.handleUpdateArchiveRule(path, body)
+		r, c, e := h.handleUpdateArchiveRule(path, body)
+		return r, c, e, true
+	}
+
+	return nil, 0, nil, false
+}
+
+func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, error, bool) {
+	switch op {
 	case opGetFinding:
-		return h.handleGetFinding(path)
+		r, c, e := h.handleGetFinding(path)
+		return r, c, e, true
 	case opListFindings:
-		return h.handleListFindings(path, body)
+		r, c, e := h.handleListFindings(path, body)
+		return r, c, e, true
 	case opUpdateFindings:
-		return h.handleUpdateFindings(path, body)
+		r, c, e := h.handleUpdateFindings(path, body)
+		return r, c, e, true
 	case opStartResourceScan:
-		return h.handleStartResourceScan(body)
+		r, c, e := h.handleStartResourceScan(body)
+		return r, c, e, true
+	}
+
+	return nil, 0, nil, false
+}
+
+func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int, error) {
+	switch op {
 	case opTagResource:
 		return h.handleTagResource(path, body)
 	case opUntagResource:
@@ -231,7 +279,7 @@ func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]string{"arn": a.Arn}, http.StatusOK, nil
+	return map[string]string{keyARN: a.Arn}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
@@ -242,7 +290,7 @@ func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"analyzer": analyzerToJSON(a)}, http.StatusOK, nil
+	return map[string]any{keyAnalyzer: analyzerToJSON(a)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
@@ -305,7 +353,7 @@ func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"archiveRule": archiveRuleToJSON(rule)}, http.StatusOK, nil
+	return map[string]any{keyArchiveRule: archiveRuleToJSON(rule)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
@@ -361,7 +409,7 @@ func (h *Handler) handleGetFinding(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"finding": findingToJSON(f)}, http.StatusOK, nil
+	return map[string]any{keyFinding: findingToJSON(f)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListFindings(path string, body []byte) (any, int, error) {
@@ -390,7 +438,7 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 		list = append(list, findingToJSON(f))
 	}
 
-	resp := map[string]any{"findings": list}
+	resp := map[string]any{keyFindings: list}
 
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
@@ -484,7 +532,7 @@ func (h *Handler) handleListTagsForResource(path string) (any, int, error) {
 		tags = make(map[string]string)
 	}
 
-	return map[string]any{"tags": tags}, http.StatusOK, nil
+	return map[string]any{keyTags: tags}, http.StatusOK, nil
 }
 
 // handleError writes an error response.
@@ -647,15 +695,15 @@ func extractTwoPathParams(path, key1, key2 string) (string, string) {
 
 func analyzerToJSON(a *Analyzer) map[string]any {
 	m := map[string]any{
-		"arn":       a.Arn,
-		"name":      a.Name,
-		"type":      string(a.Type),
-		"status":    string(a.Status),
-		"createdAt": a.CreatedAt.Format(time.RFC3339),
+		keyARN:       a.Arn,
+		"name":       a.Name,
+		"type":       string(a.Type),
+		"status":     string(a.Status),
+		keyCreatedAt: a.CreatedAt.Format(time.RFC3339),
 	}
 
 	if a.Tags != nil {
-		m["tags"] = a.Tags
+		m[keyTags] = a.Tags
 	}
 
 	if a.LastResourceAnalyzedAt != nil {
@@ -667,10 +715,10 @@ func analyzerToJSON(a *Analyzer) map[string]any {
 
 func archiveRuleToJSON(r *ArchiveRule) map[string]any {
 	return map[string]any{
-		"ruleName":  r.RuleName,
-		"filter":    r.Filter,
-		"createdAt": r.CreatedAt.Format(time.RFC3339),
-		"updatedAt": r.UpdatedAt.Format(time.RFC3339),
+		"ruleName":   r.RuleName,
+		"filter":     r.Filter,
+		keyCreatedAt: r.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt: r.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -681,8 +729,8 @@ func findingToJSON(f *Finding) map[string]any {
 		"status":       string(f.Status),
 		"resourceType": f.ResourceType,
 		"resourceArn":  f.ResourceArn,
-		"updatedAt":    f.UpdatedAt.Format(time.RFC3339),
-		"createdAt":    f.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt:   f.UpdatedAt.Format(time.RFC3339),
+		keyCreatedAt:   f.CreatedAt.Format(time.RFC3339),
 	}
 
 	if len(f.Action) > 0 {
