@@ -1342,14 +1342,12 @@ func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, erro
 		return evalAggQuery(q, rows)
 	}
 
-	needsBuffer := len(q.orderBy) > 0
-	result := make([]map[string]string, 0, len(rows))
+	// Filter on original rows so ORDER BY can reference any column.
+	filtered := make([]map[string]string, 0, len(rows))
 
 	for _, rawRow := range rows {
-		row := &stringRow{data: rawRow}
-
 		if q.condition != nil {
-			val, err := q.condition.eval(row)
+			val, err := q.condition.eval(&stringRow{data: rawRow})
 			if err != nil {
 				return nil, err
 			}
@@ -1359,24 +1357,31 @@ func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, erro
 			}
 		}
 
-		projected, err := projectStringRow(q, row, rawRow)
+		filtered = append(filtered, rawRow)
+
+		if q.limit > 0 && len(q.orderBy) == 0 && len(filtered) >= q.limit {
+			break
+		}
+	}
+
+	// Sort on original data before projection so ORDER BY can access any column.
+	if len(q.orderBy) > 0 {
+		sortStringRows(filtered, q.orderBy)
+
+		if q.limit > 0 && len(filtered) > q.limit {
+			filtered = filtered[:q.limit]
+		}
+	}
+
+	result := make([]map[string]string, 0, len(filtered))
+
+	for _, rawRow := range filtered {
+		projected, err := projectStringRow(q, &stringRow{data: rawRow}, rawRow)
 		if err != nil {
 			return nil, err
 		}
 
 		result = append(result, projected)
-
-		if q.limit > 0 && !needsBuffer && len(result) >= q.limit {
-			break
-		}
-	}
-
-	if len(q.orderBy) > 0 {
-		sortStringRows(result, q.orderBy)
-
-		if q.limit > 0 && len(result) > q.limit {
-			result = result[:q.limit]
-		}
 	}
 
 	return result, nil
@@ -1408,14 +1413,12 @@ func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error)
 		return evalAggQueryJSON(q, rows)
 	}
 
-	needsBuffer := len(q.orderBy) > 0
-	result := make([]map[string]any, 0, len(rows))
+	// Filter on original rows so ORDER BY can reference any column.
+	filtered := make([]map[string]any, 0, len(rows))
 
 	for _, rawRow := range rows {
-		row := &jsonRow{data: rawRow}
-
 		if q.condition != nil {
-			val, err := q.condition.eval(row)
+			val, err := q.condition.eval(&jsonRow{data: rawRow})
 			if err != nil {
 				return nil, err
 			}
@@ -1425,24 +1428,31 @@ func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error)
 			}
 		}
 
-		projected, err := projectJSONRow(q, row, rawRow)
+		filtered = append(filtered, rawRow)
+
+		if q.limit > 0 && len(q.orderBy) == 0 && len(filtered) >= q.limit {
+			break
+		}
+	}
+
+	// Sort on original data before projection so ORDER BY can access any column.
+	if len(q.orderBy) > 0 {
+		sortJSONRows(filtered, q.orderBy)
+
+		if q.limit > 0 && len(filtered) > q.limit {
+			filtered = filtered[:q.limit]
+		}
+	}
+
+	result := make([]map[string]any, 0, len(filtered))
+
+	for _, rawRow := range filtered {
+		projected, err := projectJSONRow(q, &jsonRow{data: rawRow}, rawRow)
 		if err != nil {
 			return nil, err
 		}
 
 		result = append(result, projected)
-
-		if q.limit > 0 && !needsBuffer && len(result) >= q.limit {
-			break
-		}
-	}
-
-	if len(q.orderBy) > 0 {
-		sortJSONRows(result, q.orderBy)
-
-		if q.limit > 0 && len(result) > q.limit {
-			result = result[:q.limit]
-		}
 	}
 
 	return result, nil
