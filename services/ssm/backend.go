@@ -176,7 +176,7 @@ type InMemoryBackend struct {
 	inventory                  map[string][]InventoryItem  // key: instanceID
 	compliance                 map[string][]ComplianceItem // key: resourceID
 	resourceDataSyncs          map[string]*ResourceDataSync
-	parameterLabels            map[string][]string             // paramName → labels
+	parameterLabels            map[string]map[int64][]string   // paramName → version → labels (0 = latest)
 	automationExecutions       map[string]*AutomationExecution // executionID → exec
 	serviceSettings            map[string]*ServiceSetting      // settingID → setting
 	resourcePolicies           map[string][]*ResourcePolicy    // resourceARN → policies
@@ -184,6 +184,7 @@ type InMemoryBackend struct {
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]string
+	opsItemEvents              []OpsItemEventSummary
 	commandExpirySecs          float64
 }
 
@@ -212,7 +213,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		inventory:                  make(map[string][]InventoryItem),
 		compliance:                 make(map[string][]ComplianceItem),
 		resourceDataSyncs:          make(map[string]*ResourceDataSync),
-		parameterLabels:            make(map[string][]string),
+		parameterLabels:            make(map[string]map[int64][]string),
 		automationExecutions:       make(map[string]*AutomationExecution),
 		serviceSettings:            make(map[string]*ServiceSetting),
 		resourcePolicies:           make(map[string][]*ResourcePolicy),
@@ -512,7 +513,20 @@ func (b *InMemoryBackend) GetParameterHistory(input *GetParameterHistoryInput) (
 	reversed := make([]ParameterHistory, n)
 
 	for i, h := range historyList {
-		reversed[n-1-i] = h
+		entry := h
+		// Populate labels from the per-version label store.
+		if versionLabels, ok := b.parameterLabels[input.Name]; ok {
+			if labels, ok2 := versionLabels[entry.Version]; ok2 && len(labels) > 0 {
+				entry.Labels = labels
+			}
+		}
+		// Decrypt SecureString values when WithDecryption is requested.
+		if input.WithDecryption && entry.Type == SecureStringType {
+			if decrypted, err := decryptValue(entry.Value); err == nil {
+				entry.Value = decrypted
+			}
+		}
+		reversed[n-1-i] = entry
 	}
 
 	startIdx := parseNextToken(input.NextToken)
@@ -1044,6 +1058,29 @@ func (b *InMemoryBackend) GetDocument(input *GetDocumentInput) (*GetDocumentOutp
 	}, nil
 }
 
+// documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
+// Supported filter keys: DocumentType, Name.
+func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "DocumentType":
+			fieldValue = doc.DocumentType
+		case "Name":
+			fieldValue = doc.Name
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, fieldValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribeDocument returns document metadata.
 func (b *InMemoryBackend) DescribeDocument(input *DescribeDocumentInput) (*DescribeDocumentOutput, error) {
 	b.mu.RLock("DescribeDocument")
@@ -1057,13 +1094,22 @@ func (b *InMemoryBackend) DescribeDocument(input *DescribeDocumentInput) (*Descr
 	return &DescribeDocumentOutput{Document: doc}, nil
 }
 
-// ListDocuments returns a list of document identifiers.
+// ListDocuments returns a list of document identifiers filtered by key-value criteria.
 func (b *InMemoryBackend) ListDocuments(input *ListDocumentsInput) (*ListDocumentsOutput, error) {
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
 
+	// Merge Filters and DocumentFilters (both carry the same shape).
+	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilters))
+	allFilters = append(allFilters, input.Filters...)
+	allFilters = append(allFilters, input.DocumentFilters...)
+
 	all := make([]DocumentIdentifier, 0, len(b.documents))
 	for _, doc := range b.documents {
+		if !documentMatchesFilters(doc, allFilters) {
+			continue
+		}
+
 		all = append(all, DocumentIdentifier{
 			Name:            doc.Name,
 			DocumentType:    doc.DocumentType,
@@ -1472,11 +1518,12 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceIDToOpsMetadataArn = make(map[string]string)
 	b.miscResourceTags = make(map[string]map[string]string)
 	b.resourceDataSyncs = make(map[string]*ResourceDataSync)
-	b.parameterLabels = make(map[string][]string)
+	b.parameterLabels = make(map[string]map[int64][]string)
 	b.automationExecutions = make(map[string]*AutomationExecution)
 	b.serviceSettings = make(map[string]*ServiceSetting)
 	b.resourcePolicies = make(map[string][]*ResourcePolicy)
 	b.executionPreviews = make(map[string]*ExecutionPreview)
+	b.opsItemEvents = nil
 	b.registerDefaultDocuments()
 }
 
@@ -1811,6 +1858,11 @@ func (b *InMemoryBackend) CreateOpsItem(input *CreateOpsItemInput) (*CreateOpsIt
 	}
 
 	b.opsItems[opsItemID] = item
+
+	b.opsItemEvents = append(b.opsItemEvents, OpsItemEventSummary{
+		OpsItemID: opsItemID,
+		EventID:   "event-create-" + opsItemID,
+	})
 
 	if len(input.Tags) > 0 {
 		if b.miscResourceTags[opsItemID] == nil {

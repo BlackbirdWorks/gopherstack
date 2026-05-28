@@ -294,10 +294,17 @@ type OpsItemSummary struct {
 	CreatedTime float64 `json:"CreatedTime"`
 }
 
+// PatchBaselineFilter is a key-value filter for DescribePatchBaselines.
+type PatchBaselineFilter struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
+
 // DescribePatchBaselinesInput is the request payload for DescribePatchBaselines.
 type DescribePatchBaselinesInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64                `json:"MaxResults,omitempty"`
+	NextToken  string                `json:"NextToken,omitempty"`
+	Filters    []PatchBaselineFilter `json:"Filters,omitempty"`
 }
 
 // DescribePatchBaselinesOutput is the response payload for DescribePatchBaselines.
@@ -337,7 +344,10 @@ type GetAutomationExecutionInput struct {
 type GetAutomationExecutionOutput struct{}
 
 // GetCalendarStateInput is the request payload.
-type GetCalendarStateInput struct{}
+type GetCalendarStateInput struct {
+	AtTime        string   `json:"AtTime,omitempty"`
+	CalendarNames []string `json:"CalendarNames,omitempty"`
+}
 
 // GetCalendarStateOutput is the response payload.
 type GetCalendarStateOutput struct{}
@@ -450,8 +460,9 @@ type GetServiceSettingOutput struct{}
 
 // LabelParameterVersionInput is the request payload.
 type LabelParameterVersionInput struct {
-	Name   string   `json:"Name"`
-	Labels []string `json:"Labels"`
+	Name             string   `json:"Name"`
+	Labels           []string `json:"Labels"`
+	ParameterVersion int64    `json:"ParameterVersion,omitempty"`
 }
 
 // LabelParameterVersionOutput is the response payload.
@@ -541,12 +552,15 @@ type RegisterTargetWithMaintenanceWindowOutput struct {
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
 type RegisterTaskWithMaintenanceWindowInput struct {
-	WindowID    string `json:"WindowId"`
-	TaskArn     string `json:"TaskArn"`
-	TaskType    string `json:"TaskType"`
-	Name        string `json:"Name,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Priority    int32  `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId"`
+	TaskArn        string `json:"TaskArn"`
+	TaskType       string `json:"TaskType"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       int32  `json:"Priority,omitempty"`
 }
 
 // RegisterTaskWithMaintenanceWindowOutput is the response payload.
@@ -589,8 +603,12 @@ type StartAssociationsOnceInput struct {
 
 // StartAutomationExecutionInput is the request payload.
 type StartAutomationExecutionInput struct {
-	DocumentName    string `json:"DocumentName"`
-	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	DocumentName    string              `json:"DocumentName"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	Mode            string              `json:"Mode,omitempty"`
+	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string              `json:"MaxErrors,omitempty"`
 }
 
 // StartAutomationExecutionOutput is the response payload.
@@ -614,13 +632,14 @@ type StartExecutionPreviewOutput struct{}
 
 // StartSessionInput is the request payload.
 type StartSessionInput struct {
-	Target                  string `json:"Target"`
-	DocumentName            string `json:"DocumentName,omitempty"`
-	Reason                  string `json:"Reason,omitempty"`
-	OutputS3BucketName      string `json:"OutputS3BucketName,omitempty"`
-	OutputS3KeyPrefix       string `json:"OutputS3KeyPrefix,omitempty"`
-	CloudWatchLogGroupName  string `json:"CloudWatchLogGroupName,omitempty"`
-	CloudWatchOutputEnabled bool   `json:"CloudWatchOutputEnabled,omitempty"`
+	Parameters              map[string][]string `json:"Parameters,omitempty"`
+	Target                  string              `json:"Target"`
+	DocumentName            string              `json:"DocumentName,omitempty"`
+	Reason                  string              `json:"Reason,omitempty"`
+	OutputS3BucketName      string              `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix       string              `json:"OutputS3KeyPrefix,omitempty"`
+	CloudWatchLogGroupName  string              `json:"CloudWatchLogGroupName,omitempty"`
+	CloudWatchOutputEnabled bool                `json:"CloudWatchOutputEnabled,omitempty"`
 }
 
 // StartSessionOutput is the response payload.
@@ -647,8 +666,9 @@ type TerminateSessionOutput struct {
 
 // UnlabelParameterVersionInput is the request payload.
 type UnlabelParameterVersionInput struct {
-	Name   string   `json:"Name"`
-	Labels []string `json:"Labels"`
+	Name             string   `json:"Name"`
+	Labels           []string `json:"Labels"`
+	ParameterVersion int64    `json:"ParameterVersion,omitempty"`
 }
 
 // UnlabelParameterVersionOutput is the response payload.
@@ -704,12 +724,13 @@ type UpdateManagedInstanceRoleInput struct {
 
 // UpdateOpsItemInput is the request payload for UpdateOpsItem.
 type UpdateOpsItemInput struct {
-	OpsItemID   string `json:"OpsItemId"`
-	Title       string `json:"Title,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Status      string `json:"Status,omitempty"`
-	Severity    string `json:"Severity,omitempty"`
-	Category    string `json:"Category,omitempty"`
+	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	OpsItemID       string                      `json:"OpsItemId"`
+	Title           string                      `json:"Title,omitempty"`
+	Description     string                      `json:"Description,omitempty"`
+	Status          string                      `json:"Status,omitempty"`
+	Severity        string                      `json:"Severity,omitempty"`
+	Category        string                      `json:"Category,omitempty"`
 }
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
@@ -725,11 +746,12 @@ type UpdateOpsMetadataOutput struct {
 
 // UpdatePatchBaselineInput is the request payload for UpdatePatchBaseline.
 type UpdatePatchBaselineInput struct {
-	BaselineID      string   `json:"BaselineId"`
-	Name            string   `json:"Name,omitempty"`
-	Description     string   `json:"Description,omitempty"`
-	ApprovedPatches []string `json:"ApprovedPatches,omitempty"`
-	RejectedPatches []string `json:"RejectedPatches,omitempty"`
+	BaselineID                     string   `json:"BaselineId"`
+	Name                           string   `json:"Name,omitempty"`
+	Description                    string   `json:"Description,omitempty"`
+	ApprovedPatchesComplianceLevel string   `json:"ApprovedPatchesComplianceLevel,omitempty"`
+	ApprovedPatches                []string `json:"ApprovedPatches,omitempty"`
+	RejectedPatches                []string `json:"RejectedPatches,omitempty"`
 }
 
 // UpdatePatchBaselineOutput is the response payload for UpdatePatchBaseline.
@@ -1041,7 +1063,34 @@ func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*Descr
 	}, nil
 }
 
-// DescribePatchBaselines lists patch baselines.
+// patchBaselineMatchesFilters returns true when bl satisfies all provided key-value filters.
+// Supported filter keys: OPERATING_SYSTEM, NAME_PREFIX.
+func patchBaselineMatchesFilters(bl PatchBaseline, filters []PatchBaselineFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "OPERATING_SYSTEM":
+			fieldValue = bl.OperatingSystem
+		case "NAME_PREFIX":
+			for _, v := range f.Values {
+				if len(bl.Name) >= len(v) && bl.Name[:len(v)] == v {
+					fieldValue = v
+				}
+			}
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, fieldValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// DescribePatchBaselines lists patch baselines with optional OS and name filters.
 func (b *InMemoryBackend) DescribePatchBaselines(
 	input *DescribePatchBaselinesInput,
 ) (*DescribePatchBaselinesOutput, error) {
@@ -1050,6 +1099,10 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 
 	all := make([]PatchBaselineIdentity, 0, len(b.patchBaselines))
 	for _, bl := range b.patchBaselines {
+		if !patchBaselineMatchesFilters(bl, input.Filters) {
+			continue
+		}
+
 		all = append(all, PatchBaselineIdentity{
 			BaselineID:      bl.BaselineID,
 			BaselineName:    bl.Name,
@@ -1211,13 +1264,16 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 
 	taskID := windowTaskIDPrefix + uuid.NewString()
 	task := MaintenanceWindowTask{
-		WindowID:     input.WindowID,
-		WindowTaskID: taskID,
-		TaskArn:      input.TaskArn,
-		TaskType:     input.TaskType,
-		Priority:     input.Priority,
-		Name:         input.Name,
-		Description:  input.Description,
+		WindowID:       input.WindowID,
+		WindowTaskID:   taskID,
+		TaskArn:        input.TaskArn,
+		TaskType:       input.TaskType,
+		Priority:       input.Priority,
+		Name:           input.Name,
+		Description:    input.Description,
+		ServiceRoleArn: input.ServiceRoleArn,
+		MaxConcurrency: input.MaxConcurrency,
+		MaxErrors:      input.MaxErrors,
 	}
 
 	b.maintenanceWindowTasks[taskID] = task
@@ -1243,6 +1299,7 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 		Reason:                  input.Reason,
 		CloudWatchOutputEnabled: input.CloudWatchOutputEnabled,
 		CloudWatchLogGroupName:  input.CloudWatchLogGroupName,
+		Parameters:              input.Parameters,
 	}
 
 	if input.OutputS3BucketName != "" {
@@ -1352,7 +1409,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	return &UpdateMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
 }
 
-// UpdateOpsItem updates an OpsItem.
+// UpdateOpsItem updates an OpsItem including OperationalData.
 func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput, error) {
 	b.mu.Lock("UpdateOpsItem")
 	defer b.mu.Unlock()
@@ -1382,8 +1439,22 @@ func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput,
 		item.Category = input.Category
 	}
 
+	if len(input.OperationalData) > 0 {
+		if item.OperationalData == nil {
+			item.OperationalData = make(map[string]OpsItemDataValue)
+		}
+
+		maps.Copy(item.OperationalData, input.OperationalData)
+	}
+
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
 	b.opsItems[input.OpsItemID] = item
+
+	// Record an event for the update.
+	b.opsItemEvents = append(b.opsItemEvents, OpsItemEventSummary{
+		OpsItemID: input.OpsItemID,
+		EventID:   "event-update-" + input.OpsItemID,
+	})
 
 	return &StubOutput{}, nil
 }
@@ -1436,6 +1507,10 @@ func (b *InMemoryBackend) UpdatePatchBaseline(input *UpdatePatchBaselineInput) (
 
 	if len(input.RejectedPatches) > 0 {
 		bl.RejectedPatches = input.RejectedPatches
+	}
+
+	if input.ApprovedPatchesComplianceLevel != "" {
+		bl.ApprovedPatchesComplianceLevel = input.ApprovedPatchesComplianceLevel
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())
