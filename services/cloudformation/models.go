@@ -130,7 +130,6 @@ type ChangeSet struct {
 	TemplateBody          string                 `xml:"-"                               json:"templateBody,omitempty"`
 	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
-	IncludeNestedStacks bool `xml:"IncludeNestedStacks,omitempty" json:"includeNestedStacks,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.

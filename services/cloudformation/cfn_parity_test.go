@@ -19,12 +19,12 @@ func TestDescribeType_Registered(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup     func(*cloudformation.InMemoryBackend)
+		check     func(*testing.T, *cloudformation.TypeDetails)
 		name      string
 		typeName  string
 		typeArn   string
 		versionID string
-		setup     func(*cloudformation.InMemoryBackend)
-		check     func(*testing.T, *cloudformation.TypeDetails)
 		wantErr   bool
 	}{
 		{
@@ -145,10 +145,10 @@ func TestHandler_DescribeType_Registered(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantContains []string
-		name         string
 		setup        func(*cloudformation.InMemoryBackend)
 		formValues   url.Values
+		name         string
+		wantContains []string
 		wantStatus   int
 	}{
 		{
@@ -340,10 +340,10 @@ func TestCreateStack_IAMCapabilityRequired(t *testing.T) {
 	}`
 
 	tests := []struct {
-		capabilities []string
 		errIs        error
 		name         string
 		template     string
+		capabilities []string
 		wantErr      bool
 	}{
 		{
@@ -624,10 +624,10 @@ func TestStackSetOperationResults(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		name         string
 		accounts     []string
 		regions      []string
 		wantStatuses []string
-		name         string
 		wantResultN  int
 	}{
 		{
@@ -775,9 +775,9 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		name         string
 		stacks       []string
 		wantContains []string
-		name         string
 		wantMinItems int
 	}{
 		{
@@ -1201,15 +1201,15 @@ func TestErrorVariables_Exported(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		err  error
+		name string
 	}{
-		{"ErrStackNotFound", cloudformation.ErrStackNotFound},
-		{"ErrChangeSetAlreadyExecuted", cloudformation.ErrChangeSetAlreadyExecuted},
-		{"ErrStackInstanceAlreadyExists", cloudformation.ErrStackInstanceAlreadyExists},
-		{"ErrTypeVersionNotFound", cloudformation.ErrTypeVersionNotFound},
-		{"ErrInvalidRoleARN", cloudformation.ErrInvalidRoleARN},
-		{"ErrInsufficientCapabilities", cloudformation.ErrInsufficientCapabilities},
+		{name: "ErrStackNotFound", err: cloudformation.ErrStackNotFound},
+		{name: "ErrChangeSetAlreadyExecuted", err: cloudformation.ErrChangeSetAlreadyExecuted},
+		{name: "ErrStackInstanceAlreadyExists", err: cloudformation.ErrStackInstanceAlreadyExists},
+		{name: "ErrTypeVersionNotFound", err: cloudformation.ErrTypeVersionNotFound},
+		{name: "ErrInvalidRoleARN", err: cloudformation.ErrInvalidRoleARN},
+		{name: "ErrInsufficientCapabilities", err: cloudformation.ErrInsufficientCapabilities},
 	}
 
 	for _, tc := range tests {
