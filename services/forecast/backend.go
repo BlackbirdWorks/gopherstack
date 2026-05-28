@@ -3,6 +3,7 @@ package forecast
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -93,9 +94,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
-
-
-
 	return &InMemoryBackend{
 		resources:   make(map[resourceKind]map[string]*Resource),
 		evaluations: make(map[string][]MonitorEvaluation),
@@ -114,8 +112,6 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
 
-
-
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
 	}
 
@@ -124,8 +120,6 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 
 	items := b.ensureKind(kind)
 	if _, ok := items[name]; ok {
-
-
 
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
@@ -150,9 +144,6 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
 	}
 
-
-
-
 	return cloneResource(resource), nil
 }
 
@@ -163,8 +154,6 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
 
-
-
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -173,9 +162,6 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
 	}
-
-
-
 
 	return result, nil
 }
@@ -187,8 +173,6 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
 
-
-
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
@@ -197,9 +181,6 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 	}
 	resource.Status = statusActive
 	resource.UpdatedAt = time.Now().UTC()
-
-
-
 
 	return cloneResource(resource), nil
 }
@@ -211,16 +192,11 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
 
-
-
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
 	resource.Status = statusDeleting
 	resource.UpdatedAt = time.Now().UTC()
-
-
-
 
 	return nil
 }
@@ -236,9 +212,6 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
-
-
-
 	return result
 }
 
@@ -248,17 +221,12 @@ func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEv
 
 	if _, ok := b.lookupLocked(kindMonitor, monitorARN); !ok {
 
-
-
 		return nil, fmt.Errorf("%w: monitor %q", ErrNotFound, monitorARN)
 	}
 
 	evaluations := b.evaluations[monitorARN]
 	result := make([]MonitorEvaluation, len(evaluations))
 	copy(result, evaluations)
-
-
-
 
 	return result, nil
 }
@@ -268,9 +236,6 @@ func (b *InMemoryBackend) ensureKind(kind resourceKind) map[string]*Resource {
 		b.resources[kind] = make(map[string]*Resource)
 	}
 
-
-
-
 	return b.resources[kind]
 }
 
@@ -278,21 +243,14 @@ func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Re
 	for name, resource := range b.resources[kind] {
 		if name == nameOrARN || resource.ARN == nameOrARN {
 
-
-
 			return resource, true
 		}
 	}
-
-
-
 
 	return nil, false
 }
 
 func newEvaluation(monitor *Resource) MonitorEvaluation {
-
-
 
 	return MonitorEvaluation{
 		CreationTime:    monitor.CreatedAt,
@@ -310,16 +268,11 @@ func cloneResource(resource *Resource) *Resource {
 	copyResource := *resource
 	copyResource.Data = cloneMap(resource.Data)
 
-
-
-
 	return &copyResource
 }
 
 func cloneMap(data map[string]any) map[string]any {
 	if data == nil {
-
-
 
 		return make(map[string]any)
 	}
@@ -327,37 +280,25 @@ func cloneMap(data map[string]any) map[string]any {
 	encoded, err := json.Marshal(data)
 	if err != nil {
 
-
-
 		return make(map[string]any)
 	}
 
 	var result map[string]any
 	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
 
-
-
 		return make(map[string]any)
 	}
-
-
-
 
 	return result
 }
 
 func cloneValue(value any) any {
 
-
-
 	return cloneMap(map[string]any{"value": value})["value"]
 }
 
 func stringValue(value any) string {
 	result, _ := value.(string)
-
-
-
 
 	return result
 }
@@ -373,14 +314,10 @@ func (b *InMemoryBackend) UpdateResourceStatus(arn, newStatus string) error {
 				resource.Status = newStatus
 				resource.UpdatedAt = time.Now().UTC()
 
-
-
 				return nil
 			}
 		}
 	}
-
-
 
 	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
 }
@@ -396,14 +333,10 @@ func (b *InMemoryBackend) DeleteResourceTree(arn string) error {
 				resource.Status = statusDeleting
 				resource.UpdatedAt = time.Now().UTC()
 
-
-
 				return nil
 			}
 		}
 	}
-
-
 
 	return fmt.Errorf("%w: resource %q", ErrNotFound, arn)
 }
@@ -415,13 +348,8 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 
 	if _, ok := b.lookupLocked(kindPredictor, predictorArn); !ok {
 
-
-
 		return nil, fmt.Errorf("%w: predictor %q", ErrNotFound, predictorArn)
 	}
-
-
-
 
 	return map[string]any{
 		"PredictorEvaluationResults": []map[string]any{},
@@ -438,8 +366,6 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	}
 	maps.Copy(b.tags[arn], tags)
 
-
-
 	return nil
 }
 
@@ -454,8 +380,6 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 		}
 	}
 
-
-
 	return nil
 }
 
@@ -466,8 +390,6 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 
 	result := make(map[string]string)
 	maps.Copy(result, b.tags[arn])
-
-
 
 	return result, nil
 }
