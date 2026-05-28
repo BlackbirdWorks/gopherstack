@@ -97,7 +97,10 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreateConnection creates a new connection.
-func (b *InMemoryBackend) CreateConnection(name, providerType, hostArn string, tags map[string]string) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(
+	name, providerType, hostArn string,
+	tags map[string]string,
+) (*Connection, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
 	}

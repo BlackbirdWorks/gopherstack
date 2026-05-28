@@ -65,8 +65,8 @@ func TestParity_CreateConnection_ReturnsTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		inputTags []map[string]string
 		name      string
+		inputTags []map[string]string
 		wantCount int
 	}{
 		{
@@ -121,9 +121,9 @@ func TestParity_CreateConnection_TagsSortedInResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		name      string
 		inputTags []map[string]string
 		wantKeys  []string
-		name      string
 	}{
 		{
 			name: "sorted_alphabetically",
@@ -326,8 +326,8 @@ func TestParity_ListHosts_IncludesTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tags     []map[string]string
 		name     string
+		tags     []map[string]string
 		wantTags int
 	}{
 		{
@@ -696,11 +696,11 @@ func TestParity_UpdateRepositoryLink(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setupLinkID  func(t *testing.T, h *codeconnections.Handler) string
-		name         string
-		newConnArn   string
-		wantStatus   int
-		wantNewConn  bool
+		setupLinkID func(t *testing.T, h *codeconnections.Handler) string
+		name        string
+		newConnArn  string
+		wantStatus  int
+		wantNewConn bool
 	}{
 		{
 			name: "success_updates_connection",
@@ -762,10 +762,10 @@ func TestParity_GetSyncConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		wantStatus   int
-		wantBranch   string
-		preCreate    bool
+		name       string
+		wantBranch string
+		wantStatus int
+		preCreate  bool
 	}{
 		{
 			name:       "success",
@@ -1206,8 +1206,8 @@ func TestParity_Backend_CreateHost_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantErrOn  string
+		name      string
+		wantErrOn string
 	}{
 		{name: "first_create_succeeds"},
 		{name: "second_create_fails", wantErrOn: "second"},

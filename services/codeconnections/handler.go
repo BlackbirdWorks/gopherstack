@@ -827,8 +827,8 @@ type hostItem struct {
 }
 
 type listHostsOutput struct {
-	Hosts     []hostItem `json:"Hosts"`
 	NextToken *string    `json:"NextToken,omitempty"`
+	Hosts     []hostItem `json:"Hosts"`
 }
 
 func (h *Handler) handleListHosts(_ context.Context, in *listHostsInput) (*listHostsOutput, error) {
@@ -894,8 +894,8 @@ type listRepositoryLinksInput struct {
 }
 
 type listRepositoryLinksOutput struct {
-	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
 	NextToken       *string              `json:"NextToken,omitempty"`
+	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
 }
 
 func (h *Handler) handleListRepositoryLinks(
@@ -998,8 +998,8 @@ type listSyncConfigurationsInput struct {
 }
 
 type listSyncConfigurationsOutput struct {
-	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
 	NextToken          *string                 `json:"NextToken,omitempty"`
+	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
 }
 
 func (h *Handler) handleListSyncConfigurations(
