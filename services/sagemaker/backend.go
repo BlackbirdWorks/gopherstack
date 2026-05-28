@@ -386,6 +386,7 @@ type ModelPackage struct {
 	ModelPackageArn         string            `json:"ModelPackageArn"`
 	ModelPackageGroupName   string            `json:"ModelPackageGroupName,omitempty"`
 	ModelPackageStatus      string            `json:"ModelPackageStatus"`
+	ModelApprovalStatus     string            `json:"ModelApprovalStatus,omitempty"`
 	ModelPackageDescription string            `json:"ModelPackageDescription,omitempty"`
 }
 
@@ -460,10 +461,12 @@ type InMemoryBackend struct {
 	trials                     map[string]*Trial                           // key: trialName
 	trialComponents            map[string]*TrialComponent                  // key: trialComponentName
 	notebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig // key: configName
-	processingJobs             map[string]*ProcessingJob                   // key: jobName
-	processingJobARNIndex      map[string]string                           // ARN → job name
-	transformJobs              map[string]*TransformJob                    // key: jobName
-	transformJobARNIndex       map[string]string                           // ARN → job name
+	processingJobs               map[string]*ProcessingJob                   // key: jobName
+	processingJobARNIndex        map[string]string                           // ARN → job name
+	transformJobs                map[string]*TransformJob                    // key: jobName
+	transformJobARNIndex         map[string]string                           // ARN → job name
+	edgePackagingJobs            map[string]*EdgePackagingJob                // key: jobName
+	inferenceRecommendationsJobs map[string]*InferenceRecommendationsJob     // key: jobName
 	lifecycleCtx               context.Context
 	lifecycleCancel            context.CancelFunc
 	mu                         *lockmetrics.RWMutex
@@ -535,11 +538,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		trials:                     make(map[string]*Trial),
 		trialComponents:            make(map[string]*TrialComponent),
 		notebookLifecycleConfigs:   make(map[string]*NotebookInstanceLifecycleConfig),
-		processingJobs:             make(map[string]*ProcessingJob),
-		transformJobs:              make(map[string]*TransformJob),
-		transformJobARNIndex:       make(map[string]string),
-		processingJobARNIndex:      make(map[string]string),
-		accountID:                  accountID,
+		processingJobs:               make(map[string]*ProcessingJob),
+		transformJobs:                make(map[string]*TransformJob),
+		transformJobARNIndex:         make(map[string]string),
+		processingJobARNIndex:        make(map[string]string),
+		edgePackagingJobs:            make(map[string]*EdgePackagingJob),
+		inferenceRecommendationsJobs: make(map[string]*InferenceRecommendationsJob),
+		accountID:                    accountID,
 		region:                     region,
 		mu:                         lockmetrics.New("sagemaker"),
 	}
@@ -626,6 +631,8 @@ func (b *InMemoryBackend) Reset() {
 	b.processingJobARNIndex = make(map[string]string)
 	b.transformJobs = make(map[string]*TransformJob)
 	b.transformJobARNIndex = make(map[string]string)
+	b.edgePackagingJobs = make(map[string]*EdgePackagingJob)
+	b.inferenceRecommendationsJobs = make(map[string]*InferenceRecommendationsJob)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
