@@ -642,8 +642,43 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableIn
 // WriteRecordsOutput summarises the results of a WriteRecords call.
 type WriteRecordsOutput struct {
 	RejectedRecords []RejectedRecord
-	Total           int32
-	MemoryStore     int32
+	// Total is the total number of records successfully ingested.
+	Total int32
+	// MemoryStore is the count of records written to the memory store
+	// (records whose timestamp falls within the memory retention window).
+	MemoryStore int32
+	// MagneticStore is the count of records written to the magnetic store
+	// (records whose timestamp is outside the memory retention window and the
+	// table has magnetic store writes enabled).
+	MagneticStore int32
+}
+
+// recordGoesToMemoryStore reports whether a record should be counted as a memory-store
+// write based on the table's retention and magnetic store configuration.
+//
+// Rules (matching the AWS API routing behaviour):
+//  1. If the table has no MagneticStoreWriteProperties, or magnetic store writes are
+//     disabled, all records go to memory store regardless of timestamp.
+//  2. If no memory retention period is configured, all records go to memory store.
+//  3. Otherwise, records whose InternalTimestamp falls within the memory retention
+//     window (i.e. after the cutoff) go to memory store; older records go to magnetic store.
+func recordGoesToMemoryStore(r Record, tbl *Table, now time.Time) bool {
+	if tbl == nil {
+		return true
+	}
+
+	if tbl.MagneticStoreWriteProperties == nil || !tbl.MagneticStoreWriteProperties.EnableMagneticStoreWrites {
+		return true
+	}
+
+	if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
+		return true
+	}
+
+	retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
+	cutoff := now.Add(-retention)
+
+	return r.InternalTimestamp.After(cutoff)
 }
 
 // recordKey computes a deterministic dedup key for a record using measure name,
@@ -683,6 +718,8 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
+	tbl := b.tables[dbName][tblName]
+
 	slot.mu.Lock("WriteRecords")
 	defer slot.mu.Unlock()
 
@@ -690,57 +727,97 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		slot.recordIndex = make(map[string]int)
 	}
 
+	rejected, memoryInserted, magneticInserted := writeRecordsIntoSlot(slot, records, tbl, time.Now().UTC())
+
+	if len(rejected) > 0 {
+		return nil, &RejectedRecordsError{RejectedRecords: rejected}
+	}
+
+	total := memoryInserted + magneticInserted
+
+	// Record counts are bounded by request size limits (< MaxInt32).
+	return &WriteRecordsOutput{ //#nosec G115
+		Total:         total,
+		MemoryStore:   memoryInserted,
+		MagneticStore: magneticInserted,
+	}, nil
+}
+
+// writeRecordsIntoSlot processes records into a slot, returning rejected records and store counts.
+func writeRecordsIntoSlot(
+	slot *tableRecords, records []Record, tbl *Table, now time.Time,
+) ([]RejectedRecord, int32, int32) {
 	var rejected []RejectedRecord
-	var inserted int32
+
+	var memoryInserted, magneticInserted int32
 
 	for i, r := range records {
 		key := recordKey(r)
 
-		// Normalise version: Version 0 is treated as 1 per AWS docs.
 		newVersion := r.Version
 		if newVersion == 0 {
 			newVersion = 1
 		}
 
 		if idx, exists := slot.recordIndex[key]; exists {
-			// Record with same dedup key exists — apply version upsert.
-			existingVersion := slot.records[idx].Version
-			if existingVersion == 0 {
-				existingVersion = 1
-			}
-
-			if newVersion > existingVersion {
-				// Higher version: update the existing record in-place.
-				cp := r
-				cp.Version = newVersion
-				cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
-				slot.records[idx] = cp
-				inserted++
-			} else {
-				// Same or lower version: reject.
-				rejected = append(rejected, RejectedRecord{
-					RecordIndex:     i,
-					Reason:          "Record with same dimensions, time and measure name already exists with same or higher version",
-					ExistingVersion: existingVersion,
-				})
+			mem, mag, rej := upsertRecord(slot, idx, i, r, newVersion, tbl, now)
+			memoryInserted += mem
+			magneticInserted += mag
+			if rej != nil {
+				rejected = append(rejected, *rej)
 			}
 		} else {
-			// New record: append and index.
-			cp := r
-			cp.Version = newVersion
-			cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
-			slot.recordIndex[key] = len(slot.records)
-			slot.records = append(slot.records, cp)
-			inserted++
+			mem, mag := insertRecord(slot, r, newVersion, tbl, now)
+			memoryInserted += mem
+			magneticInserted += mag
 		}
 	}
 
-	if len(rejected) > 0 {
-		return nil, &RejectedRecordsError{RejectedRecords: rejected}
+	return rejected, memoryInserted, magneticInserted
+}
+
+// upsertRecord updates an existing record if the new version is higher, or rejects it.
+func upsertRecord(
+	slot *tableRecords, idx, recIdx int, r Record, newVersion int64, tbl *Table, now time.Time,
+) (int32, int32, *RejectedRecord) {
+	existingVersion := slot.records[idx].Version
+	if existingVersion == 0 {
+		existingVersion = 1
 	}
 
-	// Record counts are bounded by request size limits (< MaxInt32).
-	return &WriteRecordsOutput{Total: inserted, MemoryStore: inserted}, nil //#nosec G115
+	if newVersion <= existingVersion {
+		return 0, 0, &RejectedRecord{
+			RecordIndex:     recIdx,
+			Reason:          "Record with same dimensions, time and measure name already exists with same or higher version",
+			ExistingVersion: existingVersion,
+		}
+	}
+
+	cp := r
+	cp.Version = newVersion
+	cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
+	slot.records[idx] = cp
+
+	if recordGoesToMemoryStore(cp, tbl, now) {
+		return 1, 0, nil
+	}
+
+	return 0, 1, nil
+}
+
+// insertRecord appends a new record to the slot and returns store routing counts.
+func insertRecord(slot *tableRecords, r Record, newVersion int64, tbl *Table, now time.Time) (int32, int32) {
+	cp := r
+	cp.Version = newVersion
+	cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
+	slot.recordIndex[recordKey(r)] = len(slot.records)
+	slot.records = append(slot.records, cp)
+
+	if recordGoesToMemoryStore(cp, tbl, now) {
+		return 1, 0
+	}
+
+	return 0, 1
 }
 
 func parseTimestreamTime(ts, unit string) time.Time {
