@@ -57,6 +57,7 @@ type InMemoryBackend struct {
 	connections        map[string]*Connection        // keyed by ARN
 	connectionsByName  map[string]string             // name → ARN
 	hosts              map[string]*Host              // keyed by ARN
+	hostsByName        map[string]string             // name → ARN (uniqueness index)
 	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkID
 	syncConfigurations map[string]*SyncConfiguration // keyed by ResourceName+SyncType
 	mu                 *lockmetrics.RWMutex
@@ -70,6 +71,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		connections:        make(map[string]*Connection),
 		connectionsByName:  make(map[string]string),
 		hosts:              make(map[string]*Host),
+		hostsByName:        make(map[string]string),
 		repositoryLinks:    make(map[string]*RepositoryLink),
 		syncConfigurations: make(map[string]*SyncConfiguration),
 		accountID:          accountID,
@@ -86,6 +88,7 @@ func (b *InMemoryBackend) Reset() {
 	b.connections = make(map[string]*Connection)
 	b.connectionsByName = make(map[string]string)
 	b.hosts = make(map[string]*Host)
+	b.hostsByName = make(map[string]string)
 	b.repositoryLinks = make(map[string]*RepositoryLink)
 	b.syncConfigurations = make(map[string]*SyncConfiguration)
 }
@@ -94,7 +97,10 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreateConnection creates a new connection.
-func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[string]string) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(
+	name, providerType, hostArn string,
+	tags map[string]string,
+) (*Connection, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
 	}
@@ -122,6 +128,7 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 		ConnectionName: name,
 		ConnectionArn:  connectionArn,
 		ProviderType:   providerType,
+		HostArn:        hostArn,
 		Status:         "AVAILABLE",
 		OwnerAccountID: b.accountID,
 		Tags:           tagsCopy,
@@ -301,6 +308,10 @@ func (b *InMemoryBackend) CreateHost(
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
+	if _, exists := b.hostsByName[name]; exists {
+		return nil, fmt.Errorf("%w: host %q already exists", ErrAlreadyExists, name)
+	}
+
 	id := uuid.NewString()
 	hostArn := arn.Build("codeconnections", b.region, b.accountID, "host/"+id)
 
@@ -318,6 +329,7 @@ func (b *InMemoryBackend) CreateHost(
 	}
 
 	b.hosts[hostArn] = host
+	b.hostsByName[name] = hostArn
 
 	cp := *host
 	cp.Tags = make(map[string]string, len(host.Tags))
@@ -348,10 +360,12 @@ func (b *InMemoryBackend) DeleteHost(hostArn string) error {
 	b.mu.Lock("DeleteHost")
 	defer b.mu.Unlock()
 
-	if _, ok := b.hosts[hostArn]; !ok {
+	host, ok := b.hosts[hostArn]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.hostsByName, host.Name)
 	delete(b.hosts, hostArn)
 
 	return nil
@@ -363,6 +377,7 @@ func (b *InMemoryBackend) AddHostInternal(host *Host) {
 	defer b.mu.Unlock()
 
 	b.hosts[host.HostArn] = host
+	b.hostsByName[host.Name] = host.HostArn
 }
 
 // RepositoryLink represents an AWS CodeConnections repository link.

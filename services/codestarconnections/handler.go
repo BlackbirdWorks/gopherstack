@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -138,9 +139,37 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return strings.TrimPrefix(target, codestarTargetPrefix)
 }
 
-// ExtractResource extracts the resource identifier from the request (not used for CodeStar Connections).
-func (h *Handler) ExtractResource(_ *echo.Context) string {
-	return ""
+// ExtractResource extracts the primary resource identifier from the JSON request body.
+func (h *Handler) ExtractResource(c *echo.Context) string {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+
+	var req struct {
+		ConnectionArn    string `json:"ConnectionArn"`
+		ResourceArn      string `json:"ResourceArn"`
+		HostArn          string `json:"HostArn"`
+		RepositoryLinkID string `json:"RepositoryLinkId"`
+		ResourceName     string `json:"ResourceName"`
+	}
+
+	_ = json.Unmarshal(body, &req)
+
+	switch {
+	case req.ConnectionArn != "":
+		return req.ConnectionArn
+	case req.ResourceArn != "":
+		return req.ResourceArn
+	case req.HostArn != "":
+		return req.HostArn
+	case req.RepositoryLinkID != "":
+		return req.RepositoryLinkID
+	case req.ResourceName != "":
+		return req.ResourceName
+	default:
+		return ""
+	}
 }
 
 // Handler returns the Echo handler function for CodeStar Connections requests.
