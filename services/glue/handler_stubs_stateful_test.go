@@ -2,6 +2,7 @@ package glue_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -51,6 +52,7 @@ func TestMLEvaluationTaskRun(t *testing.T) {
 			name: "known_transform_returns_200",
 			setupFn: func(t *testing.T, h *glue.Handler) string {
 				t.Helper()
+
 				return createTestMLTransform(t, h, "eval-transform")
 			},
 			wantCode: http.StatusOK,
@@ -120,9 +122,7 @@ func TestMLExportImportLabels(t *testing.T) {
 			transformID := createTestMLTransform(t, h, tc.name+"-transform")
 
 			input := map[string]any{"TransformId": transformID}
-			for k, v := range tc.extraInput {
-				input[k] = v
-			}
+			maps.Copy(input, tc.extraInput)
 
 			rec := doGlueRequest(t, h, tc.action, input)
 			require.Equal(t, http.StatusOK, rec.Code)

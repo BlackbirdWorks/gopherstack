@@ -12,6 +12,7 @@ import (
 // newTestBackendForML creates a backend for direct ML task run testing.
 func newTestBackendForML(t *testing.T) *glue.InMemoryBackend {
 	t.Helper()
+
 	return glue.NewInMemoryBackend(testAccountID, testRegion)
 }
 

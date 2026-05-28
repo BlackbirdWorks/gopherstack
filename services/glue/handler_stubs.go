@@ -2056,7 +2056,7 @@ func (h *Handler) handleGetMapping(
 
 // getMaterializedViewRefreshTaskRunInput holds input for GetMaterializedViewRefreshTaskRun.
 type getMaterializedViewRefreshTaskRunInput struct {
-	RunId string `json:"RunId"`
+	RunID string `json:"RunId"`
 }
 
 // getMaterializedViewRefreshTaskRunOutput holds the result for GetMaterializedViewRefreshTaskRun.
@@ -2069,8 +2069,8 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
-	if in.RunId != "" {
-		run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.RunId)
+	if in.RunID != "" {
+		run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.RunID)
 		if err != nil {
 			return nil, err
 		}
