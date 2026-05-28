@@ -1725,11 +1725,11 @@ type getSavingsPlansPurchaseRecommendationInput struct {
 
 type savingsPlansPurchaseRecommendation struct {
 	RecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"`
-	RecommendationDetails []map[string]any  `json:"SavingsPlansPurchaseRecommendationDetails"`
 	SavingsPlansType      string            `json:"SavingsPlansType"`
 	TermInYears           string            `json:"TermInYears"`
 	PaymentOption         string            `json:"PaymentOption"`
 	LookbackPeriodInDays  string            `json:"LookbackPeriodInDays"`
+	RecommendationDetails []map[string]any  `json:"SavingsPlansPurchaseRecommendationDetails"`
 }
 
 type getSavingsPlansPurchaseRecommendationOutput struct {

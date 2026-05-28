@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,37 +40,40 @@ const (
 
 // Synthetic data ratio constants used in cost simulation.
 const (
-	syntheticJitterRange    = 5    // half-range for YearDay jitter (±5 units → ±5% variation)
-	unblendedCostFactor     = 0.98 // UnblendedCost = BlendedCost * 98%
-	usageQuantityFactor     = 10   // UsageQuantity units per cost dollar
-	amortizedCostFactor     = 0.99 // AmortizedCost = UnblendedCost * 99%
-	netUnblendedCostFactor  = 0.97 // NetUnblendedCost = UnblendedCost * 97%
-	normalizedUsageFactor   = 4    // normalized usage units per quantity unit
-	stddevMinThreshold      = 0.01 // minimum stddev; values below use fallback
-	stddevFallbackRatio     = 0.05 // fallback stddev = mean * 5%
-	spCommitmentRatio       = 0.60 // SP commitment = total cost * 60%
-	spUsedCommitmentRatio   = 0.85 // SP used commitment = total commitment * 85%
-	spNetSavingsRatio       = 0.25 // SP net savings = total cost * 25%
-	riPurchasedCostRatio    = 0.40 // RI purchased hours ratio relative to total cost
-	riActualUsageRatio      = 0.88 // RI actual hours = purchased * 88%
-	costToHoursMultiplier   = 10   // synthetic hours per cost dollar
-	riNetSavingsRatio       = 0.30 // RI net savings = total * 30%
-	riPotentialSavingsRatio = 0.35 // RI potential savings = total * 35%
-	riAmortizedFeeRatio     = 0.70 // RI amortized fee = purchased * 70%
-	riRealizedSavingsRatio  = 0.28 // RI realized savings = total * 28%
+	syntheticJitterRange     = 5    // half-range for YearDay jitter (±5 units)
+	syntheticJitterScale     = 0.01 // 1% variation per YearDay unit
+	unblendedCostFactor      = 0.98 // UnblendedCost = BlendedCost * 98%
+	usageQuantityFactor      = 10   // UsageQuantity units per cost dollar
+	amortizedCostFactor      = 0.99 // AmortizedCost = UnblendedCost * 99%
+	netUnblendedCostFactor   = 0.97 // NetUnblendedCost = UnblendedCost * 97%
+	normalizedUsageFactor    = 4    // normalized usage units per quantity unit
+	stddevMinThreshold       = 0.01 // minimum stddev; values below use fallback
+	stddevFallbackRatio      = 0.05 // fallback stddev = mean * 5%
+	spCommitmentRatio        = 0.60 // SP commitment = total cost * 60%
+	spUsedCommitmentRatio    = 0.85 // SP used commitment = total commitment * 85%
+	spNetSavingsRatio        = 0.25 // SP net savings = total cost * 25%
+	riPurchasedCostRatio     = 0.40 // RI purchased hours ratio relative to total cost
+	riActualUsageRatio       = 0.88 // RI actual hours = purchased * 88%
+	costToHoursMultiplier    = 10   // synthetic hours per cost dollar
+	riNetSavingsRatio        = 0.30 // RI net savings = total * 30%
+	riPotentialSavingsRatio  = 0.35 // RI potential savings = total * 35%
+	riAmortizedFeeRatio      = 0.70 // RI amortized fee = purchased * 70%
+	riRealizedSavingsRatio   = 0.28 // RI realized savings = total * 28%
 	riUnrealizedSavingsRatio = 0.07 // RI unrealized savings = total * 7%
-	riCoverageRatio         = 0.65 // RI covered hours fraction
-	normalizedUnitsPerHour  = 4    // normalized units per running hour
-	onDemandCostRate        = 0.05 // on-demand cost per synthetic hour
-	daysPerMonth            = 30   // synthetic month length in days
-	riMonthlyCostRatio      = 0.60 // RI monthly cost = on-demand cost * 60%
-	riBreakEvenDivisor      = 2    // break-even months = term months / 2
-	riUpfrontSplitRatio     = 0.50 // upfront and recurring each at 50% of RI cost
-	rightsizingSavingsRatio = 0.5  // rightsizing target saves 50% of current cost
-	analysisETAMinutes      = 5    // estimated minutes until commitment analysis completes
-	forecastMinLevel        = 51   // minimum valid prediction interval level
-	forecastMaxLevel        = 99   // maximum valid prediction interval level
-	forecastDefaultLevel    = 80   // default prediction interval level
+	riCoverageRatio          = 0.65 // RI covered hours fraction
+	normalizedUnitsPerHour   = 4    // normalized units per running hour
+	onDemandCostRate         = 0.05 // on-demand cost per synthetic hour
+	daysPerMonth             = 30   // synthetic month length in days
+	riMonthlyCostRatio       = 0.60 // RI monthly cost = on-demand cost * 60%
+	riBreakEvenDivisor       = 2    // break-even months = term months / 2
+	riUpfrontSplitRatio      = 0.50 // upfront and recurring each at 50% of RI cost
+	rightsizingSavingsRatio  = 0.5  // rightsizing target saves 50% of current cost
+	analysisETAMinutes       = 5    // estimated minutes until commitment analysis completes
+	forecastMinLevel         = 51   // minimum valid prediction interval level
+	forecastMaxLevel         = 99   // maximum valid prediction interval level
+	forecastDefaultLevel     = 80   // default prediction interval level
+	forecastBaseZ            = 1.28 // z-score at the default 80% prediction interval level
+	forecastZScalePerPct     = 0.02 // z-score increment per percentage point above default
 )
 
 var (
@@ -1138,7 +1142,7 @@ func (b *InMemoryBackend) seedCostLedger() {
 			dayMultiplier = 0.8
 		}
 
-		jitter := 1.0 + float64(d.YearDay()%10-syntheticJitterRange)*0.01
+		jitter := 1.0 + float64(d.YearDay()%10-syntheticJitterRange)*syntheticJitterScale
 
 		for _, svc := range services {
 			amount := totalDailyBase * svc.weight * dayMultiplier * jitter
@@ -1299,6 +1303,7 @@ func buildMetricValues(amounts map[string]float64, metrics []string) map[string]
 			Unit:   metricUnit(m),
 		}
 	}
+
 	return mv
 }
 
@@ -1334,6 +1339,7 @@ func aggregateByGroup(entries []CostEntry, groupBy []GroupBySpec, metrics []stri
 			Metrics: buildMetricValues(groupMap[gk], metrics),
 		})
 	}
+
 	return groups
 }
 
@@ -1345,6 +1351,7 @@ func aggregateTotals(entries []CostEntry, metrics []string) map[string]MetricVal
 			totals[m] += getMetricValue(e, m)
 		}
 	}
+
 	return buildMetricValues(totals, metrics)
 }
 
@@ -1504,7 +1511,7 @@ func (b *InMemoryBackend) GetSavingsPlansUtilization(
 			UtilizationPercentage: spUtilizationPct,
 		},
 		Savings: SavingsPlansSavings{
-			NetSavings:             fmt.Sprintf("%.4f", total*0.25),
+			NetSavings:             fmt.Sprintf("%.4f", total*spNetSavingsRatio),
 			OnDemandCostEquivalent: fmt.Sprintf("%.4f", total),
 		},
 		AmortizedCommitment: SavingsPlansAmortized{
@@ -1657,6 +1664,38 @@ func (b *InMemoryBackend) GetReservationCoverage(
 	return result
 }
 
+func (b *InMemoryBackend) riDetail(
+	monthlyCost, riMonthlyCost, savings float64, termMonths int,
+) ReservationRecommendationDetail {
+	return ReservationRecommendationDetail{
+		AccountID: b.accountID,
+		InstanceDetails: map[string]any{
+			"EC2InstanceDetails": map[string]string{
+				"InstanceType": syntheticInstanceType,
+				mapKeyRegion:   b.region,
+				"Platform":     "Linux/UNIX",
+			},
+		},
+		RecommendedNumberOfInstancesToPurchase:    "2",
+		RecommendedNormalizedUnitsToPurchase:      "16",
+		MinimumNumberOfInstancesUsedPerHour:       "1",
+		MinimumNormalizedUnitsUsedPerHour:         "8",
+		MaximumNumberOfInstancesUsedPerHour:       "3",
+		MaximumNormalizedUnitsUsedPerHour:         "24",
+		AverageNumberOfInstancesUsedPerHour:       "2",
+		AverageNormalizedUnitsUsedPerHour:         "16",
+		AverageUtilization:                        "80.0000",
+		EstimatedBreakEvenInMonths:                strconv.Itoa(termMonths / riBreakEvenDivisor),
+		CurrencyCode:                              metricUnitUSD,
+		EstimatedMonthlySavingsAmount:             fmt.Sprintf("%.4f", savings),
+		EstimatedMonthlySavingsPercentage:         "40.0000",
+		EstimatedMonthlyOnDemandCost:              fmt.Sprintf("%.4f", monthlyCost),
+		EstimatedReservationCostForLookbackPeriod: fmt.Sprintf("%.4f", riMonthlyCost*float64(termMonths)),
+		UpfrontCost:                  fmt.Sprintf("%.4f", riMonthlyCost*float64(termMonths)*riUpfrontSplitRatio),
+		RecurringStandardMonthlyCost: fmt.Sprintf("%.4f", riMonthlyCost*riUpfrontSplitRatio),
+	}
+}
+
 // GetReservationPurchaseRecommendations returns synthetic RI purchase recommendations.
 func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 	service, lookback, term, payment string,
@@ -1664,7 +1703,7 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 	b.mu.RLock("GetReservationPurchaseRecommendations")
 	defer b.mu.RUnlock()
 
-	days := 30
+	days := daysPerMonth
 	switch lookback {
 	case "SIXTY_DAYS":
 		days = 60
@@ -1688,7 +1727,6 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 	}
 
 	upfrontMultiplier := 1.0
-
 	switch payment {
 	case "ALL_UPFRONT":
 		upfrontMultiplier = 0.90
@@ -1713,47 +1751,10 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 			TermInYears:          term,
 			PaymentOption:        payment,
 			ServiceSpecification: map[string]any{
-				"EC2Specification": map[string]string{
-					"OfferingClass": "STANDARD",
-				},
+				"EC2Specification": map[string]string{"OfferingClass": "STANDARD"},
 			},
 			RecommendationDetails: []ReservationRecommendationDetail{
-				{
-					AccountID: b.accountID,
-					InstanceDetails: map[string]any{
-						"EC2InstanceDetails": map[string]string{
-							"InstanceType": syntheticInstanceType,
-							mapKeyRegion:   b.region,
-							"Platform":     "Linux/UNIX",
-						},
-					},
-					RecommendedNumberOfInstancesToPurchase: "2",
-					RecommendedNormalizedUnitsToPurchase:   "16",
-					MinimumNumberOfInstancesUsedPerHour:    "1",
-					MinimumNormalizedUnitsUsedPerHour:      "8",
-					MaximumNumberOfInstancesUsedPerHour:    "3",
-					MaximumNormalizedUnitsUsedPerHour:      "24",
-					AverageNumberOfInstancesUsedPerHour:    "2",
-					AverageNormalizedUnitsUsedPerHour:      "16",
-					AverageUtilization:                     "80.0000",
-					EstimatedBreakEvenInMonths:             fmt.Sprintf("%d", termMonths/riBreakEvenDivisor),
-					CurrencyCode:                           metricUnitUSD,
-					EstimatedMonthlySavingsAmount:          fmt.Sprintf("%.4f", savings),
-					EstimatedMonthlySavingsPercentage:      "40.0000",
-					EstimatedMonthlyOnDemandCost:           fmt.Sprintf("%.4f", monthlyCost),
-					EstimatedReservationCostForLookbackPeriod: fmt.Sprintf(
-						"%.4f",
-						riMonthlyCost*float64(termMonths),
-					),
-					UpfrontCost: fmt.Sprintf(
-						"%.4f",
-						riMonthlyCost*float64(termMonths)*riUpfrontSplitRatio,
-					),
-					RecurringStandardMonthlyCost: fmt.Sprintf(
-						"%.4f",
-						riMonthlyCost*riUpfrontSplitRatio,
-					),
-				},
+				b.riDetail(monthlyCost, riMonthlyCost, savings, termMonths),
 			},
 			RecommendationSummary: map[string]string{
 				"TotalEstimatedMonthlySavingsAmount":     fmt.Sprintf("%.4f", savings),
@@ -2045,7 +2046,7 @@ func (b *InMemoryBackend) GetForecastByTime(
 		predictionIntervalLevel = forecastMaxLevel
 	}
 
-	z := 1.28 + float64(predictionIntervalLevel-forecastDefaultLevel)*0.02
+	z := forecastBaseZ + float64(predictionIntervalLevel-forecastDefaultLevel)*forecastZScalePerPct
 
 	buckets := buildTimeBuckets(start, end, granularity)
 	forecasts := make([]ForecastResult, 0, len(buckets))
