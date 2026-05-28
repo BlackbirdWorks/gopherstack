@@ -245,6 +245,10 @@ func TestRoute53_DeactivateDeleteKeySigningKey(t *testing.T) {
 				zoneID := createZoneForOpsTest(t, h)
 				kskName := "delkey"
 				createKSKForOpsTest(t, h, zoneID, kskName)
+				// Must deactivate before delete (AWS requirement).
+				rec := send(t, h, http.MethodPost,
+					"/2013-04-01/keysigningkey/"+zoneID+"/"+kskName+"/deactivate", "")
+				require.Equal(t, http.StatusOK, rec.Code)
 
 				return zoneID, kskName
 			},

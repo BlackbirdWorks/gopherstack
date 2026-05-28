@@ -78,11 +78,12 @@ type StorageBackend interface {
 		ttl int64,
 	) (*TrafficPolicyInstance, error)
 	UpdateTrafficPolicyInstance(id, tpID string, tpVersion int32, ttl int64) (*TrafficPolicyInstance, error)
+	UpdateTrafficPolicyComment(id string, version int32, comment string) (*TrafficPolicy, error)
 	DeleteTrafficPolicy(id string, version int32) error
 	GetTrafficPolicy(id string, version int32) (*TrafficPolicy, error)
 	DeleteTrafficPolicyInstance(id string) error
 	GetTrafficPolicyInstance(id string) (*TrafficPolicyInstance, error)
-	ListTrafficPolicies() ([]*TrafficPolicy, error)
+	ListTrafficPolicies() ([]*TrafficPolicySummary, error)
 	ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error)
 	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
