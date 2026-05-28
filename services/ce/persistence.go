@@ -10,8 +10,11 @@ type backendSnapshot struct {
 	AnomalyMonitors      map[string]*AnomalyMonitor      `json:"anomalyMonitors"`
 	AnomalySubscriptions map[string]*AnomalySubscription `json:"anomalySubscriptions"`
 	Anomalies            map[string]*Anomaly             `json:"anomalies"`
+	CostAllocationTags   map[string]*CostAllocationTag   `json:"costAllocationTags"`
+	CommitmentAnalyses   map[string]*CommitmentAnalysis  `json:"commitmentAnalyses"`
 	AccountID            string                          `json:"accountID"`
 	Region               string                          `json:"region"`
+	BackfillJobs         []*BackfillJob                  `json:"backfillJobs"`
 	AnomalyTTL           time.Duration                   `json:"anomalyTTL"`
 }
 
@@ -25,6 +28,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AnomalyMonitors:      b.anomalyMonitors,
 		AnomalySubscriptions: b.anomalySubscriptions,
 		Anomalies:            b.anomalies,
+		CostAllocationTags:   b.costAllocationTags,
+		CommitmentAnalyses:   b.commitmentAnalyses,
+		BackfillJobs:         b.backfillJobs,
 		AccountID:            b.accountID,
 		Region:               b.region,
 		AnomalyTTL:           b.anomalyTTL,
@@ -65,10 +71,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Anomalies = make(map[string]*Anomaly)
 	}
 
+	if snap.CostAllocationTags == nil {
+		snap.CostAllocationTags = make(map[string]*CostAllocationTag)
+	}
+
+	if snap.CommitmentAnalyses == nil {
+		snap.CommitmentAnalyses = make(map[string]*CommitmentAnalysis)
+	}
+
 	b.costCategories = snap.CostCategories
 	b.anomalyMonitors = snap.AnomalyMonitors
 	b.anomalySubscriptions = snap.AnomalySubscriptions
 	b.anomalies = snap.Anomalies
+	b.costAllocationTags = snap.CostAllocationTags
+	b.commitmentAnalyses = snap.CommitmentAnalyses
+	b.backfillJobs = snap.BackfillJobs
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

@@ -613,7 +613,7 @@ func TestHandler_ForecastStubs(t *testing.T) {
 			assert.NotNil(t, out["Total"])
 			forecastResults, ok := out["ForecastResultsByTime"].([]any)
 			require.True(t, ok)
-			assert.Empty(t, forecastResults)
+			assert.NotEmpty(t, forecastResults)
 		})
 	}
 }
@@ -1222,9 +1222,14 @@ func TestHandler_GetCommitmentPurchaseAnalysis(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:           "returns_stub",
+			name:           "not_found_for_unknown_analysis",
 			body:           map[string]any{"AnalysisId": "analysis-123"},
-			wantStatusCode: http.StatusOK,
+			wantStatusCode: http.StatusNotFound,
+		},
+		{
+			name:           "missing_analysis_id_returns_400",
+			body:           map[string]any{},
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
@@ -1462,7 +1467,7 @@ func TestHandler_GetReservationCoverage(t *testing.T) {
 				CoveragesByTime []any `json:"CoveragesByTime"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Empty(t, out.CoveragesByTime)
+			assert.NotEmpty(t, out.CoveragesByTime)
 		})
 	}
 }
@@ -1476,7 +1481,7 @@ func TestHandler_GetReservationPurchaseRecommendation(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name: "returns_empty_recommendations",
+			name: "returns_recommendations_with_synthetic_data",
 			body: map[string]any{
 				"Service":              "Amazon Elastic Compute Cloud - Compute",
 				"LookbackPeriodInDays": "SIXTY_DAYS",
@@ -1499,7 +1504,7 @@ func TestHandler_GetReservationPurchaseRecommendation(t *testing.T) {
 				Recommendations []any `json:"Recommendations"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Empty(t, out.Recommendations)
+			assert.NotEmpty(t, out.Recommendations)
 		})
 	}
 }
@@ -1513,7 +1518,7 @@ func TestHandler_GetReservationUtilization(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name: "returns_empty_utilization",
+			name: "returns_utilization_with_synthetic_data",
 			body: map[string]any{
 				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 				"Granularity": "MONTHLY",
@@ -1534,7 +1539,7 @@ func TestHandler_GetReservationUtilization(t *testing.T) {
 				UtilizationsByTime []any `json:"UtilizationsByTime"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Empty(t, out.UtilizationsByTime)
+			assert.NotEmpty(t, out.UtilizationsByTime)
 		})
 	}
 }
