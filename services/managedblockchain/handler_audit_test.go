@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"bytes"
-
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,34 +14,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
-// doRequestWithQuery sends an HTTP request with optional query parameters.
+// doRequestWithQuery sends a GET request with optional query parameters.
 func doRequestWithQuery(
 	t *testing.T,
 	h *managedblockchain.Handler,
-	method, path string,
-	body any,
+	path string,
 	query map[string]string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	var bodyBytes []byte
-
-	if body != nil {
-		var err error
-		bodyBytes, err = json.Marshal(body)
-		require.NoError(t, err)
-	}
-
 	e := echo.New()
 
-	var req *http.Request
-
-	if len(bodyBytes) > 0 {
-		req = httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		req = httptest.NewRequest(method, path, http.NoBody)
-	}
+	req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 
 	if len(query) > 0 {
 		q := req.URL.Query()
@@ -128,8 +110,8 @@ func TestAudit_VotingPolicy_StoredAndReturned(t *testing.T) {
 				vpMap := vp.(map[string]any)
 				atp := vpMap["ApprovalThresholdPolicy"].(map[string]any)
 				assert.Equal(t, "GREATER_THAN", atp["ThresholdComparator"])
-				assert.Equal(t, float64(50), atp["ThresholdPercentage"])
-				assert.Equal(t, float64(24), atp["ProposalDurationInHours"])
+				assert.Equal(t, 50, int(atp["ThresholdPercentage"].(float64)))
+				assert.Equal(t, 24, int(atp["ProposalDurationInHours"].(float64)))
 			} else {
 				_, hasPol := network["VotingPolicy"]
 				assert.False(t, hasPol, "VotingPolicy should be absent when not set")
@@ -189,7 +171,7 @@ func TestAudit_ListNetworks_Filters(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequestWithQuery(t, h, http.MethodGet, "/networks", nil, tt.query)
+			rec := doRequestWithQuery(t, h, "/networks", tt.query)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -269,7 +251,7 @@ func TestAudit_ListMembers_Filters(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequestWithQuery(t, h, http.MethodGet, "/networks/"+n.ID+"/members", nil, tt.query)
+			rec := doRequestWithQuery(t, h, "/networks/"+n.ID+"/members", tt.query)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -321,8 +303,8 @@ func TestAudit_ListNodes_Filters(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequestWithQuery(t, h, http.MethodGet,
-				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID), nil, tt.query)
+			rec := doRequestWithQuery(t, h,
+				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID), tt.query)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -377,7 +359,7 @@ func TestAudit_ListAccessors_Filters(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequestWithQuery(t, h, http.MethodGet, "/accessors", nil, tt.query)
+			rec := doRequestWithQuery(t, h, "/accessors", tt.query)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -481,7 +463,7 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 		name                      string
 		extraMembers              int
 		votesToCast               int
-		wantOutstandingAfterVotes int32
+		wantOutstandingAfterVotes int
 	}{
 		{
 			name:                      "one member network, cast one vote = zero outstanding",
@@ -515,7 +497,7 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 			proposal := b.AddProposalInternal(testRegion, testAccountID, n.ID, m.ID, "vote test")
 
 			totalMembers := 1 + tt.extraMembers
-			require.Equal(t, int32(totalMembers), proposal.OutstandingVoteCount)
+			require.Equal(t, totalMembers, proposal.OutstandingVoteCount)
 
 			// Cast votes
 			h := managedblockchain.NewHandler(b)
@@ -556,7 +538,7 @@ func TestAudit_OutstandingVoteCount(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 
 			p := getResp["Proposal"].(map[string]any)
-			outstanding := int32(p["OutstandingVoteCount"].(float64))
+			outstanding := int(p["OutstandingVoteCount"].(float64))
 			assert.Equal(t, tt.wantOutstandingAfterVotes, outstanding)
 		})
 	}

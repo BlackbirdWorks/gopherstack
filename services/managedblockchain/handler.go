@@ -974,11 +974,11 @@ func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body [
 		actions = &ProposalActions{}
 
 		for _, inv := range req.Actions.Invitations {
-			actions.Invitations = append(actions.Invitations, InviteAction{Principal: inv.Principal})
+			actions.Invitations = append(actions.Invitations, InviteAction(inv))
 		}
 
 		for _, rem := range req.Actions.Removals {
-			actions.Removals = append(actions.Removals, RemoveAction{MemberID: rem.MemberID})
+			actions.Removals = append(actions.Removals, RemoveAction(rem))
 		}
 	}
 
@@ -1468,11 +1468,11 @@ func toProposalObject(p *Proposal) proposalObject {
 		actObj := &proposalActionsObject{}
 
 		for _, inv := range p.Actions.Invitations {
-			actObj.Invitations = append(actObj.Invitations, inviteActionObject{Principal: inv.Principal})
+			actObj.Invitations = append(actObj.Invitations, inviteActionObject(inv))
 		}
 
 		for _, rem := range p.Actions.Removals {
-			actObj.Removals = append(actObj.Removals, removeActionObject{MemberID: rem.MemberID})
+			actObj.Removals = append(actObj.Removals, removeActionObject(rem))
 		}
 
 		obj.Actions = actObj

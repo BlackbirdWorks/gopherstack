@@ -380,9 +380,9 @@ type Proposal struct {
 	ProposedByMemberID   string            `json:"proposedByMemberId"`
 	ProposedByMemberName string            `json:"proposedByMemberName"`
 	Status               string            `json:"status"`
-	NoVoteCount          int32             `json:"noVoteCount"`
-	OutstandingVoteCount int32             `json:"outstandingVoteCount"`
-	YesVoteCount         int32             `json:"yesVoteCount"`
+	NoVoteCount          int               `json:"noVoteCount"`
+	OutstandingVoteCount int               `json:"outstandingVoteCount"`
+	YesVoteCount         int               `json:"yesVoteCount"`
 }
 
 // ProposalActions defines the actions taken when a proposal is approved.
@@ -527,9 +527,9 @@ type proposalObject struct {
 	ProposedByMemberID   string                 `json:"ProposedByMemberId"`
 	ProposedByMemberName string                 `json:"ProposedByMemberName,omitempty"`
 	Status               string                 `json:"Status"`
-	NoVoteCount          int32                  `json:"NoVoteCount"`
-	OutstandingVoteCount int32                  `json:"OutstandingVoteCount"`
-	YesVoteCount         int32                  `json:"YesVoteCount"`
+	NoVoteCount          int                    `json:"NoVoteCount"`
+	OutstandingVoteCount int                    `json:"OutstandingVoteCount"`
+	YesVoteCount         int                    `json:"YesVoteCount"`
 }
 
 // proposalActionsObject is the response JSON for proposal actions.

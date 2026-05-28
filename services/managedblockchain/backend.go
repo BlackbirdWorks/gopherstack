@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"sort"
 	"time"
 
@@ -906,7 +905,7 @@ func (b *InMemoryBackend) CreateProposal(
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
-	memberCount := int32(min(len(members), math.MaxInt32))
+	memberCount := len(members)
 	outstandingVotes := memberCount
 
 	proposal := &Proposal{
@@ -1224,10 +1223,10 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 
 	var memberName string
 
-	var memberCount int32
+	var memberCount int
 
 	if members, ok := b.members[networkID]; ok {
-		memberCount = int32(min(len(members), math.MaxInt32))
+		memberCount = len(members)
 
 		if m, exists := members[memberID]; exists {
 			memberName = m.Name
@@ -1427,7 +1426,7 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	}
 
 	// Recalculate outstanding votes.
-	totalMembers := int32(min(len(b.members[networkID]), math.MaxInt32))
+	totalMembers := len(b.members[networkID])
 	proposal.OutstandingVoteCount = totalMembers - proposal.YesVoteCount - proposal.NoVoteCount
 
 	// Apply threshold policy if network has one.
@@ -1437,17 +1436,17 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	return nil
 }
 
-const percentBase int32 = 100
+const percentBase = 100
 
 // applyVoteThresholdLocked checks vote counts against the network's voting policy
 // and transitions the proposal status when thresholds are met. Must be called with mu held.
-func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *Proposal, totalMembers int32) {
+func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *Proposal, totalMembers int) {
 	if network.VotingPolicy == nil || network.VotingPolicy.ApprovalThresholdPolicy == nil {
 		return
 	}
 
 	atp := network.VotingPolicy.ApprovalThresholdPolicy
-	threshold := atp.ThresholdPercentage
+	threshold := int(atp.ThresholdPercentage)
 	comparator := atp.ThresholdComparator
 
 	if totalMembers == 0 || threshold == 0 {
