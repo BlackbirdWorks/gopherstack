@@ -27,10 +27,10 @@ func TestBatch2_ComputeConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantValue any
 		body      map[string]any
 		name      string
 		wantField string
-		wantValue any
 	}{
 		{
 			name: "compute_config_enabled",
@@ -341,8 +341,8 @@ func TestBatch2_AccessEntry_KubernetesGroups_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		groups []string
 		name   string
+		groups []string
 	}{
 		{name: "with_groups", groups: []string{"system:masters", "ops-team"}},
 		{name: "no_groups", groups: nil},
@@ -467,10 +467,10 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
 		wantMaxU   *float64
 		wantMaxPct *float64
+		name       string
 	}{
 		{
 			name: "set_max_unavailable",
@@ -708,8 +708,8 @@ func TestBatch2_FargateProfile_Subnets_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		subnets []string
 		name    string
+		subnets []string
 	}{
 		{name: "with_subnets", subnets: []string{"subnet-fp-1", "subnet-fp-2"}},
 		{name: "no_subnets", subnets: nil},
@@ -871,8 +871,8 @@ func TestBatch2_RegisterCluster_ConnectorConfig_Nested(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "with_connector_config",

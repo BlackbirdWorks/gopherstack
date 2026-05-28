@@ -1176,14 +1176,14 @@ type kubernetesNetworkConfigJSON struct {
 }
 
 type accessConfigJSON struct {
-	AuthenticationMode                      string `json:"authenticationMode"`
 	BootstrapClusterCreatorAdminPermissions *bool  `json:"bootstrapClusterCreatorAdminPermissions,omitempty"`
+	AuthenticationMode                      string `json:"authenticationMode"`
 }
 
 type computeConfigJSON struct {
+	Enabled     *bool    `json:"enabled,omitempty"`
 	NodeRoleArn string   `json:"nodeRoleArn,omitempty"`
 	NodePools   []string `json:"nodePools,omitempty"`
-	Enabled     *bool    `json:"enabled,omitempty"`
 }
 
 type blockStorageConfigJSON struct {
@@ -1612,10 +1612,10 @@ func (h *Handler) handleUpdateNodegroupConfig(
 
 type createAccessEntryBody struct {
 	Tags             map[string]string `json:"tags"`
-	KubernetesGroups []string          `json:"kubernetesGroups"`
 	PrincipalArn     string            `json:"principalArn"`
 	Type             string            `json:"type"`
 	Username         string            `json:"username"`
+	KubernetesGroups []string          `json:"kubernetesGroups"`
 }
 
 func accessEntryToJSON(entry *AccessEntry) map[string]any {

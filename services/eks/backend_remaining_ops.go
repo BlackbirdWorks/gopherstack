@@ -1056,11 +1056,11 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 
 // ClusterConfigUpdate holds mutable cluster config fields for UpdateClusterConfig.
 type ClusterConfigUpdate struct {
-	LogEntries    []ClusterLogEntry
-	SubnetIDs     []string
 	AccessConfig  *AccessConfig
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
+	LogEntries    []ClusterLogEntry
+	SubnetIDs     []string
 }
 
 // UpdateClusterConfig updates the cluster configuration including logging, subnets, and access settings.

@@ -584,8 +584,8 @@ func (h *Handler) handleListAccessEntries(c *echo.Context, clusterName string) e
 }
 
 type updateAccessEntryBody struct {
-	KubernetesGroups []string `json:"kubernetesGroups"`
 	Username         string   `json:"username"`
+	KubernetesGroups []string `json:"kubernetesGroups"`
 }
 
 func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principalARN string, body []byte) error {

@@ -728,13 +728,13 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 // NodegroupConfigUpdate holds the mutable fields for UpdateNodegroupConfig.
 type NodegroupConfigUpdate struct {
 	AddOrUpdateLabels map[string]string
-	RemoveLabels      []string
-	AddOrUpdateTaints []NodegroupTaint
-	RemoveTaints      []NodegroupTaint
 	UpdateConfig      *NodegroupUpdateConfig
 	DesiredSize       *int32
 	MinSize           *int32
 	MaxSize           *int32
+	RemoveLabels      []string
+	AddOrUpdateTaints []NodegroupTaint
+	RemoveTaints      []NodegroupTaint
 }
 
 // UpdateNodegroupConfig updates the configuration of a node group including scaling,

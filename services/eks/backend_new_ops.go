@@ -15,12 +15,12 @@ import (
 type AccessEntry struct {
 	CreatedAt        time.Time  `json:"createdAt"`
 	Tags             *tags.Tags `json:"tags,omitempty"`
-	KubernetesGroups []string   `json:"kubernetesGroups,omitempty"`
 	PrincipalARN     string     `json:"principalArn"`
 	ClusterName      string     `json:"clusterName"`
 	ARN              string     `json:"accessEntryArn"`
 	Type             string     `json:"type"`
 	Username         string     `json:"username,omitempty"`
+	KubernetesGroups []string   `json:"kubernetesGroups,omitempty"`
 }
 
 // AccessPolicyAssociation represents an access policy associated with an access entry.
