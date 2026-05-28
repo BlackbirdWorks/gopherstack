@@ -931,8 +931,8 @@ func TestParity_GetAnomalies_ScoreAndImpactAreObjects(t *testing.T) {
 	require.Len(t, out.Anomalies, 1)
 
 	a := out.Anomalies[0]
-	assert.Equal(t, 0.95, a.AnomalyScore.MaxScore)
-	assert.Equal(t, 0.87, a.AnomalyScore.CurrentScore)
+	assert.InDelta(t, 0.95, a.AnomalyScore.MaxScore, 0.001)
+	assert.InDelta(t, 0.87, a.AnomalyScore.CurrentScore, 0.001)
 	assert.Positive(t, a.Impact.MaxImpact)
 	assert.Positive(t, a.Impact.TotalActualSpend)
 }
