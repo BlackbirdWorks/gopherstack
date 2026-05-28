@@ -388,10 +388,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // BatchGetRepositories returns repositories by name, splitting results into found/notFound.
 // AWS enforces a maximum of 25 repository names per request.
 func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, []string, error) {
-	if len(names) > 25 {
+	if len(names) > maxBatchGetRepositories {
 		return nil, nil, fmt.Errorf(
-			"%w: a maximum of 25 repository names may be specified",
+			"%w: a maximum of %d repository names may be specified",
 			ErrMaxRepositoriesExceeded,
+			maxBatchGetRepositories,
 		)
 	}
 

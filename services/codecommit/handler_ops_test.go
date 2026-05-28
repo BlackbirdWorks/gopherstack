@@ -1530,7 +1530,7 @@ func TestHandler_CommentLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	c := resp["comment"].(map[string]any)
 	assert.Equal(t, true, c["deleted"])
-	assert.Equal(t, "", c["content"])
+	assert.Empty(t, c["content"])
 }
 
 func TestHandler_TriggerLifecycle(t *testing.T) {
