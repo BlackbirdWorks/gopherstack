@@ -433,22 +433,29 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
-		UUID:                           id,
-		EventSourceARN:                 input.EventSourceARN,
-		FunctionARN:                    fnARN,
-		State:                          state,
-		BatchSize:                      batchSize,
-		StartingPosition:               startingPosition,
-		LastProcessingResult:           "No records processed",
-		LastModified:                   time.Now(),
-		FilterCriteria:                 input.FilterCriteria,
-		DestinationConfig:              input.DestinationConfig,
-		MaximumBatchingWindowInSeconds: input.MaximumBatchingWindowInSeconds,
-		TumblingWindowInSeconds:        input.TumblingWindowInSeconds,
-		MaximumRecordAgeInSeconds:      input.MaximumRecordAgeInSeconds,
-		MaximumRetryAttempts:           input.MaximumRetryAttempts,
-		ParallelizationFactor:          input.ParallelizationFactor,
-		BisectBatchOnFunctionError:     input.BisectBatchOnFunctionError,
+		UUID:                                id,
+		EventSourceARN:                      input.EventSourceARN,
+		FunctionARN:                         fnARN,
+		State:                               state,
+		BatchSize:                           batchSize,
+		StartingPosition:                    startingPosition,
+		LastProcessingResult:                "No records processed",
+		LastModified:                        time.Now(),
+		FilterCriteria:                      input.FilterCriteria,
+		DestinationConfig:                   input.DestinationConfig,
+		AmazonManagedKafkaEventSourceConfig: input.AmazonManagedKafkaEventSourceConfig,
+		SelfManagedKafkaEventSourceConfig:   input.SelfManagedKafkaEventSourceConfig,
+		SelfManagedEventSource:              input.SelfManagedEventSource,
+		DocumentDBEventSourceConfig:         input.DocumentDBEventSourceConfig,
+		SourceAccessConfigurations:          input.SourceAccessConfigurations,
+		Topics:                              input.Topics,
+		Queues:                              input.Queues,
+		MaximumBatchingWindowInSeconds:      input.MaximumBatchingWindowInSeconds,
+		TumblingWindowInSeconds:             input.TumblingWindowInSeconds,
+		MaximumRecordAgeInSeconds:           input.MaximumRecordAgeInSeconds,
+		MaximumRetryAttempts:                input.MaximumRetryAttempts,
+		ParallelizationFactor:               input.ParallelizationFactor,
+		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -3904,21 +3911,11 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 	return cfgs
 }
 
-// UpdateEventSourceMapping updates an existing event source mapping.
-func (b *InMemoryBackend) UpdateEventSourceMapping(
-	id string,
-	input *UpdateEventSourceMappingInput,
-) (*EventSourceMapping, error) {
-	b.mu.Lock("UpdateEventSourceMapping")
-
-	esm, ok := b.eventSourceMappings[id]
-	if !ok {
-		b.mu.Unlock()
-
-		return nil, ErrESMNotFound
-	}
-
+// applyESMUpdate patches esm fields from input (non-zero / non-nil values only).
+// Returns true if the mapping was enabled by this update.
+func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) bool {
 	var nowEnabled bool
+
 	if input.Enabled != nil {
 		if *input.Enabled {
 			esm.State = ESMStateEnabled
@@ -3940,6 +3937,20 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		esm.DestinationConfig = input.DestinationConfig
 	}
 
+	if input.BisectBatchOnFunctionError != nil {
+		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+	}
+
+	applyESMWindowFields(esm, input)
+	applyESMSourceFields(esm, input)
+
+	esm.LastModified = time.Now()
+
+	return nowEnabled
+}
+
+// applyESMWindowFields applies the windowing / retry fields from input.
+func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
 	if input.MaximumBatchingWindowInSeconds > 0 {
 		esm.MaximumBatchingWindowInSeconds = input.MaximumBatchingWindowInSeconds
 	}
@@ -3959,12 +3970,38 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	if input.ParallelizationFactor > 0 {
 		esm.ParallelizationFactor = input.ParallelizationFactor
 	}
+}
 
-	if input.BisectBatchOnFunctionError != nil {
-		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+// applyESMSourceFields applies source-access, topics, and queues from input.
+func applyESMSourceFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
+	if len(input.SourceAccessConfigurations) > 0 {
+		esm.SourceAccessConfigurations = input.SourceAccessConfigurations
 	}
 
-	esm.LastModified = time.Now()
+	if len(input.Topics) > 0 {
+		esm.Topics = input.Topics
+	}
+
+	if len(input.Queues) > 0 {
+		esm.Queues = input.Queues
+	}
+}
+
+// UpdateEventSourceMapping updates an existing event source mapping.
+func (b *InMemoryBackend) UpdateEventSourceMapping(
+	id string,
+	input *UpdateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("UpdateEventSourceMapping")
+
+	esm, ok := b.eventSourceMappings[id]
+	if !ok {
+		b.mu.Unlock()
+
+		return nil, ErrESMNotFound
+	}
+
+	nowEnabled := applyESMUpdate(esm, input)
 
 	poller := b.kinesisPoller
 	b.mu.Unlock()
