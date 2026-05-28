@@ -58,8 +58,8 @@ var (
 	ErrEndpointAccessAlreadyExists    = errors.New("EndpointAlreadyExists")
 	ErrIntegrationNotFound            = errors.New("IntegrationNotFound")
 	ErrIntegrationAlreadyExists       = errors.New("IntegrationAlreadyExists")
-	ErrIdcApplicationNotFound         = errors.New("RedshiftIdcApplicationNotExistsFault")
-	ErrIdcApplicationAlreadyExists    = errors.New("RedshiftIdcApplicationAlreadyExistsFault")
+	ErrIdcApplicationNotFound         = errors.New("IdcApplicationNotExistsFault")
+	ErrIdcApplicationAlreadyExists    = errors.New("IdcApplicationAlreadyExistsFault")
 )
 
 // Named status constants for cluster and resource states.
@@ -292,29 +292,29 @@ type EndpointAccess struct {
 	EndpointName       string `json:"endpointName"`
 	EndpointStatus     string `json:"endpointStatus"`
 	EndpointCreateTime string `json:"endpointCreateTime"`
-	Port               int    `json:"port"`
 	VpcID              string `json:"vpcId"`
+	Port               int    `json:"port"`
 }
 
 // Integration represents a zero-ETL integration from Redshift.
 type Integration struct {
-	IntegrationArn    string `json:"integrationArn"`
-	IntegrationName   string `json:"integrationName"`
-	SourceArn         string `json:"sourceArn"`
-	TargetArn         string `json:"targetArn"`
-	Status            string `json:"status"`
-	Description       string `json:"description"`
-	AdditionalEncKey  string `json:"additionalEncryptionContext,omitempty"`
-	KmsKeyID          string `json:"kmsKeyId,omitempty"`
+	IntegrationArn   string `json:"integrationArn"`
+	IntegrationName  string `json:"integrationName"`
+	SourceArn        string `json:"sourceArn"`
+	TargetArn        string `json:"targetArn"`
+	Status           string `json:"status"`
+	Description      string `json:"description"`
+	AdditionalEncKey string `json:"additionalEncryptionContext,omitempty"`
+	KmsKeyID         string `json:"kmsKeyId,omitempty"`
 }
 
-// RedshiftIdcApplication represents a Redshift IDC application.
-type RedshiftIdcApplication struct {
-	RedshiftIdcApplicationArn  string `json:"redshiftIdcApplicationArn"`
-	RedshiftIdcApplicationName string `json:"redshiftIdcApplicationName"`
-	IdcInstanceArn             string `json:"idcInstanceArn"`
-	IdcDisplayName             string `json:"idcDisplayName"`
-	IamRoleArn                 string `json:"iamRoleArn"`
+// IdcApplication represents a Redshift IDC application.
+type IdcApplication struct {
+	IdcApplicationArn  string `json:"redshiftIdcApplicationArn"`
+	IdcApplicationName string `json:"redshiftIdcApplicationName"`
+	IdcInstanceArn     string `json:"idcInstanceArn"`
+	IdcDisplayName     string `json:"idcDisplayName"`
+	IamRoleArn         string `json:"iamRoleArn"`
 }
 
 // SnapshotCopyConfig holds the cross-region snapshot copy configuration for a cluster.
@@ -370,7 +370,7 @@ type InMemoryBackend struct {
 	customDomains       map[string]*CustomDomainAssociation
 	endpointAccesses    map[string]*EndpointAccess
 	integrations        map[string]*Integration
-	idcApplications     map[string]*RedshiftIdcApplication
+	idcApplications     map[string]*IdcApplication
 	// Serverless resources
 	slNamespaces       map[string]*Namespace
 	slWorkgroups       map[string]*Workgroup
@@ -411,7 +411,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customDomains:       make(map[string]*CustomDomainAssociation),
 		endpointAccesses:    make(map[string]*EndpointAccess),
 		integrations:        make(map[string]*Integration),
-		idcApplications:     make(map[string]*RedshiftIdcApplication),
+		idcApplications:     make(map[string]*IdcApplication),
 		slNamespaces:        make(map[string]*Namespace),
 		slWorkgroups:        make(map[string]*Workgroup),
 		slSnapshots:         make(map[string]*ServerlessSnapshot),
@@ -458,7 +458,7 @@ func (b *InMemoryBackend) Reset() {
 	b.customDomains = make(map[string]*CustomDomainAssociation)
 	b.endpointAccesses = make(map[string]*EndpointAccess)
 	b.integrations = make(map[string]*Integration)
-	b.idcApplications = make(map[string]*RedshiftIdcApplication)
+	b.idcApplications = make(map[string]*IdcApplication)
 	b.slNamespaces = make(map[string]*Namespace)
 	b.slWorkgroups = make(map[string]*Workgroup)
 	b.slSnapshots = make(map[string]*ServerlessSnapshot)

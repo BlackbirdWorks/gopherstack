@@ -357,15 +357,15 @@ func (b *InMemoryBackend) ModifyIntegration(integrationArn, description string) 
 
 // ---- Redshift IDC Application ----
 
-// CreateRedshiftIdcApplication creates a new Redshift IDC application.
-func (b *InMemoryBackend) CreateRedshiftIdcApplication(
+// CreateIdcApplication creates a new Redshift IDC application.
+func (b *InMemoryBackend) CreateIdcApplication(
 	appName, idcInstanceArn, idcDisplayName, iamRoleArn string,
-) (*RedshiftIdcApplication, error) {
+) (*IdcApplication, error) {
 	if appName == "" {
-		return nil, fmt.Errorf("%w: RedshiftIdcApplicationName is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: IdcApplicationName is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("CreateRedshiftIdcApplication")
+	b.mu.Lock("CreateIdcApplication")
 	defer b.mu.Unlock()
 
 	if _, exists := b.idcApplications[appName]; exists {
@@ -373,12 +373,12 @@ func (b *InMemoryBackend) CreateRedshiftIdcApplication(
 	}
 
 	arn := "arn:aws:redshift:" + b.region + ":" + b.accountID + ":redshiftidcapplication/" + appName
-	app := &RedshiftIdcApplication{
-		RedshiftIdcApplicationArn:  arn,
-		RedshiftIdcApplicationName: appName,
-		IdcInstanceArn:             idcInstanceArn,
-		IdcDisplayName:             idcDisplayName,
-		IamRoleArn:                 iamRoleArn,
+	app := &IdcApplication{
+		IdcApplicationArn:  arn,
+		IdcApplicationName: appName,
+		IdcInstanceArn:     idcInstanceArn,
+		IdcDisplayName:     idcDisplayName,
+		IamRoleArn:         iamRoleArn,
 	}
 	b.idcApplications[appName] = app
 
@@ -387,17 +387,17 @@ func (b *InMemoryBackend) CreateRedshiftIdcApplication(
 	return &cp, nil
 }
 
-// DeleteRedshiftIdcApplication deletes the named IDC application.
-func (b *InMemoryBackend) DeleteRedshiftIdcApplication(appArn string) error {
+// DeleteIdcApplication deletes the named IDC application.
+func (b *InMemoryBackend) DeleteIdcApplication(appArn string) error {
 	if appArn == "" {
-		return fmt.Errorf("%w: RedshiftIdcApplicationArn is required", ErrInvalidParameter)
+		return fmt.Errorf("%w: IdcApplicationArn is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("DeleteRedshiftIdcApplication")
+	b.mu.Lock("DeleteIdcApplication")
 	defer b.mu.Unlock()
 
 	for name, app := range b.idcApplications {
-		if app.RedshiftIdcApplicationArn == appArn || name == appArn {
+		if app.IdcApplicationArn == appArn || name == appArn {
 			delete(b.idcApplications, name)
 
 			return nil
@@ -407,24 +407,24 @@ func (b *InMemoryBackend) DeleteRedshiftIdcApplication(appArn string) error {
 	return fmt.Errorf("%w: application %s not found", ErrIdcApplicationNotFound, appArn)
 }
 
-// DescribeRedshiftIdcApplications returns IDC applications, optionally filtered by ARN.
-func (b *InMemoryBackend) DescribeRedshiftIdcApplications(appArn string) ([]RedshiftIdcApplication, error) {
-	b.mu.RLock("DescribeRedshiftIdcApplications")
+// DescribeIdcApplications returns IDC applications, optionally filtered by ARN.
+func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplication, error) {
+	b.mu.RLock("DescribeIdcApplications")
 	defer b.mu.RUnlock()
 
 	if appArn != "" {
 		for _, app := range b.idcApplications {
-			if app.RedshiftIdcApplicationArn == appArn {
+			if app.IdcApplicationArn == appArn {
 				cp := *app
 
-				return []RedshiftIdcApplication{cp}, nil
+				return []IdcApplication{cp}, nil
 			}
 		}
 
 		return nil, fmt.Errorf("%w: application %s not found", ErrIdcApplicationNotFound, appArn)
 	}
 
-	result := make([]RedshiftIdcApplication, 0, len(b.idcApplications))
+	result := make([]IdcApplication, 0, len(b.idcApplications))
 
 	for _, app := range b.idcApplications {
 		result = append(result, *app)
@@ -433,19 +433,19 @@ func (b *InMemoryBackend) DescribeRedshiftIdcApplications(appArn string) ([]Reds
 	return result, nil
 }
 
-// ModifyRedshiftIdcApplication updates the display name and IAM role of an IDC application.
-func (b *InMemoryBackend) ModifyRedshiftIdcApplication(
+// ModifyIdcApplication updates the display name and IAM role of an IDC application.
+func (b *InMemoryBackend) ModifyIdcApplication(
 	appArn, idcDisplayName, iamRoleArn string,
-) (*RedshiftIdcApplication, error) {
+) (*IdcApplication, error) {
 	if appArn == "" {
-		return nil, fmt.Errorf("%w: RedshiftIdcApplicationArn is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: IdcApplicationArn is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("ModifyRedshiftIdcApplication")
+	b.mu.Lock("ModifyIdcApplication")
 	defer b.mu.Unlock()
 
 	for _, app := range b.idcApplications {
-		if app.RedshiftIdcApplicationArn == appArn {
+		if app.IdcApplicationArn == appArn {
 			if idcDisplayName != "" {
 				app.IdcDisplayName = idcDisplayName
 			}

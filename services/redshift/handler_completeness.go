@@ -23,14 +23,14 @@ func (h *Handler) buildOpsCompleteness() map[string]redshiftActionFn {
 		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
 		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
 		"CreateIntegration":                h.handleCreateIntegration,
-		"CreateRedshiftIdcApplication":     h.handleCreateRedshiftIdcApplication,
+		"CreateIdcApplication":             h.handleCreateIdcApplication,
 		opCreateScheduledAction:            h.handleCreateScheduledAction,
 		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
 		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
 		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
 		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
 		"DeleteIntegration":                h.handleDeleteIntegration,
-		"DeleteRedshiftIdcApplication":     h.handleDeleteRedshiftIdcApplication,
+		"DeleteIdcApplication":             h.handleDeleteIdcApplication,
 		opDeleteScheduledAction:            h.handleDeleteScheduledAction,
 		"DeregisterNamespace":              h.handleDeregisterNamespace,
 		"DescribeClusterDbRevisions":       h.handleDescribeClusterDBRevisions,
@@ -41,7 +41,7 @@ func (h *Handler) buildOpsCompleteness() map[string]redshiftActionFn {
 		"DescribeInboundIntegrations":      h.handleDescribeInboundIntegrations,
 		"DescribeIntegrations":             h.handleDescribeIntegrations,
 		"DescribeNodeConfigurationOptions": h.handleDescribeNodeConfigurationOptions,
-		"DescribeRedshiftIdcApplications":  h.handleDescribeRedshiftIdcApplications,
+		"DescribeIdcApplications":          h.handleDescribeIdcApplications,
 		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
 		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
 		"ListRecommendations":              h.handleListRecommendations,
@@ -51,7 +51,7 @@ func (h *Handler) buildOpsCompleteness() map[string]redshiftActionFn {
 		"ModifyEndpointAccess":             h.handleModifyEndpointAccess,
 		"ModifyIntegration":                h.handleModifyIntegration,
 		"ModifyLakehouseConfiguration":     h.handleModifyLakehouseConfiguration,
-		"ModifyRedshiftIdcApplication":     h.handleModifyRedshiftIdcApplication,
+		"ModifyIdcApplication":             h.handleModifyIdcApplication,
 		"ModifyScheduledAction":            h.handleModifyScheduledAction,
 		"RegisterNamespace":                h.handleRegisterNamespace,
 		"RestoreTableFromClusterSnapshot":  h.handleRestoreTableFromClusterSnapshot,
@@ -134,11 +134,7 @@ func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, 
 	members := make([]customDomainAssociation, 0, len(assocs))
 
 	for _, a := range assocs {
-		members = append(members, customDomainAssociation{
-			ClusterIdentifier:          a.ClusterIdentifier,
-			CustomDomainName:           a.CustomDomainName,
-			CustomDomainCertificateArn: a.CustomDomainCertificateArn,
-		})
+		members = append(members, customDomainAssociation(a))
 	}
 
 	resp := &describeCustomDomainAssociationsResponse{Xmlns: redshiftXMLNS}
@@ -569,32 +565,32 @@ func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 // ----- Redshift IDC Application -----
 
 type redshiftIdcAppXML struct {
-	RedshiftIdcApplicationArn  string `xml:"RedshiftIdcApplicationArn"`
-	RedshiftIdcApplicationName string `xml:"RedshiftIdcApplicationName"`
-	IdcInstanceArn             string `xml:"IamRoleArn,omitempty"`
-	IdcDisplayName             string `xml:"IdcDisplayName,omitempty"`
-	IamRoleArn                 string `xml:"IdcInstanceArn,omitempty"`
+	IdcApplicationArn  string `xml:"IdcApplicationArn"`
+	IdcApplicationName string `xml:"IdcApplicationName"`
+	IdcInstanceArn     string `xml:"IamRoleArn,omitempty"`
+	IdcDisplayName     string `xml:"IdcDisplayName,omitempty"`
+	IamRoleArn         string `xml:"IdcInstanceArn,omitempty"`
 }
 
-func idcAppToXML(app *RedshiftIdcApplication) redshiftIdcAppXML {
+func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
 	return redshiftIdcAppXML{
-		RedshiftIdcApplicationArn:  app.RedshiftIdcApplicationArn,
-		RedshiftIdcApplicationName: app.RedshiftIdcApplicationName,
-		IdcInstanceArn:             app.IdcInstanceArn,
-		IdcDisplayName:             app.IdcDisplayName,
-		IamRoleArn:                 app.IamRoleArn,
+		IdcApplicationArn:  app.IdcApplicationArn,
+		IdcApplicationName: app.IdcApplicationName,
+		IdcInstanceArn:     app.IdcInstanceArn,
+		IdcDisplayName:     app.IdcDisplayName,
+		IamRoleArn:         app.IamRoleArn,
 	}
 }
 
-type createRedshiftIdcApplicationResponse struct {
-	XMLName xml.Name          `xml:"CreateRedshiftIdcApplicationResponse"`
+type createIdcApplicationResponse struct {
+	XMLName xml.Name          `xml:"CreateIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"CreateRedshiftIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"CreateIdcApplicationResult"`
 }
 
-func (h *Handler) handleCreateRedshiftIdcApplication(vals url.Values) (any, error) {
-	app, err := h.Backend.CreateRedshiftIdcApplication(
-		vals.Get("RedshiftIdcApplicationName"),
+func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
+	app, err := h.Backend.CreateIdcApplication(
+		vals.Get("IdcApplicationName"),
 		vals.Get("IdcInstanceArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
@@ -603,35 +599,35 @@ func (h *Handler) handleCreateRedshiftIdcApplication(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	return &createRedshiftIdcApplicationResponse{
+	return &createIdcApplicationResponse{
 		Xmlns:  redshiftXMLNS,
 		Result: idcAppToXML(app),
 	}, nil
 }
 
-type deleteRedshiftIdcApplicationResponse struct {
-	XMLName xml.Name `xml:"DeleteRedshiftIdcApplicationResponse"`
+type deleteIdcApplicationResponse struct {
+	XMLName xml.Name `xml:"DeleteIdcApplicationResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) handleDeleteRedshiftIdcApplication(vals url.Values) (any, error) {
-	if err := h.Backend.DeleteRedshiftIdcApplication(vals.Get("RedshiftIdcApplicationArn")); err != nil {
+func (h *Handler) handleDeleteIdcApplication(vals url.Values) (any, error) {
+	if err := h.Backend.DeleteIdcApplication(vals.Get("IdcApplicationArn")); err != nil {
 		return nil, err
 	}
 
-	return &deleteRedshiftIdcApplicationResponse{Xmlns: redshiftXMLNS}, nil
+	return &deleteIdcApplicationResponse{Xmlns: redshiftXMLNS}, nil
 }
 
-type describeRedshiftIdcApplicationsResponse struct {
-	XMLName xml.Name `xml:"DescribeRedshiftIdcApplicationsResponse"`
+type describeIdcApplicationsResponse struct {
+	XMLName xml.Name `xml:"DescribeIdcApplicationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		RedshiftIdcApplications []redshiftIdcAppXML `xml:"RedshiftIdcApplications>RedshiftIdcApplication"`
-	} `xml:"DescribeRedshiftIdcApplicationsResult"`
+		IdcApplications []redshiftIdcAppXML `xml:"IdcApplications>IdcApplication"`
+	} `xml:"DescribeIdcApplicationsResult"`
 }
 
-func (h *Handler) handleDescribeRedshiftIdcApplications(vals url.Values) (any, error) {
-	apps, err := h.Backend.DescribeRedshiftIdcApplications(vals.Get("RedshiftIdcApplicationArn"))
+func (h *Handler) handleDescribeIdcApplications(vals url.Values) (any, error) {
+	apps, err := h.Backend.DescribeIdcApplications(vals.Get("IdcApplicationArn"))
 	if err != nil {
 		return nil, err
 	}
@@ -642,21 +638,21 @@ func (h *Handler) handleDescribeRedshiftIdcApplications(vals url.Values) (any, e
 		members = append(members, idcAppToXML(&apps[i]))
 	}
 
-	resp := &describeRedshiftIdcApplicationsResponse{Xmlns: redshiftXMLNS}
-	resp.Result.RedshiftIdcApplications = members
+	resp := &describeIdcApplicationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.IdcApplications = members
 
 	return resp, nil
 }
 
-type modifyRedshiftIdcApplicationResponse struct {
-	XMLName xml.Name          `xml:"ModifyRedshiftIdcApplicationResponse"`
+type modifyIdcApplicationResponse struct {
+	XMLName xml.Name          `xml:"ModifyIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"ModifyRedshiftIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"ModifyIdcApplicationResult"`
 }
 
-func (h *Handler) handleModifyRedshiftIdcApplication(vals url.Values) (any, error) {
-	app, err := h.Backend.ModifyRedshiftIdcApplication(
-		vals.Get("RedshiftIdcApplicationArn"),
+func (h *Handler) handleModifyIdcApplication(vals url.Values) (any, error) {
+	app, err := h.Backend.ModifyIdcApplication(
+		vals.Get("IdcApplicationArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
 	)
@@ -664,7 +660,7 @@ func (h *Handler) handleModifyRedshiftIdcApplication(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	return &modifyRedshiftIdcApplicationResponse{
+	return &modifyIdcApplicationResponse{
 		Xmlns:  redshiftXMLNS,
 		Result: idcAppToXML(app),
 	}, nil

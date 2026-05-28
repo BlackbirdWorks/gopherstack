@@ -6,28 +6,28 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters           map[string]*Cluster                  `json:"clusters"`
-	ReservedNodes      map[string]*ReservedNode             `json:"reservedNodes"`
-	Partners           map[string]*Partner                  `json:"partners"`
-	DataShares         map[string]*DataShare                `json:"dataShares"`
-	SecurityGroups     map[string]*ClusterSecurityGroup     `json:"securityGroups"`
-	Snapshots          map[string]*Snapshot                 `json:"snapshots"`
-	EndpointAuths      map[string]*EndpointAuthorization    `json:"endpointAuths"`
-	ActiveResizes      map[string]*ResizeProgress           `json:"activeResizes"`
-	ParameterGroups    map[string]*ClusterParameterGroup    `json:"parameterGroups"`
-	SubnetGroups       map[string]*ClusterSubnetGroup       `json:"subnetGroups"`
-	LoggingStatuses    map[string]*LoggingStatus            `json:"loggingStatuses"`
-	EventSubscriptions map[string]*EventSubscription        `json:"eventSubscriptions"`
-	Events             map[string]*Event                    `json:"events"`
-	HsmClientCerts     map[string]*HsmClientCertificate     `json:"hsmClientCerts"`
-	HsmConfigs         map[string]*HsmConfiguration         `json:"hsmConfigs"`
-	ScheduledActions   map[string]*ScheduledAction          `json:"scheduledActions"`
-	CustomDomains      map[string]*CustomDomainAssociation  `json:"customDomains"`
-	EndpointAccesses   map[string]*EndpointAccess           `json:"endpointAccesses"`
-	Integrations       map[string]*Integration              `json:"integrations"`
-	IdcApplications    map[string]*RedshiftIdcApplication   `json:"idcApplications"`
-	AccountID          string                               `json:"accountID"`
-	Region             string                               `json:"region"`
+	Clusters           map[string]*Cluster                 `json:"clusters"`
+	ReservedNodes      map[string]*ReservedNode            `json:"reservedNodes"`
+	Partners           map[string]*Partner                 `json:"partners"`
+	DataShares         map[string]*DataShare               `json:"dataShares"`
+	SecurityGroups     map[string]*ClusterSecurityGroup    `json:"securityGroups"`
+	Snapshots          map[string]*Snapshot                `json:"snapshots"`
+	EndpointAuths      map[string]*EndpointAuthorization   `json:"endpointAuths"`
+	ActiveResizes      map[string]*ResizeProgress          `json:"activeResizes"`
+	ParameterGroups    map[string]*ClusterParameterGroup   `json:"parameterGroups"`
+	SubnetGroups       map[string]*ClusterSubnetGroup      `json:"subnetGroups"`
+	LoggingStatuses    map[string]*LoggingStatus           `json:"loggingStatuses"`
+	EventSubscriptions map[string]*EventSubscription       `json:"eventSubscriptions"`
+	Events             map[string]*Event                   `json:"events"`
+	HsmClientCerts     map[string]*HsmClientCertificate    `json:"hsmClientCerts"`
+	HsmConfigs         map[string]*HsmConfiguration        `json:"hsmConfigs"`
+	ScheduledActions   map[string]*ScheduledAction         `json:"scheduledActions"`
+	CustomDomains      map[string]*CustomDomainAssociation `json:"customDomains"`
+	EndpointAccesses   map[string]*EndpointAccess          `json:"endpointAccesses"`
+	Integrations       map[string]*Integration             `json:"integrations"`
+	IdcApplications    map[string]*IdcApplication          `json:"idcApplications"`
+	AccountID          string                              `json:"accountID"`
+	Region             string                              `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNilMaps() {
@@ -101,7 +101,7 @@ func (s *backendSnapshot) ensureExtendedMaps() {
 	}
 
 	if s.IdcApplications == nil {
-		s.IdcApplications = make(map[string]*RedshiftIdcApplication)
+		s.IdcApplications = make(map[string]*IdcApplication)
 	}
 }
 
