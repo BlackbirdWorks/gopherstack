@@ -100,6 +100,7 @@ func TestEKS_FargateProfile_Lifecycle(t *testing.T) {
 		"arn:aws:iam::123:role/fp",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-profile", fp.FargateProfileName)
@@ -141,6 +142,7 @@ func TestEKS_FargateProfile_Handler(t *testing.T) {
 		"fg-h-cluster",
 		"test-fp",
 		"arn:aws:iam::123:role/fp",
+		nil,
 		nil,
 		nil,
 	)
@@ -580,7 +582,7 @@ func TestEKS_Persistence_SubscriptionAndFargate(t *testing.T) {
 	_, err = b.CreateEksAnywhereSubscription("my-sub", 3, "Cluster", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/fp", nil, nil)
+	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/fp", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreatePodIdentityAssociation("c1", "default", "sa1", "arn:aws:iam::123:role/sa", nil)

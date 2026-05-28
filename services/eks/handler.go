@@ -993,6 +993,38 @@ func clusterToJSON(c *Cluster) map[string]any {
 		m["encryptionConfig"] = c.EncryptionConfig
 	}
 
+	if c.AccessConfig != nil {
+		m["accessConfig"] = map[string]any{
+			"authenticationMode":                      c.AccessConfig.AuthenticationMode,
+			"bootstrapClusterCreatorAdminPermissions": c.AccessConfig.BootstrapClusterCreatorAdminPermissions,
+		}
+	}
+
+	if c.ComputeConfig != nil {
+		cc := map[string]any{"enabled": c.ComputeConfig.Enabled}
+		if c.ComputeConfig.NodeRoleARN != "" {
+			cc["nodeRoleArn"] = c.ComputeConfig.NodeRoleARN
+		}
+
+		if len(c.ComputeConfig.NodePools) > 0 {
+			cc["nodePools"] = c.ComputeConfig.NodePools
+		}
+
+		m["computeConfig"] = cc
+	}
+
+	if c.StorageConfig != nil && c.StorageConfig.BlockStorage != nil {
+		m["storageConfig"] = map[string]any{
+			"blockStorage": map[string]any{"enabled": c.StorageConfig.BlockStorage.Enabled},
+		}
+	}
+
+	if c.NetworkingConfig != nil && c.NetworkingConfig.ElasticLoadBalancing != nil {
+		m["networkingConfig"] = map[string]any{
+			"elasticLoadBalancing": map[string]any{"enabled": c.NetworkingConfig.ElasticLoadBalancing.Enabled},
+		}
+	}
+
 	return m
 }
 
@@ -1069,6 +1101,18 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
 	}
+	if ng.UpdateConfig != nil {
+		uc := map[string]any{}
+		if ng.UpdateConfig.MaxUnavailable != nil {
+			uc["maxUnavailable"] = *ng.UpdateConfig.MaxUnavailable
+		}
+
+		if ng.UpdateConfig.MaxUnavailablePercentage != nil {
+			uc["maxUnavailablePercentage"] = *ng.UpdateConfig.MaxUnavailablePercentage
+		}
+
+		m["updateConfig"] = uc
+	}
 	if ng.Tags != nil {
 		m[keyTags] = ng.Tags.Clone()
 	} else {
@@ -1128,10 +1172,41 @@ type kubernetesNetworkConfigJSON struct {
 	ServiceIPv6CIDR string `json:"serviceIpv6Cidr"`
 }
 
+type accessConfigJSON struct {
+	AuthenticationMode                      string `json:"authenticationMode"`
+	BootstrapClusterCreatorAdminPermissions *bool  `json:"bootstrapClusterCreatorAdminPermissions,omitempty"`
+}
+
+type computeConfigJSON struct {
+	NodeRoleArn string   `json:"nodeRoleArn,omitempty"`
+	NodePools   []string `json:"nodePools,omitempty"`
+	Enabled     *bool    `json:"enabled,omitempty"`
+}
+
+type blockStorageConfigJSON struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type storageConfigJSON struct {
+	BlockStorage *blockStorageConfigJSON `json:"blockStorage,omitempty"`
+}
+
+type elasticLoadBalancingConfigJSON struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+type networkingConfigJSON struct {
+	ElasticLoadBalancing *elasticLoadBalancingConfigJSON `json:"elasticLoadBalancing,omitempty"`
+}
+
 type createClusterBody struct {
 	Tags                    map[string]string            `json:"tags"`
 	ResourcesVpcConfig      *vpcConfigJSON               `json:"resourcesVpcConfig"`
 	KubernetesNetworkConfig *kubernetesNetworkConfigJSON `json:"kubernetesNetworkConfig"`
+	AccessConfig            *accessConfigJSON            `json:"accessConfig"`
+	ComputeConfig           *computeConfigJSON           `json:"computeConfig"`
+	StorageConfig           *storageConfigJSON           `json:"storageConfig"`
+	NetworkingConfig        *networkingConfigJSON        `json:"networkingConfig"`
 	Name                    string                       `json:"name"`
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
@@ -1167,7 +1242,44 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		}
 	}
 
-	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, vpcCfg, netCfg, in.Tags)
+	var opt ClusterOptionalConfig
+	if in.AccessConfig != nil {
+		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
+		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
+			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
+		}
+
+		opt.AccessConfig = ac
+	}
+
+	if in.ComputeConfig != nil {
+		cc := &ComputeConfig{NodeRoleARN: in.ComputeConfig.NodeRoleArn, NodePools: in.ComputeConfig.NodePools}
+		if in.ComputeConfig.Enabled != nil {
+			cc.Enabled = *in.ComputeConfig.Enabled
+		}
+
+		opt.ComputeConfig = cc
+	}
+
+	if in.StorageConfig != nil && in.StorageConfig.BlockStorage != nil {
+		sc := &StorageConfig{BlockStorage: &BlockStorageConfig{}}
+		if in.StorageConfig.BlockStorage.Enabled != nil {
+			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
+		}
+
+		opt.StorageConfig = sc
+	}
+
+	if in.NetworkingConfig != nil && in.NetworkingConfig.ElasticLoadBalancing != nil {
+		nc := &NetworkingConfig{ElasticLoadBalancing: &ElasticLoadBalancingConfig{}}
+		if in.NetworkingConfig.ElasticLoadBalancing.Enabled != nil {
+			nc.ElasticLoadBalancing.Enabled = *in.NetworkingConfig.ElasticLoadBalancing.Enabled
+		}
+
+		opt.NetworkingConfig = nc
+	}
+
+	cluster, err := h.Backend.CreateCluster(in.Name, in.Version, in.RoleArn, vpcCfg, netCfg, in.Tags, opt)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1383,12 +1495,32 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	})
 }
 
+type updateNodegroupScalingConfigJSON struct {
+	DesiredSize *int32 `json:"desiredSize,omitempty"`
+	MinSize     *int32 `json:"minSize,omitempty"`
+	MaxSize     *int32 `json:"maxSize,omitempty"`
+}
+
+type updateNodegroupLabelsPayload struct {
+	AddOrUpdateLabels map[string]string `json:"addOrUpdateLabels,omitempty"`
+	RemoveLabels      []string          `json:"removeLabels,omitempty"`
+}
+
+type updateNodegroupTaintsPayload struct {
+	AddOrUpdateTaints []nodegroupTaintJSON `json:"addOrUpdateTaints,omitempty"`
+	RemoveTaints      []nodegroupTaintJSON `json:"removeTaints,omitempty"`
+}
+
+type updateNodegroupUpdateConfigJSON struct {
+	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
+	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+}
+
 type updateNodegroupConfigInput struct {
-	ScalingConfig *struct {
-		DesiredSize *int32 `json:"desiredSize,omitempty"`
-		MinSize     *int32 `json:"minSize,omitempty"`
-		MaxSize     *int32 `json:"maxSize,omitempty"`
-	} `json:"scalingConfig,omitempty"`
+	ScalingConfig *updateNodegroupScalingConfigJSON `json:"scalingConfig,omitempty"`
+	Labels        *updateNodegroupLabelsPayload     `json:"labels,omitempty"`
+	Taints        *updateNodegroupTaintsPayload     `json:"taints,omitempty"`
+	UpdateConfig  *updateNodegroupUpdateConfigJSON  `json:"updateConfig,omitempty"`
 }
 
 func (h *Handler) handleUpdateNodegroupConfig(
@@ -1403,14 +1535,36 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		}
 	}
 
-	var desiredSize, minSize, maxSize *int32
+	upd := NodegroupConfigUpdate{}
 	if in.ScalingConfig != nil {
-		desiredSize = in.ScalingConfig.DesiredSize
-		minSize = in.ScalingConfig.MinSize
-		maxSize = in.ScalingConfig.MaxSize
+		upd.DesiredSize = in.ScalingConfig.DesiredSize
+		upd.MinSize = in.ScalingConfig.MinSize
+		upd.MaxSize = in.ScalingConfig.MaxSize
 	}
 
-	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, desiredSize, minSize, maxSize)
+	if in.Labels != nil {
+		upd.AddOrUpdateLabels = in.Labels.AddOrUpdateLabels
+		upd.RemoveLabels = in.Labels.RemoveLabels
+	}
+
+	if in.Taints != nil {
+		for _, t := range in.Taints.AddOrUpdateTaints {
+			upd.AddOrUpdateTaints = append(upd.AddOrUpdateTaints, NodegroupTaint(t))
+		}
+
+		for _, t := range in.Taints.RemoveTaints {
+			upd.RemoveTaints = append(upd.RemoveTaints, NodegroupTaint(t))
+		}
+	}
+
+	if in.UpdateConfig != nil {
+		upd.UpdateConfig = &NodegroupUpdateConfig{
+			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
+			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+		}
+	}
+
+	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, upd)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1430,10 +1584,11 @@ func (h *Handler) handleUpdateNodegroupConfig(
 // --- New operation handlers ---
 
 type createAccessEntryBody struct {
-	Tags         map[string]string `json:"tags"`
-	PrincipalArn string            `json:"principalArn"`
-	Type         string            `json:"type"`
-	Username     string            `json:"username"`
+	Tags             map[string]string `json:"tags"`
+	KubernetesGroups []string          `json:"kubernetesGroups"`
+	PrincipalArn     string            `json:"principalArn"`
+	Type             string            `json:"type"`
+	Username         string            `json:"username"`
 }
 
 func accessEntryToJSON(entry *AccessEntry) map[string]any {
@@ -1445,6 +1600,13 @@ func accessEntryToJSON(entry *AccessEntry) map[string]any {
 		keyUsername:       entry.Username,
 		keyCreatedAt:      entry.CreatedAt.Unix(),
 	}
+
+	if len(entry.KubernetesGroups) > 0 {
+		m["kubernetesGroups"] = entry.KubernetesGroups
+	} else {
+		m["kubernetesGroups"] = []string{}
+	}
+
 	if entry.Tags != nil {
 		m[keyTags] = entry.Tags.Clone()
 	} else {
@@ -1464,7 +1626,7 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "principalArn is required"))
 	}
 
-	entry, err := h.Backend.CreateAccessEntry(clusterName, in.PrincipalArn, in.Type, in.Username, in.Tags)
+	entry, err := h.Backend.CreateAccessEntry(clusterName, in.PrincipalArn, in.Type, in.Username, in.KubernetesGroups, in.Tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1713,6 +1875,7 @@ type fargateProfileSelectorJSON struct {
 
 type createFargateProfileBody struct {
 	Tags                map[string]string            `json:"tags"`
+	Subnets             []string                     `json:"subnets"`
 	FargateProfileName  string                       `json:"fargateProfileName"`
 	PodExecutionRoleArn string                       `json:"podExecutionRoleArn"`
 	Selectors           []fargateProfileSelectorJSON `json:"selectors"`
@@ -1738,6 +1901,7 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 		in.FargateProfileName,
 		in.PodExecutionRoleArn,
 		selectors,
+		in.Subnets,
 		in.Tags,
 	)
 	if err != nil {

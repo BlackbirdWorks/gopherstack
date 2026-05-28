@@ -843,7 +843,7 @@ func TestBatch1_FargateProfile_Status_ACTIVE_On_Create(t *testing.T) {
 
 	fp, err := b.CreateFargateProfile("fp-status-cluster", "fp1",
 		"arn:aws:iam::123:role/fargate",
-		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil)
+		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", fp.Status)
 }
@@ -856,7 +856,7 @@ func TestBatch1_FargateProfile_Status_DELETING_On_Delete(t *testing.T) {
 
 	_, _ = b.CreateFargateProfile("fp-del-cluster", "fp1",
 		"arn:aws:iam::123:role/fargate",
-		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil)
+		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil, nil)
 
 	deleted, err := b.DeleteFargateProfile("fp-del-cluster", "fp1")
 	require.NoError(t, err)
@@ -922,7 +922,7 @@ func TestBatch1_FargateProfile_ARN_Format(t *testing.T) {
 
 	fp, err := b.CreateFargateProfile("arn-fp-cluster", "my-fargate",
 		"arn:aws:iam::123:role/fargate",
-		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil)
+		[]eks.FargateProfileSelector{{Namespace: "default"}}, nil, nil)
 	require.NoError(t, err)
 
 	assert.Contains(t, fp.ARN, "arn:aws:eks:")
@@ -961,7 +961,7 @@ func TestBatch1_Logging_AllFiveTypes_Accepted(t *testing.T) {
 		entries = append(entries, eks.ClusterLogEntry{Types: []string{lt}, Enabled: true})
 	}
 
-	_, err := b.UpdateClusterConfig("logging-5types", entries)
+	_, err := b.UpdateClusterConfig("logging-5types", eks.ClusterConfigUpdate{LogEntries: entries})
 	require.NoError(t, err)
 
 	c, err := b.DescribeCluster("logging-5types")
@@ -988,15 +988,15 @@ func TestBatch1_Logging_Disable_Single_Type(t *testing.T) {
 	mustCreateClusterNoVpc(t, b, "logging-disable")
 
 	// Enable all.
-	_, err := b.UpdateClusterConfig("logging-disable", []eks.ClusterLogEntry{
+	_, err := b.UpdateClusterConfig("logging-disable", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api", "audit", "authenticator"}, Enabled: true},
-	})
+	}})
 	require.NoError(t, err)
 
 	// Disable just "audit".
-	_, err = b.UpdateClusterConfig("logging-disable", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("logging-disable", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"audit"}, Enabled: false},
-	})
+	}})
 	require.NoError(t, err)
 
 	c, err := b.DescribeCluster("logging-disable")
@@ -1183,7 +1183,7 @@ func TestBatch1_RBAC_CreateDescribeList(t *testing.T) {
 	mustCreateClusterNoVpc(t, b, "rbac-cluster")
 
 	entry, err := b.CreateAccessEntry("rbac-cluster",
-		"arn:aws:iam::123:role/DevRole", "STANDARD", "dev-user", nil)
+		"arn:aws:iam::123:role/DevRole", "STANDARD", "dev-user", nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, entry.ARN)
 
@@ -1202,7 +1202,7 @@ func TestBatch1_RBAC_AssociatePolicy(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "rbac-policy-cluster")
 
-	_, _ = b.CreateAccessEntry("rbac-policy-cluster", "arn:aws:iam::123:role/R1", "STANDARD", "", nil)
+	_, _ = b.CreateAccessEntry("rbac-policy-cluster", "arn:aws:iam::123:role/R1", "STANDARD", "", nil, nil)
 
 	scope := map[string]any{"type": "cluster"}
 	assoc, err := b.AssociateAccessPolicy(
@@ -1234,7 +1234,7 @@ func TestBatch1_RBAC_DisassociatePolicy(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "rbac-dis-cluster")
 
-	_, _ = b.CreateAccessEntry("rbac-dis-cluster", "arn:aws:iam::123:role/R2", "STANDARD", "", nil)
+	_, _ = b.CreateAccessEntry("rbac-dis-cluster", "arn:aws:iam::123:role/R2", "STANDARD", "", nil, nil)
 	policyARN := "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 	_, _ = b.AssociateAccessPolicy("rbac-dis-cluster", "arn:aws:iam::123:role/R2", policyARN,
 		map[string]any{"type": "cluster"})
@@ -1504,9 +1504,9 @@ func TestBatch1_UpdateClusterConfig_Status_InProgress(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "upd-inprog-cluster")
 
-	upd, err := b.UpdateClusterConfig("upd-inprog-cluster", []eks.ClusterLogEntry{
+	upd, err := b.UpdateClusterConfig("upd-inprog-cluster", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api"}, Enabled: true},
-	})
+	}})
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", upd.Status)
 }

@@ -42,6 +42,39 @@ type VpcConfig struct {
 	EndpointPublicAccess   bool     `json:"endpointPublicAccess"`
 }
 
+// AccessConfig holds the cluster authentication mode configuration.
+type AccessConfig struct {
+	AuthenticationMode                      string `json:"authenticationMode,omitempty"`
+	BootstrapClusterCreatorAdminPermissions bool   `json:"bootstrapClusterCreatorAdminPermissions"`
+}
+
+// ComputeConfig holds the EKS Auto Mode compute configuration.
+type ComputeConfig struct {
+	NodeRoleARN string   `json:"nodeRoleArn,omitempty"`
+	NodePools   []string `json:"nodePools,omitempty"`
+	Enabled     bool     `json:"enabled"`
+}
+
+// BlockStorageConfig holds EKS Auto Mode block storage settings.
+type BlockStorageConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// StorageConfig holds the EKS Auto Mode storage configuration.
+type StorageConfig struct {
+	BlockStorage *BlockStorageConfig `json:"blockStorage,omitempty"`
+}
+
+// ElasticLoadBalancingConfig holds EKS Auto Mode load balancer settings.
+type ElasticLoadBalancingConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// NetworkingConfig holds the EKS Auto Mode networking configuration.
+type NetworkingConfig struct {
+	ElasticLoadBalancing *ElasticLoadBalancingConfig `json:"elasticLoadBalancing,omitempty"`
+}
+
 // KubernetesNetworkConfig captures cluster networking parameters.
 type KubernetesNetworkConfig struct {
 	IPFamily        string `json:"ipFamily,omitempty"`
@@ -64,6 +97,10 @@ type Cluster struct {
 	Tags                    *tags.Tags               `json:"tags,omitempty"`
 	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
 	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	AccessConfig            *AccessConfig            `json:"accessConfig,omitempty"`
+	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
+	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
+	NetworkingConfig        *NetworkingConfig        `json:"networkingConfig,omitempty"`
 	// EncryptionConfig holds the current cluster encryption config, kept in sync
 	// with b.encryptionConfigs. Populated by AssociateEncryptionConfig.
 	EncryptionConfig []EncryptionConfig `json:"encryptionConfig,omitempty"`
@@ -110,35 +147,42 @@ type NodegroupResources struct {
 	AutoScalingGroups []AutoScalingGroup `json:"autoScalingGroups,omitempty"`
 }
 
+// NodegroupUpdateConfig holds the nodegroup update strategy settings.
+type NodegroupUpdateConfig struct {
+	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
+	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+}
+
 // Nodegroup represents an EKS managed node group.
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateNodegroup.
 type Nodegroup struct {
-	CreatedAt      time.Time           `json:"createdAt"`
-	Tags           *tags.Tags          `json:"tags,omitempty"`
-	Labels         map[string]string   `json:"labels,omitempty"`
-	RemoteAccess   *RemoteAccess       `json:"remoteAccess,omitempty"`
-	LaunchTemplate *LaunchTemplate     `json:"launchTemplate,omitempty"`
-	Resources      *NodegroupResources `json:"resources,omitempty"`
-	CapacityType   string              `json:"capacityType,omitempty"`
-	Region         string              `json:"region"`
-	ARN            string              `json:"nodegroupArn"`
-	NodeRole       string              `json:"nodeRole,omitempty"`
-	Status         string              `json:"status"`
-	AMIType        string              `json:"amiType,omitempty"`
-	NodegroupName  string              `json:"nodegroupName"`
-	ClusterName    string              `json:"clusterName"`
-	Version        string              `json:"version,omitempty"`
-	ReleaseVersion string              `json:"releaseVersion,omitempty"`
-	AccountID      string              `json:"accountId"`
-	Taints         []NodegroupTaint    `json:"taints,omitempty"`
-	InstanceTypes  []string            `json:"instanceTypes,omitempty"`
-	Subnets        []string            `json:"subnets,omitempty"`
-	DesiredSize    int32               `json:"desiredSize"`
-	MinSize        int32               `json:"minSize"`
-	MaxSize        int32               `json:"maxSize"`
-	DiskSize       int32               `json:"diskSize,omitempty"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	Tags           *tags.Tags             `json:"tags,omitempty"`
+	Labels         map[string]string      `json:"labels,omitempty"`
+	RemoteAccess   *RemoteAccess          `json:"remoteAccess,omitempty"`
+	LaunchTemplate *LaunchTemplate        `json:"launchTemplate,omitempty"`
+	Resources      *NodegroupResources    `json:"resources,omitempty"`
+	UpdateConfig   *NodegroupUpdateConfig `json:"updateConfig,omitempty"`
+	CapacityType   string                 `json:"capacityType,omitempty"`
+	Region         string                 `json:"region"`
+	ARN            string                 `json:"nodegroupArn"`
+	NodeRole       string                 `json:"nodeRole,omitempty"`
+	Status         string                 `json:"status"`
+	AMIType        string                 `json:"amiType,omitempty"`
+	NodegroupName  string                 `json:"nodegroupName"`
+	ClusterName    string                 `json:"clusterName"`
+	Version        string                 `json:"version,omitempty"`
+	ReleaseVersion string                 `json:"releaseVersion,omitempty"`
+	AccountID      string                 `json:"accountId"`
+	Taints         []NodegroupTaint       `json:"taints,omitempty"`
+	InstanceTypes  []string               `json:"instanceTypes,omitempty"`
+	Subnets        []string               `json:"subnets,omitempty"`
+	DesiredSize    int32                  `json:"desiredSize"`
+	MinSize        int32                  `json:"minSize"`
+	MaxSize        int32                  `json:"maxSize"`
+	DiskSize       int32                  `json:"diskSize,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EKS resources.
@@ -282,12 +326,21 @@ func (b *InMemoryBackend) Reset() {
 	b.subscriptions = make(map[string]*AnywhereSubscription)
 }
 
+// ClusterOptionalConfig groups optional cluster configuration for CreateCluster.
+type ClusterOptionalConfig struct {
+	AccessConfig     *AccessConfig
+	ComputeConfig    *ComputeConfig
+	StorageConfig    *StorageConfig
+	NetworkingConfig *NetworkingConfig
+}
+
 // CreateCluster creates a new EKS cluster.
 func (b *InMemoryBackend) CreateCluster(
 	name, version, roleARN string,
 	vpcConfig *VpcConfig,
 	networkConfig *KubernetesNetworkConfig,
 	kv map[string]string,
+	opts ...ClusterOptionalConfig,
 ) (*Cluster, error) {
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
@@ -327,6 +380,36 @@ func (b *InMemoryBackend) CreateCluster(
 		netCopy = &cp
 	}
 
+	var opt ClusterOptionalConfig
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	var accessCfg *AccessConfig
+	if opt.AccessConfig != nil {
+		cp := *opt.AccessConfig
+		accessCfg = &cp
+	}
+
+	var computeCfg *ComputeConfig
+	if opt.ComputeConfig != nil {
+		cp := *opt.ComputeConfig
+		cp.NodePools = cloneStrings(opt.ComputeConfig.NodePools)
+		computeCfg = &cp
+	}
+
+	var storageCfg *StorageConfig
+	if opt.StorageConfig != nil {
+		cp := *opt.StorageConfig
+		storageCfg = &cp
+	}
+
+	var networkingCfg *NetworkingConfig
+	if opt.NetworkingConfig != nil {
+		cp := *opt.NetworkingConfig
+		networkingCfg = &cp
+	}
+
 	c := &Cluster{
 		Name:                    name,
 		ARN:                     clusterARN,
@@ -342,6 +425,10 @@ func (b *InMemoryBackend) CreateCluster(
 		Tags:                    t,
 		VpcConfig:               vpcCopy,
 		KubernetesNetworkConfig: netCopy,
+		AccessConfig:            accessCfg,
+		ComputeConfig:           computeCfg,
+		StorageConfig:           storageCfg,
+		NetworkingConfig:        networkingCfg,
 	}
 	b.clusters[name] = c
 	b.nodegroups[name] = make(map[string]*Nodegroup)
@@ -625,11 +712,21 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	return cp, nil
 }
 
-// UpdateNodegroupConfig updates the scaling configuration of a node group.
-func (b *InMemoryBackend) UpdateNodegroupConfig(
-	clusterName, nodegroupName string,
-	desiredSize, minSize, maxSize *int32,
-) (*Nodegroup, error) {
+// NodegroupConfigUpdate holds the mutable fields for UpdateNodegroupConfig.
+type NodegroupConfigUpdate struct {
+	AddOrUpdateLabels map[string]string
+	RemoveLabels      []string
+	AddOrUpdateTaints []NodegroupTaint
+	RemoveTaints      []NodegroupTaint
+	UpdateConfig      *NodegroupUpdateConfig
+	DesiredSize       *int32
+	MinSize           *int32
+	MaxSize           *int32
+}
+
+// UpdateNodegroupConfig updates the configuration of a node group including scaling,
+// labels, taints, and update strategy.
+func (b *InMemoryBackend) UpdateNodegroupConfig(clusterName, nodegroupName string, upd NodegroupConfigUpdate) (*Nodegroup, error) {
 	b.mu.Lock("UpdateNodegroupConfig")
 	defer b.mu.Unlock()
 
@@ -647,19 +744,94 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
 
-	if desiredSize != nil {
-		ng.DesiredSize = *desiredSize
+	if upd.DesiredSize != nil {
+		ng.DesiredSize = *upd.DesiredSize
 	}
 
-	if minSize != nil {
-		ng.MinSize = *minSize
+	if upd.MinSize != nil {
+		ng.MinSize = *upd.MinSize
 	}
 
-	if maxSize != nil {
-		ng.MaxSize = *maxSize
+	if upd.MaxSize != nil {
+		ng.MaxSize = *upd.MaxSize
+	}
+
+	if len(upd.AddOrUpdateLabels) > 0 {
+		if ng.Labels == nil {
+			ng.Labels = make(map[string]string)
+		}
+
+		for k, v := range upd.AddOrUpdateLabels {
+			ng.Labels[k] = v
+		}
+	}
+
+	for _, k := range upd.RemoveLabels {
+		delete(ng.Labels, k)
+	}
+
+	if len(upd.AddOrUpdateTaints) > 0 {
+		ng.Taints = mergeTaints(ng.Taints, upd.AddOrUpdateTaints)
+	}
+
+	if len(upd.RemoveTaints) > 0 {
+		ng.Taints = removeTaints(ng.Taints, upd.RemoveTaints)
+	}
+
+	if upd.UpdateConfig != nil {
+		uc := *upd.UpdateConfig
+		ng.UpdateConfig = &uc
 	}
 
 	return deepCopyNodegroup(ng), nil
+}
+
+// mergeTaints adds or updates taints in the existing slice.
+func mergeTaints(existing []NodegroupTaint, updates []NodegroupTaint) []NodegroupTaint {
+	result := make([]NodegroupTaint, len(existing))
+	copy(result, existing)
+
+	for _, upd := range updates {
+		found := false
+
+		for i, t := range result {
+			if t.Key == upd.Key {
+				result[i] = upd
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			result = append(result, upd)
+		}
+	}
+
+	return result
+}
+
+// removeTaints removes taints matching by key+effect from the slice.
+func removeTaints(existing []NodegroupTaint, toRemove []NodegroupTaint) []NodegroupTaint {
+	result := existing[:0:len(existing)]
+
+	for _, t := range existing {
+		removed := false
+
+		for _, r := range toRemove {
+			if t.Key == r.Key && t.Effect == r.Effect {
+				removed = true
+
+				break
+			}
+		}
+
+		if !removed {
+			result = append(result, t)
+		}
+	}
+
+	return result
 }
 
 // findTagInNodegroupsLocked searches nodegroupsfor a resource with the given ARN.
@@ -1006,6 +1178,11 @@ func deepCopyNodegroup(ng *Nodegroup) *Nodegroup {
 		resCp.AutoScalingGroups = make([]AutoScalingGroup, len(ng.Resources.AutoScalingGroups))
 		copy(resCp.AutoScalingGroups, ng.Resources.AutoScalingGroups)
 		cp.Resources = &resCp
+	}
+
+	if ng.UpdateConfig != nil {
+		uc := *ng.UpdateConfig
+		cp.UpdateConfig = &uc
 	}
 
 	return &cp

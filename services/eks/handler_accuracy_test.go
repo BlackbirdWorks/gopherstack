@@ -604,9 +604,9 @@ func TestAccuracy_Logging_EnableAndDisable_PerType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Enable api and audit.
-	_, err = b.UpdateClusterConfig("c1", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api", "audit"}, Enabled: true},
-	})
+	}})
 	require.NoError(t, err)
 
 	c, err := b.DescribeCluster("c1")
@@ -616,9 +616,9 @@ func TestAccuracy_Logging_EnableAndDisable_PerType(t *testing.T) {
 	assert.True(t, c.ClusterLogging[0].Enabled)
 
 	// Disable api.
-	_, err = b.UpdateClusterConfig("c1", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api"}, Enabled: false},
-	})
+	}})
 	require.NoError(t, err)
 
 	c2, err := b.DescribeCluster("c1")
@@ -634,14 +634,14 @@ func TestAccuracy_Logging_DisableAll_ClearsLogging(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.UpdateClusterConfig("c1", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api"}, Enabled: true},
-	})
+	}})
 	require.NoError(t, err)
 
-	_, err = b.UpdateClusterConfig("c1", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api"}, Enabled: false},
-	})
+	}})
 	require.NoError(t, err)
 
 	c, err := b.DescribeCluster("c1")
@@ -656,13 +656,13 @@ func TestAccuracy_Logging_NilEntries_NoChange(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.UpdateClusterConfig("c1", []eks.ClusterLogEntry{
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{LogEntries: []eks.ClusterLogEntry{
 		{Types: []string{"api"}, Enabled: true},
-	})
+	}})
 	require.NoError(t, err)
 
 	// Nil entries must not change existing logging.
-	_, err = b.UpdateClusterConfig("c1", nil)
+	_, err = b.UpdateClusterConfig("c1", eks.ClusterConfigUpdate{})
 	require.NoError(t, err)
 
 	c, err := b.DescribeCluster("c1")
@@ -757,7 +757,7 @@ func TestAccuracy_AssociateAccessPolicy_Dedup(t *testing.T) {
 	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "", "", nil)
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "", "", nil, nil)
 	require.NoError(t, err)
 
 	policyARN := "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"

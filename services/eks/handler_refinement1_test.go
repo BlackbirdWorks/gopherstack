@@ -167,7 +167,7 @@ func TestRefinement1_CreateClusterInitsAllMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// These should not panic even before any resources have been added.
-	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAddon("c1", "coredns", "v1.0", "", "", "", nil)
@@ -237,7 +237,7 @@ func TestRefinement1_DeleteClusterCascade(t *testing.T) {
 	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, b.NodegroupCount())
@@ -414,7 +414,7 @@ func TestRefinement1_TagResourceOnFargateProfile(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	fp, err := b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/r", nil, nil)
+	fp, err := b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/r", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.TagResource(fp.ARN, map[string]string{"env": "staging"})
@@ -505,13 +505,13 @@ func TestRefinement1_ResetWithTaggedResources(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil)
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123:role/r", "STANDARD", "", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAddon("c1", "coredns", "", "", "", "", map[string]string{"c": "3"})
 	require.NoError(t, err)
 
-	_, err = b.CreateFargateProfile("c1", "fp1", "", nil, map[string]string{"d": "4"})
+	_, err = b.CreateFargateProfile("c1", "fp1", "", nil, nil, map[string]string{"d": "4"})
 	require.NoError(t, err)
 
 	// Reset should not panic even with tagged resources.

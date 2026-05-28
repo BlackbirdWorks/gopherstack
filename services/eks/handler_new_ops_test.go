@@ -690,7 +690,7 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "STANDARD", "", nil)
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "STANDARD", "", nil, nil)
 	require.NoError(t, err)
 
 	// Create addon.
@@ -698,7 +698,7 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create fargate profile.
-	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123456789012:role/fargate", nil, nil)
+	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123456789012:role/fargate", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Create pod identity association.
