@@ -80,37 +80,7 @@ func (b *InMemoryBackend) DescribeStackDriftDetectionStatus(detectionID string) 
 	return status, nil
 }
 
-// DescribeStackResourceDrifts returns drift information for all resources in a stack.
-// In the mock all resources are reported as IN_SYNC.
-func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error) {
-	b.mu.RLock("DescribeStackResourceDrifts")
-	defer b.mu.RUnlock()
-
-	stack, ok := b.resolveStack(nameOrID)
-	if !ok {
-		return nil, ErrStackNotFound
-	}
-
-	resMap := b.resources[stack.StackID]
-	drifts := make([]StackResourceDrift, 0, len(resMap))
-
-	for _, res := range resMap {
-		drifts = append(drifts, StackResourceDrift{
-			StackID:                  stack.StackID,
-			LogicalResourceID:        res.LogicalID,
-			PhysicalResourceID:       res.PhysicalID,
-			ResourceType:             res.Type,
-			StackResourceDriftStatus: driftStatusInSync,
-			Timestamp:                res.Timestamp,
-		})
-	}
-
-	sort.Slice(drifts, func(i, j int) bool {
-		return drifts[i].LogicalResourceID < drifts[j].LogicalResourceID
-	})
-
-	return drifts, nil
-}
+// DescribeStackResourceDrifts is implemented in backend_parity.go with drift simulation support.
 
 // SetStackPolicy sets the stack policy for the given stack.
 func (b *InMemoryBackend) SetStackPolicy(nameOrID, policy string) error {
