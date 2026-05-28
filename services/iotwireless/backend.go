@@ -154,7 +154,9 @@ type StorageBackend interface {
 	DeleteQueuedMessages(wirelessDeviceID string) error
 
 	StartWirelessDeviceImportTask(accountID, region, destinationName string) (*WirelessDeviceImportTask, error)
-	StartSingleWirelessDeviceImportTask(accountID, region, destinationName string) (*SingleWirelessDeviceImportTask, error)
+	StartSingleWirelessDeviceImportTask(
+		accountID, region, destinationName string,
+	) (*SingleWirelessDeviceImportTask, error)
 	GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error)
 	DeleteWirelessDeviceImportTask(id string) error
 	UpdateWirelessDeviceImportTask(id, destinationName string) error
@@ -186,21 +188,21 @@ type InMemoryBackend struct {
 	multicastGroups        map[resourceKey]*MulticastGroup
 	networkAnalyzerConfigs map[resourceKey]*NetworkAnalyzerConfig
 	resourceTags           map[string]map[string]string
-	partnerAccounts        map[string]string                 // partnerAccountID -> arn
-	fuotaTaskMulticast     map[string]string                 // fuotaTaskID -> multicastGroupID
-	fuotaTaskDevices       map[string]string                 // fuotaTaskID -> wirelessDeviceID
-	multicastGroupDevices  map[string]string                 // multicastGroupID -> wirelessDeviceID
-	multicastGroupSessions map[string]bool                   // multicastGroupIDs with active sessions
-	wirelessDeviceThings   map[string]string                 // wirelessDeviceID -> thingArn
-	wirelessGatewayCerts   map[string]string                 // gatewayID -> iotCertificateID
-	wirelessGatewayThings  map[string]string                 // gatewayID -> thingArn
-	logLevels              map[string]string                 // "default" -> logLevel
-	resourceLogLevels      map[string]string                 // resourceID -> logLevel
-	gatewayTasks           map[string]*GatewayTask           // gatewayID -> task
-	gatewayTaskDefs        map[string]*GatewayTaskDefinition // taskDefID -> definition
-	positions              map[string]map[string]any         // resourceID -> position data
-	queuedMessages         map[string][]QueuedMessage        // wirelessDeviceID -> messages
-	importTasks            map[string]*WirelessDeviceImportTask // id -> task
+	partnerAccounts        map[string]string                          // partnerAccountID -> arn
+	fuotaTaskMulticast     map[string]string                          // fuotaTaskID -> multicastGroupID
+	fuotaTaskDevices       map[string]string                          // fuotaTaskID -> wirelessDeviceID
+	multicastGroupDevices  map[string]string                          // multicastGroupID -> wirelessDeviceID
+	multicastGroupSessions map[string]bool                            // multicastGroupIDs with active sessions
+	wirelessDeviceThings   map[string]string                          // wirelessDeviceID -> thingArn
+	wirelessGatewayCerts   map[string]string                          // gatewayID -> iotCertificateID
+	wirelessGatewayThings  map[string]string                          // gatewayID -> thingArn
+	logLevels              map[string]string                          // "default" -> logLevel
+	resourceLogLevels      map[string]string                          // resourceID -> logLevel
+	gatewayTasks           map[string]*GatewayTask                    // gatewayID -> task
+	gatewayTaskDefs        map[string]*GatewayTaskDefinition          // taskDefID -> definition
+	positions              map[string]map[string]any                  // resourceID -> position data
+	queuedMessages         map[string][]QueuedMessage                 // wirelessDeviceID -> messages
+	importTasks            map[string]*WirelessDeviceImportTask       // id -> task
 	singleImportTasks      map[string]*SingleWirelessDeviceImportTask // arn -> task
 	mu                     sync.RWMutex
 }

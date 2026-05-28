@@ -240,7 +240,7 @@ type listEventConfigurationsResponse struct {
 }
 
 type listWirelessDeviceImportTasksResponse struct {
-	NextToken                    string                             `json:"NextToken"`
+	NextToken                    string                                `json:"NextToken"`
 	WirelessDeviceImportTaskList []getWirelessDeviceImportTaskResponse `json:"WirelessDeviceImportTaskList"`
 }
 
@@ -276,4 +276,3 @@ type startSingleWirelessDeviceImportTaskResponse struct {
 type testWirelessDeviceResponse struct {
 	Result string `json:"Result"`
 }
-

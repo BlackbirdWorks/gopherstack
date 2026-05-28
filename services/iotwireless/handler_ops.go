@@ -839,11 +839,11 @@ func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, id string) error 
 	}
 
 	return writeJSON(c, http.StatusOK, getWirelessDeviceImportTaskResponse{
-		Arn:             task.ARN,
-		ID:              task.ID,
-		DestinationName: task.DestinationName,
-		Status:          task.Status,
-		StatusReason:    task.StatusReason,
+		Arn:                            task.ARN,
+		ID:                             task.ID,
+		DestinationName:                task.DestinationName,
+		Status:                         task.Status,
+		StatusReason:                   task.StatusReason,
 		InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
 		PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
 		OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
@@ -885,11 +885,11 @@ func (h *Handler) listWirelessDeviceImportTasks(c *echo.Context) error {
 
 	for _, task := range tasks {
 		entries = append(entries, getWirelessDeviceImportTaskResponse{
-			Arn:             task.ARN,
-			ID:              task.ID,
-			DestinationName: task.DestinationName,
-			Status:          task.Status,
-			StatusReason:    task.StatusReason,
+			Arn:                            task.ARN,
+			ID:                             task.ID,
+			DestinationName:                task.DestinationName,
+			Status:                         task.Status,
+			StatusReason:                   task.StatusReason,
 			InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
 			PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
 			OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,

@@ -24,8 +24,8 @@ func TestParity_StartWirelessDeviceImportTask(t *testing.T) {
 	tests := []struct {
 		name            string
 		body            string
-		wantStatus      int
 		wantDestination string
+		wantStatus      int
 	}{
 		{
 			name:            "with_destination",
@@ -172,11 +172,11 @@ func TestParity_UpdateWirelessDeviceImportTask(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		initialDest   string
-		updatedDest   string
-		wantStatus    int
-		wantNewDest   string
+		name        string
+		initialDest string
+		updatedDest string
+		wantNewDest string
+		wantStatus  int
 	}{
 		{
 			name:        "update_destination",
@@ -389,9 +389,9 @@ func TestParity_ListWirelessGatewayTaskDefinitions_ReturnsRealData(t *testing.T)
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		defCount  int
-		defNames  []string
+		name     string
+		defNames []string
+		defCount int
 	}{
 		{
 			name:     "empty_list",
@@ -532,7 +532,13 @@ func TestParity_Snapshot_IncludesMulticastGroups(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	mg1, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-1", "desc1", map[string]string{"env": "test"})
+	mg1, err := b.CreateMulticastGroup(
+		testAccountID,
+		testRegion,
+		"mg-snap-1",
+		"desc1",
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
 	mg2, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-2", "desc2", nil)
@@ -629,7 +635,9 @@ func TestParity_SnapshotRestore_FullRoundTrip(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	// Populate a variety of resource types.
-	dev, err := b.CreateWirelessDevice(testAccountID, testRegion, "snap-dev", "LoRaWAN", "dest", "desc", map[string]string{"k": "v"})
+	dev, err := b.CreateWirelessDevice(
+		testAccountID, testRegion, "snap-dev", "LoRaWAN", "dest", "desc", map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 
 	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "snap-gw", "a gateway", nil)
@@ -681,8 +689,8 @@ func TestParity_ImportTaskBackend_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		runTest func(*testing.T, *iotwireless.InMemoryBackend)
+		name    string
 	}{
 		{
 			name: "get_not_found",
