@@ -52,6 +52,14 @@ var (
 	ErrHsmConfigAlreadyExists         = errors.New("HsmConfigurationAlreadyExists")
 	ErrScheduledActionNotFound        = errors.New("ScheduledActionNotFound")
 	ErrScheduledActionAlreadyExists   = errors.New("ScheduledActionAlreadyExists")
+	ErrCustomDomainNotFound           = errors.New("CustomDomainAssociationNotFoundFault")
+	ErrCustomDomainAlreadyExists      = errors.New("CustomDomainAssociationAlreadyExistsFault")
+	ErrEndpointAccessNotFound         = errors.New("EndpointNotFound")
+	ErrEndpointAccessAlreadyExists    = errors.New("EndpointAlreadyExists")
+	ErrIntegrationNotFound            = errors.New("IntegrationNotFound")
+	ErrIntegrationAlreadyExists       = errors.New("IntegrationAlreadyExists")
+	ErrIdcApplicationNotFound         = errors.New("IdcApplicationNotExistsFault")
+	ErrIdcApplicationAlreadyExists    = errors.New("IdcApplicationAlreadyExistsFault")
 )
 
 // Named status constants for cluster and resource states.
@@ -271,6 +279,44 @@ type ScheduledAction struct {
 	TargetAction               string `json:"targetAction"`
 }
 
+// CustomDomainAssociation represents a custom domain name associated with a Redshift cluster.
+type CustomDomainAssociation struct {
+	ClusterIdentifier          string `json:"clusterIdentifier"`
+	CustomDomainName           string `json:"customDomainName"`
+	CustomDomainCertificateArn string `json:"customDomainCertificateArn"`
+}
+
+// EndpointAccess represents a Redshift managed VPC endpoint.
+type EndpointAccess struct {
+	ClusterIdentifier  string `json:"clusterIdentifier"`
+	EndpointName       string `json:"endpointName"`
+	EndpointStatus     string `json:"endpointStatus"`
+	EndpointCreateTime string `json:"endpointCreateTime"`
+	VpcID              string `json:"vpcId"`
+	Port               int    `json:"port"`
+}
+
+// Integration represents a zero-ETL integration from Redshift.
+type Integration struct {
+	IntegrationArn   string `json:"integrationArn"`
+	IntegrationName  string `json:"integrationName"`
+	SourceArn        string `json:"sourceArn"`
+	TargetArn        string `json:"targetArn"`
+	Status           string `json:"status"`
+	Description      string `json:"description"`
+	AdditionalEncKey string `json:"additionalEncryptionContext,omitempty"`
+	KmsKeyID         string `json:"kmsKeyId,omitempty"`
+}
+
+// IdcApplication represents a Redshift IDC application.
+type IdcApplication struct {
+	IdcApplicationArn  string `json:"redshiftIdcApplicationArn"`
+	IdcApplicationName string `json:"redshiftIdcApplicationName"`
+	IdcInstanceArn     string `json:"idcInstanceArn"`
+	IdcDisplayName     string `json:"idcDisplayName"`
+	IamRoleArn         string `json:"iamRoleArn"`
+}
+
 // SnapshotCopyConfig holds the cross-region snapshot copy configuration for a cluster.
 type SnapshotCopyConfig struct {
 	DestinationRegion     string `json:"destinationRegion"`
@@ -321,6 +367,10 @@ type InMemoryBackend struct {
 	hsmClientCerts      map[string]*HsmClientCertificate
 	hsmConfigs          map[string]*HsmConfiguration
 	scheduledActions    map[string]*ScheduledAction
+	customDomains       map[string]*CustomDomainAssociation
+	endpointAccesses    map[string]*EndpointAccess
+	integrations        map[string]*Integration
+	idcApplications     map[string]*IdcApplication
 	// Serverless resources
 	slNamespaces       map[string]*Namespace
 	slWorkgroups       map[string]*Workgroup
@@ -358,6 +408,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		hsmClientCerts:      make(map[string]*HsmClientCertificate),
 		hsmConfigs:          make(map[string]*HsmConfiguration),
 		scheduledActions:    make(map[string]*ScheduledAction),
+		customDomains:       make(map[string]*CustomDomainAssociation),
+		endpointAccesses:    make(map[string]*EndpointAccess),
+		integrations:        make(map[string]*Integration),
+		idcApplications:     make(map[string]*IdcApplication),
 		slNamespaces:        make(map[string]*Namespace),
 		slWorkgroups:        make(map[string]*Workgroup),
 		slSnapshots:         make(map[string]*ServerlessSnapshot),
@@ -401,6 +455,10 @@ func (b *InMemoryBackend) Reset() {
 	b.hsmClientCerts = make(map[string]*HsmClientCertificate)
 	b.hsmConfigs = make(map[string]*HsmConfiguration)
 	b.scheduledActions = make(map[string]*ScheduledAction)
+	b.customDomains = make(map[string]*CustomDomainAssociation)
+	b.endpointAccesses = make(map[string]*EndpointAccess)
+	b.integrations = make(map[string]*Integration)
+	b.idcApplications = make(map[string]*IdcApplication)
 	b.slNamespaces = make(map[string]*Namespace)
 	b.slWorkgroups = make(map[string]*Workgroup)
 	b.slSnapshots = make(map[string]*ServerlessSnapshot)

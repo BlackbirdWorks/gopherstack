@@ -208,6 +208,36 @@ type StorageBackend interface {
 	DescribeScheduledActions(name string) ([]ScheduledAction, error)
 	ModifyScheduledAction(name, schedule, iamRole, description string) (*ScheduledAction, error)
 
+	// Custom domain association operations
+	CreateCustomDomainAssociation(
+		clusterID, customDomainName, customDomainCertificateArn string,
+	) (*CustomDomainAssociation, error)
+	DeleteCustomDomainAssociation(clusterID, customDomainName string) error
+	DescribeCustomDomainAssociations(clusterID, customDomainName string) ([]CustomDomainAssociation, error)
+	ModifyCustomDomainAssociation(
+		clusterID, customDomainName, customDomainCertificateArn string,
+	) (*CustomDomainAssociation, error)
+
+	// Endpoint access operations
+	CreateEndpointAccess(clusterID, endpointName, vpcID string) (*EndpointAccess, error)
+	DeleteEndpointAccess(endpointName string) (*EndpointAccess, error)
+	DescribeEndpointAccess(clusterID, endpointName string) ([]EndpointAccess, error)
+	ModifyEndpointAccess(endpointName, vpcID string) (*EndpointAccess, error)
+
+	// Integration operations
+	CreateIntegration(integrationName, sourceArn, targetArn, kmsKeyID, description string) (*Integration, error)
+	DeleteIntegration(integrationArn string) (*Integration, error)
+	DescribeIntegrations(integrationArn string) ([]Integration, error)
+	ModifyIntegration(integrationArn, description string) (*Integration, error)
+
+	// IDC application operations
+	CreateIdcApplication(
+		appName, idcInstanceArn, idcDisplayName, iamRoleArn string,
+	) (*IdcApplication, error)
+	DeleteIdcApplication(appArn string) error
+	DescribeIdcApplications(appArn string) ([]IdcApplication, error)
+	ModifyIdcApplication(appArn, idcDisplayName, iamRoleArn string) (*IdcApplication, error)
+
 	// Lifecycle
 	Reset()
 	Region() string

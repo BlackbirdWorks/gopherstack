@@ -6,24 +6,28 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters           map[string]*Cluster               `json:"clusters"`
-	ReservedNodes      map[string]*ReservedNode          `json:"reservedNodes"`
-	Partners           map[string]*Partner               `json:"partners"`
-	DataShares         map[string]*DataShare             `json:"dataShares"`
-	SecurityGroups     map[string]*ClusterSecurityGroup  `json:"securityGroups"`
-	Snapshots          map[string]*Snapshot              `json:"snapshots"`
-	EndpointAuths      map[string]*EndpointAuthorization `json:"endpointAuths"`
-	ActiveResizes      map[string]*ResizeProgress        `json:"activeResizes"`
-	ParameterGroups    map[string]*ClusterParameterGroup `json:"parameterGroups"`
-	SubnetGroups       map[string]*ClusterSubnetGroup    `json:"subnetGroups"`
-	LoggingStatuses    map[string]*LoggingStatus         `json:"loggingStatuses"`
-	EventSubscriptions map[string]*EventSubscription     `json:"eventSubscriptions"`
-	Events             map[string]*Event                 `json:"events"`
-	HsmClientCerts     map[string]*HsmClientCertificate  `json:"hsmClientCerts"`
-	HsmConfigs         map[string]*HsmConfiguration      `json:"hsmConfigs"`
-	ScheduledActions   map[string]*ScheduledAction       `json:"scheduledActions"`
-	AccountID          string                            `json:"accountID"`
-	Region             string                            `json:"region"`
+	Clusters           map[string]*Cluster                 `json:"clusters"`
+	ReservedNodes      map[string]*ReservedNode            `json:"reservedNodes"`
+	Partners           map[string]*Partner                 `json:"partners"`
+	DataShares         map[string]*DataShare               `json:"dataShares"`
+	SecurityGroups     map[string]*ClusterSecurityGroup    `json:"securityGroups"`
+	Snapshots          map[string]*Snapshot                `json:"snapshots"`
+	EndpointAuths      map[string]*EndpointAuthorization   `json:"endpointAuths"`
+	ActiveResizes      map[string]*ResizeProgress          `json:"activeResizes"`
+	ParameterGroups    map[string]*ClusterParameterGroup   `json:"parameterGroups"`
+	SubnetGroups       map[string]*ClusterSubnetGroup      `json:"subnetGroups"`
+	LoggingStatuses    map[string]*LoggingStatus           `json:"loggingStatuses"`
+	EventSubscriptions map[string]*EventSubscription       `json:"eventSubscriptions"`
+	Events             map[string]*Event                   `json:"events"`
+	HsmClientCerts     map[string]*HsmClientCertificate    `json:"hsmClientCerts"`
+	HsmConfigs         map[string]*HsmConfiguration        `json:"hsmConfigs"`
+	ScheduledActions   map[string]*ScheduledAction         `json:"scheduledActions"`
+	CustomDomains      map[string]*CustomDomainAssociation `json:"customDomains"`
+	EndpointAccesses   map[string]*EndpointAccess          `json:"endpointAccesses"`
+	Integrations       map[string]*Integration             `json:"integrations"`
+	IdcApplications    map[string]*IdcApplication          `json:"idcApplications"`
+	AccountID          string                              `json:"accountID"`
+	Region             string                              `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNilMaps() {
@@ -83,6 +87,22 @@ func (s *backendSnapshot) ensureExtendedMaps() {
 	if s.ScheduledActions == nil {
 		s.ScheduledActions = make(map[string]*ScheduledAction)
 	}
+
+	if s.CustomDomains == nil {
+		s.CustomDomains = make(map[string]*CustomDomainAssociation)
+	}
+
+	if s.EndpointAccesses == nil {
+		s.EndpointAccesses = make(map[string]*EndpointAccess)
+	}
+
+	if s.Integrations == nil {
+		s.Integrations = make(map[string]*Integration)
+	}
+
+	if s.IdcApplications == nil {
+		s.IdcApplications = make(map[string]*IdcApplication)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -101,6 +121,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		HsmClientCerts:     b.hsmClientCerts,
 		HsmConfigs:         b.hsmConfigs,
 		ScheduledActions:   b.scheduledActions,
+		CustomDomains:      b.customDomains,
+		EndpointAccesses:   b.endpointAccesses,
+		Integrations:       b.integrations,
+		IdcApplications:    b.idcApplications,
 		EndpointAuths:      b.endpointAuths,
 		ActiveResizes:      b.activeResizes,
 		ParameterGroups:    b.parameterGroups,
@@ -152,6 +176,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.hsmClientCerts = snap.HsmClientCerts
 	b.hsmConfigs = snap.HsmConfigs
 	b.scheduledActions = snap.ScheduledActions
+	b.customDomains = snap.CustomDomains
+	b.endpointAccesses = snap.EndpointAccesses
+	b.integrations = snap.Integrations
+	b.idcApplications = snap.IdcApplications
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
