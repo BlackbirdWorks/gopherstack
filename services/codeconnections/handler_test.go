@@ -773,9 +773,9 @@ func TestBackendListConnections(t *testing.T) {
 			name: "no_filter_returns_all",
 			setup: func(t *testing.T, b *codeconnections.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateConnection("c1", "GitHub", nil)
+				_, err := b.CreateConnection("c1", "GitHub", "", nil)
 				require.NoError(t, err)
-				_, err = b.CreateConnection("c2", "GitLab", nil)
+				_, err = b.CreateConnection("c2", "GitLab", "", nil)
 				require.NoError(t, err)
 			},
 			filter:    "",
@@ -785,9 +785,9 @@ func TestBackendListConnections(t *testing.T) {
 			name: "filter_by_provider",
 			setup: func(t *testing.T, b *codeconnections.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateConnection("c1", "GitHub", nil)
+				_, err := b.CreateConnection("c1", "GitHub", "", nil)
 				require.NoError(t, err)
-				_, err = b.CreateConnection("c2", "GitLab", nil)
+				_, err = b.CreateConnection("c2", "GitLab", "", nil)
 				require.NoError(t, err)
 			},
 			filter:       "GitHub",
@@ -915,7 +915,7 @@ func TestBackendCreateAndGet(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			conn, err := b.CreateConnection(tt.connName, tt.providerType, tt.inputTags)
+			conn, err := b.CreateConnection(tt.connName, tt.providerType, "", tt.inputTags)
 			require.NoError(t, err)
 			assert.NotEmpty(t, conn.ConnectionArn)
 			assert.Equal(t, tt.connName, conn.ConnectionName)

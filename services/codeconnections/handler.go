@@ -263,18 +263,22 @@ type createConnectionInput struct {
 
 type createConnectionOutput struct {
 	ConnectionArn string `json:"ConnectionArn"`
+	Tags          []tag  `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateConnection(
 	_ context.Context,
 	in *createConnectionInput,
 ) (*createConnectionOutput, error) {
-	conn, err := h.Backend.CreateConnection(in.ConnectionName, in.ProviderType, tagsFromArray(in.Tags))
+	conn, err := h.Backend.CreateConnection(in.ConnectionName, in.ProviderType, in.HostArn, tagsFromArray(in.Tags))
 	if err != nil {
 		return nil, err
 	}
 
-	return &createConnectionOutput{ConnectionArn: conn.ConnectionArn}, nil
+	return &createConnectionOutput{
+		ConnectionArn: conn.ConnectionArn,
+		Tags:          tagsToSortedArray(conn.Tags),
+	}, nil
 }
 
 type getConnectionInput struct {
@@ -455,6 +459,7 @@ type getHostInput struct {
 
 type getHostOutput struct {
 	Name             string `json:"Name"`
+	HostArn          string `json:"HostArn,omitempty"`
 	ProviderEndpoint string `json:"ProviderEndpoint"`
 	ProviderType     string `json:"ProviderType"`
 	Status           string `json:"Status"`
@@ -474,6 +479,7 @@ func (h *Handler) handleGetHost(_ context.Context, in *getHostInput) (*getHostOu
 
 	return &getHostOutput{
 		Name:             host.Name,
+		HostArn:          host.HostArn,
 		ProviderEndpoint: host.ProviderEndpoint,
 		ProviderType:     host.ProviderType,
 		Status:           host.Status,
@@ -817,13 +823,15 @@ type hostItem struct {
 	ProviderType     string `json:"ProviderType"`
 	Status           string `json:"Status"`
 	StatusMessage    string `json:"StatusMessage,omitempty"`
+	Tags             []tag  `json:"Tags,omitempty"`
 }
 
 type listHostsOutput struct {
-	Hosts []hostItem `json:"Hosts"`
+	NextToken *string    `json:"NextToken,omitempty"`
+	Hosts     []hostItem `json:"Hosts"`
 }
 
-func (h *Handler) handleListHosts(_ context.Context, _ *listHostsInput) (*listHostsOutput, error) {
+func (h *Handler) handleListHosts(_ context.Context, in *listHostsInput) (*listHostsOutput, error) {
 	hosts := h.Backend.ListHosts()
 	items := make([]hostItem, len(hosts))
 
@@ -835,10 +843,28 @@ func (h *Handler) handleListHosts(_ context.Context, _ *listHostsInput) (*listHo
 			ProviderType:     host.ProviderType,
 			Status:           host.Status,
 			StatusMessage:    host.StatusMessage,
+			Tags:             tagsToSortedArray(host.Tags),
 		}
 	}
 
-	return &listHostsOutput{Hosts: items}, nil
+	var limit int
+	if in.MaxResults != nil && *in.MaxResults > 0 {
+		limit = int(*in.MaxResults)
+	}
+
+	token := ""
+	if in.NextToken != nil {
+		token = *in.NextToken
+	}
+
+	p := page.New(items, token, limit, ccDefaultPageSize)
+
+	var nextToken *string
+	if p.Next != "" {
+		nextToken = &p.Next
+	}
+
+	return &listHostsOutput{Hosts: p.Data, NextToken: nextToken}, nil
 }
 
 // --- UpdateHost ---
@@ -868,12 +894,13 @@ type listRepositoryLinksInput struct {
 }
 
 type listRepositoryLinksOutput struct {
+	NextToken       *string              `json:"NextToken,omitempty"`
 	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
 }
 
 func (h *Handler) handleListRepositoryLinks(
 	_ context.Context,
-	_ *listRepositoryLinksInput,
+	in *listRepositoryLinksInput,
 ) (*listRepositoryLinksOutput, error) {
 	links := h.Backend.ListRepositoryLinks()
 	items := make([]repositoryLinkItem, len(links))
@@ -882,7 +909,24 @@ func (h *Handler) handleListRepositoryLinks(
 		items[i] = repositoryLinkToItem(link)
 	}
 
-	return &listRepositoryLinksOutput{RepositoryLinks: items}, nil
+	var limit int
+	if in.MaxResults != nil && *in.MaxResults > 0 {
+		limit = int(*in.MaxResults)
+	}
+
+	token := ""
+	if in.NextToken != nil {
+		token = *in.NextToken
+	}
+
+	p := page.New(items, token, limit, ccDefaultPageSize)
+
+	var nextToken *string
+	if p.Next != "" {
+		nextToken = &p.Next
+	}
+
+	return &listRepositoryLinksOutput{RepositoryLinks: p.Data, NextToken: nextToken}, nil
 }
 
 // --- UpdateRepositoryLink ---
@@ -954,6 +998,7 @@ type listSyncConfigurationsInput struct {
 }
 
 type listSyncConfigurationsOutput struct {
+	NextToken          *string                 `json:"NextToken,omitempty"`
 	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
 }
 
@@ -972,7 +1017,24 @@ func (h *Handler) handleListSyncConfigurations(
 		items[i] = syncConfigToItem(cfg)
 	}
 
-	return &listSyncConfigurationsOutput{SyncConfigurations: items}, nil
+	var limit int
+	if in.MaxResults != nil && *in.MaxResults > 0 {
+		limit = int(*in.MaxResults)
+	}
+
+	token := ""
+	if in.NextToken != nil {
+		token = *in.NextToken
+	}
+
+	p := page.New(items, token, limit, ccDefaultPageSize)
+
+	var nextToken *string
+	if p.Next != "" {
+		nextToken = &p.Next
+	}
+
+	return &listSyncConfigurationsOutput{SyncConfigurations: p.Data, NextToken: nextToken}, nil
 }
 
 // --- UpdateSyncConfiguration ---
