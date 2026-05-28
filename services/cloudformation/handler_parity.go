@@ -12,54 +12,50 @@ import (
 // Returns (true, nil) if the type was found in the registry, (false, nil) if not found,
 // or (true, err) if an error occurred during XML serialization.
 func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bool, error) {
-	typeName := form.Get("TypeName")
-	arnVal := form.Get("Arn")
-	versionID := form.Get("VersionId")
+	details, err := h.Backend.DescribeType(form.Get("TypeName"), form.Get("Arn"), form.Get("VersionId"))
+	if err == nil {
+		type typeDetailXML struct {
+			TypeName         string `xml:"TypeName,omitempty"`
+			TypeArn          string `xml:"Arn,omitempty"`
+			Type             string `xml:"Type,omitempty"`
+			Visibility       string `xml:"Visibility,omitempty"`
+			Status           string `xml:"TypeVersionStatus,omitempty"`
+			Description      string `xml:"Description,omitempty"`
+			Schema           string `xml:"Schema,omitempty"`
+			VersionID        string `xml:"VersionId,omitempty"`
+			DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+			DeprecatedStatus string `xml:"DeprecatedStatus,omitempty"`
+			IsActivated      bool   `xml:"IsActivated"`
+			IsDefaultVersion bool   `xml:"IsDefaultVersion"`
+		}
+		type response struct {
+			XMLName   xml.Name      `xml:"DescribeTypeResponse"`
+			Xmlns     string        `xml:"xmlns,attr"`
+			RequestID string        `xml:"ResponseMetadata>RequestId"`
+			Result    typeDetailXML `xml:"DescribeTypeResult"`
+		}
 
-	details, err := h.Backend.DescribeType(typeName, arnVal, versionID)
-	if err != nil {
-		return false, nil // not in registry — fall through to schema-based handler
+		return true, writeXML(c, response{
+			Xmlns: cfnNS,
+			Result: typeDetailXML{
+				TypeName:         details.TypeName,
+				TypeArn:          details.TypeArn,
+				Type:             details.Type,
+				Visibility:       details.Visibility,
+				Status:           details.Status,
+				Description:      details.Description,
+				Schema:           details.Schema,
+				VersionID:        details.VersionID,
+				DefaultVersionID: details.DefaultVersionID,
+				IsActivated:      details.IsActivated,
+				IsDefaultVersion: details.IsDefaultVersion,
+				DeprecatedStatus: details.DeprecatedStatus,
+			},
+			RequestID: uuid.New().String(),
+		})
 	}
 
-	type typeDetailXML struct {
-		TypeName         string `xml:"TypeName,omitempty"`
-		TypeArn          string `xml:"Arn,omitempty"`
-		Type             string `xml:"Type,omitempty"`
-		Visibility       string `xml:"Visibility,omitempty"`
-		Status           string `xml:"TypeVersionStatus,omitempty"`
-		Description      string `xml:"Description,omitempty"`
-		Schema           string `xml:"Schema,omitempty"`
-		VersionID        string `xml:"VersionId,omitempty"`
-		DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
-		IsActivated      bool   `xml:"IsActivated"`
-		IsDefaultVersion bool   `xml:"IsDefaultVersion"`
-		DeprecatedStatus string `xml:"DeprecatedStatus,omitempty"`
-	}
-	type response struct {
-		XMLName   xml.Name      `xml:"DescribeTypeResponse"`
-		Xmlns     string        `xml:"xmlns,attr"`
-		Result    typeDetailXML `xml:"DescribeTypeResult"`
-		RequestID string        `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return true, writeXML(c, response{
-		Xmlns: cfnNS,
-		Result: typeDetailXML{
-			TypeName:         details.TypeName,
-			TypeArn:          details.TypeArn,
-			Type:             details.Type,
-			Visibility:       details.Visibility,
-			Status:           details.Status,
-			Description:      details.Description,
-			Schema:           details.Schema,
-			VersionID:        details.VersionID,
-			DefaultVersionID: details.DefaultVersionID,
-			IsActivated:      details.IsActivated,
-			IsDefaultVersion: details.IsDefaultVersion,
-			DeprecatedStatus: details.DeprecatedStatus,
-		},
-		RequestID: uuid.New().String(),
-	})
+	return false, nil // not in registry — fall through to schema-based handler
 }
 
 // handleDescribeChangeSet overrides the base handler to include ExecutionStatus and ChangeSetType.
@@ -86,11 +82,11 @@ func (h *Handler) handleListStackSetOperationResultsParity(form url.Values, c *e
 		Status      string `xml:"Status,omitempty"`
 	}
 	type resultXML struct {
+		AccountGateResult *accountGateXML `xml:"AccountGateResult,omitempty"`
 		Account           string          `xml:"Account,omitempty"`
 		Region            string          `xml:"Region,omitempty"`
 		Status            string          `xml:"Status,omitempty"`
 		StatusReason      string          `xml:"StatusReason,omitempty"`
-		AccountGateResult *accountGateXML `xml:"AccountGateResult,omitempty"`
 	}
 	items := make([]resultXML, 0, len(results))
 	for _, r := range results {
@@ -110,10 +106,10 @@ func (h *Handler) handleListStackSetOperationResultsParity(form url.Values, c *e
 	}
 
 	type response struct {
-		XMLName   xml.Name    `xml:"ListStackSetOperationResultsResponse"`
-		Xmlns     string      `xml:"xmlns,attr"`
-		Result    interface{} `xml:"ListStackSetOperationResultsResult"`
-		RequestID string      `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name `xml:"ListStackSetOperationResultsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		Result    any      `xml:"ListStackSetOperationResultsResult"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 	type resultWrapper struct {
 		Summaries []resultXML `xml:"Summaries>member"`

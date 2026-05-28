@@ -62,6 +62,7 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 			if v.VersionID == versionID {
 				found = true
 				resolvedVersionID = versionID
+
 				break
 			}
 		}
@@ -141,6 +142,7 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	for _, det := range b.driftDetections {
 		if det.StackID == stack.StackID && det.StackDriftStatus == driftStatusDrifted {
 			drifted = true
+
 			break
 		}
 	}

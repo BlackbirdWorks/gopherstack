@@ -3,6 +3,7 @@ package cloudformation_test
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,12 +20,12 @@ func TestDescribeType_Registered(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		setup     func(*cloudformation.InMemoryBackend)
 		typeName  string
 		typeArn   string
 		versionID string
-		wantErr   bool
+		setup     func(*cloudformation.InMemoryBackend)
 		check     func(*testing.T, *cloudformation.TypeDetails)
+		wantErr   bool
 	}{
 		{
 			name: "lookup by TypeName after RegisterType",
@@ -126,6 +127,7 @@ func TestDescribeType_Registered(t *testing.T) {
 			details, err := b.DescribeType(tc.typeName, tc.typeArn, tc.versionID)
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err)
@@ -143,11 +145,11 @@ func TestHandler_DescribeType_Registered(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantContains []string
 		name         string
 		setup        func(*cloudformation.InMemoryBackend)
 		formValues   url.Values
 		wantStatus   int
-		wantContains []string
 	}{
 		{
 			name: "registered type returned from backend",
@@ -278,10 +280,10 @@ func TestCreateStack_RoleARN_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errIs   error
 		name    string
 		roleARN string
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name:    "valid role ARN accepted",
@@ -316,7 +318,7 @@ func TestCreateStack_RoleARN_Validation(t *testing.T) {
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.errIs != nil {
-					assert.ErrorIs(t, err, tc.errIs)
+					require.ErrorIs(t, err, tc.errIs)
 				}
 			} else {
 				require.NoError(t, err)
@@ -338,11 +340,11 @@ func TestCreateStack_IAMCapabilityRequired(t *testing.T) {
 	}`
 
 	tests := []struct {
+		capabilities []string
+		errIs        error
 		name         string
 		template     string
-		capabilities []string
 		wantErr      bool
-		errIs        error
 	}{
 		{
 			name:         "IAM template without capabilities fails",
@@ -386,7 +388,7 @@ func TestCreateStack_IAMCapabilityRequired(t *testing.T) {
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.errIs != nil {
-					assert.ErrorIs(t, err, tc.errIs)
+					require.ErrorIs(t, err, tc.errIs)
 				}
 			} else {
 				require.NoError(t, err)
@@ -622,11 +624,11 @@ func TestStackSetOperationResults(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		accounts     []string
 		regions      []string
-		wantResultN  int
 		wantStatuses []string
+		name         string
+		wantResultN  int
 	}{
 		{
 			name:         "single account region",
@@ -723,9 +725,9 @@ func TestTypeVersioning_MultipleRegistrations(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		wantDefault   string
 		registerCount int
 		wantVersions  int
-		wantDefault   string
 	}{
 		{
 			name:          "single registration yields one version",
@@ -773,10 +775,10 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		stacks       []string
-		wantMinItems int
 		wantContains []string
+		name         string
+		wantMinItems int
 	}{
 		{
 			name:         "no stacks yields synthetic S3 resource",
@@ -811,7 +813,7 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 			scan, err := b.DescribeResourceScan(scanID)
 			require.NoError(t, err)
 			assert.Equal(t, "COMPLETE", scan.Status)
-			assert.Equal(t, float64(100), scan.PercentageCompleted)
+			assert.InEpsilon(t, float64(100), scan.PercentageCompleted, 0.001)
 
 			resources, err := b.ListResourceScanResources(scanID, "")
 			require.NoError(t, err)
@@ -822,13 +824,7 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 				types = append(types, r.ResourceType)
 			}
 			for _, want := range tc.wantContains {
-				found := false
-				for _, typ := range types {
-					if typ == want {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(types, want)
 				assert.True(t, found, "expected resource type %q in scan results", want)
 			}
 		})
@@ -902,8 +898,8 @@ func TestDriftSimulation(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		simulateDrift bool
 		wantStatus    string
+		simulateDrift bool
 		wantDrifted   bool
 	}{
 		{
@@ -1151,8 +1147,8 @@ func TestHandler_CreateChangeSet_TypeInResponse(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		preCreateStack    bool
 		wantChangeSetType string
+		preCreateStack    bool
 	}{
 		{
 			name:              "no existing stack → CREATE type",
@@ -1219,7 +1215,7 @@ func TestErrorVariables_Exported(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.NotNil(t, tc.err)
+			require.Error(t, tc.err)
 			assert.NotEmpty(t, tc.err.Error())
 		})
 	}

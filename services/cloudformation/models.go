@@ -116,21 +116,21 @@ type StackResource struct {
 
 // ChangeSet represents a CloudFormation change set.
 type ChangeSet struct {
-	ChangeSetID           string                 `xml:"ChangeSetId"                    json:"changeSetID"`
-	ChangeSetName         string                 `xml:"ChangeSetName"                  json:"changeSetName"`
-	StackID               string                 `xml:"StackId"                        json:"stackID"`
-	StackName             string                 `xml:"StackName"                      json:"stackName"`
-	Status                string                 `xml:"Status"                         json:"status"`
-	StatusReason          string                 `xml:"StatusReason,omitempty"         json:"statusReason,omitempty"`
-	ExecutionStatus       string                 `xml:"ExecutionStatus,omitempty"      json:"executionStatus,omitempty"`
-	ChangeSetType         string                 `xml:"ChangeSetType,omitempty"        json:"changeSetType,omitempty"`
-	IncludeNestedStacks  bool `xml:"IncludeNestedStacks,omitempty" json:"includeNestedStacks,omitempty"`
-	CreationTime          time.Time              `xml:"CreationTime"                   json:"creationTime"`
-	Description           string                 `xml:"Description,omitempty"          json:"description,omitempty"`
-	TemplateBody          string                 `xml:"-"                              json:"templateBody,omitempty"`
-	Parameters            []Parameter            `xml:"-"                              json:"parameters,omitempty"`
-	Changes               []Change               `xml:"-"                              json:"changes,omitempty"`
+	CreationTime          time.Time              `xml:"CreationTime"                    json:"creationTime"`
 	RollbackConfiguration *RollbackConfiguration `xml:"RollbackConfiguration,omitempty" json:"rollbackConfiguration,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
+	ChangeSetID           string                 `xml:"ChangeSetId"                     json:"changeSetID"`
+	ChangeSetName         string                 `xml:"ChangeSetName"                   json:"changeSetName"`
+	StackID               string                 `xml:"StackId"                         json:"stackID"`
+	StackName             string                 `xml:"StackName"                       json:"stackName"`
+	Status                string                 `xml:"Status"                          json:"status"`
+	StatusReason          string                 `xml:"StatusReason,omitempty"          json:"statusReason,omitempty"`
+	ExecutionStatus       string                 `xml:"ExecutionStatus,omitempty"       json:"executionStatus,omitempty"`
+	ChangeSetType         string                 `xml:"ChangeSetType,omitempty"         json:"changeSetType,omitempty"`
+	Description           string                 `xml:"Description,omitempty"           json:"description,omitempty"`
+	TemplateBody          string                 `xml:"-"                               json:"templateBody,omitempty"`
+	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
+	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
+	IncludeNestedStacks bool `xml:"IncludeNestedStacks,omitempty" json:"includeNestedStacks,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -360,8 +360,8 @@ type AccountGateResult struct {
 type ScannedResource struct {
 	ResourceType       string `xml:"ResourceType,omitempty"`
 	ResourceIdentifier string `xml:"ResourceIdentifier>member,omitempty"`
-	ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
 	StackID            string `xml:"StackId,omitempty"`
+	ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
 }
 
 // ChangeSetHook holds a single hook invocation for a change set.

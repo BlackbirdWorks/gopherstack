@@ -854,21 +854,8 @@ func (h *Handler) handleListResourceScans(_ url.Values, c *echo.Context) error {
 
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
 	scanned, _ := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
-	type resourceXML struct {
-		ResourceType       string `xml:"ResourceType,omitempty"`
-		ResourceIdentifier string `xml:"ResourceIdentifier>member,omitempty"`
-		ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
-		StackID            string `xml:"StackId,omitempty"`
-	}
-	members := make([]resourceXML, 0, len(scanned))
-	for _, s := range scanned {
-		members = append(members, resourceXML{
-			ResourceType:       s.ResourceType,
-			ResourceIdentifier: s.ResourceIdentifier,
-			ManagedByStack:     s.ManagedByStack,
-			StackID:            s.StackID,
-		})
-	}
+	type resourceXML = ScannedResource
+	members := append([]resourceXML(nil), scanned...)
 	type result struct {
 		Resources []resourceXML `xml:"Resources>member"`
 	}
