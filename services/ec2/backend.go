@@ -315,7 +315,7 @@ type InMemoryBackend struct {
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		instances:                      make(map[string]*Instance),
 		securityGroups:                 make(map[string]*SecurityGroup),
 		vpcs:                           make(map[string]*VPC),
@@ -407,24 +407,30 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		fastLaunchImages:               make(map[string]bool),
 		fastSnapshotRestores:           make(map[string]bool),
 		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
-		instanceIDsByVPC:                    make(map[string]map[string]struct{}),
-		eniIDsByInstance:                    make(map[string]map[string]struct{}),
-		eniIDByAttachment:                   make(map[string]string),
-		trafficMirrorFilters:                make(map[string]*TrafficMirrorFilter),
-		trafficMirrorFilterRules:            make(map[string]*TrafficMirrorFilterRule),
-		trafficMirrorSessions:               make(map[string]*TrafficMirrorSession),
-		trafficMirrorTargets:                make(map[string]*TrafficMirrorTarget),
-		fleets:                              make(map[string]*Fleet),
-		networkInsightsPaths:                make(map[string]*NetworkInsightsPath),
-		networkInsightsAnalyses:             make(map[string]*NetworkInsightsAnalysis),
-		networkInsightsAccessScopes:         make(map[string]*NetworkInsightsAccessScope),
-		networkInsightsAccessScopeAnalyses:  make(map[string]*NetworkInsightsAccessScopeAnalysis),
-		carrierGateways:                     make(map[string]*CarrierGateway),
-		reservedInstances:                   make(map[string]*ReservedInstance),
-		reservedInstancesOfferings:          make(map[string]*ReservedInstancesOffering),
-		reservedInstancesListings:           make(map[string]*ReservedInstancesListing),
-		reservedInstancesModifications:      make(map[string]*ReservedInstancesModification),
+		instanceIDsByVPC:  make(map[string]map[string]struct{}),
+		eniIDsByInstance:  make(map[string]map[string]struct{}),
+		eniIDByAttachment: make(map[string]string),
 	}
+	initBatch5Maps(b)
+
+	return b
+}
+
+func initBatch5Maps(b *InMemoryBackend) {
+	b.trafficMirrorFilters               = make(map[string]*TrafficMirrorFilter)
+	b.trafficMirrorFilterRules           = make(map[string]*TrafficMirrorFilterRule)
+	b.trafficMirrorSessions              = make(map[string]*TrafficMirrorSession)
+	b.trafficMirrorTargets               = make(map[string]*TrafficMirrorTarget)
+	b.fleets                             = make(map[string]*Fleet)
+	b.networkInsightsPaths               = make(map[string]*NetworkInsightsPath)
+	b.networkInsightsAnalyses            = make(map[string]*NetworkInsightsAnalysis)
+	b.networkInsightsAccessScopes        = make(map[string]*NetworkInsightsAccessScope)
+	b.networkInsightsAccessScopeAnalyses = make(map[string]*NetworkInsightsAccessScopeAnalysis)
+	b.carrierGateways                    = make(map[string]*CarrierGateway)
+	b.reservedInstances                  = make(map[string]*ReservedInstance)
+	b.reservedInstancesOfferings         = make(map[string]*ReservedInstancesOffering)
+	b.reservedInstancesListings          = make(map[string]*ReservedInstancesListing)
+	b.reservedInstancesModifications     = make(map[string]*ReservedInstancesModification)
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.

@@ -817,7 +817,7 @@ func (h *Handler) handleCreateDefaultVpc(_ url.Values, reqID string) (any, error
 	resp.Vpc.VpcID = vpc.ID
 	resp.Vpc.CIDRBlock = vpc.CIDRBlock
 	resp.Vpc.IsDefault = vpc.IsDefault
-	resp.Vpc.State = "available"
+	resp.Vpc.State = stateAvailableImg
 
 	return resp, nil
 }

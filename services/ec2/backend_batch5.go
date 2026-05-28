@@ -8,16 +8,21 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	stateByoipAdvertised   = "advertised"
+	stateAnalysisSucceeded = "succeeded"
+)
+
 var (
-	ErrTrafficMirrorFilterNotFound       = errors.New("InvalidTrafficMirrorFilterId.NotFound")
-	ErrTrafficMirrorFilterRuleNotFound   = errors.New("InvalidTrafficMirrorFilterRuleId.NotFound")
-	ErrTrafficMirrorSessionNotFound      = errors.New("InvalidTrafficMirrorSessionId.NotFound")
-	ErrTrafficMirrorTargetNotFound       = errors.New("InvalidTrafficMirrorTargetId.NotFound")
-	ErrFleetNotFound                     = errors.New("InvalidFleetId.NotFound")
-	ErrNetworkInsightsPathNotFound       = errors.New("InvalidNetworkInsightsPathId.NotFound")
-	ErrNetworkInsightsAnalysisNotFound   = errors.New("InvalidNetworkInsightsAnalysisId.NotFound")
-	ErrNetworkInsightsAccessScopeNF      = errors.New("InvalidNetworkInsightsAccessScopeId.NotFound")
-	ErrNetworkInsightsAccessScopeAnaNF   = errors.New("InvalidNetworkInsightsAccessScopeAnalysisId.NotFound")
+	ErrTrafficMirrorFilterNotFound      = errors.New("InvalidTrafficMirrorFilterId.NotFound")
+	ErrTrafficMirrorFilterRuleNotFound  = errors.New("InvalidTrafficMirrorFilterRuleId.NotFound")
+	ErrTrafficMirrorSessionNotFound     = errors.New("InvalidTrafficMirrorSessionId.NotFound")
+	ErrTrafficMirrorTargetNotFound      = errors.New("InvalidTrafficMirrorTargetId.NotFound")
+	ErrFleetNotFound                    = errors.New("InvalidFleetId.NotFound")
+	ErrNetworkInsightsPathNotFound      = errors.New("InvalidNetworkInsightsPathId.NotFound")
+	ErrNetworkInsightsAnalysisNotFound  = errors.New("InvalidNetworkInsightsAnalysisId.NotFound")
+	ErrNetworkInsightsAccessScopeNF     = errors.New("InvalidNetworkInsightsAccessScopeId.NotFound")
+	ErrNetworkInsightsAccessScopeAnaNF  = errors.New("InvalidNetworkInsightsAccessScopeAnalysisId.NotFound")
 	ErrCarrierGatewayNotFound           = errors.New("InvalidCarrierGatewayId.NotFound")
 	ErrReservedInstancesListingNotFound = errors.New("InvalidReservedInstancesListingId.NotFound")
 )
@@ -513,7 +518,7 @@ func (b *InMemoryBackend) CreateFleet(fleetType string, totalTargetCapacity int)
 	id := "fleet-" + uuid.New().String()[:8]
 	f := &Fleet{
 		FleetID:             id,
-		FleetState:          "active",
+		FleetState:          SpotFleetStateActive,
 		FleetType:           fleetType,
 		TotalTargetCapacity: totalTargetCapacity,
 		ExcessCapacityTerminationPolicy: "termination",
@@ -533,7 +538,7 @@ func (b *InMemoryBackend) DeleteFleets(ids []string) []string {
 
 	for _, id := range ids {
 		if _, ok := b.fleets[id]; ok {
-			b.fleets[id].FleetState = "deleted"
+			b.fleets[id].FleetState = tgwRouteStateDeleted
 			delete(b.fleets, id)
 			deleted = append(deleted, id)
 		}
@@ -660,7 +665,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 	a := &NetworkInsightsAnalysis{
 		NetworkInsightsAnalysisID: id,
 		NetworkInsightsPathID:     pathID,
-		Status:                    "succeeded",
+		Status:                    stateAnalysisSucceeded,
 		NetworkPathFound:          true,
 	}
 	b.networkInsightsAnalyses[id] = a
@@ -770,7 +775,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAccessScopeAnalysis(
 	a := &NetworkInsightsAccessScopeAnalysis{
 		NetworkInsightsAccessScopeAnalysisID: id,
 		NetworkInsightsAccessScopeID:         scopeID,
-		Status:                               "succeeded",
+		Status:                               stateAnalysisSucceeded,
 		AnalyzedEniCount:                     0,
 	}
 	b.networkInsightsAccessScopeAnalyses[id] = a
@@ -874,7 +879,7 @@ func (b *InMemoryBackend) WithdrawByoipCidr(cidr string) (*ByoipCidr, error) {
 		b.byoipCidrs[cidr] = entry
 	}
 
-	entry.State = "advertised"
+	entry.State = stateByoipAdvertised
 
 	cp := *entry
 
@@ -895,7 +900,7 @@ func (b *InMemoryBackend) CreateCarrierGateway(vpcID string) (*CarrierGateway, e
 	gw := &CarrierGateway{
 		CarrierGatewayID: id,
 		VpcID:            vpcID,
-		State:            "available",
+		State:            stateAvailableImg,
 		OwnerID:          b.AccountID,
 	}
 	b.carrierGateways[id] = gw
@@ -1017,7 +1022,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 		FixedPrice:          offering.FixedPrice,
 		UsagePrice:          offering.UsagePrice,
 		InstanceCount:       instanceCount,
-		State:               "active",
+		State:               SpotFleetStateActive,
 	}
 	b.reservedInstances[id] = ri
 
@@ -1044,7 +1049,7 @@ func (b *InMemoryBackend) CreateReservedInstancesListing(
 	l := &ReservedInstancesListing{
 		ReservedInstancesListingID: id,
 		ReservedInstancesID:        reservedInstancesID,
-		Status:                     "active",
+		Status:                     SpotFleetStateActive,
 	}
 	b.reservedInstancesListings[id] = l
 

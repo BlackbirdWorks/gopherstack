@@ -360,7 +360,30 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
 func (h *Handler) buildOps() map[string]ec2ActionFn {
-	ops := map[string]ec2ActionFn{
+	ops := h.buildCoreOps()
+
+	registerDeepDiveOps(h, ops)
+	registerAcceptAndAdvancedOps(h, ops)
+	registerRefinement2Ops(h, ops)
+	registerRefinement3Ops(h, ops)
+	registerNetworking1Ops(h, ops)
+	registerEC2CoreOps(h, ops)
+	registerBatch1Ops(h, ops)
+	registerBatch2Ops(h, ops)
+	registerBatch3Ops(h, ops)
+	registerBatch4Ops(h, ops)
+	registerBatch5Ops(h, ops)
+	registerStubOps(h, ops)
+	// registerAdvancedNetworkingOps must run last to override stub entries.
+	registerAdvancedNetworkingOps(h, ops)
+	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
+	registerSpotFleetOps(h, ops)
+
+	return ops
+}
+
+func (h *Handler) buildCoreOps() map[string]ec2ActionFn {
+	return map[string]ec2ActionFn{
 		"RunInstances":                    h.handleRunInstances,
 		"DescribeInstances":               h.handleDescribeInstances,
 		"TerminateInstances":              h.handleTerminateInstances,
@@ -444,25 +467,6 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 		"DeletePlacementGroup":            h.handleDeletePlacementGroup,
 		"DescribeVpcPeeringConnections":   h.handleDescribeVpcPeeringConnections,
 	}
-
-	registerDeepDiveOps(h, ops)
-	registerAcceptAndAdvancedOps(h, ops)
-	registerRefinement2Ops(h, ops)
-	registerRefinement3Ops(h, ops)
-	registerNetworking1Ops(h, ops)
-	registerEC2CoreOps(h, ops)
-	registerBatch1Ops(h, ops)
-	registerBatch2Ops(h, ops)
-	registerBatch3Ops(h, ops)
-	registerBatch4Ops(h, ops)
-	registerBatch5Ops(h, ops)
-	registerStubOps(h, ops)
-	// registerAdvancedNetworkingOps must run last to override stub entries.
-	registerAdvancedNetworkingOps(h, ops)
-	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
-	registerSpotFleetOps(h, ops)
-
-	return ops
 }
 
 // dispatch routes the EC2 action to the appropriate handler function.

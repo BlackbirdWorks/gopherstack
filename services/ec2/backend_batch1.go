@@ -628,7 +628,7 @@ type StaleSGItem struct {
 func (b *InMemoryBackend) findDeletedPeerVPCsLocked(vpcID string) map[string]bool {
 	result := make(map[string]bool)
 	for _, pc := range b.vpcPeeringConnections {
-		if pc.State != "deleted" && pc.State != "rejected" && pc.State != "failed" {
+		if pc.State != tgwRouteStateDeleted && pc.State != "rejected" && pc.State != "failed" {
 			continue
 		}
 		if pc.RequesterVpcID == vpcID {
