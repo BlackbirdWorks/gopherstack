@@ -1053,7 +1053,16 @@ func (rc *ResourceCreator) createACMCertificate(
 		}
 	}
 
-	cert, err := rc.backends.ACM.Backend.RequestCertificate(domainName, "AMAZON_ISSUED", validationMethod, "", "", sans)
+	cert, err := rc.backends.ACM.Backend.RequestCertificate(
+		domainName,
+		"AMAZON_ISSUED",
+		validationMethod,
+		"",
+		"",
+		"",
+		"",
+		sans,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create ACM certificate for %s: %w", domainName, err)
 	}

@@ -24,7 +24,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *acm.InMemoryBackend) string {
-				cert, err := b.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", nil)
+				cert, err := b.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", "", "", nil)
 				if err != nil {
 					return ""
 				}
@@ -44,7 +44,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_imported_cert",
 			setup: func(b *acm.InMemoryBackend) string {
-				src, err := b.RequestCertificate("imported.example.com", "", "", "", "", nil)
+				src, err := b.RequestCertificate("imported.example.com", "", "", "", "", "", "", nil)
 				if err != nil {
 					return ""
 				}
@@ -71,7 +71,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acm.InMemoryBackend, _ string) {
 				t.Helper()
 
-				certs := b.ListCertificates(acm.ListCertificatesParams{}).Data
+				p, _ := b.ListCertificates(acm.ListCertificatesParams{})
+				certs := p.Data
 				assert.Empty(t, certs)
 			},
 		},
@@ -110,7 +111,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	h := acm.NewHandler(backend)
 
 	// Create a cert
-	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", nil)
+	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Test Handler.Snapshot/Restore delegation
@@ -121,7 +122,8 @@ func TestACMHandler_Persistence(t *testing.T) {
 	freshH := acm.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	certs := fresh.ListCertificates(acm.ListCertificatesParams{}).Data
+	p, _ := fresh.ListCertificates(acm.ListCertificatesParams{})
+	certs := p.Data
 	assert.Len(t, certs, 1)
 }
 

@@ -25,13 +25,14 @@ const (
 )
 
 type requestCertificateInput struct {
-	DomainName              string              `json:"DomainName"`
-	ValidationMethod        string              `json:"ValidationMethod"`
-	CertificateAuthorityArn string              `json:"CertificateAuthorityArn"`
-	IdempotencyToken        string              `json:"IdempotencyToken"`
-	KeyAlgorithm            string              `json:"KeyAlgorithm"`
-	SubjectAlternativeNames []string            `json:"SubjectAlternativeNames"`
-	Tags                    []map[string]string `json:"Tags"`
+	Options                 *certificateOptionsInput `json:"Options,omitempty"`
+	DomainName              string                   `json:"DomainName"`
+	ValidationMethod        string                   `json:"ValidationMethod"`
+	CertificateAuthorityArn string                   `json:"CertificateAuthorityArn"`
+	IdempotencyToken        string                   `json:"IdempotencyToken"`
+	KeyAlgorithm            string                   `json:"KeyAlgorithm"`
+	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames"`
+	Tags                    []map[string]string      `json:"Tags"`
 }
 
 type requestCertificateOutput struct {
@@ -76,6 +77,8 @@ type certificateDetail struct {
 	RevocationReason        string                `json:"RevocationReason,omitempty"`
 	RenewalEligibility      string                `json:"RenewalEligibility,omitempty"`
 	FailureReason           string                `json:"FailureReason,omitempty"`
+	CertificateAuthorityArn string                `json:"CertificateAuthorityArn,omitempty"`
+	KeyID                   string                `json:"KeyId,omitempty"`
 	Options                 *certificateOptions   `json:"Options,omitempty"`
 	SubjectAlternativeNames []string              `json:"SubjectAlternativeNames,omitempty"`
 	// DomainValidationOptions uses a concrete slice type here to satisfy the JSON
@@ -123,9 +126,9 @@ type certificateSummary struct {
 
 // listCertificatesIncludes mirrors the AWS Filters shape for ListCertificates.
 type listCertificatesIncludes struct {
-	KeyTypes         []string `json:"keyTypes,omitempty"`
-	ExtendedKeyUsage []string `json:"extendedKeyUsage,omitempty"`
-	KeyUsage         []string `json:"keyUsage,omitempty"`
+	KeyTypes         []string `json:"KeyTypes,omitempty"`
+	ExtendedKeyUsage []string `json:"ExtendedKeyUsage,omitempty"`
+	KeyUsage         []string `json:"KeyUsage,omitempty"`
 }
 
 type listCertificatesInput struct {
@@ -307,13 +310,42 @@ func (h *Handler) Shutdown(ctx context.Context) {
 var _ service.BackgroundWorker = (*Handler)(nil)
 var _ service.Shutdowner = (*Handler)(nil)
 
-func (h *Handler) setTags(resourceID string, kv map[string]string) {
+func (h *Handler) setTags(resourceID string, kv map[string]string) error {
+	const maxTagKeyLength = 128
+	const maxTagValueLength = 256
+	for k, v := range kv {
+		if len(k) > maxTagKeyLength {
+			return fmt.Errorf("%w: tag key exceeds 128 characters", ErrInvalidParameter)
+		}
+		if len(v) > maxTagValueLength {
+			return fmt.Errorf("%w: tag value exceeds 256 characters", ErrInvalidParameter)
+		}
+	}
+
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
+
+	const maxTagsPerCertificate = 50
+	newKeys := 0
+	if h.tags[resourceID] != nil {
+		for k := range kv {
+			if !h.tags[resourceID].HasTag(k) {
+				newKeys++
+			}
+		}
+		if h.tags[resourceID].Len()+newKeys > maxTagsPerCertificate {
+			return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
+		}
+	} else if len(kv) > maxTagsPerCertificate {
+		return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
+	}
+
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = svcTags.New("acm." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
+
+	return nil
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -505,12 +537,19 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 	if input.CertificateAuthorityArn != "" {
 		certType = "PRIVATE"
 	}
+	opts := ""
+	if input.Options != nil {
+		opts = input.Options.CertificateTransparencyLoggingPreference
+	}
+
 	cert, err := h.Backend.RequestCertificate(
 		input.DomainName,
 		certType,
 		input.ValidationMethod,
 		input.IdempotencyToken,
 		input.KeyAlgorithm,
+		input.CertificateAuthorityArn,
+		opts,
 		input.SubjectAlternativeNames,
 	)
 	if err != nil {
@@ -526,8 +565,9 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 				kvMap[k] = tag["Value"]
 			}
 		}
-
-		h.setTags(cert.ARN, kvMap)
+		if setErr := h.setTags(cert.ARN, kvMap); setErr != nil {
+			return nil, setErr
+		}
 	}
 
 	return &requestCertificateOutput{CertificateArn: cert.ARN}, nil
@@ -589,6 +629,8 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 		RenewalEligibility:      cert.RenewalEligibility,
 		RevocationReason:        cert.RevocationReason,
 		FailureReason:           cert.FailureReason,
+		CertificateAuthorityArn: cert.CertificateAuthorityArn,
+		KeyID:                   cert.KeyID,
 		CreatedAt:               cert.CreatedAt.Unix(),
 		NotBefore:               cert.NotBefore.Unix(),
 		NotAfter:                cert.NotAfter.Unix(),
@@ -648,7 +690,11 @@ func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 		params.ExtendedKeyUsage = input.Includes.ExtendedKeyUsage
 	}
 
-	p := h.Backend.ListCertificates(params)
+	p, err := h.Backend.ListCertificates(params)
+	if err != nil {
+		return nil, err
+	}
+
 	summaries := make([]certificateSummary, 0, len(p.Data))
 
 	for _, c := range p.Data {
@@ -720,7 +766,9 @@ func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
 	for _, t := range input.Tags {
 		kv[t.Key] = t.Value
 	}
-	h.setTags(input.CertificateArn, kv)
+	if err := h.setTags(input.CertificateArn, kv); err != nil {
+		return nil, err
+	}
 
 	return &addTagsToCertificateOutput{}, nil
 }
@@ -923,6 +971,10 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "ValidationException"
 	case errors.Is(opErr, ErrNotEligible):
 		code = "RequestError"
+	case errors.Is(opErr, ErrInvalidState):
+		code = "InvalidStateException"
+	case errors.Is(opErr, ErrResourceInUse):
+		code = "ResourceInUseException"
 	case errors.Is(opErr, ErrAlreadyRevoked):
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrConflict):

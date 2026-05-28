@@ -52,22 +52,19 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 
 	// Abandoned pending validations (72h limit in AWS)
 	cutoffPending := now.Add(-72 * time.Hour)
-	// Expired certificates (keep for 30 days after expiry for realism)
-	cutoffExpired := now.Add(-30 * 24 * time.Hour)
 
-	for arn, cert := range b.certs {
+	for _, cert := range b.certs {
 		if cert.Status == statusPendingValidation && cert.CreatedAt.Before(cutoffPending) {
-			delete(b.certs, arn)
-			removedCount++
-
-			continue
+			cert.Status = statusValidationTimedOut
+			cert.FailureReason = "VALIDATION_TIMED_OUT"
 		}
 
-		if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(cutoffExpired) {
-			delete(b.certs, arn)
-			removedCount++
+		if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(now) {
+			cert.Status = statusExpired
 		}
 	}
+
+	removedCount += b.sweepTimers()
 
 	if removedCount > 0 {
 		telemetry.RecordWorkerItems("acm", "AcmJanitor", removedCount)
@@ -75,4 +72,29 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 			"count", removedCount)
 	}
 	telemetry.RecordWorkerTask("acm", "AcmJanitor", "success")
+}
+
+func (b *InMemoryBackend) sweepTimers() int {
+	removedCount := 0
+	for arn, timer := range b.timers {
+		cert, ok := b.certs[arn]
+		if !ok {
+			timer.Stop()
+			delete(b.timers, arn)
+			removedCount++
+
+			continue
+		}
+
+		isPending := cert.Status == statusPendingValidation
+		hasRenewal := cert.RenewalSummary != nil && cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation
+
+		if !isPending && !hasRenewal {
+			timer.Stop()
+			delete(b.timers, arn)
+			removedCount++
+		}
+	}
+
+	return removedCount
 }
