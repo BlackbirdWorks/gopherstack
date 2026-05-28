@@ -121,6 +121,7 @@ func userGroupToXML(ug *UserGroup) userGroupXML {
 type reservedCacheNodeXML struct {
 	ReservationID       string  `xml:"ReservationId,omitempty"`
 	ReservedCacheNodeID string  `xml:"ReservedCacheNodeId"`
+	ARN                 string  `xml:"ReservationARN,omitempty"`
 	CacheNodeType       string  `xml:"CacheNodeType"`
 	ProductDescription  string  `xml:"ProductDescription"`
 	OfferingType        string  `xml:"OfferingType"`
@@ -142,6 +143,7 @@ func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
 	return reservedCacheNodeXML{
 		ReservationID:       rcn.ReservationID,
 		ReservedCacheNodeID: rcn.ReservedCacheNodeID,
+		ARN:                 rcn.ARN,
 		CacheNodeType:       rcn.CacheNodeType,
 		Duration:            rcn.Duration,
 		FixedPrice:          rcn.FixedPrice,
@@ -174,8 +176,8 @@ type cacheEngineVersionXML struct {
 }
 
 type serviceUpdateXML struct {
-	ServiceUpdateName string `xml:"ServiceUpdateName"`
-	Status            string `xml:"Status"`
+	ServiceUpdateName   string `xml:"ServiceUpdateName"`
+	ServiceUpdateStatus string `xml:"ServiceUpdateStatus"`
 }
 
 type updateActionXML struct {
@@ -1251,7 +1253,10 @@ func (h *Handler) describeServiceUpdates(c *echo.Context, form url.Values) error
 
 	items := make([]serviceUpdateXML, 0, len(p.Data))
 	for _, su := range p.Data {
-		items = append(items, serviceUpdateXML(su))
+		items = append(items, serviceUpdateXML{
+			ServiceUpdateName:   su.ServiceUpdateName,
+			ServiceUpdateStatus: su.Status,
+		})
 	}
 
 	type suListXML struct {

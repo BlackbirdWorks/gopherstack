@@ -30,6 +30,16 @@ const (
 )
 
 const (
+	snapshotSourceManual        = "manual"
+	dataTypeString              = "string"
+	dataTypeInteger             = "integer"
+	allowedValuesYesNo          = "yes,no"
+	allowedValuesMaxInt32       = "0-2147483647"
+	allowedValuesEvictionPolicy = "noeviction,allkeys-lru,volatile-lru,allkeys-random," +
+		"volatile-random,volatile-ttl,allkeys-lfu,volatile-lfu"
+)
+
+const (
 	randomSuffixLen     = 3
 	engineRedis         = "redis"
 	tagCandidateInitCap = 16
@@ -218,6 +228,7 @@ type CacheSnapshot struct {
 	Engine             string     `json:"engine"`
 	EngineVersion      string     `json:"engineVersion"`
 	NodeType           string     `json:"nodeType"`
+	KmsKeyID           string     `json:"kmsKeyId,omitempty"`
 	SnapshotSource     string     `json:"snapshotSource"` // "manual" or "automated"
 }
 
@@ -255,6 +266,7 @@ type StorageBackend interface {
 	ResetParameterGroup(name string, paramNames []string, resetAll bool) (*CacheParameterGroup, error)
 	DescribeParameters(name, marker string, maxRecords int) (page.Page[CacheParameter], error)
 	CreateSubnetGroup(name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
+	CreateSubnetGroupFull(name, description, vpcID string, subnetIDs []string) (*CacheSubnetGroup, error)
 	DeleteSubnetGroup(name string) error
 	DescribeSubnetGroups(name, marker string, maxRecords int) (page.Page[CacheSubnetGroup], error)
 	ModifySubnetGroup(name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
@@ -265,6 +277,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
+	CopySnapshotFull(sourceSnapshotName, targetSnapshotName, kmsKeyID string) (*CacheSnapshot, error)
 	DescribeEvents(
 		sourceIdentifier, sourceType, marker string,
 		startTime, endTime time.Time,
@@ -297,6 +310,7 @@ type StorageBackend interface {
 	ModifyUser(userID, accessString string, noPasswordRequired bool) (*User, error)
 	// UserGroup operations
 	CreateUserGroup(groupID, description, engine string, userIDs []string) (*UserGroup, error)
+	CreateUserGroupValidated(groupID, description, engine string, userIDs []string) (*UserGroup, error)
 	DeleteUserGroup(groupID string) (*UserGroup, error)
 	DescribeUserGroups(groupID, marker string, maxRecords int) (page.Page[UserGroup], error)
 	ModifyUserGroup(groupID string, userIDsToAdd, userIDsToRemove []string) (*UserGroup, error)
@@ -337,6 +351,8 @@ type StorageBackend interface {
 	) (page.Page[ServerlessCacheSnapshot], error)
 	ExportServerlessCacheSnapshot(snapshotName, s3BucketName string) (*ServerlessCacheSnapshot, error)
 	ModifyServerlessCache(name, description string) (*ServerlessCache, error)
+	CreateServerlessCacheFull(opts ServerlessCreateOpts) (*ServerlessCache, error)
+	ModifyServerlessCacheFull(name string, opts ServerlessModifyOpts) (*ServerlessCache, error)
 	// Migration operations
 	StartMigration(replicationGroupID string) (*ReplicationGroup, error)
 	TestMigration(replicationGroupID string) (*ReplicationGroup, error)
@@ -370,6 +386,9 @@ type StorageBackend interface {
 	ModifyReplicationGroupFull(id string, opts ReplicationGroupModifyOpts) (*ReplicationGroup, error)
 	// Audit1: auto snapshot scheduling
 	TriggerAutoSnapshot(replicationGroupID string) (*CacheSnapshot, error)
+	// Batch-2: update action tracking
+	AppendUpdateActions(actions []*UpdateAction)
+	ListUpdateActionsByServiceUpdate(serviceUpdateName string) []*UpdateAction
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -407,24 +426,25 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	globalReplicationGroups   map[string]*GlobalReplicationGroup
-	users                     map[string]*User
+	serverlessCaches          map[string]*ServerlessCache
+	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
 	parameterGroups           map[string]*CacheParameterGroup
-	subnetGroups              map[string]*CacheSubnetGroup
+	globalReplicationGroups   map[string]*GlobalReplicationGroup
 	snapshots                 map[string]*CacheSnapshot
 	cacheSecurityGroups       map[string]*CacheSecurityGroup
 	cacheSecurityGroupIngress map[string][]EC2SecurityGroupMembership
 	clusters                  map[string]*Cluster
+	users                     map[string]*User
 	replicationGroups         map[string]*ReplicationGroup
-	serverlessCaches          map[string]*ServerlessCache
-	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
+	subnetGroups              map[string]*CacheSubnetGroup
 	userGroups                map[string]*UserGroup
 	reservedCacheNodes        map[string]*ReservedCacheNode
-	mu                        *lockmetrics.RWMutex
 	events                    *eventRing
+	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string
 	engineMode                string
+	updateActions             []*UpdateAction
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -447,6 +467,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		users:                     make(map[string]*User),
 		userGroups:                make(map[string]*UserGroup),
 		reservedCacheNodes:        make(map[string]*ReservedCacheNode),
+		updateActions:             nil,
 		events:                    newEventRing(maxEvents),
 		engineMode:                engineMode,
 		accountID:                 accountID,
@@ -1226,7 +1247,7 @@ func (b *InMemoryBackend) DescribeParameters(name, marker string, maxRecords int
 		out = append(out, CacheParameter{
 			Name:         k,
 			Value:        v,
-			DataType:     "string",
+			DataType:     dataTypeString,
 			IsModifiable: true,
 		})
 	}
@@ -1343,7 +1364,7 @@ func (b *InMemoryBackend) CreateSnapshot(snapshotName, clusterID, replicationGro
 		ReplicationGroupID: replicationGroupID,
 		Status:             statusAvailable,
 		ARN:                b.snapshotARN(snapshotName),
-		SnapshotSource:     "manual",
+		SnapshotSource:     snapshotSourceManual,
 		CreatedAt:          time.Now(),
 		Tags:               tags.New("elasticache.snapshot." + snapshotName + ".tags"),
 	}
@@ -1521,6 +1542,7 @@ func (b *InMemoryBackend) Reset() {
 	b.users = make(map[string]*User)
 	b.userGroups = make(map[string]*UserGroup)
 	b.reservedCacheNodes = make(map[string]*ReservedCacheNode)
+	b.updateActions = nil
 	b.events.reset()
 	b.initDefaultParameterGroups()
 }

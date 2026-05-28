@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -42,6 +43,7 @@ type ReservedCacheNode struct {
 	StartTime           time.Time `json:"startTime"`
 	ReservationID       string    `json:"reservationID,omitempty"`
 	ReservedCacheNodeID string    `json:"reservedCacheNodeID"`
+	ARN                 string    `json:"arn"`
 	CacheNodeType       string    `json:"cacheNodeType"`
 	OfferingType        string    `json:"offeringType"`
 	ProductDescription  string    `json:"productDescription"`
@@ -89,6 +91,10 @@ type UpdateAction struct {
 
 func (b *InMemoryBackend) userGroupARN(id string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "usergroup:"+id)
+}
+
+func (b *InMemoryBackend) reservedCacheNodeARN(id string) string {
+	return arn.Build("elasticache", b.region, b.accountID, "reserved-instance:"+id)
 }
 
 // reservedOneYearSeconds is the duration in seconds for a 1-year reserved cache node.
@@ -440,7 +446,7 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(id, _, _ string) (*Glob
 // IncreaseNodeGroupsInGlobalReplicationGroup increases the node group count.
 func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 	id string,
-	_ int32,
+	nodeGroupCount int32,
 ) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("IncreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
@@ -448,6 +454,10 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 	grg, ok := b.globalReplicationGroups[id]
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+
+	if nodeGroupCount > grg.NodeGroupCount {
+		grg.NodeGroupCount = nodeGroupCount
 	}
 
 	result := *grg
@@ -458,7 +468,7 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 // DecreaseNodeGroupsInGlobalReplicationGroup decreases the node group count.
 func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 	id string,
-	_ int32,
+	nodeGroupCount int32,
 ) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("DecreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
@@ -466,6 +476,10 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 	grg, ok := b.globalReplicationGroups[id]
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+
+	if nodeGroupCount > 0 && nodeGroupCount < grg.NodeGroupCount {
+		grg.NodeGroupCount = nodeGroupCount
 	}
 
 	result := *grg
@@ -610,7 +624,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 	}
 
 	if reservedCacheNodeID == "" {
-		reservedCacheNodeID = fmt.Sprintf("rcn-%s", offeringID[:8])
+		reservedCacheNodeID = fmt.Sprintf("rcn-%s-%s", offeringID[:8], randomSuffix())
 	}
 
 	if _, exists := b.reservedCacheNodes[reservedCacheNodeID]; exists {
@@ -619,6 +633,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 
 	rcn := &ReservedCacheNode{
 		ReservedCacheNodeID: reservedCacheNodeID,
+		ARN:                 b.reservedCacheNodeARN(reservedCacheNodeID),
 		CacheNodeType:       found.CacheNodeType,
 		Duration:            found.Duration,
 		FixedPrice:          found.FixedPrice,
@@ -998,39 +1013,255 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
 
 // DescribeEngineDefaultParameters returns the default parameters for a parameter group family.
 func (b *InMemoryBackend) DescribeEngineDefaultParameters(
-	_ string,
+	cacheParameterGroupFamily string,
 	marker string,
 	maxRecords int,
 ) (page.Page[CacheParameter], error) {
 	b.mu.RLock("DescribeEngineDefaultParameters")
 	defer b.mu.RUnlock()
 
-	return page.New([]CacheParameter{}, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return page.New(
+		builtinEngineDefaultParameters(cacheParameterGroupFamily),
+		marker,
+		maxRecords,
+		elasticacheDefaultMaxRecords,
+	), nil
 }
 
-// DescribeServiceUpdates returns service updates.
+// builtinEngineDefaultParameters returns well-known default parameters for a given family.
+func builtinEngineDefaultParameters(family string) []CacheParameter {
+	switch {
+	case strings.HasPrefix(family, "memcached"):
+		return builtinMemcachedDefaultParameters()
+	case strings.HasPrefix(family, "valkey"):
+		return builtinValkeyDefaultParameters()
+	default:
+		return builtinRedisDefaultParameters()
+	}
+}
+
+func builtinMemcachedDefaultParameters() []CacheParameter {
+	return []CacheParameter{
+		{
+			Name:          "max_item_size",
+			Value:         "1048576",
+			Description:   "Maximum size of a single item",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-1073741824",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "chunk_size",
+			Value:         "48",
+			Description:   "Minimum space allocated for key+value+flags",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-4096",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "max_simultaneous_connections",
+			Value:         "65000",
+			Description:   "Maximum number of simultaneous connections",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-65000",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "backlog_queue_limit",
+			Value:         "1024",
+			Description:   "TCP backlog queue limit",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-10000",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "cas_disabled",
+			Value:         "0",
+			Description:   "Disable CAS command",
+			DataType:      dataTypeInteger,
+			AllowedValues: "0,1",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "loglevel",
+			Value:         "notice",
+			Description:   "Log verbosity level",
+			DataType:      dataTypeString,
+			AllowedValues: "notice,verbose,debug,trace",
+			IsModifiable:  true,
+		},
+	}
+}
+
+func builtinValkeyDefaultParameters() []CacheParameter {
+	return []CacheParameter{
+		{
+			Name:          "maxmemory-policy",
+			Value:         "noeviction",
+			Description:   "Eviction policy when memory is full",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesEvictionPolicy,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "hz",
+			Value:         "10",
+			Description:   "Background task frequency in Hz",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-500",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "timeout",
+			Value:         "0",
+			Description:   "Client idle timeout in seconds (0=disabled)",
+			DataType:      dataTypeInteger,
+			AllowedValues: allowedValuesMaxInt32,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "tcp-keepalive",
+			Value:         "300",
+			Description:   "TCP keepalive interval in seconds",
+			DataType:      dataTypeInteger,
+			AllowedValues: allowedValuesMaxInt32,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "maxmemory-samples",
+			Value:         "5",
+			Description:   "Samples for LRU/LFU approximation",
+			DataType:      dataTypeInteger,
+			AllowedValues: "1-64",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "activerehashing",
+			Value:         "yes",
+			Description:   "Active rehashing",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesYesNo,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "lazyfree-lazy-eviction",
+			Value:         "no",
+			Description:   "Lazy free on eviction",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesYesNo,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "lazyfree-lazy-expire",
+			Value:         "no",
+			Description:   "Lazy free on expiry",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesYesNo,
+			IsModifiable:  true,
+		},
+	}
+}
+
+func builtinRedisDefaultParameters() []CacheParameter {
+	return append(builtinValkeyDefaultParameters(), builtinRedisPersistenceParameters()...)
+}
+
+func builtinRedisPersistenceParameters() []CacheParameter {
+	return []CacheParameter{
+		{
+			Name:          "appendonly",
+			Value:         "no",
+			Description:   "Enable AOF persistence",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesYesNo,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "appendfsync",
+			Value:         "everysec",
+			Description:   "AOF fsync policy",
+			DataType:      dataTypeString,
+			AllowedValues: "always,everysec,no",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "no-appendfsync-on-rewrite",
+			Value:         "no",
+			Description:   "Disable fsync during BGSAVE/BGREWRITEAOF",
+			DataType:      dataTypeString,
+			AllowedValues: allowedValuesYesNo,
+			IsModifiable:  true,
+		},
+		{
+			Name:          "auto-aof-rewrite-percentage",
+			Value:         "100",
+			Description:   "Min AOF growth percent before rewrite",
+			DataType:      dataTypeInteger,
+			AllowedValues: "0-",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "auto-aof-rewrite-min-size",
+			Value:         "67108864",
+			Description:   "Min AOF size before rewrite (bytes)",
+			DataType:      dataTypeInteger,
+			AllowedValues: "0-",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "slowlog-log-slower-than",
+			Value:         "10000",
+			Description:   "Slow log threshold in microseconds",
+			DataType:      dataTypeInteger,
+			AllowedValues: "-1-",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "slowlog-max-len",
+			Value:         "128",
+			Description:   "Maximum slow log entries",
+			DataType:      dataTypeInteger,
+			AllowedValues: "0-",
+			IsModifiable:  true,
+		},
+		{
+			Name:          "latency-monitor-threshold",
+			Value:         "0",
+			Description:   "Latency monitor threshold in milliseconds (0=disabled)",
+			DataType:      dataTypeInteger,
+			AllowedValues: "0-",
+			IsModifiable:  true,
+		},
+	}
+}
+
+// DescribeServiceUpdates returns service updates, filtered by name and status.
 func (b *InMemoryBackend) DescribeServiceUpdates(
-	_ string,
+	serviceUpdateName string,
 	marker string,
 	maxRecords int,
-	_ []string,
+	status []string,
 ) (page.Page[ServiceUpdate], error) {
-	b.mu.RLock("DescribeServiceUpdates")
-	defer b.mu.RUnlock()
+	data, next, err := b.DescribeServiceUpdatesFull(serviceUpdateName, status, marker, maxRecords)
+	if err != nil {
+		return page.Page[ServiceUpdate]{}, err
+	}
 
-	return page.New([]ServiceUpdate{}, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return page.Page[ServiceUpdate]{Data: data, Next: next}, nil
 }
 
-// DescribeUpdateActions returns update actions.
+// DescribeUpdateActions returns update actions, filtered by service update name.
 func (b *InMemoryBackend) DescribeUpdateActions(
-	_ string,
+	serviceUpdateName string,
 	marker string,
 	maxRecords int,
 ) (page.Page[UpdateAction], error) {
-	b.mu.RLock("DescribeUpdateActions")
-	defer b.mu.RUnlock()
+	data, next, err := b.DescribeUpdateActionsFull(serviceUpdateName, marker, maxRecords)
+	if err != nil {
+		return page.Page[UpdateAction]{}, err
+	}
 
-	return page.New([]UpdateAction{}, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return page.Page[UpdateAction]{Data: data, Next: next}, nil
 }
 
 // ListAllowedNodeTypeModifications returns a list of allowed node type modifications.
