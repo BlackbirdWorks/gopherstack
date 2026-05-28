@@ -337,9 +337,9 @@ func TestCoverage_BackendGetForecast_VariousBuckets(t *testing.T) {
 			)
 
 			assert.Len(t, buckets, tt.wantBuckets)
-			assert.Greater(t, totalMean, 0.0)
-			assert.LessOrEqual(t, totalLo, totalMean)
-			assert.GreaterOrEqual(t, totalHi, totalMean)
+			assert.Positive(t, totalMean)
+			assert.LessOrEqual(t, totalLo, totalMean)    //nolint:testifylint
+			assert.GreaterOrEqual(t, totalHi, totalMean) //nolint:testifylint
 		})
 	}
 }
@@ -579,7 +579,7 @@ func TestCoverage_CommitmentAnalysis_MultipleStartsListed(t *testing.T) {
 
 	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
 
-	var analysisIDs []string
+	analysisIDs := make([]string, 0, 3)
 
 	for range 3 {
 		rec := doRequest(t, h, "StartCommitmentPurchaseAnalysis", map[string]any{

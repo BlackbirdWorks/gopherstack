@@ -219,8 +219,8 @@ type MetricValue struct {
 // SavingsPlansUtilizationResult is the total savings plans utilization.
 type SavingsPlansUtilizationResult struct {
 	Utilization         SavingsPlansUtilizationAgg `json:"Utilization"`
-	Savings             SavingsPlansSavings        `json:"Savings,omitempty"`
-	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment,omitempty"`
+	Savings             SavingsPlansSavings        `json:"Savings"`
+	AmortizedCommitment SavingsPlansAmortized      `json:"AmortizedCommitment"`
 }
 
 // SavingsPlansUtilizationAgg holds SP utilization aggregates.
@@ -278,8 +278,8 @@ type ReservationCoverageByTime struct {
 // ReservationCoverageAgg holds RI coverage aggregates.
 type ReservationCoverageAgg struct {
 	CoverageHours           ReservationCoverageHours           `json:"CoverageHours"`
-	CoverageNormalizedUnits ReservationCoverageNormalizedUnits `json:"CoverageNormalizedUnits,omitempty"`
-	CoverageCost            ReservationCoverageCost            `json:"CoverageCost,omitempty"`
+	CoverageNormalizedUnits ReservationCoverageNormalizedUnits `json:"CoverageNormalizedUnits"`
+	CoverageCost            ReservationCoverageCost            `json:"CoverageCost"`
 }
 
 // ReservationCoverageHours holds hourly RI coverage data.
@@ -1222,33 +1222,37 @@ func metricUnit(metric string) string {
 	}
 }
 
-func calcMeanStddev(values []float64) (mean, stddev float64) {
+func calcMeanStddev(values []float64) (float64, float64) {
 	if len(values) == 0 {
 		return 0, 1
 	}
 
+	var avg float64
+
 	for _, v := range values {
-		mean += v
+		avg += v
 	}
 
-	mean /= float64(len(values))
+	avg /= float64(len(values))
+
+	var sd float64
 
 	for _, v := range values {
-		diff := v - mean
-		stddev += diff * diff
+		diff := v - avg
+		sd += diff * diff
 	}
 
 	if len(values) > 1 {
-		stddev = stddev / float64(len(values)-1)
+		sd = sd / float64(len(values)-1)
 	}
 
-	stddev = math.Sqrt(stddev)
+	sd = math.Sqrt(sd)
 
-	if stddev < 0.01 {
-		stddev = mean * 0.05
+	if sd < 0.01 {
+		sd = avg * 0.05
 	}
 
-	return mean, stddev
+	return avg, sd
 }
 
 // GetCostAndUsage aggregates cost ledger entries by granularity, applying optional GroupBy.
@@ -1647,9 +1651,11 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 	}
 
 	upfrontMultiplier := 1.0
-	if payment == "ALL_UPFRONT" {
+
+	switch payment {
+	case "ALL_UPFRONT":
 		upfrontMultiplier = 0.90
-	} else if payment == "PARTIAL_UPFRONT" {
+	case "PARTIAL_UPFRONT":
 		upfrontMultiplier = 0.95
 	}
 
@@ -1723,7 +1729,7 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 
 // GetRightsizingRecommendations returns synthetic rightsizing recommendations.
 func (b *InMemoryBackend) GetRightsizingRecommendations(
-	service string,
+	_ string,
 ) []RightsizingRecommendation {
 	b.mu.RLock("GetRightsizingRecommendations")
 	defer b.mu.RUnlock()
@@ -1837,6 +1843,7 @@ func (b *InMemoryBackend) UpdateCostAllocationTagsStatus(
 				Code:    "InvalidParameterException",
 				Message: fmt.Sprintf("Status must be Active or Inactive, got %q", u.Status),
 			})
+
 			continue
 		}
 
@@ -1980,8 +1987,8 @@ func (b *InMemoryBackend) GetForecastByTime(
 	histEnd := time.Now().UTC().Format("2006-01-02")
 	histStart := time.Now().UTC().AddDate(0, 0, -30).Format("2006-01-02")
 
-	var histValues []float64
 	histBuckets := buildTimeBuckets(histStart, histEnd, granularity)
+	histValues := make([]float64, 0, len(histBuckets))
 
 	for _, hb := range histBuckets {
 		var bucketTotal float64

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -913,9 +914,9 @@ func (h *Handler) handleGetCostAndUsage(
 		granularity = "DAILY"
 	}
 
-	groupBy := make([]GroupBySpec, 0, len(in.GroupBy))
-	for _, g := range in.GroupBy {
-		groupBy = append(groupBy, GroupBySpec{Type: g.Type, Key: g.Key})
+	groupBy := make([]GroupBySpec, len(in.GroupBy))
+	for i, g := range in.GroupBy {
+		groupBy[i] = GroupBySpec(g)
 	}
 
 	results := h.Backend.GetCostAndUsage(start, end, granularity, in.Metrics, groupBy)
@@ -1528,8 +1529,8 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 	return &getReservationPurchaseRecommendationOutput{
 		Recommendations: recs,
 		Metadata: map[string]string{
-			"RecommendationTotalCount": fmt.Sprintf("%d", len(recs)),
-			"CurrencyCode":             "USD",
+			"RecommendationTotalCount": strconv.Itoa(len(recs)),
+			handlerCurrencyCode: metricUnitUSD,
 		},
 	}, nil
 }
@@ -1611,10 +1612,10 @@ func (h *Handler) handleGetRightsizingRecommendation(
 	}
 
 	summary := map[string]string{
-		"TotalRecommendationCount":           fmt.Sprintf("%d", len(recs)),
-		"EstimatedTotalMonthlySavingsAmount": "0.0000",
-		"SavingsCurrencyCode":                "USD",
-		"SavingsPercentage":                  "0.0000",
+		"TotalRecommendationCount":           strconv.Itoa(len(recs)),
+		"EstimatedTotalMonthlySavingsAmount": handlerZeroAmount,
+		"SavingsCurrencyCode": metricUnitUSD,
+		"SavingsPercentage": handlerZeroAmount,
 	}
 
 	if len(recs) > 0 {
@@ -1688,14 +1689,14 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 	coverages := []savingsPlanCoverage{
 		{
 			Attributes: map[string]string{
-				"SavingsPlansType": "COMPUTE_SP",
+				"SavingsPlansType": handlerSavingsPlansType,
 				"Region":           "us-east-1",
 			},
 			Coverage: map[string]string{
 				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
 				"SpendCoveredBySavingsPlan": spUtil.Utilization.UsedCommitment,
 				"TotalCost":                 spUtil.Savings.OnDemandCostEquivalent,
-				"CoveragePercentage":        "65.0000",
+				"CoveragePercentage": handlerCoverPct,
 			},
 			TimePeriod: map[string]string{"Start": start, "End": end},
 		},
@@ -1723,12 +1724,13 @@ type savingsPlansPurchaseRecommendation struct {
 	TermInYears                               string            `json:"TermInYears"`
 	PaymentOption                             string            `json:"PaymentOption"`
 	LookbackPeriodInDays                      string            `json:"LookbackPeriodInDays"`
-	SavingsPlansPurchaseRecommendationDetails []map[string]any  `json:"SavingsPlansPurchaseRecommendationDetails"`
-	SavingsPlansPurchaseRecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"`
+	SavingsPlansPurchaseRecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
+	//nolint:lll
+	SavingsPlansPurchaseRecommendationSummary map[string]string `json:"SavingsPlansPurchaseRecommendationSummary,omitempty"` //nolint:lll
 }
 
 type getSavingsPlansPurchaseRecommendationOutput struct {
-	SavingsPlansPurchaseRecommendation *savingsPlansPurchaseRecommendation `json:"SavingsPlansPurchaseRecommendation,omitempty"`
+	SavingsPlansPurchaseRecommendation *savingsPlansPurchaseRecommendation `json:"SavingsPlansPurchaseRecommendation,omitempty"` //nolint:lll
 	Metadata                           map[string]string                   `json:"Metadata,omitempty"`
 	NextPageToken                      string                              `json:"NextPageToken,omitempty"`
 }
@@ -1743,7 +1745,7 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 	spUtil := h.Backend.GetSavingsPlansUtilization(start, end)
 	spType := in.SavingsPlansType
 	if spType == "" {
-		spType = "COMPUTE_SP"
+		spType = handlerSavingsPlansType
 	}
 
 	return &getSavingsPlansPurchaseRecommendationOutput{
@@ -1760,16 +1762,16 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 						"OfferingId":     "synthetic-sp-offer-1",
 					},
 					"AccountId":             "000000000000",
-					"UpfrontCost":           "0.0000",
-					"EstimatedROI":          "25.0000",
-					"CurrencyCode":          "USD",
+					"UpfrontCost": handlerZeroAmount,
+					"EstimatedROI": handlerROI,
+					handlerCurrencyCode: metricUnitUSD,
 					"EstimatedSPCost":       spUtil.Utilization.TotalCommitment,
 					"EstimatedOnDemandCost": spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
-					"EstimatedSavingsPercentage":                 "25.0000",
+					"EstimatedSavingsPercentage": handlerROI,
 					"HourlyCommitmentToPurchase":                 "1.0000",
-					"EstimatedAverageUtilization":                "85.0000",
+					"EstimatedAverageUtilization": handlerSPUtilPct,
 					"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
 					"CurrentMinimumHourlyOnDemandSpend":          "1.5000",
 					"CurrentMaximumHourlyOnDemandSpend":          "3.0000",
@@ -1777,15 +1779,15 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 				},
 			},
 			SavingsPlansPurchaseRecommendationSummary: map[string]string{
-				"EstimatedROI":                               "25.0000",
-				"CurrencyCode":                               "USD",
+				"EstimatedROI": handlerROI,
+				handlerCurrencyCode: metricUnitUSD,
 				"EstimatedTotalCost":                         spUtil.Utilization.TotalCommitment,
 				"CurrentOnDemandSpend":                       spUtil.Savings.OnDemandCostEquivalent,
 				"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
 				"TotalRecommendationCount":                   "1",
 				"DailyCommitmentToPurchase":                  "24.0000",
 				"HourlyCommitmentToPurchase":                 "1.0000",
-				"EstimatedSavingsPercentage":                 "25.0000",
+				"EstimatedSavingsPercentage": handlerROI,
 				"EstimatedMonthlySavingsAmount":              spUtil.Savings.NetSavings,
 				"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 			},

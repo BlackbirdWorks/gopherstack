@@ -192,7 +192,7 @@ func TestParity_GetDimensionValues_ServiceDimension(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			assert.NotEmpty(t, out.DimensionValues)
-			assert.Greater(t, out.ReturnSize, 0)
+			assert.Positive(t, out.ReturnSize)
 			assert.Equal(t, out.ReturnSize, out.TotalSize)
 		})
 	}
@@ -211,7 +211,9 @@ func TestParity_GetDimensionValues_SearchStringFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, recAll.Code)
 
 	var allOut struct {
-		DimensionValues []struct{ Value string } `json:"DimensionValues"`
+		DimensionValues []struct {
+			Value string `json:"Value"`
+		} `json:"DimensionValues"`
 	}
 	require.NoError(t, json.NewDecoder(recAll.Body).Decode(&allOut))
 	totalCount := len(allOut.DimensionValues)
@@ -225,7 +227,9 @@ func TestParity_GetDimensionValues_SearchStringFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, recFiltered.Code)
 
 	var filteredOut struct {
-		DimensionValues []struct{ Value string } `json:"DimensionValues"`
+		DimensionValues []struct {
+			Value string `json:"Value"`
+		} `json:"DimensionValues"`
 	}
 	require.NoError(t, json.NewDecoder(recFiltered.Body).Decode(&filteredOut))
 	assert.Less(t, len(filteredOut.DimensionValues), totalCount)
@@ -929,8 +933,8 @@ func TestParity_GetAnomalies_ScoreAndImpactAreObjects(t *testing.T) {
 	a := out.Anomalies[0]
 	assert.Equal(t, 0.95, a.AnomalyScore.MaxScore)
 	assert.Equal(t, 0.87, a.AnomalyScore.CurrentScore)
-	assert.Greater(t, a.Impact.MaxImpact, 0.0)
-	assert.Greater(t, a.Impact.TotalActualSpend, 0.0)
+	assert.Positive(t, a.Impact.MaxImpact)
+	assert.Positive(t, a.Impact.TotalActualSpend)
 }
 
 // --- GetSavingsPlansPurchaseRecommendation parity ---
