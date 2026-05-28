@@ -82,23 +82,42 @@ type fuotaTaskRecord struct {
 	Region    string     `json:"region"`
 }
 
+// multicastGroupRecord serialises a MulticastGroup together with its resource key.
+type multicastGroupRecord struct {
+	MulticastGroup *MulticastGroup `json:"multicastGroup"`
+	AccountID      string          `json:"accountID"`
+	Region         string          `json:"region"`
+}
+
+// networkAnalyzerConfigRecord serialises a NetworkAnalyzerConfig together with its resource key.
+type networkAnalyzerConfigRecord struct {
+	Config    *NetworkAnalyzerConfig `json:"config"`
+	AccountID string                 `json:"accountID"`
+	Region    string                 `json:"region"`
+}
+
 // backendSnapshot is the serialisable form of InMemoryBackend state.
 type backendSnapshot struct {
-	ResourceTags           map[string]map[string]string `json:"resourceTags,omitempty"`
-	PartnerAccounts        map[string]string            `json:"partnerAccounts,omitempty"`
-	FuotaTaskMulticast     map[string]string            `json:"fuotaTaskMulticast,omitempty"`
-	FuotaTaskDevices       map[string]string            `json:"fuotaTaskDevices,omitempty"`
-	MulticastGroupDevices  map[string]string            `json:"multicastGroupDevices,omitempty"`
-	MulticastGroupSessions map[string]bool              `json:"multicastGroupSessions,omitempty"`
-	WirelessDeviceThings   map[string]string            `json:"wirelessDeviceThings,omitempty"`
-	WirelessGatewayCerts   map[string]string            `json:"wirelessGatewayCerts,omitempty"`
-	WirelessGatewayThings  map[string]string            `json:"wirelessGatewayThings,omitempty"`
-	Devices                []deviceRecord               `json:"devices,omitempty"`
-	Gateways               []gatewayRecord              `json:"gateways,omitempty"`
-	ServiceProfiles        []serviceProfileRecord       `json:"serviceProfiles,omitempty"`
-	Destinations           []destinationRecord          `json:"destinations,omitempty"`
-	DeviceProfiles         []deviceProfileRecord        `json:"deviceProfiles,omitempty"`
-	FuotaTasks             []fuotaTaskRecord            `json:"fuotaTasks,omitempty"`
+	ResourceTags               map[string]map[string]string `json:"resourceTags,omitempty"`
+	PartnerAccounts            map[string]string            `json:"partnerAccounts,omitempty"`
+	FuotaTaskMulticast         map[string]string            `json:"fuotaTaskMulticast,omitempty"`
+	FuotaTaskDevices           map[string]string            `json:"fuotaTaskDevices,omitempty"`
+	MulticastGroupDevices      map[string]string            `json:"multicastGroupDevices,omitempty"`
+	MulticastGroupSessions     map[string]bool              `json:"multicastGroupSessions,omitempty"`
+	WirelessDeviceThings       map[string]string            `json:"wirelessDeviceThings,omitempty"`
+	WirelessGatewayCerts       map[string]string            `json:"wirelessGatewayCerts,omitempty"`
+	WirelessGatewayThings      map[string]string            `json:"wirelessGatewayThings,omitempty"`
+	LogLevels                  map[string]string            `json:"logLevels,omitempty"`
+	ResourceLogLevels          map[string]string            `json:"resourceLogLevels,omitempty"`
+	ImportTasks                map[string]*WirelessDeviceImportTask `json:"importTasks,omitempty"`
+	Devices                    []deviceRecord               `json:"devices,omitempty"`
+	Gateways                   []gatewayRecord              `json:"gateways,omitempty"`
+	ServiceProfiles            []serviceProfileRecord       `json:"serviceProfiles,omitempty"`
+	Destinations               []destinationRecord          `json:"destinations,omitempty"`
+	DeviceProfiles             []deviceProfileRecord        `json:"deviceProfiles,omitempty"`
+	FuotaTasks                 []fuotaTaskRecord            `json:"fuotaTasks,omitempty"`
+	MulticastGroups            []multicastGroupRecord       `json:"multicastGroups,omitempty"`
+	NetworkAnalyzerConfigs     []networkAnalyzerConfigRecord `json:"networkAnalyzerConfigs,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -117,6 +136,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		WirelessDeviceThings:   make(map[string]string, len(b.wirelessDeviceThings)),
 		WirelessGatewayCerts:   make(map[string]string, len(b.wirelessGatewayCerts)),
 		WirelessGatewayThings:  make(map[string]string, len(b.wirelessGatewayThings)),
+		LogLevels:              make(map[string]string, len(b.logLevels)),
+		ResourceLogLevels:      make(map[string]string, len(b.resourceLogLevels)),
+		ImportTasks:            make(map[string]*WirelessDeviceImportTask, len(b.importTasks)),
 	}
 
 	for k, d := range b.devices {
@@ -167,6 +189,22 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		})
 	}
 
+	for k, mg := range b.multicastGroups {
+		snap.MulticastGroups = append(snap.MulticastGroups, multicastGroupRecord{
+			AccountID:      k.AccountID,
+			Region:         k.Region,
+			MulticastGroup: mg,
+		})
+	}
+
+	for k, nc := range b.networkAnalyzerConfigs {
+		snap.NetworkAnalyzerConfigs = append(snap.NetworkAnalyzerConfigs, networkAnalyzerConfigRecord{
+			AccountID: k.AccountID,
+			Region:    k.Region,
+			Config:    nc,
+		})
+	}
+
 	for arn, tags := range b.resourceTags {
 		tagsCopy := make(map[string]string, len(tags))
 		maps.Copy(tagsCopy, tags)
@@ -182,6 +220,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	maps.Copy(snap.WirelessDeviceThings, b.wirelessDeviceThings)
 	maps.Copy(snap.WirelessGatewayCerts, b.wirelessGatewayCerts)
 	maps.Copy(snap.WirelessGatewayThings, b.wirelessGatewayThings)
+	maps.Copy(snap.LogLevels, b.logLevels)
+	maps.Copy(snap.ResourceLogLevels, b.resourceLogLevels)
+
+	for id, task := range b.importTasks {
+		cp := *task
+		snap.ImportTasks[id] = &cp
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -221,6 +266,8 @@ func (b *InMemoryBackend) restoreMapsLocked(snap *backendSnapshot) {
 	b.destinations = make(map[resourceKey]*Destination, len(snap.Destinations))
 	b.deviceProfiles = make(map[resourceKey]*DeviceProfile, len(snap.DeviceProfiles))
 	b.fuotaTasks = make(map[resourceKey]*FuotaTask, len(snap.FuotaTasks))
+	b.multicastGroups = make(map[resourceKey]*MulticastGroup, len(snap.MulticastGroups))
+	b.networkAnalyzerConfigs = make(map[resourceKey]*NetworkAnalyzerConfig, len(snap.NetworkAnalyzerConfigs))
 	b.resourceTags = make(map[string]map[string]string, len(snap.ResourceTags))
 	b.partnerAccounts = make(map[string]string, len(snap.PartnerAccounts))
 	b.fuotaTaskMulticast = make(map[string]string, len(snap.FuotaTaskMulticast))
@@ -230,6 +277,10 @@ func (b *InMemoryBackend) restoreMapsLocked(snap *backendSnapshot) {
 	b.wirelessDeviceThings = make(map[string]string, len(snap.WirelessDeviceThings))
 	b.wirelessGatewayCerts = make(map[string]string, len(snap.WirelessGatewayCerts))
 	b.wirelessGatewayThings = make(map[string]string, len(snap.WirelessGatewayThings))
+	b.logLevels = make(map[string]string, len(snap.LogLevels))
+	b.resourceLogLevels = make(map[string]string, len(snap.ResourceLogLevels))
+	b.importTasks = make(map[string]*WirelessDeviceImportTask, len(snap.ImportTasks))
+	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask)
 }
 
 // restoreCoreResourcesLocked restores devices, gateways, service profiles, destinations, and tags.
@@ -276,7 +327,8 @@ func (b *InMemoryBackend) restoreCoreResourcesLocked(snap *backendSnapshot) {
 	}
 }
 
-// restoreNewOpsResourcesLocked restores device profiles, FUOTA tasks, and association maps.
+// restoreNewOpsResourcesLocked restores device profiles, FUOTA tasks, multicast groups,
+// network analyzer configs, import tasks, and all association maps.
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) restoreNewOpsResourcesLocked(snap *backendSnapshot) {
 	for _, rec := range snap.DeviceProfiles {
@@ -297,6 +349,33 @@ func (b *InMemoryBackend) restoreNewOpsResourcesLocked(snap *backendSnapshot) {
 		b.fuotaTasks[key] = rec.FuotaTask
 	}
 
+	for _, rec := range snap.MulticastGroups {
+		if rec.MulticastGroup == nil {
+			continue
+		}
+
+		key := resourceKey{AccountID: rec.AccountID, Region: rec.Region, ID: rec.MulticastGroup.ID}
+		b.multicastGroups[key] = rec.MulticastGroup
+	}
+
+	for _, rec := range snap.NetworkAnalyzerConfigs {
+		if rec.Config == nil {
+			continue
+		}
+
+		key := resourceKey{AccountID: rec.AccountID, Region: rec.Region, ID: rec.Config.Name}
+		b.networkAnalyzerConfigs[key] = rec.Config
+	}
+
+	for id, task := range snap.ImportTasks {
+		if task == nil {
+			continue
+		}
+
+		cp := *task
+		b.importTasks[id] = &cp
+	}
+
 	maps.Copy(b.partnerAccounts, snap.PartnerAccounts)
 	maps.Copy(b.fuotaTaskMulticast, snap.FuotaTaskMulticast)
 	maps.Copy(b.fuotaTaskDevices, snap.FuotaTaskDevices)
@@ -305,4 +384,6 @@ func (b *InMemoryBackend) restoreNewOpsResourcesLocked(snap *backendSnapshot) {
 	maps.Copy(b.wirelessDeviceThings, snap.WirelessDeviceThings)
 	maps.Copy(b.wirelessGatewayCerts, snap.WirelessGatewayCerts)
 	maps.Copy(b.wirelessGatewayThings, snap.WirelessGatewayThings)
+	maps.Copy(b.logLevels, snap.LogLevels)
+	maps.Copy(b.resourceLogLevels, snap.ResourceLogLevels)
 }

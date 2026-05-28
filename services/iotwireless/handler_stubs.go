@@ -240,8 +240,8 @@ type listEventConfigurationsResponse struct {
 }
 
 type listWirelessDeviceImportTasksResponse struct {
-	NextToken                    string     `json:"NextToken"`
-	WirelessDeviceImportTaskList []struct{} `json:"WirelessDeviceImportTaskList"`
+	NextToken                    string                             `json:"NextToken"`
+	WirelessDeviceImportTaskList []getWirelessDeviceImportTaskResponse `json:"WirelessDeviceImportTaskList"`
 }
 
 type listDevicesForWirelessDeviceImportTaskResponse struct {
@@ -277,82 +277,3 @@ type testWirelessDeviceResponse struct {
 	Result string `json:"Result"`
 }
 
-// --- Remaining stub handlers (not yet promoted to handler_ops.go) ---
-
-func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusCreated, sendDataToMulticastGroupResponse{
-		MessageID: stubMessageID,
-	})
-}
-
-func (h *Handler) startBulkAssociateWirelessDeviceWithMulticastGroup(c *echo.Context, _ string) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) startBulkDisassociateWirelessDeviceFromMulticastGroup(c *echo.Context, _ string) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) updateMetricConfiguration(c *echo.Context) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) getMetrics(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, getMetricsResponse{
-		SummaryMetricQueryResults: []struct{}{},
-	})
-}
-
-func (h *Handler) getPositionEstimate(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, getPositionEstimateResponse{})
-}
-
-func (h *Handler) getResourcePosition(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
-}
-
-func (h *Handler) updateResourcePosition(c *echo.Context, _ string) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
-	return writeJSON(c, http.StatusCreated, startWirelessDeviceImportTaskResponse{
-		Arn: stubImportTaskArn,
-		ID:  stubImportTaskID,
-	})
-}
-
-func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
-	return writeJSON(c, http.StatusCreated, startSingleWirelessDeviceImportTaskResponse{
-		Arn:              stubImportTaskArn,
-		WirelessDeviceID: stubWirelessDeviceID,
-	})
-}
-
-func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, _ string) error {
-	return writeJSON(c, http.StatusOK, getWirelessDeviceImportTaskResponse{
-		Arn:    stubImportTaskArn,
-		ID:     stubImportTaskID,
-		Status: "Initialized",
-	})
-}
-
-func (h *Handler) deleteWirelessDeviceImportTask(c *echo.Context, _ string) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) updateWirelessDeviceImportTask(c *echo.Context, _ string) error {
-	return stubNoContent(c)
-}
-
-func (h *Handler) listWirelessDeviceImportTasks(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, listWirelessDeviceImportTasksResponse{
-		WirelessDeviceImportTaskList: []struct{}{},
-	})
-}
-
-func (h *Handler) listDevicesForWirelessDeviceImportTask(c *echo.Context) error {
-	return writeJSON(c, http.StatusOK, listDevicesForWirelessDeviceImportTaskResponse{
-		ImportedWirelessDeviceList: []struct{}{},
-	})
-}

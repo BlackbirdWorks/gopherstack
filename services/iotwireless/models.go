@@ -86,3 +86,26 @@ type NetworkAnalyzerConfig struct {
 	WirelessDevices  []string          `json:"wirelessDevices,omitempty"`
 	WirelessGateways []string          `json:"wirelessGateways,omitempty"`
 }
+
+// WirelessDeviceImportTask represents an IoT Wireless device bulk-import task.
+type WirelessDeviceImportTask struct {
+	CreatedAt                      time.Time `json:"createdAt"`
+	ID                             string    `json:"id"`
+	ARN                            string    `json:"arn"`
+	DestinationName                string    `json:"destinationName"`
+	Status                         string    `json:"status"`
+	StatusReason                   string    `json:"statusReason,omitempty"`
+	InitializedImportedDeviceCount int64     `json:"initializedImportedDeviceCount"`
+	PendingImportedDeviceCount     int64     `json:"pendingImportedDeviceCount"`
+	OnboardedImportedDeviceCount   int64     `json:"onboardedImportedDeviceCount"`
+	FailedImportedDeviceCount      int64     `json:"failedImportedDeviceCount"`
+}
+
+// SingleWirelessDeviceImportTask represents an IoT Wireless single-device import task.
+type SingleWirelessDeviceImportTask struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	ARN              string    `json:"arn"`
+	WirelessDeviceID string    `json:"wirelessDeviceId"`
+	DestinationName  string    `json:"destinationName"`
+	Status           string    `json:"status"`
+}

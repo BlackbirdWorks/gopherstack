@@ -1,12 +1,12 @@
 package iotwireless
 
-// handler_ops.go — real handler implementations for 50 IoT Wireless operations.
-// Handlers here replace the stubs in handler_stubs.go.
+// handler_ops.go — real handler implementations for IoT Wireless operations.
 
 import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -414,7 +414,7 @@ func (h *Handler) disassociateWirelessDeviceFromThing(c *echo.Context, id string
 
 func (h *Handler) sendDataToWirelessDevice(c *echo.Context, _ string) error {
 	return writeJSON(c, http.StatusCreated, sendDataToWirelessDeviceResponse{
-		MessageID: stubMessageID,
+		MessageID: uuid.NewString(),
 	})
 }
 
@@ -685,11 +685,27 @@ func (h *Handler) getWirelessGatewayTaskDefinition(c *echo.Context, id string) e
 func (h *Handler) listWirelessGatewayTaskDefinitions(c *echo.Context) error {
 	defs := h.Backend.ListWirelessGatewayTaskDefinitions()
 
-	entries := make([]struct{}, 0) // AWS SDK only checks for non-nil list
-	_ = defs
+	type taskDefEntry struct {
+		ID              string `json:"Id"`
+		Arn             string `json:"Arn"`
+		Name            string `json:"Name"`
+		AutoCreateTasks bool   `json:"AutoCreateTasks"`
+	}
 
-	return writeJSON(c, http.StatusOK, listWirelessGatewayTaskDefinitionsResponse{
-		TaskDefinitions: entries,
+	entries := make([]taskDefEntry, 0, len(defs))
+
+	for _, def := range defs {
+		entries = append(entries, taskDefEntry{
+			ID:              def.ID,
+			Arn:             def.ARN,
+			Name:            def.Name,
+			AutoCreateTasks: def.AutoCreateTasks,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"TaskDefinitions": entries,
+		"NextToken":       "",
 	})
 }
 
@@ -772,4 +788,182 @@ func (h *Handler) getServiceEndpoint(c *echo.Context) error {
 		ServiceEndpoint: stubServiceEndpoint,
 		ServerTrust:     "",
 	})
+}
+
+// ============================================================
+// Group 15 — Wireless Device Import Task operations
+// ============================================================
+
+func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
+	var req struct {
+		DestinationName string `json:"DestinationName"`
+	}
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	task, err := h.Backend.StartWirelessDeviceImportTask(h.AccountID, h.DefaultRegion, req.DestinationName)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return writeJSON(c, http.StatusCreated, startWirelessDeviceImportTaskResponse{
+		Arn: task.ARN,
+		ID:  task.ID,
+	})
+}
+
+func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
+	var req struct {
+		DestinationName string `json:"DestinationName"`
+	}
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	task, err := h.Backend.StartSingleWirelessDeviceImportTask(h.AccountID, h.DefaultRegion, req.DestinationName)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return writeJSON(c, http.StatusCreated, startSingleWirelessDeviceImportTaskResponse{
+		Arn:              task.ARN,
+		WirelessDeviceID: task.WirelessDeviceID,
+	})
+}
+
+func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, id string) error {
+	task, err := h.Backend.GetWirelessDeviceImportTask(id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, getWirelessDeviceImportTaskResponse{
+		Arn:             task.ARN,
+		ID:              task.ID,
+		DestinationName: task.DestinationName,
+		Status:          task.Status,
+		StatusReason:    task.StatusReason,
+		InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
+		PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
+		OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
+		FailedImportedDeviceCount:      task.FailedImportedDeviceCount,
+	})
+}
+
+func (h *Handler) deleteWirelessDeviceImportTask(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteWirelessDeviceImportTask(id); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) updateWirelessDeviceImportTask(c *echo.Context, id string) error {
+	var req struct {
+		DestinationName string `json:"DestinationName"`
+	}
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateWirelessDeviceImportTask(id, req.DestinationName); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) listWirelessDeviceImportTasks(c *echo.Context) error {
+	tasks := h.Backend.ListWirelessDeviceImportTasks()
+
+	entries := make([]getWirelessDeviceImportTaskResponse, 0, len(tasks))
+
+	for _, task := range tasks {
+		entries = append(entries, getWirelessDeviceImportTaskResponse{
+			Arn:             task.ARN,
+			ID:              task.ID,
+			DestinationName: task.DestinationName,
+			Status:          task.Status,
+			StatusReason:    task.StatusReason,
+			InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
+			PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
+			OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
+			FailedImportedDeviceCount:      task.FailedImportedDeviceCount,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, listWirelessDeviceImportTasksResponse{
+		WirelessDeviceImportTaskList: entries,
+	})
+}
+
+func (h *Handler) listDevicesForWirelessDeviceImportTask(c *echo.Context) error {
+	return writeJSON(c, http.StatusOK, listDevicesForWirelessDeviceImportTaskResponse{
+		ImportedWirelessDeviceList: []struct{}{},
+	})
+}
+
+// ============================================================
+// Group 16 — Multicast send, bulk operations
+// ============================================================
+
+func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
+	return writeJSON(c, http.StatusCreated, sendDataToMulticastGroupResponse{
+		MessageID: uuid.NewString(),
+	})
+}
+
+func (h *Handler) startBulkAssociateWirelessDeviceWithMulticastGroup(c *echo.Context, _ string) error {
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) startBulkDisassociateWirelessDeviceFromMulticastGroup(c *echo.Context, _ string) error {
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+// ============================================================
+// Group 17 — Metric, position, misc stateless operations
+// ============================================================
+
+func (h *Handler) updateMetricConfiguration(c *echo.Context) error {
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+func (h *Handler) getMetrics(c *echo.Context) error {
+	return writeJSON(c, http.StatusOK, getMetricsResponse{
+		SummaryMetricQueryResults: []struct{}{},
+	})
+}
+
+func (h *Handler) getPositionEstimate(c *echo.Context) error {
+	return writeJSON(c, http.StatusOK, getPositionEstimateResponse{})
+}
+
+func (h *Handler) getResourcePosition(c *echo.Context, id string) error {
+	_ = h.Backend.GetPosition(id)
+
+	return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+}
+
+func (h *Handler) updateResourcePosition(c *echo.Context, id string) error {
+	var req map[string]any
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+	_ = h.Backend.UpdatePosition(id, req)
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
