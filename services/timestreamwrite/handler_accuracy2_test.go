@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -153,12 +154,12 @@ func TestAccuracy2_TableNameFormatValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "name exactly at max length (256 chars)",
+			name:       "name exactly at max length (256 chars)",
 			tableName:  strings.Repeat("x", 256),
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "name exceeds max length (257 chars)",
+			name:       "name exceeds max length (257 chars)",
 			tableName:  strings.Repeat("x", 257),
 			wantStatus: http.StatusBadRequest,
 		},
@@ -218,10 +219,10 @@ func TestAccuracy2_RetentionPropertiesRangeValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		memoryHours   int64
-		magneticDays  int64
-		wantStatus    int
+		name         string
+		memoryHours  int64
+		magneticDays int64
+		wantStatus   int
 	}{
 		{
 			name:         "valid min values",
@@ -371,10 +372,11 @@ func TestAccuracy2_WriteRecordsMaxRecordsLimit(t *testing.T) {
 				"MeasureName":      fmt.Sprintf("metric-%d", i),
 				"MeasureValue":     "1.0",
 				"MeasureValueType": "DOUBLE",
-				"Time":             fmt.Sprintf("%d", 1609459200000+int64(i)*1000),
+				"Time":             strconv.FormatInt(1609459200000+int64(i)*1000, 10),
 				"TimeUnit":         "MILLISECONDS",
 			}
 		}
+
 		return records
 	}
 
@@ -464,8 +466,8 @@ func TestAccuracy2_PartitionKeyTypeValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		key        map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -922,7 +924,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreRouting(t *testing.T) {
 
 	// A timestamp from 2 hours ago, well outside the 1-hour retention window.
 	twoHoursAgo := time.Now().UTC().Add(-2 * time.Hour)
-	oldTS := fmt.Sprintf("%d", twoHoursAgo.UnixMilli())
+	oldTS := strconv.FormatInt(twoHoursAgo.UnixMilli(), 10)
 
 	out, err := b.WriteRecords("mag-route-db", "mag-route-tbl", []timestreamwrite.Record{
 		{
@@ -961,7 +963,7 @@ func TestAccuracy2_WriteRecordsMemoryStoreCountWhenMagneticDisabled(t *testing.T
 	require.NoError(t, err)
 
 	// Even a very old timestamp should go to memory store because magnetic writes are off.
-	veryOldTS := fmt.Sprintf("%d", time.Now().UTC().Add(-72*time.Hour).UnixMilli())
+	veryOldTS := strconv.FormatInt(time.Now().UTC().Add(-72*time.Hour).UnixMilli(), 10)
 
 	out, err := b.WriteRecords("mag-off-db", "mag-off-tbl", []timestreamwrite.Record{
 		{
@@ -998,8 +1000,8 @@ func TestAccuracy2_WriteRecordsMixedStoreRouting(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recentTS := fmt.Sprintf("%d", time.Now().UTC().UnixMilli())
-	oldTS := fmt.Sprintf("%d", time.Now().UTC().Add(-3*time.Hour).UnixMilli())
+	recentTS := strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)
+	oldTS := strconv.FormatInt(time.Now().UTC().Add(-3*time.Hour).UnixMilli(), 10)
 
 	out, err := b.WriteRecords("mixed-store-db", "mixed-store-tbl", []timestreamwrite.Record{
 		{
@@ -1043,7 +1045,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreInHTTPResponse(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	oldTS := fmt.Sprintf("%d", time.Now().UTC().Add(-5*time.Hour).UnixMilli())
+	oldTS := strconv.FormatInt(time.Now().UTC().Add(-5*time.Hour).UnixMilli(), 10)
 
 	rec := doRequest(t, h, "WriteRecords", map[string]any{
 		"DatabaseName": "mag-http-db",
@@ -1088,7 +1090,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreNoRetentionAllGoToMemory(t *testing.
 	})
 	require.NoError(t, err)
 
-	veryOldTS := fmt.Sprintf("%d", time.Now().UTC().Add(-1000*24*time.Hour).UnixMilli())
+	veryOldTS := strconv.FormatInt(time.Now().UTC().Add(-1000*24*time.Hour).UnixMilli(), 10)
 
 	out, err := b.WriteRecords("no-ret-mag-db", "no-ret-mag-tbl", []timestreamwrite.Record{
 		{
@@ -1423,7 +1425,7 @@ func TestAccuracy2_ConcurrentWriteRecordsToSameTable(t *testing.T) {
 					MeasureName:      fmt.Sprintf("metric-%d", idx),
 					MeasureValue:     fmt.Sprintf("%d.0", idx),
 					MeasureValueType: "DOUBLE",
-					Time:             fmt.Sprintf("%d", 1609459200000+int64(idx)*1000),
+					Time:             strconv.FormatInt(1609459200000+int64(idx)*1000, 10),
 					TimeUnit:         "MILLISECONDS",
 				},
 			})
@@ -1433,7 +1435,7 @@ func TestAccuracy2_ConcurrentWriteRecordsToSameTable(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errors {
-		assert.NoError(t, err, "goroutine %d should not error", i)
+		require.NoError(t, err, "goroutine %d should not error", i)
 	}
 
 	// All goroutines wrote distinct records (different measure names and times).
@@ -1471,7 +1473,7 @@ func TestAccuracy2_ConcurrentWriteRecordsToDifferentTables(t *testing.T) {
 						MeasureName:      fmt.Sprintf("m-%d", idx),
 						MeasureValue:     "1",
 						MeasureValueType: "BIGINT",
-						Time:             fmt.Sprintf("%d", 1609459200000+int64(idx)*1000),
+						Time:             strconv.FormatInt(1609459200000+int64(idx)*1000, 10),
 						TimeUnit:         "MILLISECONDS",
 					},
 				})
@@ -1576,8 +1578,8 @@ func TestAccuracy2_WriteRecordsTotalEqualsMemoryPlusMagnetic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recentTS := fmt.Sprintf("%d", time.Now().UTC().UnixMilli())
-	oldTS := fmt.Sprintf("%d", time.Now().UTC().Add(-10*time.Hour).UnixMilli())
+	recentTS := strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)
+	oldTS := strconv.FormatInt(time.Now().UTC().Add(-10*time.Hour).UnixMilli(), 10)
 
 	records := []timestreamwrite.Record{
 		{MeasureName: "m1", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: recentTS, TimeUnit: "MILLISECONDS"},
@@ -1676,7 +1678,7 @@ func TestAccuracy2_BatchLoadTaskRecordVersionInDescribe(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
-	assert.Equal(t, float64(42), desc["RecordVersion"],
+	assert.InDelta(t, float64(42), desc["RecordVersion"], 0,
 		"RecordVersion should be returned in DescribeBatchLoadTask response")
 }
 

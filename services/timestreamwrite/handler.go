@@ -822,7 +822,8 @@ func (h *Handler) handleDeleteDatabase(
 		)
 	}
 
-	if err := h.Backend.DeleteDatabase(in.DatabaseName); err != nil {
+	err = h.Backend.DeleteDatabase(in.DatabaseName)
+	if err != nil {
 		return nil, err
 	}
 
