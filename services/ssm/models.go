@@ -108,9 +108,10 @@ type ParameterHistory struct {
 
 // GetParameterHistoryInput represents the request payload for GetParameterHistory.
 type GetParameterHistoryInput struct {
-	Name       string `json:"Name"`
-	MaxResults *int64 `json:"MaxResults,omitempty"` // 0 to 50, defaults to 50
-	NextToken  string `json:"NextToken,omitempty"`
+	Name           string `json:"Name"`
+	MaxResults     *int64 `json:"MaxResults,omitempty"` // 0 to 50, defaults to 50
+	NextToken      string `json:"NextToken,omitempty"`
+	WithDecryption bool   `json:"WithDecryption,omitempty"`
 }
 
 // GetParameterHistoryOutput represents the response payload for GetParameterHistory.
@@ -783,13 +784,16 @@ type MaintenanceWindowTarget struct {
 
 // MaintenanceWindowTask represents a registered task for a maintenance window.
 type MaintenanceWindowTask struct {
-	WindowID     string `json:"WindowId"`
-	WindowTaskID string `json:"WindowTaskId"`
-	TaskArn      string `json:"TaskArn"`
-	TaskType     string `json:"TaskType"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
-	Priority     int32  `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId"`
+	WindowTaskID   string `json:"WindowTaskId"`
+	TaskArn        string `json:"TaskArn"`
+	TaskType       string `json:"TaskType"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       int32  `json:"Priority,omitempty"`
 }
 
 // SessionOutputS3 holds S3 output configuration for a session.
@@ -800,17 +804,18 @@ type SessionOutputS3 struct {
 
 // Session represents an SSM Session Manager session.
 type Session struct {
-	OutputURL               *SessionOutputS3 `json:"OutputUrl,omitempty"`
-	SessionID               string           `json:"SessionId"`
-	Target                  string           `json:"Target"`
-	Status                  string           `json:"Status"`
-	StreamURL               string           `json:"StreamUrl"`
-	TokenValue              string           `json:"TokenValue"`
-	Owner                   string           `json:"Owner,omitempty"`
-	Reason                  string           `json:"Reason,omitempty"`
-	DocumentName            string           `json:"DocumentName,omitempty"`
-	CloudWatchLogGroupName  string           `json:"CloudWatchLogGroupName,omitempty"`
-	StartDate               float64          `json:"StartDate"`
-	EndDate                 float64          `json:"EndDate,omitempty"`
-	CloudWatchOutputEnabled bool             `json:"CloudWatchOutputEnabled,omitempty"`
+	OutputURL               *SessionOutputS3    `json:"OutputUrl,omitempty"`
+	Parameters              map[string][]string `json:"Parameters,omitempty"`
+	SessionID               string              `json:"SessionId"`
+	Target                  string              `json:"Target"`
+	Status                  string              `json:"Status"`
+	StreamURL               string              `json:"StreamUrl"`
+	TokenValue              string              `json:"TokenValue"`
+	Owner                   string              `json:"Owner,omitempty"`
+	Reason                  string              `json:"Reason,omitempty"`
+	DocumentName            string              `json:"DocumentName,omitempty"`
+	CloudWatchLogGroupName  string              `json:"CloudWatchLogGroupName,omitempty"`
+	StartDate               float64             `json:"StartDate"`
+	EndDate                 float64             `json:"EndDate,omitempty"`
+	CloudWatchOutputEnabled bool                `json:"CloudWatchOutputEnabled,omitempty"`
 }

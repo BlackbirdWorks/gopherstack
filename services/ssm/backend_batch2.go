@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -321,16 +322,35 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 
 // --- Parameter Labels ---
 
-// LabelParameterVersion adds labels to a parameter version.
+// LabelParameterVersion adds labels to a specific parameter version.
+// When ParameterVersion is 0, labels are applied to the latest version.
 func (b *InMemoryBackend) LabelParameterVersion(
 	input *LabelParameterVersionInput,
 ) (*LabelParameterVersionOutputFull, error) {
 	b.mu.Lock("LabelParameterVersion")
 	defer b.mu.Unlock()
 
-	if input.Name != "" {
-		b.parameterLabels[input.Name] = appendUniqueLabels(b.parameterLabels[input.Name], input.Labels)
+	if input.Name == "" {
+		return &LabelParameterVersionOutputFull{
+			InvalidLabels: []string{},
+			AddedLabels:   input.Labels,
+		}, nil
 	}
+
+	version := input.ParameterVersion
+	if version == 0 {
+		if param, exists := b.parameters[input.Name]; exists {
+			version = param.Version
+		}
+	}
+
+	if b.parameterLabels[input.Name] == nil {
+		b.parameterLabels[input.Name] = make(map[int64][]string)
+	}
+
+	b.parameterLabels[input.Name][version] = appendUniqueLabels(
+		b.parameterLabels[input.Name][version], input.Labels,
+	)
 
 	return &LabelParameterVersionOutputFull{
 		InvalidLabels: []string{},
@@ -338,7 +358,8 @@ func (b *InMemoryBackend) LabelParameterVersion(
 	}, nil
 }
 
-// UnlabelParameterVersion removes labels from a parameter version.
+// UnlabelParameterVersion removes labels from a specific parameter version.
+// When ParameterVersion is 0, labels are removed from the latest version.
 func (b *InMemoryBackend) UnlabelParameterVersion(
 	input *UnlabelParameterVersionInput,
 ) (*UnlabelParameterVersionOutputFull, error) {
@@ -349,13 +370,20 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 		return &UnlabelParameterVersionOutputFull{InvalidLabels: []string{}, RemovedLabels: input.Labels}, nil
 	}
 
+	version := input.ParameterVersion
+	if version == 0 {
+		if param, exists := b.parameters[input.Name]; exists {
+			version = param.Version
+		}
+	}
+
 	removedSet := make(map[string]bool, len(input.Labels))
 	for _, l := range input.Labels {
 		removedSet[l] = true
 	}
 
-	existing := b.parameterLabels[input.Name]
-	kept := existing[:0]
+	existing := b.parameterLabels[input.Name][version]
+	kept := make([]string, 0, len(existing))
 
 	for _, l := range existing {
 		if !removedSet[l] {
@@ -363,7 +391,9 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 		}
 	}
 
-	b.parameterLabels[input.Name] = kept
+	if b.parameterLabels[input.Name] != nil {
+		b.parameterLabels[input.Name][version] = kept
+	}
 
 	return &UnlabelParameterVersionOutputFull{
 		InvalidLabels: []string{},
@@ -398,13 +428,21 @@ func (b *InMemoryBackend) StartAutomationExecution(
 	defer b.mu.Unlock()
 
 	execID := "auto-" + uuid.NewString()
+
+	mode := input.Mode
+	if mode == "" {
+		mode = "Auto"
+	}
+
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		DocumentVersion:       input.DocumentVersion,
+		Parameters:            input.Parameters,
 		Status:                automationStatusInProgress,
 		StartTime:             time.Now().UTC(),
 		ExecutionType:         "Standard",
+		Mode:                  mode,
 	}
 	b.automationExecutions[execID] = exec
 
@@ -462,11 +500,24 @@ func (b *InMemoryBackend) StopAutomationExecution(input *StopAutomationExecution
 }
 
 // SendAutomationSignal sends a signal to an automation execution.
+// Approve/Reject signals update the execution status accordingly.
 func (b *InMemoryBackend) SendAutomationSignal(input *SendAutomationSignalInput) (*StubOutput, error) {
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
-	_ = input
+	exec, exists := b.automationExecutions[input.AutomationExecutionID]
+	if !exists {
+		return &StubOutput{}, nil
+	}
+
+	switch input.SignalType {
+	case "Approve":
+		exec.Status = "Approved"
+	case "Reject":
+		exec.Status = "Rejected"
+	case "StopStep":
+		exec.Status = automationStatusStopped
+	}
 
 	return &StubOutput{}, nil
 }
@@ -546,8 +597,29 @@ func (b *InMemoryBackend) GetExecutionPreview(input *GetExecutionPreviewInput) (
 
 // --- Calendar State ---
 
-// GetCalendarState returns the current state of an SSM Change Calendar (always OPEN).
-func (b *InMemoryBackend) GetCalendarState(_ *GetCalendarStateInput) (*GetCalendarStateOutputFull, error) {
+// GetCalendarState returns the current state of an SSM Change Calendar.
+// When CalendarNames is provided, each name is looked up as a ChangeCalendar document.
+// Non-existent names result in an error. The returned state is OPEN unless a
+// ChangeCalendar document explicitly has a Closed state in its content.
+func (b *InMemoryBackend) GetCalendarState(input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error) {
+	if len(input.CalendarNames) == 0 {
+		return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
+	}
+
+	b.mu.RLock("GetCalendarState")
+	defer b.mu.RUnlock()
+
+	for _, name := range input.CalendarNames {
+		doc, exists := b.documents[name]
+		if !exists {
+			return nil, fmt.Errorf("%w: calendar document %q not found", ErrDocumentNotFound, name)
+		}
+
+		if doc.DocumentType != "ChangeCalendar" {
+			return nil, fmt.Errorf("%w: document %q is not a ChangeCalendar document", ErrValidationException, name)
+		}
+	}
+
 	return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
 }
 

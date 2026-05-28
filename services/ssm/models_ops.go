@@ -84,6 +84,12 @@ type GetInventorySchemaOutput struct {
 	Schemas   []any  `json:"Schemas"`
 }
 
+// InventorySchemaItem represents a single inventory schema type entry.
+type InventorySchemaItem struct {
+	TypeName string `json:"TypeName"`
+	Version  string `json:"Version"`
+}
+
 // ListInventoryEntriesInput is the request payload for ListInventoryEntries.
 type ListInventoryEntriesInput struct {
 	MaxResults *int64 `json:"MaxResults,omitempty"`
@@ -385,22 +391,28 @@ type UpdateMaintenanceWindowTargetOutput struct {
 // UpdateMaintenanceWindowTaskInput is the request payload for UpdateMaintenanceWindowTask.
 // Fields ordered for alignment.
 type UpdateMaintenanceWindowTaskInput struct {
-	Priority     *int32 `json:"Priority,omitempty"`
-	WindowID     string `json:"WindowId"`
-	WindowTaskID string `json:"WindowTaskId"`
-	TaskArn      string `json:"TaskArn,omitempty"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
+	Priority       *int32 `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId"`
+	WindowTaskID   string `json:"WindowTaskId"`
+	TaskArn        string `json:"TaskArn,omitempty"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
 }
 
 // UpdateMaintenanceWindowTaskOutput is the response payload for UpdateMaintenanceWindowTask.
 type UpdateMaintenanceWindowTaskOutput struct {
-	WindowID     string `json:"WindowId,omitempty"`
-	WindowTaskID string `json:"WindowTaskId,omitempty"`
-	TaskArn      string `json:"TaskArn,omitempty"`
-	Name         string `json:"Name,omitempty"`
-	Description  string `json:"Description,omitempty"`
-	Priority     int32  `json:"Priority,omitempty"`
+	WindowID       string `json:"WindowId,omitempty"`
+	WindowTaskID   string `json:"WindowTaskId,omitempty"`
+	TaskArn        string `json:"TaskArn,omitempty"`
+	Name           string `json:"Name,omitempty"`
+	Description    string `json:"Description,omitempty"`
+	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       int32  `json:"Priority,omitempty"`
 }
 
 // DescribeMaintenanceWindowsForTargetInput is the request payload.
@@ -477,6 +489,30 @@ type ListComplianceSummariesInput struct {
 type ListComplianceSummariesOutput struct {
 	NextToken              string `json:"NextToken,omitempty"`
 	ComplianceSummaryItems []any  `json:"ComplianceSummaryItems"`
+}
+
+// ComplianceCountSummary holds compliant or non-compliant item counts.
+type ComplianceCountSummary struct {
+	CompliantCount    int `json:"CompliantCount,omitempty"`
+	NonCompliantCount int `json:"NonCompliantCount,omitempty"`
+}
+
+// ComplianceSummaryItem represents a rolled-up compliance summary by type.
+type ComplianceSummaryItem struct {
+	ComplianceType      string                 `json:"ComplianceType"`
+	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
+	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
+}
+
+// ResourceComplianceSummaryItem represents per-resource compliance status.
+type ResourceComplianceSummaryItem struct {
+	ResourceID          string                 `json:"ResourceId"`
+	ResourceType        string                 `json:"ResourceType"`
+	ComplianceType      string                 `json:"ComplianceType"`
+	OverallSeverity     string                 `json:"OverallSeverity"`
+	Status              string                 `json:"Status"`
+	NonCompliantSummary ComplianceCountSummary `json:"NonCompliantSummary"`
+	CompliantSummary    ComplianceCountSummary `json:"CompliantSummary"`
 }
 
 // ListResourceComplianceSummariesInput is the request payload.
