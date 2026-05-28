@@ -2,131 +2,66 @@ package ec2
 
 import (
 	"encoding/xml"
+	"maps"
 	"net/url"
 )
 
 // ---- Registration ----
 
 func registerBatch5Ops(h *Handler, ops map[string]ec2ActionFn) {
-	// Traffic Mirror Filter
-	ops["CreateTrafficMirrorFilter"] = h.handleCreateTrafficMirrorFilter
-	ops["DeleteTrafficMirrorFilter"] = h.handleDeleteTrafficMirrorFilter
-	ops["DescribeTrafficMirrorFilters"] = h.handleDescribeTrafficMirrorFilters
-	ops["ModifyTrafficMirrorFilterNetworkServices"] = h.handleModifyTrafficMirrorFilterNetworkServices
-	// Traffic Mirror Filter Rule
-	ops["CreateTrafficMirrorFilterRule"] = h.handleCreateTrafficMirrorFilterRule
-	ops["DeleteTrafficMirrorFilterRule"] = h.handleDeleteTrafficMirrorFilterRule
-	ops["DescribeTrafficMirrorFilterRules"] = h.handleDescribeTrafficMirrorFilterRules
-	ops["ModifyTrafficMirrorFilterRule"] = h.handleModifyTrafficMirrorFilterRule
-	// Traffic Mirror Session
-	ops["CreateTrafficMirrorSession"] = h.handleCreateTrafficMirrorSession
-	ops["DeleteTrafficMirrorSession"] = h.handleDeleteTrafficMirrorSession
-	ops["DescribeTrafficMirrorSessions"] = h.handleDescribeTrafficMirrorSessions
-	ops["ModifyTrafficMirrorSession"] = h.handleModifyTrafficMirrorSession
-	// Traffic Mirror Target
-	ops["CreateTrafficMirrorTarget"] = h.handleCreateTrafficMirrorTarget
-	ops["DeleteTrafficMirrorTarget"] = h.handleDeleteTrafficMirrorTarget
-	ops["DescribeTrafficMirrorTargets"] = h.handleDescribeTrafficMirrorTargets
-	// EC2 Fleet
-	ops["CreateFleet"] = h.handleCreateFleet
-	ops["DeleteFleets"] = h.handleDeleteFleets
-	ops["DescribeFleets"] = h.handleDescribeFleets
-	ops["ModifyFleet"] = h.handleModifyFleet
-	ops["DescribeFleetHistory"] = h.handleDescribeFleetHistory
-	ops["DescribeFleetInstances"] = h.handleDescribeFleetInstances
-	// Network Insights Path
-	ops["CreateNetworkInsightsPath"] = h.handleCreateNetworkInsightsPath
-	ops["DeleteNetworkInsightsPath"] = h.handleDeleteNetworkInsightsPath
-	ops["DescribeNetworkInsightsPaths"] = h.handleDescribeNetworkInsightsPaths
-	// Network Insights Analysis
-	ops["StartNetworkInsightsAnalysis"] = h.handleStartNetworkInsightsAnalysis
-	ops["DeleteNetworkInsightsAnalysis"] = h.handleDeleteNetworkInsightsAnalysis
-	ops["DescribeNetworkInsightsAnalyses"] = h.handleDescribeNetworkInsightsAnalyses
-	// Network Insights Access Scope
-	ops["CreateNetworkInsightsAccessScope"] = h.handleCreateNetworkInsightsAccessScope
-	ops["DeleteNetworkInsightsAccessScope"] = h.handleDeleteNetworkInsightsAccessScope
-	ops["DescribeNetworkInsightsAccessScopes"] = h.handleDescribeNetworkInsightsAccessScopes
-	ops["GetNetworkInsightsAccessScopeContent"] = h.handleGetNetworkInsightsAccessScopeContent
-	// Network Insights Access Scope Analysis
-	ops["StartNetworkInsightsAccessScopeAnalysis"] = h.handleStartNetworkInsightsAccessScopeAnalysis
-	ops["DeleteNetworkInsightsAccessScopeAnalysis"] = h.handleDeleteNetworkInsightsAccessScopeAnalysis
-	ops["DescribeNetworkInsightsAccessScopeAnalyses"] = h.handleDescribeNetworkInsightsAccessScopeAnalyses
-	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleGetNetworkInsightsAccessScopeAnalysisFindings
-	// BYOIP
-	ops["ProvisionByoipCidr"] = h.handleProvisionByoipCidr
-	ops["DeprovisionByoipCidr"] = h.handleDeprovisionByoipCidr
-	ops["WithdrawByoipCidr"] = h.handleWithdrawByoipCidr
-	// Carrier Gateways
-	ops["CreateCarrierGateway"] = h.handleCreateCarrierGateway
-	ops["DeleteCarrierGateway"] = h.handleDeleteCarrierGateway
-	ops["DescribeCarrierGateways"] = h.handleDescribeCarrierGateways
-	// Reserved Instances
-	ops["DescribeReservedInstances"] = h.handleDescribeReservedInstances
-	ops["DescribeReservedInstancesOfferings"] = h.handleDescribeReservedInstancesOfferings
-	ops["PurchaseReservedInstancesOffering"] = h.handlePurchaseReservedInstancesOffering
-	ops["CreateReservedInstancesListing"] = h.handleCreateReservedInstancesListing
-	ops["CancelReservedInstancesListing"] = h.handleCancelReservedInstancesListing
-	ops["DescribeReservedInstancesListings"] = h.handleDescribeReservedInstancesListings
-	ops["DescribeReservedInstancesModifications"] = h.handleDescribeReservedInstancesModifications
-	ops["ModifyReservedInstances"] = h.handleModifyReservedInstances
-	ops["DeleteQueuedReservedInstances"] = h.handleDeleteQueuedReservedInstances
-	ops["GetReservedInstancesExchangeQuote"] = h.handleGetReservedInstancesExchangeQuote
-}
-
-func batch5SupportedOperations() []string {
-	return []string{
-		"CreateTrafficMirrorFilter",
-		"DeleteTrafficMirrorFilter",
-		"DescribeTrafficMirrorFilters",
-		"ModifyTrafficMirrorFilterNetworkServices",
-		"CreateTrafficMirrorFilterRule",
-		"DeleteTrafficMirrorFilterRule",
-		"DescribeTrafficMirrorFilterRules",
-		"ModifyTrafficMirrorFilterRule",
-		"CreateTrafficMirrorSession",
-		"DeleteTrafficMirrorSession",
-		"DescribeTrafficMirrorSessions",
-		"ModifyTrafficMirrorSession",
-		"CreateTrafficMirrorTarget",
-		"DeleteTrafficMirrorTarget",
-		"DescribeTrafficMirrorTargets",
-		"CreateFleet",
-		"DeleteFleets",
-		"DescribeFleets",
-		"ModifyFleet",
-		"DescribeFleetHistory",
-		"DescribeFleetInstances",
-		"CreateNetworkInsightsPath",
-		"DeleteNetworkInsightsPath",
-		"DescribeNetworkInsightsPaths",
-		"StartNetworkInsightsAnalysis",
-		"DeleteNetworkInsightsAnalysis",
-		"DescribeNetworkInsightsAnalyses",
-		"CreateNetworkInsightsAccessScope",
-		"DeleteNetworkInsightsAccessScope",
-		"DescribeNetworkInsightsAccessScopes",
-		"GetNetworkInsightsAccessScopeContent",
-		"StartNetworkInsightsAccessScopeAnalysis",
-		"DeleteNetworkInsightsAccessScopeAnalysis",
-		"DescribeNetworkInsightsAccessScopeAnalyses",
-		"GetNetworkInsightsAccessScopeAnalysisFindings",
-		"ProvisionByoipCidr",
-		"DeprovisionByoipCidr",
-		"WithdrawByoipCidr",
-		"CreateCarrierGateway",
-		"DeleteCarrierGateway",
-		"DescribeCarrierGateways",
-		"DescribeReservedInstances",
-		"DescribeReservedInstancesOfferings",
-		"PurchaseReservedInstancesOffering",
-		"CreateReservedInstancesListing",
-		"CancelReservedInstancesListing",
-		"DescribeReservedInstancesListings",
-		"DescribeReservedInstancesModifications",
-		"ModifyReservedInstances",
-		"DeleteQueuedReservedInstances",
-		"GetReservedInstancesExchangeQuote",
-	}
+	maps.Copy(ops, map[string]ec2ActionFn{
+		"CreateTrafficMirrorFilter":                     h.handleCreateTrafficMirrorFilter,
+		"DeleteTrafficMirrorFilter":                     h.handleDeleteTrafficMirrorFilter,
+		"DescribeTrafficMirrorFilters":                  h.handleDescribeTrafficMirrorFilters,
+		"ModifyTrafficMirrorFilterNetworkServices":      h.handleModifyTrafficMirrorFilterNetworkServices,
+		"CreateTrafficMirrorFilterRule":                 h.handleCreateTrafficMirrorFilterRule,
+		"DeleteTrafficMirrorFilterRule":                 h.handleDeleteTrafficMirrorFilterRule,
+		"DescribeTrafficMirrorFilterRules":              h.handleDescribeTrafficMirrorFilterRules,
+		"ModifyTrafficMirrorFilterRule":                 h.handleModifyTrafficMirrorFilterRule,
+		"CreateTrafficMirrorSession":                    h.handleCreateTrafficMirrorSession,
+		"DeleteTrafficMirrorSession":                    h.handleDeleteTrafficMirrorSession,
+		"DescribeTrafficMirrorSessions":                 h.handleDescribeTrafficMirrorSessions,
+		"ModifyTrafficMirrorSession":                    h.handleModifyTrafficMirrorSession,
+		"CreateTrafficMirrorTarget":                     h.handleCreateTrafficMirrorTarget,
+		"DeleteTrafficMirrorTarget":                     h.handleDeleteTrafficMirrorTarget,
+		"DescribeTrafficMirrorTargets":                  h.handleDescribeTrafficMirrorTargets,
+		"CreateFleet":                                   h.handleCreateFleet,
+		"DeleteFleets":                                  h.handleDeleteFleets,
+		"DescribeFleets":                                h.handleDescribeFleets,
+		"ModifyFleet":                                   h.handleModifyFleet,
+		"DescribeFleetHistory":                          h.handleDescribeFleetHistory,
+		"DescribeFleetInstances":                        h.handleDescribeFleetInstances,
+		"CreateNetworkInsightsPath":                     h.handleCreateNetworkInsightsPath,
+		"DeleteNetworkInsightsPath":                     h.handleDeleteNetworkInsightsPath,
+		"DescribeNetworkInsightsPaths":                  h.handleDescribeNetworkInsightsPaths,
+		"StartNetworkInsightsAnalysis":                  h.handleStartNetworkInsightsAnalysis,
+		"DeleteNetworkInsightsAnalysis":                 h.handleDeleteNetworkInsightsAnalysis,
+		"DescribeNetworkInsightsAnalyses":               h.handleDescribeNetworkInsightsAnalyses,
+		"CreateNetworkInsightsAccessScope":              h.handleCreateNetworkInsightsAccessScope,
+		"DeleteNetworkInsightsAccessScope":              h.handleDeleteNetworkInsightsAccessScope,
+		"DescribeNetworkInsightsAccessScopes":           h.handleDescribeNetworkInsightsAccessScopes,
+		"GetNetworkInsightsAccessScopeContent":          h.handleGetNetworkInsightsAccessScopeContent,
+		"StartNetworkInsightsAccessScopeAnalysis":       h.handleStartNetworkInsightsAccessScopeAnalysis,
+		"DeleteNetworkInsightsAccessScopeAnalysis":      h.handleDeleteNetworkInsightsAccessScopeAnalysis,
+		"DescribeNetworkInsightsAccessScopeAnalyses":    h.handleDescribeNetworkInsightsAccessScopeAnalyses,
+		"GetNetworkInsightsAccessScopeAnalysisFindings": h.handleGetNetworkInsightsAccessScopeAnalysisFindings,
+		"ProvisionByoipCidr":                            h.handleProvisionByoipCidr,
+		"DeprovisionByoipCidr":                          h.handleDeprovisionByoipCidr,
+		"WithdrawByoipCidr":                             h.handleWithdrawByoipCidr,
+		"CreateCarrierGateway":                          h.handleCreateCarrierGateway,
+		"DeleteCarrierGateway":                          h.handleDeleteCarrierGateway,
+		"DescribeCarrierGateways":                       h.handleDescribeCarrierGateways,
+		"DescribeReservedInstances":                     h.handleDescribeReservedInstances,
+		"DescribeReservedInstancesOfferings":            h.handleDescribeReservedInstancesOfferings,
+		"PurchaseReservedInstancesOffering":             h.handlePurchaseReservedInstancesOffering,
+		"CreateReservedInstancesListing":                h.handleCreateReservedInstancesListing,
+		"CancelReservedInstancesListing":                h.handleCancelReservedInstancesListing,
+		"DescribeReservedInstancesListings":             h.handleDescribeReservedInstancesListings,
+		"DescribeReservedInstancesModifications":        h.handleDescribeReservedInstancesModifications,
+		"ModifyReservedInstances":                       h.handleModifyReservedInstances,
+		"DeleteQueuedReservedInstances":                 h.handleDeleteQueuedReservedInstances,
+		"GetReservedInstancesExchangeQuote":             h.handleGetReservedInstancesExchangeQuote,
+	})
 }
 
 // ---- XML response types ----
@@ -153,13 +88,13 @@ type describeTrafficMirrorFiltersResponse struct {
 type trafficMirrorFilterRuleItem struct {
 	TrafficMirrorFilterRuleID string `xml:"trafficMirrorFilterRuleId"`
 	TrafficMirrorFilterID     string `xml:"trafficMirrorFilterId"`
-	RuleNumber                int    `xml:"ruleNumber"`
 	RuleAction                string `xml:"ruleAction,omitempty"`
 	TrafficDirection          string `xml:"trafficDirection,omitempty"`
-	Protocol                  int    `xml:"protocol,omitempty"`
 	DestinationCidrBlock      string `xml:"destinationCidrBlock,omitempty"`
 	SourceCidrBlock           string `xml:"sourceCidrBlock,omitempty"`
 	Description               string `xml:"description,omitempty"`
+	RuleNumber                int    `xml:"ruleNumber"`
+	Protocol                  int    `xml:"protocol,omitempty"`
 }
 
 type createTrafficMirrorFilterRuleResponse struct {
@@ -181,8 +116,8 @@ type trafficMirrorSessionItem struct {
 	NetworkInterfaceID     string `xml:"networkInterfaceId,omitempty"`
 	TrafficMirrorTargetID  string `xml:"trafficMirrorTargetId,omitempty"`
 	TrafficMirrorFilterID  string `xml:"trafficMirrorFilterId,omitempty"`
-	SessionNumber          int    `xml:"sessionNumber,omitempty"`
 	Description            string `xml:"description,omitempty"`
+	SessionNumber          int    `xml:"sessionNumber,omitempty"`
 }
 
 type createTrafficMirrorSessionResponse struct {
@@ -224,8 +159,8 @@ type fleetItem struct {
 	FleetID                         string `xml:"fleetId"`
 	FleetState                      string `xml:"fleetState"`
 	FleetType                       string `xml:"fleetType,omitempty"`
-	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
 	ExcessCapacityTerminationPolicy string `xml:"excessCapacityTerminationPolicy,omitempty"`
+	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
 }
 
 type createFleetResponse struct {
@@ -330,9 +265,9 @@ type networkInsightsAccessScopeAnalysisItem struct {
 }
 
 type startNetworkInsightsAccessScopeAnalysisResponse struct {
-	XMLName                            xml.Name                               `xml:"StartNetworkInsightsAccessScopeAnalysisResponse"`
-	RequestID                          string                                 `xml:"requestId"`
-	NetworkInsightsAccessScopeAnalysis networkInsightsAccessScopeAnalysisItem `xml:"networkInsightsAccessScopeAnalysis"`
+	XMLName   xml.Name                               `xml:"StartNetworkInsightsAccessScopeAnalysisResponse"`
+	RequestID string                                 `xml:"requestId"`
+	Analysis  networkInsightsAccessScopeAnalysisItem `xml:"networkInsightsAccessScopeAnalysis"`
 }
 
 type describeNetworkInsightsAccessScopeAnalysesResponse struct {
@@ -396,10 +331,10 @@ type reservedInstanceItem struct {
 	ReservedInstancesID string  `xml:"reservedInstancesId"`
 	InstanceType        string  `xml:"instanceType,omitempty"`
 	AvailabilityZone    string  `xml:"availabilityZone,omitempty"`
-	InstanceCount       int     `xml:"instanceCount,omitempty"`
 	ProductDescription  string  `xml:"productDescription,omitempty"`
 	State               string  `xml:"state,omitempty"`
 	OfferingType        string  `xml:"offeringType,omitempty"`
+	InstanceCount       int     `xml:"instanceCount,omitempty"`
 	Duration            int64   `xml:"duration,omitempty"`
 	FixedPrice          float64 `xml:"fixedPrice,omitempty"`
 	UsagePrice          float64 `xml:"usagePrice,omitempty"`
@@ -1064,8 +999,8 @@ func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(vals url.Values,
 	}
 
 	return &startNetworkInsightsAccessScopeAnalysisResponse{
-		RequestID:                          reqID,
-		NetworkInsightsAccessScopeAnalysis: toNetworkInsightsAccessScopeAnalysisItem(a),
+		RequestID: reqID,
+		Analysis:  toNetworkInsightsAccessScopeAnalysisItem(a),
 	}, nil
 }
 

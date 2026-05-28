@@ -3,6 +3,7 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/google/uuid"
@@ -42,13 +43,13 @@ type TrafficMirrorFilter struct {
 type TrafficMirrorFilterRule struct {
 	TrafficMirrorFilterRuleID string `json:"trafficMirrorFilterRuleId"`
 	TrafficMirrorFilterID     string `json:"trafficMirrorFilterId"`
-	RuleNumber                int    `json:"ruleNumber"`
 	RuleAction                string `json:"ruleAction"`
 	TrafficDirection          string `json:"trafficDirection"`
-	Protocol                  int    `json:"protocol"`
 	DestinationCidrBlock      string `json:"destinationCidrBlock"`
 	SourceCidrBlock           string `json:"sourceCidrBlock"`
 	Description               string `json:"description"`
+	RuleNumber                int    `json:"ruleNumber"`
+	Protocol                  int    `json:"protocol"`
 }
 
 // TrafficMirrorSession holds a traffic mirror session.
@@ -57,8 +58,8 @@ type TrafficMirrorSession struct {
 	NetworkInterfaceID     string `json:"networkInterfaceId"`
 	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId"`
 	TrafficMirrorFilterID  string `json:"trafficMirrorFilterId"`
-	SessionNumber          int    `json:"sessionNumber"`
 	Description            string `json:"description"`
+	SessionNumber          int    `json:"sessionNumber"`
 }
 
 // TrafficMirrorTarget holds a traffic mirror target.
@@ -77,10 +78,10 @@ type Fleet struct {
 	FleetState                       string `json:"fleetState"`
 	FleetType                        string `json:"fleetType"`
 	TargetCapacityUnitType           string `json:"targetCapacityUnitType"`
+	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy"`
 	TotalTargetCapacity              int    `json:"totalTargetCapacity"`
 	OnDemandTargetCapacity           int    `json:"onDemandTargetCapacity"`
 	SpotTargetCapacity               int    `json:"spotTargetCapacity"`
-	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy"`
 	TerminateInstancesWithExpiration bool   `json:"terminateInstancesWithExpiration"`
 }
 
@@ -135,10 +136,10 @@ type ReservedInstance struct {
 	ReservedInstancesID string  `json:"reservedInstancesId"`
 	InstanceType        string  `json:"instanceType"`
 	AvailabilityZone    string  `json:"availabilityZone"`
-	InstanceCount       int     `json:"instanceCount"`
 	ProductDescription  string  `json:"productDescription"`
 	State               string  `json:"state"`
 	OfferingType        string  `json:"offeringType"`
+	InstanceCount       int     `json:"instanceCount"`
 	Duration            int64   `json:"duration"`
 	FixedPrice          float64 `json:"fixedPrice"`
 	UsagePrice          float64 `json:"usagePrice"`
@@ -209,7 +210,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilters(ids []string) []*TrafficM
 	var result []*TrafficMirrorFilter
 
 	for _, f := range b.trafficMirrorFilters {
-		if len(ids) > 0 && !strInSlice(f.TrafficMirrorFilterID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, f.TrafficMirrorFilterID) {
 			continue
 		}
 
@@ -303,7 +304,7 @@ func (b *InMemoryBackend) DeleteTrafficMirrorFilterRule(id string) error {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterRuleNotFound, id)
 	}
 
-	if f, ok := b.trafficMirrorFilters[rule.TrafficMirrorFilterID]; ok {
+	if f, found := b.trafficMirrorFilters[rule.TrafficMirrorFilterID]; found {
 		f.IngressFilterRules = removeTrafficMirrorFilterRule(f.IngressFilterRules, id)
 		f.EgressFilterRules = removeTrafficMirrorFilterRule(f.EgressFilterRules, id)
 	}
@@ -411,7 +412,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorSessions(ids []string) []*Traffic
 	var result []*TrafficMirrorSession
 
 	for _, s := range b.trafficMirrorSessions {
-		if len(ids) > 0 && !strInSlice(s.TrafficMirrorSessionID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, s.TrafficMirrorSessionID) {
 			continue
 		}
 
@@ -490,7 +491,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorTargets(ids []string) []*TrafficM
 	var result []*TrafficMirrorTarget
 
 	for _, t := range b.trafficMirrorTargets {
-		if len(ids) > 0 && !strInSlice(t.TrafficMirrorTargetID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, t.TrafficMirrorTargetID) {
 			continue
 		}
 
@@ -554,7 +555,7 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 	var result []*Fleet
 
 	for _, f := range b.fleets {
-		if len(ids) > 0 && !strInSlice(f.FleetID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, f.FleetID) {
 			continue
 		}
 
@@ -638,7 +639,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsPaths(ids []string) []*NetworkI
 	var result []*NetworkInsightsPath
 
 	for _, p := range b.networkInsightsPaths {
-		if len(ids) > 0 && !strInSlice(p.NetworkInsightsPathID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, p.NetworkInsightsPathID) {
 			continue
 		}
 
@@ -695,7 +696,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAnalyses(ids []string) []*Netwo
 	var result []*NetworkInsightsAnalysis
 
 	for _, a := range b.networkInsightsAnalyses {
-		if len(ids) > 0 && !strInSlice(a.NetworkInsightsAnalysisID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAnalysisID) {
 			continue
 		}
 
@@ -746,7 +747,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopes(ids []string) []*N
 	var result []*NetworkInsightsAccessScope
 
 	for _, s := range b.networkInsightsAccessScopes {
-		if len(ids) > 0 && !strInSlice(s.NetworkInsightsAccessScopeID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, s.NetworkInsightsAccessScopeID) {
 			continue
 		}
 
@@ -807,7 +808,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopeAnalyses(
 	var result []*NetworkInsightsAccessScopeAnalysis
 
 	for _, a := range b.networkInsightsAccessScopeAnalyses {
-		if len(ids) > 0 && !strInSlice(a.NetworkInsightsAccessScopeAnalysisID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAccessScopeAnalysisID) {
 			continue
 		}
 
@@ -930,7 +931,7 @@ func (b *InMemoryBackend) DescribeCarrierGateways(ids []string) []*CarrierGatewa
 	var result []*CarrierGateway
 
 	for _, gw := range b.carrierGateways {
-		if len(ids) > 0 && !strInSlice(gw.CarrierGatewayID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, gw.CarrierGatewayID) {
 			continue
 		}
 
@@ -954,7 +955,7 @@ func (b *InMemoryBackend) DescribeReservedInstances(ids []string) []*ReservedIns
 	var result []*ReservedInstance
 
 	for _, ri := range b.reservedInstances {
-		if len(ids) > 0 && !strInSlice(ri.ReservedInstancesID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, ri.ReservedInstancesID) {
 			continue
 		}
 
@@ -1028,13 +1029,6 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 	}
 	b.reservedInstances[id] = ri
 
-	// Seed a default offering if not present
-	if _, ok := b.reservedInstancesOfferings[offeringID]; !ok {
-		b.reservedInstancesOfferings[offeringID] = &ReservedInstancesOffering{
-			ReservedInstancesOfferingID: offeringID,
-		}
-	}
-
 	cp := *ri
 
 	return &cp, nil
@@ -1042,7 +1036,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 
 func (b *InMemoryBackend) CreateReservedInstancesListing(
 	reservedInstancesID string,
-	instanceCount int,
+	_ int,
 ) (*ReservedInstancesListing, error) {
 	b.mu.Lock("CreateReservedInstancesListing")
 	defer b.mu.Unlock()
@@ -1081,7 +1075,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesListings(ids []string) []*Res
 	var result []*ReservedInstancesListing
 
 	for _, l := range b.reservedInstancesListings {
-		if len(ids) > 0 && !strInSlice(l.ReservedInstancesListingID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, l.ReservedInstancesListingID) {
 			continue
 		}
 
@@ -1103,7 +1097,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesModifications(ids []string) [
 	var result []*ReservedInstancesModification
 
 	for _, m := range b.reservedInstancesModifications {
-		if len(ids) > 0 && !strInSlice(m.ReservedInstancesModificationID, ids) {
+		if len(ids) > 0 && !slices.Contains(ids, m.ReservedInstancesModificationID) {
 			continue
 		}
 
@@ -1119,9 +1113,9 @@ func (b *InMemoryBackend) DescribeReservedInstancesModifications(ids []string) [
 }
 
 func (b *InMemoryBackend) ModifyReservedInstances(
-	reservedInstancesIDs []string,
-	targetInstanceType string,
-	targetCount int,
+	_ []string,
+	_ string,
+	_ int,
 ) (*ReservedInstancesModification, error) {
 	b.mu.Lock("ModifyReservedInstances")
 	defer b.mu.Unlock()
@@ -1146,15 +1140,4 @@ func (b *InMemoryBackend) DeleteQueuedReservedInstances(ids []string) {
 	for _, id := range ids {
 		delete(b.reservedInstances, id)
 	}
-}
-
-// strInSlice returns true if s is in slice.
-func strInSlice(s string, slice []string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-
-	return false
 }

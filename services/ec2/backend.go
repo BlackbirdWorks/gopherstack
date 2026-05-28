@@ -504,7 +504,7 @@ func (b *InMemoryBackend) RunInstances(
 	// No capacity hint — user-derived values in the make capacity position
 	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
 	// clamping. count is only used for the loop count below (safe).
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	instances := make([]*Instance, 0)
 
 	for range count {

@@ -73,8 +73,8 @@ func TestBatch5_TrafficMirrorFilterRule(t *testing.T) {
 	t.Parallel()
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	f, err := b.CreateTrafficMirrorFilter("filter-for-rules")
-	require.NoError(t, err)
+	f, ferr := b.CreateTrafficMirrorFilter("filter-for-rules")
+	require.NoError(t, ferr)
 	filterID := f.TrafficMirrorFilterID
 
 	var ruleID string
@@ -361,8 +361,8 @@ func TestBatch5_NetworkInsightsAnalysis(t *testing.T) {
 	t.Parallel()
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	path, err := b.CreateNetworkInsightsPath("eni-a", "eni-b", "tcp", 443)
-	require.NoError(t, err)
+	path, pathErr := b.CreateNetworkInsightsPath("eni-a", "eni-b", "tcp", 443)
+	require.NoError(t, pathErr)
 	pathID := path.NetworkInsightsPathID
 
 	var analysisID string
