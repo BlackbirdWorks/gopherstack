@@ -578,23 +578,7 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Context) error {
-	results, _ := h.Backend.ListStackSetOperationResults(
-		form.Get("StackSetName"),
-		form.Get("OperationId"),
-		"",
-	)
-	type response struct {
-		XMLName   xml.Name `xml:"ListStackSetOperationResultsResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    struct {
-			Summaries []string `xml:"Summaries>member"`
-		} `xml:"ListStackSetOperationResultsResult"`
-	}
-
-	return writeXML(c, response{Xmlns: cfnNS, Result: struct {
-		Summaries []string `xml:"Summaries>member"`
-	}{Summaries: results}, RequestID: uuid.New().String()})
+	return h.handleListStackSetOperationResultsParity(form, c)
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
@@ -869,9 +853,24 @@ func (h *Handler) handleListResourceScans(_ url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
-	resources, _ := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
+	scanned, _ := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
+	type resourceXML struct {
+		ResourceType       string `xml:"ResourceType,omitempty"`
+		ResourceIdentifier string `xml:"ResourceIdentifier>member,omitempty"`
+		ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
+		StackID            string `xml:"StackId,omitempty"`
+	}
+	members := make([]resourceXML, 0, len(scanned))
+	for _, s := range scanned {
+		members = append(members, resourceXML{
+			ResourceType:       s.ResourceType,
+			ResourceIdentifier: s.ResourceIdentifier,
+			ManagedByStack:     s.ManagedByStack,
+			StackID:            s.StackID,
+		})
+	}
 	type result struct {
-		Resources []string `xml:"Resources>member"`
+		Resources []resourceXML `xml:"Resources>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListResourceScanResourcesResponse"`
@@ -884,7 +883,7 @@ func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Conte
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{Resources: resources},
+			Result:    result{Resources: members},
 			RequestID: uuid.New().String(),
 		},
 	)
@@ -892,6 +891,7 @@ func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Conte
 
 func (h *Handler) handleListResourceScanRelatedResources(form url.Values, c *echo.Context) error {
 	related, _ := h.Backend.ListResourceScanRelatedResources(form.Get("ResourceScanId"), nil)
+	// related is []string (legacy plain identifiers).
 	type result struct {
 		RelatedResources []string `xml:"RelatedResources>member"`
 	}

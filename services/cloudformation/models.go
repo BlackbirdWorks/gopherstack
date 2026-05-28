@@ -116,17 +116,21 @@ type StackResource struct {
 
 // ChangeSet represents a CloudFormation change set.
 type ChangeSet struct {
-	ChangeSetID   string      `xml:"ChangeSetId"            json:"changeSetID"`
-	ChangeSetName string      `xml:"ChangeSetName"          json:"changeSetName"`
-	StackID       string      `xml:"StackId"                json:"stackID"`
-	StackName     string      `xml:"StackName"              json:"stackName"`
-	Status        string      `xml:"Status"                 json:"status"`
-	StatusReason  string      `xml:"StatusReason,omitempty" json:"statusReason,omitempty"`
-	CreationTime  time.Time   `xml:"CreationTime"           json:"creationTime"`
-	Description   string      `xml:"Description,omitempty"  json:"description,omitempty"`
-	TemplateBody  string      `xml:"-"                      json:"templateBody,omitempty"`
-	Parameters    []Parameter `xml:"-"                      json:"parameters,omitempty"`
-	Changes       []Change    `xml:"-"                      json:"changes,omitempty"`
+	ChangeSetID          string      `xml:"ChangeSetId"                    json:"changeSetID"`
+	ChangeSetName        string      `xml:"ChangeSetName"                  json:"changeSetName"`
+	StackID              string      `xml:"StackId"                        json:"stackID"`
+	StackName            string      `xml:"StackName"                      json:"stackName"`
+	Status               string      `xml:"Status"                         json:"status"`
+	StatusReason         string      `xml:"StatusReason,omitempty"         json:"statusReason,omitempty"`
+	ExecutionStatus      string      `xml:"ExecutionStatus,omitempty"      json:"executionStatus,omitempty"`
+	ChangeSetType        string      `xml:"ChangeSetType,omitempty"        json:"changeSetType,omitempty"`
+	IncludeNestedStacks  bool        `xml:"IncludeNestedStacks,omitempty"  json:"includeNestedStacks,omitempty"`
+	CreationTime         time.Time   `xml:"CreationTime"                   json:"creationTime"`
+	Description          string      `xml:"Description,omitempty"          json:"description,omitempty"`
+	TemplateBody         string      `xml:"-"                              json:"templateBody,omitempty"`
+	Parameters           []Parameter `xml:"-"                              json:"parameters,omitempty"`
+	Changes              []Change    `xml:"-"                              json:"changes,omitempty"`
+	RollbackConfiguration *RollbackConfiguration `xml:"RollbackConfiguration,omitempty" json:"rollbackConfiguration,omitempty"` //nolint:lll
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -218,12 +222,15 @@ type StackSetSummary struct {
 
 // StackInstance represents an instance of a StackSet in a specific account/region.
 type StackInstance struct {
-	StackSetID   string `xml:"StackSetId,omitempty"   json:"stackSetID,omitempty"`
-	StackSetName string `xml:"StackSetName,omitempty" json:"stackSetName,omitempty"`
-	StackID      string `xml:"StackId,omitempty"      json:"stackID,omitempty"`
-	Account      string `xml:"Account,omitempty"      json:"account,omitempty"`
-	Region       string `xml:"Region,omitempty"       json:"region,omitempty"`
-	Status       string `xml:"Status,omitempty"       json:"status,omitempty"`
+	StackSetID      string `xml:"StackSetId,omitempty"      json:"stackSetID,omitempty"`
+	StackSetName    string `xml:"StackSetName,omitempty"    json:"stackSetName,omitempty"`
+	StackID         string `xml:"StackId,omitempty"         json:"stackID,omitempty"`
+	Account         string `xml:"Account,omitempty"         json:"account,omitempty"`
+	Region          string `xml:"Region,omitempty"          json:"region,omitempty"`
+	Status          string `xml:"Status,omitempty"          json:"status,omitempty"`
+	StatusReason    string `xml:"StatusReason,omitempty"    json:"statusReason,omitempty"`
+	DriftStatus     string `xml:"DriftStatus,omitempty"     json:"driftStatus,omitempty"`
+	LastOperationID string `xml:"LastOperationId,omitempty" json:"lastOperationID,omitempty"`
 }
 
 // GeneratedTemplate holds a CloudFormation generated template.
@@ -306,4 +313,62 @@ type HookResult struct {
 type SignalRecord struct {
 	UniqueID string
 	Status   string
+}
+
+// TypeDetails holds full detail about a registered CloudFormation type, returned by DescribeType.
+type TypeDetails struct {
+	TypeName            string `xml:"TypeName,omitempty"`
+	TypeArn             string `xml:"Arn,omitempty"`
+	Type                string `xml:"Type,omitempty"`
+	Visibility          string `xml:"Visibility,omitempty"`
+	Status              string `xml:"TypeVersionStatus,omitempty"`
+	Description         string `xml:"Description,omitempty"`
+	Schema              string `xml:"Schema,omitempty"`
+	VersionID           string `xml:"VersionId,omitempty"`
+	DefaultVersionID    string `xml:"DefaultVersionId,omitempty"`
+	IsActivated         bool   `xml:"IsActivated,omitempty"`
+	IsDefaultVersion    bool   `xml:"IsDefaultVersion,omitempty"`
+	IsActivatableInOrg  bool   `xml:"IsActivatableInOrg,omitempty"`
+	PublisherID         string `xml:"PublisherId,omitempty"`
+	DeprecatedStatus    string `xml:"DeprecatedStatus,omitempty"`
+}
+
+// RegisteredTypeVersion holds version-level info for a registered type.
+type RegisteredTypeVersion struct {
+	TypeArn   string
+	VersionID string
+	IsDefault bool
+	Status    string // COMPLETE / DEPRECATED
+}
+
+// StackSetOperationResult holds per-account/region result for a StackSet operation.
+type StackSetOperationResult struct {
+	Account        string `xml:"Account,omitempty"`
+	Region         string `xml:"Region,omitempty"`
+	Status         string `xml:"Status,omitempty"`         // SUCCEEDED / FAILED / CANCELLED / PENDING / RUNNING
+	StatusReason   string `xml:"StatusReason,omitempty"`
+	AccountGateResult *AccountGateResult `xml:"AccountGateResult,omitempty"`
+}
+
+// AccountGateResult holds the result of the account gate function execution.
+type AccountGateResult struct {
+	FunctionArn string `xml:"FunctionArn,omitempty"`
+	Status      string `xml:"Status,omitempty"` // SUCCEEDED / FAILED / SKIPPED
+}
+
+// ScannedResource represents a single resource discovered during a resource scan.
+type ScannedResource struct {
+	ResourceType       string `xml:"ResourceType,omitempty"`
+	ResourceIdentifier string `xml:"ResourceIdentifier>member,omitempty"`
+	ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
+	StackID            string `xml:"StackId,omitempty"`
+}
+
+// ChangeSetHook holds a single hook invocation for a change set.
+type ChangeSetHook struct {
+	InvocationPoint  string `xml:"InvocationPoint,omitempty"`  // PRE_PROVISION
+	FailureMode      string `xml:"FailureMode,omitempty"`      // FAIL / WARN
+	TypeName         string `xml:"TypeName,omitempty"`
+	TypeVersionID    string `xml:"TypeVersionId,omitempty"`
+	TypeConfigVersion string `xml:"TypeConfigVersionId,omitempty"`
 }

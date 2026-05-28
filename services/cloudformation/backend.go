@@ -19,24 +19,29 @@ import (
 )
 
 var (
-	ErrStackNotFound             = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists        = errors.New("stack already exists")
-	ErrChangeSetNotFound         = errors.New("change set not found")
-	ErrChangeSetExists           = errors.New("change set already exists")
-	ErrResourceNotFound          = errors.New("resource not found in stack")
-	ErrExportNotFound            = errors.New("export with given name not found")
-	ErrDuplicateExport           = errors.New("export already exists and is owned by another stack")
-	ErrDriftDetectionNotFound    = errors.New("drift detection not found")
-	ErrStackSetNotFound          = errors.New("stack set not found")
-	ErrStackSetAlreadyExists     = errors.New("stack set already exists")
-	ErrStackInstanceNotFound     = errors.New("stack instance not found")
-	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
-	ErrResourceScanNotFound      = errors.New("resource scan not found")
-	ErrOperationNotFound         = errors.New("operation not found in stack set")
-	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
-	ErrTypeNotFound              = errors.New("type not found")
-	ErrRegistrationTokenNotFound = errors.New("registration token not found")
-	ErrPublisherNotFound         = errors.New("publisher not found")
+	ErrStackNotFound                = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists           = errors.New("stack already exists")
+	ErrChangeSetNotFound            = errors.New("change set not found")
+	ErrChangeSetExists              = errors.New("change set already exists")
+	ErrChangeSetAlreadyExecuted     = errors.New("change set has already been executed")
+	ErrResourceNotFound             = errors.New("resource not found in stack")
+	ErrExportNotFound               = errors.New("export with given name not found")
+	ErrDuplicateExport              = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound       = errors.New("drift detection not found")
+	ErrStackSetNotFound             = errors.New("stack set not found")
+	ErrStackSetAlreadyExists        = errors.New("stack set already exists")
+	ErrStackInstanceNotFound        = errors.New("stack instance not found")
+	ErrStackInstanceAlreadyExists   = errors.New("stack instance already exists in this account/region")
+	ErrGeneratedTemplateNotFound    = errors.New("generated template not found")
+	ErrResourceScanNotFound         = errors.New("resource scan not found")
+	ErrOperationNotFound            = errors.New("operation not found in stack set")
+	ErrOperationNotRunning          = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound                 = errors.New("type not found")
+	ErrTypeVersionNotFound          = errors.New("type version not found")
+	ErrRegistrationTokenNotFound    = errors.New("registration token not found")
+	ErrPublisherNotFound            = errors.New("publisher not found")
+	ErrInvalidRoleARN               = errors.New("invalid IAM role ARN format")
+	ErrInsufficientCapabilities     = errors.New("requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM")
 )
 
 // StackOptions carries optional attributes for CreateStack and UpdateStack.
@@ -111,7 +116,7 @@ type StorageBackend interface {
 	ListStackSetOperations(stackSetName, nextToken string) ([]string, error)
 	DescribeStackSetOperation(stackSetName, operationID string) (string, error)
 	StopStackSetOperation(stackSetName, operationID string) error
-	ListStackSetOperationResults(stackSetName, operationID, nextToken string) ([]string, error)
+	ListStackSetOperationResults(stackSetName, operationID, nextToken string) ([]StackSetOperationResult, error)
 	ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error)
 	ImportStacksToStackSet(stackSetName string, stackIDs []string) error
 	ListStackInstanceResourceDrifts(stackSetName, operationID, account, region string) ([]string, error)
@@ -126,7 +131,7 @@ type StorageBackend interface {
 	StartResourceScan() (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
 	ListResourceScans(nextToken string) ([]ResourceScan, error)
-	ListResourceScanResources(scanID, nextToken string) ([]string, error)
+	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
 	ActivateType(typeName, typeArn string) error
@@ -141,6 +146,7 @@ type StorageBackend interface {
 	ListTypeVersions(typeName, nextToken string) ([]string, error)
 	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
 	DescribeTypeRegistration(registrationToken string) (string, error)
+	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
 	TestType(typeName, arn string) (string, error)
 	RegisterPublisher(connectionArn string) (string, error)
 	DescribePublisher(publisherID string) (string, error)
@@ -186,9 +192,12 @@ type InMemoryBackend struct {
 	typeConfigs        map[string]string                  // typeName → config json
 	publishers         map[string]*Publisher              // publisherID → publisher
 	stackRefactors     map[string]*StackRefactor          // refactorID → refactor
-	hookResults        map[string]*HookResult             // token → result
-	handlerProgress    map[string]string                  // bearerToken → status
-	signals            map[string][]SignalRecord          // stackName+logicalID → records
+	hookResults        map[string]*HookResult                       // token → result
+	handlerProgress    map[string]string                            // bearerToken → status
+	signals            map[string][]SignalRecord                    // stackName+logicalID → records
+	stackSetOpResults  map[string]map[string][]StackSetOperationResult // stackSetName → opID → results
+	typeVersions       map[string][]*RegisteredTypeVersion           // typeArn → versions
+	resourceScanItems  map[string][]ScannedResource                  // scanID → scanned resources
 	creator            *ResourceCreator
 	resolver           DynamicRefResolver
 	mu                 *lockmetrics.RWMutex
@@ -251,6 +260,9 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		hookResults:        make(map[string]*HookResult),
 		handlerProgress:    make(map[string]string),
 		signals:            make(map[string][]SignalRecord),
+		stackSetOpResults:  make(map[string]map[string][]StackSetOperationResult),
+		typeVersions:       make(map[string][]*RegisteredTypeVersion),
+		resourceScanItems:  make(map[string][]ScannedResource),
 		creator:            creator,
 		resolver:           resolver,
 		accountID:          accountID,
@@ -388,6 +400,13 @@ func (b *InMemoryBackend) createStackLocked(
 	opts StackOptions,
 	parentID string,
 ) (*Stack, error) {
+	// Validate RoleARN format and IAM capability requirements (top-level stacks only).
+	if parentID == "" {
+		if err := validateStackOptions(templateBody, opts); err != nil {
+			return nil, err
+		}
+	}
+
 	if existing, ok := b.stacks[name]; ok {
 		if existing.StackStatus != statusDeleteComplete {
 			return nil, ErrStackAlreadyExists
@@ -691,6 +710,11 @@ func (b *InMemoryBackend) UpdateStack(
 ) (*Stack, error) {
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
+
+	// Validate RoleARN format and IAM capability requirements.
+	if err := validateStackOptions(templateBody, opts); err != nil {
+		return nil, err
+	}
 
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
@@ -1049,20 +1073,24 @@ func (b *InMemoryBackend) CreateChangeSet(
 
 	csID := uuid.New().String()
 	stackID := ""
+	changeSetType := "CREATE"
 	if stack != nil {
 		stackID = stack.StackID
+		changeSetType = "UPDATE"
 	}
 
 	cs := &ChangeSet{
-		ChangeSetID:   arn.Build("cloudformation", b.region, b.accountID, "changeSet/"+changeSetName+"/"+csID),
-		ChangeSetName: changeSetName,
-		StackID:       stackID,
-		StackName:     stackName,
-		Status:        statusCreateComplete,
-		Description:   description,
-		CreationTime:  time.Now(),
-		TemplateBody:  templateBody,
-		Parameters:    params,
+		ChangeSetID:     arn.Build("cloudformation", b.region, b.accountID, "changeSet/"+changeSetName+"/"+csID),
+		ChangeSetName:   changeSetName,
+		StackID:         stackID,
+		StackName:       stackName,
+		Status:          statusCreateComplete,
+		ExecutionStatus: "AVAILABLE",
+		ChangeSetType:   changeSetType,
+		Description:     description,
+		CreationTime:    time.Now(),
+		TemplateBody:    templateBody,
+		Parameters:      params,
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)
@@ -1127,26 +1155,36 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error {
 	b.mu.Lock("ExecuteChangeSet")
 	cs, ok := b.changeSets[stackName][changeSetName]
+	if ok {
+		cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
+	}
 	b.mu.Unlock()
 
 	if !ok {
 		return ErrChangeSetNotFound
 	}
 
+	var execErr error
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
 	if err != nil {
 		// Stack may not exist yet — create it.
 		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
 		if err != nil {
-			return err
+			execErr = err
 		}
 	}
 
 	b.mu.Lock("ExecuteChangeSet")
-	delete(b.changeSets[stackName], changeSetName)
+	if execErr != nil {
+		if cs2, ok2 := b.changeSets[stackName][changeSetName]; ok2 {
+			cs2.ExecutionStatus = "EXECUTE_FAILED"
+		}
+	} else {
+		delete(b.changeSets[stackName], changeSetName)
+	}
 	b.mu.Unlock()
 
-	return nil
+	return execErr
 }
 
 // DeleteChangeSet removes a change set.

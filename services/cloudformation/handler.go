@@ -290,9 +290,15 @@ func typeSchemaFor(typeName string) string {
 	return "Id"
 }
 
-// handleDescribeType returns a minimal CloudFormation type schema for the requested TypeName.
-// This is called by the Terraform AWS provider before creating a CloudControl API resource.
+// handleDescribeType returns CloudFormation type information.
+// It first checks the backend type registry for registered types, then falls back
+// to a schema-based response for built-in AWS types.
 func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
+	// Try the backend registry first (for types registered via RegisterType).
+	if handled, err := h.describeTypeFromRegistry(form, c); handled {
+		return err
+	}
+
 	typeName := form.Get("TypeName")
 	if typeName == "" {
 		return h.xmlError(c, "CFNRegistryException", "TypeName is required")
@@ -857,68 +863,7 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 }
 
 func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) error {
-	stackName := form.Get("StackName")
-	changeSetName := form.Get("ChangeSetName")
-
-	cs, err := h.Backend.DescribeChangeSet(stackName, changeSetName)
-	if err != nil {
-		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
-	}
-
-	type resourceChangeXML struct {
-		Action       string `xml:"Action"`
-		LogicalID    string `xml:"LogicalResourceId"`
-		ResourceType string `xml:"ResourceType"`
-	}
-	type changeXML struct {
-		Type           string            `xml:"Type"`
-		ResourceChange resourceChangeXML `xml:"ResourceChange"`
-	}
-	changes := make([]changeXML, 0, len(cs.Changes))
-	for _, ch := range cs.Changes {
-		changes = append(changes, changeXML{
-			Type: ch.Type,
-			ResourceChange: resourceChangeXML{
-				Action:       ch.ResourceChange.Action,
-				LogicalID:    ch.ResourceChange.LogicalID,
-				ResourceType: ch.ResourceChange.ResourceType,
-			},
-		})
-	}
-
-	type descResult struct {
-		ChangeSetID   string      `xml:"ChangeSetId"`
-		ChangeSetName string      `xml:"ChangeSetName"`
-		StackID       string      `xml:"StackId"`
-		StackName     string      `xml:"StackName"`
-		Status        string      `xml:"Status"`
-		StatusReason  string      `xml:"StatusReason,omitempty"`
-		CreationTime  string      `xml:"CreationTime"`
-		Description   string      `xml:"Description,omitempty"`
-		Changes       []changeXML `xml:"Changes>member"`
-	}
-	type response struct {
-		XMLName   xml.Name   `xml:"DescribeChangeSetResponse"`
-		Xmlns     string     `xml:"xmlns,attr"`
-		RequestID string     `xml:"ResponseMetadata>RequestId"`
-		Result    descResult `xml:"DescribeChangeSetResult"`
-	}
-
-	return writeXML(c, response{
-		Xmlns: cfnNS,
-		Result: descResult{
-			ChangeSetID:   cs.ChangeSetID,
-			ChangeSetName: cs.ChangeSetName,
-			StackID:       cs.StackID,
-			StackName:     cs.StackName,
-			Status:        cs.Status,
-			StatusReason:  cs.StatusReason,
-			CreationTime:  cs.CreationTime.Format("2006-01-02T15:04:05Z"),
-			Description:   cs.Description,
-			Changes:       changes,
-		},
-		RequestID: uuid.New().String(),
-	})
+	return h.handleDescribeChangeSetFull(form, c)
 }
 
 func (h *Handler) handleExecuteChangeSet(form url.Values, c *echo.Context) error {

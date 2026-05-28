@@ -2,8 +2,10 @@ package cloudformation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,20 +95,39 @@ func (b *InMemoryBackend) ListStackSets(_ string) ([]StackSetSummary, error) {
 func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, regions []string) error {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	ss, ok := b.stackSets[stackSetName]
+	if !ok {
 		return ErrStackSetNotFound
 	}
+	opID := b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
 	for _, acct := range accounts {
 		for _, region := range regions {
+			// Deduplicate: skip if instance already exists.
+			alreadyExists := false
+			for _, existing := range b.stackInstances[stackSetName] {
+				if existing.Account == acct && existing.Region == region {
+					alreadyExists = true
+					break
+				}
+			}
+			if alreadyExists {
+				continue
+			}
+			instanceStackID := fmt.Sprintf("arn:aws:cloudformation:%s:%s:stack/%s/%s",
+				region, acct, stackSetName, uuid.New().String())
 			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
-				StackSetName: stackSetName,
-				Account:      acct,
-				Region:       region,
-				Status:       "CURRENT",
+				StackSetID:      ss.StackSetID,
+				StackSetName:    stackSetName,
+				StackID:         instanceStackID,
+				Account:         acct,
+				Region:          region,
+				Status:          "CURRENT",
+				DriftStatus:     "NOT_CHECKED",
+				LastOperationID: opID,
 			})
 		}
 	}
-	b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
+	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 
 	return nil
 }
@@ -114,8 +135,11 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, regions []string) error {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
+	if _, ok := b.stackSets[stackSetName]; !ok {
+		return ErrStackSetNotFound
+	}
 	instances := b.stackInstances[stackSetName]
-	filtered := instances[:0]
+	filtered := make([]StackInstance, 0, len(instances))
 	for _, inst := range instances {
 		keep := true
 		for _, acct := range accounts {
@@ -130,18 +154,22 @@ func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, re
 		}
 	}
 	b.stackInstances[stackSetName] = filtered
-	b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
+	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
+	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 
 	return nil
 }
 
-func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, _, _ []string) error {
+func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, accounts, regions []string) error {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
 		return ErrStackSetNotFound
 	}
-	b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
+	opID := b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
+	if len(accounts) > 0 && len(regions) > 0 {
+		b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
+	}
 
 	return nil
 }
@@ -192,8 +220,30 @@ func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) s
 		Status:       "SUCCEEDED",
 		CreatedAt:    time.Now(),
 	}
+	if b.stackSetOpResults[stackSetName] == nil {
+		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
+	}
 
 	return opID
+}
+
+// recordOpResults records per-account/region operation results. Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) recordOpResults(stackSetName, opID string, accounts, regions []string, status string) {
+	if b.stackSetOpResults[stackSetName] == nil {
+		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
+	}
+	for _, acct := range accounts {
+		for _, region := range regions {
+			b.stackSetOpResults[stackSetName][opID] = append(
+				b.stackSetOpResults[stackSetName][opID],
+				StackSetOperationResult{
+					Account: acct,
+					Region:  region,
+					Status:  status,
+				},
+			)
+		}
+	}
 }
 
 func (b *InMemoryBackend) ListStackSetOperations(stackSetName, _ string) ([]string, error) {
@@ -249,16 +299,18 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackSetOperationResults(stackSetName, operationID, _ string) ([]string, error) {
+func (b *InMemoryBackend) ListStackSetOperationResults(stackSetName, operationID, _ string) ([]StackSetOperationResult, error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
-	instances := b.stackInstances[stackSetName]
-	results := make([]string, 0, len(instances))
-	for _, inst := range instances {
-		results = append(results, inst.Account+"/"+inst.Region+"/"+operationID)
+	if opResults, ok := b.stackSetOpResults[stackSetName]; ok {
+		if results, ok := opResults[operationID]; ok {
+			out := make([]StackSetOperationResult, len(results))
+			copy(out, results)
+			return out, nil
+		}
 	}
 
-	return results, nil
+	return []StackSetOperationResult{}, nil
 }
 
 func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error) {
@@ -302,18 +354,89 @@ func (b *InMemoryBackend) ListStackInstanceResourceDrifts(stackSetName, _, _, _ 
 
 // ---- Generated Templates ----
 
-func (b *InMemoryBackend) CreateGeneratedTemplate(name string, _ []string) (*GeneratedTemplate, error) {
+func (b *InMemoryBackend) CreateGeneratedTemplate(name string, resourceIDs []string) (*GeneratedTemplate, error) {
 	b.mu.Lock("CreateGeneratedTemplate")
 	defer b.mu.Unlock()
+	// Build a template body from the given resource IDs. Each resource ID is
+	// treated as "Type/LogicalID"; if it doesn't have that form we synthesize a
+	// generic resource.
+	templateBody := b.buildGeneratedTemplateBody(resourceIDs)
 	gt := &GeneratedTemplate{
 		GeneratedTemplateID:   uuid.New().String(),
 		GeneratedTemplateName: name,
 		Status:                statusComplete,
-		TemplateBody:          `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`,
+		TemplateBody:          templateBody,
 	}
 	b.generatedTemplates[gt.GeneratedTemplateID] = gt
 
 	return gt, nil
+}
+
+// buildGeneratedTemplateBody synthesises a minimal CloudFormation template
+// from a list of resource identifiers (Type/LogicalID pairs).
+// Caller must hold the lock.
+func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) string {
+	type cfnResource struct {
+		Type       string         `json:"Type"`
+		Properties map[string]any `json:"Properties"`
+	}
+	resources := make(map[string]cfnResource)
+	for i, rid := range resourceIDs {
+		resType := "AWS::CloudFormation::WaitConditionHandle"
+		logicalID := fmt.Sprintf("GeneratedResource%d", i+1)
+		// Attempt to parse "Type/LogicalID" form.
+		if idx := strings.Index(rid, "/"); idx > 0 {
+			resType = rid[:idx]
+			rawLogical := rid[idx+1:]
+			// Sanitise to valid logical ID: strip non-alphanumeric.
+			sanitised := strings.Map(func(r rune) rune {
+				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+					return r
+				}
+				return -1
+			}, rawLogical)
+			if sanitised != "" {
+				logicalID = sanitised
+			}
+		}
+		resources[logicalID] = cfnResource{
+			Type:       resType,
+			Properties: map[string]any{},
+		}
+	}
+	type cfnTemplate struct {
+		AWSTemplateFormatVersion string                 `json:"AWSTemplateFormatVersion"`
+		Description              string                 `json:"Description"`
+		Resources                map[string]cfnResource `json:"Resources"`
+	}
+	if len(resources) == 0 {
+		// Build from existing stack resources as a convenience.
+		for _, stack := range b.stacks {
+			if stack.StackStatus == statusDeleteComplete {
+				continue
+			}
+			for _, res := range b.resources[stack.StackID] {
+				logicalID := res.LogicalID
+				resources[logicalID] = cfnResource{
+					Type:       res.Type,
+					Properties: map[string]any{},
+				}
+			}
+		}
+	}
+	if len(resources) == 0 {
+		return `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`
+	}
+	body, err := json.Marshal(cfnTemplate{
+		AWSTemplateFormatVersion: "2010-09-09",
+		Description:              "Generated template",
+		Resources:                resources,
+	})
+	if err != nil {
+		return `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`
+	}
+
+	return string(body)
 }
 
 func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
@@ -382,6 +505,22 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 		Status:              statusComplete,
 		PercentageCompleted: resourceScanCompletePercent,
 	}
+	// Populate scan items from existing active stacks.
+	items := make([]ScannedResource, 0)
+	for _, stack := range b.stacks {
+		if stack.StackStatus == statusDeleteComplete {
+			continue
+		}
+		for _, res := range b.resources[stack.StackID] {
+			items = append(items, ScannedResource{
+				ResourceType:       res.Type,
+				ResourceIdentifier: res.PhysicalID,
+				ManagedByStack:     true,
+				StackID:            stack.StackID,
+			})
+		}
+	}
+	b.resourceScanItems[scanID] = items
 
 	return scanID, nil
 }
@@ -408,14 +547,17 @@ func (b *InMemoryBackend) ListResourceScans(_ string) ([]ResourceScan, error) {
 	return result, nil
 }
 
-func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]string, error) {
+func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]ScannedResource, error) {
 	b.mu.RLock("ListResourceScanResources")
 	defer b.mu.RUnlock()
 	if _, ok := b.resourceScans[scanID]; !ok {
 		return nil, ErrResourceScanNotFound
 	}
+	items := b.resourceScanItems[scanID]
+	out := make([]ScannedResource, len(items))
+	copy(out, items)
 
-	return []string{"AWS::S3::Bucket/example-bucket"}, nil
+	return out, nil
 }
 
 func (b *InMemoryBackend) ListResourceScanRelatedResources(scanID string, _ []string) ([]string, error) {
@@ -472,14 +614,32 @@ func (b *InMemoryBackend) RegisterType(typeName, _ string) (string, error) {
 	defer b.mu.Unlock()
 	token := uuid.New().String()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
-	versionID := "00000001"
-	b.typeRegistry[typeArn] = &RegisteredType{
-		TypeArn:        typeArn,
-		TypeName:       typeName,
-		Type:           "RESOURCE",
-		VersionID:      versionID,
-		DefaultVersion: versionID,
-		Status:         statusComplete,
+	// Each call to RegisterType creates a new version.
+	existingVersions := b.typeVersions[typeArn]
+	versionNum := len(existingVersions) + 1
+	versionID := fmt.Sprintf("%08d", versionNum)
+	b.typeVersions[typeArn] = append(b.typeVersions[typeArn], &RegisteredTypeVersion{
+		TypeArn:   typeArn,
+		VersionID: versionID,
+		IsDefault: true,
+		Status:    statusComplete,
+	})
+	// Mark prior versions as non-default.
+	for i := range b.typeVersions[typeArn][:len(b.typeVersions[typeArn])-1] {
+		b.typeVersions[typeArn][i].IsDefault = false
+	}
+	if t, ok := b.typeRegistry[typeArn]; ok {
+		t.VersionID = versionID
+		t.DefaultVersion = versionID
+	} else {
+		b.typeRegistry[typeArn] = &RegisteredType{
+			TypeArn:        typeArn,
+			TypeName:       typeName,
+			Type:           "RESOURCE",
+			VersionID:      versionID,
+			DefaultVersion: versionID,
+			Status:         statusComplete,
+		}
 	}
 	b.typeRegistrations[token] = &TypeRegistrationRecord{
 		Token:    token,
@@ -519,6 +679,11 @@ func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
 	defer b.mu.Unlock()
 	if t, ok := b.typeRegistry[typeArn]; ok {
 		t.DefaultVersion = version
+		t.VersionID = version
+	}
+	// Update typeVersions IsDefault flags.
+	for _, v := range b.typeVersions[typeArn] {
+		v.IsDefault = v.VersionID == version
 	}
 
 	return nil
@@ -550,15 +715,24 @@ func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 	defer b.mu.RUnlock()
 	result := make([]TypeSummary, 0, len(b.typeRegistry))
 	for _, t := range b.typeRegistry {
+		if t.Status == "DEPRECATED" {
+			continue
+		}
 		if t.Status == statusComplete || t.IsActivated {
+			visibility := "PRIVATE"
+			if t.IsPublished {
+				visibility = "PUBLIC"
+			}
 			result = append(result, TypeSummary{
-				TypeName:   t.TypeName,
-				TypeArn:    t.TypeArn,
-				Type:       t.Type,
-				Visibility: "PRIVATE",
+				TypeName:    t.TypeName,
+				TypeArn:     t.TypeArn,
+				Type:        t.Type,
+				Visibility:  visibility,
+				Description: t.Configuration,
 			})
 		}
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].TypeName < result[j].TypeName })
 
 	return result, nil
 }
@@ -567,6 +741,14 @@ func (b *InMemoryBackend) ListTypeVersions(typeName, _ string) ([]string, error)
 	b.mu.RLock("ListTypeVersions")
 	defer b.mu.RUnlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
+	if versions, ok := b.typeVersions[typeArn]; ok && len(versions) > 0 {
+		ids := make([]string, 0, len(versions))
+		for _, v := range versions {
+			ids = append(ids, v.VersionID)
+		}
+		return ids, nil
+	}
+	// Fallback: if no version records but type exists, return its current version.
 	if t, ok := b.typeRegistry[typeArn]; ok {
 		return []string{t.VersionID}, nil
 	}
