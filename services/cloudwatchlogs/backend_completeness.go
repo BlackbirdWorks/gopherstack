@@ -22,9 +22,9 @@ var (
 
 // ResourcePolicy represents a CloudWatch Logs resource policy.
 type ResourcePolicy struct {
-	LastUpdated    time.Time
-	PolicyName     string
-	PolicyDocument string
+	LastUpdated    time.Time `json:"-"`
+	PolicyName     string    `json:"policyName"`
+	PolicyDocument string    `json:"policyDocument"`
 }
 
 // PutResourcePolicy creates or updates a resource-based policy.
@@ -85,7 +85,7 @@ type DeliveryDestination struct {
 	Arn          string            `json:"arn"`
 	OutputFormat string            `json:"outputFormat,omitempty"`
 	TargetArn    string            `json:"deliveryDestinationConfiguration,omitempty"`
-	Policy       string            `json:"-"`
+	Policy       string            `json:"policy,omitempty"`
 }
 
 // PutDeliveryDestination creates or updates a delivery destination.

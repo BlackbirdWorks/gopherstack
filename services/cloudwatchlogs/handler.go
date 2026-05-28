@@ -1961,7 +1961,11 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound),
 		errors.Is(reqErr, ErrDeliveryNotFound), errors.Is(reqErr, ErrLogAnomalyDetectorNotFound),
 		errors.Is(reqErr, ErrScheduledQueryNotFound), errors.Is(reqErr, ErrMetricFilterNotFound),
-		errors.Is(reqErr, ErrQueryDefinitionNotFound):
+		errors.Is(reqErr, ErrQueryDefinitionNotFound),
+		errors.Is(reqErr, ErrResourcePolicyNotFound), errors.Is(reqErr, ErrDeliveryDestinationNotFound),
+		errors.Is(reqErr, ErrDeliverySourceNotFound), errors.Is(reqErr, ErrDestinationNotFound),
+		errors.Is(reqErr, ErrIndexPolicyNotFound), errors.Is(reqErr, ErrTransformerNotFound),
+		errors.Is(reqErr, ErrIntegrationNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist):
