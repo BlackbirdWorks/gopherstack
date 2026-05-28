@@ -7,20 +7,31 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups              map[string]*LogGroup                    `json:"groups"`
-	Streams             map[string]map[string]*LogStream        `json:"streams"`
-	Events              map[string]map[string][]*OutputLogEvent `json:"events"`
-	SubscriptionFilters map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
-	ExportTasks         map[string]*ExportTask                  `json:"exportTasks,omitempty"`
-	ImportTasks         map[string]*ImportTask                  `json:"importTasks,omitempty"`
-	Deliveries          map[string]*Delivery                    `json:"deliveries,omitempty"`
-	LogAnomalyDetectors map[string]*LogAnomalyDetector          `json:"logAnomalyDetectors,omitempty"`
-	ScheduledQueries    map[string]*ScheduledQuery              `json:"scheduledQueries,omitempty"`
-	AccountPolicies     map[string]*AccountPolicy               `json:"accountPolicies,omitempty"`
-	KmsKeys             map[string]string                       `json:"kmsKeys,omitempty"`
-	S3TableIntegrations map[string]string                       `json:"s3TableIntegrations,omitempty"`
-	AccountID           string                                  `json:"accountID"`
-	Region              string                                  `json:"region"`
+	Groups                 map[string]*LogGroup                    `json:"groups"`
+	Streams                map[string]map[string]*LogStream        `json:"streams"`
+	Events                 map[string]map[string][]*OutputLogEvent `json:"events"`
+	SubscriptionFilters    map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
+	ExportTasks            map[string]*ExportTask                  `json:"exportTasks,omitempty"`
+	ImportTasks            map[string]*ImportTask                  `json:"importTasks,omitempty"`
+	Deliveries             map[string]*Delivery                    `json:"deliveries,omitempty"`
+	LogAnomalyDetectors    map[string]*LogAnomalyDetector          `json:"logAnomalyDetectors,omitempty"`
+	ScheduledQueries       map[string]*ScheduledQuery              `json:"scheduledQueries,omitempty"`
+	AccountPolicies        map[string]*AccountPolicy               `json:"accountPolicies,omitempty"`
+	KmsKeys                map[string]string                       `json:"kmsKeys,omitempty"`
+	S3TableIntegrations    map[string]string                       `json:"s3TableIntegrations,omitempty"`
+	MetricFilters          map[string]map[string]*MetricFilter     `json:"metricFilters,omitempty"`
+	QueryDefinitions       map[string]*QueryDefinition             `json:"queryDefinitions,omitempty"`
+	DataProtectionPolicies map[string]string                       `json:"dataProtectionPolicies,omitempty"`
+	ResourcePolicies       map[string]ResourcePolicy               `json:"resourcePolicies,omitempty"`
+	DeliveryDestinations   map[string]DeliveryDestination          `json:"deliveryDestinations,omitempty"`
+	DeliverySources        map[string]DeliverySource               `json:"deliverySources,omitempty"`
+	Destinations           map[string]CWLDestination               `json:"destinations,omitempty"`
+	IndexPolicies          map[string]IndexPolicy                  `json:"indexPolicies,omitempty"`
+	Transformers           map[string]Transformer                  `json:"transformers,omitempty"`
+	Integrations           map[string]CWLIntegration               `json:"integrations,omitempty"`
+	DeletionProtected      map[string]bool                         `json:"deletionProtected,omitempty"`
+	AccountID              string                                  `json:"accountID"`
+	Region                 string                                  `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -30,20 +41,31 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:              b.groups,
-		Streams:             b.streams,
-		Events:              b.events,
-		SubscriptionFilters: b.subscriptionFilters,
-		ExportTasks:         b.exportTasks,
-		ImportTasks:         b.importTasks,
-		Deliveries:          b.deliveries,
-		LogAnomalyDetectors: b.logAnomalyDetectors,
-		ScheduledQueries:    b.scheduledQueries,
-		AccountPolicies:     b.accountPolicies,
-		KmsKeys:             b.kmsKeys,
-		S3TableIntegrations: b.s3TableIntegrations,
-		AccountID:           b.accountID,
-		Region:              b.region,
+		Groups:                 b.groups,
+		Streams:                b.streams,
+		Events:                 b.events,
+		SubscriptionFilters:    b.subscriptionFilters,
+		ExportTasks:            b.exportTasks,
+		ImportTasks:            b.importTasks,
+		Deliveries:             b.deliveries,
+		LogAnomalyDetectors:    b.logAnomalyDetectors,
+		ScheduledQueries:       b.scheduledQueries,
+		AccountPolicies:        b.accountPolicies,
+		KmsKeys:                b.kmsKeys,
+		S3TableIntegrations:    b.s3TableIntegrations,
+		MetricFilters:          b.metricFilters,
+		QueryDefinitions:       b.queryDefinitions,
+		DataProtectionPolicies: b.dataProtectionPolicies,
+		ResourcePolicies:       b.resourcePolicies,
+		DeliveryDestinations:   b.deliveryDestinations,
+		DeliverySources:        b.deliverySources,
+		Destinations:           b.destinations,
+		IndexPolicies:          b.indexPolicies,
+		Transformers:           b.transformers,
+		Integrations:           b.integrations,
+		DeletionProtected:      b.deletionProtected,
+		AccountID:              b.accountID,
+		Region:                 b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -114,6 +136,50 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.S3TableIntegrations = make(map[string]string)
 	}
 
+	if snap.MetricFilters == nil {
+		snap.MetricFilters = make(map[string]map[string]*MetricFilter)
+	}
+
+	if snap.QueryDefinitions == nil {
+		snap.QueryDefinitions = make(map[string]*QueryDefinition)
+	}
+
+	if snap.DataProtectionPolicies == nil {
+		snap.DataProtectionPolicies = make(map[string]string)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]ResourcePolicy)
+	}
+
+	if snap.DeliveryDestinations == nil {
+		snap.DeliveryDestinations = make(map[string]DeliveryDestination)
+	}
+
+	if snap.DeliverySources == nil {
+		snap.DeliverySources = make(map[string]DeliverySource)
+	}
+
+	if snap.Destinations == nil {
+		snap.Destinations = make(map[string]CWLDestination)
+	}
+
+	if snap.IndexPolicies == nil {
+		snap.IndexPolicies = make(map[string]IndexPolicy)
+	}
+
+	if snap.Transformers == nil {
+		snap.Transformers = make(map[string]Transformer)
+	}
+
+	if snap.Integrations == nil {
+		snap.Integrations = make(map[string]CWLIntegration)
+	}
+
+	if snap.DeletionProtected == nil {
+		snap.DeletionProtected = make(map[string]bool)
+	}
+
 	b.groups = snap.Groups
 	b.streams = snap.Streams
 	b.events = snap.Events
@@ -126,6 +192,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountPolicies = snap.AccountPolicies
 	b.kmsKeys = snap.KmsKeys
 	b.s3TableIntegrations = snap.S3TableIntegrations
+	b.metricFilters = snap.MetricFilters
+	b.queryDefinitions = snap.QueryDefinitions
+	b.dataProtectionPolicies = snap.DataProtectionPolicies
+	b.resourcePolicies = snap.ResourcePolicies
+	b.deliveryDestinations = snap.DeliveryDestinations
+	b.deliverySources = snap.DeliverySources
+	b.destinations = snap.Destinations
+	b.indexPolicies = snap.IndexPolicies
+	b.transformers = snap.Transformers
+	b.integrations = snap.Integrations
+	b.deletionProtected = snap.DeletionProtected
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
