@@ -540,7 +540,7 @@ func (h *Handler) dispatchMemberNodeOps(c *echo.Context, op, resource string, bo
 	case opDeleteNode:
 		return h.handleDeleteNode(c, resource)
 	case opUpdateNode:
-		return h.handleUpdateNode(c, resource)
+		return h.handleUpdateNode(c, resource, body)
 	}
 
 	return errUnknownOp
@@ -607,6 +607,20 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, ErrMissingMemberName.Error())
 	}
 
+	var votingPolicy *VotingPolicy
+
+	if req.VotingPolicy != nil {
+		votingPolicy = &VotingPolicy{}
+
+		if req.VotingPolicy.ApprovalThresholdPolicy != nil {
+			votingPolicy.ApprovalThresholdPolicy = &ApprovalThresholdPolicy{
+				ThresholdComparator:     req.VotingPolicy.ApprovalThresholdPolicy.ThresholdComparator,
+				ProposalDurationInHours: req.VotingPolicy.ApprovalThresholdPolicy.ProposalDurationInHours,
+				ThresholdPercentage:     req.VotingPolicy.ApprovalThresholdPolicy.ThresholdPercentage,
+			}
+		}
+	}
+
 	network, member, err := h.Backend.CreateNetwork(
 		h.DefaultRegion,
 		h.AccountID,
@@ -617,6 +631,7 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
 		req.Tags,
+		votingPolicy,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -640,7 +655,14 @@ func (h *Handler) handleGetNetwork(c *echo.Context, networkID string) error {
 }
 
 func (h *Handler) handleListNetworks(c *echo.Context) error {
-	networks, err := h.Backend.ListNetworks()
+	q := c.Request().URL.Query()
+	filter := ListNetworksFilter{
+		Name:      q.Get("name"),
+		Framework: q.Get("framework"),
+		Status:    q.Get("status"),
+	}
+
+	networks, err := h.Backend.ListNetworks(filter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -705,7 +727,18 @@ func (h *Handler) handleListMembers(c *echo.Context, networkID string) error {
 		return writeError(c, http.StatusBadRequest, ErrMissingNetworkID.Error())
 	}
 
-	members, err := h.Backend.ListMembers(networkID)
+	q := c.Request().URL.Query()
+	filter := ListMembersFilter{
+		Name:   q.Get("name"),
+		Status: q.Get("status"),
+	}
+
+	if isOwnedStr := q.Get("isOwned"); isOwnedStr != "" {
+		isOwned := isOwnedStr == "true"
+		filter.IsOwned = &isOwned
+	}
+
+	members, err := h.Backend.ListMembers(networkID, filter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -779,7 +812,11 @@ func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
 		return writeError(c, http.StatusBadRequest, "invalid resource path")
 	}
 
-	nodes, err := h.Backend.ListNodes(networkID, memberID)
+	filter := ListNodesFilter{
+		Status: c.Request().URL.Query().Get("status"),
+	}
+
+	nodes, err := h.Backend.ListNodes(networkID, memberID, filter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -898,7 +935,11 @@ func (h *Handler) handleDeleteAccessor(c *echo.Context, accessorID string) error
 }
 
 func (h *Handler) handleListAccessors(c *echo.Context) error {
-	accessors, err := h.Backend.ListAccessors()
+	filter := ListAccessorsFilter{
+		NetworkType: c.Request().URL.Query().Get("networkType"),
+	}
+
+	accessors, err := h.Backend.ListAccessors(filter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -927,12 +968,27 @@ func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body [
 		return writeError(c, http.StatusBadRequest, ErrMissingMemberID.Error())
 	}
 
+	var actions *ProposalActions
+
+	if req.Actions != nil {
+		actions = &ProposalActions{}
+
+		for _, inv := range req.Actions.Invitations {
+			actions.Invitations = append(actions.Invitations, InviteAction(inv))
+		}
+
+		for _, rem := range req.Actions.Removals {
+			actions.Removals = append(actions.Removals, RemoveAction(rem))
+		}
+	}
+
 	proposal, err := h.Backend.CreateProposal(
 		h.DefaultRegion,
 		h.AccountID,
 		networkID,
 		req.MemberID,
 		req.Description,
+		actions,
 		req.Tags,
 	)
 	if err != nil {
@@ -1034,7 +1090,7 @@ func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []by
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	_, err := h.Backend.UpdateMember(networkID, memberID)
+	_, err := h.Backend.UpdateMember(networkID, memberID, buildMemberLogConfig(req.LogPublishingConfiguration))
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1042,18 +1098,86 @@ func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []by
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleUpdateNode(c *echo.Context, resource string) error {
+func buildMemberLogConfig(req *memberLogPublishingConfigReq) *MemberLogPublishingConfigState {
+	if req == nil {
+		return nil
+	}
+
+	logConfig := &MemberLogPublishingConfigState{}
+
+	if req.Fabric == nil {
+		return logConfig
+	}
+
+	fabric := &MemberFabricLogState{}
+
+	if req.Fabric.CaLogs != nil {
+		caLogs := &LogConfigState{}
+		if req.Fabric.CaLogs.CloudWatch != nil {
+			caLogs.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.CaLogs.CloudWatch.Enabled}
+		}
+		fabric.CALogs = caLogs
+	}
+
+	logConfig.Fabric = fabric
+
+	return logConfig
+}
+
+func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte) error {
 	networkID, memberID, nodeID, ok := splitThreePart(resource)
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "invalid resource path")
 	}
 
-	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID)
+	var req updateNodeRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return writeError(c, http.StatusBadRequest, "invalid request body")
+		}
+	}
+
+	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID, buildNodeLogConfig(req.LogPublishingConfiguration))
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func buildNodeLogConfig(req *nodeLogPublishingConfigReq) *NodeLogPublishingConfigState {
+	if req == nil {
+		return nil
+	}
+
+	logConfig := &NodeLogPublishingConfigState{}
+
+	if req.Fabric == nil {
+		return logConfig
+	}
+
+	fabric := &NodeFabricLogState{}
+
+	if req.Fabric.ChaincodeLogs != nil {
+		cl := &LogConfigState{}
+		if req.Fabric.ChaincodeLogs.CloudWatch != nil {
+			cl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.ChaincodeLogs.CloudWatch.Enabled}
+		}
+		fabric.ChaincodeLogs = cl
+	}
+
+	if req.Fabric.PeerLogs != nil {
+		pl := &LogConfigState{}
+		if req.Fabric.PeerLogs.CloudWatch != nil {
+			pl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.PeerLogs.CloudWatch.Enabled}
+		}
+		fabric.PeerLogs = pl
+	}
+
+	logConfig.Fabric = fabric
+
+	return logConfig
 }
 
 func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []byte) error {
@@ -1125,7 +1249,7 @@ func splitThreePart(resource string) (string, string, string, bool) {
 
 // toNetworkObject converts a Network to its JSON representation.
 func toNetworkObject(n *Network) networkObject {
-	return networkObject{
+	obj := networkObject{
 		ID:               n.ID,
 		Arn:              n.Arn,
 		Name:             n.Name,
@@ -1136,6 +1260,22 @@ func toNetworkObject(n *Network) networkObject {
 		CreationDate:     n.CreationDate,
 		Tags:             n.Tags,
 	}
+
+	if n.VotingPolicy != nil {
+		vp := &votingPolicyObject{}
+
+		if n.VotingPolicy.ApprovalThresholdPolicy != nil {
+			vp.ApprovalThresholdPolicy = &approvalThresholdPolicyObject{
+				ThresholdComparator:     n.VotingPolicy.ApprovalThresholdPolicy.ThresholdComparator,
+				ProposalDurationInHours: n.VotingPolicy.ApprovalThresholdPolicy.ProposalDurationInHours,
+				ThresholdPercentage:     n.VotingPolicy.ApprovalThresholdPolicy.ThresholdPercentage,
+			}
+		}
+
+		obj.VotingPolicy = vp
+	}
+
+	return obj
 }
 
 // toNetworkSummaryObject converts a Network to its summary JSON representation.
@@ -1154,7 +1294,7 @@ func toNetworkSummaryObject(n *Network) networkSummaryObject {
 
 // toMemberObject converts a Member to its JSON representation.
 func toMemberObject(m *Member) memberObject {
-	return memberObject{
+	obj := memberObject{
 		ID:           m.ID,
 		Arn:          m.Arn,
 		Name:         m.Name,
@@ -1163,7 +1303,50 @@ func toMemberObject(m *Member) memberObject {
 		Status:       m.Status,
 		CreationDate: m.CreationDate,
 		Tags:         m.Tags,
+		IsOwned:      m.IsOwned,
 	}
+
+	if m.LogPublishingConfiguration != nil {
+		obj.LogPublishingConfiguration = toMemberLogConfigRespObj(m.LogPublishingConfiguration)
+	}
+
+	return obj
+}
+
+// toMemberLogConfigRespObj converts MemberLogPublishingConfigState to its response JSON.
+func toMemberLogConfigRespObj(c *MemberLogPublishingConfigState) *memberLogPublishingConfigRespObj {
+	if c == nil {
+		return nil
+	}
+
+	obj := &memberLogPublishingConfigRespObj{}
+
+	if c.Fabric != nil {
+		fabric := &memberFabricLogRespObj{}
+
+		if c.Fabric.CALogs != nil {
+			fabric.CaLogs = toLogConfigRespObj(c.Fabric.CALogs)
+		}
+
+		obj.Fabric = fabric
+	}
+
+	return obj
+}
+
+// toLogConfigRespObj converts LogConfigState to its response JSON.
+func toLogConfigRespObj(c *LogConfigState) *logConfigRespObj {
+	if c == nil {
+		return nil
+	}
+
+	obj := &logConfigRespObj{}
+
+	if c.CloudWatch != nil {
+		obj.CloudWatch = &cloudWatchLogRespObj{Enabled: c.CloudWatch.Enabled}
+	}
+
+	return obj
 }
 
 // toMemberSummaryObject converts a Member to its summary JSON representation.
@@ -1175,12 +1358,13 @@ func toMemberSummaryObject(m *Member) memberSummaryObject {
 		Description:  m.Description,
 		Status:       m.Status,
 		CreationDate: m.CreationDate,
+		IsOwned:      m.IsOwned,
 	}
 }
 
 // toNodeObject converts a Node to its JSON representation.
 func toNodeObject(n *Node) nodeObject {
-	return nodeObject{
+	obj := nodeObject{
 		ID:               n.ID,
 		Arn:              n.Arn,
 		InstanceType:     n.InstanceType,
@@ -1191,16 +1375,48 @@ func toNodeObject(n *Node) nodeObject {
 		CreationDate:     n.CreationDate,
 		Tags:             n.Tags,
 	}
+
+	if n.LogPublishingConfiguration != nil {
+		obj.LogPublishingConfiguration = toNodeLogConfigRespObj(n.LogPublishingConfiguration)
+	}
+
+	return obj
+}
+
+// toNodeLogConfigRespObj converts NodeLogPublishingConfigState to its response JSON.
+func toNodeLogConfigRespObj(c *NodeLogPublishingConfigState) *nodeLogPublishingConfigRespObj {
+	if c == nil {
+		return nil
+	}
+
+	obj := &nodeLogPublishingConfigRespObj{}
+
+	if c.Fabric != nil {
+		fabric := &nodeFabricLogRespObj{}
+
+		if c.Fabric.ChaincodeLogs != nil {
+			fabric.ChaincodeLogs = toLogConfigRespObj(c.Fabric.ChaincodeLogs)
+		}
+
+		if c.Fabric.PeerLogs != nil {
+			fabric.PeerLogs = toLogConfigRespObj(c.Fabric.PeerLogs)
+		}
+
+		obj.Fabric = fabric
+	}
+
+	return obj
 }
 
 // toNodeSummaryObject converts a Node to its summary JSON representation.
 func toNodeSummaryObject(n *Node) nodeSummaryObject {
 	return nodeSummaryObject{
-		ID:           n.ID,
-		Arn:          n.Arn,
-		InstanceType: n.InstanceType,
-		Status:       n.Status,
-		CreationDate: n.CreationDate,
+		ID:               n.ID,
+		Arn:              n.Arn,
+		InstanceType:     n.InstanceType,
+		AvailabilityZone: n.AvailabilityZone,
+		Status:           n.Status,
+		CreationDate:     n.CreationDate,
 	}
 }
 
@@ -1232,7 +1448,7 @@ func toAccessorSummaryObject(a *Accessor) accessorSummaryObject {
 
 // toProposalObject converts a Proposal to its JSON representation.
 func toProposalObject(p *Proposal) proposalObject {
-	return proposalObject{
+	obj := proposalObject{
 		ProposalID:           p.ProposalID,
 		Arn:                  p.Arn,
 		NetworkID:            p.NetworkID,
@@ -1247,6 +1463,22 @@ func toProposalObject(p *Proposal) proposalObject {
 		OutstandingVoteCount: p.OutstandingVoteCount,
 		Tags:                 p.Tags,
 	}
+
+	if p.Actions != nil {
+		actObj := &proposalActionsObject{}
+
+		for _, inv := range p.Actions.Invitations {
+			actObj.Invitations = append(actObj.Invitations, inviteActionObject(inv))
+		}
+
+		for _, rem := range p.Actions.Removals {
+			actObj.Removals = append(actObj.Removals, removeActionObject(rem))
+		}
+
+		obj.Actions = actObj
+	}
+
+	return obj
 }
 
 // toProposalSummaryObject converts a Proposal to its summary JSON representation.
@@ -1254,6 +1486,7 @@ func toProposalSummaryObject(p *Proposal) proposalSummaryObject {
 	return proposalSummaryObject{
 		ProposalID:           p.ProposalID,
 		Arn:                  p.Arn,
+		NetworkID:            p.NetworkID,
 		ProposedByMemberID:   p.ProposedByMemberID,
 		ProposedByMemberName: p.ProposedByMemberName,
 		Description:          p.Description,
@@ -1265,7 +1498,7 @@ func toProposalSummaryObject(p *Proposal) proposalSummaryObject {
 
 // toInvitationObject converts an Invitation to its JSON representation.
 func toInvitationObject(inv *Invitation) invitationObject {
-	return invitationObject{
+	obj := invitationObject{
 		InvitationID:   inv.InvitationID,
 		Arn:            inv.Arn,
 		NetworkID:      inv.NetworkID,
@@ -1274,4 +1507,19 @@ func toInvitationObject(inv *Invitation) invitationObject {
 		CreationDate:   inv.CreationDate,
 		ExpirationDate: inv.ExpirationDate,
 	}
+
+	if inv.NetworkSummary != nil {
+		obj.NetworkSummary = &invitationNetworkSummaryObject{
+			ID:               inv.NetworkSummary.ID,
+			Arn:              inv.NetworkSummary.Arn,
+			Name:             inv.NetworkSummary.Name,
+			Description:      inv.NetworkSummary.Description,
+			Framework:        inv.NetworkSummary.Framework,
+			FrameworkVersion: inv.NetworkSummary.FrameworkVersion,
+			Status:           inv.NetworkSummary.Status,
+			CreationDate:     inv.NetworkSummary.CreationDate,
+		}
+	}
+
+	return obj
 }
