@@ -228,11 +228,12 @@ type deleteNamedQueryInput struct {
 }
 
 type createDataCatalogInput struct {
-	Name        string            `json:"Name"`
-	Type        string            `json:"Type"`
-	Description string            `json:"Description"`
-	Parameters  map[string]string `json:"Parameters"`
-	Tags        []Tag             `json:"Tags"`
+	Parameters     map[string]string `json:"Parameters"`
+	Name           string            `json:"Name"`
+	Type           string            `json:"Type"`
+	Description    string            `json:"Description"`
+	ConnectionType string            `json:"ConnectionType"`
+	Tags           []Tag             `json:"Tags"`
 }
 
 type getDataCatalogInput struct {
@@ -240,10 +241,11 @@ type getDataCatalogInput struct {
 }
 
 type updateDataCatalogInput struct {
-	Parameters  map[string]string `json:"Parameters"`
-	Name        string            `json:"Name"`
-	Type        string            `json:"Type"`
-	Description string            `json:"Description"`
+	Parameters     map[string]string `json:"Parameters"`
+	Name           string            `json:"Name"`
+	Type           string            `json:"Type"`
+	Description    string            `json:"Description"`
+	ConnectionType string            `json:"ConnectionType"`
 }
 
 type deleteDataCatalogInput struct {
@@ -269,6 +271,7 @@ type startQueryExecutionInput struct {
 	WorkGroup             string                `json:"WorkGroup"`
 	QueryExecutionContext QueryExecutionContext `json:"QueryExecutionContext"`
 	ResultConfiguration   ResultConfiguration   `json:"ResultConfiguration"`
+	ExecutionParameters   []string              `json:"ExecutionParameters"`
 }
 
 type stopQueryExecutionInput struct {
@@ -495,7 +498,12 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 			}
 
 			return struct{}{}, h.Backend.CreateDataCatalog(
-				input.Name, input.Type, input.Description, input.Parameters, tagsFromSlice(input.Tags),
+				input.Name,
+				input.Type,
+				input.Description,
+				input.ConnectionType,
+				input.Parameters,
+				tagsFromSlice(input.Tags),
 			)
 		},
 		"GetDataCatalog": func(b []byte) (any, error) {
@@ -526,7 +534,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 			}
 
 			return struct{}{}, h.Backend.UpdateDataCatalog(
-				input.Name, input.Type, input.Description, input.Parameters,
+				input.Name, input.Type, input.Description, input.ConnectionType, input.Parameters,
 			)
 		},
 		"DeleteDataCatalog": func(b []byte) (any, error) {
@@ -550,6 +558,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 
 			id, err := h.Backend.StartQueryExecution(
 				input.QueryString, input.WorkGroup, input.QueryExecutionContext, input.ResultConfiguration,
+				input.ExecutionParameters,
 			)
 			if err != nil {
 				return nil, err

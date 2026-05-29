@@ -605,9 +605,15 @@ func (b *InMemoryBackend) UpdateCapacityReservation(name string, targetDPUs int3
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
+	now := nowSeconds()
 	cr.TargetDpus = targetDPUs
 	cr.AllocatedDpus = targetDPUs
-	cr.LastAllocation = nowSeconds()
+	cr.LastAllocation = &CapacityAllocation{
+		RequestTime:           now,
+		RequestCompletionTime: now,
+		Status:                stateSucceeded,
+	}
+	cr.LastSuccessfulAllocationTime = now
 
 	return nil
 }
@@ -1003,7 +1009,7 @@ const (
 // ListEngineVersions returns the engines available to a workgroup.
 func (b *InMemoryBackend) ListEngineVersions() []EngineVersionDescriptor {
 	return []EngineVersionDescriptor{
-		{AuthEngineVersion: "AUTO", EffectiveEngineVersion: athenaEngineV3, SelectedEngineVersion: "AUTO"},
+		{AuthEngineVersion: stateAuto, EffectiveEngineVersion: athenaEngineV3, SelectedEngineVersion: stateAuto},
 		{
 			AuthEngineVersion:      athenaEngineV3,
 			EffectiveEngineVersion: athenaEngineV3,
