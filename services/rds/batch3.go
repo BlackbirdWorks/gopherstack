@@ -136,8 +136,8 @@ func piSeed(resourceID, metric string) uint64 {
 }
 
 // piValue derives a pseudo-random float in [0.0, 10.0) from seed and bucket index.
-func piValue(seed, bucket int64) float64 {
-	x := seed ^ uint64(bucket*2654435761)
+func piValue(seed uint64, bucket int64) float64 {
+	x := seed ^ (uint64(bucket) * 2654435761)
 	x ^= x >> 33
 	x *= 0xff51afd7ed558ccd
 	x ^= x >> 33

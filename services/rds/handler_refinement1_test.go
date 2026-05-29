@@ -63,7 +63,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rds.NewHandler(b)
 
-	assert.Equal(t, 164, rds.HandlerOpsLen(h))
+	assert.Equal(t, 165, rds.HandlerOpsLen(h))
 }
 
 // TestRefinement1_GetSupportedOperationsSorted verifies that GetSupportedOperations is alphabetically sorted.

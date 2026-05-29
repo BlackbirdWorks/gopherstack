@@ -242,11 +242,11 @@ func TestCreateIntegration(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.name == "duplicate" {
-				_, err := b.CreateIntegration(tt.intgName, tt.srcARN, tt.tgtARN, "")
+				_, err := b.CreateIntegration(tt.intgName, tt.srcARN, tt.tgtARN, "", "", "")
 				require.NoError(t, err)
 			}
 
-			intg, err := b.CreateIntegration(tt.intgName, tt.srcARN, tt.tgtARN, "")
+			intg, err := b.CreateIntegration(tt.intgName, tt.srcARN, tt.tgtARN, "", "", "")
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
@@ -271,7 +271,7 @@ func TestDeleteIntegration(t *testing.T) {
 	t.Run("success by name", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.CreateIntegration("intg-del", "src", "tgt", "")
+		_, err := b.CreateIntegration("intg-del", "src", "tgt", "", "", "")
 		require.NoError(t, err)
 
 		intg, err := b.DeleteIntegration("intg-del")
@@ -304,7 +304,7 @@ func TestDescribeIntegrations(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
 		for _, nm := range []string{"intg-z", "intg-a", "intg-m"} {
-			_, err := b.CreateIntegration(nm, "src", "tgt", "")
+			_, err := b.CreateIntegration(nm, "src", "tgt", "", "", "")
 			require.NoError(t, err)
 		}
 		integrations, err := b.DescribeIntegrations("")
@@ -318,9 +318,9 @@ func TestDescribeIntegrations(t *testing.T) {
 	t.Run("filtered", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.CreateIntegration("intg-x", "src", "tgt", "")
+		_, err := b.CreateIntegration("intg-x", "src", "tgt", "", "", "")
 		require.NoError(t, err)
-		_, err = b.CreateIntegration("intg-y", "src", "tgt", "")
+		_, err = b.CreateIntegration("intg-y", "src", "tgt", "", "", "")
 		require.NoError(t, err)
 
 		integrations, err := b.DescribeIntegrations("intg-x")
@@ -344,10 +344,10 @@ func TestModifyIntegration(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.CreateIntegration("intg-mod", "src", "tgt", "")
+		_, err := b.CreateIntegration("intg-mod", "src", "tgt", "", "", "")
 		require.NoError(t, err)
 
-		intg, err := b.ModifyIntegration("intg-mod")
+		intg, err := b.ModifyIntegration("intg-mod", "", "")
 		require.NoError(t, err)
 		assert.Equal(t, "intg-mod", intg.IntegrationName)
 	})
@@ -355,7 +355,7 @@ func TestModifyIntegration(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.ModifyIntegration("missing")
+		_, err := b.ModifyIntegration("missing", "", "")
 		require.Error(t, err)
 		require.ErrorIs(t, err, rds.ErrIntegrationNotFound)
 	})
@@ -1029,7 +1029,7 @@ func TestIntegration_ConcurrentReadWrite(t *testing.T) {
 
 	for i := range 10 {
 		wg.Go(func() {
-			if _, err := b.CreateIntegration(fmt.Sprintf("intg-conc-%d", i), "src", "tgt", ""); err != nil {
+			if _, err := b.CreateIntegration(fmt.Sprintf("intg-conc-%d", i), "src", "tgt", "", "", ""); err != nil {
 				errs <- err
 			}
 		})
@@ -1144,7 +1144,7 @@ func TestCreateIntegration_ARNFormat(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
 
-	intg, err := b.CreateIntegration("my-intg", "src", "tgt", "")
+	intg, err := b.CreateIntegration("my-intg", "src", "tgt", "", "", "")
 	require.NoError(t, err)
 	assert.Contains(t, intg.IntegrationArn, "arn:aws:rds:")
 	assert.Contains(t, intg.IntegrationArn, ":integration:")
