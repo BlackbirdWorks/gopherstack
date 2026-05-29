@@ -162,16 +162,16 @@ type VpcEndpoint struct {
 
 // Package represents an OpenSearch package.
 type Package struct {
-	PackageSource             *PackageSource             `json:"PackageSource,omitempty"`
-	PackageEncryptionOptions  *PackageEncryptionOptions  `json:"PackageEncryptionOptions,omitempty"`
-	PackageID                 string                     `json:"PackageID"`
-	PackageName               string                     `json:"PackageName"`
-	PackageType               string                     `json:"PackageType"`
-	PackageDescription        string                     `json:"PackageDescription"`
-	PackageStatus             string                     `json:"PackageStatus"`
-	VersionHistory            []*PackageVersionHistory   `json:"-"`
-	CreatedAt                 float64                    `json:"CreatedAt"`
-	AvailablePackageVersion   string                     `json:"AvailablePackageVersion,omitempty"`
+	PackageSource            *PackageSource            `json:"PackageSource,omitempty"`
+	PackageEncryptionOptions *PackageEncryptionOptions `json:"PackageEncryptionOptions,omitempty"`
+	PackageID                string                    `json:"PackageID"`
+	PackageName              string                    `json:"PackageName"`
+	PackageType              string                    `json:"PackageType"`
+	PackageDescription       string                    `json:"PackageDescription"`
+	PackageStatus            string                    `json:"PackageStatus"`
+	VersionHistory           []*PackageVersionHistory  `json:"-"`
+	CreatedAt                float64                   `json:"CreatedAt"`
+	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
 }
 
 // PackageVersionHistory records a version of a package.
@@ -761,7 +761,9 @@ func (b *InMemoryBackend) AcceptInboundConnection(connectionID string) (*Inbound
 }
 
 // AddDataSource adds a data source to a domain.
-func (b *InMemoryBackend) AddDataSource(domainName, name, description, dataSourceType string) (string, error) {
+func (b *InMemoryBackend) AddDataSource(
+	domainName, name, description, dataSourceType string,
+) (string, error) {
 	if domainName == "" {
 		return "", fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
@@ -812,7 +814,11 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 	defer b.mu.Unlock()
 
 	if _, exists := b.directQueryDataSources[name]; exists {
-		return "", fmt.Errorf("%w: direct query data source %s already exists", ErrDataSourceAlreadyExists, name)
+		return "", fmt.Errorf(
+			"%w: direct query data source %s already exists",
+			ErrDataSourceAlreadyExists,
+			name,
+		)
 	}
 
 	dsARN := arn.Build("opensearch", b.region, b.accountID, "directQueryDataSource/"+name)
@@ -828,7 +834,9 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 }
 
 // AssociatePackage associates a package with a domain.
-func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*DomainPackageDetails, error) {
+func (b *InMemoryBackend) AssociatePackage(
+	packageID, domainName string,
+) (*DomainPackageDetails, error) {
 	if packageID == "" {
 		return nil, fmt.Errorf("%w: PackageID is required", ErrInvalidParameter)
 	}
@@ -862,7 +870,10 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) (*Domai
 }
 
 // AssociatePackages associates multiple packages with a domain.
-func (b *InMemoryBackend) AssociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error) {
+func (b *InMemoryBackend) AssociatePackages(
+	domainName string,
+	packageIDs []string,
+) ([]DomainPackageDetails, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
@@ -929,7 +940,10 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(
 }
 
 // CancelDomainConfigChange cancels a pending configuration change on a domain.
-func (b *InMemoryBackend) CancelDomainConfigChange(domainName string, dryRun bool) ([]string, bool, error) {
+func (b *InMemoryBackend) CancelDomainConfigChange(
+	domainName string,
+	dryRun bool,
+) ([]string, bool, error) {
 	if domainName == "" {
 		return nil, false, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
@@ -945,7 +959,9 @@ func (b *InMemoryBackend) CancelDomainConfigChange(domainName string, dryRun boo
 }
 
 // CancelServiceSoftwareUpdate cancels a pending service software update.
-func (b *InMemoryBackend) CancelServiceSoftwareUpdate(domainName string) (*ServiceSoftwareOptions, error) {
+func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
+	domainName string,
+) (*ServiceSoftwareOptions, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
@@ -982,7 +998,11 @@ func (b *InMemoryBackend) CreateApplication(
 
 	for _, app := range b.applications {
 		if app.Name == name {
-			return nil, fmt.Errorf("%w: application %s already exists", ErrApplicationAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: application %s already exists",
+				ErrApplicationAlreadyExists,
+				name,
+			)
 		}
 	}
 
@@ -1115,13 +1135,19 @@ func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 }
 
 // DeleteOutboundConnection removes an outbound connection by ID.
-func (b *InMemoryBackend) DeleteOutboundConnection(connectionID string) (*OutboundConnection, error) {
+func (b *InMemoryBackend) DeleteOutboundConnection(
+	connectionID string,
+) (*OutboundConnection, error) {
 	b.mu.Lock("DeleteOutboundConnection")
 	defer b.mu.Unlock()
 
 	conn, exists := b.outboundConnections[connectionID]
 	if !exists {
-		return nil, fmt.Errorf("%w: outbound connection %s not found", ErrConnectionNotFound, connectionID)
+		return nil, fmt.Errorf(
+			"%w: outbound connection %s not found",
+			ErrConnectionNotFound,
+			connectionID,
+		)
 	}
 
 	cp := *conn
@@ -1138,7 +1164,11 @@ func (b *InMemoryBackend) RejectInboundConnection(connectionID string) (*Inbound
 
 	conn, exists := b.inboundConnections[connectionID]
 	if !exists {
-		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
+		return nil, fmt.Errorf(
+			"%w: inbound connection %s not found",
+			ErrConnectionNotFound,
+			connectionID,
+		)
 	}
 
 	conn.Status = "REJECTED"
@@ -1181,7 +1211,10 @@ func (b *InMemoryBackend) DescribeInboundConnections() []*InboundConnection {
 }
 
 // CreateVpcEndpoint creates a new VPC endpoint.
-func (b *InMemoryBackend) CreateVpcEndpoint(domainArn string, vpcOptions map[string]any) (*VpcEndpoint, error) {
+func (b *InMemoryBackend) CreateVpcEndpoint(
+	domainArn string,
+	vpcOptions map[string]any,
+) (*VpcEndpoint, error) {
 	b.mu.Lock("CreateVpcEndpoint")
 	defer b.mu.Unlock()
 
@@ -1239,7 +1272,10 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) ([]*VpcEndpoint, []
 }
 
 // UpdateVpcEndpoint updates the VPC options for a VPC endpoint.
-func (b *InMemoryBackend) UpdateVpcEndpoint(id string, vpcOptions map[string]any) (*VpcEndpoint, error) {
+func (b *InMemoryBackend) UpdateVpcEndpoint(
+	id string,
+	vpcOptions map[string]any,
+) (*VpcEndpoint, error) {
 	b.mu.Lock("UpdateVpcEndpoint")
 	defer b.mu.Unlock()
 
@@ -1425,7 +1461,9 @@ func (b *InMemoryBackend) DescribePackages(ids []string) ([]*Package, error) {
 }
 
 // GetPackageVersionHistory returns the version history for a package.
-func (b *InMemoryBackend) GetPackageVersionHistory(packageID string) ([]*PackageVersionHistory, error) {
+func (b *InMemoryBackend) GetPackageVersionHistory(
+	packageID string,
+) ([]*PackageVersionHistory, error) {
 	b.mu.RLock("GetPackageVersionHistory")
 	defer b.mu.RUnlock()
 
@@ -1528,12 +1566,22 @@ func (b *InMemoryBackend) GetDataSource(domainName, name string) (*DataSource, e
 
 	dsMap, exists := b.domainDataSources[domainName]
 	if !exists {
-		return nil, fmt.Errorf("%w: data source %s not found on domain %s", ErrDataSourceNotFound, name, domainName)
+		return nil, fmt.Errorf(
+			"%w: data source %s not found on domain %s",
+			ErrDataSourceNotFound,
+			name,
+			domainName,
+		)
 	}
 
 	ds, exists := dsMap[name]
 	if !exists {
-		return nil, fmt.Errorf("%w: data source %s not found on domain %s", ErrDataSourceNotFound, name, domainName)
+		return nil, fmt.Errorf(
+			"%w: data source %s not found on domain %s",
+			ErrDataSourceNotFound,
+			name,
+			domainName,
+		)
 	}
 
 	cp := *ds
@@ -1564,12 +1612,22 @@ func (b *InMemoryBackend) UpdateDataSource(domainName, name, description string)
 
 	dsMap, exists := b.domainDataSources[domainName]
 	if !exists {
-		return fmt.Errorf("%w: data source %s not found on domain %s", ErrDataSourceNotFound, name, domainName)
+		return fmt.Errorf(
+			"%w: data source %s not found on domain %s",
+			ErrDataSourceNotFound,
+			name,
+			domainName,
+		)
 	}
 
 	ds, exists := dsMap[name]
 	if !exists {
-		return fmt.Errorf("%w: data source %s not found on domain %s", ErrDataSourceNotFound, name, domainName)
+		return fmt.Errorf(
+			"%w: data source %s not found on domain %s",
+			ErrDataSourceNotFound,
+			name,
+			domainName,
+		)
 	}
 
 	ds.Description = description
@@ -1613,7 +1671,11 @@ func (b *InMemoryBackend) GetDirectQueryDataSource(name string) (*DirectQueryDat
 
 	ds, exists := b.directQueryDataSources[name]
 	if !exists {
-		return nil, fmt.Errorf("%w: direct query data source %s not found", ErrDataSourceNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: direct query data source %s not found",
+			ErrDataSourceNotFound,
+			name,
+		)
 	}
 
 	cp := *ds
@@ -1631,7 +1693,11 @@ func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 
 	ds, exists := b.directQueryDataSources[name]
 	if !exists {
-		return nil, fmt.Errorf("%w: direct query data source %s not found", ErrDataSourceNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: direct query data source %s not found",
+			ErrDataSourceNotFound,
+			name,
+		)
 	}
 
 	ds.Description = description
@@ -1668,7 +1734,10 @@ func (b *InMemoryBackend) ListScheduledActions(domainName string) []*ScheduledAc
 }
 
 // UpdateScheduledAction updates or adds a scheduled action for a domain.
-func (b *InMemoryBackend) UpdateScheduledAction(domainName string, action *ScheduledAction) (*ScheduledAction, error) {
+func (b *InMemoryBackend) UpdateScheduledAction(
+	domainName string,
+	action *ScheduledAction,
+) (*ScheduledAction, error) {
 	b.mu.Lock("UpdateScheduledAction")
 	defer b.mu.Unlock()
 
@@ -1758,7 +1827,11 @@ func (b *InMemoryBackend) PurchaseReservedInstanceOffering(
 	}
 
 	if offering == nil {
-		return nil, fmt.Errorf("%w: reserved instance offering %s not found", ErrConnectionNotFound, offeringID)
+		return nil, fmt.Errorf(
+			"%w: reserved instance offering %s not found",
+			ErrConnectionNotFound,
+			offeringID,
+		)
 	}
 
 	b.mu.Lock("PurchaseReservedInstanceOffering")
@@ -1789,7 +1862,9 @@ func (b *InMemoryBackend) PurchaseReservedInstanceOffering(
 }
 
 // StartDomainMaintenance starts a maintenance action on a domain.
-func (b *InMemoryBackend) StartDomainMaintenance(domainName, action, nodeID string) (*DomainMaintenance, error) {
+func (b *InMemoryBackend) StartDomainMaintenance(
+	domainName, action, nodeID string,
+) (*DomainMaintenance, error) {
 	b.mu.Lock("StartDomainMaintenance")
 	defer b.mu.Unlock()
 
@@ -1818,7 +1893,9 @@ func (b *InMemoryBackend) StartDomainMaintenance(domainName, action, nodeID stri
 }
 
 // GetDomainMaintenanceStatus returns a specific maintenance record.
-func (b *InMemoryBackend) GetDomainMaintenanceStatus(domainName, maintenanceID string) (*DomainMaintenance, error) {
+func (b *InMemoryBackend) GetDomainMaintenanceStatus(
+	domainName, maintenanceID string,
+) (*DomainMaintenance, error) {
 	b.mu.RLock("GetDomainMaintenanceStatus")
 	defer b.mu.RUnlock()
 
@@ -1891,12 +1968,22 @@ func (b *InMemoryBackend) DeleteIndex(domainName, indexName string) (*DomainInde
 
 	idxMap := b.domainIndexes[domainName]
 	if idxMap == nil {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	idx, exists := idxMap[indexName]
 	if !exists {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	cp := *idx
@@ -1912,12 +1999,22 @@ func (b *InMemoryBackend) GetIndex(domainName, indexName string) (*DomainIndex, 
 
 	idxMap := b.domainIndexes[domainName]
 	if idxMap == nil {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	idx, exists := idxMap[indexName]
 	if !exists {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	cp := *idx
@@ -1935,12 +2032,22 @@ func (b *InMemoryBackend) UpdateIndex(
 
 	idxMap := b.domainIndexes[domainName]
 	if idxMap == nil {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	idx, exists := idxMap[indexName]
 	if !exists {
-		return nil, fmt.Errorf("%w: index %s not found on domain %s", ErrConnectionNotFound, indexName, domainName)
+		return nil, fmt.Errorf(
+			"%w: index %s not found on domain %s",
+			ErrConnectionNotFound,
+			indexName,
+			domainName,
+		)
 	}
 
 	idx.Mappings = mappings
@@ -2033,7 +2140,9 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 }
 
 // StartServiceSoftwareUpdate marks a domain as having a pending software update.
-func (b *InMemoryBackend) StartServiceSoftwareUpdate(domainName string) (*ServiceSoftwareOptions, error) {
+func (b *InMemoryBackend) StartServiceSoftwareUpdate(
+	domainName string,
+) (*ServiceSoftwareOptions, error) {
 	b.mu.RLock("StartServiceSoftwareUpdate")
 	defer b.mu.RUnlock()
 
@@ -2082,16 +2191,7 @@ func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
 	return out, nil
 }
 
-// UpdateDomainConfig updates mutable fields on a domain and records a change ID.
-func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConfigInput) (*Domain, error) {
-	b.mu.Lock("UpdateDomainConfig")
-	defer b.mu.Unlock()
-
-	d, exists := b.domains[name]
-	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
-	}
-
+func applyClusterConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.ClusterConfig != nil {
 		d.ClusterConfig = *input.ClusterConfig
 	}
@@ -2099,7 +2199,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 	if input.EngineVersion != "" {
 		d.EngineVersion = input.EngineVersion
 	}
+}
 
+func applyStorageConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.EBSOptions != nil {
 		d.EBSOptions = input.EBSOptions
 	}
@@ -2107,7 +2209,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 	if input.SnapshotOptions != nil {
 		d.SnapshotOptions = input.SnapshotOptions
 	}
+}
 
+func applySecurityConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.EncryptionAtRestOptions != nil {
 		d.EncryptionAtRestOptions = input.EncryptionAtRestOptions
 	}
@@ -2123,7 +2227,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 	if input.AdvancedSecurityOptions != nil {
 		d.AdvancedSecurityOptions = input.AdvancedSecurityOptions
 	}
+}
 
+func applyNetworkConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.VPCOptions != nil {
 		d.VPCOptions = input.VPCOptions
 	}
@@ -2131,7 +2237,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 	if input.CognitoOptions != nil {
 		d.CognitoOptions = input.CognitoOptions
 	}
+}
 
+func applyOperationalConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.OffPeakWindowOptions != nil {
 		d.OffPeakWindowOptions = input.OffPeakWindowOptions
 	}
@@ -2151,6 +2259,26 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 	if input.AccessPolicies != "" {
 		d.AccessPolicies = input.AccessPolicies
 	}
+}
+
+// UpdateDomainConfig updates mutable fields on a domain and records a change ID.
+func (b *InMemoryBackend) UpdateDomainConfig(
+	name string,
+	input UpdateDomainConfigInput,
+) (*Domain, error) {
+	b.mu.Lock("UpdateDomainConfig")
+	defer b.mu.Unlock()
+
+	d, exists := b.domains[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+	}
+
+	applyClusterConfig(d, input)
+	applyStorageConfig(d, input)
+	applySecurityConfig(d, input)
+	applyNetworkConfig(d, input)
+	applyOperationalConfig(d, input)
 
 	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())
 	d.LastChangeID = changeID
@@ -2161,7 +2289,9 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 }
 
 // GetDefaultApplicationSettings returns stored settings for the given applicationType.
-func (b *InMemoryBackend) GetDefaultApplicationSettings(applicationType string) ([]AppSetting, error) {
+func (b *InMemoryBackend) GetDefaultApplicationSettings(
+	applicationType string,
+) ([]AppSetting, error) {
 	b.mu.RLock("GetDefaultApplicationSettings")
 	defer b.mu.RUnlock()
 
@@ -2173,7 +2303,10 @@ func (b *InMemoryBackend) GetDefaultApplicationSettings(applicationType string) 
 }
 
 // PutDefaultApplicationSettings stores settings for the given applicationType.
-func (b *InMemoryBackend) PutDefaultApplicationSettings(applicationType string, settings []AppSetting) error {
+func (b *InMemoryBackend) PutDefaultApplicationSettings(
+	applicationType string,
+	settings []AppSetting,
+) error {
 	b.mu.Lock("PutDefaultApplicationSettings")
 	defer b.mu.Unlock()
 
@@ -2376,7 +2509,9 @@ func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]
 }
 
 // DissociatePackage removes a package association from a domain.
-func (b *InMemoryBackend) DissociatePackage(packageID, domainName string) (*DomainPackageDetails, error) {
+func (b *InMemoryBackend) DissociatePackage(
+	packageID, domainName string,
+) (*DomainPackageDetails, error) {
 	if packageID == "" {
 		return nil, fmt.Errorf("%w: PackageID is required", ErrInvalidParameter)
 	}
@@ -2408,7 +2543,10 @@ func (b *InMemoryBackend) DissociatePackage(packageID, domainName string) (*Doma
 }
 
 // DissociatePackages removes multiple package associations from a domain.
-func (b *InMemoryBackend) DissociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error) {
+func (b *InMemoryBackend) DissociatePackages(
+	domainName string,
+	packageIDs []string,
+) ([]DomainPackageDetails, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
