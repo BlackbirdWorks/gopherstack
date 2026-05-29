@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -157,11 +158,22 @@ func (d *fifoDeduplication) evictEarliestLocked() {
 }
 
 type Handler struct {
-	actions map[string]snsActionFn
-	Backend StorageBackend
-	dedup   *fifoDeduplication
+	actions      map[string]snsActionFn
+	Backend      StorageBackend
+	dedup        *fifoDeduplication
+	fifoSeqNums  sync.Map // topicArn → *atomic.Int64; FIFO message sequence counters
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
+}
+
+// nextFIFOSeqNum returns the next 20-digit zero-padded FIFO sequence number for
+// the given topic ARN. Sequence numbers are monotonically increasing and unique
+// within each topic, matching the shape returned by AWS SNS FIFO topics.
+func (h *Handler) nextFIFOSeqNum(topicArn string) string {
+	v, _ := h.fifoSeqNums.LoadOrStore(topicArn, new(atomic.Int64))
+	n := v.(*atomic.Int64).Add(1)
+
+	return fmt.Sprintf("%020d", n)
 }
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
@@ -754,7 +766,7 @@ func (h *Handler) publishFIFOTopic(
 		// Duplicate within the 5-minute window: AWS still returns success with a
 		// synthesized message ID and does not actually re-publish the message.
 		return h.writeXML(c, PublishResponse{
-			PublishResult:    PublishResult{MessageID: uuid.New().String()},
+			PublishResult:    PublishResult{MessageID: uuid.New().String(), SequenceNumber: h.nextFIFOSeqNum(topicArn)},
 			ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 		})
 	}
@@ -769,7 +781,7 @@ func (h *Handler) publishFIFOTopic(
 	}
 
 	return h.writeXML(c, PublishResponse{
-		PublishResult:    PublishResult{MessageID: messageID},
+		PublishResult:    PublishResult{MessageID: messageID, SequenceNumber: h.nextFIFOSeqNum(topicArn)},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
@@ -941,7 +953,12 @@ func (h *Handler) processBatchEntry(
 		h.dedup.record(topicArn, effectiveDedupID)
 	}
 
-	return &XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id}, nil
+	ok := &XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id}
+	if isFIFO {
+		ok.SequenceNumber = h.nextFIFOSeqNum(topicArn)
+	}
+
+	return ok, nil
 }
 
 // batchEntryFIFODedup resolves the effective FIFO deduplication ID for a single
@@ -965,8 +982,9 @@ func (h *Handler) batchEntryFIFODedup(
 
 	if id != "" && h.dedup.isDuplicate(topicArn, id) {
 		return "", &XMLPublishBatchSuccessEntry{
-			MessageID: uuid.New().String(),
-			ID:        entry.id,
+			MessageID:      uuid.New().String(),
+			SequenceNumber: h.nextFIFOSeqNum(topicArn),
+			ID:             entry.id,
 		}, nil
 	}
 
@@ -1618,8 +1636,12 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists),
 		errors.Is(err, ErrSandboxPhoneAlreadyExists):
 		log.WarnContext(ctx, "SNS resource already exists", "error", err)
-	case errors.Is(err, ErrInvalidParameter):
+	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
+	case errors.Is(err, ErrEndpointDisabled):
+		log.WarnContext(ctx, "SNS endpoint disabled", "error", err)
+	case errors.Is(err, ErrOptedOut):
+		log.WarnContext(ctx, "SNS phone number opted out", "error", err)
 	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
 		log.WarnContext(ctx, "SNS permission label error", "error", err)
 	default:
@@ -1645,6 +1667,10 @@ func errorCode(err error) string {
 		return "AlreadyExists"
 	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
 		return "InvalidParameter"
+	case errors.Is(err, ErrEndpointDisabled):
+		return "EndpointDisabled"
+	case errors.Is(err, ErrOptedOut):
+		return "OptedOut"
 	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
 		return "AuthorizationError"
 	default:
@@ -1812,4 +1838,11 @@ func (h *Handler) Reset() {
 	h.dedup.mu.Lock()
 	h.dedup.entries = make(map[string]time.Time)
 	h.dedup.mu.Unlock()
+
+	// Clear FIFO sequence number counters.
+	h.fifoSeqNums.Range(func(k, _ any) bool {
+		h.fifoSeqNums.Delete(k)
+
+		return true
+	})
 }
