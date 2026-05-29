@@ -2306,7 +2306,7 @@ type getManagedRuleSetRequest struct {
 	Scope string `json:"Scope"`
 }
 
-// handleGetManagedRuleSet returns a stub managed rule set.
+// handleGetManagedRuleSet returns the stored managed rule set.
 func (h *Handler) handleGetManagedRuleSet(body []byte) ([]byte, error) {
 	var req getManagedRuleSetRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -2317,15 +2317,21 @@ func (h *Handler) handleGetManagedRuleSet(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	ms, err := h.Backend.GetManagedRuleSet(req.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	return json.Marshal(map[string]any{
 		"ManagedRuleSet": map[string]any{
-			"Id":                req.ID,
-			keyName:             req.Name,
-			keyARN:              "",
-			keyLockToken:        "",
-			"PublishedVersions": map[string]any{},
+			"Id":                 ms.ID,
+			keyName:              ms.Name,
+			keyARN:               ms.ARN,
+			keyLockToken:         ms.LockToken,
+			"PublishedVersions":  ms.PublishedVersions,
+			"RecommendedVersion": ms.RecommendedVersion,
 		},
-		keyLockToken: "",
+		keyLockToken: ms.LockToken,
 	})
 }
 
@@ -2335,18 +2341,36 @@ type getMobileSdkReleaseRequest struct {
 	ReleaseVersion string `json:"ReleaseVersion"`
 }
 
-// handleGetMobileSdkRelease returns a stub mobile SDK release.
+// handleGetMobileSdkRelease returns the mobile SDK release from the catalog.
 func (h *Handler) handleGetMobileSdkRelease(body []byte) ([]byte, error) {
 	var req getMobileSdkReleaseRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.Platform == "" {
+		return nil, fmt.Errorf("%w: Platform is required", errInvalidRequest)
+	}
+
+	if req.ReleaseVersion == "" {
+		return nil, fmt.Errorf("%w: ReleaseVersion is required", errInvalidRequest)
+	}
+
+	release := getMobileSdkRelease(req.Platform, req.ReleaseVersion)
+	if release == nil {
+		return nil, fmt.Errorf(
+			"%w: mobile SDK release %q/%q not found",
+			ErrMobileSdkReleaseNotFound,
+			req.Platform,
+			req.ReleaseVersion,
+		)
+	}
+
 	return json.Marshal(map[string]any{
 		"MobileSdkRelease": map[string]any{
-			"ReleaseVersion": req.ReleaseVersion,
-			"Timestamp":      nil,
-			"ReleaseNotes":   "",
+			"ReleaseVersion": release.ReleaseVersion,
+			"Timestamp":      release.Timestamp,
+			"ReleaseNotes":   release.ReleaseNotes,
 			"Tags":           []any{},
 		},
 	})
@@ -2509,14 +2533,75 @@ func (h *Handler) handleListLoggingConfigurations(_ []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"LoggingConfigurations": items})
 }
 
-// handleListManagedRuleSets lists all managed rule sets.
-func (h *Handler) handleListManagedRuleSets(_ []byte) ([]byte, error) {
-	return json.Marshal(map[string]any{"ManagedRuleSets": []any{}})
+// listManagedRuleSetsRequest is the request body for ListManagedRuleSets.
+type listManagedRuleSetsRequest struct {
+	Scope      string `json:"Scope"`
+	NextMarker string `json:"NextMarker"`
+	Limit      int    `json:"Limit"`
 }
 
-// handleListMobileSdkReleases lists mobile SDK releases.
-func (h *Handler) handleListMobileSdkReleases(_ []byte) ([]byte, error) {
-	return json.Marshal(map[string]any{"ReleaseSummaries": []any{}})
+// handleListManagedRuleSets lists all stored managed rule sets, filtered by scope.
+func (h *Handler) handleListManagedRuleSets(body []byte) ([]byte, error) {
+	var req listManagedRuleSetsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	sets := h.Backend.ListManagedRuleSets(req.Scope)
+
+	items, nextMarker := paginateByName(
+		sets,
+		func(ms *ManagedRuleSet) string { return ms.Name },
+		req.NextMarker,
+		req.Limit,
+	)
+
+	summaries := make([]map[string]any, 0, len(items))
+
+	for _, ms := range items {
+		summaries = append(summaries, map[string]any{
+			"Id":        ms.ID,
+			keyName:     ms.Name,
+			keyARN:      ms.ARN,
+			keyLockToken: ms.LockToken,
+		})
+	}
+
+	resp := map[string]any{"ManagedRuleSets": summaries}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
+}
+
+// listMobileSdkReleasesRequest is the request body for ListMobileSdkReleases.
+type listMobileSdkReleasesRequest struct {
+	Platform   string `json:"Platform"`
+	Scope      string `json:"Scope"`
+	NextMarker string `json:"NextMarker"`
+	Limit      int    `json:"Limit"`
+}
+
+// handleListMobileSdkReleases lists mobile SDK releases from the catalog.
+func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
+	var req listMobileSdkReleasesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	releases := getMobileSdkReleases(req.Platform)
+
+	summaries := make([]map[string]any, 0, len(releases))
+
+	for _, r := range releases {
+		summaries = append(summaries, map[string]any{
+			"ReleaseVersion": r.ReleaseVersion,
+			"Timestamp":      r.Timestamp,
+		})
+	}
+
+	return json.Marshal(map[string]any{"ReleaseSummaries": summaries})
 }
 
 // putManagedRuleSetVersionsRequest is the request body for PutManagedRuleSetVersions.
@@ -2539,10 +2624,22 @@ func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []by
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	ms, err := h.Backend.PutManagedRuleSetVersions(
+		req.ID,
+		req.Name,
+		req.Scope,
+		req.LockToken,
+		req.RecommendedVersion,
+		req.VersionsToPublish,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: put managed rule set versions", "id", req.ID)
 
-	return json.Marshal(map[string]string{keyNextLockToken: ""})
+	return json.Marshal(map[string]string{keyNextLockToken: ms.LockToken})
 }
 
 // updateManagedRuleSetVersionExpiryDateRequest is the request body for UpdateManagedRuleSetVersionExpiryDate.
@@ -2565,11 +2662,21 @@ func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Contex
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	ms, err := h.Backend.UpdateManagedRuleSetVersionExpiryDate(
+		req.ID,
+		req.LockToken,
+		req.VersionToExpire,
+		req.ExpiryTimestamp,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: updated managed rule set version expiry date", "id", req.ID)
 
 	return json.Marshal(map[string]any{
-		keyNextLockToken:  "",
+		keyNextLockToken:  ms.LockToken,
 		"ExpiringVersion": req.VersionToExpire,
 		"ExpiryTimestamp": req.ExpiryTimestamp,
 	})

@@ -2,6 +2,70 @@ package wafv2
 
 const awsVendorName = "AWS"
 
+// mobileSdkReleaseInfo holds catalog metadata for a WAF mobile SDK release.
+type mobileSdkReleaseInfo struct {
+	Platform       string
+	ReleaseVersion string
+	ReleaseNotes   string
+	Timestamp      int64
+}
+
+// getMobileSdkRelease returns the mobile SDK release entry for the given platform and version.
+// Returns nil if the platform or version is not in the catalog.
+func getMobileSdkRelease(platform, version string) *mobileSdkReleaseInfo {
+	for _, r := range buildMobileSdkCatalog() {
+		if r.Platform == platform && r.ReleaseVersion == version {
+			cp := r
+			return &cp
+		}
+	}
+
+	return nil
+}
+
+// getMobileSdkReleases returns all catalog entries for the given platform.
+// Returns nil if the platform is unknown.
+func getMobileSdkReleases(platform string) []mobileSdkReleaseInfo {
+	var result []mobileSdkReleaseInfo
+
+	for _, r := range buildMobileSdkCatalog() {
+		if r.Platform == platform {
+			result = append(result, r)
+		}
+	}
+
+	return result
+}
+
+func buildMobileSdkCatalog() []mobileSdkReleaseInfo {
+	return []mobileSdkReleaseInfo{
+		{
+			Platform:       "Android",
+			ReleaseVersion: "3.1.0",
+			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for Android — threat intelligence updates and bug fixes",
+			Timestamp:      1717200000,
+		},
+		{
+			Platform:       "Android",
+			ReleaseVersion: "3.0.0",
+			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for Android — initial v3 release",
+			Timestamp:      1700000000,
+		},
+		{
+			Platform:       "iOS",
+			ReleaseVersion: "3.1.0",
+			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for iOS — threat intelligence updates and bug fixes",
+			Timestamp:      1717200000,
+		},
+		{
+			Platform:       "iOS",
+			ReleaseVersion: "3.0.0",
+			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for iOS — initial v3 release",
+			Timestamp:      1700000000,
+		},
+	}
+}
+
 // managedRuleGroupInfo holds catalog metadata for an AWS Managed Rule Group.
 type managedRuleGroupInfo struct {
 	VendorName          string
