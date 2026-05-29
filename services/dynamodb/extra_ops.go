@@ -314,11 +314,17 @@ func (db *InMemoryDB) DescribeKinesisStreamingDestination(
 	table.mu.RLock("DescribeKinesisStreamingDestination")
 	destinations := make([]types.KinesisDataStreamDestination, 0, len(table.KinesisDestinations))
 
-	for _, streamARN := range table.KinesisDestinations {
-		sa := streamARN
+	for _, dest := range table.KinesisDestinations {
+		d := dest
+		precision := types.ApproximateCreationDateTimePrecision(d.Precision)
+		if d.Precision == "" {
+			precision = types.ApproximateCreationDateTimePrecisionMillisecond
+		}
+
 		destinations = append(destinations, types.KinesisDataStreamDestination{
-			StreamArn:         &sa,
-			DestinationStatus: types.DestinationStatusActive,
+			StreamArn:                            &d.StreamARN,
+			DestinationStatus:                    types.DestinationStatusActive,
+			ApproximateCreationDateTimePrecision: precision,
 		})
 	}
 
@@ -358,8 +364,8 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 
 	found := false
 
-	for i, sa := range table.KinesisDestinations {
-		if sa == streamARN {
+	for i, dest := range table.KinesisDestinations {
+		if dest.StreamARN == streamARN {
 			table.KinesisDestinations = append(table.KinesisDestinations[:i], table.KinesisDestinations[i+1:]...)
 			found = true
 
@@ -490,23 +496,33 @@ func (db *InMemoryDB) EnableKinesisStreamingDestination(
 	streamARN := *input.StreamArn
 	tableName := *input.TableName
 
+	precision := ""
+	if input.EnableKinesisStreamingConfiguration != nil {
+		precision = string(input.EnableKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision)
+	}
+
 	table.mu.Lock("EnableKinesisStreamingDestination")
 
-	// Idempotent: only add if not already present.
-	alreadyExists := slices.Contains(table.KinesisDestinations, streamARN)
+	// Idempotent: if already present update precision config, otherwise append.
+	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
+		return e.StreamARN == streamARN
+	})
 
-	if !alreadyExists {
-		table.KinesisDestinations = append(table.KinesisDestinations, streamARN)
+	if idx >= 0 {
+		table.KinesisDestinations[idx].Precision = precision
+	} else {
+		table.KinesisDestinations = append(table.KinesisDestinations, KinesisDestinationEntry{
+			StreamARN: streamARN,
+			Precision: precision,
+		})
 	}
 
 	table.mu.Unlock()
 
-	status := types.DestinationStatusEnabling
-
 	return &dynamodb.EnableKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
-		DestinationStatus: status,
+		DestinationStatus: types.DestinationStatusEnabling,
 	}, nil
 }
 
@@ -1015,9 +1031,8 @@ func (db *InMemoryDB) UpdateContributorInsights(
 
 // --- UpdateGlobalTableSettings ---
 
-// UpdateGlobalTableSettings is a stub that validates the global table exists and
-// returns the current (default) settings. The in-memory backend does not simulate
-// per-replica autoscaling or billing mode changes at the global level.
+// UpdateGlobalTableSettings persists global and per-replica billing/throughput settings
+// and returns the updated state for each replica.
 func (db *InMemoryDB) UpdateGlobalTableSettings(
 	_ context.Context,
 	input *dynamodb.UpdateGlobalTableSettingsInput,
@@ -1028,28 +1043,34 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	db.mu.RLock("UpdateGlobalTableSettings")
+	db.mu.Lock("UpdateGlobalTableSettings")
 	gt, exists := db.GlobalTables[name]
-	db.mu.RUnlock()
 
 	if !exists {
+		db.mu.Unlock()
+
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
 
-	replicas := make([]types.ReplicaSettingsDescription, 0, len(gt.ReplicationGroup))
-	for _, region := range gt.ReplicationGroup {
-		r := region
+	applyGlobalTableSettingsMutation(gt, input)
 
-		replicas = append(replicas, types.ReplicaSettingsDescription{
-			RegionName:    &r,
-			ReplicaStatus: types.ReplicaStatusActive,
-			ReplicaBillingModeSummary: &types.BillingModeSummary{
-				BillingMode: types.BillingModePayPerRequest,
-			},
-		})
+	billingMode := gt.BillingMode
+	replicationGroup := make([]string, len(gt.ReplicationGroup))
+	copy(replicationGroup, gt.ReplicationGroup)
+	replicaSettings := gt.ReplicaSettings
+	db.mu.Unlock()
+
+	effectiveBilling := types.BillingModePayPerRequest
+	if billingMode != "" {
+		effectiveBilling = types.BillingMode(billingMode)
+	}
+
+	replicas := make([]types.ReplicaSettingsDescription, 0, len(replicationGroup))
+	for _, region := range replicationGroup {
+		replicas = append(replicas, buildGlobalTableReplicaDesc(region, effectiveBilling, replicaSettings))
 	}
 
 	return &dynamodb.UpdateGlobalTableSettingsOutput{
@@ -1058,11 +1079,93 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 	}, nil
 }
 
+// applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
+// per-replica setting changes from input.
+func applyGlobalTableSettingsMutation(gt *StoredGlobalTable, input *dynamodb.UpdateGlobalTableSettingsInput) {
+	if string(input.GlobalTableBillingMode) != "" {
+		gt.BillingMode = string(input.GlobalTableBillingMode)
+	}
+
+	if input.GlobalTableProvisionedWriteCapacityUnits != nil {
+		v := *input.GlobalTableProvisionedWriteCapacityUnits
+		gt.WriteCapacityUnits = &v
+	}
+
+	applyReplicaSettingsUpdates(gt, input.ReplicaSettingsUpdate)
+}
+
+// applyReplicaSettingsUpdates persists per-replica billing and throughput changes onto gt.
+func applyReplicaSettingsUpdates(gt *StoredGlobalTable, updates []types.ReplicaSettingsUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+
+	if gt.ReplicaSettings == nil {
+		gt.ReplicaSettings = make(map[string]*StoredReplicaSettings)
+	}
+
+	for _, ru := range updates {
+		if ru.RegionName == nil {
+			continue
+		}
+
+		region := *ru.RegionName
+		rs := gt.ReplicaSettings[region]
+
+		if rs == nil {
+			rs = &StoredReplicaSettings{}
+			gt.ReplicaSettings[region] = rs
+		}
+
+		if string(ru.ReplicaTableClass) != "" {
+			rs.TableClass = string(ru.ReplicaTableClass)
+		}
+
+		if ru.ReplicaProvisionedReadCapacityUnits != nil {
+			v := *ru.ReplicaProvisionedReadCapacityUnits
+			rs.ReadCapacityUnits = &v
+		}
+	}
+}
+
+// buildGlobalTableReplicaDesc constructs a ReplicaSettingsDescription for a single region.
+func buildGlobalTableReplicaDesc(
+	region string,
+	billing types.BillingMode,
+	replicaSettings map[string]*StoredReplicaSettings,
+) types.ReplicaSettingsDescription {
+	r := region
+	desc := types.ReplicaSettingsDescription{
+		RegionName:    &r,
+		ReplicaStatus: types.ReplicaStatusActive,
+		ReplicaBillingModeSummary: &types.BillingModeSummary{
+			BillingMode: billing,
+		},
+	}
+
+	rs, ok := replicaSettings[region]
+	if !ok || rs == nil {
+		return desc
+	}
+
+	if rs.TableClass != "" {
+		tc := types.TableClass(rs.TableClass)
+		desc.ReplicaTableClassSummary = &types.TableClassSummary{TableClass: tc}
+	}
+
+	if rs.ReadCapacityUnits != nil {
+		rcu := *rs.ReadCapacityUnits
+		desc.ReplicaProvisionedReadCapacityUnits = &rcu
+	}
+
+	return desc
+}
+
 // --- UpdateKinesisStreamingDestination ---
 
-// UpdateKinesisStreamingDestination is a stub that validates the table and stream ARN
-// and returns a synthetic ACTIVE status. The in-memory backend does not simulate
-// Kinesis streaming configuration changes beyond enable/disable.
+// UpdateKinesisStreamingDestination updates the precision configuration of an existing
+// Kinesis streaming destination. The precision change is persisted and reflected in
+// subsequent DescribeKinesisStreamingDestination calls.
 func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 	ctx context.Context,
 	input *dynamodb.UpdateKinesisStreamingDestinationInput,
@@ -1075,12 +1178,36 @@ func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 		return nil, NewValidationException("StreamArn is required")
 	}
 
-	if _, err := db.getTable(ctx, *input.TableName); err != nil {
+	table, err := db.getTable(ctx, *input.TableName)
+	if err != nil {
 		return nil, err
 	}
 
 	tableName := *input.TableName
 	streamARN := *input.StreamArn
+
+	table.mu.Lock("UpdateKinesisStreamingDestination")
+
+	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
+		return e.StreamARN == streamARN
+	})
+
+	if idx < 0 {
+		table.mu.Unlock()
+
+		return nil, &Error{
+			Type:    errResourceNotFoundExceptionType,
+			Message: fmt.Sprintf("Kinesis stream %s not found for table %s", streamARN, tableName),
+		}
+	}
+
+	if input.UpdateKinesisStreamingConfiguration != nil {
+		table.KinesisDestinations[idx].Precision = string(
+			input.UpdateKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision,
+		)
+	}
+
+	table.mu.Unlock()
 
 	return &dynamodb.UpdateKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
@@ -1140,8 +1267,8 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 
 // --- UpdateTableReplicaAutoScaling ---
 
-// UpdateTableReplicaAutoScaling is a stub that validates the table exists and returns
-// a basic autoscaling description. The in-memory backend does not simulate autoscaling.
+// UpdateTableReplicaAutoScaling persists the autoscaling settings for a table's replicas
+// so DescribeTableReplicaAutoScaling can round-trip the configured values.
 func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 	ctx context.Context,
 	input *dynamodb.UpdateTableReplicaAutoScalingInput,

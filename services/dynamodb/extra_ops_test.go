@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	dynamodbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1264,4 +1265,319 @@ func TestDynamoDB_DeleteTable_CleanupGlobalTables(t *testing.T) {
 	require.Equal(t, http.StatusOK, code4)
 	gtDesc4 := resp4["GlobalTableDescription"].(map[string]any)
 	_ = gtDesc4
+}
+
+// TestDynamoDB_KinesisPrecision_RoundTrip verifies that the precision set during
+// EnableKinesisStreamingDestination is returned by DescribeKinesisStreamingDestination.
+func TestDynamoDB_KinesisPrecision_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+	createTableHelper(t, backend, "PrecisionTable", "pk")
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/prec-stream"
+
+	code, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
+		"TableName": "PrecisionTable",
+		"StreamArn": streamARN,
+		"EnableKinesisStreamingConfiguration": map[string]any{
+			"ApproximateCreationDateTimePrecision": "MICROSECOND",
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
+		"TableName": "PrecisionTable",
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+
+	dest := dests[0].(map[string]any)
+	assert.Equal(t, "MICROSECOND", dest["ApproximateCreationDateTimePrecision"])
+	assert.Equal(t, streamARN, dest["StreamArn"])
+}
+
+// TestDynamoDB_KinesisPrecision_DefaultMillisecond verifies that destinations enabled
+// without an explicit precision default to MILLISECOND.
+func TestDynamoDB_KinesisPrecision_DefaultMillisecond(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+	createTableHelper(t, backend, "DefaultPrecTable", "pk")
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/default-prec"
+
+	code, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
+		"TableName": "DefaultPrecTable",
+		"StreamArn": streamARN,
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
+		"TableName": "DefaultPrecTable",
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+
+	dest := dests[0].(map[string]any)
+	assert.Equal(t, "MILLISECOND", dest["ApproximateCreationDateTimePrecision"])
+}
+
+// TestDynamoDB_UpdateKinesisPrecision verifies that UpdateKinesisStreamingDestination
+// persists the new precision and DescribeKinesisStreamingDestination reflects it.
+func TestDynamoDB_UpdateKinesisPrecision(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+	createTableHelper(t, backend, "UpdatePrecTable", "pk")
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/update-prec"
+
+	_, err := backend.EnableKinesisStreamingDestination(t.Context(),
+		buildEnableKinesisInput("UpdatePrecTable", streamARN, "MILLISECOND"),
+	)
+	require.NoError(t, err)
+
+	code, resp := invokeOp(t, handler, "UpdateKinesisStreamingDestination", map[string]any{
+		"TableName": "UpdatePrecTable",
+		"StreamArn": streamARN,
+		"UpdateKinesisStreamingConfiguration": map[string]any{
+			"ApproximateCreationDateTimePrecision": "MICROSECOND",
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "ACTIVE", resp["DestinationStatus"])
+
+	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
+		"TableName": "UpdatePrecTable",
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+	assert.Equal(t, "MICROSECOND", dests[0].(map[string]any)["ApproximateCreationDateTimePrecision"])
+}
+
+// TestDynamoDB_UpdateKinesisDestination_NotFound verifies a 404 when stream not enabled.
+func TestDynamoDB_UpdateKinesisDestination_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+	createTableHelper(t, backend, "NoStreamTable", "pk")
+
+	code, resp := invokeOp(t, handler, "UpdateKinesisStreamingDestination", map[string]any{
+		"TableName": "NoStreamTable",
+		"StreamArn": "arn:aws:kinesis:us-east-1:123:stream/absent",
+	})
+	require.Equal(t, http.StatusBadRequest, code)
+	bodyBytes, _ := json.Marshal(resp)
+	assert.Contains(t, string(bodyBytes), "ResourceNotFoundException")
+}
+
+// TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode verifies that
+// UpdateGlobalTableSettings persists the billing mode and returns it.
+func TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	code, _ := invokeOp(t, handler, "CreateTable", map[string]any{
+		"TableName": "BillingGT",
+		"KeySchema": []map[string]any{{"AttributeName": "pk", "KeyType": "HASH"}},
+		"AttributeDefinitions": []map[string]any{
+			{"AttributeName": "pk", "AttributeType": "S"},
+		},
+		"BillingMode": "PAY_PER_REQUEST",
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	code2, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName":  "BillingGT",
+		"ReplicationGroup": []map[string]any{{"RegionName": "us-east-1"}, {"RegionName": "eu-west-1"}},
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	code3, resp3 := invokeOp(t, handler, "UpdateGlobalTableSettings", map[string]any{
+		"GlobalTableName":                          "BillingGT",
+		"GlobalTableBillingMode":                   "PROVISIONED",
+		"GlobalTableProvisionedWriteCapacityUnits": 50,
+	})
+	require.Equal(t, http.StatusOK, code3)
+
+	assert.Equal(t, "BillingGT", resp3["GlobalTableName"])
+	replicas, ok := resp3["ReplicaSettings"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, replicas)
+
+	for _, r := range replicas {
+		rm := r.(map[string]any)
+		billingSum, ok2 := rm["ReplicaBillingModeSummary"].(map[string]any)
+		require.True(t, ok2)
+		assert.Equal(t, "PROVISIONED", billingSum["BillingMode"])
+	}
+
+	// Second call must return persisted value without changes.
+	code4, resp4 := invokeOp(t, handler, "UpdateGlobalTableSettings", map[string]any{
+		"GlobalTableName": "BillingGT",
+	})
+	require.Equal(t, http.StatusOK, code4)
+
+	replicas2, _ := resp4["ReplicaSettings"].([]any)
+	require.NotEmpty(t, replicas2)
+	for _, r := range replicas2 {
+		rm := r.(map[string]any)
+		billingSum, _ := rm["ReplicaBillingModeSummary"].(map[string]any)
+		assert.Equal(t, "PROVISIONED", billingSum["BillingMode"], "persisted billing mode should be returned")
+	}
+}
+
+// TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass verifies per-replica
+// table class is persisted and returned.
+func TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName":  "ClassGT",
+		"ReplicationGroup": []map[string]any{{"RegionName": "us-east-1"}, {"RegionName": "ap-southeast-1"}},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	code2, resp2 := invokeOp(t, handler, "UpdateGlobalTableSettings", map[string]any{
+		"GlobalTableName": "ClassGT",
+		"ReplicaSettingsUpdate": []map[string]any{
+			{"RegionName": "ap-southeast-1", "ReplicaTableClass": "STANDARD_INFREQUENT_ACCESS"},
+		},
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	replicas, ok := resp2["ReplicaSettings"].([]any)
+	require.True(t, ok)
+
+	var apReplica map[string]any
+	for _, r := range replicas {
+		rm := r.(map[string]any)
+		if rm["RegionName"] == "ap-southeast-1" {
+			apReplica = rm
+
+			break
+		}
+	}
+	require.NotNil(t, apReplica)
+
+	classSum, ok2 := apReplica["ReplicaTableClassSummary"].(map[string]any)
+	require.True(t, ok2)
+	assert.Equal(t, "STANDARD_INFREQUENT_ACCESS", classSum["TableClass"])
+}
+
+// TestDynamoDB_UpdateGlobalTableSettings_NotFound verifies 404 for non-existent table.
+func TestDynamoDB_UpdateGlobalTableSettings_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	code, resp := invokeOp(t, handler, "UpdateGlobalTableSettings", map[string]any{
+		"GlobalTableName": "NoSuchGT",
+	})
+	require.Equal(t, http.StatusBadRequest, code)
+	bodyBytes, _ := json.Marshal(resp)
+	assert.Contains(t, string(bodyBytes), "GlobalTableNotFoundException")
+}
+
+// TestDynamoDB_GlobalTablesV2_UpdateReplica verifies that an UpdateTable with a
+// ReplicaUpdates.Update action persists per-replica settings.
+func TestDynamoDB_GlobalTablesV2_UpdateReplica(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	code, _ := invokeOp(t, handler, "CreateTable", map[string]any{
+		"TableName": "V2UpdateTable",
+		"KeySchema": []map[string]any{{"AttributeName": "pk", "KeyType": "HASH"}},
+		"AttributeDefinitions": []map[string]any{
+			{"AttributeName": "pk", "AttributeType": "S"},
+		},
+		"BillingMode": "PAY_PER_REQUEST",
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	// Add a replica via UpdateTable (Global Tables v2).
+	code2, _ := invokeOp(t, handler, "UpdateTable", map[string]any{
+		"TableName": "V2UpdateTable",
+		"ReplicaUpdates": []map[string]any{
+			{"Create": map[string]any{"RegionName": "eu-central-1"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, code2)
+
+	// Update the replica's table class.
+	code3, _ := invokeOp(t, handler, "UpdateTable", map[string]any{
+		"TableName": "V2UpdateTable",
+		"ReplicaUpdates": []map[string]any{
+			{
+				"Update": map[string]any{
+					"RegionName":         "eu-central-1",
+					"TableClassOverride": "STANDARD_INFREQUENT_ACCESS",
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, code3)
+
+	// DescribeTable should reflect the override on the replica.
+	code4, resp4 := invokeOp(t, handler, "DescribeTable", map[string]any{
+		"TableName": "V2UpdateTable",
+	})
+	require.Equal(t, http.StatusOK, code4)
+
+	td := resp4["Table"].(map[string]any)
+	replicas, ok := td["Replicas"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, replicas)
+
+	var euReplica map[string]any
+	for _, r := range replicas {
+		rm := r.(map[string]any)
+		if rm["RegionName"] == "eu-central-1" {
+			euReplica = rm
+
+			break
+		}
+	}
+	require.NotNil(t, euReplica)
+	assert.Equal(t, "STANDARD_INFREQUENT_ACCESS", euReplica["TableClassOverride"])
+}
+
+// buildEnableKinesisInput is a test helper for constructing EnableKinesisStreamingDestinationInput.
+func buildEnableKinesisInput(
+	tableName, streamARN, precision string,
+) *dynamodbsdk.EnableKinesisStreamingDestinationInput {
+	in := &dynamodbsdk.EnableKinesisStreamingDestinationInput{
+		TableName: aws.String(tableName),
+		StreamArn: aws.String(streamARN),
+	}
+
+	if precision != "" {
+		in.EnableKinesisStreamingConfiguration = &sdktypes.EnableKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: sdktypes.ApproximateCreationDateTimePrecision(precision),
+		}
+	}
+
+	return in
 }

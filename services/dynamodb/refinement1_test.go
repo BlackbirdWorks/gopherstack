@@ -341,6 +341,12 @@ func TestUpdateKinesisStreamingDestination_ReturnsActive(t *testing.T) {
 
 	streamARN := "arn:aws:kinesis:us-east-1:123:stream/my-stream"
 
+	_, err := db.EnableKinesisStreamingDestination(t.Context(), &sdk.EnableKinesisStreamingDestinationInput{
+		TableName: aws.String("KinesisActiveTable"),
+		StreamArn: aws.String(streamARN),
+	})
+	require.NoError(t, err)
+
 	out, err := db.UpdateKinesisStreamingDestination(t.Context(), &sdk.UpdateKinesisStreamingDestinationInput{
 		TableName: aws.String("KinesisActiveTable"),
 		StreamArn: aws.String(streamARN),
