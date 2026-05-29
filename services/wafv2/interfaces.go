@@ -80,6 +80,17 @@ type StorageBackend interface {
 	GetPermissionPolicy(resourceARN string) (string, error)
 	ListResourcesForWebACL(webACLARN string) ([]string, error)
 	PutPermissionPolicy(resourceARN, policy string) error
+	ManagedRuleSetARN(name, id, scope string) string
+	GetManagedRuleSet(id string) (*ManagedRuleSet, error)
+	ListManagedRuleSets(scope string) []*ManagedRuleSet
+	PutManagedRuleSetVersions(
+		id, name, scope, lockToken, recommendedVersion string,
+		versionsToPublish map[string]any,
+	) (*ManagedRuleSet, error)
+	UpdateManagedRuleSetVersionExpiryDate(
+		id, lockToken, versionToExpire string,
+		expiryTimestamp *int64,
+	) (*ManagedRuleSet, error)
 	Snapshot() []byte
 	Restore(data []byte) error
 }

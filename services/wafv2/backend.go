@@ -16,6 +16,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+func fillVersionFromRaw(v *ManagedRuleSetVersion, raw any) {
+	vMap, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+
+	if arnVal, arnOK := vMap["AssociatedRuleGroupArn"].(string); arnOK {
+		v.AssociatedRuleGroupArn = arnVal
+	}
+
+	if capVal, capOK := toInt64(vMap["Capacity"]); capOK {
+		v.Capacity = capVal
+	}
+}
+
 var (
 	// ErrWebACLNotFound is returned when a WebACL does not exist.
 	ErrWebACLNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
@@ -55,6 +70,10 @@ var (
 	ErrTagOperation = awserr.New("WAFTagOperationException", awserr.ErrInvalidParameter)
 	// ErrConfigurationWarning is returned when there is a configuration warning.
 	ErrConfigurationWarning = awserr.New("WAFConfigurationWarningException", awserr.ErrInvalidParameter)
+	// ErrManagedRuleSetNotFound is returned when a managed rule set does not exist.
+	ErrManagedRuleSetNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
+	// ErrMobileSdkReleaseNotFound is returned when a mobile SDK release is not in the catalog.
+	ErrMobileSdkReleaseNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 )
 
 const (
@@ -197,6 +216,27 @@ type RuleGroup struct {
 	Capacity         int64             `json:"capacity"`
 }
 
+// ManagedRuleSetVersion holds metadata for a single published version of a managed rule set.
+type ManagedRuleSetVersion struct {
+	ExpiryTimestamp        *int64 `json:"ExpiryTimestamp,omitempty"`
+	ForecastedLifetime     *int64 `json:"ForecastedLifetime,omitempty"`
+	LastUpdateTimestamp    *int64 `json:"LastUpdateTimestamp,omitempty"`
+	PublishTimestamp       *int64 `json:"PublishTimestamp,omitempty"`
+	AssociatedRuleGroupArn string `json:"AssociatedRuleGroupArn,omitempty"`
+	Capacity               int64  `json:"Capacity,omitempty"`
+}
+
+// ManagedRuleSet represents an AWS WAFv2 managed rule set.
+type ManagedRuleSet struct {
+	PublishedVersions  map[string]ManagedRuleSetVersion `json:"publishedVersions,omitempty"`
+	ID                 string                           `json:"id"`
+	Name               string                           `json:"name"`
+	Scope              string                           `json:"scope"`
+	ARN                string                           `json:"arn,omitempty"`
+	LockToken          string                           `json:"lockToken"`
+	RecommendedVersion string                           `json:"recommendedVersion,omitempty"`
+}
+
 // APIKey represents an AWS WAFv2 API key.
 type APIKey struct {
 	APIKeyValue  string   `json:"apiKey"`
@@ -210,6 +250,7 @@ type InMemoryBackend struct {
 	ipSets                 map[string]*IPSet
 	regexPatternSets       map[string]*RegexPatternSet
 	ruleGroups             map[string]*RuleGroup
+	managedRuleSets        map[string]*ManagedRuleSet // id → ManagedRuleSet
 	apiKeys                map[string]*APIKey         // key: scope+":"+apiKeyValue
 	loggingConfigs         map[string]json.RawMessage // resourceARN → full config JSON
 	permissionPolicies     map[string]string          // resourceARN → policy JSON
@@ -234,6 +275,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		ipSets:                 make(map[string]*IPSet),
 		regexPatternSets:       make(map[string]*RegexPatternSet),
 		ruleGroups:             make(map[string]*RuleGroup),
+		managedRuleSets:        make(map[string]*ManagedRuleSet),
 		apiKeys:                make(map[string]*APIKey),
 		loggingConfigs:         make(map[string]json.RawMessage),
 		permissionPolicies:     make(map[string]string),
@@ -1087,6 +1129,7 @@ func (b *InMemoryBackend) Reset() {
 	b.ipSets = make(map[string]*IPSet)
 	b.regexPatternSets = make(map[string]*RegexPatternSet)
 	b.ruleGroups = make(map[string]*RuleGroup)
+	b.managedRuleSets = make(map[string]*ManagedRuleSet)
 	b.apiKeys = make(map[string]*APIKey)
 	b.loggingConfigs = make(map[string]json.RawMessage)
 	b.permissionPolicies = make(map[string]string)
@@ -1681,6 +1724,138 @@ func shallowCopyRules(rules []map[string]any) []map[string]any {
 	}
 
 	return out
+}
+
+// ManagedRuleSetARN builds an ARN for a ManagedRuleSet.
+func (b *InMemoryBackend) ManagedRuleSetARN(name, id, scope string) string {
+	prefix := scopePrefix(scope)
+
+	return arn.Build("wafv2", b.arnRegion(scope), b.accountID, prefix+"/managedruleset/"+name+"/"+id)
+}
+
+// GetManagedRuleSet returns a ManagedRuleSet by ID.
+func (b *InMemoryBackend) GetManagedRuleSet(id string) (*ManagedRuleSet, error) {
+	b.mu.RLock("GetManagedRuleSet")
+	defer b.mu.RUnlock()
+
+	ms, ok := b.managedRuleSets[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: managed rule set %q not found", ErrManagedRuleSetNotFound, id)
+	}
+
+	return cloneManagedRuleSet(ms), nil
+}
+
+// ListManagedRuleSets returns all managed rule sets sorted by name, optionally filtered by scope.
+func (b *InMemoryBackend) ListManagedRuleSets(scope string) []*ManagedRuleSet {
+	b.mu.RLock("ListManagedRuleSets")
+	defer b.mu.RUnlock()
+
+	list := make([]*ManagedRuleSet, 0, len(b.managedRuleSets))
+
+	for _, ms := range b.managedRuleSets {
+		if scope != "" && ms.Scope != scope {
+			continue
+		}
+
+		list = append(list, cloneManagedRuleSet(ms))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// PutManagedRuleSetVersions creates or updates a managed rule set with the given versions.
+// If the ID does not exist, a new managed rule set is created. If it exists, the lock token
+// is verified before updating.
+func (b *InMemoryBackend) PutManagedRuleSetVersions(
+	id, name, scope, lockToken, recommendedVersion string,
+	versionsToPublish map[string]any,
+) (*ManagedRuleSet, error) {
+	b.mu.Lock("PutManagedRuleSetVersions")
+	defer b.mu.Unlock()
+
+	ms, exists := b.managedRuleSets[id]
+	if exists && lockToken != "" && lockToken != ms.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for managed rule set %q", ErrOptimisticLock, id)
+	}
+
+	if !exists {
+		arnStr := b.ManagedRuleSetARN(name, id, scope)
+		ms = &ManagedRuleSet{
+			ID:                id,
+			Name:              name,
+			Scope:             scope,
+			ARN:               arnStr,
+			LockToken:         uuid.NewString(),
+			PublishedVersions: make(map[string]ManagedRuleSetVersion),
+		}
+		b.managedRuleSets[id] = ms
+	}
+
+	for versionName, versionRaw := range versionsToPublish {
+		version := ManagedRuleSetVersion{}
+		fillVersionFromRaw(&version, versionRaw)
+
+		ms.PublishedVersions[versionName] = version
+	}
+
+	if recommendedVersion != "" {
+		ms.RecommendedVersion = recommendedVersion
+	}
+
+	ms.LockToken = uuid.NewString()
+
+	return cloneManagedRuleSet(ms), nil
+}
+
+// UpdateManagedRuleSetVersionExpiryDate updates the expiry timestamp on a specific version
+// of a managed rule set. Returns the updated managed rule set, the expiring version name,
+// and any error.
+func (b *InMemoryBackend) UpdateManagedRuleSetVersionExpiryDate(
+	id, lockToken, versionToExpire string,
+	expiryTimestamp *int64,
+) (*ManagedRuleSet, error) {
+	b.mu.Lock("UpdateManagedRuleSetVersionExpiryDate")
+	defer b.mu.Unlock()
+
+	ms, ok := b.managedRuleSets[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: managed rule set %q not found", ErrManagedRuleSetNotFound, id)
+	}
+
+	if lockToken != "" && lockToken != ms.LockToken {
+		return nil, fmt.Errorf("%w: lock token mismatch for managed rule set %q", ErrOptimisticLock, id)
+	}
+
+	v, ok := ms.PublishedVersions[versionToExpire]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: version %q not found in managed rule set %q",
+			ErrManagedRuleSetNotFound,
+			versionToExpire,
+			id,
+		)
+	}
+
+	v.ExpiryTimestamp = expiryTimestamp
+	ms.PublishedVersions[versionToExpire] = v
+	ms.LockToken = uuid.NewString()
+
+	return cloneManagedRuleSet(ms), nil
+}
+
+func cloneManagedRuleSet(ms *ManagedRuleSet) *ManagedRuleSet {
+	cp := *ms
+
+	if ms.PublishedVersions != nil {
+		cp.PublishedVersions = make(map[string]ManagedRuleSetVersion, len(ms.PublishedVersions))
+
+		maps.Copy(cp.PublishedVersions, ms.PublishedVersions)
+	}
+
+	return &cp
 }
 
 // cloneRules performs a deep clone of a rules slice. A JSON round-trip is used

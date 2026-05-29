@@ -10,6 +10,7 @@ type backendSnapshot struct {
 	IPSets             map[string]*IPSet           `json:"ipSets"`
 	RegexPatternSets   map[string]*RegexPatternSet `json:"regexPatternSets,omitempty"`
 	RuleGroups         map[string]*RuleGroup       `json:"ruleGroups,omitempty"`
+	ManagedRuleSets    map[string]*ManagedRuleSet  `json:"managedRuleSets,omitempty"`
 	APIKeys            map[string]*APIKey          `json:"apiKeys,omitempty"`
 	LoggingConfigs     map[string]json.RawMessage  `json:"loggingConfigs,omitempty"`
 	PermissionPolicies map[string]string           `json:"permissionPolicies,omitempty"`
@@ -28,6 +29,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		IPSets:             b.ipSets,
 		RegexPatternSets:   b.regexPatternSets,
 		RuleGroups:         b.ruleGroups,
+		ManagedRuleSets:    b.managedRuleSets,
 		APIKeys:            b.apiKeys,
 		LoggingConfigs:     b.loggingConfigs,
 		PermissionPolicies: b.permissionPolicies,
@@ -63,6 +65,10 @@ func (snap *backendSnapshot) ensureNonNilMaps() {
 
 	if snap.RuleGroups == nil {
 		snap.RuleGroups = make(map[string]*RuleGroup)
+	}
+
+	if snap.ManagedRuleSets == nil {
+		snap.ManagedRuleSets = make(map[string]*ManagedRuleSet)
 	}
 
 	if snap.APIKeys == nil {
@@ -132,6 +138,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.ipSets = snap.IPSets
 	b.regexPatternSets = snap.RegexPatternSets
 	b.ruleGroups = snap.RuleGroups
+	b.managedRuleSets = snap.ManagedRuleSets
 	b.apiKeys = snap.APIKeys
 	b.loggingConfigs = snap.LoggingConfigs
 	b.permissionPolicies = snap.PermissionPolicies
