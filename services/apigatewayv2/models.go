@@ -414,8 +414,8 @@ type DomainNameConfiguration struct {
 	DomainNameStatus                    string `json:"domainNameStatus,omitempty"`
 	EndpointType                        string `json:"endpointType,omitempty"`
 	SecurityPolicy                      string `json:"securityPolicy,omitempty"`
-	ApiGatewayDomainName                string `json:"apiGatewayDomainName,omitempty"`
-	HostedZoneId                        string `json:"hostedZoneId,omitempty"`
+	APIGatewayDomainName                string `json:"apiGatewayDomainName,omitempty"`
+	HostedZoneID                        string `json:"hostedZoneId,omitempty"`
 	CertificateName                     string `json:"certificateName,omitempty"`
 	OwnershipVerificationCertificateArn string `json:"ownershipVerificationCertificateArn,omitempty"`
 }

@@ -1045,8 +1045,8 @@ func TestDomainNameConfiguration_SecurityPolicy_Defaults(t *testing.T) {
 	cfg := dn.DomainNameConfigurations[0]
 	assert.Equal(t, "TLS_1_2", cfg.SecurityPolicy)
 	assert.Equal(t, "AVAILABLE", cfg.DomainNameStatus)
-	assert.NotEmpty(t, cfg.ApiGatewayDomainName)
-	assert.NotEmpty(t, cfg.HostedZoneId)
+	assert.NotEmpty(t, cfg.APIGatewayDomainName)
+	assert.NotEmpty(t, cfg.HostedZoneID)
 }
 
 func TestDomainNameConfiguration_CustomSecurityPolicy(t *testing.T) {
@@ -1080,7 +1080,7 @@ func TestDomainNameConfiguration_ApiGatewayDomainName_Contains_DomainName(t *tes
 	})
 	require.NoError(t, err)
 	require.Len(t, dn.DomainNameConfigurations, 1)
-	assert.Contains(t, dn.DomainNameConfigurations[0].ApiGatewayDomainName, "api.mycompany.com")
+	assert.Contains(t, dn.DomainNameConfigurations[0].APIGatewayDomainName, "api.mycompany.com")
 }
 
 func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing.T) {
@@ -1094,13 +1094,13 @@ func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing
 			{
 				CertificateArn:       "arn:aws:acm:us-east-1:123456789012:certificate/abc",
 				EndpointType:         "REGIONAL",
-				ApiGatewayDomainName: customDomain,
-				HostedZoneId:         "Z1HUB23UULQXV",
+				APIGatewayDomainName: customDomain,
+				HostedZoneID:         "Z1HUB23UULQXV",
 			},
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, dn.DomainNameConfigurations, 1)
-	assert.Equal(t, customDomain, dn.DomainNameConfigurations[0].ApiGatewayDomainName)
-	assert.Equal(t, "Z1HUB23UULQXV", dn.DomainNameConfigurations[0].HostedZoneId)
+	assert.Equal(t, customDomain, dn.DomainNameConfigurations[0].APIGatewayDomainName)
+	assert.Equal(t, "Z1HUB23UULQXV", dn.DomainNameConfigurations[0].HostedZoneID)
 }

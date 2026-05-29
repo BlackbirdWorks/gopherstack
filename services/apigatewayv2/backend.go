@@ -14,6 +14,35 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+func applyDomainNameDefaults(in []DomainNameConfiguration, domain string) []DomainNameConfiguration {
+	configs := make([]DomainNameConfiguration, len(in))
+	copy(configs, in)
+
+	for i := range configs {
+		if configs[i].DomainNameStatus == "" {
+			configs[i].DomainNameStatus = "AVAILABLE"
+		}
+
+		if configs[i].SecurityPolicy == "" {
+			configs[i].SecurityPolicy = "TLS_1_2"
+		}
+
+		if configs[i].EndpointType == "" {
+			configs[i].EndpointType = "REGIONAL"
+		}
+
+		if configs[i].APIGatewayDomainName == "" {
+			configs[i].APIGatewayDomainName = domain + ".execute-api.us-east-1.amazonaws.com"
+		}
+
+		if configs[i].HostedZoneID == "" {
+			configs[i].HostedZoneID = "Z2FDTNDATAQYW2"
+		}
+	}
+
+	return configs
+}
+
 const (
 	apiIDChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	apiIDLength = 10
@@ -1368,26 +1397,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 	}
 
 	if len(input.DomainNameConfigurations) > 0 {
-		configs := make([]DomainNameConfiguration, len(input.DomainNameConfigurations))
-		copy(configs, input.DomainNameConfigurations)
-		for i := range configs {
-			if configs[i].DomainNameStatus == "" {
-				configs[i].DomainNameStatus = "AVAILABLE"
-			}
-			if configs[i].SecurityPolicy == "" {
-				configs[i].SecurityPolicy = "TLS_1_2"
-			}
-			if configs[i].EndpointType == "" {
-				configs[i].EndpointType = "REGIONAL"
-			}
-			if configs[i].ApiGatewayDomainName == "" {
-				configs[i].ApiGatewayDomainName = input.DomainNameValue + ".execute-api.us-east-1.amazonaws.com"
-			}
-			if configs[i].HostedZoneId == "" {
-				configs[i].HostedZoneId = "Z2FDTNDATAQYW2"
-			}
-		}
-		dn.DomainNameConfigurations = configs
+		dn.DomainNameConfigurations = applyDomainNameDefaults(input.DomainNameConfigurations, input.DomainNameValue)
 	}
 
 	b.domainNames[input.DomainNameValue] = dn
