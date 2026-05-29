@@ -58,6 +58,22 @@ const (
 	jsonKeyDataSource       = "DataSource"
 )
 
+// marshalDataSourceType converts any DataSourceType value (typically a
+// JSON-decoded map[string]any) to a JSON string for backend storage.
+// Falls back to fmt.Sprintf only if marshalling fails.
+func marshalDataSourceType(v any) string {
+	if v == nil {
+		return ""
+	}
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+
+	return string(b)
+}
+
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
 	Backend   StorageBackend
@@ -2497,7 +2513,7 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 		domainName,
 		req.Name,
 		req.Description,
-		fmt.Sprintf("%v", req.DataSourceType),
+		marshalDataSourceType(req.DataSourceType),
 	)
 	if addErr != nil {
 		switch {
@@ -2552,7 +2568,7 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 	dsARN, addErr := h.Backend.AddDirectQueryDataSource(
 		req.DataSourceName,
 		req.Description,
-		fmt.Sprintf("%v", req.DataSourceType),
+		marshalDataSourceType(req.DataSourceType),
 		req.OpenSearchArns,
 	)
 	if addErr != nil {
@@ -3615,7 +3631,15 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 	case strings.HasSuffix(trimmed, "/serviceSoftwareUpdate"):
 		// StartServiceSoftwareUpdate
 		domainName, _ := strings.CutSuffix(trimmed, "/serviceSoftwareUpdate")
-		opts, err := h.Backend.StartServiceSoftwareUpdate(domainName)
+		body, _ := httputils.ReadBody(r)
+		var sswReq struct {
+			ScheduleAt      string `json:"ScheduleAt"`
+			DesiredStartTime *int64 `json:"DesiredStartTime"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &sswReq)
+		}
+		opts, err := h.Backend.StartServiceSoftwareUpdate(domainName, sswReq.ScheduleAt)
 		if err != nil {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
@@ -3623,7 +3647,9 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 		}
 		h.writeJSON(r, w, map[string]any{
 			"ServiceSoftwareOptions": map[string]any{
-				"UpdateStatus": opts.UpdateStatus, "UpdateAvailable": opts.UpdateAvailable,
+				"UpdateStatus":    opts.UpdateStatus,
+				"UpdateAvailable": opts.UpdateAvailable,
+				"Description":     opts.Description,
 			},
 		})
 	case strings.HasSuffix(trimmed, "/updateDataSource"):

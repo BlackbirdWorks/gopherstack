@@ -80,7 +80,7 @@ type StorageBackend interface {
 	// Config/software operations
 	CancelDomainConfigChange(domainName string, dryRun bool) ([]string, bool, error)
 	CancelServiceSoftwareUpdate(domainName string) (*ServiceSoftwareOptions, error)
-	StartServiceSoftwareUpdate(domainName string) (*ServiceSoftwareOptions, error)
+	StartServiceSoftwareUpdate(domainName, scheduleAt string) (*ServiceSoftwareOptions, error)
 
 	// Application operations
 	CreateApplication(name string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
