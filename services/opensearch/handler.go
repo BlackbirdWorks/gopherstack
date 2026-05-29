@@ -35,6 +35,7 @@ const (
 	openSearchReservedPath           = "/2021-01-01/opensearch/reservedInstances"
 	openSearchUpgradePath            = "/2021-01-01/opensearch/upgradeDomain"
 	openSearchInstanceTypeLimitsPath = "/2021-01-01/opensearch/instanceTypeLimits"
+	openSearchServerlessPath         = "/2021-11-01/opensearch/serverless"
 	openSearchServiceName            = "OpenSearch"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
@@ -93,6 +94,7 @@ var openSearchPathPrefixes = []string{
 	openSearchReservedPath,
 	openSearchUpgradePath,
 	openSearchInstanceTypeLimitsPath,
+	openSearchServerlessPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
@@ -202,6 +204,29 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateScheduledAction",
 		"UpdateVpcEndpoint",
 		"UpgradeDomain",
+		// Serverless operations
+		"BatchGetCollection",
+		"CreateAccessPolicy",
+		"CreateCollection",
+		"CreateEncryptionPolicy",
+		"CreateNetworkPolicy",
+		"CreateSecurityConfig",
+		"DeleteAccessPolicy",
+		"DeleteCollection",
+		"DeleteEncryptionPolicy",
+		"DeleteNetworkPolicy",
+		"DeleteSecurityConfig",
+		"GetAccessPolicy",
+		"GetEncryptionPolicy",
+		"GetSecurityConfig",
+		"ListAccessPolicies",
+		"ListCollections",
+		"ListEncryptionPolicies",
+		"ListNetworkPolicies",
+		"ListSecurityConfigs",
+		"UpdateAccessPolicy",
+		"UpdateEncryptionPolicy",
+		"UpdateSecurityConfig",
 	}
 }
 
@@ -383,18 +408,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
-	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
-	InstanceType              string                   `json:"InstanceType"`
-	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
-	WarmType                  string                   `json:"WarmType,omitempty"`
-	InstanceCount             int                      `json:"InstanceCount"`
-	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
-	WarmCount                 int                      `json:"WarmCount,omitempty"`
-	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled,omitempty"`
-	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled,omitempty"`
-	WarmEnabled               bool                     `json:"WarmEnabled,omitempty"`
-	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled,omitempty"`
-	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled,omitempty"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                          `json:"InstanceType"`
+	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
+	WarmType                   string                          `json:"WarmType,omitempty"`
+	InstanceCount              int                             `json:"InstanceCount"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled,omitempty"`
+	WarmEnabled                bool                            `json:"WarmEnabled,omitempty"`
+	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled,omitempty"`
 }
 
 // zoneAwarenessConfigJSON holds zone awareness config in JSON.
@@ -476,6 +502,52 @@ type logPublishingOptionJSON struct {
 	Enabled                   bool   `json:"Enabled"`
 }
 
+// packageSourceJSON is the JSON representation of a package S3 source.
+type packageSourceJSON struct {
+	S3BucketName string `json:"S3BucketName,omitempty"`
+	S3Key        string `json:"S3Key,omitempty"`
+}
+
+// packageEncryptionOptionsJSON is the JSON representation of package encryption options.
+type packageEncryptionOptionsJSON struct {
+	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
+	EncryptionEnabled bool   `json:"EncryptionEnabled"`
+}
+
+// offPeakWindowOptionsJSON is the JSON representation of off-peak window options.
+type offPeakWindowOptionsJSON struct {
+	OffPeakWindow *offPeakWindowJSON `json:"OffPeakWindow,omitempty"`
+	Enabled       bool               `json:"Enabled"`
+}
+
+// offPeakWindowJSON is the JSON representation of an off-peak window.
+type offPeakWindowJSON struct {
+	WindowStartTime *windowStartTimeJSON `json:"WindowStartTime,omitempty"`
+}
+
+// windowStartTimeJSON is the JSON representation of a window start time.
+type windowStartTimeJSON struct {
+	Hours   int `json:"Hours"`
+	Minutes int `json:"Minutes"`
+}
+
+// iamIdentityCenterOptionsJSON is the JSON representation of IAM Identity Center options.
+type iamIdentityCenterOptionsJSON struct {
+	IamIdentityCenterArn                   string `json:"IamIdentityCenterArn,omitempty"`
+	IamRoleForIdentityCenterApplicationArn string `json:"IamRoleForIdentityCenterApplicationArn,omitempty"`
+	EnabledAPIAccess                       bool   `json:"EnabledAPIAccess"`
+}
+
+// enableSoftwareUpdateOptionsJSON is the JSON representation of enable software update options.
+type enableSoftwareUpdateOptionsJSON struct {
+	AutoSoftwareUpdateEnabled bool `json:"AutoSoftwareUpdateEnabled"`
+}
+
+// blueGreenDeploymentOptionsJSON is the JSON representation of blue-green deployment options.
+type blueGreenDeploymentOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
 // domainNamePattern matches valid OpenSearch domain names: starts with a lowercase letter,
 // 3–28 characters, only lowercase letters, digits, and hyphens.
 var domainNamePattern = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
@@ -509,6 +581,9 @@ type domainJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions,omitempty"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions,omitempty"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions,omitempty"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	Tags                        map[string]string                   `json:"TagList,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
@@ -526,6 +601,9 @@ type domainStatusJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions,omitempty"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions,omitempty"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions,omitempty"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`
@@ -539,18 +617,19 @@ type domainStatusJSON struct {
 
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
-	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
-	InstanceType              string                   `json:"InstanceType"`
-	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
-	WarmType                  string                   `json:"WarmType,omitempty"`
-	InstanceCount             int                      `json:"InstanceCount"`
-	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
-	WarmCount                 int                      `json:"WarmCount,omitempty"`
-	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled"`
-	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled"`
-	WarmEnabled               bool                     `json:"WarmEnabled"`
-	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled"`
-	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                          `json:"InstanceType"`
+	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
+	WarmType                   string                          `json:"WarmType,omitempty"`
+	InstanceCount              int                             `json:"InstanceCount"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled"`
+	WarmEnabled                bool                            `json:"WarmEnabled"`
+	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled"`
+	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled"`
 }
 
 // domainStatusWrapJSON wraps the domain status in a DomainStatus key.
@@ -614,6 +693,8 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 		h.handleInstanceTypeLimitsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchUpgradePath):
 		h.handleUpgradeDomainRoutes(w, r)
+	case strings.HasPrefix(path, openSearchServerlessPath):
+		h.handleServerlessRoutes(w, r)
 	default:
 		return false
 	}
@@ -829,6 +910,11 @@ func parseClusterConfigFromReq(cc *domainClusterConfig) ClusterConfig {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+	if cc.BlueGreenDeploymentOptions != nil {
+		cfg.BlueGreenDeploymentOptions = &BlueGreenDeploymentOptions{
+			Enabled: cc.BlueGreenDeploymentOptions.Enabled,
+		}
+	}
 
 	return cfg
 }
@@ -936,7 +1022,44 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 	}
 	input.LogPublishingOptions = parseLogPublishingOptsFromReq(req.LogPublishingOptions)
 
+	if req.OffPeakWindowOptions != nil {
+		input.OffPeakWindowOptions = parseOffPeakWindowOptionsFromReq(req.OffPeakWindowOptions)
+	}
+
+	if req.IamIdentityCenterOptions != nil {
+		input.IamIdentityCenterOptions = &IamIdentityCenterOptions{
+			EnabledAPIAccess:                       req.IamIdentityCenterOptions.EnabledAPIAccess,
+			IamIdentityCenterArn:                   req.IamIdentityCenterOptions.IamIdentityCenterArn,
+			IamRoleForIdentityCenterApplicationArn: req.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+		}
+	}
+
+	if req.EnableSoftwareUpdateOptions != nil {
+		input.EnableSoftwareUpdateOptions = &EnableSoftwareUpdateOptions{
+			AutoSoftwareUpdateEnabled: req.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
+		}
+	}
+
 	return input
+}
+
+// parseOffPeakWindowOptionsFromReq converts JSON off-peak window options to backend type.
+func parseOffPeakWindowOptionsFromReq(opts *offPeakWindowOptionsJSON) *OffPeakWindowOptions {
+	if opts == nil {
+		return nil
+	}
+	out := &OffPeakWindowOptions{Enabled: opts.Enabled}
+	if opts.OffPeakWindow != nil {
+		out.OffPeakWindow = &OffPeakWindow{}
+		if opts.OffPeakWindow.WindowStartTime != nil {
+			out.OffPeakWindow.WindowStartTime = &WindowStartTime{
+				Hours:   opts.OffPeakWindow.WindowStartTime.Hours,
+				Minutes: opts.OffPeakWindow.WindowStartTime.Minutes,
+			}
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
@@ -982,6 +1105,9 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		AdvancedSecurityOptions:     upd.AdvancedSecurityOptions,
 		VPCOptions:                  upd.VPCOptions,
 		CognitoOptions:              upd.CognitoOptions,
+		OffPeakWindowOptions:        upd.OffPeakWindowOptions,
+		IamIdentityCenterOptions:    upd.IamIdentityCenterOptions,
+		EnableSoftwareUpdateOptions: upd.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        upd.LogPublishingOptions,
 	}
 
@@ -1186,6 +1312,11 @@ func toClusterConfigJSON(cc ClusterConfig) clusterConfigJSON {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+	if cc.BlueGreenDeploymentOptions != nil {
+		out.BlueGreenDeploymentOptions = &blueGreenDeploymentOptionsJSON{
+			Enabled: cc.BlueGreenDeploymentOptions.Enabled,
+		}
+	}
 
 	return out
 }
@@ -1303,6 +1434,43 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 		}
 	}
 	out.LogPublishingOptions = toLogPublishingOptionsJSON(d.LogPublishingOptions)
+
+	if d.OffPeakWindowOptions != nil {
+		out.OffPeakWindowOptions = toOffPeakWindowOptionsJSON(d.OffPeakWindowOptions)
+	}
+
+	if d.IamIdentityCenterOptions != nil {
+		out.IamIdentityCenterOptions = &iamIdentityCenterOptionsJSON{
+			EnabledAPIAccess:                       d.IamIdentityCenterOptions.EnabledAPIAccess,
+			IamIdentityCenterArn:                   d.IamIdentityCenterOptions.IamIdentityCenterArn,
+			IamRoleForIdentityCenterApplicationArn: d.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+		}
+	}
+
+	if d.EnableSoftwareUpdateOptions != nil {
+		out.EnableSoftwareUpdateOptions = &enableSoftwareUpdateOptionsJSON{
+			AutoSoftwareUpdateEnabled: d.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
+		}
+	}
+}
+
+// toOffPeakWindowOptionsJSON converts backend OffPeakWindowOptions to JSON representation.
+func toOffPeakWindowOptionsJSON(opts *OffPeakWindowOptions) *offPeakWindowOptionsJSON {
+	if opts == nil {
+		return nil
+	}
+	out := &offPeakWindowOptionsJSON{Enabled: opts.Enabled}
+	if opts.OffPeakWindow != nil {
+		out.OffPeakWindow = &offPeakWindowJSON{}
+		if opts.OffPeakWindow.WindowStartTime != nil {
+			out.OffPeakWindow.WindowStartTime = &windowStartTimeJSON{
+				Hours:   opts.OffPeakWindow.WindowStartTime.Hours,
+				Minutes: opts.OffPeakWindow.WindowStartTime.Minutes,
+			}
+		}
+	}
+
+	return out
 }
 
 type errorResponseJSON struct {
@@ -1358,6 +1526,18 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 		cfg.LogPublishingOptions = opensearchConfigValue{Options: st.LogPublishingOptions, Status: active}
 	}
 
+	if st.OffPeakWindowOptions != nil {
+		cfg.OffPeakWindowOptions = opensearchConfigValue{Options: st.OffPeakWindowOptions, Status: active}
+	}
+
+	if st.IamIdentityCenterOptions != nil {
+		cfg.IamIdentityCenterOptions = opensearchConfigValue{Options: st.IamIdentityCenterOptions, Status: active}
+	}
+
+	if st.EnableSoftwareUpdateOptions != nil {
+		cfg.EnableSoftwareUpdateOptions = opensearchConfigValue{Options: st.EnableSoftwareUpdateOptions, Status: active}
+	}
+
 	return cfg
 }
 
@@ -1400,6 +1580,9 @@ type domainConfigFields struct {
 	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
 	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
+	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions,omitempty"`
+	IamIdentityCenterOptions    opensearchConfigValue `json:"IamIdentityCenterOptions,omitempty"`
+	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions,omitempty"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -1845,14 +2028,30 @@ func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request
 			return
 		}
 		var req struct {
-			PackageName        string `json:"PackageName"`
-			PackageType        string `json:"PackageType"`
-			PackageDescription string `json:"PackageDescription"`
+			PackageSource            *packageSourceJSON            `json:"PackageSource,omitempty"`
+			PackageEncryptionOptions *packageEncryptionOptionsJSON `json:"PackageEncryptionOptions,omitempty"`
+			PackageName              string                        `json:"PackageName"`
+			PackageType              string                        `json:"PackageType"`
+			PackageDescription       string                        `json:"PackageDescription"`
 		}
 		if len(body) > 0 {
 			_ = json.Unmarshal(body, &req)
 		}
-		pkg, createErr := h.Backend.CreatePackage(req.PackageName, req.PackageType, req.PackageDescription)
+		var pkgSource *PackageSource
+		if req.PackageSource != nil {
+			pkgSource = &PackageSource{
+				S3BucketName: req.PackageSource.S3BucketName,
+				S3Key:        req.PackageSource.S3Key,
+			}
+		}
+		var pkgEncOpts *PackageEncryptionOptions
+		if req.PackageEncryptionOptions != nil {
+			pkgEncOpts = &PackageEncryptionOptions{
+				KmsKeyIdentifier:  req.PackageEncryptionOptions.KmsKeyIdentifier,
+				EncryptionEnabled: req.PackageEncryptionOptions.EncryptionEnabled,
+			}
+		}
+		pkg, createErr := h.Backend.CreatePackage(req.PackageName, req.PackageType, req.PackageDescription, pkgSource, pkgEncOpts)
 		if createErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 

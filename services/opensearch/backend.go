@@ -162,13 +162,16 @@ type VpcEndpoint struct {
 
 // Package represents an OpenSearch package.
 type Package struct {
-	PackageID          string                   `json:"PackageID"`
-	PackageName        string                   `json:"PackageName"`
-	PackageType        string                   `json:"PackageType"`
-	PackageDescription string                   `json:"PackageDescription"`
-	PackageStatus      string                   `json:"PackageStatus"`
-	VersionHistory     []*PackageVersionHistory `json:"-"`
-	CreatedAt          float64                  `json:"CreatedAt"`
+	PackageSource             *PackageSource             `json:"PackageSource,omitempty"`
+	PackageEncryptionOptions  *PackageEncryptionOptions  `json:"PackageEncryptionOptions,omitempty"`
+	PackageID                 string                     `json:"PackageID"`
+	PackageName               string                     `json:"PackageName"`
+	PackageType               string                     `json:"PackageType"`
+	PackageDescription        string                     `json:"PackageDescription"`
+	PackageStatus             string                     `json:"PackageStatus"`
+	VersionHistory            []*PackageVersionHistory   `json:"-"`
+	CreatedAt                 float64                    `json:"CreatedAt"`
+	AvailablePackageVersion   string                     `json:"AvailablePackageVersion,omitempty"`
 }
 
 // PackageVersionHistory records a version of a package.
@@ -247,18 +250,19 @@ type DNSRegistrar interface {
 
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
 type ClusterConfig struct {
-	ZoneAwarenessConfig       *ZoneAwarenessConfig `json:"zoneAwarenessConfig,omitempty"`
-	InstanceType              string               `json:"instanceType"`
-	DedicatedMasterType       string               `json:"dedicatedMasterType,omitempty"`
-	WarmType                  string               `json:"warmType,omitempty"`
-	InstanceCount             int                  `json:"instanceCount"`
-	DedicatedMasterCount      int                  `json:"dedicatedMasterCount,omitempty"`
-	WarmCount                 int                  `json:"warmCount,omitempty"`
-	DedicatedMasterEnabled    bool                 `json:"dedicatedMasterEnabled,omitempty"`
-	ZoneAwarenessEnabled      bool                 `json:"zoneAwarenessEnabled,omitempty"`
-	WarmEnabled               bool                 `json:"warmEnabled,omitempty"`
-	ColdStorageEnabled        bool                 `json:"coldStorageEnabled,omitempty"`
-	MultiAZWithStandbyEnabled bool                 `json:"multiAZWithStandbyEnabled,omitempty"`
+	ZoneAwarenessConfig        *ZoneAwarenessConfig        `json:"zoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *BlueGreenDeploymentOptions `json:"blueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                      `json:"instanceType"`
+	DedicatedMasterType        string                      `json:"dedicatedMasterType,omitempty"`
+	WarmType                   string                      `json:"warmType,omitempty"`
+	InstanceCount              int                         `json:"instanceCount"`
+	DedicatedMasterCount       int                         `json:"dedicatedMasterCount,omitempty"`
+	WarmCount                  int                         `json:"warmCount,omitempty"`
+	DedicatedMasterEnabled     bool                        `json:"dedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled       bool                        `json:"zoneAwarenessEnabled,omitempty"`
+	WarmEnabled                bool                        `json:"warmEnabled,omitempty"`
+	ColdStorageEnabled         bool                        `json:"coldStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled  bool                        `json:"multiAZWithStandbyEnabled,omitempty"`
 }
 
 // ZoneAwarenessConfig holds zone awareness settings.
@@ -279,6 +283,52 @@ type EBSOptions struct {
 // SnapshotOptions holds automated snapshot settings.
 type SnapshotOptions struct {
 	AutomatedSnapshotStartHour int `json:"automatedSnapshotStartHour"`
+}
+
+// OffPeakWindowOptions holds off-peak window settings for a domain.
+type OffPeakWindowOptions struct {
+	OffPeakWindow *OffPeakWindow `json:"offPeakWindow,omitempty"`
+	Enabled       bool           `json:"enabled"`
+}
+
+// OffPeakWindow defines a custom start time for off-peak maintenance.
+type OffPeakWindow struct {
+	WindowStartTime *WindowStartTime `json:"windowStartTime,omitempty"`
+}
+
+// WindowStartTime holds hours and minutes for a maintenance window start.
+type WindowStartTime struct {
+	Hours   int `json:"hours"`
+	Minutes int `json:"minutes"`
+}
+
+// IamIdentityCenterOptions holds IAM Identity Center integration settings.
+type IamIdentityCenterOptions struct {
+	IamIdentityCenterArn                   string `json:"iamIdentityCenterArn,omitempty"`
+	IamRoleForIdentityCenterApplicationArn string `json:"iamRoleForIdentityCenterApplicationArn,omitempty"`
+	EnabledAPIAccess                       bool   `json:"enabledAPIAccess"`
+}
+
+// EnableSoftwareUpdateOptions holds settings for automatic software updates.
+type EnableSoftwareUpdateOptions struct {
+	AutoSoftwareUpdateEnabled bool `json:"autoSoftwareUpdateEnabled"`
+}
+
+// BlueGreenDeploymentOptions holds blue-green deployment settings.
+type BlueGreenDeploymentOptions struct {
+	Enabled bool `json:"enabled"`
+}
+
+// PackageSource holds the S3 source location for a custom package.
+type PackageSource struct {
+	S3BucketName string `json:"S3BucketName,omitempty"`
+	S3Key        string `json:"S3Key,omitempty"`
+}
+
+// PackageEncryptionOptions holds encryption settings for a package.
+type PackageEncryptionOptions struct {
+	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
+	EncryptionEnabled bool   `json:"EncryptionEnabled"`
 }
 
 // EncryptionAtRestOptions holds encryption at rest settings.
@@ -350,6 +400,9 @@ type Domain struct {
 	AdvancedSecurityOptions     *AdvancedSecurityOptions        `json:"advancedSecurityOptions,omitempty"`
 	VPCOptions                  *VPCOptions                     `json:"vpcOptions,omitempty"`
 	CognitoOptions              *CognitoOptions                 `json:"cognitoOptions,omitempty"`
+	OffPeakWindowOptions        *OffPeakWindowOptions           `json:"offPeakWindowOptions,omitempty"`
+	IamIdentityCenterOptions    *IamIdentityCenterOptions       `json:"iamIdentityCenterOptions,omitempty"`
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions    `json:"enableSoftwareUpdateOptions,omitempty"`
 	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
 	Tags                        *tags.Tags                      `json:"tags,omitempty"`
 	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
@@ -372,6 +425,9 @@ type CreateDomainInput struct {
 	AdvancedSecurityOptions     *AdvancedSecurityOptions
 	VPCOptions                  *VPCOptions
 	CognitoOptions              *CognitoOptions
+	OffPeakWindowOptions        *OffPeakWindowOptions
+	IamIdentityCenterOptions    *IamIdentityCenterOptions
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	Tags                        map[string]string
 	Name                        string
@@ -390,6 +446,9 @@ type UpdateDomainConfigInput struct {
 	AdvancedSecurityOptions     *AdvancedSecurityOptions
 	VPCOptions                  *VPCOptions
 	CognitoOptions              *CognitoOptions
+	OffPeakWindowOptions        *OffPeakWindowOptions
+	IamIdentityCenterOptions    *IamIdentityCenterOptions
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	ClusterConfig               *ClusterConfig
 	AccessPolicies              string
@@ -432,15 +491,23 @@ type InMemoryBackend struct {
 	autoTunes              map[string]*AutoTuneConfig   // key: autoTuneKey(domainName)
 	dryRuns                map[string]*DryRunStatus     // key: domainName
 	defaultAppSettings     map[string][]AppSetting      // key: applicationType
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
-	appIDCounter           int
-	connCounter            int
-	vpcEndpointCounter     int
-	packageCounter         int
-	maintenanceCounter     int
-	reservedCounter        int
+	// OpenSearch Serverless state.
+	slCollections        map[string]*ServerlessCollection
+	slAccessPolicies     map[string]*ServerlessAccessPolicy
+	slSecurityConfigs    map[string]*ServerlessSecurityConfig
+	slEncryptionPolicies map[string]*ServerlessEncryptionPolicy
+	slNetworkPolicies    map[string]*ServerlessNetworkPolicy
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
+	appIDCounter         int
+	connCounter          int
+	vpcEndpointCounter   int
+	packageCounter       int
+	maintenanceCounter   int
+	reservedCounter      int
+	slCollCounter        int
+	slSecConfigCounter   int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -465,6 +532,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		autoTunes:              make(map[string]*AutoTuneConfig),
 		dryRuns:                make(map[string]*DryRunStatus),
 		defaultAppSettings:     make(map[string][]AppSetting),
+		slCollections:          make(map[string]*ServerlessCollection),
+		slAccessPolicies:       make(map[string]*ServerlessAccessPolicy),
+		slSecurityConfigs:      make(map[string]*ServerlessSecurityConfig),
+		slEncryptionPolicies:   make(map[string]*ServerlessEncryptionPolicy),
+		slNetworkPolicies:      make(map[string]*ServerlessNetworkPolicy),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("opensearch"),
@@ -522,6 +594,9 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		AdvancedSecurityOptions:     input.AdvancedSecurityOptions,
 		VPCOptions:                  input.VPCOptions,
 		CognitoOptions:              input.CognitoOptions,
+		OffPeakWindowOptions:        input.OffPeakWindowOptions,
+		IamIdentityCenterOptions:    input.IamIdentityCenterOptions,
+		EnableSoftwareUpdateOptions: input.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        input.LogPublishingOptions,
 		AccessPolicies:              input.AccessPolicies,
 	}
@@ -969,12 +1044,19 @@ func (b *InMemoryBackend) Reset() {
 	b.autoTunes = make(map[string]*AutoTuneConfig)
 	b.dryRuns = make(map[string]*DryRunStatus)
 	b.defaultAppSettings = make(map[string][]AppSetting)
+	b.slCollections = make(map[string]*ServerlessCollection)
+	b.slAccessPolicies = make(map[string]*ServerlessAccessPolicy)
+	b.slSecurityConfigs = make(map[string]*ServerlessSecurityConfig)
+	b.slEncryptionPolicies = make(map[string]*ServerlessEncryptionPolicy)
+	b.slNetworkPolicies = make(map[string]*ServerlessNetworkPolicy)
 	b.appIDCounter = 0
 	b.connCounter = 0
 	b.vpcEndpointCounter = 0
 	b.packageCounter = 0
 	b.maintenanceCounter = 0
 	b.reservedCounter = 0
+	b.slCollCounter = 0
+	b.slSecConfigCounter = 0
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -1255,7 +1337,11 @@ func (b *InMemoryBackend) ListVpcEndpointAccess(domainName string) ([]Authorized
 }
 
 // CreatePackage creates a new OpenSearch package.
-func (b *InMemoryBackend) CreatePackage(name, pkgType, description string) (*Package, error) {
+func (b *InMemoryBackend) CreatePackage(
+	name, pkgType, description string,
+	source *PackageSource,
+	encryptionOptions *PackageEncryptionOptions,
+) (*Package, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: PackageName is required", ErrInvalidParameter)
 	}
@@ -1268,12 +1354,15 @@ func (b *InMemoryBackend) CreatePackage(name, pkgType, description string) (*Pac
 	now := float64(time.Now().Unix())
 
 	pkg := &Package{
-		PackageID:          id,
-		PackageName:        name,
-		PackageType:        pkgType,
-		PackageDescription: description,
-		PackageStatus:      pkgStateActive,
-		CreatedAt:          now,
+		PackageID:                id,
+		PackageName:              name,
+		PackageType:              pkgType,
+		PackageDescription:       description,
+		PackageStatus:            pkgStateActive,
+		PackageSource:            source,
+		PackageEncryptionOptions: encryptionOptions,
+		AvailablePackageVersion:  "1",
+		CreatedAt:                now,
 		VersionHistory: []*PackageVersionHistory{
 			{
 				PackageVersion: "1",
@@ -2041,6 +2130,18 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, input UpdateDomainConf
 
 	if input.CognitoOptions != nil {
 		d.CognitoOptions = input.CognitoOptions
+	}
+
+	if input.OffPeakWindowOptions != nil {
+		d.OffPeakWindowOptions = input.OffPeakWindowOptions
+	}
+
+	if input.IamIdentityCenterOptions != nil {
+		d.IamIdentityCenterOptions = input.IamIdentityCenterOptions
+	}
+
+	if input.EnableSoftwareUpdateOptions != nil {
+		d.EnableSoftwareUpdateOptions = input.EnableSoftwareUpdateOptions
 	}
 
 	if input.LogPublishingOptions != nil {
