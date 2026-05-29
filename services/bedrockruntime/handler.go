@@ -58,6 +58,12 @@ const (
 
 	hdrMessageTypeEvent = "event"
 	keyStopReason       = "stop_reason"
+
+	roleAssistant     = "assistant"
+	convStopReasonKey = "stopReason"
+	convOutputTokens  = "outputTokens"
+	convTotalTokens   = "totalTokens"
+	convContentIdx    = "contentBlockIndex"
 )
 
 // Mock response token counts used in model responses.
@@ -387,15 +393,15 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 	return map[string]any{
 		"output": map[string]any{
 			keyMessage: map[string]any{
-				"role":    "assistant",
+				"role":    roleAssistant,
 				"content": []map[string]any{{keyText: mockResponseText}},
 			},
 		},
-		"stopReason": stopReasonEndTurn,
+		convStopReasonKey: stopReasonEndTurn,
 		keyUsage: map[string]any{
-			keyInputTokens: inputTokens,
-			"outputTokens": mockOutputTokenCount,
-			"totalTokens":  inputTokens + mockOutputTokenCount,
+			keyInputTokens:   inputTokens,
+			convOutputTokens: mockOutputTokenCount,
+			convTotalTokens:  inputTokens + mockOutputTokenCount,
 		},
 		"metrics": map[string]any{
 			"latencyMs": mockLatencyMS,
@@ -490,32 +496,32 @@ func (h *Handler) handleConverseStream(
 	}
 
 	writeStreamEvent("messageStart", map[string]any{
-		"role": "assistant",
+		"role": roleAssistant,
 	})
 
 	writeStreamEvent("contentBlockStart", map[string]any{
-		"contentBlockIndex": 0,
-		"start":             map[string]any{"text": ""},
+		convContentIdx: 0,
+		"start":        map[string]any{keyText: ""},
 	})
 
 	writeStreamEvent("contentBlockDelta", map[string]any{
-		"contentBlockIndex": 0,
-		"delta":             map[string]any{"text": mockResponseText},
+		convContentIdx: 0,
+		"delta":        map[string]any{keyText: mockResponseText},
 	})
 
 	writeStreamEvent("contentBlockStop", map[string]any{
-		"contentBlockIndex": 0,
+		convContentIdx: 0,
 	})
 
 	writeStreamEvent("messageStop", map[string]any{
-		"stopReason": stopReasonEndTurn,
+		convStopReasonKey: stopReasonEndTurn,
 	})
 
 	writeStreamEvent("metadata", map[string]any{
 		keyUsage: map[string]any{
-			keyInputTokens: inputTokens,
-			"outputTokens": mockOutputTokenCount,
-			"totalTokens":  inputTokens + mockOutputTokenCount,
+			keyInputTokens:   inputTokens,
+			convOutputTokens: mockOutputTokenCount,
+			convTotalTokens:  inputTokens + mockOutputTokenCount,
 		},
 		"metrics": map[string]any{
 			"latencyMs": mockLatencyMS,
@@ -741,7 +747,7 @@ func buildGuardrailOutputs(req applyGuardrailRequest) []map[string]any {
 	for _, item := range req.Content {
 		if item.Text != nil {
 			outputs = append(outputs, map[string]any{
-				"text": item.Text.Text,
+				keyText: item.Text.Text,
 			})
 		}
 	}
@@ -932,15 +938,15 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		return map[string]any{
 			"output": map[string]any{
 				keyMessage: map[string]any{
-					"role":    "assistant",
+					"role":    roleAssistant,
 					"content": []map[string]any{{keyText: mockResponseText}},
 				},
 			},
-			"stopReason": stopReasonEndTurn,
+			convStopReasonKey: stopReasonEndTurn,
 			keyUsage: map[string]any{
-				keyInputTokens: mockInputTokenCount,
-				"outputTokens": mockOutputTokenCount,
-				"totalTokens":  mockTotalTokenCount,
+				keyInputTokens:   mockInputTokenCount,
+				convOutputTokens: mockOutputTokenCount,
+				convTotalTokens:  mockTotalTokenCount,
 			},
 		}
 	default:

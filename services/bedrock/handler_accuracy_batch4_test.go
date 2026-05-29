@@ -581,10 +581,10 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 
 	// Create a custom model first
 	modelRec := doRequest(t, h, http.MethodPost, "/custom-models/create-custom-model", map[string]any{
-		"modelName":       "my-fine-tuned-model",
+		"modelName":           "my-fine-tuned-model",
 		"baseModelIdentifier": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1",
-		"roleArn":         "arn:aws:iam::000000000000:role/bedrock-custom-role",
-		"outputDataConfig": map[string]any{"s3Uri": "s3://my-bucket/output/"},
+		"roleArn":             "arn:aws:iam::000000000000:role/bedrock-custom-role",
+		"outputDataConfig":    map[string]any{"s3Uri": "s3://my-bucket/output/"},
 	})
 	require.Equal(t, http.StatusCreated, modelRec.Code, modelRec.Body.String())
 

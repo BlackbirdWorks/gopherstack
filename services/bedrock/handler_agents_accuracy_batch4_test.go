@@ -20,9 +20,9 @@ func TestAccuracy_KnowledgeBase_VectorStoreConfigPreserved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		kbConfig    map[string]any
 		storageConf map[string]any
+		name        string
 	}{
 		{
 			name: "VECTOR type with openSearch",
@@ -35,12 +35,12 @@ func TestAccuracy_KnowledgeBase_VectorStoreConfigPreserved(t *testing.T) {
 			storageConf: map[string]any{
 				"type": "OPENSEARCH_SERVERLESS",
 				"opensearchServerlessConfiguration": map[string]any{
-					"collectionArn":  "arn:aws:aoss:us-east-1:000000000000:collection/kb-coll",
+					"collectionArn":   "arn:aws:aoss:us-east-1:000000000000:collection/kb-coll",
 					"vectorIndexName": "kb-index",
 					"fieldMapping": map[string]any{
-						"vectorField":     "embedding",
-						"textField":       "text",
-						"metadataField":   "metadata",
+						"vectorField":   "embedding",
+						"textField":     "text",
+						"metadataField": "metadata",
 					},
 				},
 			},
@@ -56,9 +56,9 @@ func TestAccuracy_KnowledgeBase_VectorStoreConfigPreserved(t *testing.T) {
 			storageConf: map[string]any{
 				"type": "PINECONE",
 				"pineconeConfiguration": map[string]any{
-					"connectionString": "https://kb.svc.pinecone.io",
+					"connectionString":     "https://kb.svc.pinecone.io",
 					"credentialsSecretArn": "arn:aws:secretsmanager:us-east-1:000000000000:secret/pinecone",
-					"namespace": "kb-ns",
+					"namespace":            "kb-ns",
 					"fieldMapping": map[string]any{
 						"textField":     "chunk",
 						"metadataField": "meta",
@@ -156,8 +156,8 @@ func TestAccuracy_DataSource_S3VectorIngestionConfigPreserved(t *testing.T) {
 			chunkingStrategy: "SEMANTIC",
 			chunkingConfig: map[string]any{
 				"semanticChunkingConfiguration": map[string]any{
-					"maxTokens":              300,
-					"bufferSize":             0,
+					"maxTokens":                     300,
+					"bufferSize":                    0,
 					"breakpointPercentileThreshold": 95,
 				},
 			},
@@ -195,8 +195,8 @@ func TestAccuracy_DataSource_S3VectorIngestionConfigPreserved(t *testing.T) {
 			rec := doAgentRequest(t, h, http.MethodPost,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
-					"name":                    tt.name,
-					"dataSourceConfiguration": map[string]any{"type": "S3"},
+					"name":                         tt.name,
+					"dataSourceConfiguration":      map[string]any{"type": "S3"},
 					"vectorIngestionConfiguration": vectorConfig,
 				},
 			)
@@ -235,7 +235,7 @@ func TestAccuracy_DataSource_S3BucketConfigPreserved(t *testing.T) {
 	dsConfig := map[string]any{
 		"type": "S3",
 		"s3Configuration": map[string]any{
-			"bucketArn":     "arn:aws:s3:::my-kb-bucket",
+			"bucketArn":         "arn:aws:s3:::my-kb-bucket",
 			"inclusionPrefixes": []string{"documents/", "reports/"},
 		},
 	}
@@ -521,8 +521,8 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		relayHistory    string
+		name         string
+		relayHistory string
 	}{
 		{name: "relay enabled", relayHistory: "TO_COLLABORATOR"},
 		{name: "relay disabled", relayHistory: "DISABLED"},
@@ -539,8 +539,8 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 			rec := doAgentRequest(t, h, http.MethodPost,
 				fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 				map[string]any{
-					"collaboratorArn":         "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
-					"agentVersion":            "DRAFT",
+					"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
+					"agentVersion":             "DRAFT",
 					"relayConversationHistory": tt.relayHistory,
 				},
 			)
@@ -577,8 +577,8 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 	assocRec := doAgentRequest(t, h, http.MethodPost,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 		map[string]any{
-			"collaboratorArn":         "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
-			"agentVersion":            "DRAFT",
+			"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
+			"agentVersion":             "DRAFT",
 			"relayConversationHistory": "DISABLED",
 		},
 	)
@@ -621,7 +621,7 @@ func TestAccuracy_AgentCollaborator_SupervisorPattern(t *testing.T) {
 			fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 			map[string]any{
 				"collaboratorArn": fmt.Sprintf("arn:aws:bedrock:us-east-1:000000000000:agent/subagent-%d", i),
-				"agentVersion":   "DRAFT",
+				"agentVersion":    "DRAFT",
 			},
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -649,7 +649,7 @@ func TestAccuracy_AgentCollaborator_DisassociateRemovesFromList(t *testing.T) {
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", agent.AgentID),
 		map[string]any{
 			"collaboratorArn": "arn:aws:bedrock:us-east-1:000000000000:agent/temp-collab",
-			"agentVersion":   "DRAFT",
+			"agentVersion":    "DRAFT",
 		},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -687,9 +687,9 @@ func TestAccuracy_Prompt_VariantPreserved(t *testing.T) {
 		"description": "a prompt with variants",
 		"variants": []map[string]any{
 			{
-				"name":          "default",
-				"templateType":  "TEXT",
-				"modelId":       "amazon.titan-text-express-v1",
+				"name":         "default",
+				"templateType": "TEXT",
+				"modelId":      "amazon.titan-text-express-v1",
 				"templateConfiguration": map[string]any{
 					"text": map[string]any{
 						"text": "You are a helpful assistant. {{user_input}}",
