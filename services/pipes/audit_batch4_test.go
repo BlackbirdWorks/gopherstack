@@ -7,7 +7,7 @@ package pipes_test
 //   - TimestreamParameters: roundtrip create/describe/update (#5)
 //   - TargetHTTPParameters: roundtrip for API Gateway targets (#5)
 //   - Firehose target runner dispatch (arn:aws:firehose:) (#2)
-//   - Clone isolation: TimestreamParameters and HttpParameters (#5)
+//   - Clone isolation: TimestreamParameters and HTTPParameters (#5)
 //   - Update TimestreamParameters via UpdatePipe
 
 import (
@@ -35,6 +35,7 @@ func b4Backend() *pipes.InMemoryBackend {
 
 func b4Handler(t *testing.T) *pipes.Handler {
 	t.Helper()
+
 	return pipes.NewHandler(b4Backend())
 }
 
@@ -66,6 +67,7 @@ func b4Create(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp
 }
 
@@ -75,6 +77,7 @@ func b4Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp
 }
 
@@ -104,8 +107,8 @@ func TestBatch4_EpochMillis_Precision(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		input    time.Time
+		name     string
 		wantFrac float64
 	}{
 		{
@@ -148,7 +151,7 @@ func TestBatch4_EpochMillis_Precision(t *testing.T) {
 				"EpochMillis(%v) fractional part = %.3f, want %.3f", tt.input, frac, tt.wantFrac)
 
 			// Verify the integer part is the same as Unix seconds.
-			assert.Equal(t, base, float64(int64(got)),
+			assert.InDelta(t, base, float64(int64(got)), 0.0,
 				"EpochMillis integer part should match Unix seconds")
 		})
 	}
@@ -162,8 +165,8 @@ func TestBatch4_TargetParams_Timestream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		params *pipes.TimestreamParameters
+		name   string
 	}{
 		{
 			name: "dimension_and_single_measure",
@@ -183,8 +186,8 @@ func TestBatch4_TargetParams_Timestream(t *testing.T) {
 		{
 			name: "multi_measure_mapping",
 			params: &pipes.TimestreamParameters{
-				TimeValue:     "$.eventTime",
-				TimeFieldType: "TIMESTAMP_FORMAT",
+				TimeValue:       "$.eventTime",
+				TimeFieldType:   "TIMESTAMP_FORMAT",
 				TimestampFormat: "YYYY-MM-DD'T'HH:mm:ss",
 				DimensionMappings: []pipes.TimestreamDimensionMapping{
 					{DimensionName: "host", DimensionValue: "$.host", DimensionValueType: "VARCHAR"},
@@ -363,14 +366,14 @@ func TestBatch4_Clone_TimestreamIsolation(t *testing.T) {
 
 // --- TargetHTTPParameters ---
 
-// TestBatch4_TargetParams_HTTP verifies that HttpParameters roundtrip
+// TestBatch4_TargetParams_HTTP verifies that HTTPParameters roundtrip
 // for API Gateway and API Destination targets.
 func TestBatch4_TargetParams_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		params *pipes.TargetHTTPParameters
+		name   string
 	}{
 		{
 			name: "headers_and_query_string",
@@ -405,7 +408,7 @@ func TestBatch4_TargetParams_HTTP(t *testing.T) {
 				Source:  b4SQSSource,
 				Target:  "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
 				TargetParameters: &pipes.TargetParameters{
-					HttpParameters: tt.params,
+					HTTPParameters: tt.params,
 				},
 			})
 			require.NoError(t, err)
@@ -413,9 +416,9 @@ func TestBatch4_TargetParams_HTTP(t *testing.T) {
 			p, err := b.GetPipe(tt.name + "-pipe")
 			require.NoError(t, err)
 			require.NotNil(t, p.TargetParameters)
-			require.NotNil(t, p.TargetParameters.HttpParameters)
+			require.NotNil(t, p.TargetParameters.HTTPParameters)
 
-			hp := p.TargetParameters.HttpParameters
+			hp := p.TargetParameters.HTTPParameters
 			assert.Equal(t, tt.params.HeaderParameters, hp.HeaderParameters)
 			assert.Equal(t, tt.params.QueryStringParameters, hp.QueryStringParameters)
 			assert.Equal(t, tt.params.PathParameterValues, hp.PathParameterValues)
@@ -423,7 +426,7 @@ func TestBatch4_TargetParams_HTTP(t *testing.T) {
 	}
 }
 
-// TestBatch4_Clone_HTTPParamsIsolation verifies that HttpParameters are deep-copied
+// TestBatch4_Clone_HTTPParamsIsolation verifies that HTTPParameters are deep-copied
 // in clonePipe so mutations of one clone do not affect others.
 func TestBatch4_Clone_HTTPParamsIsolation(t *testing.T) {
 	t.Parallel()
@@ -446,7 +449,7 @@ func TestBatch4_Clone_HTTPParamsIsolation(t *testing.T) {
 				Source:  b4SQSSource,
 				Target:  "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
 				TargetParameters: &pipes.TargetParameters{
-					HttpParameters: &pipes.TargetHTTPParameters{
+					HTTPParameters: &pipes.TargetHTTPParameters{
 						HeaderParameters:    map[string]string{"X-Original": "yes"},
 						PathParameterValues: []string{"original"},
 					},
@@ -456,20 +459,20 @@ func TestBatch4_Clone_HTTPParamsIsolation(t *testing.T) {
 
 			clone, err := b.GetPipe(tt.name + "-pipe")
 			require.NoError(t, err)
-			clone.TargetParameters.HttpParameters.HeaderParameters["X-Original"] = "mutated"
-			clone.TargetParameters.HttpParameters.PathParameterValues[0] = "mutated"
+			clone.TargetParameters.HTTPParameters.HeaderParameters["X-Original"] = "mutated"
+			clone.TargetParameters.HTTPParameters.PathParameterValues[0] = "mutated"
 
 			orig, err := b.GetPipe(tt.name + "-pipe")
 			require.NoError(t, err)
-			assert.Equal(t, "yes", orig.TargetParameters.HttpParameters.HeaderParameters["X-Original"],
+			assert.Equal(t, "yes", orig.TargetParameters.HTTPParameters.HeaderParameters["X-Original"],
 				"mutating clone headers should not affect stored pipe")
-			assert.Equal(t, "original", orig.TargetParameters.HttpParameters.PathParameterValues[0],
+			assert.Equal(t, "original", orig.TargetParameters.HTTPParameters.PathParameterValues[0],
 				"mutating clone path params should not affect stored pipe")
 		})
 	}
 }
 
-// TestBatch4_TargetParams_HTTP_HTTP_Roundtrip verifies that HttpParameters survive
+// TestBatch4_TargetParams_HTTP_HTTP_Roundtrip verifies that HTTPParameters survive
 // a create → describe HTTP roundtrip via the handler.
 func TestBatch4_TargetParams_HTTP_Roundtrip(t *testing.T) {
 	t.Parallel()
@@ -486,7 +489,7 @@ func TestBatch4_TargetParams_HTTP_Roundtrip(t *testing.T) {
 				"Source": b4SQSSource,
 				"Target": "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
 				"TargetParameters": map[string]any{
-					"HttpParameters": map[string]any{
+					"HTTPParameters": map[string]any{
 						"HeaderParameters": map[string]any{
 							"X-Pipe-Id": "batch4-test",
 						},
@@ -508,8 +511,8 @@ func TestBatch4_TargetParams_HTTP_Roundtrip(t *testing.T) {
 			resp := b4Describe(t, h, tt.name+"-pipe")
 			tp, ok := resp["TargetParameters"].(map[string]any)
 			require.True(t, ok, "TargetParameters should be present")
-			hp, ok := tp["HttpParameters"].(map[string]any)
-			require.True(t, ok, "HttpParameters should be present")
+			hp, ok := tp["HTTPParameters"].(map[string]any)
+			require.True(t, ok, "HTTPParameters should be present")
 			headers, ok := hp["HeaderParameters"].(map[string]any)
 			require.True(t, ok, "HeaderParameters should be present")
 			assert.Equal(t, tt.wantHeaderVal, headers[tt.wantHeaderKey])
@@ -694,6 +697,7 @@ func (m *b4MockSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.SQSMess
 	defer m.mu.Unlock()
 	msgs := m.messages
 	m.messages = nil
+
 	return msgs, nil
 }
 
@@ -701,6 +705,7 @@ func (m *b4MockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.deleted = append(m.deleted, receiptHandles...)
+
 	return nil
 }
 
@@ -715,6 +720,7 @@ func (m *b4MockFirehosePutter) PutRecord(_ context.Context, streamARN string, da
 	defer m.mu.Unlock()
 	m.streamARNs = append(m.streamARNs, streamARN)
 	m.records = append(m.records, data)
+
 	return nil
 }
 

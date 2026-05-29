@@ -368,7 +368,9 @@ func extractPipeName(path string) string {
 // epochMillis returns t as a Unix epoch value with millisecond precision,
 // matching the AWS Pipes API timestamp format (fractional seconds, 3 decimal places).
 func epochMillis(t time.Time) float64 {
-	return float64(t.UnixMilli()) / 1000.0
+	const msPerSec = 1000.0
+
+	return float64(t.UnixMilli()) / msPerSec
 }
 
 type createPipeRequest struct {

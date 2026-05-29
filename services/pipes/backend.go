@@ -361,20 +361,20 @@ type TimestreamMultiMeasureAttributeMapping struct {
 
 // TimestreamMultiMeasureMapping maps event fields to a Timestream multi-measure record.
 type TimestreamMultiMeasureMapping struct {
-	MultiMeasureAttributeMappings []TimestreamMultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
 	MultiMeasureName              string                                   `json:"MultiMeasureName,omitempty"`
+	MultiMeasureAttributeMappings []TimestreamMultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
 }
 
 // TimestreamParameters holds Timestream target configuration.
 type TimestreamParameters struct {
-	DimensionMappings     []TimestreamDimensionMapping    `json:"DimensionMappings,omitempty"`
+	TimeValue             string                           `json:"TimeValue,omitempty"`
+	TimeFieldType         string                           `json:"TimeFieldType,omitempty"`
+	TimestampFormat       string                           `json:"TimestampFormat,omitempty"`
+	EpochTimeUnit         string                           `json:"EpochTimeUnit,omitempty"`
+	VersionValue          string                           `json:"VersionValue,omitempty"`
+	DimensionMappings     []TimestreamDimensionMapping     `json:"DimensionMappings,omitempty"`
 	SingleMeasureMappings []TimestreamSingleMeasureMapping `json:"SingleMeasureMappings,omitempty"`
 	MultiMeasureMappings  []TimestreamMultiMeasureMapping  `json:"MultiMeasureMappings,omitempty"`
-	TimeValue             string                          `json:"TimeValue,omitempty"`
-	TimeFieldType         string                          `json:"TimeFieldType,omitempty"`
-	TimestampFormat       string                          `json:"TimestampFormat,omitempty"`
-	EpochTimeUnit         string                          `json:"EpochTimeUnit,omitempty"`
-	VersionValue          string                          `json:"VersionValue,omitempty"`
 }
 
 // TargetParameters holds target-specific configuration.
@@ -390,7 +390,7 @@ type TargetParameters struct {
 	BatchJobParameters            *BatchJobTargetParameters          `json:"BatchJobParameters,omitempty"`
 	EcsTaskParameters             *ECSTaskTargetParameters           `json:"EcsTaskParameters,omitempty"`
 	TimestreamParameters          *TimestreamParameters              `json:"TimestreamParameters,omitempty"`
-	HttpParameters                *TargetHTTPParameters              `json:"HttpParameters,omitempty"`
+	HTTPParameters                *TargetHTTPParameters              `json:"HTTPParameters,omitempty"`
 	InputTemplate                 string                             `json:"InputTemplate,omitempty"`
 }
 
@@ -408,7 +408,7 @@ type EnrichmentHTTPParameters struct {
 
 // EnrichmentParameters holds enrichment-specific configuration.
 type EnrichmentParameters struct {
-	HTTPParameters *EnrichmentHTTPParameters `json:"HttpParameters,omitempty"`
+	HTTPParameters *EnrichmentHTTPParameters `json:"HTTPParameters,omitempty"`
 	InputTemplate  string                    `json:"InputTemplate,omitempty"`
 }
 
@@ -739,16 +739,20 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 	if src.TimestreamParameters != nil {
 		v := *src.TimestreamParameters
 		v.DimensionMappings = append([]TimestreamDimensionMapping(nil), src.TimestreamParameters.DimensionMappings...)
-		v.SingleMeasureMappings = append([]TimestreamSingleMeasureMapping(nil), src.TimestreamParameters.SingleMeasureMappings...)
-		v.MultiMeasureMappings = append([]TimestreamMultiMeasureMapping(nil), src.TimestreamParameters.MultiMeasureMappings...)
+		v.SingleMeasureMappings = append(
+			[]TimestreamSingleMeasureMapping(nil),
+			src.TimestreamParameters.SingleMeasureMappings...)
+		v.MultiMeasureMappings = append(
+			[]TimestreamMultiMeasureMapping(nil),
+			src.TimestreamParameters.MultiMeasureMappings...)
 		tp.TimestreamParameters = &v
 	}
-	if src.HttpParameters != nil {
-		v := *src.HttpParameters
-		v.HeaderParameters = maps.Clone(src.HttpParameters.HeaderParameters)
-		v.QueryStringParameters = maps.Clone(src.HttpParameters.QueryStringParameters)
-		v.PathParameterValues = append([]string(nil), src.HttpParameters.PathParameterValues...)
-		tp.HttpParameters = &v
+	if src.HTTPParameters != nil {
+		v := *src.HTTPParameters
+		v.HeaderParameters = maps.Clone(src.HTTPParameters.HeaderParameters)
+		v.QueryStringParameters = maps.Clone(src.HTTPParameters.QueryStringParameters)
+		v.PathParameterValues = append([]string(nil), src.HTTPParameters.PathParameterValues...)
+		tp.HTTPParameters = &v
 	}
 
 	return &tp
