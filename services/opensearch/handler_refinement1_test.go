@@ -118,7 +118,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := opensearch.NewHandler(opensearch.NewInMemoryBackend(testAccountID, testRegion))
-	assert.Equal(t, 82, opensearch.HandlerOpsLen(h))
+	assert.Equal(t, 104, opensearch.HandlerOpsLen(h))
 }
 
 func TestRefinement1_AddDomainInternal(t *testing.T) {

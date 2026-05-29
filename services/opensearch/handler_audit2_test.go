@@ -625,7 +625,7 @@ func TestAudit2_Persistence_PackagesRoundTrip(t *testing.T) {
 
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	pkg, err := b.CreatePackage("my-pkg", "TXT-DICTIONARY", "test package")
+	pkg, err := b.CreatePackage("my-pkg", "TXT-DICTIONARY", "test package", nil, nil)
 	require.NoError(t, err)
 	pkgID := pkg.PackageID
 
@@ -848,7 +848,7 @@ func TestAudit2_Persistence_CountersRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateVpcEndpoint("arn:test", nil)
 	require.NoError(t, err)
-	_, err = b.CreatePackage("pkg-counter", "TXT-DICTIONARY", "")
+	_, err = b.CreatePackage("pkg-counter", "TXT-DICTIONARY", "", nil, nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()

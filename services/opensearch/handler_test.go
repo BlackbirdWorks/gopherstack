@@ -364,7 +364,7 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CancelDomainConfigChange")
 	assert.Contains(t, ops, "CancelServiceSoftwareUpdate")
 	assert.Contains(t, ops, "CreateApplication")
-	assert.Len(t, ops, 82)
+	assert.Len(t, ops, 104)
 }
 
 func newEchoContext(method, path string, body string) *echo.Context {

@@ -35,6 +35,7 @@ const (
 	openSearchReservedPath           = "/2021-01-01/opensearch/reservedInstances"
 	openSearchUpgradePath            = "/2021-01-01/opensearch/upgradeDomain"
 	openSearchInstanceTypeLimitsPath = "/2021-01-01/opensearch/instanceTypeLimits"
+	openSearchServerlessPath         = "/2021-11-01/opensearch/serverless"
 	openSearchServiceName            = "OpenSearch"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
@@ -93,6 +94,7 @@ var openSearchPathPrefixes = []string{
 	openSearchReservedPath,
 	openSearchUpgradePath,
 	openSearchInstanceTypeLimitsPath,
+	openSearchServerlessPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
@@ -117,33 +119,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// GetSupportedOperations returns supported operations.
-func (h *Handler) GetSupportedOperations() []string {
+func domainOperations() []string {
 	return []string{
-		"AcceptInboundConnection",
-		"AddDataSource",
-		"AddDirectQueryDataSource",
-		"AddTags",
-		"AssociatePackage",
-		"AssociatePackages",
-		"AuthorizeVpcEndpointAccess",
 		"CancelDomainConfigChange",
 		"CancelServiceSoftwareUpdate",
-		"CreateApplication",
 		"CreateDomain",
 		"CreateIndex",
-		"CreateOutboundConnection",
-		"CreatePackage",
-		"CreateVpcEndpoint",
-		"DeleteApplication",
-		"DeleteDataSource",
-		"DeleteDirectQueryDataSource",
 		"DeleteDomain",
-		"DeleteInboundConnection",
 		"DeleteIndex",
-		"DeleteOutboundConnection",
-		"DeletePackage",
-		"DeleteVpcEndpoint",
 		"DescribeDomain",
 		"DescribeDomainAutoTunes",
 		"DescribeDomainChangeProgress",
@@ -152,57 +135,128 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeDomainNodes",
 		"DescribeDomains",
 		"DescribeDryRunProgress",
-		"DescribeInboundConnections",
-		"DescribeInstanceTypeLimits",
-		"DescribeOutboundConnections",
-		"DescribePackages",
-		"DescribeReservedInstanceOfferings",
-		"DescribeReservedInstances",
-		"DescribeVpcEndpoints",
-		"DissociatePackage",
-		"DissociatePackages",
-		"GetApplication",
-		"GetCompatibleVersions",
-		"GetDataSource",
-		"GetDefaultApplicationSetting",
-		"GetDirectQueryDataSource",
 		"GetDomainMaintenanceStatus",
 		"GetIndex",
-		"GetPackageVersionHistory",
 		"GetUpgradeHistory",
 		"GetUpgradeStatus",
-		"ListApplications",
-		"ListDataSources",
-		"ListDirectQueryDataSources",
 		"ListDomainMaintenances",
 		"ListDomainNames",
-		"ListDomainsForPackage",
-		"ListInstanceTypeDetails",
-		"ListPackagesForDomain",
-		"ListScheduledActions",
+		"StartDomainMaintenance",
+		"StartServiceSoftwareUpdate",
+		"UpdateDomainConfig",
+		"UpdateIndex",
+		"UpgradeDomain",
+	}
+}
+
+func connectionAndTagOperations() []string {
+	return []string{
+		"AcceptInboundConnection",
+		"AddTags",
+		"AuthorizeVpcEndpointAccess",
+		"CreateOutboundConnection",
+		"CreateVpcEndpoint",
+		"DeleteInboundConnection",
+		"DeleteOutboundConnection",
+		"DeleteVpcEndpoint",
+		"DescribeInboundConnections",
+		"DescribeOutboundConnections",
+		"DescribeVpcEndpoints",
 		"ListTags",
-		"ListVersions",
 		"ListVpcEndpointAccess",
 		"ListVpcEndpoints",
 		"ListVpcEndpointsForDomain",
-		"PurchaseReservedInstanceOffering",
-		"PutDefaultApplicationSetting",
 		"RejectInboundConnection",
 		"RemoveTags",
 		"RevokeVpcEndpointAccess",
-		"StartDomainMaintenance",
-		"StartServiceSoftwareUpdate",
-		"UpdateApplication",
+	}
+}
+
+func packageAndDataOperations() []string {
+	return []string{
+		"AddDataSource",
+		"AddDirectQueryDataSource",
+		"AssociatePackage",
+		"AssociatePackages",
+		"CreatePackage",
+		"DeleteDataSource",
+		"DeleteDirectQueryDataSource",
+		"DeletePackage",
+		"DescribePackages",
+		"DissociatePackage",
+		"DissociatePackages",
+		"GetDataSource",
+		"GetDirectQueryDataSource",
+		"GetPackageVersionHistory",
+		"ListDataSources",
+		"ListDirectQueryDataSources",
+		"ListDomainsForPackage",
+		"ListPackagesForDomain",
 		"UpdateDataSource",
 		"UpdateDirectQueryDataSource",
-		"UpdateDomainConfig",
-		"UpdateIndex",
 		"UpdatePackage",
 		"UpdatePackageScope",
+	}
+}
+
+func infraAndAppOperations() []string {
+	return []string{
+		"CreateApplication",
+		"DeleteApplication",
+		"DescribeInstanceTypeLimits",
+		"DescribeReservedInstanceOfferings",
+		"DescribeReservedInstances",
+		"GetApplication",
+		"GetCompatibleVersions",
+		"GetDefaultApplicationSetting",
+		"ListApplications",
+		"ListInstanceTypeDetails",
+		"ListScheduledActions",
+		"ListVersions",
+		"PurchaseReservedInstanceOffering",
+		"PutDefaultApplicationSetting",
+		"UpdateApplication",
 		"UpdateScheduledAction",
 		"UpdateVpcEndpoint",
-		"UpgradeDomain",
 	}
+}
+
+func serverlessOperations() []string {
+	return []string{
+		"BatchGetCollection",
+		"CreateAccessPolicy",
+		"CreateCollection",
+		"CreateEncryptionPolicy",
+		"CreateNetworkPolicy",
+		"CreateSecurityConfig",
+		"DeleteAccessPolicy",
+		"DeleteCollection",
+		"DeleteEncryptionPolicy",
+		"DeleteNetworkPolicy",
+		"DeleteSecurityConfig",
+		"GetAccessPolicy",
+		"GetEncryptionPolicy",
+		"GetSecurityConfig",
+		"ListAccessPolicies",
+		"ListCollections",
+		"ListEncryptionPolicies",
+		"ListNetworkPolicies",
+		"ListSecurityConfigs",
+		"UpdateAccessPolicy",
+		"UpdateEncryptionPolicy",
+		"UpdateSecurityConfig",
+	}
+}
+
+// GetSupportedOperations returns supported operations.
+func (h *Handler) GetSupportedOperations() []string {
+	ops := domainOperations()
+	ops = append(ops, connectionAndTagOperations()...)
+	ops = append(ops, packageAndDataOperations()...)
+	ops = append(ops, infraAndAppOperations()...)
+	ops = append(ops, serverlessOperations()...)
+
+	return ops
 }
 
 // Reset clears the handler's backend state.
@@ -383,18 +437,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
-	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
-	InstanceType              string                   `json:"InstanceType"`
-	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
-	WarmType                  string                   `json:"WarmType,omitempty"`
-	InstanceCount             int                      `json:"InstanceCount"`
-	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
-	WarmCount                 int                      `json:"WarmCount,omitempty"`
-	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled,omitempty"`
-	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled,omitempty"`
-	WarmEnabled               bool                     `json:"WarmEnabled,omitempty"`
-	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled,omitempty"`
-	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled,omitempty"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                          `json:"InstanceType"`
+	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
+	WarmType                   string                          `json:"WarmType,omitempty"`
+	InstanceCount              int                             `json:"InstanceCount"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled,omitempty"`
+	WarmEnabled                bool                            `json:"WarmEnabled,omitempty"`
+	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled,omitempty"`
 }
 
 // zoneAwarenessConfigJSON holds zone awareness config in JSON.
@@ -476,6 +531,52 @@ type logPublishingOptionJSON struct {
 	Enabled                   bool   `json:"Enabled"`
 }
 
+// packageSourceJSON is the JSON representation of a package S3 source.
+type packageSourceJSON struct {
+	S3BucketName string `json:"S3BucketName,omitempty"`
+	S3Key        string `json:"S3Key,omitempty"`
+}
+
+// packageEncryptionOptionsJSON is the JSON representation of package encryption options.
+type packageEncryptionOptionsJSON struct {
+	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
+	EncryptionEnabled bool   `json:"EncryptionEnabled"`
+}
+
+// offPeakWindowOptionsJSON is the JSON representation of off-peak window options.
+type offPeakWindowOptionsJSON struct {
+	OffPeakWindow *offPeakWindowJSON `json:"OffPeakWindow,omitempty"`
+	Enabled       bool               `json:"Enabled"`
+}
+
+// offPeakWindowJSON is the JSON representation of an off-peak window.
+type offPeakWindowJSON struct {
+	WindowStartTime *windowStartTimeJSON `json:"WindowStartTime,omitempty"`
+}
+
+// windowStartTimeJSON is the JSON representation of a window start time.
+type windowStartTimeJSON struct {
+	Hours   int `json:"Hours"`
+	Minutes int `json:"Minutes"`
+}
+
+// iamIdentityCenterOptionsJSON is the JSON representation of IAM Identity Center options.
+type iamIdentityCenterOptionsJSON struct {
+	IamIdentityCenterArn                   string `json:"IamIdentityCenterArn,omitempty"`
+	IamRoleForIdentityCenterApplicationArn string `json:"IamRoleForIdentityCenterApplicationArn,omitempty"`
+	EnabledAPIAccess                       bool   `json:"EnabledAPIAccess"`
+}
+
+// enableSoftwareUpdateOptionsJSON is the JSON representation of enable software update options.
+type enableSoftwareUpdateOptionsJSON struct {
+	AutoSoftwareUpdateEnabled bool `json:"AutoSoftwareUpdateEnabled"`
+}
+
+// blueGreenDeploymentOptionsJSON is the JSON representation of blue-green deployment options.
+type blueGreenDeploymentOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
 // domainNamePattern matches valid OpenSearch domain names: starts with a lowercase letter,
 // 3–28 characters, only lowercase letters, digits, and hyphens.
 var domainNamePattern = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
@@ -490,9 +591,12 @@ func validateDomainName(name string) error {
 	}
 
 	if !domainNamePattern.MatchString(name) {
-		return fmt.Errorf("%w: DomainName %q is not valid. Domain names must start with a lowercase letter "+
-			"and be between 3 and 28 characters. Valid characters are a-z (lowercase only), 0-9, and - (hyphen)",
-			ErrInvalidParameter, name)
+		return fmt.Errorf(
+			"%w: DomainName %q is not valid. Domain names must start with a lowercase letter "+
+				"and be between 3 and 28 characters. Valid characters are a-z (lowercase only), 0-9, and - (hyphen)",
+			ErrInvalidParameter,
+			name,
+		)
 	}
 
 	return nil
@@ -509,6 +613,9 @@ type domainJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	Tags                        map[string]string                   `json:"TagList,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
@@ -526,6 +633,9 @@ type domainStatusJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`
@@ -539,18 +649,19 @@ type domainStatusJSON struct {
 
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
-	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
-	InstanceType              string                   `json:"InstanceType"`
-	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
-	WarmType                  string                   `json:"WarmType,omitempty"`
-	InstanceCount             int                      `json:"InstanceCount"`
-	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
-	WarmCount                 int                      `json:"WarmCount,omitempty"`
-	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled"`
-	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled"`
-	WarmEnabled               bool                     `json:"WarmEnabled"`
-	ColdStorageEnabled        bool                     `json:"ColdStorageEnabled"`
-	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                          `json:"InstanceType"`
+	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
+	WarmType                   string                          `json:"WarmType,omitempty"`
+	InstanceCount              int                             `json:"InstanceCount"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled"`
+	WarmEnabled                bool                            `json:"WarmEnabled"`
+	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled"`
+	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled"`
 }
 
 // domainStatusWrapJSON wraps the domain status in a DomainStatus key.
@@ -585,6 +696,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // dispatchNonDomainRoutes handles all non-domain prefix paths.
 // Returns true if the request was handled.
 func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request) bool {
+	if h.dispatchNonDomainCoreRoutes(w, r) {
+		return true
+	}
+
+	return h.dispatchNonDomainExtRoutes(w, r)
+}
+
+// dispatchNonDomainCoreRoutes handles cross-cluster, package, application, and instance-type routes.
+func (h *Handler) dispatchNonDomainCoreRoutes(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 
 	switch {
@@ -602,6 +722,18 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 		h.handleVersionsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchInstanceTypesPath):
 		h.handleInstanceTypeDetailsRoutes(w, r)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchNonDomainExtRoutes handles VPC, reserved instances, upgrade, and serverless routes.
+func (h *Handler) dispatchNonDomainExtRoutes(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+
+	switch {
 	case strings.HasPrefix(path, openSearchCompatiblePath):
 		h.handleCompatibleVersionsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchVpcEndpointsPath):
@@ -614,6 +746,8 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 		h.handleInstanceTypeLimitsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchUpgradePath):
 		h.handleUpgradeDomainRoutes(w, r)
+	case strings.HasPrefix(path, openSearchServerlessPath):
+		h.handleServerlessRoutes(w, r)
 	default:
 		return false
 	}
@@ -829,6 +963,11 @@ func parseClusterConfigFromReq(cc *domainClusterConfig) ClusterConfig {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+	if cc.BlueGreenDeploymentOptions != nil {
+		cfg.BlueGreenDeploymentOptions = &BlueGreenDeploymentOptions{
+			Enabled: cc.BlueGreenDeploymentOptions.Enabled,
+		}
+	}
 
 	return cfg
 }
@@ -858,7 +997,9 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 }
 
 // parseLogPublishingOptsFromReq converts JSON log publishing options to backend type.
-func parseLogPublishingOptsFromReq(opts map[string]*logPublishingOptionJSON) map[string]*LogPublishingOption {
+func parseLogPublishingOptsFromReq(
+	opts map[string]*logPublishingOptionJSON,
+) map[string]*LogPublishingOption {
 	if len(opts) == 0 {
 		return nil
 	}
@@ -936,7 +1077,44 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 	}
 	input.LogPublishingOptions = parseLogPublishingOptsFromReq(req.LogPublishingOptions)
 
+	if req.OffPeakWindowOptions != nil {
+		input.OffPeakWindowOptions = parseOffPeakWindowOptionsFromReq(req.OffPeakWindowOptions)
+	}
+
+	if req.IamIdentityCenterOptions != nil {
+		input.IamIdentityCenterOptions = &IamIdentityCenterOptions{
+			EnabledAPIAccess:                       req.IamIdentityCenterOptions.EnabledAPIAccess,
+			IamIdentityCenterArn:                   req.IamIdentityCenterOptions.IamIdentityCenterArn,
+			IamRoleForIdentityCenterApplicationArn: req.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+		}
+	}
+
+	if req.EnableSoftwareUpdateOptions != nil {
+		input.EnableSoftwareUpdateOptions = &EnableSoftwareUpdateOptions{
+			AutoSoftwareUpdateEnabled: req.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
+		}
+	}
+
 	return input
+}
+
+// parseOffPeakWindowOptionsFromReq converts JSON off-peak window options to backend type.
+func parseOffPeakWindowOptionsFromReq(opts *offPeakWindowOptionsJSON) *OffPeakWindowOptions {
+	if opts == nil {
+		return nil
+	}
+	out := &OffPeakWindowOptions{Enabled: opts.Enabled}
+	if opts.OffPeakWindow != nil {
+		out.OffPeakWindow = &OffPeakWindow{}
+		if opts.OffPeakWindow.WindowStartTime != nil {
+			out.OffPeakWindow.WindowStartTime = &WindowStartTime{
+				Hours:   opts.OffPeakWindow.WindowStartTime.Hours,
+				Minutes: opts.OffPeakWindow.WindowStartTime.Minutes,
+			}
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
@@ -982,6 +1160,9 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		AdvancedSecurityOptions:     upd.AdvancedSecurityOptions,
 		VPCOptions:                  upd.VPCOptions,
 		CognitoOptions:              upd.CognitoOptions,
+		OffPeakWindowOptions:        upd.OffPeakWindowOptions,
+		IamIdentityCenterOptions:    upd.IamIdentityCenterOptions,
+		EnableSoftwareUpdateOptions: upd.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        upd.LogPublishingOptions,
 	}
 
@@ -1101,7 +1282,11 @@ func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) 
 	h.writeJSON(r, w, map[string]any{"DomainStatusList": list})
 }
 
-func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request, packageID, domainName string) {
+func (h *Handler) handleDissociatePackage(
+	w http.ResponseWriter,
+	r *http.Request,
+	packageID, domainName string,
+) {
 	details, err := h.Backend.DissociatePackage(packageID, domainName)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
@@ -1186,6 +1371,11 @@ func toClusterConfigJSON(cc ClusterConfig) clusterConfigJSON {
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
 		}
 	}
+	if cc.BlueGreenDeploymentOptions != nil {
+		out.BlueGreenDeploymentOptions = &blueGreenDeploymentOptionsJSON{
+			Enabled: cc.BlueGreenDeploymentOptions.Enabled,
+		}
+	}
 
 	return out
 }
@@ -1213,7 +1403,9 @@ func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecuri
 	return out
 }
 
-func toLogPublishingOptionsJSON(opts map[string]*LogPublishingOption) map[string]*logPublishingOptionJSON {
+func toLogPublishingOptionsJSON(
+	opts map[string]*LogPublishingOption,
+) map[string]*logPublishingOptionJSON {
 	if len(opts) == 0 {
 		return nil
 	}
@@ -1273,7 +1465,9 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 		}
 	}
 	if d.NodeToNodeEncryptionOptions != nil {
-		out.NodeToNodeEncryptionOptions = &nodeToNodeEncryptJSON{Enabled: d.NodeToNodeEncryptionOptions.Enabled}
+		out.NodeToNodeEncryptionOptions = &nodeToNodeEncryptJSON{
+			Enabled: d.NodeToNodeEncryptionOptions.Enabled,
+		}
 	}
 	if d.DomainEndpointOptions != nil {
 		out.DomainEndpointOptions = &domainEndpointOptionsJSON{
@@ -1303,6 +1497,43 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 		}
 	}
 	out.LogPublishingOptions = toLogPublishingOptionsJSON(d.LogPublishingOptions)
+
+	if d.OffPeakWindowOptions != nil {
+		out.OffPeakWindowOptions = toOffPeakWindowOptionsJSON(d.OffPeakWindowOptions)
+	}
+
+	if d.IamIdentityCenterOptions != nil {
+		out.IamIdentityCenterOptions = &iamIdentityCenterOptionsJSON{
+			EnabledAPIAccess:                       d.IamIdentityCenterOptions.EnabledAPIAccess,
+			IamIdentityCenterArn:                   d.IamIdentityCenterOptions.IamIdentityCenterArn,
+			IamRoleForIdentityCenterApplicationArn: d.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+		}
+	}
+
+	if d.EnableSoftwareUpdateOptions != nil {
+		out.EnableSoftwareUpdateOptions = &enableSoftwareUpdateOptionsJSON{
+			AutoSoftwareUpdateEnabled: d.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
+		}
+	}
+}
+
+// toOffPeakWindowOptionsJSON converts backend OffPeakWindowOptions to JSON representation.
+func toOffPeakWindowOptionsJSON(opts *OffPeakWindowOptions) *offPeakWindowOptionsJSON {
+	if opts == nil {
+		return nil
+	}
+	out := &offPeakWindowOptionsJSON{Enabled: opts.Enabled}
+	if opts.OffPeakWindow != nil {
+		out.OffPeakWindow = &offPeakWindowJSON{}
+		if opts.OffPeakWindow.WindowStartTime != nil {
+			out.OffPeakWindow.WindowStartTime = &windowStartTimeJSON{
+				Hours:   opts.OffPeakWindow.WindowStartTime.Hours,
+				Minutes: opts.OffPeakWindow.WindowStartTime.Minutes,
+			}
+		}
+	}
+
+	return out
 }
 
 type errorResponseJSON struct {
@@ -1331,19 +1562,31 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 	}
 
 	if st.EncryptionAtRestOptions != nil {
-		cfg.EncryptionAtRestOptions = opensearchConfigValue{Options: st.EncryptionAtRestOptions, Status: active}
+		cfg.EncryptionAtRestOptions = opensearchConfigValue{
+			Options: st.EncryptionAtRestOptions,
+			Status:  active,
+		}
 	}
 
 	if st.NodeToNodeEncryptionOptions != nil {
-		cfg.NodeToNodeEncryptionOptions = opensearchConfigValue{Options: st.NodeToNodeEncryptionOptions, Status: active}
+		cfg.NodeToNodeEncryptionOptions = opensearchConfigValue{
+			Options: st.NodeToNodeEncryptionOptions,
+			Status:  active,
+		}
 	}
 
 	if st.DomainEndpointOptions != nil {
-		cfg.DomainEndpointOptions = opensearchConfigValue{Options: st.DomainEndpointOptions, Status: active}
+		cfg.DomainEndpointOptions = opensearchConfigValue{
+			Options: st.DomainEndpointOptions,
+			Status:  active,
+		}
 	}
 
 	if st.AdvancedSecurityOptions != nil {
-		cfg.AdvancedSecurityOptions = opensearchConfigValue{Options: st.AdvancedSecurityOptions, Status: active}
+		cfg.AdvancedSecurityOptions = opensearchConfigValue{
+			Options: st.AdvancedSecurityOptions,
+			Status:  active,
+		}
 	}
 
 	if st.VPCOptions != nil {
@@ -1355,13 +1598,42 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 	}
 
 	if len(st.LogPublishingOptions) > 0 {
-		cfg.LogPublishingOptions = opensearchConfigValue{Options: st.LogPublishingOptions, Status: active}
+		cfg.LogPublishingOptions = opensearchConfigValue{
+			Options: st.LogPublishingOptions,
+			Status:  active,
+		}
+	}
+
+	if st.OffPeakWindowOptions != nil {
+		cfg.OffPeakWindowOptions = opensearchConfigValue{
+			Options: st.OffPeakWindowOptions,
+			Status:  active,
+		}
+	}
+
+	if st.IamIdentityCenterOptions != nil {
+		cfg.IamIdentityCenterOptions = opensearchConfigValue{
+			Options: st.IamIdentityCenterOptions,
+			Status:  active,
+		}
+	}
+
+	if st.EnableSoftwareUpdateOptions != nil {
+		cfg.EnableSoftwareUpdateOptions = opensearchConfigValue{
+			Options: st.EnableSoftwareUpdateOptions,
+			Status:  active,
+		}
 	}
 
 	return cfg
 }
 
-func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
+func (h *Handler) writeError(
+	r *http.Request,
+	w http.ResponseWriter,
+	status int,
+	code, message string,
+) {
 	ctx := r.Context()
 	logger.Load(ctx).ErrorContext(r.Context(), "opensearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
@@ -1400,6 +1672,9 @@ type domainConfigFields struct {
 	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
 	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
+	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    opensearchConfigValue `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -1677,7 +1952,11 @@ func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (h *Handler) handleGetDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+func (h *Handler) handleGetDirectQueryDataSource(
+	w http.ResponseWriter,
+	r *http.Request,
+	name string,
+) {
 	ds, err := h.Backend.GetDirectQueryDataSource(name)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -1687,12 +1966,20 @@ func (h *Handler) handleGetDirectQueryDataSource(w http.ResponseWriter, r *http.
 	h.writeJSON(r, w, ds)
 }
 
-func (h *Handler) handleDeleteDirectQueryDataSource(w http.ResponseWriter, _ *http.Request, name string) {
+func (h *Handler) handleDeleteDirectQueryDataSource(
+	w http.ResponseWriter,
+	_ *http.Request,
+	name string,
+) {
 	_ = h.Backend.DeleteDirectQueryDataSource(name)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) handleUpdateDirectQueryDataSource(w http.ResponseWriter, r *http.Request, name string) {
+func (h *Handler) handleUpdateDirectQueryDataSource(
+	w http.ResponseWriter,
+	r *http.Request,
+	name string,
+) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
@@ -1706,7 +1993,11 @@ func (h *Handler) handleUpdateDirectQueryDataSource(w http.ResponseWriter, r *ht
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	ds, updateErr := h.Backend.UpdateDirectQueryDataSource(name, req.Description, req.OpenSearchArns)
+	ds, updateErr := h.Backend.UpdateDirectQueryDataSource(
+		name,
+		req.Description,
+		req.OpenSearchArns,
+	)
 	if updateErr != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
 
@@ -1742,13 +2033,23 @@ func (h *Handler) handlePackageRoutes(w http.ResponseWriter, r *http.Request) {
 
 // handlePackageAssocRoutes handles associate/dissociate package routes.
 // Returns true if the request was handled.
-func (h *Handler) handlePackageAssocRoutes(w http.ResponseWriter, r *http.Request, rest string) bool {
+func (h *Handler) handlePackageAssocRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	rest string,
+) bool {
 	switch {
 	// POST /packages/associate/{PackageID}/{DomainName} → AssociatePackage
 	case strings.HasPrefix(rest, "/associate/") && r.Method == http.MethodPost:
 		parts := strings.SplitN(strings.TrimPrefix(rest, "/associate/"), "/", pkgPathParts)
 		if len(parts) != pkgPathParts {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid associate package path")
+			h.writeError(
+				r,
+				w,
+				http.StatusBadRequest,
+				"ValidationException",
+				"invalid associate package path",
+			)
 
 			return true
 		}
@@ -1765,7 +2066,13 @@ func (h *Handler) handlePackageAssocRoutes(w http.ResponseWriter, r *http.Reques
 	case strings.HasPrefix(rest, "/dissociate/") && r.Method == http.MethodDelete:
 		parts := strings.SplitN(strings.TrimPrefix(rest, "/dissociate/"), "/", pkgPathParts)
 		if len(parts) != pkgPathParts {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid dissociate package path")
+			h.writeError(
+				r,
+				w,
+				http.StatusBadRequest,
+				"ValidationException",
+				"invalid dissociate package path",
+			)
 
 			return true
 		}
@@ -1785,7 +2092,11 @@ func (h *Handler) handlePackageAssocRoutes(w http.ResponseWriter, r *http.Reques
 
 // handlePackageSubResourceRoutes handles package sub-resource routes (history, domains, scope).
 // Returns true if the request was handled.
-func (h *Handler) handlePackageSubResourceRoutes(w http.ResponseWriter, r *http.Request, rest string) bool {
+func (h *Handler) handlePackageSubResourceRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	rest string,
+) bool {
 	switch {
 	// GET /packages/{packageId}/history → GetPackageVersionHistory
 	case strings.HasSuffix(rest, "/history") && r.Method == http.MethodGet:
@@ -1845,14 +2156,36 @@ func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request
 			return
 		}
 		var req struct {
-			PackageName        string `json:"PackageName"`
-			PackageType        string `json:"PackageType"`
-			PackageDescription string `json:"PackageDescription"`
+			PackageSource            *packageSourceJSON            `json:"PackageSource,omitempty"`
+			PackageEncryptionOptions *packageEncryptionOptionsJSON `json:"PackageEncryptionOptions,omitempty"`
+			PackageName              string                        `json:"PackageName"`
+			PackageType              string                        `json:"PackageType"`
+			PackageDescription       string                        `json:"PackageDescription"`
 		}
 		if len(body) > 0 {
 			_ = json.Unmarshal(body, &req)
 		}
-		pkg, createErr := h.Backend.CreatePackage(req.PackageName, req.PackageType, req.PackageDescription)
+		var pkgSource *PackageSource
+		if req.PackageSource != nil {
+			pkgSource = &PackageSource{
+				S3BucketName: req.PackageSource.S3BucketName,
+				S3Key:        req.PackageSource.S3Key,
+			}
+		}
+		var pkgEncOpts *PackageEncryptionOptions
+		if req.PackageEncryptionOptions != nil {
+			pkgEncOpts = &PackageEncryptionOptions{
+				KmsKeyIdentifier:  req.PackageEncryptionOptions.KmsKeyIdentifier,
+				EncryptionEnabled: req.PackageEncryptionOptions.EncryptionEnabled,
+			}
+		}
+		pkg, createErr := h.Backend.CreatePackage(
+			req.PackageName,
+			req.PackageType,
+			req.PackageDescription,
+			pkgSource,
+			pkgEncOpts,
+		)
 		if createErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 
@@ -2107,7 +2440,11 @@ type inboundConnStatusJSON struct {
 	StatusCode string `json:"StatusCode"`
 }
 
-func (h *Handler) handleAcceptInboundConnection(w http.ResponseWriter, r *http.Request, connectionID string) {
+func (h *Handler) handleAcceptInboundConnection(
+	w http.ResponseWriter,
+	r *http.Request,
+	connectionID string,
+) {
 	conn, err := h.Backend.AcceptInboundConnection(connectionID)
 	if err != nil {
 		if errors.Is(err, ErrInvalidParameter) {
@@ -2156,13 +2493,24 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 		return
 	}
 
-	msg, addErr := h.Backend.AddDataSource(domainName, req.Name, req.Description, fmt.Sprintf("%v", req.DataSourceType))
+	msg, addErr := h.Backend.AddDataSource(
+		domainName,
+		req.Name,
+		req.Description,
+		fmt.Sprintf("%v", req.DataSourceType),
+	)
 	if addErr != nil {
 		switch {
 		case errors.Is(addErr, ErrDomainNotFound):
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", addErr.Error())
 		case errors.Is(addErr, ErrDataSourceAlreadyExists):
-			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", addErr.Error())
+			h.writeError(
+				r,
+				w,
+				http.StatusConflict,
+				"ResourceAlreadyExistsException",
+				addErr.Error(),
+			)
 		default:
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
 		}
@@ -2209,7 +2557,13 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 	)
 	if addErr != nil {
 		if errors.Is(addErr, ErrDataSourceAlreadyExists) {
-			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", addErr.Error())
+			h.writeError(
+				r,
+				w,
+				http.StatusConflict,
+				"ResourceAlreadyExistsException",
+				addErr.Error(),
+			)
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
 		}
@@ -2232,7 +2586,11 @@ type domainPackageDetailsJSON struct {
 	DomainPackageStatus string `json:"DomainPackageStatus"`
 }
 
-func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request, packageID, domainName string) {
+func (h *Handler) handleAssociatePackage(
+	w http.ResponseWriter,
+	r *http.Request,
+	packageID, domainName string,
+) {
 	details, err := h.Backend.AssociatePackage(packageID, domainName)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) || errors.Is(err, ErrPackageNotFound) {
@@ -2329,7 +2687,11 @@ type authorizedPrincipalJSON struct {
 	PrincipalType string `json:"PrincipalType"`
 }
 
-func (h *Handler) handleAuthorizeVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {
+func (h *Handler) handleAuthorizeVpcEndpointAccess(
+	w http.ResponseWriter,
+	r *http.Request,
+	domainName string,
+) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
@@ -2375,7 +2737,11 @@ type cancelDomainConfigChangeOutput struct {
 	DryRun                    bool     `json:"DryRun"`
 }
 
-func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.Request, domainName string) {
+func (h *Handler) handleCancelDomainConfigChange(
+	w http.ResponseWriter,
+	r *http.Request,
+	domainName string,
+) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
@@ -2527,7 +2893,13 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources)
 	if createErr != nil {
 		if errors.Is(createErr, ErrApplicationAlreadyExists) {
-			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", createErr.Error())
+			h.writeError(
+				r,
+				w,
+				http.StatusConflict,
+				"ResourceAlreadyExistsException",
+				createErr.Error(),
+			)
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 		}
@@ -2738,7 +3110,11 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 }
 
 // handleVpcEndpointIDRoutes handles /vpcEndpoints/{id} requests.
-func (h *Handler) handleVpcEndpointIDRoutes(w http.ResponseWriter, r *http.Request, endpointID string) {
+func (h *Handler) handleVpcEndpointIDRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	endpointID string,
+) {
 	switch r.Method {
 	case http.MethodDelete:
 		ep, err := h.Backend.DeleteVpcEndpoint(endpointID)
@@ -2748,7 +3124,10 @@ func (h *Handler) handleVpcEndpointIDRoutes(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		h.writeJSON(r, w, map[string]any{
-			"VpcEndpointSummary": map[string]any{jsonKeyVpcEndpointID: ep.VpcEndpointID, jsonKeyStatus: ep.Status},
+			"VpcEndpointSummary": map[string]any{
+				jsonKeyVpcEndpointID: ep.VpcEndpointID,
+				jsonKeyStatus:        ep.Status,
+			},
 		})
 	case http.MethodPut:
 		body, err := httputils.ReadBody(r)
@@ -2854,7 +3233,13 @@ func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.R
 			req.InstanceCount,
 		)
 		if purchaseErr != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", purchaseErr.Error())
+			h.writeError(
+				r,
+				w,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				purchaseErr.Error(),
+			)
 
 			return
 		}
@@ -2906,7 +3291,11 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 
 // dispatchDomainGetRoutesExtended handles additional GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetRoutesExtended(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	if h.dispatchDomainGetStatusRoutes(w, r, trimmed) {
 		return true
 	}
@@ -2916,7 +3305,11 @@ func (h *Handler) dispatchDomainGetRoutesExtended(w http.ResponseWriter, r *http
 
 // dispatchDomainGetStatusRoutes handles status/health/upgrade/vpc GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetStatusRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	if h.dispatchDomainGetHealthRoutes(w, r, trimmed) {
 		return true
 	}
@@ -2944,7 +3337,11 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 
 // dispatchDomainGetHealthRoutes handles health/nodes/progress/dryRun GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetHealthRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetHealthRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	switch {
 	case strings.HasSuffix(trimmed, "/progress"):
 		// DescribeDomainChangeProgress
@@ -2999,7 +3396,11 @@ func (h *Handler) dispatchDomainGetHealthRoutes(w http.ResponseWriter, r *http.R
 
 // dispatchDomainGetUpgradeRoutes handles upgrade-related GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetUpgradeRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetUpgradeRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	switch {
 	case strings.HasSuffix(trimmed, "/upgradeHistory"):
 		// GetUpgradeHistory
@@ -3044,7 +3445,12 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 			domainArn = domain.ARN
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
-		httputils.WriteJSON(context.Background(), w, http.StatusOK, map[string]any{"VpcEndpointSummaryList": endpoints})
+		httputils.WriteJSON(
+			context.Background(),
+			w,
+			http.StatusOK,
+			map[string]any{"VpcEndpointSummaryList": endpoints},
+		)
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
 		domainName, _ := strings.CutSuffix(trimmed, "/listVpcEndpointAccess")
@@ -3067,7 +3473,11 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, trimmed stri
 
 // dispatchDomainGetResourceRoutes handles resource-listing GET sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetResourceRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	if h.dispatchDomainGetResourceByID(w, r, trimmed) {
 		return true
 	}
@@ -3082,7 +3492,11 @@ func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http
 		h.writeJSON(r, w, map[string]any{"DataSources": sources})
 	case strings.HasSuffix(trimmed, "/packages"):
 		domainName, _ := strings.CutSuffix(trimmed, "/packages")
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: h.Backend.ListPackagesForDomain(domainName)})
+		h.writeJSON(
+			r,
+			w,
+			map[string]any{jsonKeyPkgDetailsList: h.Backend.ListPackagesForDomain(domainName)},
+		)
 	case strings.HasSuffix(trimmed, "/maintenance"):
 		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
 		maintenances, _ := h.Backend.ListDomainMaintenances(domainName)
@@ -3099,7 +3513,11 @@ func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http
 
 // dispatchDomainGetResourceByID handles GET sub-routes that address a specific resource by ID.
 // Returns true if handled.
-func (h *Handler) dispatchDomainGetResourceByID(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainGetResourceByID(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	switch {
 	case strings.Contains(trimmed, "/dataSource/"):
 		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
@@ -3132,7 +3550,13 @@ func (h *Handler) dispatchDomainGetResourceByID(w http.ResponseWriter, r *http.R
 	case strings.Contains(trimmed, "/index/"):
 		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
 		if len(parts) != 2 || parts[1] == "" {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+			h.writeError(
+				r,
+				w,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"invalid index path",
+			)
 
 			return true
 		}
@@ -3152,7 +3576,11 @@ func (h *Handler) dispatchDomainGetResourceByID(w http.ResponseWriter, r *http.R
 
 // dispatchDomainPostRoutesExtended handles additional POST sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainPostRoutesExtended(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	switch {
 	case strings.HasSuffix(trimmed, "/maintenance"):
 		// StartDomainMaintenance
@@ -3221,7 +3649,11 @@ func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *htt
 }
 
 // handleCreateIndexRoute handles the POST {domainName}/index/{indexName} route.
-func (h *Handler) handleCreateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) handleCreateIndexRoute(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
 	if len(parts) != 2 {                           //nolint:mnd // path split count
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
@@ -3250,7 +3682,11 @@ func (h *Handler) handleCreateIndexRoute(w http.ResponseWriter, r *http.Request,
 
 // dispatchDomainDeleteRoutesExtended handles DELETE sub-routes on a domain.
 // Returns true if handled.
-func (h *Handler) dispatchDomainDeleteRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+func (h *Handler) dispatchDomainDeleteRoutesExtended(
+	w http.ResponseWriter,
+	r *http.Request,
+	trimmed string,
+) bool {
 	if strings.Contains(trimmed, "/dataSource/") {
 		// DeleteDataSource: {domainName}/dataSource/{name}
 		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count

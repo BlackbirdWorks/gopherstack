@@ -9,30 +9,37 @@ import (
 )
 
 type backendSnapshot struct {
-	Domains                map[string]*Domain                 `json:"domains"`
-	InboundConnections     map[string]*InboundConnection      `json:"inboundConnections"`
-	OutboundConnections    map[string]*OutboundConnection     `json:"outboundConnections"`
-	DomainDataSources      map[string]map[string]*DataSource  `json:"domainDataSources"`
-	DirectQueryDataSources map[string]*DirectQueryDataSource  `json:"directQueryDataSources"`
-	PackageAssociations    map[string]map[string]bool         `json:"packageAssociations"`
-	VpcAuthorizations      map[string][]AuthorizedPrincipal   `json:"vpcAuthorizations"`
-	VpcEndpoints           map[string]*VpcEndpoint            `json:"vpcEndpoints"`
-	Applications           map[string]*Application            `json:"applications"`
-	Packages               map[string]*Package                `json:"packages"`
-	ScheduledActions       map[string][]*ScheduledAction      `json:"scheduledActions"`
-	ReservedInstances      map[string]*ReservedInstance       `json:"reservedInstances"`
-	DomainMaintenances     map[string][]*DomainMaintenance    `json:"domainMaintenances"`
-	DomainIndexes          map[string]map[string]*DomainIndex `json:"domainIndexes"`
-	UpgradeHistory         map[string][]*UpgradeHistory       `json:"upgradeHistory"`
-	AutoTunes              map[string]*AutoTuneConfig         `json:"autoTunes"`
-	AccountID              string                             `json:"accountID"`
-	Region                 string                             `json:"region"`
-	AppIDCounter           int                                `json:"appIDCounter"`
-	ConnCounter            int                                `json:"connCounter"`
-	VpcEndpointCounter     int                                `json:"vpcEndpointCounter"`
-	PackageCounter         int                                `json:"packageCounter"`
-	MaintenanceCounter     int                                `json:"maintenanceCounter"`
-	ReservedCounter        int                                `json:"reservedCounter"`
+	Domains                map[string]*Domain                     `json:"domains"`
+	InboundConnections     map[string]*InboundConnection          `json:"inboundConnections"`
+	OutboundConnections    map[string]*OutboundConnection         `json:"outboundConnections"`
+	DomainDataSources      map[string]map[string]*DataSource      `json:"domainDataSources"`
+	DirectQueryDataSources map[string]*DirectQueryDataSource      `json:"directQueryDataSources"`
+	PackageAssociations    map[string]map[string]bool             `json:"packageAssociations"`
+	VpcAuthorizations      map[string][]AuthorizedPrincipal       `json:"vpcAuthorizations"`
+	VpcEndpoints           map[string]*VpcEndpoint                `json:"vpcEndpoints"`
+	Applications           map[string]*Application                `json:"applications"`
+	Packages               map[string]*Package                    `json:"packages"`
+	ScheduledActions       map[string][]*ScheduledAction          `json:"scheduledActions"`
+	ReservedInstances      map[string]*ReservedInstance           `json:"reservedInstances"`
+	DomainMaintenances     map[string][]*DomainMaintenance        `json:"domainMaintenances"`
+	DomainIndexes          map[string]map[string]*DomainIndex     `json:"domainIndexes"`
+	UpgradeHistory         map[string][]*UpgradeHistory           `json:"upgradeHistory"`
+	AutoTunes              map[string]*AutoTuneConfig             `json:"autoTunes"`
+	SlCollections          map[string]*ServerlessCollection       `json:"slCollections"`
+	SlAccessPolicies       map[string]*ServerlessAccessPolicy     `json:"slAccessPolicies"`
+	SlSecurityConfigs      map[string]*ServerlessSecurityConfig   `json:"slSecurityConfigs"`
+	SlEncryptionPolicies   map[string]*ServerlessEncryptionPolicy `json:"slEncryptionPolicies"`
+	SlNetworkPolicies      map[string]*ServerlessNetworkPolicy    `json:"slNetworkPolicies"`
+	AccountID              string                                 `json:"accountID"`
+	Region                 string                                 `json:"region"`
+	AppIDCounter           int                                    `json:"appIDCounter"`
+	ConnCounter            int                                    `json:"connCounter"`
+	VpcEndpointCounter     int                                    `json:"vpcEndpointCounter"`
+	PackageCounter         int                                    `json:"packageCounter"`
+	MaintenanceCounter     int                                    `json:"maintenanceCounter"`
+	ReservedCounter        int                                    `json:"reservedCounter"`
+	SlCollCounter          int                                    `json:"slCollCounter"`
+	SlSecConfigCounter     int                                    `json:"slSecConfigCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -58,12 +65,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DomainIndexes:          b.domainIndexes,
 		UpgradeHistory:         b.upgradeHistory,
 		AutoTunes:              b.autoTunes,
+		SlCollections:          b.slCollections,
+		SlAccessPolicies:       b.slAccessPolicies,
+		SlSecurityConfigs:      b.slSecurityConfigs,
+		SlEncryptionPolicies:   b.slEncryptionPolicies,
+		SlNetworkPolicies:      b.slNetworkPolicies,
 		AppIDCounter:           b.appIDCounter,
 		ConnCounter:            b.connCounter,
 		VpcEndpointCounter:     b.vpcEndpointCounter,
 		PackageCounter:         b.packageCounter,
 		MaintenanceCounter:     b.maintenanceCounter,
 		ReservedCounter:        b.reservedCounter,
+		SlCollCounter:          b.slCollCounter,
+		SlSecConfigCounter:     b.slSecConfigCounter,
 		AccountID:              b.accountID,
 		Region:                 b.region,
 	}
@@ -114,12 +128,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.domainIndexes = snap.DomainIndexes
 	b.upgradeHistory = snap.UpgradeHistory
 	b.autoTunes = snap.AutoTunes
+	b.slCollections = snap.SlCollections
+	b.slAccessPolicies = snap.SlAccessPolicies
+	b.slSecurityConfigs = snap.SlSecurityConfigs
+	b.slEncryptionPolicies = snap.SlEncryptionPolicies
+	b.slNetworkPolicies = snap.SlNetworkPolicies
 	b.appIDCounter = snap.AppIDCounter
 	b.connCounter = snap.ConnCounter
 	b.vpcEndpointCounter = snap.VpcEndpointCounter
 	b.packageCounter = snap.PackageCounter
 	b.maintenanceCounter = snap.MaintenanceCounter
 	b.reservedCounter = snap.ReservedCounter
+	b.slCollCounter = snap.SlCollCounter
+	b.slSecConfigCounter = snap.SlSecConfigCounter
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -202,6 +223,26 @@ func ensureNonNilExtendedMaps(snap *backendSnapshot) {
 
 	if snap.AutoTunes == nil {
 		snap.AutoTunes = make(map[string]*AutoTuneConfig)
+	}
+
+	if snap.SlCollections == nil {
+		snap.SlCollections = make(map[string]*ServerlessCollection)
+	}
+
+	if snap.SlAccessPolicies == nil {
+		snap.SlAccessPolicies = make(map[string]*ServerlessAccessPolicy)
+	}
+
+	if snap.SlSecurityConfigs == nil {
+		snap.SlSecurityConfigs = make(map[string]*ServerlessSecurityConfig)
+	}
+
+	if snap.SlEncryptionPolicies == nil {
+		snap.SlEncryptionPolicies = make(map[string]*ServerlessEncryptionPolicy)
+	}
+
+	if snap.SlNetworkPolicies == nil {
+		snap.SlNetworkPolicies = make(map[string]*ServerlessNetworkPolicy)
 	}
 }
 
