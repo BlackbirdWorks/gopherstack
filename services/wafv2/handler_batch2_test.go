@@ -380,7 +380,7 @@ func TestBatch2_ListMobileSdkReleases_Android(t *testing.T) {
 
 	releases, ok := resp["ReleaseSummaries"].([]any)
 	require.True(t, ok)
-	assert.Greater(t, len(releases), 0, "should return at least one Android release")
+	assert.NotEmpty(t, releases, "should return at least one Android release")
 
 	for _, r := range releases {
 		rm := r.(map[string]any)
@@ -404,7 +404,7 @@ func TestBatch2_ListMobileSdkReleases_iOS(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	releases, _ := resp["ReleaseSummaries"].([]any)
-	assert.Greater(t, len(releases), 0, "should return at least one iOS release")
+	assert.NotEmpty(t, releases, "should return at least one iOS release")
 }
 
 func TestBatch2_ListMobileSdkReleases_UnknownPlatform(t *testing.T) {
@@ -669,7 +669,9 @@ func TestBatch2_PermissionPolicy_PutGetDelete(t *testing.T) {
 
 	_, rgARN := createRuleGroupHelper(t, h, "policy-rg")
 
-	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111122223333:root"},"Action":"wafv2:CreateWebACL","Resource":"` + rgARN + `"}]}`
+	policy := `{"Version":"2012-10-17","Statement":[{` +
+		`"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111122223333:root"},` +
+		`"Action":"wafv2:CreateWebACL","Resource":"` + rgARN + `"}]}`
 
 	// Put permission policy.
 	putRec := doWafv2Request(t, h, "PutPermissionPolicy", map[string]any{

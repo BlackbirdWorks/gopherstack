@@ -16,6 +16,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+func fillVersionFromRaw(v *ManagedRuleSetVersion, raw any) {
+	vMap, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+
+	if arnVal, arnOK := vMap["AssociatedRuleGroupArn"].(string); arnOK {
+		v.AssociatedRuleGroupArn = arnVal
+	}
+
+	if capVal, capOK := toInt64(vMap["Capacity"]); capOK {
+		v.Capacity = capVal
+	}
+}
+
 var (
 	// ErrWebACLNotFound is returned when a WebACL does not exist.
 	ErrWebACLNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
@@ -203,11 +218,11 @@ type RuleGroup struct {
 
 // ManagedRuleSetVersion holds metadata for a single published version of a managed rule set.
 type ManagedRuleSetVersion struct {
-	AssociatedRuleGroupArn string `json:"AssociatedRuleGroupArn,omitempty"`
 	ExpiryTimestamp        *int64 `json:"ExpiryTimestamp,omitempty"`
 	ForecastedLifetime     *int64 `json:"ForecastedLifetime,omitempty"`
 	LastUpdateTimestamp    *int64 `json:"LastUpdateTimestamp,omitempty"`
 	PublishTimestamp       *int64 `json:"PublishTimestamp,omitempty"`
+	AssociatedRuleGroupArn string `json:"AssociatedRuleGroupArn,omitempty"`
 	Capacity               int64  `json:"Capacity,omitempty"`
 }
 
@@ -1779,21 +1794,11 @@ func (b *InMemoryBackend) PutManagedRuleSetVersions(
 		b.managedRuleSets[id] = ms
 	}
 
-	if versionsToPublish != nil {
-		for versionName, versionRaw := range versionsToPublish {
-			version := ManagedRuleSetVersion{}
-			if vMap, ok := versionRaw.(map[string]any); ok {
-				if arnVal, ok := vMap["AssociatedRuleGroupArn"].(string); ok {
-					version.AssociatedRuleGroupArn = arnVal
-				}
+	for versionName, versionRaw := range versionsToPublish {
+		version := ManagedRuleSetVersion{}
+		fillVersionFromRaw(&version, versionRaw)
 
-				if cap, ok := toInt64(vMap["Capacity"]); ok {
-					version.Capacity = cap
-				}
-			}
-
-			ms.PublishedVersions[versionName] = version
-		}
+		ms.PublishedVersions[versionName] = version
 	}
 
 	if recommendedVersion != "" {
@@ -1847,9 +1852,7 @@ func cloneManagedRuleSet(ms *ManagedRuleSet) *ManagedRuleSet {
 	if ms.PublishedVersions != nil {
 		cp.PublishedVersions = make(map[string]ManagedRuleSetVersion, len(ms.PublishedVersions))
 
-		for k, v := range ms.PublishedVersions {
-			cp.PublishedVersions[k] = v
-		}
+		maps.Copy(cp.PublishedVersions, ms.PublishedVersions)
 	}
 
 	return &cp

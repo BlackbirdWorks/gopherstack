@@ -21,6 +21,7 @@ func getMobileSdkRelease(platform, version string) *mobileSdkReleaseInfo {
 	for _, r := range buildMobileSdkCatalog() {
 		if r.Platform == platform && r.ReleaseVersion == version {
 			cp := r
+
 			return &cp
 		}
 	}
