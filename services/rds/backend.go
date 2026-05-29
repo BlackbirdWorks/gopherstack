@@ -165,9 +165,9 @@ type CustomDBEngineVersion struct {
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
-	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
-	DbiResourceID                     string                       `json:"dbiResourceID"`
-	DBInstanceClass                   string                       `json:"dbInstanceClass"`
+	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
+	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
 	DBClusterIdentifier               string                       `json:"dbClusterIdentifier,omitempty"`
 	Engine                            string                       `json:"engine"`
 	EngineVersion                     string                       `json:"engineVersion"`
@@ -184,20 +184,20 @@ type DBInstance struct {
 	StorageType                       string                       `json:"storageType"`
 	LicenseModel                      string                       `json:"licenseModel,omitempty"`
 	MonitoringRoleArn                 string                       `json:"monitoringRoleArn,omitempty"`
-	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
+	DbiResourceID                     string                       `json:"dbiResourceID"`
 	PreferredMaintenanceWindow        string                       `json:"preferredMaintenanceWindow,omitempty"`
-	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
-	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
+	DBInstanceClass                   string                       `json:"dbInstanceClass"`
+	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
+	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
-	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	Port                              int                          `json:"port"`
 	AllocatedStorage                  int                          `json:"allocatedStorage"`
 	Iops                              int                          `json:"iops,omitempty"`
 	StorageThroughput                 int                          `json:"storageThroughput,omitempty"`
 	BackupRetentionPeriod             int                          `json:"backupRetentionPeriod"`
 	MonitoringInterval                int                          `json:"monitoringInterval,omitempty"`
-	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
 	MultiAZ                           bool                         `json:"multiAZ"`
 	StorageEncrypted                  bool                         `json:"storageEncrypted"`
 	IAMDatabaseAuthenticationEnabled  bool                         `json:"iamDatabaseAuthenticationEnabled"`
@@ -287,8 +287,8 @@ type ServerlessV2ScalingConfiguration struct {
 type DBCluster struct {
 	ClusterCreateTime               time.Time                         `json:"clusterCreateTime"`
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
-	Endpoint                        string                            `json:"endpoint"`
-	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
+	StorageType                     string                            `json:"storageType,omitempty"`
 	Status                          string                            `json:"status"`
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
@@ -303,21 +303,21 @@ type DBCluster struct {
 	PreferredBackupWindow           string                            `json:"preferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow      string                            `json:"preferredMaintenanceWindow,omitempty"`
 	KmsKeyID                        string                            `json:"kmsKeyID,omitempty"`
-	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
-	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
+	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	EngineLifecycleSupport          string                            `json:"engineLifecycleSupport,omitempty"`
+	NetworkType                     string                            `json:"networkType,omitempty"`
+	ReaderEndpoint                  string                            `json:"readerEndpoint,omitempty"`
+	Endpoint                        string                            `json:"endpoint"`
+	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
 	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
 	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
-	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
-	Port                            int                               `json:"port"`
-	ServerlessCapacity              int                               `json:"serverlessCapacity"`
-	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
+	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
 	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
-	StorageType                     string                            `json:"storageType,omitempty"`
-	ReaderEndpoint                  string                            `json:"readerEndpoint,omitempty"`
-	NetworkType                     string                            `json:"networkType,omitempty"`
-	EngineLifecycleSupport          string                            `json:"engineLifecycleSupport,omitempty"`
-	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
+	Port                            int                               `json:"port"`
+	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
+	ServerlessCapacity              int                               `json:"serverlessCapacity"`
 	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
+	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
 	StorageEncrypted                bool                              `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot              bool                              `json:"copyTagsToSnapshot,omitempty"`
 	DeletionProtection              bool                              `json:"deletionProtection,omitempty"`

@@ -1211,8 +1211,8 @@ type xmlDBInstance struct {
 	ReadReplicaDBInstanceIdentifiers  *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports      *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues             *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
-	DBInstanceIdentifier              string                        `xml:"DBInstanceIdentifier"`
-	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
+	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
+	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
 	DBInstanceClass                   string                        `xml:"DBInstanceClass"`
 	DBClusterIdentifier               string                        `xml:"DBClusterIdentifier,omitempty"`
 	Engine                            string                        `xml:"Engine"`
@@ -1226,20 +1226,20 @@ type xmlDBInstance struct {
 	ReplicaSourceDBInstanceIdentifier string                        `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
 	StorageType                       string                        `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string                        `xml:"AvailabilityZone,omitempty"`
-	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
+	DBInstanceIdentifier              string                        `xml:"DBInstanceIdentifier"`
 	MonitoringRoleArn                 string                        `xml:"MonitoringRoleArn,omitempty"`
 	EnhancedMonitoringResourceArn     string                        `xml:"EnhancedMonitoringResourceArn,omitempty"`
 	PreferredMaintenanceWindow        string                        `xml:"PreferredMaintenanceWindow,omitempty"`
-	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
+	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
 	KmsKeyID                          string                        `xml:"KmsKeyId,omitempty"`
 	InstanceCreateTime                string                        `xml:"InstanceCreateTime,omitempty"`
-	Port                              int                           `xml:"Endpoint>Port"`
+	EngineLifecycleSupport            string                        `xml:"EngineLifecycleSupport,omitempty"`
 	AllocatedStorage                  int                           `xml:"AllocatedStorage"`
 	Iops                              int                           `xml:"Iops,omitempty"`
 	StorageThroughput                 int                           `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod             int                           `xml:"BackupRetentionPeriod,omitempty"`
 	MonitoringInterval                int                           `xml:"MonitoringInterval,omitempty"`
-	MultiAZ                           bool                          `xml:"MultiAZ"`
+	Port                              int                           `xml:"Endpoint>Port"`
 	StorageEncrypted                  bool                          `xml:"StorageEncrypted"`
 	IAMDatabaseAuthenticationEnabled  bool                          `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
 	DeletionProtection                bool                          `xml:"DeletionProtection,omitempty"`
@@ -1248,7 +1248,7 @@ type xmlDBInstance struct {
 	PerformanceInsightsEnabled        bool                          `xml:"PerformanceInsightsEnabled,omitempty"`
 	StorageOptimized                  bool                          `xml:"StorageOptimized,omitempty"`
 	OptimizedWrites                   bool                          `xml:"OptimizedWritesEnabled,omitempty"`
-	EngineLifecycleSupport            string                        `xml:"EngineLifecycleSupport,omitempty"`
+	MultiAZ                           bool                          `xml:"MultiAZ"`
 }
 
 type xmlDBInstanceList struct {
