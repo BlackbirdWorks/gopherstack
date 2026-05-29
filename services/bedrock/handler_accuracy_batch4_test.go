@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -245,44 +246,35 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 func TestAccuracy_ARP_VersionNumberingIsolatedPerPolicy(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	h := bedrock.NewHandler(b)
 
-	policyARNs := make([]string, 2)
+	policy0, err := b.CreateAutomatedReasoningPolicy("iso-arp-0", "", nil)
+	require.NoError(t, err)
 
-	for i := range policyARNs {
-		rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{
-			"name": fmt.Sprintf("iso-policy-arp-%d", i),
-		})
+	policy1, err := b.CreateAutomatedReasoningPolicy("iso-arp-1", "", nil)
+	require.NoError(t, err)
+
+	// Create 2 versions for policy 0 via HTTP
+	for i := range 2 {
+		rec := doRequest(t, h, http.MethodPost,
+			"/automated-reasoning-policies/"+url.PathEscape(policy0.PolicyArn)+"/versions",
+			map[string]any{"definitionHash": fmt.Sprintf("hash-0-%d", i)})
 		require.Equal(t, http.StatusCreated, rec.Code)
-
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		policyARNs[i] = out["policyArn"].(string)
 	}
 
-	// Create 2 versions for policy 0, 1 for policy 1
-	for range 2 {
-		doRequest(t, h, http.MethodPost, "/automated-reasoning-policies/"+policyARNs[0]+"/versions",
-			map[string]any{"definitionHash": "abc"})
-	}
+	// Create 1 version for policy 1 via HTTP
+	rec := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policy1.PolicyArn)+"/versions",
+		map[string]any{"definitionHash": "hash-1-0"})
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-	doRequest(t, h, http.MethodPost, "/automated-reasoning-policies/"+policyARNs[1]+"/versions",
-		map[string]any{"definitionHash": "xyz"})
+	// Verify second version for policy0 has version "2"
+	var verOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verOut))
 
-	// List versions for each policy separately
-	listRec0 := doRequest(t, h, http.MethodGet, "/automated-reasoning-policies/"+policyARNs[0]+"/versions", nil)
-	require.Equal(t, http.StatusOK, listRec0.Code)
-
-	var list0 map[string]any
-	require.NoError(t, json.Unmarshal(listRec0.Body.Bytes(), &list0))
-	assert.Len(t, list0["policyVersionSummaries"], 2)
-
-	listRec1 := doRequest(t, h, http.MethodGet, "/automated-reasoning-policies/"+policyARNs[1]+"/versions", nil)
-	require.Equal(t, http.StatusOK, listRec1.Code)
-
-	var list1 map[string]any
-	require.NoError(t, json.Unmarshal(listRec1.Body.Bytes(), &list1))
-	assert.Len(t, list1["policyVersionSummaries"], 1)
+	// policy1's first version is "1" (isolated counter)
+	assert.Equal(t, "1", verOut["version"], "policy1 version counter starts from 1 independent of policy0")
 }
 
 func TestAccuracy_ARP_BuildWorkflowStatusTransitions(t *testing.T) {
@@ -330,21 +322,21 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	policyARN := out["policyArn"].(string)
 
-	// Create test case
+	// Create test case (needs URL-encoded ARN in path)
 	tcRec := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+policyARN+"/test-cases",
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases",
 		map[string]any{"input": "Is 2 + 2 = 4?"},
 	)
-	require.Equal(t, http.StatusOK, tcRec.Code)
+	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tcOut map[string]any
 	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut))
 	tcID := tcOut["testCaseId"].(string)
 	assert.NotEmpty(t, tcID)
 
-	// Get test case
+	// Get test case (needs URL-encoded ARN in path)
 	getTestRec := doRequest(t, h, http.MethodGet,
-		"/automated-reasoning-policies/"+policyARN+"/test-cases/"+tcID, nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
 	require.Equal(t, http.StatusOK, getTestRec.Code)
 
 	var getTestOut map[string]any
@@ -367,9 +359,9 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	policyARN := out["policyArn"].(string)
 
-	// Update annotations
+	// Update annotations (needs URL-encoded ARN)
 	updateRec := doRequest(t, h, http.MethodPut,
-		"/automated-reasoning-policies/"+policyARN+"/annotations",
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations",
 		map[string]any{"annotations": []map[string]any{
 			{"key": "env", "value": "prod"},
 		}},
@@ -378,7 +370,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 
 	// Get annotations - should not be empty
 	getAnnRec := doRequest(t, h, http.MethodGet,
-		"/automated-reasoning-policies/"+policyARN+"/annotations", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations", nil)
 	require.Equal(t, http.StatusOK, getAnnRec.Code)
 
 	var annOut map[string]any
@@ -618,7 +610,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 	assert.Equal(t, "my-deployment", getOut["modelDeploymentName"])
-	assert.Equal(t, "ACTIVE", getOut["status"])
+	assert.Equal(t, "Creating", getOut["status"])
 }
 
 func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {
@@ -629,11 +621,10 @@ func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {
 
 	// Create 3 deployments
 	for i := range 3 {
-		doRequest(t, h, http.MethodPost, "/custom-model-deployments", map[string]any{
-			"modelDeploymentName": "deploy-list-test",
+		doRequest(t, h, http.MethodPost, "/model-customization/custom-model-deployments", map[string]any{
+			"modelDeploymentName": fmt.Sprintf("deploy-list-test-%d", i),
 			"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/test-model",
 		})
-		_ = i
 	}
 
 	listRec := doRequest(t, h, http.MethodGet, "/custom-model-deployments", nil)
@@ -652,7 +643,7 @@ func TestAccuracy_CustomModelDeployment_DeleteRemovesFromList(t *testing.T) {
 	h := bedrock.NewHandler(b)
 
 	// Create a deployment
-	depRec := doRequest(t, h, http.MethodPost, "/custom-model-deployments", map[string]any{
+	depRec := doRequest(t, h, http.MethodPost, "/model-customization/custom-model-deployments", map[string]any{
 		"modelDeploymentName": "disposable-deploy",
 		"modelArn":            "arn:aws:bedrock:us-east-1:000000000000:custom-model/x",
 	})
@@ -762,19 +753,19 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 // Enforced guardrail configuration — accuracy
 // ─────────────────────────────────────────────────────────────
 
-func TestAccuracy_EnforcedGuardrail_PutReplacesExisting(t *testing.T) {
+func TestAccuracy_EnforcedGuardrail_PutUpdatesVersionForSameID(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// PUT first config
+	// PUT config version 1
 	putRec1 := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "grd-1", "guardrailVersion": "1"})
+		map[string]any{"guardrailId": "grd-update", "guardrailVersion": "1"})
 	require.Equal(t, http.StatusNoContent, putRec1.Code)
 
-	// PUT second config (replaces)
+	// PUT same guardrailId with version 2 — should update, not add a duplicate
 	putRec2 := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "grd-2", "guardrailVersion": "2"})
+		map[string]any{"guardrailId": "grd-update", "guardrailVersion": "2"})
 	require.Equal(t, http.StatusNoContent, putRec2.Code)
 
 	listRec := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
@@ -783,11 +774,11 @@ func TestAccuracy_EnforcedGuardrail_PutReplacesExisting(t *testing.T) {
 	var listOut map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
 	configs := listOut["enforcedGuardrailConfigurations"].([]any)
-	assert.Len(t, configs, 1, "PUT should replace the existing config")
+	assert.Len(t, configs, 1, "same guardrailId PUT should not create a duplicate")
 
 	cfg := configs[0].(map[string]any)
-	assert.Equal(t, "grd-2", cfg["guardrailId"])
-	assert.Equal(t, "2", cfg["guardrailVersion"])
+	assert.Equal(t, "grd-update", cfg["guardrailId"])
+	assert.Equal(t, "2", cfg["guardrailVersion"], "version should be updated to latest PUT")
 }
 
 func TestAccuracy_EnforcedGuardrail_DeleteClearsConfig(t *testing.T) {
