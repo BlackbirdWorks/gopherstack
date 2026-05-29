@@ -351,7 +351,7 @@ func (h *Handler) applyMethodControls(
 // enforceAPIKey validates the x-api-key header against enabled API keys.
 // Returns true if the request was denied (response already written).
 func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *http.Request, apiID string) bool {
-	keyValue := r.Header.Get("x-api-key")
+	keyValue := r.Header.Get("X-Api-Key")
 	if keyValue == "" {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: missing x-api-key", "apiId", apiID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
