@@ -102,9 +102,11 @@ type XMLAttributeEntry struct {
 }
 
 // XMLPublishBatchSuccessEntry represents a successfully published batch entry.
+// SequenceNumber is only populated for FIFO topic batch entries.
 type XMLPublishBatchSuccessEntry struct {
-	MessageID string `xml:"MessageId"`
-	ID        string `xml:"Id"`
+	MessageID      string `xml:"MessageId"`
+	SequenceNumber string `xml:"SequenceNumber,omitempty"`
+	ID             string `xml:"Id"`
 }
 
 // XMLPublishBatchFailEntry represents a failed batch entry.
@@ -209,8 +211,11 @@ type ListSubscriptionsByTopicResponse struct {
 }
 
 // PublishResult holds the result of a Publish operation.
+// SequenceNumber is only populated for FIFO topics; it is a monotonically
+// increasing 20-digit zero-padded integer unique within the topic.
 type PublishResult struct {
-	MessageID string `xml:"MessageId"`
+	MessageID      string `xml:"MessageId"`
+	SequenceNumber string `xml:"SequenceNumber,omitempty"`
 }
 
 // PublishResponse is the XML response for Publish.
