@@ -186,7 +186,7 @@ func TestHandler_DeleteGraphqlAPI(t *testing.T) {
 			apiID := tt.apiID
 
 			if apiID == "" {
-				api, _ := b.CreateGraphqlAPI("ToDelete", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("ToDelete", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				apiID = api.APIID
 			}
 
@@ -223,7 +223,7 @@ func TestHandler_StartSchemaCreation(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			body := map[string]any{"definition": tt.sdl}
 			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreation", body)
@@ -266,7 +266,7 @@ func TestHandler_CreateAndGetDataSource(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/datasources", tt.dsBody)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -309,7 +309,7 @@ func TestHandler_CreateAndGetResolver(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			path := "/v1/apis/" + api.APIID + "/types/" + tt.typeName + "/resolvers"
 			rec := doRequest(t, h, http.MethodPost, path, tt.resolverBody)
@@ -357,7 +357,7 @@ func TestHandler_GraphQLExecution(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			if tt.schema != "" {
 				_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
@@ -492,8 +492,8 @@ func TestHandler_ListGraphqlAPIs(t *testing.T) {
 		{
 			name: "returns_all_apis",
 			setup: func(b *appsync.InMemoryBackend) {
-				_, _ = b.CreateGraphqlAPI("API1", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
-				_, _ = b.CreateGraphqlAPI("API2", appsync.AuthTypeIAM, false, "", "", nil, nil)
+				_, _ = b.CreateGraphqlAPI("API1", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+				_, _ = b.CreateGraphqlAPI("API2", appsync.AuthTypeIAM, false, "", "", nil, nil, nil)
 			},
 			wantCount: 2,
 		},
@@ -545,7 +545,7 @@ func TestHandler_GetGraphqlAPI(t *testing.T) {
 			apiID := tt.apiID
 
 			if apiID == "" {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				apiID = api.APIID
 			}
 
@@ -559,7 +559,7 @@ func TestHandler_GetSchemaCreationStatus(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/schemacreation", nil)
@@ -595,7 +595,7 @@ func TestHandler_GetIntrospectionSchema(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			if tt.hasSchema {
 				_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
@@ -611,7 +611,7 @@ func TestHandler_GetDataSource(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "MyDS", Type: appsync.DataSourceTypeNone})
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/datasources/MyDS", nil)
@@ -622,7 +622,7 @@ func TestHandler_ListDataSources(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "DS1", Type: appsync.DataSourceTypeNone})
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/datasources", nil)
@@ -639,7 +639,7 @@ func TestHandler_DeleteDataSource(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "DS1", Type: appsync.DataSourceTypeNone})
 
 	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/datasources/DS1", nil)
@@ -650,7 +650,7 @@ func TestHandler_GetResolver(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
@@ -661,7 +661,7 @@ func TestHandler_ListResolvers(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types/Query/resolvers", nil)
@@ -678,7 +678,7 @@ func TestHandler_DeleteResolver(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{FieldName: "getItem", DataSourceName: "myDs"})
 
 	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
@@ -697,7 +697,7 @@ func TestHandler_SchemaCreations_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/schemacreation", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
@@ -707,7 +707,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	tests := []struct {
 		name    string
@@ -742,7 +742,7 @@ func TestHandler_GraphQL_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/graphql", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
@@ -752,7 +752,7 @@ func TestHandler_GraphQL_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
 	e := echo.New()
@@ -770,7 +770,7 @@ func TestHandler_Types_ShortPath(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	// GET /v1/apis/{id}/types now returns list of types (200 OK).
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/types", nil)
@@ -781,7 +781,7 @@ func TestHandler_UnknownSubpath(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/unknown", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -791,7 +791,7 @@ func TestHandler_DataSources_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/datasources", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
@@ -820,7 +820,7 @@ func TestHandler_CreateApiKey(t *testing.T) {
 		{
 			name: "creates_api_key_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -872,7 +872,7 @@ func TestHandler_CreateApiCache(t *testing.T) {
 		{
 			name: "creates_api_cache_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -919,7 +919,7 @@ func TestHandler_CreateFunction(t *testing.T) {
 		{
 			name: "creates_function_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -934,7 +934,7 @@ func TestHandler_CreateFunction(t *testing.T) {
 		{
 			name: "missing_name_returns_400",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -944,7 +944,7 @@ func TestHandler_CreateFunction(t *testing.T) {
 		{
 			name: "missing_datasource_returns_400",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -996,7 +996,7 @@ func TestHandler_CreateType(t *testing.T) {
 		{
 			name: "creates_type_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -1010,7 +1010,7 @@ func TestHandler_CreateType(t *testing.T) {
 		{
 			name: "missing_definition_returns_400",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 				return api.APIID
 			},
@@ -1111,7 +1111,7 @@ func TestHandler_AssociateApi(t *testing.T) {
 		{
 			name: "associates_api_successfully",
 			setup: func(b *appsync.InMemoryBackend) (string, string) {
-				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				dn, _ := b.CreateDomainName("api.example.com", "arn:aws:acm:us-east-1:000:certificate/abc", "", nil)
 
 				return dn.DomainName, api.APIID
@@ -1163,9 +1163,9 @@ func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 		t.Parallel()
 
 		h, b := newTestHandler()
-		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 		require.NoError(t, err)
-		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost,
@@ -1186,7 +1186,7 @@ func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 		t.Parallel()
 
 		h, b := newTestHandler()
-		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost,
@@ -1204,9 +1204,9 @@ func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 		t.Parallel()
 
 		h, b := newTestHandler()
-		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 		require.NoError(t, err)
-		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost,
@@ -1227,7 +1227,7 @@ func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 		t.Parallel()
 
 		h, b := newTestHandler()
-		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost,
@@ -1296,7 +1296,7 @@ func TestHandler_CreateChannelNamespace(t *testing.T) {
 		{
 			name: "creates_channel_namespace_successfully",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateAPI("MyEventAPI", "", nil)
+				api, _ := b.CreateAPI("MyEventAPI", "", nil, nil)
 
 				return api.APIID
 			},
@@ -1307,7 +1307,7 @@ func TestHandler_CreateChannelNamespace(t *testing.T) {
 		{
 			name: "missing_name_returns_400",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, _ := b.CreateAPI("MyEventAPI", "", nil)
+				api, _ := b.CreateAPI("MyEventAPI", "", nil, nil)
 
 				return api.APIID
 			},
@@ -1690,7 +1690,7 @@ func TestHandler_UpdateGraphqlAPI(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+api.APIID, tt.body)
@@ -1710,7 +1710,7 @@ func TestHandler_ListApiKeys(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPIKey(api.APIID, "key1", 0)
@@ -1731,7 +1731,7 @@ func TestHandler_DeleteApiKey(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "test", 0)
@@ -1750,7 +1750,7 @@ func TestHandler_GetApiCache(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
@@ -1772,7 +1772,7 @@ func TestHandler_DeleteApiCache(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
@@ -1794,7 +1794,7 @@ func TestHandler_ListFunctions(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -1813,7 +1813,7 @@ func TestHandler_GetFunction(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -1831,7 +1831,7 @@ func TestHandler_DeleteFunction(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -1849,7 +1849,7 @@ func TestHandler_ListTypes(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -1868,7 +1868,7 @@ func TestHandler_GetType(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -1886,7 +1886,7 @@ func TestHandler_DeleteType(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -1954,7 +1954,7 @@ func TestHandler_TagOperations(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Tag the resource.
@@ -2010,7 +2010,7 @@ func TestHandler_UntagResource_MissingQueryParam(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/tags", nil)
@@ -2021,7 +2021,7 @@ func TestHandler_UpdateDataSource(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "myds", Type: "NONE"})
@@ -2046,7 +2046,7 @@ func TestHandler_UpdateFunction(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -2066,7 +2066,7 @@ func TestHandler_UpdateApiKey(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "original", 0)
@@ -2086,7 +2086,7 @@ func TestHandler_UpdateApiCache(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(
@@ -2109,7 +2109,7 @@ func TestHandler_FlushApiCache(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPICache(
@@ -2122,7 +2122,7 @@ func TestHandler_FlushApiCache(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	// Flush without cache returns 404.
-	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api2, err := b.CreateGraphqlAPI("TestAPI2", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec2 := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api2.APIID+"/ApiCaches/entries", nil)
@@ -2133,7 +2133,7 @@ func TestHandler_UpdateType(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateType(api.APIID, "type MyType { id: ID! }", appsync.TypeFormatSDL)
@@ -2153,7 +2153,7 @@ func TestHandler_UpdateResolver(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
@@ -2278,7 +2278,7 @@ func TestHandler_TagOps_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/tags", nil)
@@ -2289,7 +2289,7 @@ func TestHandler_UpdateApiKey_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/apikeys/nonexistent",
@@ -2301,7 +2301,7 @@ func TestHandler_UpdateApiCache_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/ApiCaches",
@@ -2459,9 +2459,9 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	h, b := newTestHandler()
 
 	// Create the APIs first (validation requires both to exist).
-	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
-	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Associate source graphql API.
@@ -2506,9 +2506,9 @@ func TestHandler_DisassociateMergedGraphqlApi(t *testing.T) {
 	h, b := newTestHandler()
 
 	// Create the APIs first.
-	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	srcAPI, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
-	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+	mrgAPI, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Associate first.
@@ -2546,7 +2546,7 @@ func TestHandler_EnvironmentVariables(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Get empty env vars.
@@ -2591,7 +2591,7 @@ func TestHandler_EnvironmentVariables_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete, "/v1/apis/"+api.APIID+"/environmentVariables", nil)
@@ -2602,7 +2602,7 @@ func TestHandler_ListResolversByFunction(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	fn, err := b.CreateFunction(api.APIID, &appsync.Function{Name: "fn1", DataSourceName: "ds"})
@@ -2706,7 +2706,7 @@ func TestHandler_UpdateGraphqlAPI_XrayEnabled(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			apiID := api.APIID
 			if tt.wantErrCode != 0 {
@@ -2737,8 +2737,8 @@ func TestHandler_ListGraphqlAPIs_ApiTypeFilter(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	_, _ = b.CreateGraphqlAPI("GraphQL1", appsync.AuthTypeAPIKey, false, "GRAPHQL", "", nil, nil)
-	_, _ = b.CreateGraphqlAPI("Merged1", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+	_, _ = b.CreateGraphqlAPI("GraphQL1", appsync.AuthTypeAPIKey, false, "GRAPHQL", "", nil, nil, nil)
+	_, _ = b.CreateGraphqlAPI("Merged1", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/apis?apiType=GRAPHQL", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -2789,7 +2789,7 @@ func TestHandler_CreateResolver_Validation(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/types/Query/resolvers", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -2801,7 +2801,7 @@ func TestHandler_CreateAPIKey_MaxLimit(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 	keyBody := map[string]any{"description": "k1"}
 
@@ -2850,7 +2850,7 @@ func TestHandler_CreateDataSource_HTTPValidation(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 
 			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/datasources", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -2900,7 +2900,7 @@ func TestHandler_Tags_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TaggedAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TaggedAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Tag the resource.
@@ -2973,7 +2973,7 @@ func TestHandler_V2API_ChannelNamespaceNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateAPI("TestAPI", "", nil)
+	api, err := b.CreateAPI("TestAPI", "", nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/channelNamespaces/nonexistent", nil)
@@ -2984,7 +2984,7 @@ func TestHandler_DeleteDataSource_BlockedByResolver(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
@@ -3025,7 +3025,7 @@ func TestHandler_EnvironmentVariables_ExceedsLimit(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler()
-	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("MyAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Build a map with 26 entries (exceeds max of 25).

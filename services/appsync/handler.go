@@ -819,11 +819,18 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 
 	var input struct {
 		Tags                              map[string]string                  `json:"tags"`
+		UserPoolConfig                    *UserPoolConfig                    `json:"userPoolConfig"`
+		OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig"`
+		LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig"`
+		LogConfig                         *LogConfig                         `json:"logConfig"`
 		Name                              string                             `json:"name"`
 		AuthenticationType                string                             `json:"authenticationType"`
 		APIType                           string                             `json:"apiType"`
 		Visibility                        string                             `json:"visibility"`
+		IntrospectionConfig               string                             `json:"introspectionConfig"`
 		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders"`
+		QueryDepthLimit                   int32                              `json:"queryDepthLimit"`
+		ResolverCountLimit                int32                              `json:"resolverCountLimit"`
 		XrayEnabled                       bool                               `json:"xrayEnabled"`
 	}
 
@@ -840,6 +847,16 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		authType = AuthTypeAPIKey
 	}
 
+	cfg := &GraphqlAPIConfig{
+		UserPoolConfig:         input.UserPoolConfig,
+		OpenIDConnectConfig:    input.OpenIDConnectConfig,
+		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
+		LogConfig:              input.LogConfig,
+		IntrospectionConfig:    input.IntrospectionConfig,
+		QueryDepthLimit:        input.QueryDepthLimit,
+		ResolverCountLimit:     input.ResolverCountLimit,
+	}
+
 	api, createErr := h.Backend.CreateGraphqlAPI(
 		input.Name,
 		authType,
@@ -848,6 +865,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		input.Visibility,
 		input.AdditionalAuthenticationProviders,
 		input.Tags,
+		cfg,
 	)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateGraphqlApi", createErr)
@@ -1588,9 +1606,10 @@ func (h *Handler) handleSourceAPIs(ctx context.Context, c *echo.Context, segs []
 // associateMergedGraphqlAPI handles POST /v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations.
 // associateAPIInput holds the common JSON fields for API association requests.
 type associateAPIInput struct {
-	MergedAPIIdentifier string `json:"mergedApiIdentifier"`
-	SourceAPIIdentifier string `json:"sourceApiIdentifier"`
-	Description         string `json:"description"`
+	SourceApiAssociationConfig *SourceApiAssociationConfig `json:"sourceApiAssociationConfig"`
+	MergedAPIIdentifier        string                      `json:"mergedApiIdentifier"`
+	SourceAPIIdentifier        string                      `json:"sourceApiIdentifier"`
+	Description                string                      `json:"description"`
 }
 
 // doSourceAPIAssociation is the shared implementation for both Merged/Source GraphQL API association.
@@ -1598,14 +1617,19 @@ func (h *Handler) doSourceAPIAssociation(
 	ctx context.Context,
 	c *echo.Context,
 	primaryAPIID, secondaryAPIID, requiredField, opName string,
-	backendFn func(firstID, secondID, description string) (*SourceAPIAssociation, error),
+	backendFn func(firstID, secondID, description, mergeType string) (*SourceAPIAssociation, error),
 	input associateAPIInput,
 ) error {
 	if secondaryAPIID == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", requiredField+" is required"))
 	}
 
-	assoc, createErr := backendFn(primaryAPIID, secondaryAPIID, input.Description)
+	mergeType := ""
+	if input.SourceApiAssociationConfig != nil {
+		mergeType = input.SourceApiAssociationConfig.MergeType
+	}
+
+	assoc, createErr := backendFn(primaryAPIID, secondaryAPIID, input.Description, mergeType)
 	if createErr != nil {
 		return h.handleError(ctx, c, opName, createErr)
 	}
@@ -1771,6 +1795,7 @@ func (h *Handler) createAPI(ctx context.Context, c *echo.Context) error {
 
 	var input struct {
 		Tags         map[string]string `json:"tags"`
+		EventConfig  *EventConfig      `json:"eventConfig"`
 		Name         string            `json:"name"`
 		OwnerContact string            `json:"ownerContact"`
 	}
@@ -1783,7 +1808,7 @@ func (h *Handler) createAPI(ctx context.Context, c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	api, createErr := h.Backend.CreateAPI(input.Name, input.OwnerContact, input.Tags)
+	api, createErr := h.Backend.CreateAPI(input.Name, input.OwnerContact, input.Tags, input.EventConfig)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateApi", createErr)
 	}
@@ -1799,8 +1824,11 @@ func (h *Handler) createChannelNamespace(ctx context.Context, c *echo.Context, a
 	}
 
 	var input struct {
-		Tags map[string]string `json:"tags"`
-		Name string            `json:"name"`
+		Tags               map[string]string `json:"tags"`
+		HandlerConfigs     *HandlerConfigs   `json:"handlerConfigs"`
+		Name               string            `json:"name"`
+		PublishAuthModes   []AuthMode        `json:"publishAuthModes"`
+		SubscribeAuthModes []AuthMode        `json:"subscribeAuthModes"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
@@ -1811,7 +1839,13 @@ func (h *Handler) createChannelNamespace(ctx context.Context, c *echo.Context, a
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	ns, createErr := h.Backend.CreateChannelNamespace(apiID, input.Name, input.Tags)
+	cfg := &ChannelNamespaceConfig{
+		PublishAuthModes:   input.PublishAuthModes,
+		SubscribeAuthModes: input.SubscribeAuthModes,
+		HandlerConfigs:     input.HandlerConfigs,
+	}
+
+	ns, createErr := h.Backend.CreateChannelNamespace(apiID, input.Name, input.Tags, cfg)
 	if createErr != nil {
 		return h.handleError(ctx, c, "CreateChannelNamespace", createErr)
 	}
@@ -1827,15 +1861,32 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 	}
 
 	var input struct {
+		UserPoolConfig                    *UserPoolConfig                    `json:"userPoolConfig"`
+		OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig"`
+		LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig"`
+		LogConfig                         *LogConfig                         `json:"logConfig"`
 		XrayEnabled                       *bool                              `json:"xrayEnabled"`
 		Name                              string                             `json:"name"`
 		AuthenticationType                string                             `json:"authenticationType"`
 		Visibility                        string                             `json:"visibility"`
+		IntrospectionConfig               string                             `json:"introspectionConfig"`
 		AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders"`
+		QueryDepthLimit                   int32                              `json:"queryDepthLimit"`
+		ResolverCountLimit                int32                              `json:"resolverCountLimit"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	cfg := &GraphqlAPIConfig{
+		UserPoolConfig:         input.UserPoolConfig,
+		OpenIDConnectConfig:    input.OpenIDConnectConfig,
+		LambdaAuthorizerConfig: input.LambdaAuthorizerConfig,
+		LogConfig:              input.LogConfig,
+		IntrospectionConfig:    input.IntrospectionConfig,
+		QueryDepthLimit:        input.QueryDepthLimit,
+		ResolverCountLimit:     input.ResolverCountLimit,
 	}
 
 	api, updateErr := h.Backend.UpdateGraphqlAPI(
@@ -1845,6 +1896,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		input.XrayEnabled,
 		input.Visibility,
 		input.AdditionalAuthenticationProviders,
+		cfg,
 	)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateGraphqlApi", updateErr)
@@ -2264,15 +2316,16 @@ func (h *Handler) updateAPI(ctx context.Context, c *echo.Context, apiID string) 
 	}
 
 	var input struct {
-		Name         string `json:"name"`
-		OwnerContact string `json:"ownerContact"`
+		EventConfig  *EventConfig `json:"eventConfig"`
+		Name         string       `json:"name"`
+		OwnerContact string       `json:"ownerContact"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	api, updateErr := h.Backend.UpdateAPI(apiID, input.Name, input.OwnerContact)
+	api, updateErr := h.Backend.UpdateAPI(apiID, input.Name, input.OwnerContact, input.EventConfig)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateApi", updateErr)
 	}
@@ -2308,14 +2361,24 @@ func (h *Handler) updateChannelNamespace(ctx context.Context, c *echo.Context, a
 	}
 
 	var input struct {
-		CodeHandlers string `json:"codeHandlers"`
+		HandlerConfigs     *HandlerConfigs `json:"handlerConfigs"`
+		CodeHandlers       string          `json:"codeHandlers"`
+		PublishAuthModes   []AuthMode      `json:"publishAuthModes"`
+		SubscribeAuthModes []AuthMode      `json:"subscribeAuthModes"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	updated, updateErr := h.Backend.UpdateChannelNamespace(apiID, name, input.CodeHandlers)
+	cfg := &ChannelNamespaceConfig{
+		CodeHandlers:       input.CodeHandlers,
+		PublishAuthModes:   input.PublishAuthModes,
+		SubscribeAuthModes: input.SubscribeAuthModes,
+		HandlerConfigs:     input.HandlerConfigs,
+	}
+
+	updated, updateErr := h.Backend.UpdateChannelNamespace(apiID, name, cfg)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateChannelNamespace", updateErr)
 	}

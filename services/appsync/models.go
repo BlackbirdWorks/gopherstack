@@ -428,6 +428,7 @@ type HandlerConfigs struct {
 // Passing nil preserves existing behaviour.
 type ChannelNamespaceConfig struct {
 	HandlerConfigs     *HandlerConfigs `json:"handlerConfigs,omitempty"`
+	CodeHandlers       string          `json:"codeHandlers,omitempty"`
 	PublishAuthModes   []AuthMode      `json:"publishAuthModes,omitempty"`
 	SubscribeAuthModes []AuthMode      `json:"subscribeAuthModes,omitempty"`
 }
