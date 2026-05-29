@@ -57,6 +57,7 @@ const (
 	stopReasonEndTurn = "end_turn"
 
 	hdrMessageTypeEvent = "event"
+	keyRole             = "role"
 	keyStopReason       = "stop_reason"
 
 	roleAssistant     = "assistant"
@@ -393,7 +394,7 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 	return map[string]any{
 		"output": map[string]any{
 			keyMessage: map[string]any{
-				"role":    roleAssistant,
+				keyRole:   roleAssistant,
 				"content": []map[string]any{{keyText: mockResponseText}},
 			},
 		},
@@ -496,7 +497,7 @@ func (h *Handler) handleConverseStream(
 	}
 
 	writeStreamEvent("messageStart", map[string]any{
-		"role": roleAssistant,
+		keyRole: roleAssistant,
 	})
 
 	writeStreamEvent("contentBlockStart", map[string]any{
@@ -938,7 +939,7 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		return map[string]any{
 			"output": map[string]any{
 				keyMessage: map[string]any{
-					"role":    roleAssistant,
+					keyRole:   roleAssistant,
 					"content": []map[string]any{{keyText: mockResponseText}},
 				},
 			},

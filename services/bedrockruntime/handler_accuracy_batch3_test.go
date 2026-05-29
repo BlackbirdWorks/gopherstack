@@ -39,6 +39,7 @@ func parseEventStreamFrames(data []byte) []map[string]any {
 
 		if payloadStart > payloadEnd || payloadEnd > totalLen {
 			data = data[totalLen:]
+
 			continue
 		}
 
@@ -196,10 +197,10 @@ func TestAccuracy_ConverseStream_ContentBlockDeltaHasText(t *testing.T) {
 
 	for _, f := range frames {
 		if delta, ok := f["delta"]; ok {
-			dm, ok := delta.(map[string]any)
-			require.True(t, ok, "delta should be an object")
-			txt, ok := dm["text"].(string)
-			assert.True(t, ok, "delta.text should be a string")
+			dm, dmOK := delta.(map[string]any)
+			require.True(t, dmOK, "delta should be an object")
+			txt, txtOK := dm["text"].(string)
+			assert.True(t, txtOK, "delta.text should be a string")
 			assert.NotEmpty(t, txt, "delta.text should not be empty")
 			found = true
 
@@ -229,8 +230,8 @@ func TestAccuracy_ConverseStream_MetadataHasUsage(t *testing.T) {
 
 	for _, f := range frames {
 		if usage, ok := f["usage"]; ok {
-			um, ok := usage.(map[string]any)
-			require.True(t, ok, "usage should be an object")
+			um, umOK := usage.(map[string]any)
+			require.True(t, umOK, "usage should be an object")
 			assert.Contains(t, um, "inputTokens")
 			assert.Contains(t, um, "outputTokens")
 			found = true
@@ -311,7 +312,7 @@ func TestAccuracy_ConverseStream_TokensReflectInputLength(t *testing.T) {
 	getTokens := func(rec *httptest.ResponseRecorder) float64 {
 		for _, f := range parseEventStreamFrames(rec.Body.Bytes()) {
 			if usage, ok := f["usage"].(map[string]any); ok {
-				if v, ok := usage["inputTokens"].(float64); ok {
+				if v, inOK := usage["inputTokens"].(float64); inOK {
 					return v
 				}
 			}

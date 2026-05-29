@@ -3,6 +3,7 @@ package bedrock_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -180,9 +181,7 @@ func TestAccuracy_DataSource_S3VectorIngestionConfigPreserved(t *testing.T) {
 
 			chunkConfig := map[string]any{"chunkingStrategy": tt.chunkingStrategy}
 			if tt.chunkingConfig != nil {
-				for k, v := range tt.chunkingConfig {
-					chunkConfig[k] = v
-				}
+				maps.Copy(chunkConfig, tt.chunkingConfig)
 			}
 
 			vectorConfig := map[string]any{
@@ -616,7 +615,7 @@ func TestAccuracy_AgentCollaborator_SupervisorPattern(t *testing.T) {
 	assert.Equal(t, "SUPERVISOR", supervisor.AgentCollaboration)
 
 	// Associate two subagents
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		rec := doAgentRequest(t, h, http.MethodPost,
 			fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 			map[string]any{
