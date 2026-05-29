@@ -23,7 +23,7 @@ type ServerlessCollection struct {
 	CollectionEndpoint string            `json:"collectionEndpoint,omitempty"`
 	DashboardEndpoint  string            `json:"dashboardEndpoint,omitempty"`
 	Description        string            `json:"description,omitempty"`
-	Id                 string            `json:"id"`
+	ID                 string            `json:"id"`
 	KmsKeyArn          string            `json:"kmsKeyArn,omitempty"`
 	Name               string            `json:"name"`
 	Status             string            `json:"status"`
@@ -48,7 +48,7 @@ type ServerlessSecurityConfig struct {
 	SamlOptions      *ServerlessSAMLOptions `json:"samlOptions,omitempty"`
 	ConfigVersion    string                 `json:"configVersion"`
 	Description      string                 `json:"description,omitempty"`
-	Id               string                 `json:"id"`
+	ID               string                 `json:"id"`
 	Type             string                 `json:"type"`
 	CreatedDate      float64                `json:"createdDate"`
 	LastModifiedDate float64                `json:"lastModifiedDate"`
@@ -132,7 +132,7 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 	}
 
 	coll := &ServerlessCollection{
-		Id:                 id,
+		ID:                 id,
 		Name:               name,
 		Arn:                collARN,
 		Status:             slCollectionStatusActive,
@@ -178,7 +178,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 			continue
 		}
 
-		if idSet[c.Id] || nameSet[c.Name] {
+		if idSet[c.ID] || nameSet[c.Name] {
 			cp := *c
 			out = append(out, &cp)
 		}
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 	defer b.mu.Unlock()
 
 	for key, c := range b.slCollections {
-		if c.Id == id {
+		if c.ID == id {
 			cp := *c
 			cp.Status = statusDeleted
 			delete(b.slCollections, key)
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) CreateServerlessSecurityConfig(
 
 	now := float64(time.Now().Unix())
 	sc := &ServerlessSecurityConfig{
-		Id:               id,
+		ID:               id,
 		Type:             configType,
 		Description:      description,
 		SamlOptions:      samlOptions,

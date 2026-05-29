@@ -153,13 +153,13 @@ func (h *Handler) handleServerlessCollectionBatchRoutes(w http.ResponseWriter, r
 	case http.MethodPost:
 		body, _ := httputils.ReadBody(r)
 		var req struct {
-			Ids   []string `json:"ids"`
+			IDs   []string `json:"ids"`
 			Names []string `json:"names"`
 		}
 		if len(body) > 0 {
 			_ = json.Unmarshal(body, &req)
 		}
-		colls := h.Backend.BatchGetServerlessCollections(req.Ids, req.Names)
+		colls := h.Backend.BatchGetServerlessCollections(req.IDs, req.Names)
 		if colls == nil {
 			colls = []*ServerlessCollection{}
 		}
@@ -352,50 +352,56 @@ func (h *Handler) handleServerlessSecurityConfigRoutes(
 	rest string,
 ) {
 	if rest == "" || rest == "/" {
-		switch r.Method {
-		case http.MethodPost:
-			body, _ := httputils.ReadBody(r)
-			var req struct {
-				SamlOptions *ServerlessSAMLOptions `json:"samlOptions,omitempty"`
-				Type        string                 `json:"type"`
-				Description string                 `json:"description"`
-			}
-			if len(body) > 0 {
-				_ = json.Unmarshal(body, &req)
-			}
-			sc, err := h.Backend.CreateServerlessSecurityConfig(
-				req.Type,
-				req.Description,
-				req.SamlOptions,
-			)
-			if err != nil {
-				h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
-
-				return
-			}
-			h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: sc})
-		case http.MethodGet:
-			configType := r.URL.Query().Get("type")
-			scs := h.Backend.ListServerlessSecurityConfigs(configType)
-			if scs == nil {
-				scs = []*ServerlessSecurityConfig{}
-			}
-			h.writeJSON(r, w, map[string]any{"securityConfigSummaries": scs})
-		default:
-			h.writeError(
-				r,
-				w,
-				http.StatusMethodNotAllowed,
-				"MethodNotAllowedException",
-				"method not allowed",
-			)
-		}
+		h.handleServerlessSecurityConfigCollection(w, r)
 
 		return
 	}
 
-	id := strings.Trim(rest, "/")
+	h.handleServerlessSecurityConfigItem(w, r, strings.Trim(rest, "/"))
+}
 
+func (h *Handler) handleServerlessSecurityConfigCollection(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		body, _ := httputils.ReadBody(r)
+		var req struct {
+			SamlOptions *ServerlessSAMLOptions `json:"samlOptions,omitempty"`
+			Type        string                 `json:"type"`
+			Description string                 `json:"description"`
+		}
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &req)
+		}
+		sc, err := h.Backend.CreateServerlessSecurityConfig(
+			req.Type,
+			req.Description,
+			req.SamlOptions,
+		)
+		if err != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+
+			return
+		}
+		h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: sc})
+	case http.MethodGet:
+		configType := r.URL.Query().Get("type")
+		scs := h.Backend.ListServerlessSecurityConfigs(configType)
+		if scs == nil {
+			scs = []*ServerlessSecurityConfig{}
+		}
+		h.writeJSON(r, w, map[string]any{"securityConfigSummaries": scs})
+	default:
+		h.writeError(
+			r,
+			w,
+			http.StatusMethodNotAllowed,
+			"MethodNotAllowedException",
+			"method not allowed",
+		)
+	}
+}
+
+func (h *Handler) handleServerlessSecurityConfigItem(w http.ResponseWriter, r *http.Request, id string) {
 	switch r.Method {
 	case http.MethodGet:
 		sc, err := h.Backend.GetServerlessSecurityConfig(id)
