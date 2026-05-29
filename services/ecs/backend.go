@@ -114,24 +114,24 @@ type PortMapping struct {
 
 // TaskDefinition represents an ECS task definition.
 type TaskDefinition struct {
-	RuntimePlatform         *RuntimePlatform      `json:"runtimePlatform,omitempty"`
-	EphemeralStorage        *EphemeralStorage     `json:"ephemeralStorage,omitempty"`
-	RegisteredAt            time.Time             `json:"registeredAt"`
-	TaskDefinitionArn       string                `json:"taskDefinitionArn"`
-	Family                  string                `json:"family"`
-	TaskRoleArn             string                `json:"taskRoleArn,omitempty"`
-	ExecutionRoleArn        string                `json:"executionRoleArn,omitempty"`
-	NetworkMode             string                `json:"networkMode,omitempty"`
-	Status                  string                `json:"status"`
-	PlatformFamily          string                `json:"platformFamily,omitempty"`
-	CPU                     string                `json:"cpu,omitempty"`
-	Memory                  string                `json:"memory,omitempty"`
-	ContainerDefinitions    []ContainerDefinition `json:"containerDefinitions"`
-	Volumes                 []Volume              `json:"volumes,omitempty"`
-	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
-	RequiresCompatibilities []string              `json:"requiresCompatibilities,omitempty"`
+	RuntimePlatform         *RuntimePlatform       `json:"runtimePlatform,omitempty"`
+	EphemeralStorage        *EphemeralStorage      `json:"ephemeralStorage,omitempty"`
+	RegisteredAt            time.Time              `json:"registeredAt"`
+	TaskDefinitionArn       string                 `json:"taskDefinitionArn"`
+	Family                  string                 `json:"family"`
+	TaskRoleArn             string                 `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                 `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                 `json:"networkMode,omitempty"`
+	Status                  string                 `json:"status"`
+	PlatformFamily          string                 `json:"platformFamily,omitempty"`
+	CPU                     string                 `json:"cpu,omitempty"`
+	Memory                  string                 `json:"memory,omitempty"`
+	ContainerDefinitions    []ContainerDefinition  `json:"containerDefinitions"`
+	Volumes                 []Volume               `json:"volumes,omitempty"`
+	PlacementConstraints    []PlacementConstraint  `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string               `json:"requiresCompatibilities,omitempty"`
 	InferenceAccelerators   []InferenceAccelerator `json:"inferenceAccelerators,omitempty"`
-	Revision                int                   `json:"revision"`
+	Revision                int                    `json:"revision"`
 }
 
 // Service represents an ECS service.
@@ -969,6 +969,41 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 }
 
 // UpdateService updates an existing ECS service.
+
+func applyServiceConfigUpdates(svc *Service, input UpdateServiceInput) {
+	if len(input.CapacityProviderStrategy) > 0 {
+		svc.CapacityProviderStrategy = input.CapacityProviderStrategy
+	}
+
+	if len(input.PlacementConstraints) > 0 {
+		svc.PlacementConstraints = input.PlacementConstraints
+	}
+
+	if len(input.PlacementStrategy) > 0 {
+		svc.PlacementStrategy = input.PlacementStrategy
+	}
+
+	if input.ServiceConnectConfiguration != nil {
+		svc.ServiceConnectConfiguration = input.ServiceConnectConfiguration
+	}
+
+	if input.NetworkConfiguration != nil {
+		svc.NetworkConfiguration = input.NetworkConfiguration
+	}
+
+	if input.PropagateTags != "" {
+		svc.PropagateTags = input.PropagateTags
+	}
+
+	if len(input.LoadBalancers) > 0 {
+		svc.LoadBalancers = input.LoadBalancers
+	}
+
+	if input.EnableExecuteCommand != nil {
+		svc.EnableExecuteCommand = *input.EnableExecuteCommand
+	}
+}
+
 func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, error) {
 	if input.Service == "" {
 		return nil, fmt.Errorf("%w: service is required", ErrInvalidParameter)
@@ -1009,37 +1044,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.DeploymentConfiguration = input.DeploymentConfiguration
 	}
 
-	if len(input.CapacityProviderStrategy) > 0 {
-		svc.CapacityProviderStrategy = input.CapacityProviderStrategy
-	}
-
-	if len(input.PlacementConstraints) > 0 {
-		svc.PlacementConstraints = input.PlacementConstraints
-	}
-
-	if len(input.PlacementStrategy) > 0 {
-		svc.PlacementStrategy = input.PlacementStrategy
-	}
-
-	if input.ServiceConnectConfiguration != nil {
-		svc.ServiceConnectConfiguration = input.ServiceConnectConfiguration
-	}
-
-	if input.NetworkConfiguration != nil {
-		svc.NetworkConfiguration = input.NetworkConfiguration
-	}
-
-	if input.PropagateTags != "" {
-		svc.PropagateTags = input.PropagateTags
-	}
-
-	if len(input.LoadBalancers) > 0 {
-		svc.LoadBalancers = input.LoadBalancers
-	}
-
-	if input.EnableExecuteCommand != nil {
-		svc.EnableExecuteCommand = *input.EnableExecuteCommand
-	}
+	applyServiceConfigUpdates(svc, input)
 
 	cp := *svc
 

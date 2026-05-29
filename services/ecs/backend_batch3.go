@@ -2,7 +2,7 @@ package ecs
 
 // RuntimePlatform specifies the CPU architecture and OS family for a task definition.
 type RuntimePlatform struct {
-	CpuArchitecture       string `json:"cpuArchitecture,omitempty"`
+	CPUArchitecture       string `json:"cpuArchitecture,omitempty"`
 	OperatingSystemFamily string `json:"operatingSystemFamily,omitempty"`
 }
 
@@ -36,30 +36,14 @@ type DeploymentAlarms struct {
 	Rollback   bool     `json:"rollback"`
 }
 
-// validAccountSettingNames is the set of account setting names AWS ECS recognizes.
-var validAccountSettingNames = map[string]bool{
-	"containerInstanceLongArnFormat":   true,
-	"serviceLongArnFormat":             true,
-	"taskLongArnFormat":                true,
-	"awsvpcTrunking":                   true,
-	"containerInsights":                true,
-	"dualStackIPv6":                    true,
-	"fargateTaskRetirementWaitPeriod":  true,
-	"tagResourceAuthorization":         true,
-	"guardDutyActivate":                true,
-	"fargateFIPSMode":                  true,
-	"fargateEphemeralStorageKMSKey":    true,
-	"defaultLogDriverMode":             true,
-}
-
 // builtinCapacityProviders returns a synthesized CapacityProvider for FARGATE or
 // FARGATE_SPOT, which are managed by AWS and do not require explicit creation.
 func builtinCapacityProvider(name string) *CapacityProvider {
 	switch name {
-	case "FARGATE", "FARGATE_SPOT":
+	case launchTypeFargate, "FARGATE_SPOT":
 		return &CapacityProvider{
-			Name:   name,
-			Status: statusActive,
+			Name:                name,
+			Status:              statusActive,
 			CapacityProviderArn: "arn:aws:ecs:::capacity-provider/" + name,
 		}
 	default:

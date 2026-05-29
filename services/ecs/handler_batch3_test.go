@@ -446,7 +446,7 @@ func TestBatch3_Service_EnableExecuteCommand_Default_False(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
-	eec, _ := svc["enableExecuteCommand"]
+	eec := svc["enableExecuteCommand"]
 	assert.NotEqual(t, true, eec)
 }
 
@@ -491,7 +491,7 @@ func TestBatch3_Service_EnableExecuteCommand_UpdateService(t *testing.T) {
 	var disOut map[string]any
 	require.NoError(t, json.Unmarshal(disResp.Body.Bytes(), &disOut))
 	disSvc := disOut["service"].(map[string]any)
-	eec, _ := disSvc["enableExecuteCommand"]
+	eec := disSvc["enableExecuteCommand"]
 	assert.NotEqual(t, true, eec)
 }
 
@@ -720,10 +720,10 @@ func TestBatch3_TaskSet_DescribePreservesLBAndNC(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	doECSRequest(t, h, "CreateService", map[string]any{
-		"cluster":        "ts-desc-cluster",
-		"serviceName":    "ts-desc-svc",
-		"taskDefinition": "ts-desc-task",
-		"desiredCount":   0,
+		"cluster":              "ts-desc-cluster",
+		"serviceName":          "ts-desc-svc",
+		"taskDefinition":       "ts-desc-task",
+		"desiredCount":         0,
 		"deploymentController": map[string]any{"type": "EXTERNAL"},
 	})
 
@@ -732,7 +732,10 @@ func TestBatch3_TaskSet_DescribePreservesLBAndNC(t *testing.T) {
 		"service":        "ts-desc-svc",
 		"taskDefinition": "ts-desc-task",
 		"loadBalancers": []any{
-			map[string]any{"targetGroupArn": "arn:aws:elasticloadbalancing:::targetgroup/tg/abc", "containerPort": 8080},
+			map[string]any{
+				"targetGroupArn": "arn:aws:elasticloadbalancing:::targetgroup/tg/abc",
+				"containerPort":  8080,
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, createResp.Code)
@@ -875,8 +878,18 @@ func TestBatch3_ListAttributes_TargetID_Filter(t *testing.T) {
 	doECSRequest(t, h, "PutAttributes", map[string]any{
 		"cluster": "attr-tid-cluster",
 		"attributes": []any{
-			map[string]any{"name": "zone", "value": "us-east-1a", "targetType": "container-instance", "targetId": ci1Arn},
-			map[string]any{"name": "zone", "value": "us-east-1b", "targetType": "container-instance", "targetId": ci2Arn},
+			map[string]any{
+				"name":       "zone",
+				"value":      "us-east-1a",
+				"targetType": "container-instance",
+				"targetId":   ci1Arn,
+			},
+			map[string]any{
+				"name":       "zone",
+				"value":      "us-east-1b",
+				"targetType": "container-instance",
+				"targetId":   ci2Arn,
+			},
 		},
 	})
 
@@ -905,7 +918,12 @@ func TestBatch3_ListAttributes_TargetID_Filter_NotFound(t *testing.T) {
 	doECSRequest(t, h, "PutAttributes", map[string]any{
 		"cluster": "attr-nf-cluster",
 		"attributes": []any{
-			map[string]any{"name": "ecs.instance-type", "value": "m5.large", "targetType": "container-instance", "targetId": "ci-arn-1"},
+			map[string]any{
+				"name":       "ecs.instance-type",
+				"value":      "m5.large",
+				"targetType": "container-instance",
+				"targetId":   "ci-arn-1",
+			},
 		},
 	})
 
@@ -930,9 +948,24 @@ func TestBatch3_ListAttributes_TargetID_NoFilter_ReturnsAll(t *testing.T) {
 	doECSRequest(t, h, "PutAttributes", map[string]any{
 		"cluster": "attr-all-cluster",
 		"attributes": []any{
-			map[string]any{"name": "ecs.availability-zone", "value": "a", "targetType": "container-instance", "targetId": "ci-1"},
-			map[string]any{"name": "ecs.availability-zone", "value": "b", "targetType": "container-instance", "targetId": "ci-2"},
-			map[string]any{"name": "ecs.availability-zone", "value": "c", "targetType": "container-instance", "targetId": "ci-3"},
+			map[string]any{
+				"name":       "ecs.availability-zone",
+				"value":      "a",
+				"targetType": "container-instance",
+				"targetId":   "ci-1",
+			},
+			map[string]any{
+				"name":       "ecs.availability-zone",
+				"value":      "b",
+				"targetType": "container-instance",
+				"targetId":   "ci-2",
+			},
+			map[string]any{
+				"name":       "ecs.availability-zone",
+				"value":      "c",
+				"targetType": "container-instance",
+				"targetId":   "ci-3",
+			},
 		},
 	})
 
@@ -969,7 +1002,10 @@ func TestBatch3_TaskDefinition_AllBatch3Fields_Combined(t *testing.T) {
 					map[string]any{"type": "s3", "value": "arn:aws:s3:::ml-configs/model.env"},
 				},
 				"secrets": []any{
-					map[string]any{"name": "API_KEY", "valueFrom": "arn:aws:ssm:us-east-1:000000000000:parameter/ml/api-key"},
+					map[string]any{
+						"name":      "API_KEY",
+						"valueFrom": "arn:aws:ssm:us-east-1:000000000000:parameter/ml/api-key",
+					},
 				},
 				"resourceRequirements": []any{
 					map[string]any{"type": "InferenceAccelerator", "value": "inf_device"},
