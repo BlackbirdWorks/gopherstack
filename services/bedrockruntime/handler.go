@@ -450,6 +450,8 @@ func (h *Handler) handleConverse(
 }
 
 // handleConverseStream handles POST /model/{modelId}/converse-stream.
+// Emits the full AWS event sequence: messageStart → contentBlockStart →
+// contentBlockDelta → contentBlockStop → messageStop → metadata.
 func (h *Handler) handleConverseStream(
 	c *echo.Context,
 	modelID string,
@@ -460,24 +462,66 @@ func (h *Handler) handleConverseStream(
 		_ = json.Unmarshal(body, &req)
 	}
 
-	resp := buildConverseResponse(&req)
+	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
 
-	out, err := json.Marshal(resp)
+	respSummary := buildConverseResponse(&req)
+	out, err := json.Marshal(respSummary)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opConverseStream, modelID, truncateString(string(body)), truncateString(string(out)))
 
-	frame := encodeEventStreamMsg([][2]string{
-		{hdrMessageType, hdrMessageTypeEvent},
-		{hdrEventType, "messageStop"},
-		{hdrContentType, "application/json"},
-	}, out)
-
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
-	_, _ = c.Response().Write(frame)
+
+	writeStreamEvent := func(eventType string, payload any) {
+		data, merr := json.Marshal(payload)
+		if merr != nil {
+			return
+		}
+
+		frame := encodeEventStreamMsg([][2]string{
+			{hdrMessageType, hdrMessageTypeEvent},
+			{hdrEventType, eventType},
+			{hdrContentType, "application/json"},
+		}, data)
+		_, _ = c.Response().Write(frame)
+	}
+
+	writeStreamEvent("messageStart", map[string]any{
+		"role": "assistant",
+	})
+
+	writeStreamEvent("contentBlockStart", map[string]any{
+		"contentBlockIndex": 0,
+		"start":             map[string]any{"text": ""},
+	})
+
+	writeStreamEvent("contentBlockDelta", map[string]any{
+		"contentBlockIndex": 0,
+		"delta":             map[string]any{"text": mockResponseText},
+	})
+
+	writeStreamEvent("contentBlockStop", map[string]any{
+		"contentBlockIndex": 0,
+	})
+
+	writeStreamEvent("messageStop", map[string]any{
+		keyStopReason: stopReasonEndTurn,
+	})
+
+	writeStreamEvent("metadata", map[string]any{
+		keyUsage: map[string]any{
+			keyInputTokens: inputTokens,
+			"outputTokens": mockOutputTokenCount,
+			"totalTokens":  inputTokens + mockOutputTokenCount,
+		},
+		"metrics": map[string]any{
+			"latencyMs": mockLatencyMS,
+		},
+	})
+
 	flushResponse(c.Response())
 
 	return nil
