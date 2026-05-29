@@ -57,7 +57,14 @@ const (
 	stopReasonEndTurn = "end_turn"
 
 	hdrMessageTypeEvent = "event"
+	keyRole             = "role"
 	keyStopReason       = "stop_reason"
+
+	roleAssistant     = "assistant"
+	convStopReasonKey = "stopReason"
+	convOutputTokens  = "outputTokens"
+	convTotalTokens   = "totalTokens"
+	convContentIdx    = "contentBlockIndex"
 )
 
 // Mock response token counts used in model responses.
@@ -387,15 +394,15 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 	return map[string]any{
 		"output": map[string]any{
 			keyMessage: map[string]any{
-				"role":    "assistant",
+				keyRole:   roleAssistant,
 				"content": []map[string]any{{keyText: mockResponseText}},
 			},
 		},
-		"stopReason": stopReasonEndTurn,
+		convStopReasonKey: stopReasonEndTurn,
 		keyUsage: map[string]any{
-			keyInputTokens: inputTokens,
-			"outputTokens": mockOutputTokenCount,
-			"totalTokens":  inputTokens + mockOutputTokenCount,
+			keyInputTokens:   inputTokens,
+			convOutputTokens: mockOutputTokenCount,
+			convTotalTokens:  inputTokens + mockOutputTokenCount,
 		},
 		"metrics": map[string]any{
 			"latencyMs": mockLatencyMS,
@@ -450,6 +457,8 @@ func (h *Handler) handleConverse(
 }
 
 // handleConverseStream handles POST /model/{modelId}/converse-stream.
+// Emits the full AWS event sequence: messageStart → contentBlockStart →
+// contentBlockDelta → contentBlockStop → messageStop → metadata.
 func (h *Handler) handleConverseStream(
 	c *echo.Context,
 	modelID string,
@@ -460,24 +469,66 @@ func (h *Handler) handleConverseStream(
 		_ = json.Unmarshal(body, &req)
 	}
 
-	resp := buildConverseResponse(&req)
+	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
 
-	out, err := json.Marshal(resp)
+	respSummary := buildConverseResponse(&req)
+	out, err := json.Marshal(respSummary)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opConverseStream, modelID, truncateString(string(body)), truncateString(string(out)))
 
-	frame := encodeEventStreamMsg([][2]string{
-		{hdrMessageType, hdrMessageTypeEvent},
-		{hdrEventType, "messageStop"},
-		{hdrContentType, "application/json"},
-	}, out)
-
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
-	_, _ = c.Response().Write(frame)
+
+	writeStreamEvent := func(eventType string, payload any) {
+		data, merr := json.Marshal(payload)
+		if merr != nil {
+			return
+		}
+
+		frame := encodeEventStreamMsg([][2]string{
+			{hdrMessageType, hdrMessageTypeEvent},
+			{hdrEventType, eventType},
+			{hdrContentType, "application/json"},
+		}, data)
+		_, _ = c.Response().Write(frame)
+	}
+
+	writeStreamEvent("messageStart", map[string]any{
+		keyRole: roleAssistant,
+	})
+
+	writeStreamEvent("contentBlockStart", map[string]any{
+		convContentIdx: 0,
+		"start":        map[string]any{keyText: ""},
+	})
+
+	writeStreamEvent("contentBlockDelta", map[string]any{
+		convContentIdx: 0,
+		"delta":        map[string]any{keyText: mockResponseText},
+	})
+
+	writeStreamEvent("contentBlockStop", map[string]any{
+		convContentIdx: 0,
+	})
+
+	writeStreamEvent("messageStop", map[string]any{
+		convStopReasonKey: stopReasonEndTurn,
+	})
+
+	writeStreamEvent("metadata", map[string]any{
+		keyUsage: map[string]any{
+			keyInputTokens:   inputTokens,
+			convOutputTokens: mockOutputTokenCount,
+			convTotalTokens:  inputTokens + mockOutputTokenCount,
+		},
+		"metrics": map[string]any{
+			"latencyMs": mockLatencyMS,
+		},
+	})
+
 	flushResponse(c.Response())
 
 	return nil
@@ -697,7 +748,7 @@ func buildGuardrailOutputs(req applyGuardrailRequest) []map[string]any {
 	for _, item := range req.Content {
 		if item.Text != nil {
 			outputs = append(outputs, map[string]any{
-				"text": item.Text.Text,
+				keyText: item.Text.Text,
 			})
 		}
 	}
@@ -888,15 +939,15 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		return map[string]any{
 			"output": map[string]any{
 				keyMessage: map[string]any{
-					"role":    "assistant",
+					keyRole:   roleAssistant,
 					"content": []map[string]any{{keyText: mockResponseText}},
 				},
 			},
-			"stopReason": stopReasonEndTurn,
+			convStopReasonKey: stopReasonEndTurn,
 			keyUsage: map[string]any{
-				keyInputTokens: mockInputTokenCount,
-				"outputTokens": mockOutputTokenCount,
-				"totalTokens":  mockTotalTokenCount,
+				keyInputTokens:   mockInputTokenCount,
+				convOutputTokens: mockOutputTokenCount,
+				convTotalTokens:  mockTotalTokenCount,
 			},
 		}
 	default:
