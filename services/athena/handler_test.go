@@ -1053,7 +1053,7 @@ func TestHandler_GetQueryResults(t *testing.T) {
 				id, err := h.Backend.StartQueryExecution(
 					"SELECT 1", "primary",
 					athena.QueryExecutionContext{},
-					athena.ResultConfiguration{},
+					athena.ResultConfiguration{}, nil,
 				)
 				require.NoError(t, err)
 
@@ -1939,4 +1939,314 @@ func TestHandler_ListPreparedStatements(t *testing.T) {
 			assert.Len(t, resp["PreparedStatements"], tt.wantCount)
 		})
 	}
+}
+
+func TestHandler_ListPreparedStatements_ReturnsSummary(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_ = doRequest(t, h, "CreatePreparedStatement",
+		`{"StatementName":"stmt1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
+
+	rec := doRequest(t, h, "ListPreparedStatements", `{"WorkGroup":"primary"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string][]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp["PreparedStatements"], 1)
+
+	sum := resp["PreparedStatements"][0]
+	assert.Equal(t, "stmt1", sum["StatementName"])
+	assert.NotZero(t, sum["LastModifiedTime"])
+	assert.Empty(t, sum["QueryStatement"], "summary must not contain QueryStatement")
+}
+
+func TestHandler_WorkGroupConfiguration_EnforceAndExtras(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := `{
+		"Name":"wg-enforce",
+		"Configuration":{
+			"EnforceWorkGroupConfiguration":true,
+			"EnableMinimumEncryptionConfiguration":true,
+			"ExecutionRole":"arn:aws:iam::000000000000:role/AthenaRole",
+			"AdditionalConfiguration":"{\"spark.conf\":\"value\"}",
+			"CustomerContentEncryptionConfiguration":{"KmsKey":"arn:aws:kms:us-east-1:000000000000:key/test"}
+		}
+	}`
+	rec := doRequest(t, h, "CreateWorkGroup", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetWorkGroup", `{"WorkGroup":"wg-enforce"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	wg := resp["WorkGroup"].(map[string]any)
+	cfg := wg["Configuration"].(map[string]any)
+
+	assert.Equal(t, true, cfg["EnforceWorkGroupConfiguration"])
+	assert.Equal(t, true, cfg["EnableMinimumEncryptionConfiguration"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/AthenaRole", cfg["ExecutionRole"])
+	assert.NotEmpty(t, cfg["AdditionalConfiguration"])
+
+	cce := cfg["CustomerContentEncryptionConfiguration"].(map[string]any)
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/test", cce["KmsKey"])
+
+	assert.NotZero(t, wg["CreationTime"])
+}
+
+func TestHandler_WorkGroupSummary_IncludesFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_ = doRequest(t, h, "CreateWorkGroup", `{
+		"Name":"wg-summary",
+		"Description":"my workgroup",
+		"Configuration":{"EngineVersion":{"SelectedEngineVersion":"Athena engine version 3"}}
+	}`)
+
+	rec := doRequest(t, h, "ListWorkGroups", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string][]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	var found map[string]any
+	for _, wg := range resp["WorkGroups"] {
+		if wg["Name"] == "wg-summary" {
+			found = wg
+			break
+		}
+	}
+	require.NotNil(t, found, "wg-summary not in list")
+
+	assert.Equal(t, "my workgroup", found["Description"])
+	assert.NotZero(t, found["CreationTime"])
+	ev := found["EngineVersion"].(map[string]any)
+	assert.Equal(t, "Athena engine version 3", ev["SelectedEngineVersion"])
+}
+
+func TestHandler_QueryExecution_EngineVersionAndStatementType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		query             string
+		wantStatementType string
+	}{
+		{name: "dml_select", query: "SELECT 1", wantStatementType: "DML"},
+		{name: "ddl_create", query: "CREATE TABLE foo (id int)", wantStatementType: "DDL"},
+		{name: "ddl_drop", query: "DROP TABLE foo", wantStatementType: "DDL"},
+		{name: "utility_show", query: "SHOW TABLES", wantStatementType: "UTILITY"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			startRec := doRequest(t, h, "StartQueryExecution",
+				`{"QueryString":"`+tt.query+`","WorkGroup":"primary"}`)
+			require.Equal(t, http.StatusOK, startRec.Code)
+
+			id := jsonField(t, startRec.Body.Bytes(), "QueryExecutionId")
+
+			rec := doRequest(t, h, "GetQueryExecution", `{"QueryExecutionId":"`+id+`"}`)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			qe := resp["QueryExecution"].(map[string]any)
+
+			assert.Equal(t, tt.wantStatementType, qe["StatementType"])
+
+			ev := qe["EngineVersion"].(map[string]any)
+			assert.Equal(t, "AUTO", ev["SelectedEngineVersion"])
+			assert.NotEmpty(t, ev["EffectiveEngineVersion"])
+
+			stats := qe["Statistics"].(map[string]any)
+			assert.NotZero(t, stats["EngineExecutionTimeInMillis"])
+			assert.NotZero(t, stats["TotalExecutionTimeInMillis"])
+		})
+	}
+}
+
+func TestHandler_QueryExecution_ExecutionParameters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "StartQueryExecution",
+		`{"QueryString":"SELECT ? FROM t WHERE id=?","WorkGroup":"primary","ExecutionParameters":["col1","42"]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	id := jsonField(t, rec.Body.Bytes(), "QueryExecutionId")
+
+	rec = doRequest(t, h, "GetQueryExecution", `{"QueryExecutionId":"`+id+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	qe := resp["QueryExecution"].(map[string]any)
+
+	params, ok := qe["ExecutionParameters"].([]any)
+	require.True(t, ok)
+	require.Len(t, params, 2)
+	assert.Equal(t, "col1", params[0])
+	assert.Equal(t, "42", params[1])
+}
+
+func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := `{
+		"QueryString":"SELECT 1",
+		"WorkGroup":"primary",
+		"ResultConfiguration":{
+			"OutputLocation":"s3://my-bucket/results/",
+			"ExpectedBucketOwner":"111111111111",
+			"AclConfiguration":{"S3AclOption":"BUCKET_OWNER_FULL_CONTROL"},
+			"EncryptionConfiguration":{"EncryptionOption":"SSE_KMS","KmsKey":"arn:aws:kms:us-east-1:000000000000:key/abc"}
+		}
+	}`
+	rec := doRequest(t, h, "StartQueryExecution", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	id := jsonField(t, rec.Body.Bytes(), "QueryExecutionId")
+	rec = doRequest(t, h, "GetQueryExecution", `{"QueryExecutionId":"`+id+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	qe := resp["QueryExecution"].(map[string]any)
+	rc := qe["ResultConfiguration"].(map[string]any)
+
+	assert.Equal(t, "s3://my-bucket/results/", rc["OutputLocation"])
+	assert.Equal(t, "111111111111", rc["ExpectedBucketOwner"])
+	acl := rc["AclConfiguration"].(map[string]any)
+	assert.Equal(t, "BUCKET_OWNER_FULL_CONTROL", acl["S3AclOption"])
+	enc := rc["EncryptionConfiguration"].(map[string]any)
+	assert.Equal(t, "SSE_KMS", enc["EncryptionOption"])
+}
+
+func TestHandler_DataCatalog_FederatedStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		catalogType    string
+		connectionType string
+		wantStatus     string
+	}{
+		{name: "glue_complete", catalogType: "GLUE", wantStatus: "CREATE_COMPLETE"},
+		{name: "lambda_complete", catalogType: "LAMBDA", wantStatus: "CREATE_COMPLETE"},
+		{name: "hive_complete", catalogType: "HIVE", wantStatus: "CREATE_COMPLETE"},
+		{
+			name:           "federated_in_progress",
+			catalogType:    "FEDERATED",
+			connectionType: "REDSHIFT",
+			wantStatus:     "CREATE_IN_PROGRESS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			connField := ""
+			if tt.connectionType != "" {
+				connField = `,"ConnectionType":"` + tt.connectionType + `"`
+			}
+			body := `{"Name":"cat-` + tt.name + `","Type":"` + tt.catalogType + `"` + connField + `}`
+			rec := doRequest(t, h, "CreateDataCatalog", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, "GetDataCatalog", `{"Name":"cat-`+tt.name+`"}`)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			dc := resp["DataCatalog"].(map[string]any)
+
+			assert.Equal(t, tt.wantStatus, dc["Status"])
+			if tt.connectionType != "" {
+				assert.Equal(t, tt.connectionType, dc["ConnectionType"])
+			}
+		})
+	}
+}
+
+func TestHandler_DataCatalog_ListIncludesStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_ = doRequest(t, h, "CreateDataCatalog", `{"Name":"fed-cat","Type":"FEDERATED","ConnectionType":"MYSQL"}`)
+
+	rec := doRequest(t, h, "ListDataCatalogs", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	summaries, ok := resp["DataCatalogsSummary"].([]any)
+	require.True(t, ok)
+
+	var found map[string]any
+	for _, item := range summaries {
+		s, ok := item.(map[string]any)
+		require.True(t, ok)
+		if s["CatalogName"] == "fed-cat" {
+			found = s
+			break
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, "CREATE_IN_PROGRESS", found["Status"])
+	assert.Equal(t, "MYSQL", found["ConnectionType"])
+}
+
+func TestHandler_CapacityReservation_LastAllocationStruct(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-test","TargetDpus":8}`)
+
+	rec := doRequest(t, h, "GetCapacityReservation", `{"Name":"cap-test"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cr := resp["CapacityReservation"].(map[string]any)
+
+	assert.Equal(t, "ACTIVE", cr["Status"])
+	assert.NotZero(t, cr["CreationTime"])
+	assert.NotZero(t, cr["LastSuccessfulAllocationTime"])
+
+	lastAlloc := cr["LastAllocation"].(map[string]any)
+	assert.Equal(t, "SUCCEEDED", lastAlloc["Status"])
+	assert.NotZero(t, lastAlloc["RequestTime"])
+	assert.NotZero(t, lastAlloc["RequestCompletionTime"])
+}
+
+func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_ = doRequest(t, h, "CreateCapacityReservation", `{"Name":"cap-upd","TargetDpus":4}`)
+	_ = doRequest(t, h, "UpdateCapacityReservation", `{"Name":"cap-upd","TargetDpus":8}`)
+
+	rec := doRequest(t, h, "GetCapacityReservation", `{"Name":"cap-upd"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cr := resp["CapacityReservation"].(map[string]any)
+
+	assert.Equal(t, float64(8), cr["TargetDpus"])
+	lastAlloc := cr["LastAllocation"].(map[string]any)
+	assert.Equal(t, "SUCCEEDED", lastAlloc["Status"])
 }

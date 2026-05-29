@@ -605,9 +605,15 @@ func (b *InMemoryBackend) UpdateCapacityReservation(name string, targetDPUs int3
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
+	now := nowSeconds()
 	cr.TargetDpus = targetDPUs
 	cr.AllocatedDpus = targetDPUs
-	cr.LastAllocation = nowSeconds()
+	cr.LastAllocation = &CapacityAllocation{
+		RequestTime:           now,
+		RequestCompletionTime: now,
+		Status:                "SUCCEEDED",
+	}
+	cr.LastSuccessfulAllocationTime = now
 
 	return nil
 }

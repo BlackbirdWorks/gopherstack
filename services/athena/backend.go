@@ -57,10 +57,22 @@ type EncryptionConfiguration struct {
 	KmsKey           string `json:"KmsKey,omitempty"`
 }
 
+// AclConfiguration controls S3 canned ACL for query results.
+type AclConfiguration struct {
+	S3AclOption string `json:"S3AclOption,omitempty"`
+}
+
+// CustomerContentEncryptionConfiguration holds KMS key for user data encryption.
+type CustomerContentEncryptionConfiguration struct {
+	KmsKey string `json:"KmsKey,omitempty"`
+}
+
 // ResultConfiguration holds the configuration for where query results are stored.
 type ResultConfiguration struct {
-	OutputLocation          string                  `json:"OutputLocation,omitempty"`
+	AclConfiguration        *AclConfiguration       `json:"AclConfiguration,omitempty"`
 	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration,omitzero"`
+	ExpectedBucketOwner     string                  `json:"ExpectedBucketOwner,omitempty"`
+	OutputLocation          string                  `json:"OutputLocation,omitempty"`
 }
 
 // EngineVersion holds the engine version configuration for a workgroup.
@@ -71,11 +83,16 @@ type EngineVersion struct {
 
 // WorkGroupConfiguration holds configuration for a workgroup.
 type WorkGroupConfiguration struct {
-	ResultConfiguration             ResultConfiguration `json:"ResultConfiguration,omitzero"`
-	EngineVersion                   EngineVersion       `json:"EngineVersion,omitzero"`
-	BytesScannedCutoffPerQuery      int64               `json:"BytesScannedCutoffPerQuery,omitempty"`
-	PublishCloudWatchMetricsEnabled bool                `json:"PublishCloudWatchMetricsEnabled,omitempty"`
-	RequesterPaysEnabled            bool                `json:"RequesterPaysEnabled,omitempty"`
+	CustomerContentEncryptionConfiguration *CustomerContentEncryptionConfiguration `json:"CustomerContentEncryptionConfiguration,omitempty"`
+	ResultConfiguration                    ResultConfiguration                     `json:"ResultConfiguration,omitzero"`
+	EngineVersion                          EngineVersion                           `json:"EngineVersion,omitzero"`
+	AdditionalConfiguration                string                                  `json:"AdditionalConfiguration,omitempty"`
+	ExecutionRole                          string                                  `json:"ExecutionRole,omitempty"`
+	BytesScannedCutoffPerQuery             int64                                   `json:"BytesScannedCutoffPerQuery,omitempty"`
+	EnableMinimumEncryptionConfiguration   bool                                    `json:"EnableMinimumEncryptionConfiguration,omitempty"`
+	EnforceWorkGroupConfiguration          bool                                    `json:"EnforceWorkGroupConfiguration,omitempty"`
+	PublishCloudWatchMetricsEnabled        bool                                    `json:"PublishCloudWatchMetricsEnabled,omitempty"`
+	RequesterPaysEnabled                   bool                                    `json:"RequesterPaysEnabled,omitempty"`
 }
 
 // WorkGroup represents an Athena workgroup.
@@ -85,12 +102,16 @@ type WorkGroup struct {
 	State         string                 `json:"State"`
 	Tags          map[string]string      `json:"Tags,omitempty"`
 	Configuration WorkGroupConfiguration `json:"Configuration,omitzero"`
+	CreationTime  float64                `json:"CreationTime,omitempty"`
 }
 
 // WorkGroupSummary is a reduced view of a WorkGroup for list responses.
 type WorkGroupSummary struct {
-	Name  string `json:"Name"`
-	State string `json:"State"`
+	EngineVersion *EngineVersion `json:"EngineVersion,omitempty"`
+	Name          string         `json:"Name"`
+	Description   string         `json:"Description,omitempty"`
+	State         string         `json:"State"`
+	CreationTime  float64        `json:"CreationTime,omitempty"`
 }
 
 // NamedQuery represents a saved Athena query.
@@ -105,17 +126,23 @@ type NamedQuery struct {
 
 // DataCatalog represents an Athena data catalog.
 type DataCatalog struct {
-	Parameters  map[string]string `json:"Parameters,omitempty"`
-	Tags        map[string]string `json:"Tags,omitempty"`
-	Name        string            `json:"Name"`
-	Type        string            `json:"Type"`
-	Description string            `json:"Description,omitempty"`
+	Parameters     map[string]string `json:"Parameters,omitempty"`
+	Tags           map[string]string `json:"Tags,omitempty"`
+	Name           string            `json:"Name"`
+	Type           string            `json:"Type"`
+	Description    string            `json:"Description,omitempty"`
+	ConnectionType string            `json:"ConnectionType,omitempty"`
+	Error          string            `json:"Error,omitempty"`
+	Status         string            `json:"Status,omitempty"`
 }
 
 // DataCatalogSummary is a reduced view of a DataCatalog for list responses.
 type DataCatalogSummary struct {
-	CatalogName string `json:"CatalogName"`
-	Type        string `json:"Type"`
+	CatalogName    string `json:"CatalogName"`
+	Type           string `json:"Type"`
+	ConnectionType string `json:"ConnectionType,omitempty"`
+	Error          string `json:"Error,omitempty"`
+	Status         string `json:"Status,omitempty"`
 }
 
 // QueryExecutionContext holds the database and catalog for a query execution.
@@ -134,17 +161,27 @@ type QueryExecutionStatus struct {
 
 // QueryExecutionStatistics holds statistics for a query execution.
 type QueryExecutionStatistics struct {
-	EngineExecutionTimeInMillis int64 `json:"EngineExecutionTimeInMillis,omitempty"`
-	DataScannedInBytes          int64 `json:"DataScannedInBytes,omitempty"`
+	DataManifestLocation              string  `json:"DataManifestLocation,omitempty"`
+	DpuCount                          float64 `json:"DpuCount,omitempty"`
+	EngineExecutionTimeInMillis        int64   `json:"EngineExecutionTimeInMillis,omitempty"`
+	DataScannedInBytes                 int64   `json:"DataScannedInBytes,omitempty"`
+	QueryPlanningTimeInMillis          int64   `json:"QueryPlanningTimeInMillis,omitempty"`
+	QueryQueueTimeInMillis             int64   `json:"QueryQueueTimeInMillis,omitempty"`
+	ServicePreProcessingTimeInMillis   int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
+	ServiceProcessingTimeInMillis      int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
+	TotalExecutionTimeInMillis         int64   `json:"TotalExecutionTimeInMillis,omitempty"`
 }
 
 // QueryExecution represents an Athena query execution.
 type QueryExecution struct {
 	ResultConfiguration   ResultConfiguration      `json:"ResultConfiguration,omitzero"`
 	QueryExecutionContext QueryExecutionContext    `json:"QueryExecutionContext,omitzero"`
+	EngineVersion         *EngineVersion           `json:"EngineVersion,omitempty"`
 	QueryExecutionID      string                   `json:"QueryExecutionId"`
 	Query                 string                   `json:"Query"`
 	WorkGroup             string                   `json:"WorkGroup,omitempty"`
+	StatementType         string                   `json:"StatementType,omitempty"`
+	ExecutionParameters   []string                 `json:"ExecutionParameters,omitempty"`
 	Status                QueryExecutionStatus     `json:"Status"`
 	Statistics            QueryExecutionStatistics `json:"Statistics,omitzero"`
 }
@@ -164,21 +201,36 @@ type PreparedStatement struct {
 	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
 }
 
+// PreparedStatementSummary is a reduced view returned by ListPreparedStatements.
+type PreparedStatementSummary struct {
+	StatementName    string  `json:"StatementName"`
+	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
+}
+
 // UnprocessedPreparedStatementName describes a prepared statement that could not be retrieved.
 type UnprocessedPreparedStatementName struct {
 	StatementName string `json:"StatementName"`
 	ErrorMessage  string `json:"ErrorMessage"`
 }
 
+// CapacityAllocation describes a single capacity allocation attempt.
+type CapacityAllocation struct {
+	RequestTime           float64 `json:"RequestTime,omitempty"`
+	RequestCompletionTime float64 `json:"RequestCompletionTime,omitempty"`
+	Status                string  `json:"Status,omitempty"`
+	StatusMessage         string  `json:"StatusMessage,omitempty"`
+}
+
 // CapacityReservation represents an Athena capacity reservation.
 type CapacityReservation struct {
-	Tags           map[string]string `json:"Tags,omitempty"`
-	Name           string            `json:"Name"`
-	Status         string            `json:"Status"`
-	CreationTime   float64           `json:"CreationTime,omitempty"`
-	LastAllocation float64           `json:"LastAllocation,omitempty"`
-	TargetDpus     int32             `json:"TargetDpus"`
-	AllocatedDpus  int32             `json:"AllocatedDpus"`
+	Tags                        map[string]string   `json:"Tags,omitempty"`
+	LastAllocation              *CapacityAllocation `json:"LastAllocation,omitempty"`
+	Name                        string              `json:"Name"`
+	Status                      string              `json:"Status"`
+	CreationTime                float64             `json:"CreationTime,omitempty"`
+	LastSuccessfulAllocationTime float64            `json:"LastSuccessfulAllocationTime,omitempty"`
+	TargetDpus                  int32               `json:"TargetDpus"`
+	AllocatedDpus               int32               `json:"AllocatedDpus"`
 }
 
 // NotebookMetadata holds metadata for an Athena notebook.
@@ -219,14 +271,14 @@ type StorageBackend interface {
 	DeleteNamedQuery(id string) error
 
 	// Data Catalogs
-	CreateDataCatalog(name, catalogType, description string, params, tags map[string]string) error
+	CreateDataCatalog(name, catalogType, description, connectionType string, params, tags map[string]string) error
 	GetDataCatalog(name string) (*DataCatalog, error)
 	ListDataCatalogs() ([]DataCatalogSummary, error)
-	UpdateDataCatalog(name, catalogType, description string, params map[string]string) error
+	UpdateDataCatalog(name, catalogType, description, connectionType string, params map[string]string) error
 	DeleteDataCatalog(name string) error
 
 	// Query Executions
-	StartQueryExecution(query, workGroup string, ctx QueryExecutionContext, rc ResultConfiguration) (string, error)
+	StartQueryExecution(query, workGroup string, ctx QueryExecutionContext, rc ResultConfiguration, execParams []string) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
@@ -245,7 +297,7 @@ type StorageBackend interface {
 	CreatePreparedStatement(name, description, workGroup, queryStatement string) error
 	DeletePreparedStatement(name, workGroup string) error
 	GetPreparedStatement(name, workGroup string) (*PreparedStatement, error)
-	ListPreparedStatements(workGroup string) ([]PreparedStatement, error)
+	ListPreparedStatements(workGroup string) ([]PreparedStatementSummary, error)
 
 	// Capacity Reservations
 	CancelCapacityReservation(name string) error
@@ -453,12 +505,14 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		state = "ENABLED"
 	}
 
+	now := float64(time.Now().UnixMilli()) / millisToSeconds
 	b.workGroups[name] = &WorkGroup{
 		Name:          name,
 		Description:   description,
 		State:         state,
 		Tags:          maps.Clone(tags),
 		Configuration: cfg,
+		CreationTime:  now,
 	}
 
 	arn := workGroupARN(name)
@@ -492,7 +546,17 @@ func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
 
 	result := make([]WorkGroupSummary, 0, len(b.workGroups))
 	for _, wg := range b.workGroups {
-		result = append(result, WorkGroupSummary{Name: wg.Name, State: wg.State})
+		sum := WorkGroupSummary{
+			Name:         wg.Name,
+			Description:  wg.Description,
+			State:        wg.State,
+			CreationTime: wg.CreationTime,
+		}
+		if ev := wg.Configuration.EngineVersion; ev.SelectedEngineVersion != "" || ev.EffectiveEngineVersion != "" {
+			cp := ev
+			sum.EngineVersion = &cp
+		}
+		result = append(result, sum)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -653,7 +717,7 @@ func (b *InMemoryBackend) DeleteNamedQuery(id string) error {
 
 // CreateDataCatalog creates a new data catalog.
 func (b *InMemoryBackend) CreateDataCatalog(
-	name, catalogType, description string,
+	name, catalogType, description, connectionType string,
 	params, tags map[string]string,
 ) error {
 	switch {
@@ -678,12 +742,19 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		return fmt.Errorf("%w: data catalog %q already exists", ErrAlreadyExists, name)
 	}
 
+	status := "CREATE_COMPLETE"
+	if catalogType == "FEDERATED" {
+		status = "CREATE_IN_PROGRESS"
+	}
+
 	b.dataCatalogs[name] = &DataCatalog{
-		Name:        name,
-		Type:        catalogType,
-		Description: description,
-		Parameters:  maps.Clone(params),
-		Tags:        maps.Clone(tags),
+		Name:           name,
+		Type:           catalogType,
+		Description:    description,
+		ConnectionType: connectionType,
+		Parameters:     maps.Clone(params),
+		Tags:           maps.Clone(tags),
+		Status:         status,
 	}
 
 	arn := dataCatalogARN(name)
@@ -718,7 +789,13 @@ func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
 
 	result := make([]DataCatalogSummary, 0, len(b.dataCatalogs))
 	for _, dc := range b.dataCatalogs {
-		result = append(result, DataCatalogSummary{CatalogName: dc.Name, Type: dc.Type})
+		result = append(result, DataCatalogSummary{
+			CatalogName:    dc.Name,
+			Type:           dc.Type,
+			ConnectionType: dc.ConnectionType,
+			Status:         dc.Status,
+			Error:          dc.Error,
+		})
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -729,7 +806,7 @@ func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
 }
 
 // UpdateDataCatalog updates an existing data catalog.
-func (b *InMemoryBackend) UpdateDataCatalog(name, catalogType, description string, params map[string]string) error {
+func (b *InMemoryBackend) UpdateDataCatalog(name, catalogType, description, connectionType string, params map[string]string) error {
 	b.mu.Lock("UpdateDataCatalog")
 	defer b.mu.Unlock()
 
@@ -744,6 +821,10 @@ func (b *InMemoryBackend) UpdateDataCatalog(name, catalogType, description strin
 
 	if description != "" {
 		dc.Description = description
+	}
+
+	if connectionType != "" {
+		dc.ConnectionType = connectionType
 	}
 
 	if params != nil {
@@ -775,6 +856,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 	query, workGroup string,
 	ctx QueryExecutionContext,
 	rc ResultConfiguration,
+	execParams []string,
 ) (string, error) {
 	b.mu.Lock("StartQueryExecution")
 	defer b.mu.Unlock()
@@ -782,24 +864,55 @@ func (b *InMemoryBackend) StartQueryExecution(
 	id := randomID()
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
 
-	b.queryExecutions[id] = &QueryExecution{
+	const mockEngineMs int64 = 100
+
+	qe := &QueryExecution{
 		QueryExecutionID:      id,
 		Query:                 query,
 		ResultConfiguration:   rc,
 		QueryExecutionContext: ctx,
 		WorkGroup:             workGroup,
+		StatementType:         inferStatementType(query),
+		ExecutionParameters:   execParams,
+		EngineVersion: &EngineVersion{
+			SelectedEngineVersion:  "AUTO",
+			EffectiveEngineVersion: athenaEngineV3,
+		},
 		Status: QueryExecutionStatus{
 			State:              stateSucceeded,
 			SubmissionDateTime: now,
 			CompletionDateTime: now,
 		},
 		Statistics: QueryExecutionStatistics{
-			EngineExecutionTimeInMillis: 100, //nolint:mnd // mock execution time
-			DataScannedInBytes:          0,
+			EngineExecutionTimeInMillis:      mockEngineMs,
+			TotalExecutionTimeInMillis:       mockEngineMs,
+			ServiceProcessingTimeInMillis:    1,
+			DataScannedInBytes:               0,
 		},
 	}
 
+	b.queryExecutions[id] = qe
+
 	return id, nil
+}
+
+// inferStatementType returns the Athena StatementType for a query string.
+func inferStatementType(query string) string {
+	q := strings.ToUpper(strings.TrimSpace(query))
+	switch {
+	case strings.HasPrefix(q, "SELECT"),
+		strings.HasPrefix(q, "INSERT"),
+		strings.HasPrefix(q, "CREATE TABLE AS"),
+		strings.HasPrefix(q, "UNLOAD"):
+		return "DML"
+	case strings.HasPrefix(q, "CREATE"),
+		strings.HasPrefix(q, "DROP"),
+		strings.HasPrefix(q, "ALTER"),
+		strings.HasPrefix(q, "MSCK"):
+		return "DDL"
+	default:
+		return "UTILITY"
+	}
 }
 
 // GetQueryExecution retrieves a query execution by ID.
@@ -1003,16 +1116,19 @@ func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*Prepare
 	return &cp, nil
 }
 
-// ListPreparedStatements returns all prepared statements in a workgroup, sorted by name.
-func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedStatement, error) {
+// ListPreparedStatements returns summary views of prepared statements in a workgroup, sorted by name.
+func (b *InMemoryBackend) ListPreparedStatements(workGroup string) ([]PreparedStatementSummary, error) {
 	b.mu.RLock("ListPreparedStatements")
 	defer b.mu.RUnlock()
 
-	result := make([]PreparedStatement, 0, len(b.preparedStatements))
+	result := make([]PreparedStatementSummary, 0, len(b.preparedStatements))
 	for key, ps := range b.preparedStatements {
 		prefix := workGroup + "/"
 		if strings.HasPrefix(key, prefix) {
-			result = append(result, *ps)
+			result = append(result, PreparedStatementSummary{
+				StatementName:    ps.StatementName,
+				LastModifiedTime: ps.LastModifiedTime,
+			})
 		}
 	}
 
@@ -1091,6 +1207,12 @@ func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int3
 		AllocatedDpus: targetDPUs,
 		Tags:          maps.Clone(tags),
 		CreationTime:  now,
+		LastAllocation: &CapacityAllocation{
+			RequestTime:           now,
+			RequestCompletionTime: now,
+			Status:                "SUCCEEDED",
+		},
+		LastSuccessfulAllocationTime: now,
 	}
 
 	return nil
