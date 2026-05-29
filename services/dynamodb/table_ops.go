@@ -900,26 +900,34 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 	}
 }
 
-// applyReplicaUpdates processes Global Tables v2 replica create/delete actions
+// applyReplicaUpdates processes Global Tables v2 replica create/update/delete actions
 // and updates the Replicas metadata list on the table.
 // Physical Table entries for new regions are created separately by applyReplicaTableEntries.
 // Returns an error if any update has an empty RegionName.
 func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) error {
 	for _, u := range updates {
-		if u.Create != nil {
+		switch {
+		case u.Create != nil:
 			regionName := aws.ToString(u.Create.RegionName)
 			if regionName == "" {
 				return errReplicaCreateRegionRequired
 			}
 
 			applyReplicaCreate(table, regionName)
-		} else if u.Delete != nil {
+		case u.Delete != nil:
 			regionName := aws.ToString(u.Delete.RegionName)
 			if regionName == "" {
 				return errReplicaDeleteRegionRequired
 			}
 
 			applyReplicaDelete(table, regionName)
+		case u.Update != nil:
+			regionName := aws.ToString(u.Update.RegionName)
+			if regionName == "" {
+				return errReplicaCreateRegionRequired
+			}
+
+			applyReplicaUpdate(table, regionName, u.Update)
 		}
 	}
 
@@ -956,6 +964,28 @@ func applyReplicaDelete(table *Table, regionName string) {
 	}
 
 	table.Replicas = updated
+}
+
+// applyReplicaUpdate applies per-replica setting overrides (table class, provisioned throughput)
+// from an UpdateReplicationGroupMemberAction. The replica must already exist.
+func applyReplicaUpdate(table *Table, regionName string, action *types.UpdateReplicationGroupMemberAction) {
+	for i := range table.Replicas {
+		if table.Replicas[i].RegionName != regionName {
+			continue
+		}
+
+		if string(action.TableClassOverride) != "" {
+			table.Replicas[i].TableClassOverride = string(action.TableClassOverride)
+		}
+
+		if action.ProvisionedThroughputOverride != nil &&
+			action.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+			rcu := *action.ProvisionedThroughputOverride.ReadCapacityUnits
+			table.Replicas[i].ProvisionedReadCapacityUnits = &rcu
+		}
+
+		return
+	}
 }
 
 // applyUpdateTableThroughput updates provisioned throughput on the table.
@@ -1235,10 +1265,24 @@ func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.Repl
 	out := make([]types.ReplicaDescription, len(replicas))
 	for i, r := range replicas {
 		regionName := r.RegionName
-		out[i] = types.ReplicaDescription{
+		desc := types.ReplicaDescription{
 			RegionName:    &regionName,
 			ReplicaStatus: types.ReplicaStatus(r.ReplicaStatus),
 		}
+
+		if r.TableClassOverride != "" {
+			tc := types.TableClass(r.TableClassOverride)
+			desc.ReplicaTableClassSummary = &types.TableClassSummary{TableClass: tc}
+		}
+
+		if r.ProvisionedReadCapacityUnits != nil {
+			rcu := *r.ProvisionedReadCapacityUnits
+			desc.ProvisionedThroughputOverride = &types.ProvisionedThroughputOverride{
+				ReadCapacityUnits: &rcu,
+			}
+		}
+
+		out[i] = desc
 	}
 
 	return out

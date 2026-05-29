@@ -269,7 +269,7 @@ func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
 	}
 
 	table.mu.Lock("AddKinesisDestination")
-	table.KinesisDestinations = append(table.KinesisDestinations, streamARN)
+	table.KinesisDestinations = append(table.KinesisDestinations, KinesisDestinationEntry{StreamARN: streamARN})
 	table.mu.Unlock()
 }
 
