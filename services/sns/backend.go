@@ -36,6 +36,9 @@ import (
 )
 
 const (
+	boolFalseStr      = "false"
+	eventTypeKey      = "EventType"
+	endpointArnKey    = "EndpointArn"
 	protocolEmailJSON = "email-json"
 	protocolHTTPS     = "https"
 
@@ -68,12 +71,14 @@ var (
 	ErrPlatformApplicationNotFound      = errors.New("NotFound")
 	ErrPlatformApplicationAlreadyExists = errors.New("PlatformApplicationAlreadyExists")
 	ErrEndpointNotFound                 = errors.New("NotFound")
+	ErrEndpointDisabled                 = errors.New("EndpointDisabled")
 	ErrInvalidParameter                 = errors.New("InvalidParameter")
 	ErrPhoneNumberNotFound              = errors.New("ResourceNotFound")
 	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
 	ErrPermissionLabelExists            = errors.New("AuthorizationError")
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
+	ErrOptedOut                         = errors.New("KMSOptInRequired")
 )
 
 const (
@@ -143,6 +148,10 @@ const (
 	// maxPublishBatchEntries is the maximum number of entries per PublishBatch request.
 	// This matches the AWS SNS service limit.
 	maxPublishBatchEntries = 10
+
+	// maxArchivedMessagesPerTopic caps the in-memory archive per topic.
+	// When the cap is exceeded, the oldest messages are evicted.
+	maxArchivedMessagesPerTopic = 100_000
 
 	// maxTopicNameLen is the maximum length of an SNS topic name.
 	maxTopicNameLen = 256
@@ -278,6 +287,17 @@ type SMSDelivery struct {
 	MessageID   string
 }
 
+// ArchivedMessage stores a published message in the per-topic archive.
+// Messages are archived when the topic has an ArchivePolicy attribute set.
+// They are replayed to subscriptions that have a ReplayPolicy set.
+type ArchivedMessage struct {
+	Attributes map[string]MessageAttribute
+	Timestamp  time.Time
+	MessageID  string
+	Message    string
+	Subject    string
+}
+
 // notificationSigner holds the RSA key pair and self-signed certificate used to
 // sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=1 spec.
 // The certificate is served at the URL stored in certURL so subscribers can
@@ -383,6 +403,7 @@ type InMemoryBackend struct {
 	mu                   *lockmetrics.RWMutex
 	subscriptions        map[string]*Subscription
 	platformEndpoints    map[string]*PlatformEndpoint
+	topicMessageArchive  map[string][]*ArchivedMessage // populated when ArchivePolicy is set
 	signer               *notificationSigner
 	workerSem            chan struct{}
 	accountID            string
@@ -419,6 +440,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		topicTags:            make(map[string]*svcTags.Tags),
 		platformApplications: make(map[string]*PlatformApplication),
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
+		topicMessageArchive:  make(map[string][]*ArchivedMessage),
 		smsSandbox:           make(map[string]*SandboxPhoneNumber),
 		optedOutPhoneNumbers: make(map[string]bool),
 		smsAttributes:        make(map[string]string),
@@ -525,7 +547,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	if strings.HasSuffix(name, fifoTopicSuffix) {
 		attrs["FifoTopic"] = fifoTopicAttrValue
 		if attrs["ContentBasedDeduplication"] == "" {
-			attrs["ContentBasedDeduplication"] = "false"
+			attrs["ContentBasedDeduplication"] = boolFalseStr
 		}
 	}
 
@@ -908,6 +930,9 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 }
 
 // SetSubscriptionAttributes sets a single attribute on a subscription.
+// When ReplayPolicy is set to a non-empty value, archived messages from the topic
+// (published at or after replayFromTimestamp) are asynchronously delivered to this
+// subscription. This mirrors AWS SNS archive replay behaviour.
 func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
 	// Parse the FilterPolicy outside the backend lock so JSON validation does
 	// not serialize against unrelated SNS operations on large policies.
@@ -929,15 +954,45 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		}
 	}
 
+	// Validate and parse ReplayPolicy before acquiring the lock so JSON parsing
+	// and RFC3339 timestamp validation don't hold the lock.
+	var replayFromTime time.Time
+	if attrName == attrReplayPolicy && attrValue != "" {
+		ts, err := parseReplayFromTimestamp(attrValue)
+		if err != nil {
+			return err
+		}
+
+		replayFromTime = ts
+	}
+
 	b.mu.Lock("SetSubscriptionAttributes")
-	defer b.mu.Unlock()
 
 	sub, exists := b.subscriptions[subscriptionArn]
 	if !exists {
+		b.mu.Unlock()
+
 		return ErrSubscriptionNotFound
 	}
 
-	return applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy)
+	if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
+		b.mu.Unlock()
+
+		return err
+	}
+
+	// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
+	subSnap := *sub
+	topicArn := sub.TopicArn
+
+	b.mu.Unlock()
+
+	// Trigger asynchronous replay when ReplayPolicy is set to a non-empty value.
+	if attrName == attrReplayPolicy && attrValue != "" && !replayFromTime.IsZero() {
+		go b.replayMessagesToSubscription(subSnap, topicArn, replayFromTime)
+	}
+
+	return nil
 }
 
 // applySubscriptionAttr mutates sub with the given attribute value.
@@ -1364,11 +1419,23 @@ func (b *InMemoryBackend) collectPublishTargets(
 	var out publishTargets
 
 	for _, sub := range b.topicSubscriptions[topicArn] {
-		if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
-			continue
-		}
-
+		// Resolve the per-protocol message body for this subscription.
+		// This must happen before filter evaluation when FilterPolicyScope=MessageBody,
+		// because the body itself is the subject of the filter.
 		msg := resolveMsg(sub.Protocol)
+
+		// Apply filter policy. When FilterPolicyScope is "MessageBody", the filter
+		// is evaluated against the message body parsed as a JSON object. The default
+		// scope "MessageAttributes" (or unset) evaluates against message attributes.
+		if sub.FilterPolicyScope == "MessageBody" {
+			if !matchesFilterPolicyMessageBody(sub.parsedFilterPolicy, msg) {
+				continue
+			}
+		} else {
+			if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
+				continue
+			}
+		}
 
 		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
@@ -1391,6 +1458,54 @@ func (b *InMemoryBackend) collectPublishTargets(
 	}
 
 	return out
+}
+
+// matchesFilterPolicyMessageBody evaluates a parsed filter policy against the
+// message body when FilterPolicyScope=MessageBody. The message must be a valid
+// JSON object; if it is not, no subscription receives the message.
+func matchesFilterPolicyMessageBody(policy parsedFilterPolicy, message string) bool {
+	if len(policy) == 0 {
+		return true
+	}
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(message), &body); err != nil {
+		return false
+	}
+
+	for key, conditions := range policy {
+		rawVal, exists := body[key]
+		if !exists {
+			if !matchesConditions("", false, conditions) {
+				return false
+			}
+
+			continue
+		}
+
+		// Try to decode the JSON field as a string value for condition matching.
+		var strVal string
+		if err := json.Unmarshal(rawVal, &strVal); err != nil {
+			// Try number.
+			var numVal json.Number
+			if err2 := json.Unmarshal(rawVal, &numVal); err2 != nil {
+				// Cannot extract a scalar — treat as not-existing for filter.
+				if !matchesConditions("", false, conditions) {
+					return false
+				}
+
+				continue
+			}
+
+			strVal = numVal.String()
+		}
+
+		if !matchesConditions(strVal, true, conditions) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Publish publishes a message to a topic and returns the message ID.
@@ -1473,11 +1588,15 @@ func (b *InMemoryBackend) Publish(
 
 	b.mu.RLock("Publish")
 
-	if _, exists := b.topics[topicArn]; !exists {
+	topic, exists := b.topics[topicArn]
+	if !exists {
 		b.mu.RUnlock()
 
 		return "", ErrTopicNotFound
 	}
+
+	// Capture whether this topic archives messages (ArchivePolicy present).
+	archivePolicy := topic.Attributes["ArchivePolicy"]
 
 	messageID := uuid.New().String()
 
@@ -1503,6 +1622,12 @@ func (b *InMemoryBackend) Publish(
 	// Release the read lock before performing any network I/O so that slow or
 	// unresponsive HTTP endpoints do not block write operations on the backend.
 	b.mu.RUnlock()
+
+	// Archive the message when the topic has an ArchivePolicy (e.g. FIFO topics
+	// with message retention). Archived messages are used for subscription replay.
+	if archivePolicy != "" {
+		b.archivePublishedMessage(topicArn, messageID, message, subject, attrs)
+	}
 
 	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
 	// Each subscription gets its own goroutine which blocks until a concurrency
@@ -1554,7 +1679,9 @@ func (b *InMemoryBackend) Publish(
 }
 
 // PublishToTargetArn publishes a message directly to a platform endpoint ARN.
-// In the mock, this generates and returns a unique message ID. No actual delivery occurs.
+// Returns ErrEndpointDisabled when the endpoint has Enabled=false, matching
+// the AWS EndpointDisabled error that triggers automatic endpoint disabling.
+// In the mock, no actual push delivery occurs beyond generating the message ID.
 func (b *InMemoryBackend) PublishToTargetArn(
 	targetArn, _ /* message */, _ /* subject */ string,
 	_ map[string]MessageAttribute,
@@ -1562,8 +1689,13 @@ func (b *InMemoryBackend) PublishToTargetArn(
 	b.mu.RLock("PublishToTargetArn")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.platformEndpoints[targetArn]; !exists {
+	ep, exists := b.platformEndpoints[targetArn]
+	if !exists {
 		return "", ErrEndpointNotFound
+	}
+
+	if ep.Attributes["Enabled"] == boolFalseStr {
+		return "", fmt.Errorf("%w: endpoint %s is disabled", ErrEndpointDisabled, targetArn)
 	}
 
 	return uuid.New().String(), nil
@@ -1571,9 +1703,31 @@ func (b *InMemoryBackend) PublishToTargetArn(
 
 // PublishSMS publishes a message directly to a phone number via SMS.
 // The delivery is recorded in smsDeliveries so tests can assert on it via DrainSMSDeliveries.
+// Returns ErrOptedOut when the destination number has opted out of SMS messages.
+// Returns ErrSandboxPhoneNotVerified when the number is in the SMS sandbox but not yet verified.
 func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error) {
 	if !isValidE164(phoneNumber) {
 		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("PublishSMS-check")
+	sandboxEntry := b.smsSandbox[phoneNumber]
+	optedOut := b.optedOutPhoneNumbers[phoneNumber]
+	b.mu.RUnlock()
+
+	// Opted-out numbers must not receive SMS regardless of sandbox state.
+	if optedOut {
+		return "", fmt.Errorf("%w: phone number %s has opted out of SMS messages", ErrOptedOut, phoneNumber)
+	}
+
+	// When the number is registered in the sandbox, it must be verified before
+	// SMS can be sent to it. Unverified numbers in the sandbox mirror real AWS
+	// sandbox behaviour where only verified destinations are allowed.
+	if sandboxEntry != nil && sandboxEntry.Status != "Verified" {
+		return "", fmt.Errorf(
+			"%w: phone number %s is registered in the SMS sandbox but has not been verified",
+			ErrSandboxPhoneNotVerified, phoneNumber,
+		)
 	}
 
 	msgID := uuid.New().String()
@@ -2156,13 +2310,16 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 	}
 
 	// Validate platform is one of the known AWS SNS platforms.
+	// FCM is the Firebase Cloud Messaging platform (successor to GCM).
+	// APNS_VOIP and APNS_VOIP_SANDBOX support Apple VoIP push notifications.
 	validPlatforms := map[string]bool{
-		"GCM": true, "APNS": true, "APNS_SANDBOX": true,
+		"GCM": true, "FCM": true, "APNS": true, "APNS_SANDBOX": true,
+		"APNS_VOIP": true, "APNS_VOIP_SANDBOX": true,
 		"ADM": true, "BAIDU": true, "WNS": true, "MPNS": true,
 	}
 	if !validPlatforms[platform] {
 		return nil, fmt.Errorf(
-			"%w: Platform must be one of GCM, APNS, APNS_SANDBOX, ADM, BAIDU, WNS, MPNS",
+			"%w: Platform must be one of GCM, FCM, APNS, APNS_SANDBOX, APNS_VOIP, APNS_VOIP_SANDBOX, ADM, BAIDU, WNS, MPNS",
 			ErrInvalidParameter,
 		)
 	}
@@ -2195,6 +2352,10 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 }
 
 // GetPlatformApplicationAttributes returns the attributes of a platform application.
+// In addition to stored attributes, computed statistics are returned:
+//   - Enabled: always "true" for the application itself (not to be confused with endpoint Enabled).
+//   - EndpointActive: the number of enabled platform endpoints for this application.
+//   - EndpointDisabled: the number of disabled platform endpoints.
 func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error) {
 	b.mu.RLock("GetPlatformApplicationAttributes")
 	defer b.mu.RUnlock()
@@ -2204,8 +2365,27 @@ func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationAr
 		return nil, ErrPlatformApplicationNotFound
 	}
 
-	attrs := make(map[string]string, len(app.Attributes))
+	// Count active and disabled endpoints for this application.
+	var activeCount, disabledCount int
+	for _, ep := range b.platformEndpoints {
+		if ep.PlatformApplicationArn != platformApplicationArn {
+			continue
+		}
+
+		if ep.Attributes["Enabled"] == boolFalseStr {
+			disabledCount++
+		} else {
+			activeCount++
+		}
+	}
+
+	const computedCountFields = 2
+	attrs := make(map[string]string, len(app.Attributes)+computedCountFields)
 	maps.Copy(attrs, app.Attributes)
+
+	// AWS always returns these computed counts.
+	attrs["EndpointActive"] = strconv.Itoa(activeCount)
+	attrs["EndpointDisabled"] = strconv.Itoa(disabledCount)
 
 	return attrs, nil
 }
@@ -2269,15 +2449,18 @@ func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn strin
 // CreatePlatformEndpoint registers a device token as an endpoint for a platform application.
 // AWS deduplication behaviour: if an endpoint with the same token already exists under this
 // platform application, the existing endpoint ARN is returned instead of creating a new one.
+// After creation, an EventEndpointCreated event is fired to the platform application's configured
+// event topic, if any.
 func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platformApplicationArn, token string,
 	attributes map[string]string,
 ) (*PlatformEndpoint, error) {
 	b.mu.Lock("CreatePlatformEndpoint")
-	defer b.mu.Unlock()
 
 	app, exists := b.platformApplications[platformApplicationArn]
 	if !exists {
+		b.mu.Unlock()
+
 		return nil, ErrPlatformApplicationNotFound
 	}
 
@@ -2286,6 +2469,8 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	for _, ep := range b.platformEndpoints {
 		if ep.PlatformApplicationArn == platformApplicationArn &&
 			ep.Attributes["Token"] == token {
+			b.mu.Unlock()
+
 			return ep, nil
 		}
 	}
@@ -2297,6 +2482,8 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
 
 	if len(resourceParts) != platformARNResourceParts {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf(
 			"%w: malformed platform application ARN: %s",
 			ErrInvalidParameter,
@@ -2324,6 +2511,15 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	}
 	b.platformEndpoints[endpointArn] = ep
 
+	b.mu.Unlock()
+
+	// Fire endpoint-created event to the configured topic (best-effort, non-blocking).
+	b.fireEndpointEvent(platformApplicationArn, "EventEndpointCreated", map[string]string{
+		eventTypeKey:   "EndpointCreated",
+		endpointArnKey: endpointArn,
+		"Token":        token,
+	})
+
 	return ep, nil
 }
 
@@ -2344,16 +2540,27 @@ func (b *InMemoryBackend) GetEndpointAttributes(endpointArn string) (map[string]
 }
 
 // SetEndpointAttributes updates attributes on a platform endpoint.
+// After the update, an EventEndpointUpdated event is fired to the platform
+// application's configured event topic, if any.
 func (b *InMemoryBackend) SetEndpointAttributes(endpointArn string, attributes map[string]string) error {
 	b.mu.Lock("SetEndpointAttributes")
-	defer b.mu.Unlock()
 
 	ep, exists := b.platformEndpoints[endpointArn]
 	if !exists {
+		b.mu.Unlock()
+
 		return ErrEndpointNotFound
 	}
 
 	maps.Copy(ep.Attributes, attributes)
+	platformAppArn := ep.PlatformApplicationArn
+
+	b.mu.Unlock()
+
+	b.fireEndpointEvent(platformAppArn, "EventEndpointUpdated", map[string]string{
+		eventTypeKey:   "EndpointUpdated",
+		endpointArnKey: endpointArn,
+	})
 
 	return nil
 }
@@ -2389,15 +2596,27 @@ func (b *InMemoryBackend) ListEndpointsByPlatformApplication(
 }
 
 // DeleteEndpoint removes a platform endpoint by ARN.
+// After deletion, an EventEndpointDeleted event is fired to the platform
+// application's configured event topic, if any.
 func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
 	b.mu.Lock("DeleteEndpoint")
-	defer b.mu.Unlock()
 
-	if _, exists := b.platformEndpoints[endpointArn]; !exists {
+	ep, exists := b.platformEndpoints[endpointArn]
+	if !exists {
+		b.mu.Unlock()
+
 		return ErrEndpointNotFound
 	}
 
+	platformAppArn := ep.PlatformApplicationArn
 	delete(b.platformEndpoints, endpointArn)
+
+	b.mu.Unlock()
+
+	b.fireEndpointEvent(platformAppArn, "EventEndpointDeleted", map[string]string{
+		eventTypeKey:   "EndpointDeleted",
+		endpointArnKey: endpointArn,
+	})
 
 	return nil
 }
@@ -2428,6 +2647,144 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 	})
 
 	return eps
+}
+
+// fireEndpointEvent publishes an endpoint lifecycle event notification to the
+// SNS topic configured in the platform application's event attribute (e.g.
+// "EventEndpointCreated"). This is best-effort and non-blocking; errors are
+// silently discarded so that endpoint operations always succeed regardless of
+// whether the event topic exists.
+func (b *InMemoryBackend) fireEndpointEvent(appArn, eventAttr string, payload map[string]string) {
+	b.mu.RLock("fireEndpointEvent")
+	app, exists := b.platformApplications[appArn]
+	var topicArn string
+	if exists {
+		topicArn = app.Attributes[eventAttr]
+	}
+	b.mu.RUnlock()
+
+	if topicArn == "" {
+		return
+	}
+
+	msg, _ := json.Marshal(payload)
+	_, _ = b.Publish(topicArn, string(msg), "", "", nil)
+}
+
+// parseReplayFromTimestamp parses the replayFromTimestamp field from a ReplayPolicy JSON string.
+// Returns the zero time and an error when the policy is malformed or the timestamp is missing.
+func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
+	if replayPolicy == "" {
+		return time.Time{}, nil
+	}
+
+	var p struct {
+		ReplayFromTimestamp string `json:"replayFromTimestamp"`
+	}
+
+	if err := json.Unmarshal([]byte(replayPolicy), &p); err != nil {
+		return time.Time{}, fmt.Errorf("%w: ReplayPolicy is not valid JSON: %s", ErrInvalidParameter, err.Error())
+	}
+
+	if p.ReplayFromTimestamp == "" {
+		return time.Time{}, fmt.Errorf("%w: ReplayPolicy must include replayFromTimestamp", ErrInvalidParameter)
+	}
+
+	ts, err := time.Parse(time.RFC3339, p.ReplayFromTimestamp)
+	if err != nil {
+		return time.Time{}, fmt.Errorf(
+			"%w: ReplayPolicy.replayFromTimestamp is not a valid RFC3339 timestamp: %s",
+			ErrInvalidParameter, err.Error(),
+		)
+	}
+
+	return ts, nil
+}
+
+// replayMessagesToSubscription delivers archived messages published at or after
+// fromTime to the given subscription. This supports the ReplayPolicy subscription
+// attribute: when set, a subscriber receives historical messages from the topic's
+// archive. Delivery uses the same mechanisms as a normal Publish (HTTP/HTTPS goroutines
+// and the event emitter for SQS/Lambda/Firehose).
+func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicArn string, fromTime time.Time) {
+	b.mu.RLock("replayMessages")
+
+	archive := b.topicMessageArchive[topicArn]
+	var toReplay []*ArchivedMessage
+	for _, msg := range archive {
+		if !msg.Timestamp.Before(fromTime) {
+			toReplay = append(toReplay, msg)
+		}
+	}
+
+	emitter := b.emitter
+	client := b.httpClient
+	signer := b.signer
+	b.mu.RUnlock()
+
+	for _, msg := range toReplay {
+		subSnap := events.SNSSubscriptionSnapshot{
+			SubscriptionARN:    sub.SubscriptionArn,
+			Protocol:           sub.Protocol,
+			Endpoint:           sub.Endpoint,
+			FilterPolicy:       sub.FilterPolicy,
+			RawMessageDelivery: sub.RawMessageDelivery,
+			RedrivePolicy:      sub.RedrivePolicy,
+		}
+
+		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
+			d := httpDelivery{
+				endpoint:        sub.Endpoint,
+				body:            msg.Message,
+				subject:         msg.Subject,
+				messageID:       msg.MessageID,
+				topicARN:        topicArn,
+				subscriptionARN: sub.SubscriptionArn,
+				rawDelivery:     sub.RawMessageDelivery,
+				signer:          signer,
+			}
+			deliverHTTPWithMeta(b.svcCtx, d, client)
+		}
+
+		if emitter != nil {
+			attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(msg.Attributes))
+			for k, v := range msg.Attributes {
+				attrSnaps[k] = events.SNSMessageAttributeSnapshot{
+					DataType:    v.DataType,
+					StringValue: v.StringValue,
+				}
+			}
+
+			_ = emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
+				TopicARN:      topicArn,
+				MessageID:     msg.MessageID,
+				Message:       msg.Message,
+				Subject:       msg.Subject,
+				Subscriptions: []events.SNSSubscriptionSnapshot{subSnap},
+				Attributes:    attrSnaps,
+			})
+		}
+	}
+}
+
+// GetArchivedMessages returns a snapshot of all messages archived for the given
+// topic ARN. Returns nil when no messages have been archived (ArchivePolicy not set
+// or no messages published yet). Intended for test assertions.
+func (b *InMemoryBackend) GetArchivedMessages(topicArn string) []ArchivedMessage {
+	b.mu.RLock("GetArchivedMessages")
+	defer b.mu.RUnlock()
+
+	archive := b.topicMessageArchive[topicArn]
+	if len(archive) == 0 {
+		return nil
+	}
+
+	result := make([]ArchivedMessage, len(archive))
+	for i, msg := range archive {
+		result[i] = *msg
+	}
+
+	return result
 }
 
 // isValidE164 returns true if the phone number string is a valid E.164 number
@@ -2851,12 +3208,35 @@ func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 		if ctx.Err() != nil {
 			return
 		}
+
 		if topic.CreationTimestamp.Before(cutoff) {
 			delete(b.topics, arn)
+			delete(b.topicMessageArchive, arn)
+
 			if t := b.topicTags[arn]; t != nil {
 				t.Close()
 				delete(b.topicTags, arn)
 			}
+		}
+	}
+
+	// Evict archived messages whose timestamp predates the cutoff, for topics that remain.
+	for topicArn, archive := range b.topicMessageArchive {
+		if ctx.Err() != nil {
+			return
+		}
+
+		kept := archive[:0]
+		for _, msg := range archive {
+			if !msg.Timestamp.Before(cutoff) {
+				kept = append(kept, msg)
+			}
+		}
+
+		if len(kept) == 0 {
+			delete(b.topicMessageArchive, topicArn)
+		} else {
+			b.topicMessageArchive[topicArn] = kept
 		}
 	}
 }
@@ -2927,8 +3307,34 @@ func (b *InMemoryBackend) Reset() {
 	b.topicTags = make(map[string]*svcTags.Tags)
 	b.platformApplications = make(map[string]*PlatformApplication)
 	b.platformEndpoints = make(map[string]*PlatformEndpoint)
+	b.topicMessageArchive = make(map[string][]*ArchivedMessage)
 	b.smsSandbox = make(map[string]*SandboxPhoneNumber)
 	b.optedOutPhoneNumbers = make(map[string]bool)
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
+}
+
+func (b *InMemoryBackend) archivePublishedMessage(
+	topicArn, messageID, message, subject string,
+	attrs map[string]MessageAttribute,
+) {
+	attrsCopy := make(map[string]MessageAttribute, len(attrs))
+	maps.Copy(attrsCopy, attrs)
+
+	b.mu.Lock("archiveMessage")
+	defer b.mu.Unlock()
+
+	archive := b.topicMessageArchive[topicArn]
+	if len(archive) >= maxArchivedMessagesPerTopic {
+		overage := len(archive) - maxArchivedMessagesPerTopic + 1
+		archive = archive[overage:]
+	}
+
+	b.topicMessageArchive[topicArn] = append(archive, &ArchivedMessage{
+		MessageID:  messageID,
+		Message:    message,
+		Subject:    subject,
+		Attributes: attrsCopy,
+		Timestamp:  time.Now().UTC(),
+	})
 }

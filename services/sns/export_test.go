@@ -17,6 +17,9 @@ const (
 
 	// ExportedFifoDedupSweepInterval exposes the sweep cadence for test assertions.
 	ExportedFifoDedupSweepInterval = fifoDedupSweepInterval
+
+	// ExportedMaxArchivedMessagesPerTopic exposes the archive cap for test assertions.
+	ExportedMaxArchivedMessagesPerTopic = maxArchivedMessagesPerTopic
 )
 
 // IsValidTopicNameForTest exposes the topic name validation function for testing.
@@ -26,4 +29,15 @@ func IsValidTopicNameForTest(name string) bool { return isValidTopicName(name) }
 // that verify RSA signature correctness.
 func CanonicalNotificationStringForTest(msgID, topicARN, subject, message, timestamp string) string {
 	return canonicalNotificationString(msgID, topicARN, subject, message, timestamp)
+}
+
+// MatchesFilterPolicyMessageBodyForTest exposes the MessageBody filter policy
+// evaluator for unit tests.
+func MatchesFilterPolicyMessageBodyForTest(policy string, message string) (bool, error) {
+	parsed, err := parseFilterPolicy(policy)
+	if err != nil {
+		return false, err
+	}
+
+	return matchesFilterPolicyMessageBody(parsed, message), nil
 }
