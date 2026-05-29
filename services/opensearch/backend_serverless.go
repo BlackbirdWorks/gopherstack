@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const defaultSamlSessionTimeoutB64 = "MTY4MDAwMDAwMDAwMA=="
+
 // Serverless collection status values.
 const (
 	slCollectionStatusActive   = "ACTIVE"
@@ -16,70 +18,70 @@ const (
 
 // ServerlessCollection represents an OpenSearch Serverless collection.
 type ServerlessCollection struct {
-	Arn              string            `json:"arn"`
-	CollectionEndpoint string          `json:"collectionEndpoint,omitempty"`
-	CreatedDate      float64           `json:"createdDate"`
-	DashboardEndpoint string           `json:"dashboardEndpoint,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	Id               string            `json:"id"`
-	KmsKeyArn        string            `json:"kmsKeyArn,omitempty"`
-	LastModifiedDate float64           `json:"lastModifiedDate"`
-	Name             string            `json:"name"`
-	Status           string            `json:"status"`
-	Type             string            `json:"type"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	Tags               map[string]string `json:"tags,omitempty"`
+	Arn                string            `json:"arn"`
+	CollectionEndpoint string            `json:"collectionEndpoint,omitempty"`
+	DashboardEndpoint  string            `json:"dashboardEndpoint,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	Id                 string            `json:"id"`
+	KmsKeyArn          string            `json:"kmsKeyArn,omitempty"`
+	Name               string            `json:"name"`
+	Status             string            `json:"status"`
+	Type               string            `json:"type"`
+	CreatedDate        float64           `json:"createdDate"`
+	LastModifiedDate   float64           `json:"lastModifiedDate"`
 }
 
 // ServerlessAccessPolicy represents an OpenSearch Serverless access policy.
 type ServerlessAccessPolicy struct {
-	CreatedDate      float64 `json:"createdDate"`
 	Description      string  `json:"description,omitempty"`
-	LastModifiedDate float64 `json:"lastModifiedDate"`
 	Name             string  `json:"name"`
 	Policy           string  `json:"policy"`
 	PolicyVersion    string  `json:"policyVersion"`
 	Type             string  `json:"type"`
+	CreatedDate      float64 `json:"createdDate"`
+	LastModifiedDate float64 `json:"lastModifiedDate"`
 }
 
 // ServerlessSecurityConfig represents an OpenSearch Serverless security config.
 type ServerlessSecurityConfig struct {
-	ConfigVersion    string                    `json:"configVersion"`
-	CreatedDate      float64                   `json:"createdDate"`
-	Description      string                    `json:"description,omitempty"`
-	Id               string                    `json:"id"`
-	LastModifiedDate float64                   `json:"lastModifiedDate"`
-	SamlOptions      *ServerlessSAMLOptions    `json:"samlOptions,omitempty"`
-	Type             string                    `json:"type"`
+	SamlOptions      *ServerlessSAMLOptions `json:"samlOptions,omitempty"`
+	ConfigVersion    string                 `json:"configVersion"`
+	Description      string                 `json:"description,omitempty"`
+	Id               string                 `json:"id"`
+	Type             string                 `json:"type"`
+	CreatedDate      float64                `json:"createdDate"`
+	LastModifiedDate float64                `json:"lastModifiedDate"`
 }
 
 // ServerlessSAMLOptions holds SAML options for a serverless security config.
 type ServerlessSAMLOptions struct {
-	GroupAttribute    string `json:"groupAttribute,omitempty"`
-	Metadata          string `json:"metadata,omitempty"`
-	SessionTimeout    int    `json:"sessionTimeout,omitempty"`
-	UserAttribute     string `json:"userAttribute,omitempty"`
+	GroupAttribute string `json:"groupAttribute,omitempty"`
+	Metadata       string `json:"metadata,omitempty"`
+	UserAttribute  string `json:"userAttribute,omitempty"`
+	SessionTimeout int    `json:"sessionTimeout,omitempty"`
 }
 
 // ServerlessEncryptionPolicy represents an OpenSearch Serverless encryption policy.
 type ServerlessEncryptionPolicy struct {
-	CreatedDate      float64 `json:"createdDate"`
 	Description      string  `json:"description,omitempty"`
-	LastModifiedDate float64 `json:"lastModifiedDate"`
 	Name             string  `json:"name"`
 	Policy           string  `json:"policy"`
 	PolicyVersion    string  `json:"policyVersion"`
 	Type             string  `json:"type"`
+	CreatedDate      float64 `json:"createdDate"`
+	LastModifiedDate float64 `json:"lastModifiedDate"`
 }
 
 // ServerlessNetworkPolicy represents an OpenSearch Serverless network policy.
 type ServerlessNetworkPolicy struct {
-	CreatedDate      float64 `json:"createdDate"`
 	Description      string  `json:"description,omitempty"`
-	LastModifiedDate float64 `json:"lastModifiedDate"`
 	Name             string  `json:"name"`
 	Policy           string  `json:"policy"`
 	PolicyVersion    string  `json:"policyVersion"`
 	Type             string  `json:"type"`
+	CreatedDate      float64 `json:"createdDate"`
+	LastModifiedDate float64 `json:"lastModifiedDate"`
 }
 
 // serverlessCollectionKey returns a stable key for a collection by name.
@@ -130,18 +132,18 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 	}
 
 	coll := &ServerlessCollection{
-		Id:               id,
-		Name:             name,
-		Arn:              collARN,
-		Status:           slCollectionStatusActive,
-		Type:             collectionType,
-		Description:      description,
-		KmsKeyArn:        kmsKeyArn,
+		Id:                 id,
+		Name:               name,
+		Arn:                collARN,
+		Status:             slCollectionStatusActive,
+		Type:               collectionType,
+		Description:        description,
+		KmsKeyArn:          kmsKeyArn,
 		CollectionEndpoint: collEndpoint,
 		DashboardEndpoint:  dashEndpoint,
-		CreatedDate:      now,
-		LastModifiedDate: now,
-		Tags:             tagMap,
+		CreatedDate:        now,
+		LastModifiedDate:   now,
+		Tags:               tagMap,
 	}
 
 	b.slCollections[serverlessCollectionKey(name)] = coll
@@ -225,7 +227,7 @@ func (b *InMemoryBackend) CreateServerlessAccessPolicy(
 		Type:             policyType,
 		Policy:           policy,
 		Description:      description,
-		PolicyVersion:    "MTY4MDAwMDAwMDAwMA==",
+		PolicyVersion:    defaultSamlSessionTimeoutB64,
 		CreatedDate:      now,
 		LastModifiedDate: now,
 	}
@@ -331,7 +333,7 @@ func (b *InMemoryBackend) CreateServerlessSecurityConfig(
 		Type:             configType,
 		Description:      description,
 		SamlOptions:      samlOptions,
-		ConfigVersion:    "MTY4MDAwMDAwMDAwMA==",
+		ConfigVersion:    defaultSamlSessionTimeoutB64,
 		CreatedDate:      now,
 		LastModifiedDate: now,
 	}
@@ -442,7 +444,7 @@ func (b *InMemoryBackend) CreateServerlessEncryptionPolicy(
 		Type:             policyType,
 		Policy:           policy,
 		Description:      description,
-		PolicyVersion:    "MTY4MDAwMDAwMDAwMA==",
+		PolicyVersion:    defaultSamlSessionTimeoutB64,
 		CreatedDate:      now,
 		LastModifiedDate: now,
 	}
@@ -553,7 +555,7 @@ func (b *InMemoryBackend) CreateServerlessNetworkPolicy(
 		Type:             policyType,
 		Policy:           policy,
 		Description:      description,
-		PolicyVersion:    "MTY4MDAwMDAwMDAwMA==",
+		PolicyVersion:    defaultSamlSessionTimeoutB64,
 		CreatedDate:      now,
 		LastModifiedDate: now,
 	}

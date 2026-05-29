@@ -8,6 +8,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+const keySecurityConfigDetail = "securityConfigDetail"
+
 // Serverless path segments.
 const (
 	slPathCollection      = "/collection"
@@ -371,7 +373,7 @@ func (h *Handler) handleServerlessSecurityConfigRoutes(
 
 				return
 			}
-			h.writeJSON(r, w, map[string]any{"securityConfigDetail": sc})
+			h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: sc})
 		case http.MethodGet:
 			configType := r.URL.Query().Get("type")
 			scs := h.Backend.ListServerlessSecurityConfigs(configType)
@@ -402,7 +404,7 @@ func (h *Handler) handleServerlessSecurityConfigRoutes(
 
 			return
 		}
-		h.writeJSON(r, w, map[string]any{"securityConfigDetail": sc})
+		h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: sc})
 	case http.MethodPut:
 		body, _ := httputils.ReadBody(r)
 		var req struct {
@@ -424,7 +426,7 @@ func (h *Handler) handleServerlessSecurityConfigRoutes(
 
 			return
 		}
-		h.writeJSON(r, w, map[string]any{"securityConfigDetail": sc})
+		h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: sc})
 	case http.MethodDelete:
 		err := h.Backend.DeleteServerlessSecurityConfig(id)
 		if err != nil {
@@ -432,7 +434,7 @@ func (h *Handler) handleServerlessSecurityConfigRoutes(
 
 			return
 		}
-		h.writeJSON(r, w, map[string]any{"securityConfigDetail": map[string]any{"id": id}})
+		h.writeJSON(r, w, map[string]any{keySecurityConfigDetail: map[string]any{"id": id}})
 	default:
 		h.writeError(
 			r,

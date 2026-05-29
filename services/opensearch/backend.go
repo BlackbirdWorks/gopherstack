@@ -169,9 +169,9 @@ type Package struct {
 	PackageType              string                    `json:"PackageType"`
 	PackageDescription       string                    `json:"PackageDescription"`
 	PackageStatus            string                    `json:"PackageStatus"`
+	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
 	VersionHistory           []*PackageVersionHistory  `json:"-"`
 	CreatedAt                float64                   `json:"CreatedAt"`
-	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
 }
 
 // PackageVersionHistory records a version of a package.

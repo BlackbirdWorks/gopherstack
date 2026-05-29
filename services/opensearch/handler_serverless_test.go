@@ -177,9 +177,10 @@ func TestServerless_CreateAccessPolicy(t *testing.T) {
 
 	resp := doRequest(t, h, http.MethodPost, "/2021-11-01/opensearch/serverless/accesspolicies",
 		map[string]any{
-			"name":        "my-policy",
-			"type":        "data",
-			"policy":      `[{"Rules":[{"ResourceType":"collection","Resource":["collection/my-coll"]}],"Principal":["*"],"Description":""}]`,
+			"name": "my-policy",
+			"type": "data",
+			"policy": `[{"Rules":[{"ResourceType":"collection",` +
+				`"Resource":["collection/my-coll"]}],"Principal":["*"],"Description":""}]`,
 			"description": "test data access policy",
 		})
 	defer resp.Body.Close()
@@ -326,7 +327,7 @@ func TestServerless_CreateSecurityConfig(t *testing.T) {
 			"type":        "saml",
 			"description": "SAML config for corp IdP",
 			"samlOptions": map[string]any{
-				"metadata":      "<EntityDescriptor>...</EntityDescriptor>",
+				"metadata":       "<EntityDescriptor>...</EntityDescriptor>",
 				"groupAttribute": "groups",
 				"userAttribute":  "email",
 			},
@@ -738,7 +739,7 @@ func TestDomain_IamIdentityCenterOptions_UpdateConfig(t *testing.T) {
 		"/2021-01-01/opensearch/domain/idc-upd-domain/config",
 		map[string]any{
 			"IamIdentityCenterOptions": map[string]any{
-				"EnabledAPIAccess":    true,
+				"EnabledAPIAccess":     true,
 				"IamIdentityCenterArn": "arn:aws:sso:::instance/ssoins-xyz",
 			},
 		})

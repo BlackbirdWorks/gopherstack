@@ -613,9 +613,9 @@ type domainJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
-	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions,omitempty"`
-	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions,omitempty"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	Tags                        map[string]string                   `json:"TagList,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
@@ -633,9 +633,9 @@ type domainStatusJSON struct {
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
-	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions,omitempty"`
-	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions,omitempty"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`
@@ -1672,9 +1672,9 @@ type domainConfigFields struct {
 	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
 	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
-	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions,omitempty"`
-	IamIdentityCenterOptions    opensearchConfigValue `json:"IamIdentityCenterOptions,omitempty"`
-	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions,omitempty"`
+	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
+	IamIdentityCenterOptions    opensearchConfigValue `json:"IamIdentityCenterOptions"`
+	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {

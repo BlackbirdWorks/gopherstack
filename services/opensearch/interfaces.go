@@ -53,7 +53,11 @@ type StorageBackend interface {
 	AssociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error)
 	DissociatePackage(packageID, domainName string) (*DomainPackageDetails, error)
 	DissociatePackages(domainName string, packageIDs []string) ([]DomainPackageDetails, error)
-	CreatePackage(name, pkgType, description string, source *PackageSource, encryptionOpts *PackageEncryptionOptions) (*Package, error)
+	CreatePackage(
+		name, pkgType, description string,
+		source *PackageSource,
+		encryptionOpts *PackageEncryptionOptions,
+	) (*Package, error)
 	DeletePackage(packageID string) (*Package, error)
 	DescribePackages(ids []string) ([]*Package, error)
 	GetPackageVersionHistory(packageID string) ([]*PackageVersionHistory, error)
@@ -127,7 +131,10 @@ type StorageBackend interface {
 	ListDomainNamesByEngine(engineType string) []string
 
 	// Serverless collection operations
-	CreateServerlessCollection(name, collectionType, description, kmsKeyArn string, tags map[string]string) (*ServerlessCollection, error)
+	CreateServerlessCollection(
+		name, collectionType, description, kmsKeyArn string,
+		tags map[string]string,
+	) (*ServerlessCollection, error)
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
 
@@ -135,21 +142,31 @@ type StorageBackend interface {
 	CreateServerlessAccessPolicy(policyType, name, description, policy string) (*ServerlessAccessPolicy, error)
 	GetServerlessAccessPolicy(policyType, name string) (*ServerlessAccessPolicy, error)
 	ListServerlessAccessPolicies(policyType string) []*ServerlessAccessPolicy
-	UpdateServerlessAccessPolicy(policyType, name, description, policy, policyVersion string) (*ServerlessAccessPolicy, error)
+	UpdateServerlessAccessPolicy(
+		policyType, name, description, policy, policyVersion string,
+	) (*ServerlessAccessPolicy, error)
 	DeleteServerlessAccessPolicy(policyType, name string) error
 
 	// Serverless security config operations
-	CreateServerlessSecurityConfig(configType, description string, samlOptions *ServerlessSAMLOptions) (*ServerlessSecurityConfig, error)
+	CreateServerlessSecurityConfig(
+		configType, description string,
+		samlOptions *ServerlessSAMLOptions,
+	) (*ServerlessSecurityConfig, error)
 	GetServerlessSecurityConfig(id string) (*ServerlessSecurityConfig, error)
 	ListServerlessSecurityConfigs(configType string) []*ServerlessSecurityConfig
-	UpdateServerlessSecurityConfig(id, description, configVersion string, samlOptions *ServerlessSAMLOptions) (*ServerlessSecurityConfig, error)
+	UpdateServerlessSecurityConfig(
+		id, description, configVersion string,
+		samlOptions *ServerlessSAMLOptions,
+	) (*ServerlessSecurityConfig, error)
 	DeleteServerlessSecurityConfig(id string) error
 
 	// Serverless encryption policy operations
 	CreateServerlessEncryptionPolicy(policyType, name, description, policy string) (*ServerlessEncryptionPolicy, error)
 	GetServerlessEncryptionPolicy(policyType, name string) (*ServerlessEncryptionPolicy, error)
 	ListServerlessEncryptionPolicies(policyType string) []*ServerlessEncryptionPolicy
-	UpdateServerlessEncryptionPolicy(policyType, name, description, policy, policyVersion string) (*ServerlessEncryptionPolicy, error)
+	UpdateServerlessEncryptionPolicy(
+		policyType, name, description, policy, policyVersion string,
+	) (*ServerlessEncryptionPolicy, error)
 	DeleteServerlessEncryptionPolicy(policyType, name string) error
 
 	// Serverless network policy operations
