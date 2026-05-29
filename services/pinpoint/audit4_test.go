@@ -95,7 +95,11 @@ func TestAudit4_Journey_QuietTimeAndOpenHours(t *testing.T) {
 			},
 			"ClosedDays": map[string]any{
 				"EMAIL": []any{
-					map[string]any{"Name": "New Year", "StartDateTime": "2025-01-01T00:00:00Z", "EndDateTime": "2025-01-01T23:59:59Z"},
+					map[string]any{
+						"Name":          "New Year",
+						"StartDateTime": "2025-01-01T00:00:00Z",
+						"EndDateTime":   "2025-01-01T23:59:59Z",
+					},
 				},
 			},
 			"WaitForQuietTime": true,
@@ -134,9 +138,9 @@ func TestAudit4_Journey_LimitsRoundTrip(t *testing.T) {
 	appID := createTestApp(t, h, "journey-limits-app")
 
 	limits := map[string]any{
-		"DailyCap":              100,
-		"EndpointReentryCap":    2,
-		"MessagesPerSecond":     50,
+		"DailyCap":                100,
+		"EndpointReentryCap":      2,
+		"MessagesPerSecond":       50,
 		"EndpointReentryInterval": "P7D",
 	}
 
@@ -339,8 +343,8 @@ func TestAudit4_Campaign_TemplateConfiguration_RoundTrip(t *testing.T) {
 
 			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
 				map[string]any{
-					"Name":                "tmpl-campaign",
-					"SegmentId":           segID,
+					"Name":                  "tmpl-campaign",
+					"SegmentId":             segID,
 					"TemplateConfiguration": tc.templateConfig,
 				})
 			require.Equal(t, http.StatusCreated, createRec.Code)
@@ -376,10 +380,10 @@ func TestAudit4_Campaign_Limits_RoundTrip(t *testing.T) {
 	segID := createTestSegment(t, h, appID, "seg-limits")
 
 	limits := map[string]any{
-		"Daily":              200,
-		"Total":              5000,
-		"MessagesPerSecond":  50,
-		"Session":            3,
+		"Daily":             200,
+		"Total":             5000,
+		"MessagesPerSecond": 50,
+		"Session":           3,
 	}
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
@@ -734,9 +738,9 @@ func TestAudit4_PushTemplate_PerPlatformOverrides(t *testing.T) {
 				"Badge": 1,
 			},
 			"GCM": map[string]any{
-				"Body":  "Android promo",
-				"Title": "Android title",
-				"Sound": "notification.mp3",
+				"Body":          "Android promo",
+				"Title":         "Android title",
+				"Sound":         "notification.mp3",
 				"IconReference": "ic_notification",
 			},
 			"TemplateDescription": "Cross-platform promo push",
@@ -770,13 +774,13 @@ func TestAudit4_PushTemplate_UpdatePerPlatform(t *testing.T) {
 
 	doPinpointRequest(t, h, http.MethodPost, "/v1/templates/push-upd/push",
 		map[string]any{
-			"Body":  "v1 body",
+			"Body": "v1 body",
 			"APNS": map[string]any{"Body": "v1 ios"},
 		})
 
 	putRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/push-upd/push",
 		map[string]any{
-			"Body":  "v2 body",
+			"Body": "v2 body",
 			"APNS": map[string]any{"Body": "v2 ios", "Sound": "ding"},
 			"GCM":  map[string]any{"Body": "v2 android"},
 		})
@@ -1325,9 +1329,9 @@ func TestAudit4_Channel_Delete_ReturnsChannel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		updateBody  map[string]any
 		channelPath string
 		channelType string
-		updateBody  map[string]any
 	}{
 		{
 			channelPath: "adm",
@@ -2007,8 +2011,8 @@ func TestAudit4_Campaign_CustomDeliveryConfiguration(t *testing.T) {
 	segID := createTestSegment(t, h, appID, "seg-custom")
 
 	customDelivery := map[string]any{
-		"DeliveryUri":    "arn:aws:lambda:us-east-1:123456789012:function:CustomDelivery",
-		"EndpointTypes":  []any{"CUSTOM"},
+		"DeliveryUri":   "arn:aws:lambda:us-east-1:123456789012:function:CustomDelivery",
+		"EndpointTypes": []any{"CUSTOM"},
 	}
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
