@@ -228,12 +228,12 @@ type deleteNamedQueryInput struct {
 }
 
 type createDataCatalogInput struct {
+	Parameters     map[string]string `json:"Parameters"`
 	Name           string            `json:"Name"`
 	Type           string            `json:"Type"`
 	Description    string            `json:"Description"`
-	Parameters     map[string]string `json:"Parameters"`
-	Tags           []Tag             `json:"Tags"`
 	ConnectionType string            `json:"ConnectionType"`
+	Tags           []Tag             `json:"Tags"`
 }
 
 type getDataCatalogInput struct {
@@ -498,7 +498,12 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 			}
 
 			return struct{}{}, h.Backend.CreateDataCatalog(
-				input.Name, input.Type, input.Description, input.ConnectionType, input.Parameters, tagsFromSlice(input.Tags),
+				input.Name,
+				input.Type,
+				input.Description,
+				input.ConnectionType,
+				input.Parameters,
+				tagsFromSlice(input.Tags),
 			)
 		},
 		"GetDataCatalog": func(b []byte) (any, error) {

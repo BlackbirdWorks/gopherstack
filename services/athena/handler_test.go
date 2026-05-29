@@ -2018,6 +2018,7 @@ func TestHandler_WorkGroupSummary_IncludesFields(t *testing.T) {
 	for _, wg := range resp["WorkGroups"] {
 		if wg["Name"] == "wg-summary" {
 			found = wg
+
 			break
 		}
 	}
@@ -2108,7 +2109,7 @@ func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
 		"ResultConfiguration":{
 			"OutputLocation":"s3://my-bucket/results/",
 			"ExpectedBucketOwner":"111111111111",
-			"AclConfiguration":{"S3AclOption":"BUCKET_OWNER_FULL_CONTROL"},
+			"ACLConfiguration":{"S3AclOption":"BUCKET_OWNER_FULL_CONTROL"},
 			"EncryptionConfiguration":{"EncryptionOption":"SSE_KMS","KmsKey":"arn:aws:kms:us-east-1:000000000000:key/abc"}
 		}
 	}`
@@ -2126,7 +2127,7 @@ func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
 
 	assert.Equal(t, "s3://my-bucket/results/", rc["OutputLocation"])
 	assert.Equal(t, "111111111111", rc["ExpectedBucketOwner"])
-	acl := rc["AclConfiguration"].(map[string]any)
+	acl := rc["ACLConfiguration"].(map[string]any)
 	assert.Equal(t, "BUCKET_OWNER_FULL_CONTROL", acl["S3AclOption"])
 	enc := rc["EncryptionConfiguration"].(map[string]any)
 	assert.Equal(t, "SSE_KMS", enc["EncryptionOption"])
@@ -2197,10 +2198,11 @@ func TestHandler_DataCatalog_ListIncludesStatus(t *testing.T) {
 
 	var found map[string]any
 	for _, item := range summaries {
-		s, ok := item.(map[string]any)
-		require.True(t, ok)
+		s, sOK := item.(map[string]any)
+		require.True(t, sOK)
 		if s["CatalogName"] == "fed-cat" {
 			found = s
+
 			break
 		}
 	}
@@ -2246,7 +2248,7 @@ func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	cr := resp["CapacityReservation"].(map[string]any)
 
-	assert.Equal(t, float64(8), cr["TargetDpus"])
+	assert.InDelta(t, float64(8), cr["TargetDpus"], 0.001)
 	lastAlloc := cr["LastAllocation"].(map[string]any)
 	assert.Equal(t, "SUCCEEDED", lastAlloc["Status"])
 }

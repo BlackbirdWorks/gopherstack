@@ -18,7 +18,7 @@ const (
 
 // isTerminalExecution reports whether the given query execution state is terminal.
 func isTerminalExecution(state string) bool {
-	return state == "SUCCEEDED" || state == "FAILED" || state == "CANCELLED"
+	return state == stateSucceeded || state == "FAILED" || state == "CANCELLED"
 }
 
 // Janitor is the Athena background worker that evicts completed query executions

@@ -24,6 +24,7 @@ const (
 
 	presignedURLBase = "https://athena.us-east-1.amazonaws.com/notebooks/presigned/"
 
+	stateAuto       = "AUTO"
 	stateSucceeded  = "SUCCEEDED"
 	stateFailed     = "FAILED"
 	stateCancelled  = "CANCELLED"
@@ -57,19 +58,19 @@ type EncryptionConfiguration struct {
 	KmsKey           string `json:"KmsKey,omitempty"`
 }
 
-// AclConfiguration controls S3 canned ACL for query results.
-type AclConfiguration struct {
+// ACLConfiguration controls S3 canned ACL for query results.
+type ACLConfiguration struct {
 	S3AclOption string `json:"S3AclOption,omitempty"`
 }
 
-// CustomerContentEncryptionConfiguration holds KMS key for user data encryption.
-type CustomerContentEncryptionConfiguration struct {
+// CustomerEncCfg holds KMS key for user data encryption.
+type CustomerEncCfg struct {
 	KmsKey string `json:"KmsKey,omitempty"`
 }
 
 // ResultConfiguration holds the configuration for where query results are stored.
 type ResultConfiguration struct {
-	AclConfiguration        *AclConfiguration       `json:"AclConfiguration,omitempty"`
+	ACLConfiguration        *ACLConfiguration       `json:"ACLConfiguration,omitempty"`
 	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration,omitzero"`
 	ExpectedBucketOwner     string                  `json:"ExpectedBucketOwner,omitempty"`
 	OutputLocation          string                  `json:"OutputLocation,omitempty"`
@@ -83,16 +84,16 @@ type EngineVersion struct {
 
 // WorkGroupConfiguration holds configuration for a workgroup.
 type WorkGroupConfiguration struct {
-	CustomerContentEncryptionConfiguration *CustomerContentEncryptionConfiguration `json:"CustomerContentEncryptionConfiguration,omitempty"`
-	ResultConfiguration                    ResultConfiguration                     `json:"ResultConfiguration,omitzero"`
-	EngineVersion                          EngineVersion                           `json:"EngineVersion,omitzero"`
-	AdditionalConfiguration                string                                  `json:"AdditionalConfiguration,omitempty"`
-	ExecutionRole                          string                                  `json:"ExecutionRole,omitempty"`
-	BytesScannedCutoffPerQuery             int64                                   `json:"BytesScannedCutoffPerQuery,omitempty"`
-	EnableMinimumEncryptionConfiguration   bool                                    `json:"EnableMinimumEncryptionConfiguration,omitempty"`
-	EnforceWorkGroupConfiguration          bool                                    `json:"EnforceWorkGroupConfiguration,omitempty"`
-	PublishCloudWatchMetricsEnabled        bool                                    `json:"PublishCloudWatchMetricsEnabled,omitempty"`
-	RequesterPaysEnabled                   bool                                    `json:"RequesterPaysEnabled,omitempty"`
+	CustomerContentEncryptionConfiguration *CustomerEncCfg     `json:"CustomerContentEncryptionConfiguration,omitempty"`
+	ResultConfiguration                    ResultConfiguration `json:"ResultConfiguration,omitzero"`
+	EngineVersion                          EngineVersion       `json:"EngineVersion,omitzero"`
+	AdditionalConfiguration                string              `json:"AdditionalConfiguration,omitempty"`
+	ExecutionRole                          string              `json:"ExecutionRole,omitempty"`
+	BytesScannedCutoffPerQuery             int64               `json:"BytesScannedCutoffPerQuery,omitempty"`
+	EnableMinEnc                           bool                `json:"EnableMinimumEncryptionConfiguration,omitempty"`
+	EnforceWGCfg                           bool                `json:"EnforceWorkGroupConfiguration,omitempty"`
+	PublishCWMetrics                       bool                `json:"PublishCloudWatchMetricsEnabled,omitempty"`
+	RequesterPays                          bool                `json:"RequesterPaysEnabled,omitempty"`
 }
 
 // WorkGroup represents an Athena workgroup.
@@ -161,15 +162,15 @@ type QueryExecutionStatus struct {
 
 // QueryExecutionStatistics holds statistics for a query execution.
 type QueryExecutionStatistics struct {
-	DataManifestLocation              string  `json:"DataManifestLocation,omitempty"`
-	DpuCount                          float64 `json:"DpuCount,omitempty"`
-	EngineExecutionTimeInMillis        int64   `json:"EngineExecutionTimeInMillis,omitempty"`
-	DataScannedInBytes                 int64   `json:"DataScannedInBytes,omitempty"`
-	QueryPlanningTimeInMillis          int64   `json:"QueryPlanningTimeInMillis,omitempty"`
-	QueryQueueTimeInMillis             int64   `json:"QueryQueueTimeInMillis,omitempty"`
-	ServicePreProcessingTimeInMillis   int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
-	ServiceProcessingTimeInMillis      int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
-	TotalExecutionTimeInMillis         int64   `json:"TotalExecutionTimeInMillis,omitempty"`
+	DataManifestLocation             string  `json:"DataManifestLocation,omitempty"`
+	DpuCount                         float64 `json:"DpuCount,omitempty"`
+	EngineExecutionTimeInMillis      int64   `json:"EngineExecutionTimeInMillis,omitempty"`
+	DataScannedInBytes               int64   `json:"DataScannedInBytes,omitempty"`
+	QueryPlanningTimeInMillis        int64   `json:"QueryPlanningTimeInMillis,omitempty"`
+	QueryQueueTimeInMillis           int64   `json:"QueryQueueTimeInMillis,omitempty"`
+	ServicePreProcessingTimeInMillis int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
+	ServiceProcessingTimeInMillis    int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
+	TotalExecutionTimeInMillis       int64   `json:"TotalExecutionTimeInMillis,omitempty"`
 }
 
 // QueryExecution represents an Athena query execution.
@@ -215,22 +216,22 @@ type UnprocessedPreparedStatementName struct {
 
 // CapacityAllocation describes a single capacity allocation attempt.
 type CapacityAllocation struct {
-	RequestTime           float64 `json:"RequestTime,omitempty"`
-	RequestCompletionTime float64 `json:"RequestCompletionTime,omitempty"`
 	Status                string  `json:"Status,omitempty"`
 	StatusMessage         string  `json:"StatusMessage,omitempty"`
+	RequestTime           float64 `json:"RequestTime,omitempty"`
+	RequestCompletionTime float64 `json:"RequestCompletionTime,omitempty"`
 }
 
 // CapacityReservation represents an Athena capacity reservation.
 type CapacityReservation struct {
-	Tags                        map[string]string   `json:"Tags,omitempty"`
-	LastAllocation              *CapacityAllocation `json:"LastAllocation,omitempty"`
-	Name                        string              `json:"Name"`
-	Status                      string              `json:"Status"`
-	CreationTime                float64             `json:"CreationTime,omitempty"`
-	LastSuccessfulAllocationTime float64            `json:"LastSuccessfulAllocationTime,omitempty"`
-	TargetDpus                  int32               `json:"TargetDpus"`
-	AllocatedDpus               int32               `json:"AllocatedDpus"`
+	Tags                         map[string]string   `json:"Tags,omitempty"`
+	LastAllocation               *CapacityAllocation `json:"LastAllocation,omitempty"`
+	Name                         string              `json:"Name"`
+	Status                       string              `json:"Status"`
+	CreationTime                 float64             `json:"CreationTime,omitempty"`
+	LastSuccessfulAllocationTime float64             `json:"LastSuccessfulAllocationTime,omitempty"`
+	TargetDpus                   int32               `json:"TargetDpus"`
+	AllocatedDpus                int32               `json:"AllocatedDpus"`
 }
 
 // NotebookMetadata holds metadata for an Athena notebook.
@@ -278,7 +279,12 @@ type StorageBackend interface {
 	DeleteDataCatalog(name string) error
 
 	// Query Executions
-	StartQueryExecution(query, workGroup string, ctx QueryExecutionContext, rc ResultConfiguration, execParams []string) (string, error)
+	StartQueryExecution(
+		query, workGroup string,
+		ctx QueryExecutionContext,
+		rc ResultConfiguration,
+		execParams []string,
+	) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
@@ -806,7 +812,10 @@ func (b *InMemoryBackend) ListDataCatalogs() ([]DataCatalogSummary, error) {
 }
 
 // UpdateDataCatalog updates an existing data catalog.
-func (b *InMemoryBackend) UpdateDataCatalog(name, catalogType, description, connectionType string, params map[string]string) error {
+func (b *InMemoryBackend) UpdateDataCatalog(
+	name, catalogType, description, connectionType string,
+	params map[string]string,
+) error {
 	b.mu.Lock("UpdateDataCatalog")
 	defer b.mu.Unlock()
 
@@ -875,7 +884,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 		StatementType:         inferStatementType(query),
 		ExecutionParameters:   execParams,
 		EngineVersion: &EngineVersion{
-			SelectedEngineVersion:  "AUTO",
+			SelectedEngineVersion:  stateAuto,
 			EffectiveEngineVersion: athenaEngineV3,
 		},
 		Status: QueryExecutionStatus{
@@ -884,10 +893,10 @@ func (b *InMemoryBackend) StartQueryExecution(
 			CompletionDateTime: now,
 		},
 		Statistics: QueryExecutionStatistics{
-			EngineExecutionTimeInMillis:      mockEngineMs,
-			TotalExecutionTimeInMillis:       mockEngineMs,
-			ServiceProcessingTimeInMillis:    1,
-			DataScannedInBytes:               0,
+			EngineExecutionTimeInMillis:   mockEngineMs,
+			TotalExecutionTimeInMillis:    mockEngineMs,
+			ServiceProcessingTimeInMillis: 1,
+			DataScannedInBytes:            0,
 		},
 	}
 
@@ -1210,7 +1219,7 @@ func (b *InMemoryBackend) CreateCapacityReservation(name string, targetDPUs int3
 		LastAllocation: &CapacityAllocation{
 			RequestTime:           now,
 			RequestCompletionTime: now,
-			Status:                "SUCCEEDED",
+			Status:                stateSucceeded,
 		},
 		LastSuccessfulAllocationTime: now,
 	}
