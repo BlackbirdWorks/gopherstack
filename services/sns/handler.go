@@ -158,10 +158,10 @@ func (d *fifoDeduplication) evictEarliestLocked() {
 }
 
 type Handler struct {
-	actions      map[string]snsActionFn
-	Backend      StorageBackend
-	dedup        *fifoDeduplication
-	fifoSeqNums  sync.Map // topicArn → *atomic.Int64; FIFO message sequence counters
+	actions     map[string]snsActionFn
+	Backend     StorageBackend
+	dedup       *fifoDeduplication
+	fifoSeqNums sync.Map // topicArn → *atomic.Int64; FIFO message sequence counters
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
 }

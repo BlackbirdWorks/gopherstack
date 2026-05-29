@@ -194,12 +194,12 @@ func TestBatch2_FCMViaHandler(t *testing.T) {
 	h, _ := newB2Handler(t)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":                       {"CreatePlatformApplication"},
-		"Name":                         {"fcm-handler-app"},
-		"Platform":                     {"FCM"},
-		"Attributes.entry.1.key":       {"PlatformCredential"},
-		"Attributes.entry.1.value":     {"server-key"},
-		"Version":                      {"2010-03-31"},
+		"Action":                   {"CreatePlatformApplication"},
+		"Name":                     {"fcm-handler-app"},
+		"Platform":                 {"FCM"},
+		"Attributes.entry.1.key":   {"PlatformCredential"},
+		"Attributes.entry.1.value": {"server-key"},
+		"Version":                  {"2010-03-31"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "PlatformApplicationArn")
@@ -769,9 +769,9 @@ func TestBatch2_FIFOBatchReturnsSequenceNumbers(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":   {"PublishBatch"},
-		"TopicArn": {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":             {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message":        {"batch-msg-1"},
 		"PublishBatchRequestEntries.member.1.MessageGroupId": {"g1"},
 		"PublishBatchRequestEntries.member.2.Id":             {"e2"},
@@ -802,10 +802,10 @@ func TestBatch2_NonFIFOPublishNoSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":  {"Publish"},
+		"Action":   {"Publish"},
 		"TopicArn": {tp.TopicArn},
-		"Message": {"plain"},
-		"Version": {"2010-03-31"},
+		"Message":  {"plain"},
+		"Version":  {"2010-03-31"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1409,14 +1409,14 @@ func TestBatch2_EventAttributesStoredOnCreate(t *testing.T) {
 	eventTopicArn := "arn:aws:sns:us-east-1:000000000000:app-events"
 
 	app, err := b.CreatePlatformApplication("attrs-app", "GCM", map[string]string{
-		"PlatformCredential":      "server-key",
-		"EventEndpointCreated":    eventTopicArn,
-		"EventEndpointDeleted":    eventTopicArn,
-		"EventEndpointUpdated":    eventTopicArn,
-		"EventEndpointFailure":    eventTopicArn,
-		"EventDeliveryFailure":    eventTopicArn,
-		"SuccessFeedbackRoleArn":  "arn:aws:iam::000000000000:role/success-role",
-		"FailureFeedbackRoleArn":  "arn:aws:iam::000000000000:role/failure-role",
+		"PlatformCredential":        "server-key",
+		"EventEndpointCreated":      eventTopicArn,
+		"EventEndpointDeleted":      eventTopicArn,
+		"EventEndpointUpdated":      eventTopicArn,
+		"EventEndpointFailure":      eventTopicArn,
+		"EventDeliveryFailure":      eventTopicArn,
+		"SuccessFeedbackRoleArn":    "arn:aws:iam::000000000000:role/success-role",
+		"FailureFeedbackRoleArn":    "arn:aws:iam::000000000000:role/failure-role",
 		"SuccessFeedbackSampleRate": "50",
 	})
 	require.NoError(t, err)

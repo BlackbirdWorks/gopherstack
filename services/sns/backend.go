@@ -36,6 +36,9 @@ import (
 )
 
 const (
+	boolFalseStr      = "false"
+	eventTypeKey      = "EventType"
+	endpointArnKey    = "EndpointArn"
 	protocolEmailJSON = "email-json"
 	protocolHTTPS     = "https"
 
@@ -544,7 +547,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	if strings.HasSuffix(name, fifoTopicSuffix) {
 		attrs["FifoTopic"] = fifoTopicAttrValue
 		if attrs["ContentBasedDeduplication"] == "" {
-			attrs["ContentBasedDeduplication"] = "false"
+			attrs["ContentBasedDeduplication"] = boolFalseStr
 		}
 	}
 
@@ -1711,7 +1714,7 @@ func (b *InMemoryBackend) PublishToTargetArn(
 		return "", ErrEndpointNotFound
 	}
 
-	if ep.Attributes["Enabled"] == "false" {
+	if ep.Attributes["Enabled"] == boolFalseStr {
 		return "", fmt.Errorf("%w: endpoint %s is disabled", ErrEndpointDisabled, targetArn)
 	}
 
@@ -2389,7 +2392,7 @@ func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationAr
 			continue
 		}
 
-		if ep.Attributes["Enabled"] == "false" {
+		if ep.Attributes["Enabled"] == boolFalseStr {
 			disabledCount++
 		} else {
 			activeCount++
@@ -2531,9 +2534,9 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 
 	// Fire endpoint-created event to the configured topic (best-effort, non-blocking).
 	b.fireEndpointEvent(platformApplicationArn, "EventEndpointCreated", map[string]string{
-		"EventType":   "EndpointCreated",
-		"EndpointArn": endpointArn,
-		"Token":       token,
+		eventTypeKey:   "EndpointCreated",
+		endpointArnKey: endpointArn,
+		"Token":        token,
 	})
 
 	return ep, nil
@@ -2574,8 +2577,8 @@ func (b *InMemoryBackend) SetEndpointAttributes(endpointArn string, attributes m
 	b.mu.Unlock()
 
 	b.fireEndpointEvent(platformAppArn, "EventEndpointUpdated", map[string]string{
-		"EventType":   "EndpointUpdated",
-		"EndpointArn": endpointArn,
+		eventTypeKey:   "EndpointUpdated",
+		endpointArnKey: endpointArn,
 	})
 
 	return nil
@@ -2630,8 +2633,8 @@ func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
 	b.mu.Unlock()
 
 	b.fireEndpointEvent(platformAppArn, "EventEndpointDeleted", map[string]string{
-		"EventType":   "EndpointDeleted",
-		"EndpointArn": endpointArn,
+		eventTypeKey:   "EndpointDeleted",
+		endpointArnKey: endpointArn,
 	})
 
 	return nil
