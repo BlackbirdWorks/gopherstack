@@ -1126,6 +1126,227 @@ func (m *captureAuthInvokerWithCapture) InvokeFunction(
 	return m.response, http.StatusOK, nil
 }
 
+// --- Integration request parameter mapping tests ---
+
+// httpCapture is a test HTTP server that records the last received request headers and query.
+type httpCapture struct {
+	lastHeader http.Header
+	lastQuery  string
+	server     *httptest.Server
+}
+
+func newHTTPCapture() *httpCapture {
+	c := &httpCapture{}
+	c.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.lastHeader = r.Header.Clone()
+		c.lastQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	return c
+}
+
+func TestProxy_IntegrationRequestParams_HeaderMapping(t *testing.T) {
+	t.Parallel()
+
+	capture := newHTTPCapture()
+	defer capture.server.Close()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "req-param-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+	})
+
+	// Map incoming Authorization header to X-Api-Caller header in integration.
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{
+		Type:       "HTTP",
+		HTTPMethod: "GET",
+		URI:        capture.server.URL,
+		RequestParameters: map[string]string{
+			"integration.request.header.X-Api-Caller": "method.request.header.Authorization",
+		},
+	})
+	_, _ = backend.CreateDeployment(api.ID, "prod", "v1")
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer tok123")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "Bearer tok123", capture.lastHeader.Get("X-Api-Caller"))
+}
+
+func TestProxy_IntegrationRequestParams_QuerystringMapping(t *testing.T) {
+	t.Parallel()
+
+	capture := newHTTPCapture()
+	defer capture.server.Close()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "qs-param-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+	})
+
+	// Map incoming query param "userId" to integration query param "user_id".
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{
+		Type:       "HTTP",
+		HTTPMethod: "GET",
+		URI:        capture.server.URL,
+		RequestParameters: map[string]string{
+			"integration.request.querystring.user_id": "method.request.querystring.userId",
+		},
+	})
+	_, _ = backend.CreateDeployment(api.ID, "prod", "v1")
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/?userId=42"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	// The integration should have received user_id=42.
+	assert.Contains(t, capture.lastQuery, "user_id=42")
+}
+
+func TestProxy_IntegrationRequestParams_StaticValue(t *testing.T) {
+	t.Parallel()
+
+	capture := newHTTPCapture()
+	defer capture.server.Close()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "static-param-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+	})
+
+	// Static value for a header.
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{
+		Type:       "HTTP",
+		HTTPMethod: "GET",
+		URI:        capture.server.URL,
+		RequestParameters: map[string]string{
+			"integration.request.header.X-Service-Name": "myservice",
+		},
+	})
+	_, _ = backend.CreateDeployment(api.ID, "prod", "v1")
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "myservice", capture.lastHeader.Get("X-Service-Name"))
+}
+
+// --- Integration response parameter mapping tests ---
+
+func TestProxy_IntegrationResponseParams_StaticHeader(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "resp-param-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{
+		ResponseParameters: map[string]string{
+			"method.response.header.X-Custom-Header": "static-value",
+		},
+	})
+	_, _ = backend.CreateDeployment(api.ID, "prod", "v1")
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "static-value", rec.Header().Get("X-Custom-Header"))
+}
+
+func TestProxy_IntegrationResponseParams_IntegrationHeaderEcho(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "echo-header-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{
+		ResponseParameters: map[string]string{
+			"method.response.header.X-Request-Id": "integration.response.header.X-Amzn-Requestid",
+		},
+	})
+	_, _ = backend.CreateDeployment(api.ID, "prod", "v1")
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	// The header should be set (resolved from integration.response.header.X-Amzn-Requestid → name).
+	assert.NotEmpty(t, rec.Header().Get("X-Request-Id"))
+}
+
 // --- API Key enforcement tests ---
 
 // setupAPIKeyRequired creates a minimal proxy setup where the method requires an API key.

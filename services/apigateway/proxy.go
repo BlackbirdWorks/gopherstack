@@ -1102,6 +1102,11 @@ func (h *Handler) handleHTTPProxy(
 		}
 	}
 
+	// Apply integration RequestParameters mappings (e.g. forward a method header as an integration header).
+	if len(integration.RequestParameters) > 0 {
+		applyIntegrationRequestParams(r, targetReq, integration.RequestParameters)
+	}
+
 	client := h.getHTTPClient()
 
 	//nolint:gosec // local emulation: integration URI is test-configured
@@ -1130,21 +1135,33 @@ func (h *Handler) handleHTTPProxy(
 // It evaluates the first integrationResponse entry keyed by its status code.
 // If no integrationResponses are configured, it defaults to HTTP 200 with an empty body.
 func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
-	statusCode, body := mockResponse(integration)
+	statusCode, body, ir := mockResponseWithIR(integration)
 
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	// Apply ResponseParameters from IntegrationResponse as response headers.
+	if ir != nil {
+		applyIntegrationResponseParams(w, ir.ResponseParameters)
+	}
+
 	w.WriteHeader(statusCode)
 	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
 }
 
 // mockResponse resolves the status code and body for a MOCK integration.
 func mockResponse(integration *Integration) (int, string) {
+	code, body, _ := mockResponseWithIR(integration)
+	return code, body
+}
+
+// mockResponseWithIR resolves the status code, body, and integration response for a MOCK integration.
+func mockResponseWithIR(integration *Integration) (int, string, *IntegrationResponse) {
 	statusCode := http.StatusOK
 
 	ir := mockIntegrationResponse(integration)
 	if ir == nil {
-		return statusCode, ""
+		return statusCode, "", nil
 	}
 
 	if sc := parseStatusCode(ir.StatusCode); sc > 0 {
@@ -1156,7 +1173,44 @@ func mockResponse(integration *Integration) (int, string) {
 		body = ir.ResponseTemplates["application/json"]
 	}
 
-	return statusCode, body
+	return statusCode, body, ir
+}
+
+// applyIntegrationResponseParams applies integration response parameter mappings as HTTP response headers.
+// Parameters of the form "method.response.header.{name}: {value}" set response headers.
+// The value can be "integration.response.header.{name}" (reads from integration headers, not yet
+// available for MOCK integrations so treated as static) or a static string.
+func applyIntegrationResponseParams(w http.ResponseWriter, params map[string]string) {
+	const methodRespPrefix = "method.response.header."
+
+	for dest, src := range params {
+		if !strings.HasPrefix(dest, methodRespPrefix) {
+			continue
+		}
+
+		headerName := dest[len(methodRespPrefix):]
+		if headerName == "" {
+			continue
+		}
+
+		// Resolve static values (or simplified integration header echo).
+		value := resolveResponseParamSource(src)
+		if value != "" {
+			w.Header().Set(headerName, value)
+		}
+	}
+}
+
+// resolveResponseParamSource resolves an integration response parameter value.
+// Static strings are returned as-is. integration.response.header.{name} references
+// are returned as the raw name (for MOCK integrations there is no actual response to read from).
+func resolveResponseParamSource(src string) string {
+	const integRespPrefix = "integration.response.header."
+	if strings.HasPrefix(src, integRespPrefix) {
+		return src[len(integRespPrefix):]
+	}
+
+	return src
 }
 
 // mockIntegrationResponse returns the "200" integration response, if configured.
@@ -1388,4 +1442,89 @@ func ExtractLambdaFunctionName(uri string) string {
 
 	// Plain name or already-resolved value — return as-is.
 	return uri
+}
+
+// applyIntegrationRequestParams applies integration request parameter mappings to the outgoing
+// HTTP request. Mappings are of the form:
+//
+//	integration.request.{type}.{name}: method.request.{type}.{name}
+//
+// where type is header, querystring, or path. Only the header and querystring destination types
+// are applied here (path substitution is handled in the URI template). Static string values
+// (not starting with "method.request.") are also supported.
+func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Request, params map[string]string) {
+	outQuery := outgoing.URL.Query()
+
+	for dest, src := range params {
+		value := resolveRequestParamSource(incoming, src)
+		if value == "" {
+			continue
+		}
+
+		// Parse destination: "integration.request.{type}.{name}"
+		const integPrefix = "integration.request."
+		if !strings.HasPrefix(dest, integPrefix) {
+			continue
+		}
+
+		rest := dest[len(integPrefix):]
+		typeEnd := strings.Index(rest, ".")
+		if typeEnd < 0 {
+			continue
+		}
+
+		paramType := rest[:typeEnd]
+		paramName := rest[typeEnd+1:]
+
+		switch paramType {
+		case "header":
+			outgoing.Header.Set(paramName, value)
+		case "querystring":
+			outQuery.Set(paramName, value)
+		}
+	}
+
+	outgoing.URL.RawQuery = outQuery.Encode()
+}
+
+// resolveRequestParamSource resolves a parameter source expression against the incoming request.
+// Supported formats:
+//   - method.request.header.{name}
+//   - method.request.querystring.{name}
+//   - method.request.path.{name}   (returns the raw path segment from the URL)
+//   - Any other string is treated as a static value.
+func resolveRequestParamSource(r *http.Request, src string) string {
+	const methodPrefix = "method.request."
+	if !strings.HasPrefix(src, methodPrefix) {
+		return src
+	}
+
+	rest := src[len(methodPrefix):]
+	typeEnd := strings.Index(rest, ".")
+	if typeEnd < 0 {
+		return ""
+	}
+
+	srcType := rest[:typeEnd]
+	srcName := rest[typeEnd+1:]
+
+	switch srcType {
+	case "header":
+		return r.Header.Get(srcName)
+	case "querystring":
+		return r.URL.Query().Get(srcName)
+	case "path":
+		// Return the named path segment from the raw URL path.
+		// This is a best-effort approximation: the actual value depends on route matching.
+		segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		for _, seg := range segments {
+			// Caller must use exact segment value — path parameter names don't map here.
+			if seg == srcName {
+				return seg
+			}
+		}
+		return ""
+	}
+
+	return ""
 }
