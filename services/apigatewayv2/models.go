@@ -410,9 +410,14 @@ type notFoundResponse struct {
 
 // DomainNameConfiguration represents a domain name configuration entry.
 type DomainNameConfiguration struct {
-	CertificateArn   string `json:"certificateArn,omitempty"`
-	DomainNameStatus string `json:"domainNameStatus,omitempty"`
-	EndpointType     string `json:"endpointType,omitempty"`
+	CertificateArn                      string `json:"certificateArn,omitempty"`
+	DomainNameStatus                    string `json:"domainNameStatus,omitempty"`
+	EndpointType                        string `json:"endpointType,omitempty"`
+	SecurityPolicy                      string `json:"securityPolicy,omitempty"`
+	ApiGatewayDomainName                string `json:"apiGatewayDomainName,omitempty"`
+	HostedZoneId                        string `json:"hostedZoneId,omitempty"`
+	CertificateName                     string `json:"certificateName,omitempty"`
+	OwnershipVerificationCertificateArn string `json:"ownershipVerificationCertificateArn,omitempty"`
 }
 
 // DomainName represents a custom domain name for API Gateway v2.

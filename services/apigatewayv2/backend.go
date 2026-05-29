@@ -1374,6 +1374,18 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 			if configs[i].DomainNameStatus == "" {
 				configs[i].DomainNameStatus = "AVAILABLE"
 			}
+			if configs[i].SecurityPolicy == "" {
+				configs[i].SecurityPolicy = "TLS_1_2"
+			}
+			if configs[i].EndpointType == "" {
+				configs[i].EndpointType = "REGIONAL"
+			}
+			if configs[i].ApiGatewayDomainName == "" {
+				configs[i].ApiGatewayDomainName = input.DomainNameValue + ".execute-api.us-east-1.amazonaws.com"
+			}
+			if configs[i].HostedZoneId == "" {
+				configs[i].HostedZoneId = "Z2FDTNDATAQYW2"
+			}
 		}
 		dn.DomainNameConfigurations = configs
 	}

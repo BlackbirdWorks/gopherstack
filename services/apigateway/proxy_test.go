@@ -1125,3 +1125,252 @@ func (m *captureAuthInvokerWithCapture) InvokeFunction(
 
 	return m.response, http.StatusOK, nil
 }
+
+// --- API Key enforcement tests ---
+
+// setupAPIKeyRequired creates a minimal proxy setup where the method requires an API key.
+func setupAPIKeyRequired(t *testing.T) (*apigateway.Handler, *echo.Echo, string, string) {
+	t.Helper()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "key-api"})
+	require.NoError(t, err)
+
+	resources, _, err := backend.GetResources(api.ID, "", 0)
+	require.NoError(t, err)
+	rootID := resources[0].ID
+
+	_, err = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+		APIKeyRequired:    true,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{
+		Type: "MOCK",
+	})
+	require.NoError(t, err)
+
+	_, err = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+	require.NoError(t, err)
+
+	_, err = backend.CreateDeployment(api.ID, "prod", "v1")
+	require.NoError(t, err)
+
+	return h, e, api.ID, rootID
+}
+
+func TestProxy_APIKeyRequired_MissingKey_Returns403(t *testing.T) {
+	t.Parallel()
+
+	h, e, apiID, _ := setupAPIKeyRequired(t)
+
+	url := "/restapis/" + apiID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestProxy_APIKeyRequired_InvalidKey_Returns403(t *testing.T) {
+	t.Parallel()
+
+	h, e, apiID, _ := setupAPIKeyRequired(t)
+
+	url := "/restapis/" + apiID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("x-api-key", "definitely-not-a-real-key-value")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestProxy_APIKeyRequired_ValidKey_Passes(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "keypass-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+		APIKeyRequired:    true,
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+
+	// Create an enabled API key.
+	apiKey, err := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{
+		Name:    "test-key",
+		Enabled: true,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, apiKey.Value)
+
+	depl, _ := backend.CreateDeployment(api.ID, "prod", "v1")
+	_, _ = backend.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("x-api-key", apiKey.Value)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestProxy_APIKeyRequired_DisabledKey_Returns403(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "disabled-key-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+		APIKeyRequired:    true,
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+
+	// Create a disabled API key.
+	apiKey, err := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{
+		Name:    "disabled-key",
+		Enabled: false,
+	})
+	require.NoError(t, err)
+
+	depl, _ := backend.CreateDeployment(api.ID, "prod", "v1")
+	_, _ = backend.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("x-api-key", apiKey.Value)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestProxy_APIKeyNotRequired_NoKey_Passes(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "no-key-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+		APIKeyRequired:    false,
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+
+	depl, _ := backend.CreateDeployment(api.ID, "prod", "v1")
+	_, _ = backend.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+
+	url := "/restapis/" + api.ID + "/prod/_user_request_/"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	// No key required → request passes.
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestProxy_APIKeyRequired_EnabledThenDisabled(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	api, _ := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "toggle-key-api"})
+	resources, _, _ := backend.GetResources(api.ID, "", 0)
+	rootID := resources[0].ID
+
+	_, _ = backend.PutMethod(apigateway.PutMethodInput{
+		RestAPIID:         api.ID,
+		ResourceID:        rootID,
+		HTTPMethod:        "GET",
+		AuthorizationType: "NONE",
+		APIKeyRequired:    true,
+	})
+	_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+	_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+
+	apiKey, _ := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "toggle-key", Enabled: true})
+	depl, _ := backend.CreateDeployment(api.ID, "prod", "v1")
+	_, _ = backend.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:    api.ID,
+		StageName:    "prod",
+		DeploymentID: depl.ID,
+	})
+
+	makeReq := func() int {
+		url := "/restapis/" + api.ID + "/prod/_user_request_/"
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("x-api-key", apiKey.Value)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h.Handler()(c))
+		return rec.Code
+	}
+
+	// First: key is enabled → should pass.
+	assert.Equal(t, http.StatusOK, makeReq())
+
+	// Disable the key.
+	disabled := false
+	_, err := backend.UpdateAPIKey(apiKey.ID, apigateway.UpdateAPIKeyInput{Enabled: &disabled})
+	require.NoError(t, err)
+
+	// Second: key is now disabled → should be forbidden.
+	assert.Equal(t, http.StatusForbidden, makeReq())
+}

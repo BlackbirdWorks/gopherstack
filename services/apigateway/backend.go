@@ -112,6 +112,7 @@ type StorageBackend interface {
 	// API Keys
 	CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 	GetAPIKey(id string) (*APIKey, error)
+	GetAPIKeyByValue(value string) (*APIKey, error)
 	GetAPIKeys() ([]APIKey, error)
 	GetAPIKeysPage(limit int, position string) ([]APIKey, string, error)
 	DeleteAPIKey(id string) error
@@ -1590,12 +1591,39 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 	now := unixEpochTime{time.Now()}
 	backendTags := initTagsFromInput("apigw.domain."+input.DomainName+".tags", input.Tags)
 
+	securityPolicy := input.SecurityPolicy
+	if securityPolicy == "" {
+		securityPolicy = "TLS_1_2"
+	}
+
+	endpointType := "REGIONAL"
+	if input.EndpointConfiguration != nil && len(input.EndpointConfiguration.Types) > 0 {
+		endpointType = input.EndpointConfiguration.Types[0]
+	}
+
+	var epConfig *EndpointConfiguration
+	if input.EndpointConfiguration != nil {
+		epConfig = input.EndpointConfiguration
+	} else {
+		epConfig = &EndpointConfiguration{Types: []string{endpointType}}
+	}
+
+	regionalDomain := input.DomainName + ".execute-api.us-east-1.amazonaws.com"
+	distributionDomain := input.DomainName + ".cloudfront.net"
+
 	dn := &DomainName{
-		DomainNameValue:        input.DomainName,
-		CertificateARN:         input.CertificateARN,
-		RegionalCertificateARN: input.RegionalCertificateARN,
-		Tags:                   backendTags,
-		CreatedDate:            &now,
+		DomainNameValue:          input.DomainName,
+		CertificateARN:           input.CertificateARN,
+		RegionalCertificateARN:   input.RegionalCertificateARN,
+		SecurityPolicy:           securityPolicy,
+		EndpointConfiguration:    epConfig,
+		RegionalDomainName:       regionalDomain,
+		RegionalHostedZoneId:     "Z2FDTNDATAQYW2",
+		DistributionDomainName:   distributionDomain,
+		DistributionHostedZoneId: "Z2FDTNDATAQYW2",
+		DomainNameStatus:         "AVAILABLE",
+		Tags:                     backendTags,
+		CreatedDate:              &now,
 	}
 	b.domainNames[input.DomainName] = dn
 
@@ -1761,6 +1789,7 @@ func (b *InMemoryBackend) CreateUsagePlan(input CreateUsagePlanInput) (*UsagePla
 		Description: input.Description,
 		Throttle:    input.Throttle,
 		Quota:       input.Quota,
+		ApiStages:   input.ApiStages,
 		Tags:        backendTags,
 	}
 	b.usagePlans[id] = plan
@@ -1830,6 +1859,19 @@ func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
 	cp := *key
 
 	return &cp, nil
+}
+
+// GetAPIKeyByValue retrieves an API key by its value (the secret string sent in x-api-key).
+func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
+	b.mu.RLock("GetAPIKeyByValue")
+	defer b.mu.RUnlock()
+	for _, k := range b.apiKeys {
+		if k.Value == value {
+			cp := *k
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 }
 
 // GetAPIKeys returns all API keys sorted by ID.
@@ -2577,6 +2619,10 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
+	if len(input.ApiStages) > 0 {
+		p.ApiStages = input.ApiStages
+	}
+
 	return p, nil
 }
 
@@ -2592,6 +2638,18 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 
 	if input.CertificateARN != "" {
 		d.CertificateARN = input.CertificateARN
+	}
+
+	if input.RegionalCertificateARN != "" {
+		d.RegionalCertificateARN = input.RegionalCertificateARN
+	}
+
+	if input.SecurityPolicy != "" {
+		d.SecurityPolicy = input.SecurityPolicy
+	}
+
+	if input.EndpointConfiguration != nil {
+		d.EndpointConfiguration = input.EndpointConfiguration
 	}
 
 	return d, nil

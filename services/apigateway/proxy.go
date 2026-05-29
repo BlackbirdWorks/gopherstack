@@ -327,6 +327,12 @@ func (h *Handler) applyMethodControls(
 		return false
 	}
 
+	if method.APIKeyRequired {
+		if h.enforceAPIKey(ctx, w, r, apiID) {
+			return true
+		}
+	}
+
 	if method.AuthorizerID != "" {
 		if h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID) {
 			return true
@@ -337,6 +343,32 @@ func (h *Handler) applyMethodControls(
 		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID) {
 			return true
 		}
+	}
+
+	return false
+}
+
+// enforceAPIKey validates the x-api-key header against enabled API keys.
+// Returns true if the request was denied (response already written).
+func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *http.Request, apiID string) bool {
+	keyValue := r.Header.Get("x-api-key")
+	if keyValue == "" {
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: missing x-api-key", "apiId", apiID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return true
+	}
+
+	apiKey, err := h.Backend.GetAPIKeyByValue(keyValue)
+	if err != nil || apiKey == nil {
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: invalid x-api-key", "apiId", apiID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return true
+	}
+
+	if !apiKey.Enabled {
+		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: disabled API key", "apiId", apiID, "keyId", apiKey.ID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return true
 	}
 
 	return false
