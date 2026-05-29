@@ -279,6 +279,26 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribePipe",
 		"ListPipes",
 		"UpdatePipe",
+		// Schema Registry operations.
+		"CreateRegistry",
+		"DeleteRegistry",
+		"DescribeRegistry",
+		"ListRegistries",
+		"UpdateRegistry",
+		"CreateSchema",
+		"DeleteSchema",
+		"DescribeSchema",
+		"ListSchemas",
+		"SearchSchemas",
+		"UpdateSchema",
+		"ListSchemaVersions",
+		"DescribeSchemaVersion",
+		"DeleteSchemaVersion",
+		"GetDiscoveredSchema",
+		"PutCodeBinding",
+		"DescribeCodeBinding",
+		"ListCodeBindings",
+		"GetCodeBindingSource",
 	}
 }
 
@@ -296,7 +316,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonEventBridge.") || strings.HasPrefix(target, "AWSEvents.")
+		return strings.HasPrefix(target, "AmazonEventBridge.") ||
+			strings.HasPrefix(target, "AWSEvents.") ||
+			strings.HasPrefix(target, "AWSSchemas.")
 	}
 }
 
@@ -487,7 +509,11 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			rules, next, err := h.Backend.ListRules(input.EventBusName, input.NamePrefix, input.NextToken)
+			rules, next, err := h.Backend.ListRules(
+				input.EventBusName,
+				input.NamePrefix,
+				input.NextToken,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -575,7 +601,11 @@ func (h *Handler) targetActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			targets, next, err := h.Backend.ListTargetsByRule(input.Rule, input.EventBusName, input.NextToken)
+			targets, next, err := h.Backend.ListTargetsByRule(
+				input.Rule,
+				input.EventBusName,
+				input.NextToken,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -734,16 +764,17 @@ func archiveToResponse(a *Archive) *archiveResponse {
 
 // connectionResponse is the handler-level DTO for Connection objects.
 type connectionResponse struct {
-	ConnectionArn      string  `json:"ConnectionArn"`
-	AuthorizationType  string  `json:"AuthorizationType"`
-	ConnectionState    string  `json:"ConnectionState"`
-	Description        string  `json:"Description,omitempty"`
-	Name               string  `json:"Name"`
-	SecretArn          string  `json:"SecretArn,omitempty"`
-	StateReason        string  `json:"StateReason,omitempty"`
-	CreationTime       float64 `json:"CreationTime"`
-	LastAuthorizedTime float64 `json:"LastAuthorizedTime,omitempty"`
-	LastModifiedTime   float64 `json:"LastModifiedTime"`
+	AuthParameters     *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+	ConnectionArn      string                    `json:"ConnectionArn"`
+	AuthorizationType  string                    `json:"AuthorizationType"`
+	ConnectionState    string                    `json:"ConnectionState"`
+	Description        string                    `json:"Description,omitempty"`
+	Name               string                    `json:"Name"`
+	SecretArn          string                    `json:"SecretArn,omitempty"`
+	StateReason        string                    `json:"StateReason,omitempty"`
+	CreationTime       float64                   `json:"CreationTime"`
+	LastAuthorizedTime float64                   `json:"LastAuthorizedTime,omitempty"`
+	LastModifiedTime   float64                   `json:"LastModifiedTime"`
 }
 
 func connectionToResponse(c *Connection) *connectionResponse {
@@ -752,6 +783,7 @@ func connectionToResponse(c *Connection) *connectionResponse {
 	}
 
 	r := &connectionResponse{
+		AuthParameters:    c.AuthParameters,
 		ConnectionArn:     c.ConnectionArn,
 		AuthorizationType: c.AuthorizationType,
 		ConnectionState:   c.ConnectionState,
@@ -1427,7 +1459,11 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			names, next, err := h.Backend.ListRuleNamesByTarget(input.TargetArn, input.EventBusName, input.NextToken)
+			names, next, err := h.Backend.ListRuleNamesByTarget(
+				input.TargetArn,
+				input.EventBusName,
+				input.NextToken,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -1603,6 +1639,300 @@ func (h *Handler) pipesActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) schemaRegistryActions() map[string]actionFn {
+	table := make(map[string]actionFn)
+	maps.Copy(table, h.registryActions())
+	maps.Copy(table, h.schemaActions())
+	maps.Copy(table, h.schemaVersionActions())
+	maps.Copy(table, h.codeBindingActions())
+
+	return table
+}
+
+func (h *Handler) registryActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateRegistry": func(b []byte) (any, error) {
+			var input CreateRegistryInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateRegistry(input)
+		},
+		"DeleteRegistry": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName string `json:"RegistryName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteRegistry(input.RegistryName)
+		},
+		"DescribeRegistry": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName string `json:"RegistryName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeRegistry(input.RegistryName)
+		},
+		"ListRegistries": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			regs, next, err := h.Backend.ListRegistries(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken  string           `json:"NextToken,omitempty"`
+				Registries []SchemaRegistry `json:"Registries"`
+			}{Registries: regs, NextToken: next}, nil
+		},
+		"UpdateRegistry": func(b []byte) (any, error) {
+			var input UpdateRegistryInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateRegistry(input)
+		},
+	}
+}
+
+func (h *Handler) schemaActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateSchema": func(b []byte) (any, error) {
+			var input CreateSchemaInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateSchema(input)
+		},
+		"DeleteSchema": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName string `json:"RegistryName"`
+				SchemaName   string `json:"SchemaName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteSchema(input.RegistryName, input.SchemaName)
+		},
+		"DescribeSchema": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName  string `json:"RegistryName"`
+				SchemaName    string `json:"SchemaName"`
+				SchemaVersion string `json:"SchemaVersion"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeSchema(
+				input.RegistryName,
+				input.SchemaName,
+				input.SchemaVersion,
+			)
+		},
+		"ListSchemas": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName     string `json:"RegistryName"`
+				SchemaNamePrefix string `json:"SchemaNamePrefix"`
+				NextToken        string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			schemas, next, err := h.Backend.ListSchemas(
+				input.RegistryName,
+				input.SchemaNamePrefix,
+				input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string   `json:"NextToken,omitempty"`
+				Schemas   []Schema `json:"Schemas"`
+			}{Schemas: schemas, NextToken: next}, nil
+		},
+		"SearchSchemas": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName string `json:"RegistryName"`
+				Keywords     string `json:"Keywords"`
+				NextToken    string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			schemas, next, err := h.Backend.SearchSchemas(
+				input.RegistryName,
+				input.Keywords,
+				input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string   `json:"NextToken,omitempty"`
+				Schemas   []Schema `json:"Schemas"`
+			}{Schemas: schemas, NextToken: next}, nil
+		},
+		"UpdateSchema": func(b []byte) (any, error) {
+			var input UpdateSchemaInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateSchema(input)
+		},
+	}
+}
+
+func (h *Handler) schemaVersionActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListSchemaVersions": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName string `json:"RegistryName"`
+				SchemaName   string `json:"SchemaName"`
+				NextToken    string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			versions, next, err := h.Backend.ListSchemaVersions(
+				input.RegistryName,
+				input.SchemaName,
+				input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken      string          `json:"NextToken,omitempty"`
+				SchemaVersions []SchemaVersion `json:"SchemaVersions"`
+			}{SchemaVersions: versions, NextToken: next}, nil
+		},
+		"DescribeSchemaVersion": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName  string `json:"RegistryName"`
+				SchemaName    string `json:"SchemaName"`
+				SchemaVersion string `json:"SchemaVersion"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeSchemaVersion(
+				input.RegistryName,
+				input.SchemaName,
+				input.SchemaVersion,
+			)
+		},
+		"DeleteSchemaVersion": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName  string `json:"RegistryName"`
+				SchemaName    string `json:"SchemaName"`
+				SchemaVersion string `json:"SchemaVersion"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteSchemaVersion(
+				input.RegistryName,
+				input.SchemaName,
+				input.SchemaVersion,
+			)
+		},
+		"GetDiscoveredSchema": func(b []byte) (any, error) {
+			var input GetDiscoveredSchemaInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			content, err := h.Backend.GetDiscoveredSchema(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Content string `json:"Content"`
+			}{Content: content}, nil
+		},
+	}
+}
+
+func (h *Handler) codeBindingActions() map[string]actionFn {
+	return map[string]actionFn{
+		"PutCodeBinding": func(b []byte) (any, error) {
+			var input PutCodeBindingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.PutCodeBinding(input)
+		},
+		"DescribeCodeBinding": func(b []byte) (any, error) {
+			var input DescribeCodeBindingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeCodeBinding(input)
+		},
+		"ListCodeBindings": func(b []byte) (any, error) {
+			var input ListCodeBindingsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			bindings, next, err := h.Backend.ListCodeBindings(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken    string        `json:"NextToken,omitempty"`
+				CodeBindings []CodeBinding `json:"CodeBindings"`
+			}{CodeBindings: bindings, NextToken: next}, nil
+		},
+		"GetCodeBindingSource": func(b []byte) (any, error) {
+			var input struct {
+				RegistryName  string `json:"RegistryName"`
+				SchemaName    string `json:"SchemaName"`
+				Language      string `json:"Language"`
+				SchemaVersion string `json:"SchemaVersion"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			src, err := h.Backend.GetCodeBindingSource(
+				input.RegistryName, input.SchemaName, input.Language, input.SchemaVersion,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Body string `json:"Body"`
+			}{Body: src}, nil
+		},
+	}
+}
+
 func (h *Handler) newOpsActions() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.eventSourceActions())
@@ -1618,6 +1948,7 @@ func (h *Handler) newOpsActions() map[string]actionFn {
 	maps.Copy(table, h.extendedMiscActions())
 	maps.Copy(table, h.policyActions())
 	maps.Copy(table, h.pipesActions())
+	maps.Copy(table, h.schemaRegistryActions())
 
 	return table
 }
@@ -1651,7 +1982,12 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 }
 
 // handleError writes a standardized JSON error response.
-func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
+func (h *Handler) handleError(
+	ctx context.Context,
+	c *echo.Context,
+	action string,
+	reqErr error,
+) error {
 	log := logger.Load(ctx)
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
@@ -1659,7 +1995,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	var statusCode int
 
 	switch {
-	case errors.Is(reqErr, ErrEventBusNotFound), errors.Is(reqErr, ErrRuleNotFound), errors.Is(reqErr, ErrNotFound):
+	case errors.Is(reqErr, ErrEventBusNotFound),
+		errors.Is(reqErr, ErrRuleNotFound),
+		errors.Is(reqErr, ErrNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrEventBusAlreadyExists), errors.Is(reqErr, ErrAlreadyExists):

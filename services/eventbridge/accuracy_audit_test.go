@@ -2672,3 +2672,942 @@ func TestAudit_Handler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *test
 		assert.Contains(t, ops, op, "missing operation: %s", op)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Connection auth parameters (BASIC, API_KEY, OAUTH)
+// ---------------------------------------------------------------------------
+
+func TestAudit_Connection_BasicAuthParametersStored(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "basic-conn",
+		AuthorizationType: "BASIC",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			BasicAuthParameters: &eventbridge.ConnectionBasicAuthParameters{
+				Username: "admin",
+				Password: "s3cr3t",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conn.AuthParameters)
+	require.NotNil(t, conn.AuthParameters.BasicAuthParameters)
+	assert.Equal(t, "admin", conn.AuthParameters.BasicAuthParameters.Username)
+	// Password masked on return.
+	assert.Empty(t, conn.AuthParameters.BasicAuthParameters.Password)
+}
+
+func TestAudit_Connection_APIKeyAuthParametersStored(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "apikey-conn",
+		AuthorizationType: "API_KEY",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "x-api-key",
+				APIKeyValue: "my-secret-key",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conn.AuthParameters)
+	require.NotNil(t, conn.AuthParameters.APIKeyAuthParameters)
+	assert.Equal(t, "x-api-key", conn.AuthParameters.APIKeyAuthParameters.APIKeyName)
+	// ApiKeyValue masked on return.
+	assert.Empty(t, conn.AuthParameters.APIKeyAuthParameters.APIKeyValue)
+}
+
+func TestAudit_Connection_OAuthParametersStored(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "oauth-conn",
+		AuthorizationType: "OAUTH_CLIENT_CREDENTIALS",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			OAuthParameters: &eventbridge.ConnectionOAuthParameters{
+				AuthorizationEndpoint: "https://auth.example.com/token",
+				HTTPMethod:            "POST",
+				ClientParameters: &eventbridge.ConnectionOAuthClientParameters{
+					ClientID:     "my-client-id",
+					ClientSecret: "my-client-secret",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conn.AuthParameters)
+	require.NotNil(t, conn.AuthParameters.OAuthParameters)
+	assert.Equal(t, "https://auth.example.com/token", conn.AuthParameters.OAuthParameters.AuthorizationEndpoint)
+	assert.Equal(t, "my-client-id", conn.AuthParameters.OAuthParameters.ClientParameters.ClientID)
+	// ClientSecret masked on return.
+	assert.Empty(t, conn.AuthParameters.OAuthParameters.ClientParameters.ClientSecret)
+}
+
+func TestAudit_Connection_InvocationHTTPParametersStored(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "http-param-conn",
+		AuthorizationType: "API_KEY",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "x-api-key",
+				APIKeyValue: "secret",
+			},
+			InvocationHTTPParameters: &eventbridge.ConnectionHTTPParameters{
+				HeaderParameters: []eventbridge.ConnectionHeaderParameter{
+					{Key: "X-Custom-Header", Value: "custom-value"},
+					{Key: "X-Secret-Header", Value: "secret-val", IsValueSecret: true},
+				},
+				QueryStringParameters: []eventbridge.ConnectionQueryStringParameter{
+					{Key: "format", Value: "json"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conn.AuthParameters)
+	require.NotNil(t, conn.AuthParameters.InvocationHTTPParameters)
+
+	headers := conn.AuthParameters.InvocationHTTPParameters.HeaderParameters
+	require.Len(t, headers, 2)
+	// Non-secret header value preserved.
+	assert.Equal(t, "custom-value", headers[0].Value)
+	// Secret header value masked.
+	assert.Empty(t, headers[1].Value)
+	assert.True(t, headers[1].IsValueSecret)
+
+	queries := conn.AuthParameters.InvocationHTTPParameters.QueryStringParameters
+	require.Len(t, queries, 1)
+	assert.Equal(t, "json", queries[0].Value)
+}
+
+func TestAudit_Connection_UpdateAuthParameters(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+		Name:              "update-auth-conn",
+		AuthorizationType: "BASIC",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			BasicAuthParameters: &eventbridge.ConnectionBasicAuthParameters{
+				Username: "olduser",
+				Password: "oldpass",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	updated, err := b.UpdateConnection(eventbridge.UpdateConnectionInput{
+		Name:              "update-auth-conn",
+		AuthorizationType: "API_KEY",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "new-key",
+				APIKeyValue: "new-secret",
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "API_KEY", updated.AuthorizationType)
+	require.NotNil(t, updated.AuthParameters)
+	require.NotNil(t, updated.AuthParameters.APIKeyAuthParameters)
+	assert.Equal(t, "new-key", updated.AuthParameters.APIKeyAuthParameters.APIKeyName)
+}
+
+func TestAudit_Handler_Connection_AuthParametersRoundtrip(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "CreateConnection", map[string]any{
+		"Name":              "handler-auth-conn",
+		"AuthorizationType": "BASIC",
+		"AuthParameters": map[string]any{
+			"BasicAuthParameters": map[string]any{
+				"Username": "testuser",
+				"Password": "testpass",
+			},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeConnection", map[string]any{"Name": "handler-auth-conn"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "testuser")
+	// Password must not appear in describe output.
+	assert.NotContains(t, body, "testpass")
+}
+
+// ---------------------------------------------------------------------------
+// Partner event source → event source association
+// ---------------------------------------------------------------------------
+
+func TestAudit_PartnerEventSource_CreatesEventSourceAsPending(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreatePartnerEventSource("aws.partner/example.com/app", "123456789012")
+	require.NoError(t, err)
+
+	// The partner source should show up in ListEventSources as PENDING.
+	sources, _, err := b.ListEventSources("aws.partner/", "")
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	assert.Equal(t, "aws.partner/example.com/app", sources[0].Name)
+	assert.Equal(t, "PENDING", sources[0].State)
+}
+
+func TestAudit_PartnerEventSource_ActivateTransitionsToPending(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreatePartnerEventSource("aws.partner/saas.com/feed", "111111111111")
+	require.NoError(t, err)
+
+	// Event source should start as PENDING.
+	src, err := b.DescribeEventSource("aws.partner/saas.com/feed")
+	require.NoError(t, err)
+	assert.Equal(t, "PENDING", src.State)
+
+	// Activate it → ACTIVE.
+	err = b.ActivateEventSource("aws.partner/saas.com/feed")
+	require.NoError(t, err)
+
+	src, err = b.DescribeEventSource("aws.partner/saas.com/feed")
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", src.State)
+}
+
+func TestAudit_PartnerEventSource_DeactivateTransitionsToInactive(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreatePartnerEventSource("aws.partner/saas.com/feed2", "222222222222")
+	require.NoError(t, err)
+
+	require.NoError(t, b.ActivateEventSource("aws.partner/saas.com/feed2"))
+	require.NoError(t, b.DeactivateEventSource("aws.partner/saas.com/feed2"))
+
+	src, err := b.DescribeEventSource("aws.partner/saas.com/feed2")
+	require.NoError(t, err)
+	assert.Equal(t, "INACTIVE", src.State)
+}
+
+func TestAudit_PartnerEventSource_DeletePartnerSourceNotAffectEventSource(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreatePartnerEventSource("aws.partner/example.com/gone", "333333333333")
+	require.NoError(t, err)
+
+	// Partner source deletion should NOT remove the event source record.
+	err = b.DeletePartnerEventSource("aws.partner/example.com/gone")
+	require.NoError(t, err)
+
+	// The event source persists for the customer.
+	_, err = b.DescribeEventSource("aws.partner/example.com/gone")
+	require.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// Schema Registry CRUD
+// ---------------------------------------------------------------------------
+
+func TestAudit_SchemaRegistry_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	reg, err := b.CreateRegistry(eventbridge.CreateRegistryInput{
+		RegistryName: "my-registry",
+		Description:  "test registry",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-registry", reg.RegistryName)
+	assert.NotEmpty(t, reg.RegistryArn)
+	assert.Equal(t, "test registry", reg.Description)
+
+	described, err := b.DescribeRegistry("my-registry")
+	require.NoError(t, err)
+	assert.Equal(t, "my-registry", described.RegistryName)
+
+	updated, err := b.UpdateRegistry(eventbridge.UpdateRegistryInput{
+		RegistryName: "my-registry",
+		Description:  "updated description",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "updated description", updated.Description)
+
+	registries, _, err := b.ListRegistries("my-", "")
+	require.NoError(t, err)
+	assert.Len(t, registries, 1)
+
+	err = b.DeleteRegistry("my-registry")
+	require.NoError(t, err)
+
+	_, err = b.DescribeRegistry("my-registry")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_SchemaRegistry_DuplicateCreateFails(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
+	require.NoError(t, err)
+
+	_, err = b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
+	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
+}
+
+func TestAudit_SchemaRegistry_NotFoundErrors(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.DescribeRegistry("no-such-registry")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+
+	err = b.DeleteRegistry("no-such-registry")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+
+	_, err = b.UpdateRegistry(eventbridge.UpdateRegistryInput{RegistryName: "no-such-registry"})
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// Schema CRUD and versioning
+// ---------------------------------------------------------------------------
+
+func TestAudit_Schema_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "schema-reg"})
+	require.NoError(t, err)
+
+	content := `{"openapi":"3.0.0","info":{"title":"MySchema","version":"1.0"},"paths":{}}`
+	schema, err := b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "schema-reg",
+		SchemaName:   "MySchema",
+		Type:         "OpenApi3",
+		Content:      content,
+		Description:  "first schema",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "MySchema", schema.SchemaName)
+	assert.Equal(t, "1", schema.SchemaVersion)
+	assert.Equal(t, content, schema.Content)
+	assert.NotEmpty(t, schema.SchemaArn)
+
+	described, err := b.DescribeSchema("schema-reg", "MySchema", "")
+	require.NoError(t, err)
+	assert.Equal(t, "MySchema", described.SchemaName)
+
+	updated, err := b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		RegistryName: "schema-reg",
+		SchemaName:   "MySchema",
+		Content:      `{"openapi":"3.0.0","info":{"title":"MySchema","version":"2.0"},"paths":{}}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "2", updated.SchemaVersion)
+
+	schemas, _, err := b.ListSchemas("schema-reg", "", "")
+	require.NoError(t, err)
+	assert.Len(t, schemas, 1)
+
+	err = b.DeleteSchema("schema-reg", "MySchema")
+	require.NoError(t, err)
+
+	_, err = b.DescribeSchema("schema-reg", "MySchema", "")
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_Schema_DuplicateCreateFails(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-schema-reg"})
+	require.NoError(t, err)
+
+	input := eventbridge.CreateSchemaInput{
+		RegistryName: "dup-schema-reg",
+		SchemaName:   "MySchema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	}
+
+	_, err = b.CreateSchema(input)
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(input)
+	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
+}
+
+func TestAudit_Schema_RegistryDeleteCascadeSchemas(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "cascade-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "cascade-reg",
+		SchemaName:   "CascadedSchema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteRegistry("cascade-reg")
+	require.NoError(t, err)
+
+	// Schema should no longer be accessible.
+	_, err = b.DescribeSchema("cascade-reg", "CascadedSchema", "")
+	require.Error(t, err)
+}
+
+func TestAudit_Schema_SearchByKeyword(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "search-reg"})
+	require.NoError(t, err)
+
+	for _, name := range []string{"OrderSchema", "UserSchema", "PaymentSchema"} {
+		_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+			RegistryName: "search-reg",
+			SchemaName:   name,
+			Type:         "OpenApi3",
+			Content:      `{"title":"` + name + `"}`,
+		})
+		require.NoError(t, err)
+	}
+
+	results, _, err := b.SearchSchemas("search-reg", "Order", "")
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "OrderSchema", results[0].SchemaName)
+}
+
+// ---------------------------------------------------------------------------
+// Schema versioning
+// ---------------------------------------------------------------------------
+
+func TestAudit_SchemaVersions_ListAndDescribe(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "ver-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "ver-reg",
+		SchemaName:   "VersionedSchema",
+		Type:         "OpenApi3",
+		Content:      `{"v":1}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		RegistryName: "ver-reg",
+		SchemaName:   "VersionedSchema",
+		Content:      `{"v":2}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		RegistryName: "ver-reg",
+		SchemaName:   "VersionedSchema",
+		Content:      `{"v":3}`,
+	})
+	require.NoError(t, err)
+
+	versions, _, err := b.ListSchemaVersions("ver-reg", "VersionedSchema", "")
+	require.NoError(t, err)
+	assert.Len(t, versions, 3)
+	assert.Equal(t, "1", versions[0].SchemaVersion)
+	assert.Equal(t, "3", versions[2].SchemaVersion)
+
+	sv, err := b.DescribeSchemaVersion("ver-reg", "VersionedSchema", "2")
+	require.NoError(t, err)
+	assert.Equal(t, "2", sv.SchemaVersion)
+	assert.Contains(t, sv.Content, `"v":2`)
+}
+
+func TestAudit_SchemaVersions_DeleteSpecificVersion(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "delver-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "delver-reg",
+		SchemaName:   "DelSchema",
+		Type:         "OpenApi3",
+		Content:      `{"v":1}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		RegistryName: "delver-reg",
+		SchemaName:   "DelSchema",
+		Content:      `{"v":2}`,
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteSchemaVersion("delver-reg", "DelSchema", "1")
+	require.NoError(t, err)
+
+	versions, _, err := b.ListSchemaVersions("delver-reg", "DelSchema", "")
+	require.NoError(t, err)
+	assert.Len(t, versions, 1)
+	assert.Equal(t, "2", versions[0].SchemaVersion)
+}
+
+func TestAudit_SchemaVersions_DescribeWithVersion(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "descver-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "descver-reg",
+		SchemaName:   "S",
+		Type:         "OpenApi3",
+		Content:      `{"v":1}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		RegistryName: "descver-reg",
+		SchemaName:   "S",
+		Content:      `{"v":2}`,
+	})
+	require.NoError(t, err)
+
+	// Describe with specific version.
+	sv, err := b.DescribeSchema("descver-reg", "S", "1")
+	require.NoError(t, err)
+	assert.Equal(t, "1", sv.SchemaVersion)
+	assert.Contains(t, sv.Content, `"v":1`)
+
+	// Describe without version returns latest.
+	latest, err := b.DescribeSchema("descver-reg", "S", "")
+	require.NoError(t, err)
+	assert.Equal(t, "2", latest.SchemaVersion)
+}
+
+// ---------------------------------------------------------------------------
+// Code bindings
+// ---------------------------------------------------------------------------
+
+func TestAudit_CodeBinding_CRUD(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "cb-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "cb-reg",
+		SchemaName:   "CBSchema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	})
+	require.NoError(t, err)
+
+	binding, err := b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+		RegistryName: "cb-reg",
+		SchemaName:   "CBSchema",
+		Language:     "Python36",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Python36", binding.Language)
+	assert.Equal(t, "CREATE_COMPLETE", binding.Status)
+
+	described, err := b.DescribeCodeBinding(eventbridge.DescribeCodeBindingInput{
+		RegistryName: "cb-reg",
+		SchemaName:   "CBSchema",
+		Language:     "Python36",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Python36", described.Language)
+
+	_, err = b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+		RegistryName: "cb-reg",
+		SchemaName:   "CBSchema",
+		Language:     "Java8",
+	})
+	require.NoError(t, err)
+
+	bindings, _, err := b.ListCodeBindings(eventbridge.ListCodeBindingsInput{
+		RegistryName: "cb-reg",
+		SchemaName:   "CBSchema",
+	})
+	require.NoError(t, err)
+	assert.Len(t, bindings, 2)
+}
+
+func TestAudit_CodeBinding_GetSource(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "src-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "src-reg",
+		SchemaName:   "SrcSchema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+		RegistryName: "src-reg",
+		SchemaName:   "SrcSchema",
+		Language:     "TypeScript3",
+	})
+	require.NoError(t, err)
+
+	src, err := b.GetCodeBindingSource("src-reg", "SrcSchema", "TypeScript3", "1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, src)
+}
+
+func TestAudit_CodeBinding_NotFoundErrors(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "nf-reg"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "nf-reg",
+		SchemaName:   "NFSchema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.DescribeCodeBinding(eventbridge.DescribeCodeBindingInput{
+		RegistryName: "nf-reg",
+		SchemaName:   "NFSchema",
+		Language:     "Go1",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
+}
+
+func TestAudit_GetDiscoveredSchema_ReturnsContent(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	content, err := b.GetDiscoveredSchema(eventbridge.GetDiscoveredSchemaInput{
+		Events: []string{`{"source":"myapp","detail-type":"OrderPlaced","detail":{"orderId":"o1"}}`},
+		Type:   "OpenApi3",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, content)
+}
+
+func TestAudit_GetDiscoveredSchema_RejectsEmptyEvents(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	_, err := b.GetDiscoveredSchema(eventbridge.GetDiscoveredSchemaInput{
+		Events: []string{},
+		Type:   "OpenApi3",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+}
+
+// ---------------------------------------------------------------------------
+// Schema Registry handler smoke tests
+// ---------------------------------------------------------------------------
+
+func TestAudit_Handler_SchemaRegistry_CRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "CreateRegistry", map[string]any{
+		"RegistryName": "h-registry",
+		"Description":  "handler test",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-registry")
+
+	rec = auditMakeRequest(t, h, e, "DescribeRegistry", map[string]any{
+		"RegistryName": "h-registry",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListRegistries", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-registry")
+
+	rec = auditMakeRequest(t, h, e, "UpdateRegistry", map[string]any{
+		"RegistryName": "h-registry",
+		"Description":  "updated",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DeleteRegistry", map[string]any{
+		"RegistryName": "h-registry",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeRegistry", map[string]any{
+		"RegistryName": "h-registry",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestAudit_Handler_Schema_CRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "h-schema-reg"})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "CreateSchema", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"SchemaName":   "h-schema",
+		"Type":         "OpenApi3",
+		"Content":      `{"openapi":"3.0.0","info":{"title":"Test","version":"1.0"},"paths":{}}`,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-schema")
+
+	rec = auditMakeRequest(t, h, e, "DescribeSchema", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"SchemaName":   "h-schema",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListSchemas", map[string]any{
+		"RegistryName": "h-schema-reg",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "h-schema")
+
+	rec = auditMakeRequest(t, h, e, "SearchSchemas", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"Keywords":     "h-schema",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "UpdateSchema", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"SchemaName":   "h-schema",
+		"Content":      `{"openapi":"3.0.0","info":{"title":"Test","version":"2.0"},"paths":{}}`,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"2"`)
+
+	rec = auditMakeRequest(t, h, e, "ListSchemaVersions", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"SchemaName":   "h-schema",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeSchemaVersion", map[string]any{
+		"RegistryName":  "h-schema-reg",
+		"SchemaName":    "h-schema",
+		"SchemaVersion": "1",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DeleteSchemaVersion", map[string]any{
+		"RegistryName":  "h-schema-reg",
+		"SchemaName":    "h-schema",
+		"SchemaVersion": "1",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DeleteSchema", map[string]any{
+		"RegistryName": "h-schema-reg",
+		"SchemaName":   "h-schema",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_CodeBinding_CRUD(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "h-cb-reg"})
+	require.NoError(t, err)
+	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		RegistryName: "h-cb-reg",
+		SchemaName:   "h-cb-schema",
+		Type:         "OpenApi3",
+		Content:      `{}`,
+	})
+	require.NoError(t, err)
+
+	rec := auditMakeRequest(t, h, e, "PutCodeBinding", map[string]any{
+		"RegistryName": "h-cb-reg",
+		"SchemaName":   "h-cb-schema",
+		"Language":     "Python36",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "CREATE_COMPLETE")
+
+	rec = auditMakeRequest(t, h, e, "DescribeCodeBinding", map[string]any{
+		"RegistryName": "h-cb-reg",
+		"SchemaName":   "h-cb-schema",
+		"Language":     "Python36",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "ListCodeBindings", map[string]any{
+		"RegistryName": "h-cb-reg",
+		"SchemaName":   "h-cb-schema",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Python36")
+
+	rec = auditMakeRequest(t, h, e, "GetCodeBindingSource", map[string]any{
+		"RegistryName":  "h-cb-reg",
+		"SchemaName":    "h-cb-schema",
+		"Language":      "Python36",
+		"SchemaVersion": "1",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit_Handler_GetDiscoveredSchema(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "GetDiscoveredSchema", map[string]any{
+		"Events": []string{`{"source":"myapp","detail-type":"T","detail":{}}`},
+		"Type":   "OpenApi3",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "openapi")
+}
+
+func TestAudit_Handler_SchemaOperationsIncluded(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	schemaOps := []string{
+		"CreateRegistry", "DeleteRegistry", "DescribeRegistry", "ListRegistries", "UpdateRegistry",
+		"CreateSchema", "DeleteSchema", "DescribeSchema", "ListSchemas", "SearchSchemas", "UpdateSchema",
+		"ListSchemaVersions", "DescribeSchemaVersion", "DeleteSchemaVersion",
+		"GetDiscoveredSchema",
+		"PutCodeBinding", "DescribeCodeBinding", "ListCodeBindings", "GetCodeBindingSource",
+	}
+	for _, op := range schemaOps {
+		assert.Contains(t, ops, op, "missing schema operation: %s", op)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Input transformer: array indexing in JSONPath
+// ---------------------------------------------------------------------------
+
+func TestAudit_Targets_InputTransformer_ArrayIndexing(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sqsSink := newAuditSQSSender()
+	queueARN := "arn:aws:sqs:us-east-1:123456789012:array-q"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "array-rule",
+		EventPattern: `{"source":["array.test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("array-rule", "", []eventbridge.Target{
+		{
+			ID:  "t1",
+			Arn: queueARN,
+			InputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"firstItem": "$.detail.items[0]",
+				},
+				InputTemplate: `{"item": "<firstItem>"}`,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{Source: "array.test", DetailType: "T", Detail: `{"items":["alpha","beta","gamma"]}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsSink.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msg := sqsSink.MessagesFor(queueARN)[0]
+	assert.Contains(t, msg, "alpha")
+	assert.NotContains(t, msg, "beta")
+}
+
+func TestAudit_Targets_InputTransformer_NestedArrayIndex(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+
+	sqsSink := newAuditSQSSender()
+	queueARN := "arn:aws:sqs:us-east-1:123456789012:nested-array-q"
+	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
+
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:         "nested-array-rule",
+		EventPattern: `{"source":["nested.test"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets("nested-array-rule", "", []eventbridge.Target{
+		{
+			ID:  "t1",
+			Arn: queueARN,
+			InputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"userId": "$.detail.users[1].id",
+				},
+				InputTemplate: `{"user_id": "<userId>"}`,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	b.PutEvents([]eventbridge.EventEntry{
+		{
+			Source:     "nested.test",
+			DetailType: "T",
+			Detail:     `{"users":[{"id":"u0"},{"id":"u1"},{"id":"u2"}]}`,
+		},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsSink.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msg := sqsSink.MessagesFor(queueARN)[0]
+	assert.Contains(t, msg, "u1")
+}

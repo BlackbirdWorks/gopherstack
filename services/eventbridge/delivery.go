@@ -20,7 +20,12 @@ var inputPathsMapKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // LambdaInvoker can invoke a Lambda function by name/ARN with a payload.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name string,
+		invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // SQSSender can send a message to an SQS queue by URL or ARN.
@@ -346,7 +351,12 @@ func buildEventEnvelope(entry EventEntry) string {
 
 // deliverToTarget delivers a single event to a single target.
 // Returns true if delivery failed (triggering retry/DLQ).
-func deliverToTarget(ctx context.Context, target *Target, envelope map[string]any, dt DeliveryTargets) bool {
+func deliverToTarget(
+	ctx context.Context,
+	target *Target,
+	envelope map[string]any,
+	dt DeliveryTargets,
+) bool {
 	targetARN := target.Arn
 	payload := buildPayload(target, envelope)
 
@@ -364,7 +374,8 @@ func deliverToTarget(ctx context.Context, target *Target, envelope map[string]an
 	case isECSARN(targetARN):
 		return deliverToECS(ctx, dt.ECS, targetARN, payload)
 	default:
-		logger.Load(ctx).WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
 	}
 
 	return false
@@ -375,7 +386,8 @@ func deliverToLambda(ctx context.Context, svc LambdaInvoker, arn, payload string
 		return false
 	}
 	if _, _, err := svc.InvokeFunction(ctx, arn, "Event", []byte(payload)); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", arn, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge failed to invoke Lambda target", "arn", arn, "error", err)
 
 		return true
 	}
@@ -388,7 +400,8 @@ func deliverToSQS(ctx context.Context, svc SQSSender, arn, payload string) bool 
 		return false
 	}
 	if err := svc.SendMessageToQueue(ctx, arn, payload); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", arn, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge failed to deliver to SQS target", "arn", arn, "error", err)
 
 		return true
 	}
@@ -401,7 +414,8 @@ func deliverToSNS(ctx context.Context, svc SNSPublisher, arn, payload string) bo
 		return false
 	}
 	if err := svc.PublishToTopic(ctx, arn, payload); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", arn, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge failed to publish to SNS target", "arn", arn, "error", err)
 
 		return true
 	}
@@ -409,7 +423,11 @@ func deliverToSNS(ctx context.Context, svc SNSPublisher, arn, payload string) bo
 	return false
 }
 
-func deliverToKinesisFirehose(ctx context.Context, svc KinesisFirehosePublisher, arn, payload string) bool {
+func deliverToKinesisFirehose(
+	ctx context.Context,
+	svc KinesisFirehosePublisher,
+	arn, payload string,
+) bool {
 	if svc == nil {
 		return false
 	}
@@ -423,7 +441,11 @@ func deliverToKinesisFirehose(ctx context.Context, svc KinesisFirehosePublisher,
 	return false
 }
 
-func deliverToKinesisStream(ctx context.Context, svc KinesisStreamPublisher, arn, payload string) bool {
+func deliverToKinesisStream(
+	ctx context.Context,
+	svc KinesisStreamPublisher,
+	arn, payload string,
+) bool {
 	if svc == nil {
 		return false
 	}
@@ -443,7 +465,8 @@ func deliverToECS(ctx context.Context, svc ECSTaskRunner, arn, payload string) b
 		return false
 	}
 	if err := svc.RunTask(ctx, arn, []byte(payload)); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to run ECS task", "arn", arn, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge failed to run ECS task", "arn", arn, "error", err)
 
 		return true
 	}
@@ -525,7 +548,11 @@ func applyInputPath(path string, envelope map[string]any) string {
 func validateInputTransformer(t *InputTransformer) error {
 	for key := range t.InputPathsMap {
 		if !inputPathsMapKeyRe.MatchString(key) {
-			return fmt.Errorf("%w: InputPathsMap key %q must match [A-Za-z0-9_]+", ErrInvalidParameter, key)
+			return fmt.Errorf(
+				"%w: InputPathsMap key %q must match [A-Za-z0-9_]+",
+				ErrInvalidParameter,
+				key,
+			)
 		}
 	}
 
@@ -563,8 +590,9 @@ func applyInputTransformer(t *InputTransformer, envelope map[string]any) string 
 	return result
 }
 
-// jsonPathExtract resolves a simple dot-notation JSONPath expression (e.g. $.source, $.detail.key)
-// against the given event envelope. Returns nil if the path cannot be resolved.
+// jsonPathExtract resolves a JSONPath expression against the given event envelope.
+// Supports dot-notation ($.source, $.detail.key) and array indexing ($.detail.items[0]).
+// Returns nil if the path cannot be resolved.
 func jsonPathExtract(path string, data map[string]any) any {
 	if path == "$" || path == "" {
 		return data
@@ -574,22 +602,73 @@ func jsonPathExtract(path string, data map[string]any) any {
 		return nil
 	}
 
-	parts := strings.Split(path[2:], ".")
+	parts := splitJSONPathParts(path[2:])
 	var current any = data
 
 	for _, part := range parts {
+		// Check for array index suffix, e.g. "items[0]".
+		key, idx, hasIndex := parseArrayIndex(part)
+
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil
 		}
 
-		current, ok = m[part]
+		val, ok := m[key]
 		if !ok {
 			return nil
 		}
+
+		if !hasIndex {
+			current = val
+
+			continue
+		}
+
+		arr, ok := val.([]any)
+		if !ok || idx < 0 || idx >= len(arr) {
+			return nil
+		}
+
+		current = arr[idx]
 	}
 
 	return current
+}
+
+// splitJSONPathParts splits a dot-separated path into segments while preserving
+// array index brackets as part of the segment (e.g. "items[0].name" → ["items[0]", "name"]).
+func splitJSONPathParts(path string) []string {
+	return strings.Split(path, ".")
+}
+
+const decimalBase = 10
+
+// parseArrayIndex parses a path segment like "items[0]" into key="items", idx=0, hasIndex=true.
+// Returns hasIndex=false when no bracket expression is found.
+func parseArrayIndex(segment string) (string, int, bool) {
+	open := strings.LastIndex(segment, "[")
+	if open < 0 {
+		return segment, 0, false
+	}
+
+	closeIdx := strings.Index(segment[open:], "]")
+	if closeIdx < 0 {
+		return segment, 0, false
+	}
+
+	indexStr := segment[open+1 : open+closeIdx]
+	n := 0
+
+	for _, ch := range indexStr {
+		if ch < '0' || ch > '9' {
+			return segment, 0, false
+		}
+
+		n = n*decimalBase + int(ch-'0')
+	}
+
+	return segment[:open], n, true
 }
 
 // isLambdaARN returns true if the ARN identifies a Lambda function.
