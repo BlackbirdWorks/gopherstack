@@ -256,10 +256,10 @@ type CreateArchiveInput struct {
 
 // ConnectionAuthParameters holds the auth credentials for a connection.
 type ConnectionAuthParameters struct {
-	BasicAuthParameters      *ConnectionBasicAuthParameters      `json:"BasicAuthParameters,omitempty"`
-	ApiKeyAuthParameters     *ConnectionApiKeyAuthParameters     `json:"ApiKeyAuthParameters,omitempty"`
-	OAuthParameters          *ConnectionOAuthParameters          `json:"OAuthParameters,omitempty"`
-	InvocationHttpParameters *ConnectionHttpParameters           `json:"InvocationHttpParameters,omitempty"`
+	BasicAuthParameters      *ConnectionBasicAuthParameters  `json:"BasicAuthParameters,omitempty"`
+	APIKeyAuthParameters     *ConnectionAPIKeyAuthParameters `json:"ApiKeyAuthParameters,omitempty"`
+	OAuthParameters          *ConnectionOAuthParameters      `json:"OAuthParameters,omitempty"`
+	InvocationHTTPParameters *ConnectionHTTPParameters       `json:"InvocationHttpParameters,omitempty"`
 }
 
 // ConnectionBasicAuthParameters holds Basic auth credentials.
@@ -268,18 +268,18 @@ type ConnectionBasicAuthParameters struct {
 	Password string `json:"Password,omitempty"`
 }
 
-// ConnectionApiKeyAuthParameters holds API key auth credentials.
-type ConnectionApiKeyAuthParameters struct {
-	ApiKeyName  string `json:"ApiKeyName"`
-	ApiKeyValue string `json:"ApiKeyValue,omitempty"`
+// ConnectionAPIKeyAuthParameters holds API key auth credentials.
+type ConnectionAPIKeyAuthParameters struct {
+	APIKeyName  string `json:"ApiKeyName"`
+	APIKeyValue string `json:"ApiKeyValue,omitempty"`
 }
 
 // ConnectionOAuthParameters holds OAuth credentials.
 type ConnectionOAuthParameters struct {
-	AuthorizationEndpoint string                           `json:"AuthorizationEndpoint"`
 	ClientParameters      *ConnectionOAuthClientParameters `json:"ClientParameters,omitempty"`
-	HttpMethod            string                           `json:"HttpMethod"`
-	OAuthHttpParameters   *ConnectionHttpParameters        `json:"OAuthHttpParameters,omitempty"`
+	OAuthHTTPParameters   *ConnectionHTTPParameters        `json:"OAuthHttpParameters,omitempty"`
+	AuthorizationEndpoint string                           `json:"AuthorizationEndpoint"`
+	HTTPMethod            string                           `json:"HttpMethod"`
 }
 
 // ConnectionOAuthClientParameters holds OAuth client ID and secret.
@@ -288,8 +288,8 @@ type ConnectionOAuthClientParameters struct {
 	ClientSecret string `json:"ClientSecret,omitempty"`
 }
 
-// ConnectionHttpParameters holds custom HTTP body/header/query-string parameters.
-type ConnectionHttpParameters struct {
+// ConnectionHTTPParameters holds custom HTTP body/header/query-string parameters.
+type ConnectionHTTPParameters struct {
 	BodyParameters        []ConnectionBodyParameter        `json:"BodyParameters,omitempty"`
 	HeaderParameters      []ConnectionHeaderParameter      `json:"HeaderParameters,omitempty"`
 	QueryStringParameters []ConnectionQueryStringParameter `json:"QueryStringParameters,omitempty"`
@@ -297,23 +297,23 @@ type ConnectionHttpParameters struct {
 
 // ConnectionBodyParameter holds a single body parameter key/value pair.
 type ConnectionBodyParameter struct {
-	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 	Key           string `json:"Key"`
 	Value         string `json:"Value,omitempty"`
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 }
 
 // ConnectionHeaderParameter holds a single header key/value pair.
 type ConnectionHeaderParameter struct {
-	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 	Key           string `json:"Key"`
 	Value         string `json:"Value,omitempty"`
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 }
 
 // ConnectionQueryStringParameter holds a single query-string key/value pair.
 type ConnectionQueryStringParameter struct {
-	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 	Key           string `json:"Key"`
 	Value         string `json:"Value,omitempty"`
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
 }
 
 // CreateConnectionInput is the input for CreateConnection.
@@ -474,35 +474,35 @@ type UpdatePipeInput struct {
 
 // SchemaRegistry represents an EventBridge Schema Registry.
 type SchemaRegistry struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
 	RegistryArn  string            `json:"RegistryArn"`
 	RegistryName string            `json:"RegistryName"`
 	Description  string            `json:"Description,omitempty"`
-	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
 // Schema represents a schema within a registry.
 type Schema struct {
 	LastModified       time.Time         `json:"LastModified"`
 	VersionCreatedDate time.Time         `json:"VersionCreatedDate"`
+	Tags               map[string]string `json:"Tags,omitempty"`
 	SchemaArn          string            `json:"SchemaArn"`
 	SchemaName         string            `json:"SchemaName"`
 	SchemaVersion      string            `json:"SchemaVersion"`
 	RegistryName       string            `json:"RegistryName"`
 	Description        string            `json:"Description,omitempty"`
-	Type               string            `json:"Type"` // OpenApi3, JSONSchemaDraft4
+	Type               string            `json:"Type"`
 	Content            string            `json:"Content"`
-	Tags               map[string]string `json:"Tags,omitempty"`
 }
 
 // SchemaVersion represents a specific version of a schema.
 type SchemaVersion struct {
-	CreatedDate    time.Time `json:"CreatedDate"`
-	SchemaArn      string    `json:"SchemaArn"`
-	SchemaName     string    `json:"SchemaName"`
-	SchemaVersion  string    `json:"SchemaVersion"`
-	RegistryName   string    `json:"RegistryName"`
-	Type           string    `json:"Type"`
-	Content        string    `json:"Content"`
+	CreatedDate   time.Time `json:"CreatedDate"`
+	SchemaArn     string    `json:"SchemaArn"`
+	SchemaName    string    `json:"SchemaName"`
+	SchemaVersion string    `json:"SchemaVersion"`
+	RegistryName  string    `json:"RegistryName"`
+	Type          string    `json:"Type"`
+	Content       string    `json:"Content"`
 }
 
 // CodeBinding represents a generated code binding for a schema.
@@ -516,9 +516,9 @@ type CodeBinding struct {
 
 // CreateRegistryInput is the input for CreateRegistry.
 type CreateRegistryInput struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
 	RegistryName string            `json:"RegistryName"`
 	Description  string            `json:"Description,omitempty"`
-	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
 // UpdateRegistryInput is the input for UpdateRegistry.
@@ -529,22 +529,22 @@ type UpdateRegistryInput struct {
 
 // CreateSchemaInput is the input for CreateSchema.
 type CreateSchemaInput struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
 	RegistryName string            `json:"RegistryName"`
 	SchemaName   string            `json:"SchemaName"`
 	Type         string            `json:"Type"`
 	Content      string            `json:"Content"`
 	Description  string            `json:"Description,omitempty"`
-	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
 // UpdateSchemaInput is the input for UpdateSchema (creates a new version).
 type UpdateSchemaInput struct {
-	RegistryName string `json:"RegistryName"`
-	SchemaName   string `json:"SchemaName"`
-	Type         string `json:"Type,omitempty"`
-	Content      string `json:"Content,omitempty"`
-	Description  string `json:"Description,omitempty"`
-	ClientTokenId string `json:"ClientTokenId,omitempty"`
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	Type          string `json:"Type,omitempty"`
+	Content       string `json:"Content,omitempty"`
+	Description   string `json:"Description,omitempty"`
+	ClientTokenID string `json:"ClientTokenId,omitempty"`
 }
 
 // PutCodeBindingInput is the input for PutCodeBinding.
@@ -573,6 +573,6 @@ type ListCodeBindingsInput struct {
 
 // GetDiscoveredSchemaInput is the input for GetDiscoveredSchema.
 type GetDiscoveredSchemaInput struct {
-	Events []string `json:"Events"`
 	Type   string   `json:"Type"`
+	Events []string `json:"Events"`
 }

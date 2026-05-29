@@ -154,37 +154,37 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx              context.Context
-	mu               *lockmetrics.RWMutex
-	connections      map[string]*Connection
-	rules            map[string]map[string]*Rule
-	targets          map[string]map[string]*Target
-	eventSources     map[string]*EventSource
-	replays          map[string]*Replay
-	apiDestinations  map[string]*APIDestination
-	cancel           context.CancelFunc
-	deliveryTargets  *DeliveryTargets
-	endpoints        map[string]*Endpoint
-	buses            map[string]*EventBus
-	partnerSources   map[string]*PartnerEventSource
-	archives         map[string]*Archive
-	archivedEvents   map[string][]EventEntry
-	busePolicies     map[string]*EventBusPolicy
-	pipes            map[string]*Pipe
-	registries       map[string]*SchemaRegistry
-	schemas          map[string]map[string]*Schema  // registryName → schemaName → Schema
-	schemaVersions   map[string][]*SchemaVersion    // "registryName/schemaName" → ordered versions
-	codeBindings     map[string]*CodeBinding        // "registryName/schemaName/language" → binding
-	workerSem        chan struct{}
-	ruleIndex        map[string]map[ruleIndexKey]map[string]*Rule
-	patternCache     sync.Map
-	region           string
-	accountID        string
-	eventLog         []EventLogEntry
-	wg               sync.WaitGroup
-	shutdownTimeout  time.Duration
-	deliveryTimeout  time.Duration
-	closing          atomic.Bool
+	ctx             context.Context
+	mu              *lockmetrics.RWMutex
+	connections     map[string]*Connection
+	rules           map[string]map[string]*Rule
+	targets         map[string]map[string]*Target
+	eventSources    map[string]*EventSource
+	replays         map[string]*Replay
+	apiDestinations map[string]*APIDestination
+	cancel          context.CancelFunc
+	deliveryTargets *DeliveryTargets
+	endpoints       map[string]*Endpoint
+	buses           map[string]*EventBus
+	partnerSources  map[string]*PartnerEventSource
+	archives        map[string]*Archive
+	archivedEvents  map[string][]EventEntry
+	busePolicies    map[string]*EventBusPolicy
+	pipes           map[string]*Pipe
+	registries      map[string]*SchemaRegistry
+	schemas         map[string]map[string]*Schema // registryName → schemaName → Schema
+	schemaVersions  map[string][]*SchemaVersion   // "registryName/schemaName" → ordered versions
+	codeBindings    map[string]*CodeBinding       // "registryName/schemaName/language" → binding
+	workerSem       chan struct{}
+	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
+	patternCache    sync.Map
+	region          string
+	accountID       string
+	eventLog        []EventLogEntry
+	wg              sync.WaitGroup
+	shutdownTimeout time.Duration
+	deliveryTimeout time.Duration
+	closing         atomic.Bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -203,7 +203,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // is derived from the provided parent. When the parent is cancelled (e.g. on server
 // shutdown), all in-flight delivery workers are also cancelled.
 // If svcCtx is nil, [context.Background] is used.
-func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
@@ -439,11 +442,18 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 	}
 
 	if len(name) > maxEventBusNameLength {
-		return nil, fmt.Errorf("%w: Name must be %d characters or fewer", ErrInvalidParameter, maxEventBusNameLength)
+		return nil, fmt.Errorf(
+			"%w: Name must be %d characters or fewer",
+			ErrInvalidParameter,
+			maxEventBusNameLength,
+		)
 	}
 
 	if strings.HasPrefix(name, "aws.") {
-		return nil, fmt.Errorf("%w: Event bus name cannot start with the reserved prefix \"aws.\"", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: Event bus name cannot start with the reserved prefix \"aws.\"",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("CreateEventBus")
@@ -554,15 +564,25 @@ func validatePutRuleInput(input PutRuleInput) error {
 
 	const maxRuleNameLength = 64
 	if len(input.Name) > maxRuleNameLength {
-		return fmt.Errorf("%w: Name must not exceed %d characters", ErrInvalidParameter, maxRuleNameLength)
+		return fmt.Errorf(
+			"%w: Name must not exceed %d characters",
+			ErrInvalidParameter,
+			maxRuleNameLength,
+		)
 	}
 
 	if input.EventPattern != "" && input.ScheduleExpression != "" {
-		return fmt.Errorf("%w: ScheduleExpression and EventPattern are mutually exclusive", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: ScheduleExpression and EventPattern are mutually exclusive",
+			ErrInvalidParameter,
+		)
 	}
 
 	if input.EventPattern == "" && input.ScheduleExpression == "" {
-		return fmt.Errorf("%w: either EventPattern or ScheduleExpression must be provided", ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: either EventPattern or ScheduleExpression must be provided",
+			ErrInvalidParameter,
+		)
 	}
 
 	if input.ScheduleExpression != "" {
@@ -677,7 +697,9 @@ func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
 }
 
 // ListRules returns rules for an event bus optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRules(eventBusName, namePrefix, nextToken string) ([]Rule, string, error) {
+func (b *InMemoryBackend) ListRules(
+	eventBusName, namePrefix, nextToken string,
+) ([]Rule, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -758,7 +780,10 @@ func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {
 }
 
 // PutTargets adds or updates targets for a rule.
-func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Target) ([]FailedEntry, error) {
+func (b *InMemoryBackend) PutTargets(
+	ruleName, eventBusName string,
+	targets []Target,
+) ([]FailedEntry, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -824,7 +849,10 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 }
 
 // RemoveTargets removes targets from a rule by their IDs.
-func (b *InMemoryBackend) RemoveTargets(ruleName, eventBusName string, ids []string) ([]FailedEntry, error) {
+func (b *InMemoryBackend) RemoveTargets(
+	ruleName, eventBusName string,
+	ids []string,
+) ([]FailedEntry, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -853,7 +881,9 @@ func (b *InMemoryBackend) RemoveTargets(ruleName, eventBusName string, ids []str
 }
 
 // ListTargetsByRule returns targets for a rule with optional pagination.
-func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken string) ([]Target, string, error) {
+func (b *InMemoryBackend) ListTargetsByRule(
+	ruleName, eventBusName, nextToken string,
+) ([]Target, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -1076,7 +1106,9 @@ func (b *InMemoryBackend) DeactivateEventSource(name string) error {
 }
 
 // CreatePartnerEventSource creates a new partner event source.
-func (b *InMemoryBackend) CreatePartnerEventSource(name, account string) (*PartnerEventSource, error) {
+func (b *InMemoryBackend) CreatePartnerEventSource(
+	name, account string,
+) (*PartnerEventSource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1144,7 +1176,9 @@ func (b *InMemoryBackend) CancelReplay(replayName string) (*Replay, error) {
 }
 
 // CreateAPIDestination creates a new API destination.
-func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) (*APIDestination, error) {
+func (b *InMemoryBackend) CreateAPIDestination(
+	input CreateAPIDestinationInput,
+) (*APIDestination, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1172,7 +1206,11 @@ func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) 
 	defer b.mu.Unlock()
 
 	if _, exists := b.apiDestinations[input.Name]; exists {
-		return nil, fmt.Errorf("%w: API destination %s already exists", ErrAlreadyExists, input.Name)
+		return nil, fmt.Errorf(
+			"%w: API destination %s already exists",
+			ErrAlreadyExists,
+			input.Name,
+		)
 	}
 
 	now := time.Now()
@@ -1214,7 +1252,10 @@ func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, err
 	}
 
 	if input.RetentionDays < 0 {
-		return nil, fmt.Errorf("%w: RetentionDays must be 0 (indefinite) or a positive integer", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: RetentionDays must be 0 (indefinite) or a positive integer",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("CreateArchive")
@@ -1485,7 +1526,9 @@ func (b *InMemoryBackend) DescribeConnection(name string) (*Connection, error) {
 }
 
 // ListConnections returns connections optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListConnections(namePrefix, nextToken string) ([]Connection, string, error) {
+func (b *InMemoryBackend) ListConnections(
+	namePrefix, nextToken string,
+) ([]Connection, string, error) {
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
@@ -1645,7 +1688,9 @@ func (b *InMemoryBackend) DescribeAPIDestination(name string) (*APIDestination, 
 }
 
 // ListAPIDestinations returns API destinations optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListAPIDestinations(namePrefix, nextToken string) ([]APIDestination, string, error) {
+func (b *InMemoryBackend) ListAPIDestinations(
+	namePrefix, nextToken string,
+) ([]APIDestination, string, error) {
 	b.mu.RLock("ListAPIDestinations")
 	defer b.mu.RUnlock()
 
@@ -1664,7 +1709,9 @@ func (b *InMemoryBackend) ListAPIDestinations(namePrefix, nextToken string) ([]A
 }
 
 // UpdateAPIDestination updates an existing API destination.
-func (b *InMemoryBackend) UpdateAPIDestination(input UpdateAPIDestinationInput) (*APIDestination, error) {
+func (b *InMemoryBackend) UpdateAPIDestination(
+	input UpdateAPIDestinationInput,
+) (*APIDestination, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1719,7 +1766,9 @@ func (b *InMemoryBackend) DescribeEventSource(name string) (*EventSource, error)
 }
 
 // ListEventSources returns event sources optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEventSources(namePrefix, nextToken string) ([]EventSource, string, error) {
+func (b *InMemoryBackend) ListEventSources(
+	namePrefix, nextToken string,
+) ([]EventSource, string, error) {
 	b.mu.RLock("ListEventSources")
 	defer b.mu.RUnlock()
 
@@ -1775,7 +1824,9 @@ func (b *InMemoryBackend) DeletePartnerEventSource(name string) error {
 }
 
 // ListPartnerEventSources returns partner event sources optionally filtered by name prefix.
-func (b *InMemoryBackend) ListPartnerEventSources(namePrefix, nextToken string) ([]PartnerEventSource, string, error) {
+func (b *InMemoryBackend) ListPartnerEventSources(
+	namePrefix, nextToken string,
+) ([]PartnerEventSource, string, error) {
 	b.mu.RLock("ListPartnerEventSources")
 	defer b.mu.RUnlock()
 
@@ -1848,7 +1899,10 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 
 	if !input.EventStartTime.IsZero() && !input.EventEndTime.IsZero() &&
 		!input.EventStartTime.Before(input.EventEndTime) {
-		return nil, fmt.Errorf("%w: EventStartTime must be before EventEndTime", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: EventStartTime must be before EventEndTime",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("StartReplay")
@@ -1905,7 +1959,12 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 	b.replays[input.ReplayName] = replay
 
 	// Collect archived events to replay filtered by time window and event pattern.
-	eventsToReplay := b.filterArchivedEvents(archiveName, archivePattern, input.EventStartTime, input.EventEndTime)
+	eventsToReplay := b.filterArchivedEvents(
+		archiveName,
+		archivePattern,
+		input.EventStartTime,
+		input.EventEndTime,
+	)
 
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
@@ -1994,7 +2053,9 @@ func (b *InMemoryBackend) scheduleReplayWorker(
 }
 
 // ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
-func (b *InMemoryBackend) ListRuleNamesByTarget(targetARN, eventBusName, nextToken string) ([]string, string, error) {
+func (b *InMemoryBackend) ListRuleNamesByTarget(
+	targetARN, eventBusName, nextToken string,
+) ([]string, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -2373,7 +2434,10 @@ func (b *InMemoryBackend) captureEventInArchives(entry EventEntry, busName strin
 			continue
 		}
 		if archive.EventPattern == "" || matchPattern(archive.EventPattern, envelope) {
-			b.archivedEvents[archive.ArchiveName] = append(b.archivedEvents[archive.ArchiveName], entry)
+			b.archivedEvents[archive.ArchiveName] = append(
+				b.archivedEvents[archive.ArchiveName],
+				entry,
+			)
 			archive.EventCount++
 		}
 	}
@@ -2517,17 +2581,17 @@ func maskConnectionAuthParameters(p *ConnectionAuthParameters) *ConnectionAuthPa
 		}
 	}
 
-	if p.ApiKeyAuthParameters != nil {
-		masked.ApiKeyAuthParameters = &ConnectionApiKeyAuthParameters{
-			ApiKeyName: p.ApiKeyAuthParameters.ApiKeyName,
-			// ApiKeyValue is intentionally omitted (masked).
+	if p.APIKeyAuthParameters != nil {
+		masked.APIKeyAuthParameters = &ConnectionAPIKeyAuthParameters{
+			APIKeyName: p.APIKeyAuthParameters.APIKeyName,
+			// APIKeyValue is intentionally omitted (masked).
 		}
 	}
 
 	if p.OAuthParameters != nil {
 		op := &ConnectionOAuthParameters{
 			AuthorizationEndpoint: p.OAuthParameters.AuthorizationEndpoint,
-			HttpMethod:            p.OAuthParameters.HttpMethod,
+			HTTPMethod:            p.OAuthParameters.HTTPMethod,
 		}
 		if p.OAuthParameters.ClientParameters != nil {
 			op.ClientParameters = &ConnectionOAuthClientParameters{
@@ -2535,27 +2599,27 @@ func maskConnectionAuthParameters(p *ConnectionAuthParameters) *ConnectionAuthPa
 				// ClientSecret is intentionally omitted (masked).
 			}
 		}
-		if p.OAuthParameters.OAuthHttpParameters != nil {
-			op.OAuthHttpParameters = maskHttpParameters(p.OAuthParameters.OAuthHttpParameters)
+		if p.OAuthParameters.OAuthHTTPParameters != nil {
+			op.OAuthHTTPParameters = maskHTTPParameters(p.OAuthParameters.OAuthHTTPParameters)
 		}
 		masked.OAuthParameters = op
 	}
 
-	if p.InvocationHttpParameters != nil {
-		masked.InvocationHttpParameters = maskHttpParameters(p.InvocationHttpParameters)
+	if p.InvocationHTTPParameters != nil {
+		masked.InvocationHTTPParameters = maskHTTPParameters(p.InvocationHTTPParameters)
 	}
 
 	return masked
 }
 
-// maskHttpParameters returns a copy of ConnectionHttpParameters with secret
+// maskHTTPParameters returns a copy of ConnectionHTTPParameters with secret
 // values marked as IsValueSecret=true and Value cleared.
-func maskHttpParameters(p *ConnectionHttpParameters) *ConnectionHttpParameters {
+func maskHTTPParameters(p *ConnectionHTTPParameters) *ConnectionHTTPParameters {
 	if p == nil {
 		return nil
 	}
 
-	m := &ConnectionHttpParameters{}
+	m := &ConnectionHTTPParameters{}
 
 	for _, bp := range p.BodyParameters {
 		mp := ConnectionBodyParameter{Key: bp.Key, IsValueSecret: bp.IsValueSecret}
@@ -2618,7 +2682,11 @@ func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegi
 	defer b.mu.Unlock()
 
 	if _, exists := b.registries[input.RegistryName]; exists {
-		return nil, fmt.Errorf("%w: registry %s already exists", ErrAlreadyExists, input.RegistryName)
+		return nil, fmt.Errorf(
+			"%w: registry %s already exists",
+			ErrAlreadyExists,
+			input.RegistryName,
+		)
 	}
 
 	reg := &SchemaRegistry{
@@ -2686,7 +2754,9 @@ func (b *InMemoryBackend) DescribeRegistry(registryName string) (*SchemaRegistry
 }
 
 // ListRegistries returns schema registries optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRegistries(namePrefix, nextToken string) ([]SchemaRegistry, string, error) {
+func (b *InMemoryBackend) ListRegistries(
+	namePrefix, nextToken string,
+) ([]SchemaRegistry, string, error) {
 	b.mu.RLock("ListRegistries")
 	defer b.mu.RUnlock()
 
@@ -2755,7 +2825,12 @@ func (b *InMemoryBackend) CreateSchema(input CreateSchemaInput) (*Schema, error)
 	}
 
 	if _, exists := b.schemas[input.RegistryName][input.SchemaName]; exists {
-		return nil, fmt.Errorf("%w: schema %s already exists in registry %s", ErrAlreadyExists, input.SchemaName, input.RegistryName)
+		return nil, fmt.Errorf(
+			"%w: schema %s already exists in registry %s",
+			ErrAlreadyExists,
+			input.SchemaName,
+			input.RegistryName,
+		)
 	}
 
 	now := time.Now()
@@ -2809,7 +2884,12 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 	}
 
 	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
-		return fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+		return fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			schemaName,
+			registryName,
+		)
 	}
 
 	delete(b.schemas[registryName], schemaName)
@@ -2828,7 +2908,9 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 }
 
 // DescribeSchema returns the current (or requested version of) a schema.
-func (b *InMemoryBackend) DescribeSchema(registryName, schemaName, schemaVersion string) (*Schema, error) {
+func (b *InMemoryBackend) DescribeSchema(
+	registryName, schemaName, schemaVersion string,
+) (*Schema, error) {
 	if registryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2845,7 +2927,12 @@ func (b *InMemoryBackend) DescribeSchema(registryName, schemaName, schemaVersion
 	}
 
 	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
-		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+		return nil, fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			schemaName,
+			registryName,
+		)
 	}
 
 	schema := b.schemas[registryName][schemaName]
@@ -2874,7 +2961,9 @@ func (b *InMemoryBackend) DescribeSchema(registryName, schemaName, schemaVersion
 }
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
-func (b *InMemoryBackend) ListSchemas(registryName, namePrefix, nextToken string) ([]Schema, string, error) {
+func (b *InMemoryBackend) ListSchemas(
+	registryName, namePrefix, nextToken string,
+) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2901,7 +2990,9 @@ func (b *InMemoryBackend) ListSchemas(registryName, namePrefix, nextToken string
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
-func (b *InMemoryBackend) SearchSchemas(registryName, keywords, nextToken string) ([]Schema, string, error) {
+func (b *InMemoryBackend) SearchSchemas(
+	registryName, keywords, nextToken string,
+) ([]Schema, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2948,8 +3039,14 @@ func (b *InMemoryBackend) UpdateSchema(input UpdateSchemaInput) (*Schema, error)
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	if b.schemas[input.RegistryName] == nil || b.schemas[input.RegistryName][input.SchemaName] == nil {
-		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, input.SchemaName, input.RegistryName)
+	if b.schemas[input.RegistryName] == nil ||
+		b.schemas[input.RegistryName][input.SchemaName] == nil {
+		return nil, fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			input.SchemaName,
+			input.RegistryName,
+		)
 	}
 
 	schema := b.schemas[input.RegistryName][input.SchemaName]
@@ -2994,7 +3091,9 @@ func (b *InMemoryBackend) UpdateSchema(input UpdateSchemaInput) (*Schema, error)
 }
 
 // ListSchemaVersions returns all versions of a schema.
-func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName, nextToken string) ([]SchemaVersion, string, error) {
+func (b *InMemoryBackend) ListSchemaVersions(
+	registryName, schemaName, nextToken string,
+) ([]SchemaVersion, string, error) {
 	if registryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3011,7 +3110,12 @@ func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName, nextToken
 	}
 
 	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
-		return nil, "", fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+		return nil, "", fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			schemaName,
+			registryName,
+		)
 	}
 
 	versionKey := b.schemaVersionKey(registryName, schemaName)
@@ -3028,7 +3132,9 @@ func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName, nextToken
 }
 
 // DescribeSchemaVersion returns a specific schema version.
-func (b *InMemoryBackend) DescribeSchemaVersion(registryName, schemaName, schemaVersion string) (*SchemaVersion, error) {
+func (b *InMemoryBackend) DescribeSchemaVersion(
+	registryName, schemaName, schemaVersion string,
+) (*SchemaVersion, error) {
 	if registryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3053,12 +3159,20 @@ func (b *InMemoryBackend) DescribeSchemaVersion(registryName, schemaName, schema
 		}
 	}
 
-	return nil, fmt.Errorf("%w: schema version %s not found for %s/%s", ErrNotFound, schemaVersion, registryName, schemaName)
+	return nil, fmt.Errorf(
+		"%w: schema version %s not found for %s/%s",
+		ErrNotFound,
+		schemaVersion,
+		registryName,
+		schemaName,
+	)
 }
 
 // DeleteSchemaVersion deletes a specific version of a schema.
 // The latest version cannot be deleted unless it is the only version.
-func (b *InMemoryBackend) DeleteSchemaVersion(registryName, schemaName, schemaVersion string) error {
+func (b *InMemoryBackend) DeleteSchemaVersion(
+	registryName, schemaName, schemaVersion string,
+) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3087,28 +3201,47 @@ func (b *InMemoryBackend) DeleteSchemaVersion(registryName, schemaName, schemaVe
 	}
 
 	if idx < 0 {
-		return fmt.Errorf("%w: schema version %s not found for %s/%s", ErrNotFound, schemaVersion, registryName, schemaName)
+		return fmt.Errorf(
+			"%w: schema version %s not found for %s/%s",
+			ErrNotFound,
+			schemaVersion,
+			registryName,
+			schemaName,
+		)
 	}
 
 	b.schemaVersions[versionKey] = append(versions[:idx], versions[idx+1:]...)
 
 	// If the deleted version was the latest, update the parent schema pointer.
-	if b.schemas[registryName] != nil {
-		if schema, ok := b.schemas[registryName][schemaName]; ok {
-			if schema.SchemaVersion == schemaVersion {
-				remaining := b.schemaVersions[versionKey]
-				if len(remaining) > 0 {
-					latest := remaining[len(remaining)-1]
-					schema.SchemaVersion = latest.SchemaVersion
-					schema.Content = latest.Content
-					schema.Type = latest.Type
-					schema.VersionCreatedDate = latest.CreatedDate
-				}
-			}
-		}
-	}
+	b.maybeUpdateSchemaAfterVersionDelete(registryName, schemaName, schemaVersion, versionKey)
 
 	return nil
+}
+
+// maybeUpdateSchemaAfterVersionDelete updates the parent schema's version pointer when
+// the deleted version was the schema's current latest.
+func (b *InMemoryBackend) maybeUpdateSchemaAfterVersionDelete(
+	registryName, schemaName, schemaVersion, versionKey string,
+) {
+	if b.schemas[registryName] == nil {
+		return
+	}
+
+	schema, ok := b.schemas[registryName][schemaName]
+	if !ok || schema.SchemaVersion != schemaVersion {
+		return
+	}
+
+	remaining := b.schemaVersions[versionKey]
+	if len(remaining) == 0 {
+		return
+	}
+
+	latest := remaining[len(remaining)-1]
+	schema.SchemaVersion = latest.SchemaVersion
+	schema.Content = latest.Content
+	schema.Type = latest.Type
+	schema.VersionCreatedDate = latest.CreatedDate
 }
 
 // GetDiscoveredSchema generates a schema skeleton from one or more event JSON strings.
@@ -3150,8 +3283,14 @@ func (b *InMemoryBackend) PutCodeBinding(input PutCodeBindingInput) (*CodeBindin
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	if b.schemas[input.RegistryName] == nil || b.schemas[input.RegistryName][input.SchemaName] == nil {
-		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, input.SchemaName, input.RegistryName)
+	if b.schemas[input.RegistryName] == nil ||
+		b.schemas[input.RegistryName][input.SchemaName] == nil {
+		return nil, fmt.Errorf(
+			"%w: schema %s not found in registry %s",
+			ErrNotFound,
+			input.SchemaName,
+			input.RegistryName,
+		)
 	}
 
 	schema := b.schemas[input.RegistryName][input.SchemaName]
@@ -3179,7 +3318,9 @@ func (b *InMemoryBackend) PutCodeBinding(input PutCodeBindingInput) (*CodeBindin
 }
 
 // DescribeCodeBinding returns the status of a code binding.
-func (b *InMemoryBackend) DescribeCodeBinding(input DescribeCodeBindingInput) (*CodeBinding, error) {
+func (b *InMemoryBackend) DescribeCodeBinding(
+	input DescribeCodeBindingInput,
+) (*CodeBinding, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3208,7 +3349,9 @@ func (b *InMemoryBackend) DescribeCodeBinding(input DescribeCodeBindingInput) (*
 }
 
 // ListCodeBindings returns all code bindings for a given schema (optionally filtered by version).
-func (b *InMemoryBackend) ListCodeBindings(input ListCodeBindingsInput) ([]CodeBinding, string, error) {
+func (b *InMemoryBackend) ListCodeBindings(
+	input ListCodeBindingsInput,
+) ([]CodeBinding, string, error) {
 	if input.RegistryName == "" {
 		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3244,7 +3387,9 @@ func (b *InMemoryBackend) ListCodeBindings(input ListCodeBindingsInput) ([]CodeB
 
 // GetCodeBindingSource returns placeholder source code for a generated code binding.
 // Real source generation is out of scope for in-process emulation.
-func (b *InMemoryBackend) GetCodeBindingSource(registryName, schemaName, language, schemaVersion string) (string, error) {
+func (b *InMemoryBackend) GetCodeBindingSource(
+	registryName, schemaName, language, schemaVersion string,
+) (string, error) {
 	if registryName == "" {
 		return "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}

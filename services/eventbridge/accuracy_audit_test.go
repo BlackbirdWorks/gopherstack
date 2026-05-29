@@ -2699,7 +2699,7 @@ func TestAudit_Connection_BasicAuthParametersStored(t *testing.T) {
 	assert.Empty(t, conn.AuthParameters.BasicAuthParameters.Password)
 }
 
-func TestAudit_Connection_ApiKeyAuthParametersStored(t *testing.T) {
+func TestAudit_Connection_APIKeyAuthParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
@@ -2707,18 +2707,18 @@ func TestAudit_Connection_ApiKeyAuthParametersStored(t *testing.T) {
 		Name:              "apikey-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
-			ApiKeyAuthParameters: &eventbridge.ConnectionApiKeyAuthParameters{
-				ApiKeyName:  "x-api-key",
-				ApiKeyValue: "my-secret-key",
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "x-api-key",
+				APIKeyValue: "my-secret-key",
 			},
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, conn.AuthParameters)
-	require.NotNil(t, conn.AuthParameters.ApiKeyAuthParameters)
-	assert.Equal(t, "x-api-key", conn.AuthParameters.ApiKeyAuthParameters.ApiKeyName)
+	require.NotNil(t, conn.AuthParameters.APIKeyAuthParameters)
+	assert.Equal(t, "x-api-key", conn.AuthParameters.APIKeyAuthParameters.APIKeyName)
 	// ApiKeyValue masked on return.
-	assert.Empty(t, conn.AuthParameters.ApiKeyAuthParameters.ApiKeyValue)
+	assert.Empty(t, conn.AuthParameters.APIKeyAuthParameters.APIKeyValue)
 }
 
 func TestAudit_Connection_OAuthParametersStored(t *testing.T) {
@@ -2731,7 +2731,7 @@ func TestAudit_Connection_OAuthParametersStored(t *testing.T) {
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
 			OAuthParameters: &eventbridge.ConnectionOAuthParameters{
 				AuthorizationEndpoint: "https://auth.example.com/token",
-				HttpMethod:            "POST",
+				HTTPMethod:            "POST",
 				ClientParameters: &eventbridge.ConnectionOAuthClientParameters{
 					ClientID:     "my-client-id",
 					ClientSecret: "my-client-secret",
@@ -2748,7 +2748,7 @@ func TestAudit_Connection_OAuthParametersStored(t *testing.T) {
 	assert.Empty(t, conn.AuthParameters.OAuthParameters.ClientParameters.ClientSecret)
 }
 
-func TestAudit_Connection_InvocationHttpParametersStored(t *testing.T) {
+func TestAudit_Connection_InvocationHTTPParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
@@ -2756,11 +2756,11 @@ func TestAudit_Connection_InvocationHttpParametersStored(t *testing.T) {
 		Name:              "http-param-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
-			ApiKeyAuthParameters: &eventbridge.ConnectionApiKeyAuthParameters{
-				ApiKeyName:  "x-api-key",
-				ApiKeyValue: "secret",
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "x-api-key",
+				APIKeyValue: "secret",
 			},
-			InvocationHttpParameters: &eventbridge.ConnectionHttpParameters{
+			InvocationHTTPParameters: &eventbridge.ConnectionHTTPParameters{
 				HeaderParameters: []eventbridge.ConnectionHeaderParameter{
 					{Key: "X-Custom-Header", Value: "custom-value"},
 					{Key: "X-Secret-Header", Value: "secret-val", IsValueSecret: true},
@@ -2773,9 +2773,9 @@ func TestAudit_Connection_InvocationHttpParametersStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, conn.AuthParameters)
-	require.NotNil(t, conn.AuthParameters.InvocationHttpParameters)
+	require.NotNil(t, conn.AuthParameters.InvocationHTTPParameters)
 
-	headers := conn.AuthParameters.InvocationHttpParameters.HeaderParameters
+	headers := conn.AuthParameters.InvocationHTTPParameters.HeaderParameters
 	require.Len(t, headers, 2)
 	// Non-secret header value preserved.
 	assert.Equal(t, "custom-value", headers[0].Value)
@@ -2783,7 +2783,7 @@ func TestAudit_Connection_InvocationHttpParametersStored(t *testing.T) {
 	assert.Empty(t, headers[1].Value)
 	assert.True(t, headers[1].IsValueSecret)
 
-	queries := conn.AuthParameters.InvocationHttpParameters.QueryStringParameters
+	queries := conn.AuthParameters.InvocationHTTPParameters.QueryStringParameters
 	require.Len(t, queries, 1)
 	assert.Equal(t, "json", queries[0].Value)
 }
@@ -2808,17 +2808,17 @@ func TestAudit_Connection_UpdateAuthParameters(t *testing.T) {
 		Name:              "update-auth-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
-			ApiKeyAuthParameters: &eventbridge.ConnectionApiKeyAuthParameters{
-				ApiKeyName:  "new-key",
-				ApiKeyValue: "new-secret",
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "new-key",
+				APIKeyValue: "new-secret",
 			},
 		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "API_KEY", updated.AuthorizationType)
 	require.NotNil(t, updated.AuthParameters)
-	require.NotNil(t, updated.AuthParameters.ApiKeyAuthParameters)
-	assert.Equal(t, "new-key", updated.AuthParameters.ApiKeyAuthParameters.ApiKeyName)
+	require.NotNil(t, updated.AuthParameters.APIKeyAuthParameters)
+	assert.Equal(t, "new-key", updated.AuthParameters.APIKeyAuthParameters.APIKeyName)
 }
 
 func TestAudit_Handler_Connection_AuthParametersRoundtrip(t *testing.T) {
