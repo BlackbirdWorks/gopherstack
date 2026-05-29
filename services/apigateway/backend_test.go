@@ -1001,7 +1001,7 @@ func TestBackend_UsagePlan_ApiStages_CRUD(t *testing.T) {
 						RestApiId: api1.ID,
 						Stage:     "prod",
 						Throttle: map[string]*apigateway.ThrottleSettings{
-							"GET /items": {RateLimit: 100, BurstLimit: 50},
+							"GET /items":  {RateLimit: 100, BurstLimit: 50},
 							"POST /items": {RateLimit: 50, BurstLimit: 25},
 						},
 					},

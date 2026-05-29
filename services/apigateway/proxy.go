@@ -1477,7 +1477,7 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 		paramName := rest[typeEnd+1:]
 
 		switch paramType {
-		case "header":
+		case paramLocationHeader:
 			outgoing.Header.Set(paramName, value)
 		case "querystring":
 			outQuery.Set(paramName, value)
@@ -1509,7 +1509,7 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	srcName := rest[typeEnd+1:]
 
 	switch srcType {
-	case "header":
+	case paramLocationHeader:
 		return r.Header.Get(srcName)
 	case "querystring":
 		return r.URL.Query().Get(srcName)

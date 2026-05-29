@@ -1408,7 +1408,7 @@ func TestProxy_APIKeyRequired_InvalidKey_Returns403(t *testing.T) {
 
 	url := "/restapis/" + apiID + "/prod/_user_request_/"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("x-api-key", "definitely-not-a-real-key-value")
+	req.Header.Set("X-Api-Key", "definitely-not-a-real-key-value")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	require.NoError(t, h.Handler()(c))
@@ -1454,7 +1454,7 @@ func TestProxy_APIKeyRequired_ValidKey_Passes(t *testing.T) {
 
 	url := "/restapis/" + api.ID + "/prod/_user_request_/"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("x-api-key", apiKey.Value)
+	req.Header.Set("X-Api-Key", apiKey.Value)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	require.NoError(t, h.Handler()(c))
@@ -1499,7 +1499,7 @@ func TestProxy_APIKeyRequired_DisabledKey_Returns403(t *testing.T) {
 
 	url := "/restapis/" + api.ID + "/prod/_user_request_/"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("x-api-key", apiKey.Value)
+	req.Header.Set("X-Api-Key", apiKey.Value)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	require.NoError(t, h.Handler()(c))
@@ -1577,7 +1577,7 @@ func TestProxy_APIKeyRequired_EnabledThenDisabled(t *testing.T) {
 	makeReq := func() int {
 		url := "/restapis/" + api.ID + "/prod/_user_request_/"
 		req := httptest.NewRequest(http.MethodGet, url, nil)
-		req.Header.Set("x-api-key", apiKey.Value)
+		req.Header.Set("X-Api-Key", apiKey.Value)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		require.NoError(t, h.Handler()(c))

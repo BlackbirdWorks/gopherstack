@@ -464,23 +464,23 @@ type QuotaSettings struct {
 
 // UsagePlan represents an API Gateway usage plan.
 type UsagePlan struct {
-	Tags        *tags.Tags           `json:"tags,omitempty"`
-	Throttle    *ThrottleSettings    `json:"throttle,omitempty"`
-	Quota       *QuotaSettings       `json:"quota,omitempty"`
+	Tags        *tags.Tags            `json:"tags,omitempty"`
+	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
+	Quota       *QuotaSettings        `json:"quota,omitempty"`
 	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
-	ID          string               `json:"id"`
-	Name        string               `json:"name"`
-	Description string               `json:"description,omitempty"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
 }
 
 // CreateUsagePlanInput is the input for CreateUsagePlan.
 type CreateUsagePlanInput struct {
-	Tags        *tags.Tags           `json:"tags,omitempty"`
-	Throttle    *ThrottleSettings    `json:"throttle,omitempty"`
-	Quota       *QuotaSettings       `json:"quota,omitempty"`
+	Tags        *tags.Tags            `json:"tags,omitempty"`
+	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
+	Quota       *QuotaSettings        `json:"quota,omitempty"`
 	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
-	Name        string               `json:"name"`
-	Description string               `json:"description,omitempty"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
 }
 
 // UsagePlanKey represents an API key associated with a usage plan.
@@ -587,12 +587,12 @@ type TestInvokeMethodOutput struct {
 
 // UpdateUsagePlanInput is the input for UpdateUsagePlan.
 type UpdateUsagePlanInput struct {
-	Throttle    *ThrottleSettings    `json:"throttle,omitempty"`
-	Quota       *QuotaSettings       `json:"quota,omitempty"`
+	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
+	Quota       *QuotaSettings        `json:"quota,omitempty"`
 	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
-	Name        string               `json:"name,omitempty"`
-	Description string               `json:"description,omitempty"`
-	UsagePlanID string               `json:"usagePlanId"`
+	Name        string                `json:"name,omitempty"`
+	Description string                `json:"description,omitempty"`
+	UsagePlanID string                `json:"usagePlanId"`
 }
 
 // ApiStageAssociation associates a usage plan with a specific REST API stage.

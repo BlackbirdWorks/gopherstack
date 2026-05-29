@@ -261,6 +261,8 @@ const (
 	exportKeyBody        = "body"
 )
 
+const paramLocationHeader = "header"
+
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
 // The full URL is relative — clients prepend their gopherstack base URL.
 func stageInvokeURL(restAPIID, stageName string) string {
@@ -2790,59 +2792,51 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 		m.MethodIntegration = &Integration{}
 	}
 
-	if input.URI != "" {
-		m.MethodIntegration.URI = input.URI
-	}
-
-	if input.IntegrationType != "" {
-		m.MethodIntegration.Type = input.IntegrationType
-	}
-
-	if input.IntegrationHTTPMethod != "" {
-		m.MethodIntegration.HTTPMethod = input.IntegrationHTTPMethod
-	}
-
-	if len(input.RequestTemplates) > 0 {
-		m.MethodIntegration.RequestTemplates = input.RequestTemplates
-	}
-
-	if len(input.RequestParameters) > 0 {
-		m.MethodIntegration.RequestParameters = input.RequestParameters
-	}
-
-	if len(input.CacheKeyParameters) > 0 {
-		m.MethodIntegration.CacheKeyParameters = input.CacheKeyParameters
-	}
-
-	if input.PassthroughBehavior != "" {
-		m.MethodIntegration.PassthroughBehavior = input.PassthroughBehavior
-	}
-
-	if input.ConnectionType != "" {
-		m.MethodIntegration.ConnectionType = input.ConnectionType
-	}
-
-	if input.ConnectionId != "" {
-		m.MethodIntegration.ConnectionId = input.ConnectionId
-	}
-
-	if input.ContentHandling != "" {
-		m.MethodIntegration.ContentHandling = input.ContentHandling
-	}
-
-	if input.Credentials != "" {
-		m.MethodIntegration.Credentials = input.Credentials
-	}
-
-	if input.CacheNamespace != "" {
-		m.MethodIntegration.CacheNamespace = input.CacheNamespace
-	}
-
-	if input.TimeoutInMillis > 0 {
-		m.MethodIntegration.TimeoutInMillis = input.TimeoutInMillis
-	}
+	applyIntegrationFields(m.MethodIntegration, input)
 
 	return m.MethodIntegration, nil
+}
+
+func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
+	if input.URI != "" {
+		intg.URI = input.URI
+	}
+	if input.IntegrationType != "" {
+		intg.Type = input.IntegrationType
+	}
+	if input.IntegrationHTTPMethod != "" {
+		intg.HTTPMethod = input.IntegrationHTTPMethod
+	}
+	if len(input.RequestTemplates) > 0 {
+		intg.RequestTemplates = input.RequestTemplates
+	}
+	if len(input.RequestParameters) > 0 {
+		intg.RequestParameters = input.RequestParameters
+	}
+	if len(input.CacheKeyParameters) > 0 {
+		intg.CacheKeyParameters = input.CacheKeyParameters
+	}
+	if input.PassthroughBehavior != "" {
+		intg.PassthroughBehavior = input.PassthroughBehavior
+	}
+	if input.ConnectionType != "" {
+		intg.ConnectionType = input.ConnectionType
+	}
+	if input.ConnectionId != "" {
+		intg.ConnectionId = input.ConnectionId
+	}
+	if input.ContentHandling != "" {
+		intg.ContentHandling = input.ContentHandling
+	}
+	if input.Credentials != "" {
+		intg.Credentials = input.Credentials
+	}
+	if input.CacheNamespace != "" {
+		intg.CacheNamespace = input.CacheNamespace
+	}
+	if input.TimeoutInMillis > 0 {
+		intg.TimeoutInMillis = input.TimeoutInMillis
+	}
 }
 
 // UpdateIntegrationResponse updates an integration response's templates or selection pattern.
@@ -3334,7 +3328,7 @@ func buildSwagger20Export(data *apiData, stageName string) map[string]any {
 		exportKeyAPIKey: map[string]any{
 			exportKeyType: "apiKey",
 			keyAPIName:    "x-api-key",
-			"in":          "header",
+			"in":          paramLocationHeader,
 		},
 	}
 
@@ -3356,7 +3350,7 @@ func buildOAS30Export(data *apiData, stageName string) map[string]any {
 			exportKeyAPIKey: map[string]any{
 				exportKeyType: "apiKey",
 				keyAPIName:    "x-api-key",
-				"in":          "header",
+				"in":          paramLocationHeader,
 			},
 		},
 	}
