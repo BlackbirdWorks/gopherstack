@@ -224,6 +224,10 @@ func (n *noopBackend) GetAPIKey(_ string) (*apigateway.APIKey, error) {
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) GetAPIKeyByValue(_ string) (*apigateway.APIKey, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) GetAPIKeys() ([]apigateway.APIKey, error) {
 	return nil, errNoopNotImplemented
 }

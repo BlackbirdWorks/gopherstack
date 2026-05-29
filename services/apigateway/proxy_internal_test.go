@@ -1,6 +1,8 @@
 package apigateway
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -166,6 +168,243 @@ func TestFindMatchingResource(t *testing.T) {
 			require.NotNil(t, resource)
 			assert.Equal(t, tt.want.resourceID, resource.ID)
 			assert.Equal(t, tt.want.params, params)
+		})
+	}
+}
+
+func TestResolveRequestParamSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		src    string
+		setup  func(r *http.Request)
+		expect string
+	}{
+		{
+			name:   "static_value",
+			src:    "myservice",
+			setup:  func(_ *http.Request) {},
+			expect: "myservice",
+		},
+		{
+			name: "method_request_header",
+			src:  "method.request.header.Authorization",
+			setup: func(r *http.Request) {
+				r.Header.Set("Authorization", "Bearer tok")
+			},
+			expect: "Bearer tok",
+		},
+		{
+			name:   "method_request_header_missing",
+			src:    "method.request.header.X-Missing",
+			setup:  func(_ *http.Request) {},
+			expect: "",
+		},
+		{
+			name: "method_request_querystring",
+			src:  "method.request.querystring.userId",
+			setup: func(r *http.Request) {
+				q := r.URL.Query()
+				q.Set("userId", "42")
+				r.URL.RawQuery = q.Encode()
+			},
+			expect: "42",
+		},
+		{
+			name:   "unknown_method_type",
+			src:    "method.request.body",
+			setup:  func(_ *http.Request) {},
+			expect: "",
+		},
+		{
+			name:   "not_method_prefix",
+			src:    "stageVariables.something",
+			setup:  func(_ *http.Request) {},
+			expect: "stageVariables.something",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := httptest.NewRequest(http.MethodGet, "https://example.com/api?", nil)
+			tt.setup(r)
+			got := resolveRequestParamSource(r, tt.src)
+			assert.Equal(t, tt.expect, got)
+		})
+	}
+}
+
+func TestResolveResponseParamSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		src    string
+		expect string
+	}{
+		{
+			name:   "static_value",
+			src:    "fixed-value",
+			expect: "fixed-value",
+		},
+		{
+			name:   "integration_response_header",
+			src:    "integration.response.header.X-Amzn-Requestid",
+			expect: "X-Amzn-Requestid",
+		},
+		{
+			name:   "empty_string",
+			src:    "",
+			expect: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := resolveResponseParamSource(tt.src)
+			assert.Equal(t, tt.expect, got)
+		})
+	}
+}
+
+func TestApplyIntegrationRequestParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params        map[string]string
+		setupIncoming func(r *http.Request)
+		checkOutgoing func(t *testing.T, r *http.Request)
+		name          string
+	}{
+		{
+			name: "header_from_method_header",
+			params: map[string]string{
+				"integration.request.header.X-Api-Caller": "method.request.header.Authorization",
+			},
+			setupIncoming: func(r *http.Request) {
+				r.Header.Set("Authorization", "Bearer token123")
+			},
+			checkOutgoing: func(t *testing.T, r *http.Request) {
+				t.Helper()
+				assert.Equal(t, "Bearer token123", r.Header.Get("X-Api-Caller"))
+			},
+		},
+		{
+			name: "querystring_from_method_querystring",
+			params: map[string]string{
+				"integration.request.querystring.user_id": "method.request.querystring.userId",
+			},
+			setupIncoming: func(r *http.Request) {
+				q := r.URL.Query()
+				q.Set("userId", "99")
+				r.URL.RawQuery = q.Encode()
+			},
+			checkOutgoing: func(t *testing.T, r *http.Request) {
+				t.Helper()
+				assert.Equal(t, "99", r.URL.Query().Get("user_id"))
+			},
+		},
+		{
+			name: "static_header_value",
+			params: map[string]string{
+				"integration.request.header.X-Service": "myservice",
+			},
+			setupIncoming: func(_ *http.Request) {},
+			checkOutgoing: func(t *testing.T, r *http.Request) {
+				t.Helper()
+				assert.Equal(t, "myservice", r.Header.Get("X-Service"))
+			},
+		},
+		{
+			name: "missing_source_value_skipped",
+			params: map[string]string{
+				"integration.request.header.X-Missing": "method.request.header.X-Not-Present",
+			},
+			setupIncoming: func(_ *http.Request) {},
+			checkOutgoing: func(t *testing.T, r *http.Request) {
+				t.Helper()
+				assert.Empty(t, r.Header.Get("X-Missing"))
+			},
+		},
+		{
+			name: "non_integration_dest_ignored",
+			params: map[string]string{
+				"method.response.header.X-Foo": "bar",
+			},
+			setupIncoming: func(_ *http.Request) {},
+			checkOutgoing: func(t *testing.T, r *http.Request) {
+				t.Helper()
+				assert.Empty(t, r.Header.Get("X-Foo"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			incoming := httptest.NewRequest(http.MethodGet, "https://example.com/api?", nil)
+			tt.setupIncoming(incoming)
+
+			outgoing := httptest.NewRequest(http.MethodGet, "https://upstream.example.com/", nil)
+			applyIntegrationRequestParams(incoming, outgoing, tt.params)
+			tt.checkOutgoing(t, outgoing)
+		})
+	}
+}
+
+func TestApplyIntegrationResponseParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params      map[string]string
+		checkResult func(t *testing.T, w *httptest.ResponseRecorder)
+		name        string
+	}{
+		{
+			name: "static_header",
+			params: map[string]string{
+				"method.response.header.X-Version": "v2",
+			},
+			checkResult: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, "v2", w.Header().Get("X-Version"))
+			},
+		},
+		{
+			name: "integration_response_header_echo",
+			params: map[string]string{
+				"method.response.header.X-Request-Id": "integration.response.header.X-Amzn-Requestid",
+			},
+			checkResult: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, "X-Amzn-Requestid", w.Header().Get("X-Request-Id"))
+			},
+		},
+		{
+			name: "non_method_response_dest_ignored",
+			params: map[string]string{
+				"integration.request.header.X-Foo": "bar",
+			},
+			checkResult: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Empty(t, w.Header().Get("X-Foo"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			applyIntegrationResponseParams(w, tt.params)
+			tt.checkResult(t, w)
 		})
 	}
 }

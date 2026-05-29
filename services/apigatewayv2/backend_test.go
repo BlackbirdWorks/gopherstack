@@ -1025,3 +1025,82 @@ func TestInMemoryBackend_ExportAPI(t *testing.T) {
 	_, err = b.ExportAPI("nonexistent")
 	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
 }
+
+func TestDomainNameConfiguration_SecurityPolicy_Defaults(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "tls.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+				EndpointType:   "REGIONAL",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+
+	cfg := dn.DomainNameConfigurations[0]
+	assert.Equal(t, "TLS_1_2", cfg.SecurityPolicy)
+	assert.Equal(t, "AVAILABLE", cfg.DomainNameStatus)
+	assert.NotEmpty(t, cfg.APIGatewayDomainName)
+	assert.NotEmpty(t, cfg.HostedZoneID)
+}
+
+func TestDomainNameConfiguration_CustomSecurityPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "custom-tls.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/xyz",
+				EndpointType:   "REGIONAL",
+				SecurityPolicy: "TLS_1_0",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, "TLS_1_0", dn.DomainNameConfigurations[0].SecurityPolicy)
+}
+
+func TestDomainNameConfiguration_ApiGatewayDomainName_Contains_DomainName(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.mycompany.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc", EndpointType: "REGIONAL"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Contains(t, dn.DomainNameConfigurations[0].APIGatewayDomainName, "api.mycompany.com")
+}
+
+func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	customDomain := "d-abc123.execute-api.us-east-1.amazonaws.com"
+	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "custom.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn:       "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+				EndpointType:         "REGIONAL",
+				APIGatewayDomainName: customDomain,
+				HostedZoneID:         "Z1HUB23UULQXV",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, customDomain, dn.DomainNameConfigurations[0].APIGatewayDomainName)
+	assert.Equal(t, "Z1HUB23UULQXV", dn.DomainNameConfigurations[0].HostedZoneID)
+}

@@ -112,6 +112,7 @@ type StorageBackend interface {
 	// API Keys
 	CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 	GetAPIKey(id string) (*APIKey, error)
+	GetAPIKeyByValue(value string) (*APIKey, error)
 	GetAPIKeys() ([]APIKey, error)
 	GetAPIKeysPage(limit int, position string) ([]APIKey, string, error)
 	DeleteAPIKey(id string) error
@@ -259,6 +260,8 @@ const (
 	exportKeyObject      = "object"
 	exportKeyBody        = "body"
 )
+
+const paramLocationHeader = "header"
 
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
 // The full URL is relative — clients prepend their gopherstack base URL.
@@ -691,6 +694,14 @@ func (b *InMemoryBackend) PutIntegration(
 		URI:                  input.URI,
 		PassthroughBehavior:  input.PassthroughBehavior,
 		RequestTemplates:     input.RequestTemplates,
+		RequestParameters:    input.RequestParameters,
+		CacheKeyParameters:   input.CacheKeyParameters,
+		ConnectionType:       input.ConnectionType,
+		ConnectionID:         input.ConnectionID,
+		ContentHandling:      input.ContentHandling,
+		Credentials:          input.Credentials,
+		CacheNamespace:       input.CacheNamespace,
+		TimeoutInMillis:      input.TimeoutInMillis,
 		IntegrationResponses: make(map[string]*IntegrationResponse),
 	}
 	m.MethodIntegration = integ
@@ -1582,12 +1593,39 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 	now := unixEpochTime{time.Now()}
 	backendTags := initTagsFromInput("apigw.domain."+input.DomainName+".tags", input.Tags)
 
+	securityPolicy := input.SecurityPolicy
+	if securityPolicy == "" {
+		securityPolicy = "TLS_1_2"
+	}
+
+	endpointType := "REGIONAL"
+	if input.EndpointConfiguration != nil && len(input.EndpointConfiguration.Types) > 0 {
+		endpointType = input.EndpointConfiguration.Types[0]
+	}
+
+	var epConfig *EndpointConfiguration
+	if input.EndpointConfiguration != nil {
+		epConfig = input.EndpointConfiguration
+	} else {
+		epConfig = &EndpointConfiguration{Types: []string{endpointType}}
+	}
+
+	regionalDomain := input.DomainName + ".execute-api.us-east-1.amazonaws.com"
+	distributionDomain := input.DomainName + ".cloudfront.net"
+
 	dn := &DomainName{
-		DomainNameValue:        input.DomainName,
-		CertificateARN:         input.CertificateARN,
-		RegionalCertificateARN: input.RegionalCertificateARN,
-		Tags:                   backendTags,
-		CreatedDate:            &now,
+		DomainNameValue:          input.DomainName,
+		CertificateARN:           input.CertificateARN,
+		RegionalCertificateARN:   input.RegionalCertificateARN,
+		SecurityPolicy:           securityPolicy,
+		EndpointConfiguration:    epConfig,
+		RegionalDomainName:       regionalDomain,
+		RegionalHostedZoneID:     "Z2FDTNDATAQYW2",
+		DistributionDomainName:   distributionDomain,
+		DistributionHostedZoneID: "Z2FDTNDATAQYW2",
+		DomainNameStatus:         "AVAILABLE",
+		Tags:                     backendTags,
+		CreatedDate:              &now,
 	}
 	b.domainNames[input.DomainName] = dn
 
@@ -1715,17 +1753,18 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 
 	now := unixEpochTime{time.Now()}
 	stage := &Stage{
-		StageName:         input.StageName,
-		RestAPIID:         input.RestAPIID,
-		DeploymentID:      input.DeploymentID,
-		Description:       input.Description,
-		Variables:         variables,
-		CreatedDate:       now,
-		LastUpdatedDate:   now,
-		CanarySettings:    input.CanarySettings,
-		AccessLogSettings: input.AccessLogSettings,
-		MethodSettings:    input.MethodSettings,
-		TracingEnabled:    input.TracingEnabled,
+		StageName:           input.StageName,
+		RestAPIID:           input.RestAPIID,
+		DeploymentID:        input.DeploymentID,
+		Description:         input.Description,
+		Variables:           variables,
+		CreatedDate:         now,
+		LastUpdatedDate:     now,
+		CanarySettings:      input.CanarySettings,
+		AccessLogSettings:   input.AccessLogSettings,
+		MethodSettings:      input.MethodSettings,
+		TracingEnabled:      input.TracingEnabled,
+		ClientCertificateID: input.ClientCertificateID,
 	}
 	d.stages[input.StageName] = stage
 
@@ -1752,6 +1791,7 @@ func (b *InMemoryBackend) CreateUsagePlan(input CreateUsagePlanInput) (*UsagePla
 		Description: input.Description,
 		Throttle:    input.Throttle,
 		Quota:       input.Quota,
+		APIStages:   input.APIStages,
 		Tags:        backendTags,
 	}
 	b.usagePlans[id] = plan
@@ -1821,6 +1861,21 @@ func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
 	cp := *key
 
 	return &cp, nil
+}
+
+// GetAPIKeyByValue retrieves an API key by its value (the secret string sent in x-api-key).
+func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
+	b.mu.RLock("GetAPIKeyByValue")
+	defer b.mu.RUnlock()
+	for _, k := range b.apiKeys {
+		if k.Value == value {
+			cp := *k
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 }
 
 // GetAPIKeys returns all API keys sorted by ID.
@@ -2074,6 +2129,9 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	}
 	if input.TracingEnabled != nil {
 		stage.TracingEnabled = *input.TracingEnabled
+	}
+	if input.ClientCertificateID != "" {
+		stage.ClientCertificateID = input.ClientCertificateID
 	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
@@ -2565,6 +2623,10 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
+	if len(input.APIStages) > 0 {
+		p.APIStages = input.APIStages
+	}
+
 	return p, nil
 }
 
@@ -2580,6 +2642,18 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 
 	if input.CertificateARN != "" {
 		d.CertificateARN = input.CertificateARN
+	}
+
+	if input.RegionalCertificateARN != "" {
+		d.RegionalCertificateARN = input.RegionalCertificateARN
+	}
+
+	if input.SecurityPolicy != "" {
+		d.SecurityPolicy = input.SecurityPolicy
+	}
+
+	if input.EndpointConfiguration != nil {
+		d.EndpointConfiguration = input.EndpointConfiguration
 	}
 
 	return d, nil
@@ -2720,27 +2794,51 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 		m.MethodIntegration = &Integration{}
 	}
 
-	if input.URI != "" {
-		m.MethodIntegration.URI = input.URI
-	}
-
-	if input.IntegrationType != "" {
-		m.MethodIntegration.Type = input.IntegrationType
-	}
-
-	if len(input.RequestTemplates) > 0 {
-		m.MethodIntegration.RequestTemplates = input.RequestTemplates
-	}
-
-	if input.PassthroughBehavior != "" {
-		m.MethodIntegration.PassthroughBehavior = input.PassthroughBehavior
-	}
-
-	if input.TimeoutInMillis > 0 {
-		m.MethodIntegration.TimeoutInMillis = input.TimeoutInMillis
-	}
+	applyIntegrationFields(m.MethodIntegration, input)
 
 	return m.MethodIntegration, nil
+}
+
+func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
+	if input.URI != "" {
+		intg.URI = input.URI
+	}
+	if input.IntegrationType != "" {
+		intg.Type = input.IntegrationType
+	}
+	if input.IntegrationHTTPMethod != "" {
+		intg.HTTPMethod = input.IntegrationHTTPMethod
+	}
+	if len(input.RequestTemplates) > 0 {
+		intg.RequestTemplates = input.RequestTemplates
+	}
+	if len(input.RequestParameters) > 0 {
+		intg.RequestParameters = input.RequestParameters
+	}
+	if len(input.CacheKeyParameters) > 0 {
+		intg.CacheKeyParameters = input.CacheKeyParameters
+	}
+	if input.PassthroughBehavior != "" {
+		intg.PassthroughBehavior = input.PassthroughBehavior
+	}
+	if input.ConnectionType != "" {
+		intg.ConnectionType = input.ConnectionType
+	}
+	if input.ConnectionID != "" {
+		intg.ConnectionID = input.ConnectionID
+	}
+	if input.ContentHandling != "" {
+		intg.ContentHandling = input.ContentHandling
+	}
+	if input.Credentials != "" {
+		intg.Credentials = input.Credentials
+	}
+	if input.CacheNamespace != "" {
+		intg.CacheNamespace = input.CacheNamespace
+	}
+	if input.TimeoutInMillis > 0 {
+		intg.TimeoutInMillis = input.TimeoutInMillis
+	}
 }
 
 // UpdateIntegrationResponse updates an integration response's templates or selection pattern.
@@ -3232,7 +3330,7 @@ func buildSwagger20Export(data *apiData, stageName string) map[string]any {
 		exportKeyAPIKey: map[string]any{
 			exportKeyType: "apiKey",
 			keyAPIName:    "x-api-key",
-			"in":          "header",
+			"in":          paramLocationHeader,
 		},
 	}
 
@@ -3254,7 +3352,7 @@ func buildOAS30Export(data *apiData, stageName string) map[string]any {
 			exportKeyAPIKey: map[string]any{
 				exportKeyType: "apiKey",
 				keyAPIName:    "x-api-key",
-				"in":          "header",
+				"in":          paramLocationHeader,
 			},
 		},
 	}
