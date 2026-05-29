@@ -557,15 +557,15 @@ type DBShardGroup struct {
 
 // Integration represents an RDS zero-ETL integration to Amazon Redshift.
 type Integration struct {
-	CreatedAt             time.Time `json:"createdAt"`
-	IntegrationArn        string    `json:"integrationArn"`
-	IntegrationName       string    `json:"integrationName"`
-	SourceArn             string    `json:"sourceArn"`
-	TargetArn             string    `json:"targetArn"`
-	KmsKeyID              string    `json:"kmsKeyId,omitempty"`
-	DataFilter            string    `json:"dataFilter,omitempty"`
-	IntegrationDescription string   `json:"integrationDescription,omitempty"`
-	Status                string    `json:"status"`
+	CreatedAt              time.Time `json:"createdAt"`
+	IntegrationArn         string    `json:"integrationArn"`
+	IntegrationName        string    `json:"integrationName"`
+	SourceArn              string    `json:"sourceArn"`
+	TargetArn              string    `json:"targetArn"`
+	KmsKeyID               string    `json:"kmsKeyId,omitempty"`
+	DataFilter             string    `json:"dataFilter,omitempty"`
+	IntegrationDescription string    `json:"integrationDescription,omitempty"`
+	Status                 string    `json:"status"`
 }
 
 // TenantDatabase represents a tenant database within a multi-tenant RDS instance.
@@ -1013,6 +1013,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		ReadReplicaIdentifiers:           []string{},
 		PubliclyAccessible:               opts.PubliclyAccessible,
 		PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
+		StorageOptimized:                 opts.StorageOptimized,
+		OptimizedWrites:                  opts.OptimizedWrites,
+		EngineLifecycleSupport:           opts.EngineLifecycleSupport,
 	}
 	b.instances[id] = inst
 	b.publishInstanceEventLocked(id, "DB instance created")
@@ -2147,6 +2150,12 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 
 // applyDBClusterOpts applies DBClusterOptions fields to a cluster in-place.
 func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBClusterOptions) {
+	applyDBClusterStringOpts(cluster, paramGroupName, opts)
+	applyDBClusterBoolOpts(cluster, opts)
+}
+
+// applyDBClusterStringOpts applies string and numeric fields from opts to cluster.
+func applyDBClusterStringOpts(cluster *DBCluster, paramGroupName string, opts DBClusterOptions) {
 	if paramGroupName != "" {
 		cluster.DBClusterParameterGroupName = paramGroupName
 	}
@@ -2171,6 +2180,22 @@ func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBCluste
 	if opts.MonitoringInterval >= 0 {
 		cluster.MonitoringInterval = opts.MonitoringInterval
 	}
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+	if opts.StorageType != "" {
+		cluster.StorageType = opts.StorageType
+	}
+	if opts.NetworkType != "" {
+		cluster.NetworkType = opts.NetworkType
+	}
+	if opts.EngineLifecycleSupport != "" {
+		cluster.EngineLifecycleSupport = opts.EngineLifecycleSupport
+	}
+}
+
+// applyDBClusterBoolOpts applies boolean fields from opts to cluster.
+func applyDBClusterBoolOpts(cluster *DBCluster, opts DBClusterOptions) {
 	if opts.MultiAZ {
 		cluster.MultiAZ = opts.MultiAZ
 	}
@@ -2184,18 +2209,6 @@ func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBCluste
 		cluster.DeletionProtection = opts.DeletionProtection
 	} else if opts.DeletionProtection {
 		cluster.DeletionProtection = true
-	}
-	if len(opts.EnabledCloudwatchLogsExports) > 0 {
-		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
-	}
-	if opts.StorageType != "" {
-		cluster.StorageType = opts.StorageType
-	}
-	if opts.NetworkType != "" {
-		cluster.NetworkType = opts.NetworkType
-	}
-	if opts.EngineLifecycleSupport != "" {
-		cluster.EngineLifecycleSupport = opts.EngineLifecycleSupport
 	}
 	if opts.OptimizedWrites {
 		cluster.OptimizedWrites = true

@@ -34,9 +34,9 @@ type xmlCustomDBEngineVersionList struct {
 }
 
 type describeCustomDBEngineVersionsResponse struct {
-	XMLName              xml.Name                     `xml:"DescribeCustomDBEngineVersionsResponse"`
-	Xmlns                string                       `xml:"xmlns,attr"`
-	Marker               string                       `xml:"DescribeCustomDBEngineVersionsResult>Marker,omitempty"`
+	XMLName                xml.Name                     `xml:"DescribeCustomDBEngineVersionsResponse"`
+	Xmlns                  string                       `xml:"xmlns,attr"`
+	Marker                 string                       `xml:"DescribeCustomDBEngineVersionsResult>Marker,omitempty"`
 	CustomDBEngineVersions xmlCustomDBEngineVersionList `xml:"DescribeCustomDBEngineVersionsResult>CustomDBEngineVersions"`
 }
 
@@ -66,8 +66,8 @@ func (h *Handler) handleDescribeCustomDBEngineVersions(vals url.Values) (any, er
 	}
 
 	return &describeCustomDBEngineVersionsResponse{
-		Xmlns:  rdsXMLNS,
-		Marker: marker,
+		Xmlns:                  rdsXMLNS,
+		Marker:                 marker,
 		CustomDBEngineVersions: xmlCustomDBEngineVersionList{Members: members},
 	}, nil
 }
@@ -80,45 +80,67 @@ func (h *Handler) handleGetPerformanceInsightsMetricsReal(vals url.Values) (any,
 		resourceID = vals.Get("ResourceIdentifier")
 	}
 
-	periodRaw := vals.Get("PeriodInSeconds")
-	period := 60
-	if periodRaw != "" {
-		if v, err := strconv.Atoi(periodRaw); err == nil && v > 0 {
-			period = v
-		}
+	period := parsePIPeriod(vals.Get("PeriodInSeconds"))
+	startTime, endTime := parsePITimeRange(vals.Get("StartTime"), vals.Get("EndTime"))
+	metricKeyDataPoints := h.collectPIMetrics(vals, resourceID, startTime, endTime, period)
+
+	return &getPerformanceInsightsMetricsResponse{
+		Xmlns:            rdsXMLNS,
+		AlignedStartTime: startTime.UTC().Format(time.RFC3339),
+		AlignedEndTime:   endTime.UTC().Format(time.RFC3339),
+		MetricList:       xmlMetricKeyDataPointsList{Members: metricKeyDataPoints},
+	}, nil
+}
+
+func parsePIPeriod(raw string) int {
+	const defaultPeriod = 60
+	if raw == "" {
+		return defaultPeriod
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return defaultPeriod
 	}
 
-	startRaw := vals.Get("StartTime")
-	endRaw := vals.Get("EndTime")
+	return v
+}
 
-	var startTime, endTime time.Time
+func parsePITimeRange(startRaw, endRaw string) (time.Time, time.Time) {
+	var start, end time.Time
 
 	if endRaw != "" {
 		if t, err := time.Parse(time.RFC3339, endRaw); err == nil {
-			endTime = t
+			end = t
 		}
 	}
 
-	if endTime.IsZero() {
-		endTime = time.Now().UTC()
+	if end.IsZero() {
+		end = time.Now().UTC()
 	}
 
 	if startRaw != "" {
 		if t, err := time.Parse(time.RFC3339, startRaw); err == nil {
-			startTime = t
+			start = t
 		}
 	}
 
-	if startTime.IsZero() {
-		startTime = endTime.Add(-time.Hour)
+	if start.IsZero() {
+		start = end.Add(-time.Hour)
 	}
 
-	var metricKeyDataPoints []xmlMetricKeyDataPoints
+	return start, end
+}
+
+func (h *Handler) collectPIMetrics(
+	vals url.Values,
+	resourceID string,
+	startTime, endTime time.Time,
+	period int,
+) []xmlMetricKeyDataPoints {
+	var result []xmlMetricKeyDataPoints
 
 	for i := 1; ; i++ {
-		metricKey := fmt.Sprintf("MetricQueries.member.%d.Metric", i)
-		metric := vals.Get(metricKey)
-
+		metric := vals.Get(fmt.Sprintf("MetricQueries.member.%d.Metric", i))
 		if metric == "" {
 			if i == 1 {
 				metric = "db.load.avg"
@@ -128,29 +150,18 @@ func (h *Handler) handleGetPerformanceInsightsMetricsReal(vals url.Values) (any,
 		}
 
 		points := h.Backend.GetPerformanceInsightsData(resourceID, metric, startTime, endTime, period)
-
 		dataPoints := make([]xmlDataPoint, 0, len(points))
+
 		for _, p := range points {
-			dataPoints = append(dataPoints, xmlDataPoint{
-				Timestamp: p.Timestamp,
-				Value:     p.Value,
-			})
+			dataPoints = append(dataPoints, xmlDataPoint(p))
 		}
 
-		metricKeyDataPoints = append(metricKeyDataPoints, xmlMetricKeyDataPoints{
-			Metric:     metric,
-			DataPoints: dataPoints,
-		})
+		result = append(result, xmlMetricKeyDataPoints{Metric: metric, DataPoints: dataPoints})
 
 		if vals.Get(fmt.Sprintf("MetricQueries.member.%d.Metric", i+1)) == "" {
 			break
 		}
 	}
 
-	return &getPerformanceInsightsMetricsResponse{
-		Xmlns:            rdsXMLNS,
-		AlignedStartTime: startTime.UTC().Format(time.RFC3339),
-		AlignedEndTime:   endTime.UTC().Format(time.RFC3339),
-		MetricList:       xmlMetricKeyDataPointsList{Members: metricKeyDataPoints},
-	}, nil
+	return result
 }

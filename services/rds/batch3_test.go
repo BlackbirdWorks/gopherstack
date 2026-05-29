@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -107,16 +108,10 @@ func TestDescribeCustomDBEngineVersions_InSupportedOps(t *testing.T) {
 	h := newBatch3Handler()
 	ops := h.GetSupportedOperations()
 
-	found := false
-	for _, op := range ops {
-		if op == "DescribeCustomDBEngineVersions" {
-			found = true
-
-			break
-		}
-	}
-
-	assert.True(t, found, "DescribeCustomDBEngineVersions should be in supported operations")
+	assert.True(t,
+		slices.Contains(ops, "DescribeCustomDBEngineVersions"),
+		"DescribeCustomDBEngineVersions should be in supported operations",
+	)
 }
 
 // ---- DBCluster new fields ----
@@ -378,8 +373,8 @@ func TestDBShardGroup_DescribeIncludesAllFields(t *testing.T) {
 	require.Len(t, groups, 1)
 
 	sg := groups[0]
-	assert.Equal(t, float64(100), sg.MaxACU)
-	assert.Equal(t, float64(1.0), sg.MinACU)
+	assert.InDelta(t, float64(100), sg.MaxACU, 0.001)
+	assert.InDelta(t, float64(1.0), sg.MinACU, 0.001)
 	assert.Equal(t, 2, sg.ComputeRedundancy)
 	assert.True(t, sg.PubliclyAccessible)
 	assert.NotEmpty(t, sg.Endpoint)
@@ -555,10 +550,10 @@ func TestPerformanceInsights_Deterministic(t *testing.T) {
 	points1 := b.GetPerformanceInsightsData("db-1", "db.load.avg", start, end, 60)
 	points2 := b.GetPerformanceInsightsData("db-1", "db.load.avg", start, end, 60)
 
-	require.Equal(t, len(points1), len(points2))
+	require.Len(t, points2, len(points1))
 	for i := range points1 {
 		assert.Equal(t, points1[i].Timestamp, points2[i].Timestamp)
-		assert.Equal(t, points1[i].Value, points2[i].Value)
+		assert.InDelta(t, points1[i].Value, points2[i].Value, 0)
 	}
 }
 
@@ -572,7 +567,7 @@ func TestPerformanceInsights_DifferentResourcesDifferentData(t *testing.T) {
 	points1 := b.GetPerformanceInsightsData("db-resource-A", "db.load.avg", start, end, 60)
 	points2 := b.GetPerformanceInsightsData("db-resource-B", "db.load.avg", start, end, 60)
 
-	require.Equal(t, len(points1), len(points2), "same time window should yield same number of points")
+	require.Len(t, points2, len(points1), "same time window should yield same number of points")
 
 	differentCount := 0
 	for i := range points1 {
@@ -581,7 +576,7 @@ func TestPerformanceInsights_DifferentResourcesDifferentData(t *testing.T) {
 		}
 	}
 
-	assert.Greater(t, differentCount, 0, "different resources should produce different values")
+	assert.Positive(t, differentCount, "different resources should produce different values")
 }
 
 func TestPerformanceInsights_ViaHandler(t *testing.T) {

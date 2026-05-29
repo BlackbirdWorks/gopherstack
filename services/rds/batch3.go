@@ -8,15 +8,13 @@ package rds
 
 import (
 	"fmt"
+	"hash/fnv"
 	"slices"
+	"strconv"
 	"time"
 )
 
 const (
-	recommendationStatusActive   = "active"
-	recommendationStatusInactive = "inactive"
-	recommendationStatusPaused   = "paused"
-
 	engineLifecycleSupportOpenSource         = "open-source-rds-extended-support"
 	engineLifecycleSupportOpenSourceDisabled = "open-source-rds-extended-support-disabled"
 
@@ -26,8 +24,8 @@ const (
 	storageTypeGP2               = "gp2"
 	storageTypeGP3               = "gp3"
 
-	networkTypeIPV4 = "IPV4"
-	networkTypeDual = "DUAL"
+	piValueRange = 1000
+	piValueScale = 100.0
 )
 
 // DescribeCustomDBEngineVersions returns all custom engine versions, filtered by engine
@@ -124,27 +122,25 @@ type PIDataPoint struct {
 	Value     float64
 }
 
-// piSeed computes a stable hash seed from resourceID + metric.
+// piSeed hashes resourceID and metric into a 64-bit seed.
 func piSeed(resourceID, metric string) uint64 {
-	var h uint64 = 14695981039346656037
-	for _, c := range resourceID + "|" + metric {
-		h ^= uint64(c)
-		h *= 1099511628211
-	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(resourceID))
+	_, _ = h.Write([]byte("|"))
+	_, _ = h.Write([]byte(metric))
 
-	return h
+	return h.Sum64()
 }
 
-// piValue derives a pseudo-random float in [0.0, 10.0) from seed and bucket index.
+// piValue returns a pseudo-random float in [0.0, 10.0) for the given seed and bucket.
+// bucket and seed are both encoded as decimal strings to avoid any int/uint conversions.
 func piValue(seed uint64, bucket int64) float64 {
-	x := seed ^ (uint64(bucket) * 2654435761)
-	x ^= x >> 33
-	x *= 0xff51afd7ed558ccd
-	x ^= x >> 33
-	x *= 0xc4ceb9fe1a85ec53
-	x ^= x >> 33
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strconv.FormatUint(seed, 10)))
+	_, _ = h.Write([]byte(":"))
+	_, _ = h.Write([]byte(strconv.FormatInt(bucket, 10)))
 
-	return float64(x%1000) / 100.0
+	return float64(h.Sum64()%piValueRange) / piValueScale
 }
 
 // ValidateEngineLifecycleSupport returns an error if the value is not a recognized

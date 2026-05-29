@@ -318,16 +318,24 @@ type xmlDBClusterAutomatedBackupList struct {
 	Members []xmlDBClusterAutomatedBackup `xml:"DBClusterAutomatedBackup"`
 }
 
+type deleteDBClusterAutomatedBackupResult struct {
+	DBClusterAutomatedBackup xmlDBClusterAutomatedBackup `xml:"DBClusterAutomatedBackup"`
+}
+
 type deleteDBClusterAutomatedBackupResponse struct {
-	XMLName                  xml.Name                    `xml:"DeleteDBClusterAutomatedBackupResponse"`
-	Xmlns                    string                      `xml:"xmlns,attr"`
-	DBClusterAutomatedBackup xmlDBClusterAutomatedBackup `xml:"DeleteDBClusterAutomatedBackupResult>DBClusterAutomatedBackup"`
+	XMLName xml.Name                             `xml:"DeleteDBClusterAutomatedBackupResponse"`
+	Xmlns   string                               `xml:"xmlns,attr"`
+	Result  deleteDBClusterAutomatedBackupResult `xml:"DeleteDBClusterAutomatedBackupResult"`
+}
+
+type describeDBClusterAutomatedBackupsResult struct {
+	DBClusterAutomatedBackups xmlDBClusterAutomatedBackupList `xml:"DBClusterAutomatedBackups"`
 }
 
 type describeDBClusterAutomatedBackupsResponse struct {
-	XMLName                   xml.Name                        `xml:"DescribeDBClusterAutomatedBackupsResponse"`
-	Xmlns                     string                          `xml:"xmlns,attr"`
-	DBClusterAutomatedBackups xmlDBClusterAutomatedBackupList `xml:"DescribeDBClusterAutomatedBackupsResult>DBClusterAutomatedBackups"`
+	XMLName xml.Name                                `xml:"DescribeDBClusterAutomatedBackupsResponse"`
+	Xmlns   string                                  `xml:"xmlns,attr"`
+	Result  describeDBClusterAutomatedBackupsResult `xml:"DescribeDBClusterAutomatedBackupsResult"`
 }
 
 type xmlDBInstanceAutomatedBackup struct {
@@ -339,28 +347,44 @@ type xmlDBInstanceAutomatedBackupList struct {
 	Members []xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
+type deleteDBInstanceAutomatedBackupResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
+}
+
 type deleteDBInstanceAutomatedBackupResponse struct {
-	XMLName                   xml.Name                     `xml:"DeleteDBInstanceAutomatedBackupResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DeleteDBInstanceAutomatedBackupResult>DBInstanceAutomatedBackup"`
+	XMLName xml.Name                              `xml:"DeleteDBInstanceAutomatedBackupResponse"`
+	Xmlns   string                                `xml:"xmlns,attr"`
+	Result  deleteDBInstanceAutomatedBackupResult `xml:"DeleteDBInstanceAutomatedBackupResult"`
+}
+
+type describeDBInstanceAutomatedBackupsResult struct {
+	DBInstanceAutomatedBackups xmlDBInstanceAutomatedBackupList `xml:"DBInstanceAutomatedBackups"`
 }
 
 type describeDBInstanceAutomatedBackupsResponse struct {
-	XMLName                    xml.Name                         `xml:"DescribeDBInstanceAutomatedBackupsResponse"`
-	Xmlns                      string                           `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackups xmlDBInstanceAutomatedBackupList `xml:"DescribeDBInstanceAutomatedBackupsResult>DBInstanceAutomatedBackups"`
+	XMLName xml.Name                                 `xml:"DescribeDBInstanceAutomatedBackupsResponse"`
+	Xmlns   string                                   `xml:"xmlns,attr"`
+	Result  describeDBInstanceAutomatedBackupsResult `xml:"DescribeDBInstanceAutomatedBackupsResult"`
+}
+
+type startDBInstanceAutomatedBackupsReplicationResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
 type startDBInstanceAutomatedBackupsReplicationResponse struct {
-	XMLName                   xml.Name                     `xml:"StartDBInstanceAutomatedBackupsReplicationResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"StartDBInstanceAutomatedBackupsReplicationResult>DBInstanceAutomatedBackup"`
+	XMLName xml.Name                                         `xml:"StartDBInstanceAutomatedBackupsReplicationResponse"`
+	Xmlns   string                                           `xml:"xmlns,attr"`
+	Result  startDBInstanceAutomatedBackupsReplicationResult `xml:"StartDBInstanceAutomatedBackupsReplicationResult"`
+}
+
+type stopDBInstanceAutomatedBackupsReplicationResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
 type stopDBInstanceAutomatedBackupsReplicationResponse struct {
-	XMLName                   xml.Name                     `xml:"StopDBInstanceAutomatedBackupsReplicationResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"StopDBInstanceAutomatedBackupsReplicationResult>DBInstanceAutomatedBackup"`
+	XMLName xml.Name                                        `xml:"StopDBInstanceAutomatedBackupsReplicationResponse"`
+	Xmlns   string                                          `xml:"xmlns,attr"`
+	Result  stopDBInstanceAutomatedBackupsReplicationResult `xml:"StopDBInstanceAutomatedBackupsReplicationResult"`
 }
 
 type xmlDBSnapshotTenantDatabase struct {
@@ -372,10 +396,14 @@ type xmlDBSnapshotTenantDatabaseList struct {
 	Members []xmlDBSnapshotTenantDatabase `xml:"DBSnapshotTenantDatabase"`
 }
 
+type describeDBSnapshotTenantDatabasesResult struct {
+	DBSnapshotTenantDatabases xmlDBSnapshotTenantDatabaseList `xml:"DBSnapshotTenantDatabases"`
+}
+
 type describeDBSnapshotTenantDatabasesResponse struct {
-	XMLName                   xml.Name                        `xml:"DescribeDBSnapshotTenantDatabasesResponse"`
-	Xmlns                     string                          `xml:"xmlns,attr"`
-	DBSnapshotTenantDatabases xmlDBSnapshotTenantDatabaseList `xml:"DescribeDBSnapshotTenantDatabasesResult>DBSnapshotTenantDatabases"`
+	XMLName xml.Name                                `xml:"DescribeDBSnapshotTenantDatabasesResponse"`
+	Xmlns   string                                  `xml:"xmlns,attr"`
+	Result  describeDBSnapshotTenantDatabasesResult `xml:"DescribeDBSnapshotTenantDatabasesResult"`
 }
 
 // ---- Handler functions ----
@@ -732,9 +760,11 @@ func (h *Handler) handleDeleteDBClusterAutomatedBackup(vals url.Values) (any, er
 
 	return &deleteDBClusterAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
-		DBClusterAutomatedBackup: xmlDBClusterAutomatedBackup{
-			DBClusterIdentifier: backup.DBClusterIdentifier,
-			Status:              backup.Status,
+		Result: deleteDBClusterAutomatedBackupResult{
+			DBClusterAutomatedBackup: xmlDBClusterAutomatedBackup{
+				DBClusterIdentifier: backup.DBClusterIdentifier,
+				Status:              backup.Status,
+			},
 		},
 	}, nil
 }
@@ -752,8 +782,10 @@ func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any,
 	}
 
 	return &describeDBClusterAutomatedBackupsResponse{
-		Xmlns:                     rdsXMLNS,
-		DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBClusterAutomatedBackupsResult{
+			DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: members},
+		},
 	}, nil
 }
 
@@ -770,9 +802,11 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 
 	return &deleteDBInstanceAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: deleteDBInstanceAutomatedBackupResult{
+			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
+				DBInstanceIdentifier: backup.DBInstanceIdentifier,
+				Status:               backup.Status,
+			},
 		},
 	}, nil
 }
@@ -789,8 +823,10 @@ func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any
 	}
 
 	return &describeDBInstanceAutomatedBackupsResponse{
-		Xmlns:                      rdsXMLNS,
-		DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBInstanceAutomatedBackupsResult{
+			DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: members},
+		},
 	}, nil
 }
 
@@ -805,9 +841,11 @@ func (h *Handler) handleStartDBInstanceAutomatedBackupsReplication(vals url.Valu
 
 	return &startDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: startDBInstanceAutomatedBackupsReplicationResult{
+			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
+				DBInstanceIdentifier: backup.DBInstanceIdentifier,
+				Status:               backup.Status,
+			},
 		},
 	}, nil
 }
@@ -822,9 +860,11 @@ func (h *Handler) handleStopDBInstanceAutomatedBackupsReplication(vals url.Value
 
 	return &stopDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: stopDBInstanceAutomatedBackupsReplicationResult{
+			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
+				DBInstanceIdentifier: backup.DBInstanceIdentifier,
+				Status:               backup.Status,
+			},
 		},
 	}, nil
 }
@@ -844,8 +884,10 @@ func (h *Handler) handleDescribeDBSnapshotTenantDatabases(vals url.Values) (any,
 	}
 
 	return &describeDBSnapshotTenantDatabasesResponse{
-		Xmlns:                     rdsXMLNS,
-		DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBSnapshotTenantDatabasesResult{
+			DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: members},
+		},
 	}, nil
 }
 
