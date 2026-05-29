@@ -508,7 +508,7 @@ func (h *Handler) handleConverseStream(
 	})
 
 	writeStreamEvent("messageStop", map[string]any{
-		keyStopReason: stopReasonEndTurn,
+		"stopReason": stopReasonEndTurn,
 	})
 
 	writeStreamEvent("metadata", map[string]any{
