@@ -1770,6 +1770,8 @@ func TestBatch2_Persistence_ShardGroupsAndIntegrations(t *testing.T) {
 		"arn:aws:rds:us-east-1:000:db:src",
 		"arn:aws:redshift:us-east-1:000:ns:dst",
 		"",
+		"",
+		"",
 	)
 	require.NoError(t, err)
 
@@ -1875,7 +1877,7 @@ func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
 
 	b := newBatch2Backend()
 	_, _ = b.CreateDBShardGroup("sg-x", "cl-x", 16, 2, 0, false)
-	_, _ = b.CreateIntegration("intg-x", "arn:src", "arn:dst", "")
+	_, _ = b.CreateIntegration("intg-x", "arn:src", "arn:dst", "", "", "")
 
 	snap := b.Snapshot()
 	require.NotNil(t, snap)

@@ -59,6 +59,7 @@ func (b *InMemoryBackend) CreateDBShardGroup(
 		ComputeRedundancy:      computeRedundancy,
 		PubliclyAccessible:     publiclyAccessible,
 		Status:                 shardGroupStatusAvailableInternal,
+		Endpoint:               id + ".limitless." + clusterID + ".rds.amazonaws.com",
 	}
 	b.shardGroups[id] = sg
 	cp := *sg
@@ -160,7 +161,7 @@ func (b *InMemoryBackend) RebootDBShardGroup(id string) (*DBShardGroup, error) {
 
 // CreateIntegration creates a new zero-ETL integration.
 func (b *InMemoryBackend) CreateIntegration(
-	name, sourceARN, targetARN, kmsKeyID string,
+	name, sourceARN, targetARN, kmsKeyID, dataFilter, description string,
 ) (*Integration, error) {
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
@@ -179,12 +180,14 @@ func (b *InMemoryBackend) CreateIntegration(
 			b.accountID,
 			name,
 		),
-		IntegrationName: name,
-		SourceArn:       sourceARN,
-		TargetArn:       targetARN,
-		KmsKeyID:        kmsKeyID,
-		Status:          integrationStatusActive,
-		CreatedAt:       time.Now(),
+		IntegrationName:        name,
+		SourceArn:              sourceARN,
+		TargetArn:              targetARN,
+		KmsKeyID:               kmsKeyID,
+		DataFilter:             dataFilter,
+		IntegrationDescription: description,
+		Status:                 integrationStatusActive,
+		CreatedAt:              time.Now(),
 	}
 	b.integrations[name] = intg
 	cp := *intg
@@ -242,13 +245,19 @@ func (b *InMemoryBackend) DescribeIntegrations(identifier string) ([]Integration
 	return result, nil
 }
 
-// ModifyIntegration modifies an integration's description.
-func (b *InMemoryBackend) ModifyIntegration(identifier string) (*Integration, error) {
+// ModifyIntegration modifies an integration's description or data filter.
+func (b *InMemoryBackend) ModifyIntegration(identifier, dataFilter, description string) (*Integration, error) {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
 	for _, intg := range b.integrations {
 		if intg.IntegrationName == identifier || intg.IntegrationArn == identifier {
+			if dataFilter != "" {
+				intg.DataFilter = dataFilter
+			}
+			if description != "" {
+				intg.IntegrationDescription = description
+			}
 			cp := *intg
 
 			return &cp, nil

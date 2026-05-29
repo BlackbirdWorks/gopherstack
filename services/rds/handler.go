@@ -118,6 +118,7 @@ func supportedOpsBase() []string {
 		"DescribeDBClusterParameters",
 		"DescribeDBClusterSnapshotAttributes",
 		"DescribeDBClusterSnapshots",
+		"DescribeCustomDBEngineVersions",
 		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
 		"DescribeDBInstances",
@@ -655,6 +656,9 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
 		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
 		PerformanceInsightsEnabled:       vals.Get("EnablePerformanceInsights") == formTrue,
+		StorageOptimized:                 vals.Get("StorageOptimized") == formTrue,
+		OptimizedWrites:                  vals.Get("EnableOptimizedWrites") == formTrue,
+		EngineLifecycleSupport:           vals.Get("EngineLifecycleSupport"),
 		VpcSecurityGroupIDs:              vpcSGIds,
 		EnabledCloudwatchLogsExports:     logExports,
 	}
@@ -769,6 +773,9 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		ApplyImmediately:                 vals.Get("ApplyImmediately") == formTrue,
 		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
 		PerformanceInsightsEnabled:       vals.Get("EnablePerformanceInsights") == formTrue,
+		StorageOptimized:                 vals.Get("StorageOptimized") == formTrue,
+		OptimizedWrites:                  vals.Get("EnableOptimizedWrites") == formTrue,
+		EngineLifecycleSupport:           vals.Get("EngineLifecycleSupport"),
 		VpcSecurityGroupIDs:              vpcSGIds,
 		EnabledCloudwatchLogsExports:     logExports,
 	}
@@ -963,6 +970,9 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		CopyTagsToSnapshot:                inst.CopyTagsToSnapshot,
 		PubliclyAccessible:                inst.PubliclyAccessible,
 		PerformanceInsightsEnabled:        inst.PerformanceInsightsEnabled,
+		StorageOptimized:                  inst.StorageOptimized,
+		OptimizedWrites:                   inst.OptimizedWrites,
+		EngineLifecycleSupport:            inst.EngineLifecycleSupport,
 		InstanceCreateTime:                instanceCreateTime,
 	}
 
@@ -1201,8 +1211,8 @@ type xmlDBInstance struct {
 	ReadReplicaDBInstanceIdentifiers  *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports      *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues             *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
-	DBInstanceIdentifier              string                        `xml:"DBInstanceIdentifier"`
-	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
+	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
+	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
 	DBInstanceClass                   string                        `xml:"DBInstanceClass"`
 	DBClusterIdentifier               string                        `xml:"DBClusterIdentifier,omitempty"`
 	Engine                            string                        `xml:"Engine"`
@@ -1216,26 +1226,29 @@ type xmlDBInstance struct {
 	ReplicaSourceDBInstanceIdentifier string                        `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
 	StorageType                       string                        `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string                        `xml:"AvailabilityZone,omitempty"`
-	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
+	DBInstanceIdentifier              string                        `xml:"DBInstanceIdentifier"`
 	MonitoringRoleArn                 string                        `xml:"MonitoringRoleArn,omitempty"`
 	EnhancedMonitoringResourceArn     string                        `xml:"EnhancedMonitoringResourceArn,omitempty"`
 	PreferredMaintenanceWindow        string                        `xml:"PreferredMaintenanceWindow,omitempty"`
-	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
+	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
 	KmsKeyID                          string                        `xml:"KmsKeyId,omitempty"`
 	InstanceCreateTime                string                        `xml:"InstanceCreateTime,omitempty"`
-	Port                              int                           `xml:"Endpoint>Port"`
+	EngineLifecycleSupport            string                        `xml:"EngineLifecycleSupport,omitempty"`
 	AllocatedStorage                  int                           `xml:"AllocatedStorage"`
 	Iops                              int                           `xml:"Iops,omitempty"`
 	StorageThroughput                 int                           `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod             int                           `xml:"BackupRetentionPeriod,omitempty"`
 	MonitoringInterval                int                           `xml:"MonitoringInterval,omitempty"`
-	MultiAZ                           bool                          `xml:"MultiAZ"`
+	Port                              int                           `xml:"Endpoint>Port"`
 	StorageEncrypted                  bool                          `xml:"StorageEncrypted"`
 	IAMDatabaseAuthenticationEnabled  bool                          `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
 	DeletionProtection                bool                          `xml:"DeletionProtection,omitempty"`
 	CopyTagsToSnapshot                bool                          `xml:"CopyTagsToSnapshot,omitempty"`
 	PubliclyAccessible                bool                          `xml:"PubliclyAccessible,omitempty"`
 	PerformanceInsightsEnabled        bool                          `xml:"PerformanceInsightsEnabled,omitempty"`
+	StorageOptimized                  bool                          `xml:"StorageOptimized,omitempty"`
+	OptimizedWrites                   bool                          `xml:"OptimizedWritesEnabled,omitempty"`
+	MultiAZ                           bool                          `xml:"MultiAZ"`
 }
 
 type xmlDBInstanceList struct {
@@ -1714,6 +1727,9 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
 		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
 		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
+		StorageType:                  vals.Get("StorageType"),
+		NetworkType:                  vals.Get("NetworkType"),
+		EngineLifecycleSupport:       vals.Get("EngineLifecycleSupport"),
 		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
 		AvailabilityZones:            parseMultiValueParam(vals, "AvailabilityZones.AvailabilityZone"),
 		BacktrackWindow:              backtrackWindow,
@@ -1722,6 +1738,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		StorageEncrypted:             vals.Get("StorageEncrypted") == formTrue,
 		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
 		DeletionProtection:           vals.Get("DeletionProtection") == formTrue,
+		OptimizedWrites:              vals.Get("EnableOptimizedWrites") == formTrue,
 	}
 
 	cluster, err := h.Backend.CreateDBCluster(
@@ -1806,6 +1823,9 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
 		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
 		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
+		StorageType:                vals.Get("StorageType"),
+		NetworkType:                vals.Get("NetworkType"),
+		EngineLifecycleSupport:     vals.Get("EngineLifecycleSupport"),
 		EnabledCloudwatchLogsExports: parseMultiValueParam(
 			vals,
 			"CloudwatchLogsExportConfiguration.EnableLogTypes.member",
@@ -1818,6 +1838,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		DeletionProtectionSet:   vals.Get("DeletionProtection") != "",
 		StorageEncrypted:        storageEncryptedRaw == formTrue,
 		StorageEncryptedChanged: storageEncryptedRaw != "",
+		OptimizedWrites:         vals.Get("EnableOptimizedWrites") == formTrue,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
@@ -2284,6 +2305,10 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DatabaseName:                    c.DatabaseName,
 		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
 		Endpoint:                        c.Endpoint,
+		ReaderEndpoint:                  c.ReaderEndpoint,
+		NetworkType:                     c.NetworkType,
+		StorageType:                     c.StorageType,
+		EngineLifecycleSupport:          c.EngineLifecycleSupport,
 		Port:                            c.Port,
 		ActivityStreamStatus:            c.ActivityStreamStatus,
 		ActivityStreamMode:              c.ActivityStreamMode,
@@ -2300,6 +2325,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		StorageEncrypted:                c.StorageEncrypted,
 		CopyTagsToSnapshot:              c.CopyTagsToSnapshot,
 		DeletionProtection:              c.DeletionProtection,
+		OptimizedWrites:                 c.OptimizedWrites,
 	}
 
 	if c.ServerlessV2ScalingConfig != nil {
@@ -2522,7 +2548,6 @@ type xmlAvailabilityZoneList struct {
 }
 
 type xmlDBCluster struct {
-	// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
 	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref      `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	DBClusterMembers                 *xmlDBClusterMemberList  `xml:"DBClusterMembers,omitempty"`
 	EnabledCloudwatchLogsExports     *xmlLogTypeList          `xml:"EnabledCloudwatchLogsExports,omitempty"`
@@ -2535,6 +2560,10 @@ type xmlDBCluster struct {
 	DatabaseName                     string                   `xml:"DatabaseName,omitempty"`
 	DBClusterParameterGroupName      string                   `xml:"DBClusterParameterGroup"`
 	Endpoint                         string                   `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                   string                   `xml:"ReaderEndpoint,omitempty"`
+	NetworkType                      string                   `xml:"NetworkType,omitempty"`
+	StorageType                      string                   `xml:"StorageType,omitempty"`
+	EngineLifecycleSupport           string                   `xml:"EngineLifecycleSupport,omitempty"`
 	ActivityStreamStatus             string                   `xml:"ActivityStreamStatus,omitempty"`
 	ActivityStreamMode               string                   `xml:"ActivityStreamMode,omitempty"`
 	ActivityStreamKMSKeyID           string                   `xml:"ActivityStreamKmsKeyId,omitempty"`
@@ -2551,6 +2580,7 @@ type xmlDBCluster struct {
 	StorageEncrypted                 bool                     `xml:"StorageEncrypted,omitempty"`
 	CopyTagsToSnapshot               bool                     `xml:"CopyTagsToSnapshot,omitempty"`
 	DeletionProtection               bool                     `xml:"DeletionProtection,omitempty"`
+	OptimizedWrites                  bool                     `xml:"OptimizedWritesEnabled,omitempty"`
 }
 
 type xmlDBClusterList struct {
@@ -3312,6 +3342,7 @@ func toXMLBlueGreenDeployment(d *BlueGreenDeployment) xmlBlueGreenDeployment {
 	return xmlBlueGreenDeployment{
 		BlueGreenDeploymentIdentifier: d.BlueGreenDeploymentIdentifier,
 		BlueGreenDeploymentName:       d.BlueGreenDeploymentName,
+		Target:                        d.Target,
 		Source:                        d.Source,
 		Status:                        d.Status,
 	}
@@ -3433,6 +3464,7 @@ type xmlBlueGreenDeployment struct {
 	BlueGreenDeploymentIdentifier string `xml:"BlueGreenDeploymentIdentifier"`
 	BlueGreenDeploymentName       string `xml:"BlueGreenDeploymentName"`
 	Source                        string `xml:"Source,omitempty"`
+	Target                        string `xml:"Target,omitempty"`
 	Status                        string `xml:"Status"`
 }
 

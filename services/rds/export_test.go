@@ -110,3 +110,27 @@ func InstanceRoleCount(b *InMemoryBackend, instanceID string) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// RecommendationCount returns the number of recommendations in the backend.
+func RecommendationCount(b *InMemoryBackend) int {
+	b.mu.RLock("RecommendationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.recommendations)
+}
+
+// IntegrationCount returns the number of integrations in the backend.
+func IntegrationCount(b *InMemoryBackend) int {
+	b.mu.RLock("IntegrationCount")
+	defer b.mu.RUnlock()
+
+	return len(b.integrations)
+}
+
+// ShardGroupCount returns the number of shard groups in the backend.
+func ShardGroupCount(b *InMemoryBackend) int {
+	b.mu.RLock("ShardGroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.shardGroups)
+}

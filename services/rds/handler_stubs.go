@@ -155,11 +155,10 @@ func (h *Handler) dispatchAutomatedBackupOps(action string, vals url.Values) (an
 // dispatchExtended15 routes Performance Insights and any future stub operations.
 func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error) {
 	switch action {
-	// Performance Insights
 	case "GetPerformanceInsightsMetrics":
-		return h.handleGetPerformanceInsightsMetrics(vals)
+		return h.handleGetPerformanceInsightsMetricsReal(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended16(action, vals)
 	}
 }
 
@@ -192,9 +191,13 @@ type modifyCustomDBEngineVersionResponse struct {
 }
 
 type xmlDBShardGroup struct {
-	DBShardGroupIdentifier string `xml:"DBShardGroupIdentifier"`
-	DBClusterIdentifier    string `xml:"DBClusterIdentifier,omitempty"`
-	Status                 string `xml:"Status,omitempty"`
+	DBShardGroupIdentifier string  `xml:"DBShardGroupIdentifier"`
+	DBClusterIdentifier    string  `xml:"DBClusterIdentifier,omitempty"`
+	Status                 string  `xml:"Status,omitempty"`
+	Endpoint               string  `xml:"Endpoint,omitempty"`
+	MaxACU                 float64 `xml:"MaxACU,omitempty"`
+	MinACU                 float64 `xml:"MinACU,omitempty"`
+	ComputeRedundancy      int     `xml:"ComputeRedundancy,omitempty"`
 }
 
 type xmlDBShardGroupList struct {
@@ -233,11 +236,13 @@ type rebootDBShardGroupResponse struct {
 }
 
 type xmlIntegration struct {
-	IntegrationName string `xml:"IntegrationName"`
-	IntegrationArn  string `xml:"IntegrationArn,omitempty"`
-	Status          string `xml:"Status,omitempty"`
-	SourceArn       string `xml:"SourceArn,omitempty"`
-	TargetArn       string `xml:"TargetArn,omitempty"`
+	IntegrationName        string `xml:"IntegrationName"`
+	IntegrationArn         string `xml:"IntegrationArn,omitempty"`
+	Status                 string `xml:"Status,omitempty"`
+	SourceArn              string `xml:"SourceArn,omitempty"`
+	TargetArn              string `xml:"TargetArn,omitempty"`
+	DataFilter             string `xml:"DataFilter,omitempty"`
+	IntegrationDescription string `xml:"Description,omitempty"`
 }
 
 type xmlIntegrationList struct {
@@ -305,57 +310,94 @@ type modifyTenantDatabaseResponse struct {
 }
 
 type xmlDBClusterAutomatedBackup struct {
-	DBClusterIdentifier string `xml:"DBClusterIdentifier"`
-	Status              string `xml:"Status,omitempty"`
+	DBClusterIdentifier   string `xml:"DBClusterIdentifier"`
+	DBClusterResourceID   string `xml:"DbClusterResourceId,omitempty"`
+	Engine                string `xml:"Engine,omitempty"`
+	EngineVersion         string `xml:"EngineVersion,omitempty"`
+	Region                string `xml:"Region,omitempty"`
+	Status                string `xml:"Status,omitempty"`
+	BackupRetentionPeriod int    `xml:"BackupRetentionPeriod,omitempty"`
+	StorageEncrypted      bool   `xml:"StorageEncrypted,omitempty"`
 }
 
 type xmlDBClusterAutomatedBackupList struct {
 	Members []xmlDBClusterAutomatedBackup `xml:"DBClusterAutomatedBackup"`
 }
 
+type deleteDBClusterAutomatedBackupResult struct {
+	DBClusterAutomatedBackup xmlDBClusterAutomatedBackup `xml:"DBClusterAutomatedBackup"`
+}
+
 type deleteDBClusterAutomatedBackupResponse struct {
-	XMLName                  xml.Name                    `xml:"DeleteDBClusterAutomatedBackupResponse"`
-	Xmlns                    string                      `xml:"xmlns,attr"`
-	DBClusterAutomatedBackup xmlDBClusterAutomatedBackup `xml:"DeleteDBClusterAutomatedBackupResult>DBClusterAutomatedBackup"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                             `xml:"DeleteDBClusterAutomatedBackupResponse"`
+	Xmlns   string                               `xml:"xmlns,attr"`
+	Result  deleteDBClusterAutomatedBackupResult `xml:"DeleteDBClusterAutomatedBackupResult"`
+}
+
+type describeDBClusterAutomatedBackupsResult struct {
+	DBClusterAutomatedBackups xmlDBClusterAutomatedBackupList `xml:"DBClusterAutomatedBackups"`
 }
 
 type describeDBClusterAutomatedBackupsResponse struct {
-	XMLName                   xml.Name                        `xml:"DescribeDBClusterAutomatedBackupsResponse"`
-	Xmlns                     string                          `xml:"xmlns,attr"`
-	DBClusterAutomatedBackups xmlDBClusterAutomatedBackupList `xml:"DescribeDBClusterAutomatedBackupsResult>DBClusterAutomatedBackups"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                                `xml:"DescribeDBClusterAutomatedBackupsResponse"`
+	Xmlns   string                                  `xml:"xmlns,attr"`
+	Result  describeDBClusterAutomatedBackupsResult `xml:"DescribeDBClusterAutomatedBackupsResult"`
 }
 
 type xmlDBInstanceAutomatedBackup struct {
-	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
-	Status               string `xml:"Status,omitempty"`
+	DBInstanceIdentifier  string `xml:"DBInstanceIdentifier"`
+	DbiResourceID         string `xml:"DbiResourceId,omitempty"`
+	Engine                string `xml:"Engine,omitempty"`
+	EngineVersion         string `xml:"EngineVersion,omitempty"`
+	DBInstanceArn         string `xml:"DBInstanceArn,omitempty"`
+	Region                string `xml:"Region,omitempty"`
+	Status                string `xml:"Status,omitempty"`
+	AllocatedStorage      int    `xml:"AllocatedStorage,omitempty"`
+	BackupRetentionPeriod int    `xml:"BackupRetentionPeriod,omitempty"`
 }
 
 type xmlDBInstanceAutomatedBackupList struct {
 	Members []xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
+type deleteDBInstanceAutomatedBackupResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
+}
+
 type deleteDBInstanceAutomatedBackupResponse struct {
-	XMLName                   xml.Name                     `xml:"DeleteDBInstanceAutomatedBackupResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DeleteDBInstanceAutomatedBackupResult>DBInstanceAutomatedBackup"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                              `xml:"DeleteDBInstanceAutomatedBackupResponse"`
+	Xmlns   string                                `xml:"xmlns,attr"`
+	Result  deleteDBInstanceAutomatedBackupResult `xml:"DeleteDBInstanceAutomatedBackupResult"`
+}
+
+type describeDBInstanceAutomatedBackupsResult struct {
+	DBInstanceAutomatedBackups xmlDBInstanceAutomatedBackupList `xml:"DBInstanceAutomatedBackups"`
 }
 
 type describeDBInstanceAutomatedBackupsResponse struct {
-	XMLName                    xml.Name                         `xml:"DescribeDBInstanceAutomatedBackupsResponse"`
-	Xmlns                      string                           `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackups xmlDBInstanceAutomatedBackupList `xml:"DescribeDBInstanceAutomatedBackupsResult>DBInstanceAutomatedBackups"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                                 `xml:"DescribeDBInstanceAutomatedBackupsResponse"`
+	Xmlns   string                                   `xml:"xmlns,attr"`
+	Result  describeDBInstanceAutomatedBackupsResult `xml:"DescribeDBInstanceAutomatedBackupsResult"`
+}
+
+type startDBInstanceAutomatedBackupsReplicationResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
 type startDBInstanceAutomatedBackupsReplicationResponse struct {
-	XMLName                   xml.Name                     `xml:"StartDBInstanceAutomatedBackupsReplicationResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"StartDBInstanceAutomatedBackupsReplicationResult>DBInstanceAutomatedBackup"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                                         `xml:"StartDBInstanceAutomatedBackupsReplicationResponse"`
+	Xmlns   string                                           `xml:"xmlns,attr"`
+	Result  startDBInstanceAutomatedBackupsReplicationResult `xml:"StartDBInstanceAutomatedBackupsReplicationResult"`
+}
+
+type stopDBInstanceAutomatedBackupsReplicationResult struct {
+	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"DBInstanceAutomatedBackup"`
 }
 
 type stopDBInstanceAutomatedBackupsReplicationResponse struct {
-	XMLName                   xml.Name                     `xml:"StopDBInstanceAutomatedBackupsReplicationResponse"`
-	Xmlns                     string                       `xml:"xmlns,attr"`
-	DBInstanceAutomatedBackup xmlDBInstanceAutomatedBackup `xml:"StopDBInstanceAutomatedBackupsReplicationResult>DBInstanceAutomatedBackup"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                                        `xml:"StopDBInstanceAutomatedBackupsReplicationResponse"`
+	Xmlns   string                                          `xml:"xmlns,attr"`
+	Result  stopDBInstanceAutomatedBackupsReplicationResult `xml:"StopDBInstanceAutomatedBackupsReplicationResult"`
 }
 
 type xmlDBSnapshotTenantDatabase struct {
@@ -367,10 +409,14 @@ type xmlDBSnapshotTenantDatabaseList struct {
 	Members []xmlDBSnapshotTenantDatabase `xml:"DBSnapshotTenantDatabase"`
 }
 
+type describeDBSnapshotTenantDatabasesResult struct {
+	DBSnapshotTenantDatabases xmlDBSnapshotTenantDatabaseList `xml:"DBSnapshotTenantDatabases"`
+}
+
 type describeDBSnapshotTenantDatabasesResponse struct {
-	XMLName                   xml.Name                        `xml:"DescribeDBSnapshotTenantDatabasesResponse"`
-	Xmlns                     string                          `xml:"xmlns,attr"`
-	DBSnapshotTenantDatabases xmlDBSnapshotTenantDatabaseList `xml:"DescribeDBSnapshotTenantDatabasesResult>DBSnapshotTenantDatabases"` //nolint:lll // AWS XML path names are verbose
+	XMLName xml.Name                                `xml:"DescribeDBSnapshotTenantDatabasesResponse"`
+	Xmlns   string                                  `xml:"xmlns,attr"`
+	Result  describeDBSnapshotTenantDatabasesResult `xml:"DescribeDBSnapshotTenantDatabasesResult"`
 }
 
 // ---- Handler functions ----
@@ -451,12 +497,8 @@ func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &createDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			DBClusterIdentifier:    sg.DBClusterIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -469,11 +511,8 @@ func (h *Handler) handleDeleteDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &deleteDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -489,13 +528,7 @@ func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
 		func(a, b DBShardGroup) bool {
 			return a.DBShardGroupIdentifier < b.DBShardGroupIdentifier
 		},
-		func(sg DBShardGroup) xmlDBShardGroup {
-			return xmlDBShardGroup{
-				DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-				DBClusterIdentifier:    sg.DBClusterIdentifier,
-				Status:                 sg.Status,
-			}
-		},
+		func(sg DBShardGroup) xmlDBShardGroup { return toXMLDBShardGroup(&sg) },
 	)
 	if err != nil {
 		return nil, err
@@ -519,12 +552,8 @@ func (h *Handler) handleModifyDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &modifyDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			DBClusterIdentifier:    sg.DBClusterIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -537,12 +566,33 @@ func (h *Handler) handleRebootDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &rebootDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
+}
+
+func toXMLDBShardGroup(sg *DBShardGroup) xmlDBShardGroup {
+	return xmlDBShardGroup{
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
+		Endpoint:               sg.Endpoint,
+		MaxACU:                 sg.MaxACU,
+		MinACU:                 sg.MinACU,
+		ComputeRedundancy:      sg.ComputeRedundancy,
+	}
+}
+
+func toXMLIntegration(intg *Integration) xmlIntegration {
+	return xmlIntegration{
+		IntegrationName:        intg.IntegrationName,
+		IntegrationArn:         intg.IntegrationArn,
+		SourceArn:              intg.SourceArn,
+		TargetArn:              intg.TargetArn,
+		Status:                 intg.Status,
+		DataFilter:             intg.DataFilter,
+		IntegrationDescription: intg.IntegrationDescription,
+	}
 }
 
 func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
@@ -550,21 +600,17 @@ func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
 	sourceARN := vals.Get("SourceArn")
 	targetARN := vals.Get("TargetArn")
 	kmsKeyID := vals.Get("KMSKeyId")
+	dataFilter := vals.Get("DataFilter")
+	description := vals.Get("Description")
 
-	intg, err := h.Backend.CreateIntegration(name, sourceARN, targetARN, kmsKeyID)
+	intg, err := h.Backend.CreateIntegration(name, sourceARN, targetARN, kmsKeyID, dataFilter, description)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createIntegrationResponse{
-		Xmlns: rdsXMLNS,
-		Integration: xmlIntegration{
-			IntegrationName: intg.IntegrationName,
-			IntegrationArn:  intg.IntegrationArn,
-			SourceArn:       intg.SourceArn,
-			TargetArn:       intg.TargetArn,
-			Status:          intg.Status,
-		},
+		Xmlns:       rdsXMLNS,
+		Integration: toXMLIntegration(intg),
 	}, nil
 }
 
@@ -577,12 +623,8 @@ func (h *Handler) handleDeleteIntegration(vals url.Values) (any, error) {
 	}
 
 	return &deleteIntegrationResponse{
-		Xmlns: rdsXMLNS,
-		Integration: xmlIntegration{
-			IntegrationName: intg.IntegrationName,
-			IntegrationArn:  intg.IntegrationArn,
-			Status:          intg.Status,
-		},
+		Xmlns:       rdsXMLNS,
+		Integration: toXMLIntegration(intg),
 	}, nil
 }
 
@@ -596,15 +638,7 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 
 	members, marker, err := paginateDescribe(vals, integrations,
 		func(a, b Integration) bool { return a.IntegrationName < b.IntegrationName },
-		func(intg Integration) xmlIntegration {
-			return xmlIntegration{
-				IntegrationName: intg.IntegrationName,
-				IntegrationArn:  intg.IntegrationArn,
-				SourceArn:       intg.SourceArn,
-				TargetArn:       intg.TargetArn,
-				Status:          intg.Status,
-			}
-		},
+		func(intg Integration) xmlIntegration { return toXMLIntegration(&intg) },
 	)
 	if err != nil {
 		return nil, err
@@ -619,19 +653,17 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 
 func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 	identifier := vals.Get("IntegrationIdentifier")
+	dataFilter := vals.Get("DataFilter")
+	description := vals.Get("Description")
 
-	intg, err := h.Backend.ModifyIntegration(identifier)
+	intg, err := h.Backend.ModifyIntegration(identifier, dataFilter, description)
 	if err != nil {
 		return nil, err
 	}
 
 	return &modifyIntegrationResponse{
-		Xmlns: rdsXMLNS,
-		Integration: xmlIntegration{
-			IntegrationName: intg.IntegrationName,
-			IntegrationArn:  intg.IntegrationArn,
-			Status:          intg.Status,
-		},
+		Xmlns:       rdsXMLNS,
+		Integration: toXMLIntegration(intg),
 	}, nil
 }
 
@@ -741,11 +773,37 @@ func (h *Handler) handleDeleteDBClusterAutomatedBackup(vals url.Values) (any, er
 
 	return &deleteDBClusterAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
-		DBClusterAutomatedBackup: xmlDBClusterAutomatedBackup{
-			DBClusterIdentifier: backup.DBClusterIdentifier,
-			Status:              backup.Status,
+		Result: deleteDBClusterAutomatedBackupResult{
+			DBClusterAutomatedBackup: toXMLClusterBackup(backup),
 		},
 	}, nil
+}
+
+func toXMLClusterBackup(b *DBClusterAutomatedBackup) xmlDBClusterAutomatedBackup {
+	return xmlDBClusterAutomatedBackup{
+		DBClusterIdentifier:   b.DBClusterIdentifier,
+		DBClusterResourceID:   b.DBClusterResourceID,
+		Engine:                b.Engine,
+		EngineVersion:         b.EngineVersion,
+		Region:                b.Region,
+		Status:                b.Status,
+		BackupRetentionPeriod: b.BackupRetentionPeriod,
+		StorageEncrypted:      b.StorageEncrypted,
+	}
+}
+
+func toXMLInstanceBackup(ab *DBInstanceAutomatedBackup) xmlDBInstanceAutomatedBackup {
+	return xmlDBInstanceAutomatedBackup{
+		DBInstanceIdentifier:  ab.DBInstanceIdentifier,
+		DbiResourceID:         ab.DbiResourceID,
+		Engine:                ab.Engine,
+		EngineVersion:         ab.EngineVersion,
+		DBInstanceArn:         ab.DBInstanceArn,
+		Region:                ab.Region,
+		Status:                ab.Status,
+		AllocatedStorage:      ab.AllocatedStorage,
+		BackupRetentionPeriod: ab.BackupRetentionPeriod,
+	}
 }
 
 func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any, error) {
@@ -753,16 +811,15 @@ func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any,
 	backups := h.Backend.DescribeDBClusterAutomatedBackups(clusterID)
 
 	members := make([]xmlDBClusterAutomatedBackup, 0, len(backups))
-	for _, b := range backups {
-		members = append(members, xmlDBClusterAutomatedBackup{
-			DBClusterIdentifier: b.DBClusterIdentifier,
-			Status:              b.Status,
-		})
+	for i := range backups {
+		members = append(members, toXMLClusterBackup(&backups[i]))
 	}
 
 	return &describeDBClusterAutomatedBackupsResponse{
-		Xmlns:                     rdsXMLNS,
-		DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBClusterAutomatedBackupsResult{
+			DBClusterAutomatedBackups: xmlDBClusterAutomatedBackupList{Members: members},
+		},
 	}, nil
 }
 
@@ -779,9 +836,8 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 
 	return &deleteDBInstanceAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: deleteDBInstanceAutomatedBackupResult{
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }
@@ -790,16 +846,16 @@ func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any
 	instanceID := vals.Get("DBInstanceIdentifier")
 	backups := h.Backend.DescribeDBInstanceAutomatedBackups(instanceID)
 	members := make([]xmlDBInstanceAutomatedBackup, 0, len(backups))
-	for _, ab := range backups {
-		members = append(members, xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: ab.DBInstanceIdentifier,
-			Status:               ab.Status,
-		})
+
+	for i := range backups {
+		members = append(members, toXMLInstanceBackup(&backups[i]))
 	}
 
 	return &describeDBInstanceAutomatedBackupsResponse{
-		Xmlns:                      rdsXMLNS,
-		DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBInstanceAutomatedBackupsResult{
+			DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: members},
+		},
 	}, nil
 }
 
@@ -814,9 +870,8 @@ func (h *Handler) handleStartDBInstanceAutomatedBackupsReplication(vals url.Valu
 
 	return &startDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: startDBInstanceAutomatedBackupsReplicationResult{
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }
@@ -831,9 +886,8 @@ func (h *Handler) handleStopDBInstanceAutomatedBackupsReplication(vals url.Value
 
 	return &stopDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
-		DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: backup.DBInstanceIdentifier,
-			Status:               backup.Status,
+		Result: stopDBInstanceAutomatedBackupsReplicationResult{
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }
@@ -853,12 +907,14 @@ func (h *Handler) handleDescribeDBSnapshotTenantDatabases(vals url.Values) (any,
 	}
 
 	return &describeDBSnapshotTenantDatabasesResponse{
-		Xmlns:                     rdsXMLNS,
-		DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: describeDBSnapshotTenantDatabasesResult{
+			DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: members},
+		},
 	}, nil
 }
 
-// ---- Performance Insights (stub) ----
+// ---- Performance Insights XML types ----
 
 type xmlDataPoint struct {
 	Timestamp string  `xml:"Timestamp"`
@@ -880,13 +936,4 @@ type getPerformanceInsightsMetricsResponse struct {
 	AlignedStartTime string                     `xml:"GetPerformanceInsightsMetricsResult>AlignedStartTime,omitempty"`
 	AlignedEndTime   string                     `xml:"GetPerformanceInsightsMetricsResult>AlignedEndTime,omitempty"`
 	MetricList       xmlMetricKeyDataPointsList `xml:"GetPerformanceInsightsMetricsResult>MetricList"`
-}
-
-// handleGetPerformanceInsightsMetrics returns an empty Performance Insights metric result.
-// Performance Insights is a separate AWS service; this stub satisfies SDK calls from the RDS endpoint.
-func (h *Handler) handleGetPerformanceInsightsMetrics(_ url.Values) (any, error) {
-	return &getPerformanceInsightsMetricsResponse{
-		Xmlns:      rdsXMLNS,
-		MetricList: xmlMetricKeyDataPointsList{Members: []xmlMetricKeyDataPoints{}},
-	}, nil
 }

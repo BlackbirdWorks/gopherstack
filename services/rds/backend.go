@@ -165,9 +165,9 @@ type CustomDBEngineVersion struct {
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
-	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
-	DbiResourceID                     string                       `json:"dbiResourceID"`
-	DBInstanceClass                   string                       `json:"dbInstanceClass"`
+	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
+	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
 	DBClusterIdentifier               string                       `json:"dbClusterIdentifier,omitempty"`
 	Engine                            string                       `json:"engine"`
 	EngineVersion                     string                       `json:"engineVersion"`
@@ -184,13 +184,14 @@ type DBInstance struct {
 	StorageType                       string                       `json:"storageType"`
 	LicenseModel                      string                       `json:"licenseModel,omitempty"`
 	MonitoringRoleArn                 string                       `json:"monitoringRoleArn,omitempty"`
-	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
+	DbiResourceID                     string                       `json:"dbiResourceID"`
 	PreferredMaintenanceWindow        string                       `json:"preferredMaintenanceWindow,omitempty"`
-	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
-	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
+	DBInstanceClass                   string                       `json:"dbInstanceClass"`
+	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
+	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
-	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	Port                              int                          `json:"port"`
 	AllocatedStorage                  int                          `json:"allocatedStorage"`
 	Iops                              int                          `json:"iops,omitempty"`
@@ -204,6 +205,8 @@ type DBInstance struct {
 	CopyTagsToSnapshot                bool                         `json:"copyTagsToSnapshot,omitempty"`
 	PubliclyAccessible                bool                         `json:"publiclyAccessible,omitempty"`
 	PerformanceInsightsEnabled        bool                         `json:"performanceInsightsEnabled,omitempty"`
+	StorageOptimized                  bool                         `json:"storageOptimized,omitempty"`
+	OptimizedWrites                   bool                         `json:"optimizedWrites,omitempty"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
@@ -284,8 +287,8 @@ type ServerlessV2ScalingConfiguration struct {
 type DBCluster struct {
 	ClusterCreateTime               time.Time                         `json:"clusterCreateTime"`
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
-	Endpoint                        string                            `json:"endpoint"`
-	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
+	StorageType                     string                            `json:"storageType,omitempty"`
 	Status                          string                            `json:"status"`
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
@@ -300,20 +303,25 @@ type DBCluster struct {
 	PreferredBackupWindow           string                            `json:"preferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow      string                            `json:"preferredMaintenanceWindow,omitempty"`
 	KmsKeyID                        string                            `json:"kmsKeyID,omitempty"`
-	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
-	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
+	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	EngineLifecycleSupport          string                            `json:"engineLifecycleSupport,omitempty"`
+	NetworkType                     string                            `json:"networkType,omitempty"`
+	ReaderEndpoint                  string                            `json:"readerEndpoint,omitempty"`
+	Endpoint                        string                            `json:"endpoint"`
+	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
 	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
 	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
-	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
-	Port                            int                               `json:"port"`
-	ServerlessCapacity              int                               `json:"serverlessCapacity"`
-	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
+	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
 	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
-	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
+	Port                            int                               `json:"port"`
+	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
+	ServerlessCapacity              int                               `json:"serverlessCapacity"`
 	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
+	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
 	StorageEncrypted                bool                              `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot              bool                              `json:"copyTagsToSnapshot,omitempty"`
 	DeletionProtection              bool                              `json:"deletionProtection,omitempty"`
+	OptimizedWrites                 bool                              `json:"optimizedWrites,omitempty"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -517,6 +525,7 @@ type BlueGreenDeployment struct {
 	BlueGreenDeploymentIdentifier string `json:"blueGreenDeploymentIdentifier"`
 	BlueGreenDeploymentName       string `json:"blueGreenDeploymentName"`
 	Source                        string `json:"source"`
+	Target                        string `json:"target,omitempty"`
 	Status                        string `json:"status"`
 }
 
@@ -539,6 +548,7 @@ type DBShardGroup struct {
 	DBShardGroupIdentifier string  `json:"dbShardGroupIdentifier"`
 	DBClusterIdentifier    string  `json:"dbClusterIdentifier"`
 	Status                 string  `json:"status"`
+	Endpoint               string  `json:"endpoint,omitempty"`
 	MaxACU                 float64 `json:"maxACU,omitempty"`
 	MinACU                 float64 `json:"minACU,omitempty"`
 	ComputeRedundancy      int     `json:"computeRedundancy,omitempty"`
@@ -547,13 +557,15 @@ type DBShardGroup struct {
 
 // Integration represents an RDS zero-ETL integration to Amazon Redshift.
 type Integration struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	IntegrationArn  string    `json:"integrationArn"`
-	IntegrationName string    `json:"integrationName"`
-	SourceArn       string    `json:"sourceArn"`
-	TargetArn       string    `json:"targetArn"`
-	KmsKeyID        string    `json:"kmsKeyId,omitempty"`
-	Status          string    `json:"status"`
+	CreatedAt              time.Time `json:"createdAt"`
+	IntegrationArn         string    `json:"integrationArn"`
+	IntegrationName        string    `json:"integrationName"`
+	SourceArn              string    `json:"sourceArn"`
+	TargetArn              string    `json:"targetArn"`
+	KmsKeyID               string    `json:"kmsKeyId,omitempty"`
+	DataFilter             string    `json:"dataFilter,omitempty"`
+	IntegrationDescription string    `json:"integrationDescription,omitempty"`
+	Status                 string    `json:"status"`
 }
 
 // TenantDatabase represents a tenant database within a multi-tenant RDS instance.
@@ -617,6 +629,7 @@ type DBInstanceOptions struct {
 	PreferredBackupWindow            string
 	KmsKeyID                         string
 	DBClusterIdentifier              string
+	EngineLifecycleSupport           string
 	VpcSecurityGroupIDs              []string
 	EnabledCloudwatchLogsExports     []string
 	BackupRetentionPeriod            int
@@ -635,6 +648,8 @@ type DBInstanceOptions struct {
 	ApplyImmediately                 bool
 	PubliclyAccessible               bool
 	PerformanceInsightsEnabled       bool
+	StorageOptimized                 bool
+	OptimizedWrites                  bool
 }
 
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
@@ -651,6 +666,9 @@ type DBClusterOptions struct {
 	PreferredBackupWindow        string
 	PreferredMaintenanceWindow   string
 	MonitoringRoleArn            string
+	StorageType                  string
+	NetworkType                  string
+	EngineLifecycleSupport       string
 	EnabledCloudwatchLogsExports []string
 	AvailabilityZones            []string
 	BacktrackWindow              int64
@@ -661,6 +679,7 @@ type DBClusterOptions struct {
 	CopyTagsToSnapshot           bool
 	DeletionProtection           bool
 	DeletionProtectionSet        bool
+	OptimizedWrites              bool
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.
@@ -994,6 +1013,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		ReadReplicaIdentifiers:           []string{},
 		PubliclyAccessible:               opts.PubliclyAccessible,
 		PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
+		StorageOptimized:                 opts.StorageOptimized,
+		OptimizedWrites:                  opts.OptimizedWrites,
+		EngineLifecycleSupport:           opts.EngineLifecycleSupport,
 	}
 	b.instances[id] = inst
 	b.publishInstanceEventLocked(id, "DB instance created")
@@ -1193,6 +1215,15 @@ func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
 	}
 	if opts.PerformanceInsightsEnabled {
 		inst.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+	}
+	if opts.StorageOptimized {
+		inst.StorageOptimized = true
+	}
+	if opts.OptimizedWrites {
+		inst.OptimizedWrites = true
+	}
+	if opts.EngineLifecycleSupport != "" {
+		inst.EngineLifecycleSupport = opts.EngineLifecycleSupport
 	}
 }
 
@@ -2021,6 +2052,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 		port = enginePort(engine)
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
+	networkType := opts.NetworkType
+	if networkType == "" {
+		networkType = "IPV4"
+	}
 	cluster := &DBCluster{
 		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
@@ -2031,6 +2067,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 		DatabaseName:                 dbName,
 		DBClusterParameterGroupName:  paramGroupName,
 		Endpoint:                     endpoint,
+		ReaderEndpoint:               readerEndpoint,
+		NetworkType:                  networkType,
+		StorageType:                  opts.StorageType,
+		EngineLifecycleSupport:       opts.EngineLifecycleSupport,
+		OptimizedWrites:              opts.OptimizedWrites,
 		Port:                         port,
 		ServerlessV2ScalingConfig:    serverlessV2Cfg,
 		KmsKeyID:                     opts.KmsKeyID,
@@ -2109,6 +2150,12 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 
 // applyDBClusterOpts applies DBClusterOptions fields to a cluster in-place.
 func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBClusterOptions) {
+	applyDBClusterStringOpts(cluster, paramGroupName, opts)
+	applyDBClusterBoolOpts(cluster, opts)
+}
+
+// applyDBClusterStringOpts applies string and numeric fields from opts to cluster.
+func applyDBClusterStringOpts(cluster *DBCluster, paramGroupName string, opts DBClusterOptions) {
 	if paramGroupName != "" {
 		cluster.DBClusterParameterGroupName = paramGroupName
 	}
@@ -2133,6 +2180,22 @@ func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBCluste
 	if opts.MonitoringInterval >= 0 {
 		cluster.MonitoringInterval = opts.MonitoringInterval
 	}
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+	if opts.StorageType != "" {
+		cluster.StorageType = opts.StorageType
+	}
+	if opts.NetworkType != "" {
+		cluster.NetworkType = opts.NetworkType
+	}
+	if opts.EngineLifecycleSupport != "" {
+		cluster.EngineLifecycleSupport = opts.EngineLifecycleSupport
+	}
+}
+
+// applyDBClusterBoolOpts applies boolean fields from opts to cluster.
+func applyDBClusterBoolOpts(cluster *DBCluster, opts DBClusterOptions) {
 	if opts.MultiAZ {
 		cluster.MultiAZ = opts.MultiAZ
 	}
@@ -2147,8 +2210,8 @@ func applyDBClusterOpts(cluster *DBCluster, paramGroupName string, opts DBCluste
 	} else if opts.DeletionProtection {
 		cluster.DeletionProtection = true
 	}
-	if len(opts.EnabledCloudwatchLogsExports) > 0 {
-		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	if opts.OptimizedWrites {
+		cluster.OptimizedWrites = true
 	}
 }
 
@@ -3373,10 +3436,12 @@ func (b *InMemoryBackend) CreateBlueGreenDeployment(
 		)
 	}
 
+	target := source + "-green"
 	deployment := &BlueGreenDeployment{
 		BlueGreenDeploymentIdentifier: id,
 		BlueGreenDeploymentName:       name,
 		Source:                        source,
+		Target:                        target,
 		Status:                        blueGreenDeploymentStatusAvailable,
 	}
 	b.blueGreenDeployments[id] = deployment

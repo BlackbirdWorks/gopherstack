@@ -1,5 +1,7 @@
 package rds
 
+import "time"
+
 // StorageBackend defines the interface for RDS backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -138,6 +140,7 @@ type StorageBackend interface {
 	ModifyCustomDBEngineVersion(
 		engine, engineVersion, description, status string,
 	) (*CustomDBEngineVersion, error)
+	DescribeCustomDBEngineVersions(engine, engineVersion string) []CustomDBEngineVersion
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
 	DescribeDBLogFiles(instanceID string) ([]DBLogFile, error)
 	DownloadDBLogFilePortion(instanceID, logFileName string) (string, error)
@@ -281,10 +284,10 @@ type StorageBackend interface {
 	RebootDBShardGroup(id string) (*DBShardGroup, error)
 
 	// Integration operations
-	CreateIntegration(name, sourceARN, targetARN, kmsKeyID string) (*Integration, error)
+	CreateIntegration(name, sourceARN, targetARN, kmsKeyID, dataFilter, description string) (*Integration, error)
 	DeleteIntegration(identifier string) (*Integration, error)
 	DescribeIntegrations(identifier string) ([]Integration, error)
-	ModifyIntegration(identifier string) (*Integration, error)
+	ModifyIntegration(identifier, dataFilter, description string) (*Integration, error)
 
 	// Tenant Database operations
 	CreateTenantDatabase(instanceID, tenantDBName, masterUsername string) (*TenantDatabase, error)
@@ -308,6 +311,13 @@ type StorageBackend interface {
 
 	// DB Snapshot Tenant Database operations
 	DescribeDBSnapshotTenantDatabases(snapshotID, instanceID string) []DBSnapshotTenantDatabase
+
+	// Performance Insights operations
+	GetPerformanceInsightsData(
+		resourceID, metric string,
+		startTime, endTime time.Time,
+		periodInSeconds int,
+	) []PIDataPoint
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.
