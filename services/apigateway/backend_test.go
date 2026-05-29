@@ -717,9 +717,9 @@ func TestBackend_Integration_NewFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check func(t *testing.T, got *apigateway.Integration)
 		name  string
 		input apigateway.PutIntegrationInput
-		check func(t *testing.T, got *apigateway.Integration)
 	}{
 		{
 			name: "connection_type_vpc_link",
@@ -728,12 +728,12 @@ func TestBackend_Integration_NewFields(t *testing.T) {
 				HTTPMethod:     "GET",
 				URI:            "https://internal.example.com/api",
 				ConnectionType: "VPC_LINK",
-				ConnectionId:   "abc123",
+				ConnectionID:   "abc123",
 			},
 			check: func(t *testing.T, got *apigateway.Integration) {
 				t.Helper()
 				assert.Equal(t, "VPC_LINK", got.ConnectionType)
-				assert.Equal(t, "abc123", got.ConnectionId)
+				assert.Equal(t, "abc123", got.ConnectionID)
 			},
 		},
 		{
@@ -949,9 +949,9 @@ func TestBackend_UsagePlan_ApiStages_CRUD(t *testing.T) {
 	_, _ = b.CreateDeployment(api2.ID, "staging", "v1")
 
 	tests := []struct {
+		check func(t *testing.T, plan *apigateway.UsagePlan)
 		name  string
 		input apigateway.CreateUsagePlanInput
-		check func(t *testing.T, plan *apigateway.UsagePlan)
 	}{
 		{
 			name: "no_api_stages",
@@ -960,45 +960,45 @@ func TestBackend_UsagePlan_ApiStages_CRUD(t *testing.T) {
 			},
 			check: func(t *testing.T, plan *apigateway.UsagePlan) {
 				t.Helper()
-				assert.Empty(t, plan.ApiStages)
+				assert.Empty(t, plan.APIStages)
 			},
 		},
 		{
 			name: "single_api_stage",
 			input: apigateway.CreateUsagePlanInput{
 				Name: "single-stage-plan",
-				ApiStages: []apigateway.ApiStageAssociation{
-					{RestApiId: api1.ID, Stage: "prod"},
+				APIStages: []apigateway.APIStageAssociation{
+					{RestAPIID: api1.ID, Stage: "prod"},
 				},
 			},
 			check: func(t *testing.T, plan *apigateway.UsagePlan) {
 				t.Helper()
-				require.Len(t, plan.ApiStages, 1)
-				assert.Equal(t, api1.ID, plan.ApiStages[0].RestApiId)
-				assert.Equal(t, "prod", plan.ApiStages[0].Stage)
+				require.Len(t, plan.APIStages, 1)
+				assert.Equal(t, api1.ID, plan.APIStages[0].RestAPIID)
+				assert.Equal(t, "prod", plan.APIStages[0].Stage)
 			},
 		},
 		{
 			name: "multiple_api_stages",
 			input: apigateway.CreateUsagePlanInput{
 				Name: "multi-stage-plan",
-				ApiStages: []apigateway.ApiStageAssociation{
-					{RestApiId: api1.ID, Stage: "prod"},
-					{RestApiId: api2.ID, Stage: "staging"},
+				APIStages: []apigateway.APIStageAssociation{
+					{RestAPIID: api1.ID, Stage: "prod"},
+					{RestAPIID: api2.ID, Stage: "staging"},
 				},
 			},
 			check: func(t *testing.T, plan *apigateway.UsagePlan) {
 				t.Helper()
-				assert.Len(t, plan.ApiStages, 2)
+				assert.Len(t, plan.APIStages, 2)
 			},
 		},
 		{
 			name: "api_stage_with_per_method_throttle",
 			input: apigateway.CreateUsagePlanInput{
 				Name: "throttle-method-plan",
-				ApiStages: []apigateway.ApiStageAssociation{
+				APIStages: []apigateway.APIStageAssociation{
 					{
-						RestApiId: api1.ID,
+						RestAPIID: api1.ID,
 						Stage:     "prod",
 						Throttle: map[string]*apigateway.ThrottleSettings{
 							"GET /items":  {RateLimit: 100, BurstLimit: 50},
@@ -1009,11 +1009,11 @@ func TestBackend_UsagePlan_ApiStages_CRUD(t *testing.T) {
 			},
 			check: func(t *testing.T, plan *apigateway.UsagePlan) {
 				t.Helper()
-				require.Len(t, plan.ApiStages, 1)
-				require.NotNil(t, plan.ApiStages[0].Throttle)
-				assert.Contains(t, plan.ApiStages[0].Throttle, "GET /items")
-				assert.Contains(t, plan.ApiStages[0].Throttle, "POST /items")
-				assert.InDelta(t, 100.0, plan.ApiStages[0].Throttle["GET /items"].RateLimit, 0.001)
+				require.Len(t, plan.APIStages, 1)
+				require.NotNil(t, plan.APIStages[0].Throttle)
+				assert.Contains(t, plan.APIStages[0].Throttle, "GET /items")
+				assert.Contains(t, plan.APIStages[0].Throttle, "POST /items")
+				assert.InDelta(t, 100.0, plan.APIStages[0].Throttle["GET /items"].RateLimit, 0.001)
 			},
 		},
 	}
@@ -1037,9 +1037,9 @@ func TestBackend_DomainName_NewFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		input apigateway.CreateDomainNameInput
 		check func(t *testing.T, dn *apigateway.DomainName)
+		input apigateway.CreateDomainNameInput
+		name  string
 	}{
 		{
 			name: "default_security_policy",
@@ -1053,8 +1053,8 @@ func TestBackend_DomainName_NewFields(t *testing.T) {
 				assert.Equal(t, "AVAILABLE", dn.DomainNameStatus)
 				assert.NotEmpty(t, dn.RegionalDomainName)
 				assert.NotEmpty(t, dn.DistributionDomainName)
-				assert.NotEmpty(t, dn.RegionalHostedZoneId)
-				assert.NotEmpty(t, dn.DistributionHostedZoneId)
+				assert.NotEmpty(t, dn.RegionalHostedZoneID)
+				assert.NotEmpty(t, dn.DistributionHostedZoneID)
 			},
 		},
 		{
@@ -1132,9 +1132,9 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 	depl, _ := b.CreateDeployment(api.ID, "", "v1")
 
 	tests := []struct {
+		check func(t *testing.T, stage *apigateway.Stage)
 		name  string
 		input apigateway.CreateStageInput
-		check func(t *testing.T, stage *apigateway.Stage)
 	}{
 		{
 			name: "with_cert",
@@ -1142,11 +1142,11 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 				RestAPIID:           api.ID,
 				StageName:           "prod",
 				DeploymentID:        depl.ID,
-				ClientCertificateId: cert.ClientCertificateID,
+				ClientCertificateID: cert.ClientCertificateID,
 			},
 			check: func(t *testing.T, stage *apigateway.Stage) {
 				t.Helper()
-				assert.Equal(t, cert.ClientCertificateID, stage.ClientCertificateId)
+				assert.Equal(t, cert.ClientCertificateID, stage.ClientCertificateID)
 			},
 		},
 		{
@@ -1158,19 +1158,20 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 			},
 			check: func(t *testing.T, stage *apigateway.Stage) {
 				t.Helper()
-				assert.Empty(t, stage.ClientCertificateId)
+				assert.Empty(t, stage.ClientCertificateID)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stage, err := b.CreateStage(tt.input)
-			require.NoError(t, err)
+			t.Parallel()
+			stage, createErr := b.CreateStage(tt.input)
+			require.NoError(t, createErr)
 			tt.check(t, stage)
 
-			got, err := b.GetStage(api.ID, tt.input.StageName)
-			require.NoError(t, err)
+			got, getErr := b.GetStage(api.ID, tt.input.StageName)
+			require.NoError(t, getErr)
 			tt.check(t, got)
 		})
 	}

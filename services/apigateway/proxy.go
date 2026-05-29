@@ -355,6 +355,7 @@ func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *h
 	if keyValue == "" {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: missing x-api-key", "apiId", apiID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
+
 		return true
 	}
 
@@ -362,12 +363,14 @@ func (h *Handler) enforceAPIKey(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil || apiKey == nil {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: invalid x-api-key", "apiId", apiID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
+
 		return true
 	}
 
 	if !apiKey.Enabled {
 		logger.Load(ctx).InfoContext(ctx, "APIGateway proxy: disabled API key", "apiId", apiID, "keyId", apiKey.ID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
+
 		return true
 	}
 
@@ -684,6 +687,7 @@ func extractTokenFromIdentitySource(r *http.Request, identitySource string) stri
 	}
 
 	// Default: try Authorization header.
+
 	return r.Header.Get("Authorization")
 }
 
@@ -916,6 +920,7 @@ func applyContentHandling(body []byte, handling string) []byte {
 
 		return []byte(encoded)
 	default:
+
 		return body
 	}
 }
@@ -959,6 +964,7 @@ func (h *Handler) matchIntegrationResponse(
 	}
 
 	// No pattern and no default: return nil.
+
 	return nil
 }
 
@@ -1147,12 +1153,6 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 
 	w.WriteHeader(statusCode)
 	_, _ = w.Write([]byte(body)) //nolint:gosec // local emulation: mock integration body is test-configured
-}
-
-// mockResponse resolves the status code and body for a MOCK integration.
-func mockResponse(integration *Integration) (int, string) {
-	code, body, _ := mockResponseWithIR(integration)
-	return code, body
 }
 
 // mockResponseWithIR resolves the status code, body, and integration response for a MOCK integration.
@@ -1441,6 +1441,7 @@ func ExtractLambdaFunctionName(uri string) string {
 	}
 
 	// Plain name or already-resolved value — return as-is.
+
 	return uri
 }
 
@@ -1468,13 +1469,10 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 		}
 
 		rest := dest[len(integPrefix):]
-		typeEnd := strings.Index(rest, ".")
-		if typeEnd < 0 {
+		paramType, paramName, ok := strings.Cut(rest, ".")
+		if !ok {
 			continue
 		}
-
-		paramType := rest[:typeEnd]
-		paramName := rest[typeEnd+1:]
 
 		switch paramType {
 		case paramLocationHeader:
@@ -1500,18 +1498,17 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	}
 
 	rest := src[len(methodPrefix):]
-	typeEnd := strings.Index(rest, ".")
-	if typeEnd < 0 {
+	srcType, srcName, ok := strings.Cut(rest, ".")
+	if !ok {
 		return ""
 	}
 
-	srcType := rest[:typeEnd]
-	srcName := rest[typeEnd+1:]
-
 	switch srcType {
 	case paramLocationHeader:
+
 		return r.Header.Get(srcName)
 	case "querystring":
+
 		return r.URL.Query().Get(srcName)
 	case "path":
 		// Return the named path segment from the raw URL path.
@@ -1523,6 +1520,7 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 				return seg
 			}
 		}
+
 		return ""
 	}
 

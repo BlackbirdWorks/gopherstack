@@ -196,9 +196,9 @@ func TestResolveRequestParamSource(t *testing.T) {
 			expect: "Bearer tok",
 		},
 		{
-			name: "method_request_header_missing",
-			src:  "method.request.header.X-Missing",
-			setup: func(_ *http.Request) {},
+			name:   "method_request_header_missing",
+			src:    "method.request.header.X-Missing",
+			setup:  func(_ *http.Request) {},
 			expect: "",
 		},
 		{
@@ -276,10 +276,10 @@ func TestApplyIntegrationRequestParams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		params      map[string]string
+		params        map[string]string
 		setupIncoming func(r *http.Request)
 		checkOutgoing func(t *testing.T, r *http.Request)
+		name          string
 	}{
 		{
 			name: "header_from_method_header",
@@ -362,9 +362,9 @@ func TestApplyIntegrationResponseParams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		params      map[string]string
 		checkResult func(t *testing.T, w *httptest.ResponseRecorder)
+		name        string
 	}{
 		{
 			name: "static_header",

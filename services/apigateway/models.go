@@ -88,16 +88,16 @@ type Integration struct {
 	RequestTemplates     map[string]string               `json:"requestTemplates,omitempty"`
 	RequestParameters    map[string]string               `json:"requestParameters,omitempty"`
 	IntegrationResponses map[string]*IntegrationResponse `json:"integrationResponses,omitempty"`
-	CacheKeyParameters   []string                        `json:"cacheKeyParameters,omitempty"`
+	ConnectionID         string                          `json:"connectionId,omitempty"`
 	Type                 string                          `json:"type"`
 	HTTPMethod           string                          `json:"httpMethod,omitempty"`
 	URI                  string                          `json:"uri,omitempty"`
 	PassthroughBehavior  string                          `json:"passthroughBehavior,omitempty"`
 	ConnectionType       string                          `json:"connectionType,omitempty"`
-	ConnectionId         string                          `json:"connectionId,omitempty"`
 	ContentHandling      string                          `json:"contentHandling,omitempty"`
 	Credentials          string                          `json:"credentials,omitempty"`
 	CacheNamespace       string                          `json:"cacheNamespace,omitempty"`
+	CacheKeyParameters   []string                        `json:"cacheKeyParameters,omitempty"`
 	TimeoutInMillis      int                             `json:"timeoutInMillis,omitempty"`
 }
 
@@ -155,7 +155,7 @@ type Stage struct {
 	RestAPIID           string                   `json:"-"`
 	DeploymentID        string                   `json:"deploymentId"`
 	Description         string                   `json:"description,omitempty"`
-	ClientCertificateId string                   `json:"clientCertificateId,omitempty"`
+	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
 	// InvokeURL is the invoke URL for this stage (non-AWS field used by gopherstack UI).
 	InvokeURL      string `json:"invokeUrl,omitempty"`
 	TracingEnabled bool   `json:"tracingEnabled,omitempty"`
@@ -187,16 +187,16 @@ type PutMethodInput struct {
 type PutIntegrationInput struct {
 	RequestTemplates    map[string]string `json:"requestTemplates,omitempty"`
 	RequestParameters   map[string]string `json:"requestParameters,omitempty"`
-	CacheKeyParameters  []string          `json:"cacheKeyParameters,omitempty"`
+	PassthroughBehavior string            `json:"passthroughBehavior,omitempty"`
 	Type                string            `json:"type"`
 	HTTPMethod          string            `json:"httpMethod,omitempty"`
 	URI                 string            `json:"uri,omitempty"`
-	PassthroughBehavior string            `json:"passthroughBehavior,omitempty"`
 	ConnectionType      string            `json:"connectionType,omitempty"`
-	ConnectionId        string            `json:"connectionId,omitempty"`
+	ConnectionID        string            `json:"connectionId,omitempty"`
 	ContentHandling     string            `json:"contentHandling,omitempty"`
 	Credentials         string            `json:"credentials,omitempty"`
 	CacheNamespace      string            `json:"cacheNamespace,omitempty"`
+	CacheKeyParameters  []string          `json:"cacheKeyParameters,omitempty"`
 	TimeoutInMillis     int               `json:"timeoutInMillis,omitempty"`
 }
 
@@ -384,9 +384,9 @@ type DomainName struct {
 	CertificateARN           string                 `json:"certificateArn,omitempty"`
 	RegionalCertificateARN   string                 `json:"regionalCertificateArn,omitempty"`
 	DistributionDomainName   string                 `json:"distributionDomainName,omitempty"`
-	DistributionHostedZoneId string                 `json:"distributionHostedZoneId,omitempty"`
+	DistributionHostedZoneID string                 `json:"distributionHostedZoneId,omitempty"`
 	RegionalDomainName       string                 `json:"regionalDomainName,omitempty"`
-	RegionalHostedZoneId     string                 `json:"regionalHostedZoneId,omitempty"`
+	RegionalHostedZoneID     string                 `json:"regionalHostedZoneId,omitempty"`
 	SecurityPolicy           string                 `json:"securityPolicy,omitempty"`
 	DomainNameStatus         string                 `json:"domainNameStatus,omitempty"`
 }
@@ -445,7 +445,7 @@ type CreateStageInput struct {
 	StageName           string                   `json:"stageName"`
 	DeploymentID        string                   `json:"deploymentId"`
 	Description         string                   `json:"description,omitempty"`
-	ClientCertificateId string                   `json:"clientCertificateId,omitempty"`
+	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
 	TracingEnabled      bool                     `json:"tracingEnabled,omitempty"`
 }
 
@@ -467,10 +467,10 @@ type UsagePlan struct {
 	Tags        *tags.Tags            `json:"tags,omitempty"`
 	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
 	Quota       *QuotaSettings        `json:"quota,omitempty"`
-	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
 	ID          string                `json:"id"`
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitempty"`
+	APIStages   []APIStageAssociation `json:"apiStages,omitempty"`
 }
 
 // CreateUsagePlanInput is the input for CreateUsagePlan.
@@ -478,9 +478,9 @@ type CreateUsagePlanInput struct {
 	Tags        *tags.Tags            `json:"tags,omitempty"`
 	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
 	Quota       *QuotaSettings        `json:"quota,omitempty"`
-	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitempty"`
+	APIStages   []APIStageAssociation `json:"apiStages,omitempty"`
 }
 
 // UsagePlanKey represents an API key associated with a usage plan.
@@ -520,7 +520,7 @@ type UpdateStageInput struct {
 	Variables           map[string]string        `json:"variables,omitempty"`
 	DeploymentID        string                   `json:"deploymentId,omitempty"`
 	Description         string                   `json:"description,omitempty"`
-	ClientCertificateId string                   `json:"clientCertificateId,omitempty"`
+	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
 }
 
 // Account represents the API Gateway account settings.
@@ -589,16 +589,16 @@ type TestInvokeMethodOutput struct {
 type UpdateUsagePlanInput struct {
 	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
 	Quota       *QuotaSettings        `json:"quota,omitempty"`
-	ApiStages   []ApiStageAssociation `json:"apiStages,omitempty"`
 	Name        string                `json:"name,omitempty"`
 	Description string                `json:"description,omitempty"`
 	UsagePlanID string                `json:"usagePlanId"`
+	APIStages   []APIStageAssociation `json:"apiStages,omitempty"`
 }
 
-// ApiStageAssociation associates a usage plan with a specific REST API stage.
-type ApiStageAssociation struct {
+// APIStageAssociation associates a usage plan with a specific REST API stage.
+type APIStageAssociation struct {
 	Throttle  map[string]*ThrottleSettings `json:"throttle,omitempty"`
-	RestApiId string                       `json:"restApiId,omitempty"`
+	RestAPIID string                       `json:"restApiId,omitempty"`
 	Stage     string                       `json:"stage,omitempty"`
 }
 
@@ -649,19 +649,19 @@ type UpdateMethodInput struct {
 type UpdateIntegrationInput struct {
 	RequestTemplates      map[string]string `json:"requestTemplates,omitempty"`
 	RequestParameters     map[string]string `json:"requestParameters,omitempty"`
-	CacheKeyParameters    []string          `json:"cacheKeyParameters,omitempty"`
-	RestAPIID             string            `json:"restApiId"`
+	IntegrationHTTPMethod string            `json:"integrationHttpMethod,omitempty"`
+	PassthroughBehavior   string            `json:"passthroughBehavior,omitempty"`
 	ResourceID            string            `json:"resourceId"`
 	HTTPMethod            string            `json:"httpMethod"`
 	URI                   string            `json:"uri,omitempty"`
 	IntegrationType       string            `json:"type,omitempty"`
-	IntegrationHTTPMethod string            `json:"integrationHttpMethod,omitempty"`
-	PassthroughBehavior   string            `json:"passthroughBehavior,omitempty"`
+	CacheNamespace        string            `json:"cacheNamespace,omitempty"`
+	RestAPIID             string            `json:"restApiId"`
 	ConnectionType        string            `json:"connectionType,omitempty"`
-	ConnectionId          string            `json:"connectionId,omitempty"`
+	ConnectionID          string            `json:"connectionId,omitempty"`
 	ContentHandling       string            `json:"contentHandling,omitempty"`
 	Credentials           string            `json:"credentials,omitempty"`
-	CacheNamespace        string            `json:"cacheNamespace,omitempty"`
+	CacheKeyParameters    []string          `json:"cacheKeyParameters,omitempty"`
 	TimeoutInMillis       int               `json:"timeoutInMillis,omitempty"`
 }
 

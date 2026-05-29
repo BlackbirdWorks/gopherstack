@@ -697,7 +697,7 @@ func (b *InMemoryBackend) PutIntegration(
 		RequestParameters:    input.RequestParameters,
 		CacheKeyParameters:   input.CacheKeyParameters,
 		ConnectionType:       input.ConnectionType,
-		ConnectionId:         input.ConnectionId,
+		ConnectionID:         input.ConnectionID,
 		ContentHandling:      input.ContentHandling,
 		Credentials:          input.Credentials,
 		CacheNamespace:       input.CacheNamespace,
@@ -1620,9 +1620,9 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		SecurityPolicy:           securityPolicy,
 		EndpointConfiguration:    epConfig,
 		RegionalDomainName:       regionalDomain,
-		RegionalHostedZoneId:     "Z2FDTNDATAQYW2",
+		RegionalHostedZoneID:     "Z2FDTNDATAQYW2",
 		DistributionDomainName:   distributionDomain,
-		DistributionHostedZoneId: "Z2FDTNDATAQYW2",
+		DistributionHostedZoneID: "Z2FDTNDATAQYW2",
 		DomainNameStatus:         "AVAILABLE",
 		Tags:                     backendTags,
 		CreatedDate:              &now,
@@ -1764,7 +1764,7 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 		AccessLogSettings:   input.AccessLogSettings,
 		MethodSettings:      input.MethodSettings,
 		TracingEnabled:      input.TracingEnabled,
-		ClientCertificateId: input.ClientCertificateId,
+		ClientCertificateID: input.ClientCertificateID,
 	}
 	d.stages[input.StageName] = stage
 
@@ -1791,7 +1791,7 @@ func (b *InMemoryBackend) CreateUsagePlan(input CreateUsagePlanInput) (*UsagePla
 		Description: input.Description,
 		Throttle:    input.Throttle,
 		Quota:       input.Quota,
-		ApiStages:   input.ApiStages,
+		APIStages:   input.APIStages,
 		Tags:        backendTags,
 	}
 	b.usagePlans[id] = plan
@@ -1870,9 +1870,11 @@ func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
 	for _, k := range b.apiKeys {
 		if k.Value == value {
 			cp := *k
+
 			return &cp, nil
 		}
 	}
+
 	return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 }
 
@@ -2128,8 +2130,8 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	if input.TracingEnabled != nil {
 		stage.TracingEnabled = *input.TracingEnabled
 	}
-	if input.ClientCertificateId != "" {
-		stage.ClientCertificateId = input.ClientCertificateId
+	if input.ClientCertificateID != "" {
+		stage.ClientCertificateID = input.ClientCertificateID
 	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
@@ -2621,8 +2623,8 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
-	if len(input.ApiStages) > 0 {
-		p.ApiStages = input.ApiStages
+	if len(input.APIStages) > 0 {
+		p.APIStages = input.APIStages
 	}
 
 	return p, nil
@@ -2822,8 +2824,8 @@ func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
 	if input.ConnectionType != "" {
 		intg.ConnectionType = input.ConnectionType
 	}
-	if input.ConnectionId != "" {
-		intg.ConnectionId = input.ConnectionId
+	if input.ConnectionID != "" {
+		intg.ConnectionID = input.ConnectionID
 	}
 	if input.ContentHandling != "" {
 		intg.ContentHandling = input.ContentHandling

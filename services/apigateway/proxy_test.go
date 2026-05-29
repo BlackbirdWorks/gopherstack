@@ -1131,8 +1131,8 @@ func (m *captureAuthInvokerWithCapture) InvokeFunction(
 // httpCapture is a test HTTP server that records the last received request headers and query.
 type httpCapture struct {
 	lastHeader http.Header
-	lastQuery  string
 	server     *httptest.Server
+	lastQuery  string
 }
 
 func newHTTPCapture() *httpCapture {
@@ -1350,7 +1350,7 @@ func TestProxy_IntegrationResponseParams_IntegrationHeaderEcho(t *testing.T) {
 // --- API Key enforcement tests ---
 
 // setupAPIKeyRequired creates a minimal proxy setup where the method requires an API key.
-func setupAPIKeyRequired(t *testing.T) (*apigateway.Handler, *echo.Echo, string, string) {
+func setupAPIKeyRequired(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 	t.Helper()
 
 	backend := apigateway.NewInMemoryBackend()
@@ -1384,13 +1384,13 @@ func setupAPIKeyRequired(t *testing.T) (*apigateway.Handler, *echo.Echo, string,
 	_, err = backend.CreateDeployment(api.ID, "prod", "v1")
 	require.NoError(t, err)
 
-	return h, e, api.ID, rootID
+	return h, e, api.ID
 }
 
 func TestProxy_APIKeyRequired_MissingKey_Returns403(t *testing.T) {
 	t.Parallel()
 
-	h, e, apiID, _ := setupAPIKeyRequired(t)
+	h, e, apiID := setupAPIKeyRequired(t)
 
 	url := "/restapis/" + apiID + "/prod/_user_request_/"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
@@ -1404,7 +1404,7 @@ func TestProxy_APIKeyRequired_MissingKey_Returns403(t *testing.T) {
 func TestProxy_APIKeyRequired_InvalidKey_Returns403(t *testing.T) {
 	t.Parallel()
 
-	h, e, apiID, _ := setupAPIKeyRequired(t)
+	h, e, apiID := setupAPIKeyRequired(t)
 
 	url := "/restapis/" + apiID + "/prod/_user_request_/"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
@@ -1581,6 +1581,7 @@ func TestProxy_APIKeyRequired_EnabledThenDisabled(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		require.NoError(t, h.Handler()(c))
+
 		return rec.Code
 	}
 

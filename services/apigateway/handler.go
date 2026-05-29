@@ -260,11 +260,10 @@ type deleteMethodInput struct {
 }
 
 type putIntegrationInput struct {
-	PutIntegrationInput
-
 	RestAPIID  string `json:"restApiId"`
 	ResourceID string `json:"resourceId"`
 	HTTPMethod string `json:"httpMethod"`
+	PutIntegrationInput
 }
 
 type getIntegrationInput struct {

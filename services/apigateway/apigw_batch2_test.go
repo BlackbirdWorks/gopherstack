@@ -38,16 +38,16 @@ func TestIntegration_ConnectionType_VpcLink(t *testing.T) {
 		HTTPMethod:     "GET",
 		URI:            "https://internal.example.com/api",
 		ConnectionType: "VPC_LINK",
-		ConnectionId:   vpcLink.ID,
+		ConnectionID:   vpcLink.ID,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "VPC_LINK", integ.ConnectionType)
-	assert.Equal(t, vpcLink.ID, integ.ConnectionId)
+	assert.Equal(t, vpcLink.ID, integ.ConnectionID)
 
 	got, err := b.GetIntegration(api.ID, rootID, "GET")
 	require.NoError(t, err)
 	assert.Equal(t, "VPC_LINK", got.ConnectionType)
-	assert.Equal(t, vpcLink.ID, got.ConnectionId)
+	assert.Equal(t, vpcLink.ID, got.ConnectionID)
 }
 
 func TestIntegration_ConnectionType_Internet(t *testing.T) {
@@ -150,7 +150,7 @@ func TestIntegration_RequestParameters(t *testing.T) {
 	assert.Equal(t, newParams, updated.RequestParameters)
 }
 
-// --- Stage ClientCertificateId ---
+// --- Stage ClientCertificateID ---
 
 func TestStage_ClientCertificateId_Create(t *testing.T) {
 	t.Parallel()
@@ -168,14 +168,14 @@ func TestStage_ClientCertificateId_Create(t *testing.T) {
 		RestAPIID:           api.ID,
 		StageName:           "prod",
 		DeploymentID:        depl.ID,
-		ClientCertificateId: cert.ClientCertificateID,
+		ClientCertificateID: cert.ClientCertificateID,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, cert.ClientCertificateID, stage.ClientCertificateId)
+	assert.Equal(t, cert.ClientCertificateID, stage.ClientCertificateID)
 
 	got, err := b.GetStage(api.ID, "prod")
 	require.NoError(t, err)
-	assert.Equal(t, cert.ClientCertificateID, got.ClientCertificateId)
+	assert.Equal(t, cert.ClientCertificateID, got.ClientCertificateID)
 }
 
 func TestStage_ClientCertificateId_Update(t *testing.T) {
@@ -191,14 +191,14 @@ func TestStage_ClientCertificateId_Update(t *testing.T) {
 		DeploymentID: depl.ID,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, stage.ClientCertificateId)
+	assert.Empty(t, stage.ClientCertificateID)
 
 	cert, _ := b.GenerateClientCertificate(apigateway.GenerateClientCertificateInput{})
 	updated, err := b.UpdateStage(api.ID, "dev", apigateway.UpdateStageInput{
-		ClientCertificateId: cert.ClientCertificateID,
+		ClientCertificateID: cert.ClientCertificateID,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, cert.ClientCertificateID, updated.ClientCertificateId)
+	assert.Equal(t, cert.ClientCertificateID, updated.ClientCertificateID)
 }
 
 // --- DomainName: regional + distribution fields + SecurityPolicy ---
@@ -215,9 +215,9 @@ func TestDomainName_RegionalAndDistributionFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "TLS_1_2", dn.SecurityPolicy)
 	assert.NotEmpty(t, dn.RegionalDomainName)
-	assert.NotEmpty(t, dn.RegionalHostedZoneId)
+	assert.NotEmpty(t, dn.RegionalHostedZoneID)
 	assert.NotEmpty(t, dn.DistributionDomainName)
-	assert.NotEmpty(t, dn.DistributionHostedZoneId)
+	assert.NotEmpty(t, dn.DistributionHostedZoneID)
 	assert.Equal(t, "AVAILABLE", dn.DomainNameStatus)
 	assert.NotNil(t, dn.EndpointConfiguration)
 }
@@ -286,7 +286,7 @@ func TestDomainName_UpdateRegionalCert(t *testing.T) {
 	assert.Equal(t, "arn:aws:acm:us-east-1:123456789012:certificate/new", updated.RegionalCertificateARN)
 }
 
-// --- UsagePlan ApiStages ---
+// --- UsagePlan APIStages ---
 
 func TestUsagePlan_ApiStages_Create(t *testing.T) {
 	t.Parallel()
@@ -297,19 +297,19 @@ func TestUsagePlan_ApiStages_Create(t *testing.T) {
 
 	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{
 		Name: "throttle-plan",
-		ApiStages: []apigateway.ApiStageAssociation{
-			{RestApiId: api.ID, Stage: "prod"},
+		APIStages: []apigateway.APIStageAssociation{
+			{RestAPIID: api.ID, Stage: "prod"},
 		},
 		Throttle: &apigateway.ThrottleSettings{RateLimit: 1000, BurstLimit: 500},
 	})
 	require.NoError(t, err)
-	require.Len(t, plan.ApiStages, 1)
-	assert.Equal(t, api.ID, plan.ApiStages[0].RestApiId)
-	assert.Equal(t, "prod", plan.ApiStages[0].Stage)
+	require.Len(t, plan.APIStages, 1)
+	assert.Equal(t, api.ID, plan.APIStages[0].RestAPIID)
+	assert.Equal(t, "prod", plan.APIStages[0].Stage)
 
 	got, err := b.GetUsagePlan(plan.ID)
 	require.NoError(t, err)
-	require.Len(t, got.ApiStages, 1)
+	require.Len(t, got.APIStages, 1)
 }
 
 func TestUsagePlan_ApiStages_Update(t *testing.T) {
@@ -323,20 +323,20 @@ func TestUsagePlan_ApiStages_Update(t *testing.T) {
 
 	plan, _ := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{
 		Name: "update-plan",
-		ApiStages: []apigateway.ApiStageAssociation{
-			{RestApiId: api.ID, Stage: "prod"},
+		APIStages: []apigateway.APIStageAssociation{
+			{RestAPIID: api.ID, Stage: "prod"},
 		},
 	})
 
 	updated, err := b.UpdateUsagePlan(apigateway.UpdateUsagePlanInput{
 		UsagePlanID: plan.ID,
-		ApiStages: []apigateway.ApiStageAssociation{
-			{RestApiId: api.ID, Stage: "prod"},
-			{RestApiId: api2.ID, Stage: "v1"},
+		APIStages: []apigateway.APIStageAssociation{
+			{RestAPIID: api.ID, Stage: "prod"},
+			{RestAPIID: api2.ID, Stage: "v1"},
 		},
 	})
 	require.NoError(t, err)
-	assert.Len(t, updated.ApiStages, 2)
+	assert.Len(t, updated.APIStages, 2)
 }
 
 func TestUsagePlan_ApiStages_PerStageThrottle(t *testing.T) {
@@ -351,18 +351,18 @@ func TestUsagePlan_ApiStages_PerStageThrottle(t *testing.T) {
 	}
 	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{
 		Name: "per-method-plan",
-		ApiStages: []apigateway.ApiStageAssociation{
+		APIStages: []apigateway.APIStageAssociation{
 			{
-				RestApiId: api.ID,
+				RestAPIID: api.ID,
 				Stage:     "prod",
 				Throttle:  methodThrottle,
 			},
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, plan.ApiStages, 1)
-	require.NotNil(t, plan.ApiStages[0].Throttle)
-	assert.InDelta(t, 100.0, plan.ApiStages[0].Throttle["GET /items"].RateLimit, 0.001)
+	require.Len(t, plan.APIStages, 1)
+	require.NotNil(t, plan.APIStages[0].Throttle)
+	assert.InDelta(t, 100.0, plan.APIStages[0].Throttle["GET /items"].RateLimit, 0.001)
 }
 
 // --- UpdateIntegration: ConnectionType + CacheKeyParameters ---
@@ -397,14 +397,14 @@ func TestUpdateIntegration_ConnectionType(t *testing.T) {
 		ResourceID:         rootID,
 		HTTPMethod:         "GET",
 		ConnectionType:     "VPC_LINK",
-		ConnectionId:       vpcLink.ID,
+		ConnectionID:       vpcLink.ID,
 		ContentHandling:    "CONVERT_TO_BINARY",
 		CacheNamespace:     "mynamespace",
 		CacheKeyParameters: []string{"method.request.path.id"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "VPC_LINK", updated.ConnectionType)
-	assert.Equal(t, vpcLink.ID, updated.ConnectionId)
+	assert.Equal(t, vpcLink.ID, updated.ConnectionID)
 	assert.Equal(t, "CONVERT_TO_BINARY", updated.ContentHandling)
 	assert.Equal(t, "mynamespace", updated.CacheNamespace)
 	assert.Equal(t, []string{"method.request.path.id"}, updated.CacheKeyParameters)
@@ -454,8 +454,15 @@ func TestHandlerDomainName_SecurityPolicy_RoundTrip(t *testing.T) {
 
 	h := newAPIGWHandler()
 
-	rec := restRequest(t, h, http.MethodPost, "/domainnames",
-		`{"domainName":"secure.example.com","certificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/abc","securityPolicy":"TLS_1_2"}`)
+	rec := restRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/domainnames",
+		`{"domainName":"secure.example.com",`+
+			`"certificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/abc",`+
+			`"securityPolicy":"TLS_1_2"}`,
+	)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var resp map[string]any
@@ -465,7 +472,7 @@ func TestHandlerDomainName_SecurityPolicy_RoundTrip(t *testing.T) {
 	assert.NotEmpty(t, resp["distributionDomainName"])
 }
 
-// --- Handler: UsagePlan ApiStages ---
+// --- Handler: UsagePlan APIStages ---
 
 func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	t.Parallel()
@@ -483,7 +490,9 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 		`{"stageName":"prod","description":"v1"}`)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
-	body := `{"name":"stages-plan","apiStages":[{"restApiId":"` + apiID + `","stage":"prod"}],"throttle":{"rateLimit":500,"burstLimit":200}}`
+	body := `{"name":"stages-plan",` +
+		`"apiStages":[{"restApiId":"` + apiID + `","stage":"prod"}],` +
+		`"throttle":{"rateLimit":500,"burstLimit":200}}`
 	rec = restRequest(t, h, http.MethodPost, "/usageplans", body)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
@@ -497,7 +506,7 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	assert.Equal(t, "prod", firstStage["stage"])
 }
 
-// --- Handler: Stage ClientCertificateId ---
+// --- Handler: Stage ClientCertificateID ---
 
 func TestHandlerStage_ClientCertificateId(t *testing.T) {
 	t.Parallel()
