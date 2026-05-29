@@ -130,37 +130,61 @@ type StorageBackend interface {
 	DescribePipe(name string) (*Pipe, error)
 	ListPipes(namePrefix, nextToken string) ([]Pipe, string, error)
 	UpdatePipe(input UpdatePipeInput) (*Pipe, error)
+	// Schema Registry operations.
+	CreateRegistry(input CreateRegistryInput) (*SchemaRegistry, error)
+	DeleteRegistry(registryName string) error
+	DescribeRegistry(registryName string) (*SchemaRegistry, error)
+	ListRegistries(namePrefix, nextToken string) ([]SchemaRegistry, string, error)
+	UpdateRegistry(input UpdateRegistryInput) (*SchemaRegistry, error)
+	CreateSchema(input CreateSchemaInput) (*Schema, error)
+	DeleteSchema(registryName, schemaName string) error
+	DescribeSchema(registryName, schemaName, schemaVersion string) (*Schema, error)
+	ListSchemas(registryName, namePrefix, nextToken string) ([]Schema, string, error)
+	SearchSchemas(registryName, keywords, nextToken string) ([]Schema, string, error)
+	UpdateSchema(input UpdateSchemaInput) (*Schema, error)
+	ListSchemaVersions(registryName, schemaName, nextToken string) ([]SchemaVersion, string, error)
+	DescribeSchemaVersion(registryName, schemaName, schemaVersion string) (*SchemaVersion, error)
+	DeleteSchemaVersion(registryName, schemaName, schemaVersion string) error
+	GetDiscoveredSchema(input GetDiscoveredSchemaInput) (string, error)
+	PutCodeBinding(input PutCodeBindingInput) (*CodeBinding, error)
+	DescribeCodeBinding(input DescribeCodeBindingInput) (*CodeBinding, error)
+	ListCodeBindings(input ListCodeBindingsInput) ([]CodeBinding, string, error)
+	GetCodeBindingSource(registryName, schemaName, language, schemaVersion string) (string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx             context.Context
-	mu              *lockmetrics.RWMutex
-	connections     map[string]*Connection
-	rules           map[string]map[string]*Rule
-	targets         map[string]map[string]*Target
-	eventSources    map[string]*EventSource
-	replays         map[string]*Replay
-	apiDestinations map[string]*APIDestination
-	cancel          context.CancelFunc
-	deliveryTargets *DeliveryTargets
-	endpoints       map[string]*Endpoint
-	buses           map[string]*EventBus
-	partnerSources  map[string]*PartnerEventSource
-	archives        map[string]*Archive
-	archivedEvents  map[string][]EventEntry
-	busePolicies    map[string]*EventBusPolicy
-	pipes           map[string]*Pipe
-	workerSem       chan struct{}
-	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
-	patternCache    sync.Map
-	region          string
-	accountID       string
-	eventLog        []EventLogEntry
-	wg              sync.WaitGroup
-	shutdownTimeout time.Duration
-	deliveryTimeout time.Duration
-	closing         atomic.Bool
+	ctx              context.Context
+	mu               *lockmetrics.RWMutex
+	connections      map[string]*Connection
+	rules            map[string]map[string]*Rule
+	targets          map[string]map[string]*Target
+	eventSources     map[string]*EventSource
+	replays          map[string]*Replay
+	apiDestinations  map[string]*APIDestination
+	cancel           context.CancelFunc
+	deliveryTargets  *DeliveryTargets
+	endpoints        map[string]*Endpoint
+	buses            map[string]*EventBus
+	partnerSources   map[string]*PartnerEventSource
+	archives         map[string]*Archive
+	archivedEvents   map[string][]EventEntry
+	busePolicies     map[string]*EventBusPolicy
+	pipes            map[string]*Pipe
+	registries       map[string]*SchemaRegistry
+	schemas          map[string]map[string]*Schema  // registryName → schemaName → Schema
+	schemaVersions   map[string][]*SchemaVersion    // "registryName/schemaName" → ordered versions
+	codeBindings     map[string]*CodeBinding        // "registryName/schemaName/language" → binding
+	workerSem        chan struct{}
+	ruleIndex        map[string]map[ruleIndexKey]map[string]*Rule
+	patternCache     sync.Map
+	region           string
+	accountID        string
+	eventLog         []EventLogEntry
+	wg               sync.WaitGroup
+	shutdownTimeout  time.Duration
+	deliveryTimeout  time.Duration
+	closing          atomic.Bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -201,6 +225,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		partnerSources:  make(map[string]*PartnerEventSource),
 		busePolicies:    make(map[string]*EventBusPolicy),
 		pipes:           make(map[string]*Pipe),
+		registries:      make(map[string]*SchemaRegistry),
+		schemas:         make(map[string]map[string]*Schema),
+		schemaVersions:  make(map[string][]*SchemaVersion),
+		codeBindings:    make(map[string]*CodeBinding),
 		deliveryTargets: &DeliveryTargets{},
 		mu:              lockmetrics.New("eventbridge"),
 		ctx:             ctx,
@@ -994,6 +1022,10 @@ func (b *InMemoryBackend) Reset() {
 	b.partnerSources = make(map[string]*PartnerEventSource)
 	b.busePolicies = make(map[string]*EventBusPolicy)
 	b.pipes = make(map[string]*Pipe)
+	b.registries = make(map[string]*SchemaRegistry)
+	b.schemas = make(map[string]map[string]*Schema)
+	b.schemaVersions = make(map[string][]*SchemaVersion)
+	b.codeBindings = make(map[string]*CodeBinding)
 	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
 	b.patternCache = sync.Map{}
 
@@ -1062,6 +1094,19 @@ func (b *InMemoryBackend) CreatePartnerEventSource(name, account string) (*Partn
 		Account: account,
 	}
 	b.partnerSources[name] = src
+
+	// Mirror as a PENDING EventSource in the customer account — matches AWS
+	// behaviour where creating a partner source causes it to appear in the
+	// customer's ListEventSources as PENDING until they call ActivateEventSource.
+	now := time.Now()
+	esrc := &EventSource{
+		Arn:          b.partnerSourceARN(name),
+		CreatedBy:    name,
+		CreationTime: now,
+		Name:         name,
+		State:        "PENDING",
+	}
+	b.eventSources[name] = esrc
 
 	cp := *src
 
@@ -1224,6 +1269,7 @@ func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connec
 	conn := &Connection{
 		ConnectionArn:     b.connectionARN(input.Name),
 		AuthorizationType: input.AuthorizationType,
+		AuthParameters:    maskConnectionAuthParameters(input.AuthParameters),
 		ConnectionState:   "AUTHORIZED",
 		CreationTime:      now,
 		Description:       input.Description,
@@ -1476,6 +1522,9 @@ func (b *InMemoryBackend) UpdateConnection(input UpdateConnectionInput) (*Connec
 	}
 	if input.AuthorizationType != "" {
 		conn.AuthorizationType = input.AuthorizationType
+	}
+	if input.AuthParameters != nil {
+		conn.AuthParameters = maskConnectionAuthParameters(input.AuthParameters)
 	}
 	conn.LastModifiedTime = time.Now()
 
@@ -2449,4 +2498,777 @@ func putEventsEntryBytes(e EventEntry) int {
 	}
 
 	return total
+}
+
+// maskConnectionAuthParameters returns a copy of the auth parameters with
+// secret values redacted, matching AWS behaviour where sensitive credentials
+// are never returned in plaintext from Describe/List operations.
+func maskConnectionAuthParameters(p *ConnectionAuthParameters) *ConnectionAuthParameters {
+	if p == nil {
+		return nil
+	}
+
+	masked := &ConnectionAuthParameters{}
+
+	if p.BasicAuthParameters != nil {
+		masked.BasicAuthParameters = &ConnectionBasicAuthParameters{
+			Username: p.BasicAuthParameters.Username,
+			// Password is intentionally omitted (masked).
+		}
+	}
+
+	if p.ApiKeyAuthParameters != nil {
+		masked.ApiKeyAuthParameters = &ConnectionApiKeyAuthParameters{
+			ApiKeyName: p.ApiKeyAuthParameters.ApiKeyName,
+			// ApiKeyValue is intentionally omitted (masked).
+		}
+	}
+
+	if p.OAuthParameters != nil {
+		op := &ConnectionOAuthParameters{
+			AuthorizationEndpoint: p.OAuthParameters.AuthorizationEndpoint,
+			HttpMethod:            p.OAuthParameters.HttpMethod,
+		}
+		if p.OAuthParameters.ClientParameters != nil {
+			op.ClientParameters = &ConnectionOAuthClientParameters{
+				ClientID: p.OAuthParameters.ClientParameters.ClientID,
+				// ClientSecret is intentionally omitted (masked).
+			}
+		}
+		if p.OAuthParameters.OAuthHttpParameters != nil {
+			op.OAuthHttpParameters = maskHttpParameters(p.OAuthParameters.OAuthHttpParameters)
+		}
+		masked.OAuthParameters = op
+	}
+
+	if p.InvocationHttpParameters != nil {
+		masked.InvocationHttpParameters = maskHttpParameters(p.InvocationHttpParameters)
+	}
+
+	return masked
+}
+
+// maskHttpParameters returns a copy of ConnectionHttpParameters with secret
+// values marked as IsValueSecret=true and Value cleared.
+func maskHttpParameters(p *ConnectionHttpParameters) *ConnectionHttpParameters {
+	if p == nil {
+		return nil
+	}
+
+	m := &ConnectionHttpParameters{}
+
+	for _, bp := range p.BodyParameters {
+		mp := ConnectionBodyParameter{Key: bp.Key, IsValueSecret: bp.IsValueSecret}
+		if !bp.IsValueSecret {
+			mp.Value = bp.Value
+		}
+		m.BodyParameters = append(m.BodyParameters, mp)
+	}
+
+	for _, hp := range p.HeaderParameters {
+		mp := ConnectionHeaderParameter{Key: hp.Key, IsValueSecret: hp.IsValueSecret}
+		if !hp.IsValueSecret {
+			mp.Value = hp.Value
+		}
+		m.HeaderParameters = append(m.HeaderParameters, mp)
+	}
+
+	for _, qp := range p.QueryStringParameters {
+		mp := ConnectionQueryStringParameter{Key: qp.Key, IsValueSecret: qp.IsValueSecret}
+		if !qp.IsValueSecret {
+			mp.Value = qp.Value
+		}
+		m.QueryStringParameters = append(m.QueryStringParameters, mp)
+	}
+
+	return m
+}
+
+// ---------------------------------------------------------------------------
+// Schema Registry backend methods
+// ---------------------------------------------------------------------------
+
+const (
+	defaultSchemaVersion = "1"
+)
+
+func (b *InMemoryBackend) registryARN(name string) string {
+	return arn.Build("schemas", b.region, b.accountID, "registry/"+name)
+}
+
+func (b *InMemoryBackend) schemaARN(registryName, schemaName string) string {
+	return arn.Build("schemas", b.region, b.accountID, "schema/"+registryName+"/"+schemaName)
+}
+
+func (b *InMemoryBackend) schemaVersionKey(registryName, schemaName string) string {
+	return registryName + "/" + schemaName
+}
+
+func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language string) string {
+	return registryName + "/" + schemaName + "/" + language
+}
+
+// CreateRegistry creates a new schema registry.
+func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegistry, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateRegistry")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[input.RegistryName]; exists {
+		return nil, fmt.Errorf("%w: registry %s already exists", ErrAlreadyExists, input.RegistryName)
+	}
+
+	reg := &SchemaRegistry{
+		RegistryArn:  b.registryARN(input.RegistryName),
+		RegistryName: input.RegistryName,
+		Description:  input.Description,
+		Tags:         input.Tags,
+	}
+	b.registries[input.RegistryName] = reg
+
+	cp := *reg
+
+	return &cp, nil
+}
+
+// DeleteRegistry deletes a registry and all its schemas and versions.
+func (b *InMemoryBackend) DeleteRegistry(registryName string) error {
+	if registryName == "" {
+		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteRegistry")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	delete(b.registries, registryName)
+	delete(b.schemas, registryName)
+
+	// Remove all version and code binding records for this registry's schemas.
+	for key := range b.schemaVersions {
+		if strings.HasPrefix(key, registryName+"/") {
+			delete(b.schemaVersions, key)
+		}
+	}
+
+	for key := range b.codeBindings {
+		if strings.HasPrefix(key, registryName+"/") {
+			delete(b.codeBindings, key)
+		}
+	}
+
+	return nil
+}
+
+// DescribeRegistry returns a single schema registry.
+func (b *InMemoryBackend) DescribeRegistry(registryName string) (*SchemaRegistry, error) {
+	if registryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeRegistry")
+	defer b.mu.RUnlock()
+
+	reg, exists := b.registries[registryName]
+	if !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	cp := *reg
+
+	return &cp, nil
+}
+
+// ListRegistries returns schema registries optionally filtered by name prefix.
+func (b *InMemoryBackend) ListRegistries(namePrefix, nextToken string) ([]SchemaRegistry, string, error) {
+	b.mu.RLock("ListRegistries")
+	defer b.mu.RUnlock()
+
+	all := make([]SchemaRegistry, 0, len(b.registries))
+	for _, reg := range b.registries {
+		if namePrefix == "" || strings.HasPrefix(reg.RegistryName, namePrefix) {
+			all = append(all, *reg)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].RegistryName < all[j].RegistryName })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateRegistry updates an existing schema registry description.
+func (b *InMemoryBackend) UpdateRegistry(input UpdateRegistryInput) (*SchemaRegistry, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateRegistry")
+	defer b.mu.Unlock()
+
+	reg, exists := b.registries[input.RegistryName]
+	if !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+	}
+
+	reg.Description = input.Description
+
+	cp := *reg
+
+	return &cp, nil
+}
+
+// CreateSchema creates a new schema (version "1") within a registry.
+func (b *InMemoryBackend) CreateSchema(input CreateSchemaInput) (*Schema, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if input.Type == "" {
+		return nil, fmt.Errorf("%w: Type is required", ErrInvalidParameter)
+	}
+
+	if input.Content == "" {
+		return nil, fmt.Errorf("%w: Content is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateSchema")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[input.RegistryName]; !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+	}
+
+	if b.schemas[input.RegistryName] == nil {
+		b.schemas[input.RegistryName] = make(map[string]*Schema)
+	}
+
+	if _, exists := b.schemas[input.RegistryName][input.SchemaName]; exists {
+		return nil, fmt.Errorf("%w: schema %s already exists in registry %s", ErrAlreadyExists, input.SchemaName, input.RegistryName)
+	}
+
+	now := time.Now()
+	schema := &Schema{
+		SchemaArn:          b.schemaARN(input.RegistryName, input.SchemaName),
+		SchemaName:         input.SchemaName,
+		SchemaVersion:      defaultSchemaVersion,
+		RegistryName:       input.RegistryName,
+		Description:        input.Description,
+		Type:               input.Type,
+		Content:            input.Content,
+		LastModified:       now,
+		VersionCreatedDate: now,
+		Tags:               input.Tags,
+	}
+	b.schemas[input.RegistryName][input.SchemaName] = schema
+
+	// Record version 1.
+	versionKey := b.schemaVersionKey(input.RegistryName, input.SchemaName)
+	sv := &SchemaVersion{
+		SchemaArn:     schema.SchemaArn,
+		SchemaName:    input.SchemaName,
+		SchemaVersion: defaultSchemaVersion,
+		RegistryName:  input.RegistryName,
+		Type:          input.Type,
+		Content:       input.Content,
+		CreatedDate:   now,
+	}
+	b.schemaVersions[versionKey] = []*SchemaVersion{sv}
+
+	cp := *schema
+
+	return &cp, nil
+}
+
+// DeleteSchema deletes a schema and all its versions.
+func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
+	if registryName == "" {
+		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteSchema")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+		return fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+	}
+
+	delete(b.schemas[registryName], schemaName)
+
+	versionKey := b.schemaVersionKey(registryName, schemaName)
+	delete(b.schemaVersions, versionKey)
+
+	// Remove all code bindings for this schema.
+	for key := range b.codeBindings {
+		if strings.HasPrefix(key, registryName+"/"+schemaName+"/") {
+			delete(b.codeBindings, key)
+		}
+	}
+
+	return nil
+}
+
+// DescribeSchema returns the current (or requested version of) a schema.
+func (b *InMemoryBackend) DescribeSchema(registryName, schemaName, schemaVersion string) (*Schema, error) {
+	if registryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeSchema")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+	}
+
+	schema := b.schemas[registryName][schemaName]
+
+	// If a specific version is requested, fetch that version's content.
+	if schemaVersion != "" && schemaVersion != schema.SchemaVersion {
+		versionKey := b.schemaVersionKey(registryName, schemaName)
+		for _, sv := range b.schemaVersions[versionKey] {
+			if sv.SchemaVersion == schemaVersion {
+				cp := *schema
+				cp.SchemaVersion = sv.SchemaVersion
+				cp.Content = sv.Content
+				cp.Type = sv.Type
+				cp.VersionCreatedDate = sv.CreatedDate
+
+				return &cp, nil
+			}
+		}
+
+		return nil, fmt.Errorf("%w: schema version %s not found", ErrNotFound, schemaVersion)
+	}
+
+	cp := *schema
+
+	return &cp, nil
+}
+
+// ListSchemas returns schemas in a registry optionally filtered by name prefix.
+func (b *InMemoryBackend) ListSchemas(registryName, namePrefix, nextToken string) ([]Schema, string, error) {
+	if registryName == "" {
+		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ListSchemas")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	all := make([]Schema, 0, len(b.schemas[registryName]))
+	for _, s := range b.schemas[registryName] {
+		if namePrefix == "" || strings.HasPrefix(s.SchemaName, namePrefix) {
+			all = append(all, *s)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// SearchSchemas searches schemas in a registry by keyword match against schema name or content.
+func (b *InMemoryBackend) SearchSchemas(registryName, keywords, nextToken string) ([]Schema, string, error) {
+	if registryName == "" {
+		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("SearchSchemas")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	all := make([]Schema, 0)
+	lower := strings.ToLower(keywords)
+
+	for _, s := range b.schemas[registryName] {
+		if keywords == "" ||
+			strings.Contains(strings.ToLower(s.SchemaName), lower) ||
+			strings.Contains(strings.ToLower(s.Content), lower) {
+			all = append(all, *s)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].SchemaName < all[j].SchemaName })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateSchema creates a new version of an existing schema.
+func (b *InMemoryBackend) UpdateSchema(input UpdateSchemaInput) (*Schema, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateSchema")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[input.RegistryName]; !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+	}
+
+	if b.schemas[input.RegistryName] == nil || b.schemas[input.RegistryName][input.SchemaName] == nil {
+		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, input.SchemaName, input.RegistryName)
+	}
+
+	schema := b.schemas[input.RegistryName][input.SchemaName]
+
+	now := time.Now()
+
+	versionKey := b.schemaVersionKey(input.RegistryName, input.SchemaName)
+	currentVersions := b.schemaVersions[versionKey]
+	newVersionNum := strconv.Itoa(len(currentVersions) + 1)
+
+	// Apply updates.
+	if input.Content != "" {
+		schema.Content = input.Content
+	}
+
+	if input.Type != "" {
+		schema.Type = input.Type
+	}
+
+	if input.Description != "" {
+		schema.Description = input.Description
+	}
+
+	schema.SchemaVersion = newVersionNum
+	schema.LastModified = now
+	schema.VersionCreatedDate = now
+
+	sv := &SchemaVersion{
+		SchemaArn:     schema.SchemaArn,
+		SchemaName:    input.SchemaName,
+		SchemaVersion: newVersionNum,
+		RegistryName:  input.RegistryName,
+		Type:          schema.Type,
+		Content:       schema.Content,
+		CreatedDate:   now,
+	}
+	b.schemaVersions[versionKey] = append(currentVersions, sv)
+
+	cp := *schema
+
+	return &cp, nil
+}
+
+// ListSchemaVersions returns all versions of a schema.
+func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName, nextToken string) ([]SchemaVersion, string, error) {
+	if registryName == "" {
+		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return nil, "", fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ListSchemaVersions")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.registries[registryName]; !exists {
+		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
+	}
+
+	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+		return nil, "", fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, schemaName, registryName)
+	}
+
+	versionKey := b.schemaVersionKey(registryName, schemaName)
+	raw := b.schemaVersions[versionKey]
+	all := make([]SchemaVersion, len(raw))
+	for i, sv := range raw {
+		all[i] = *sv
+	}
+
+	// Versions are stored in insertion order (ascending version number).
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// DescribeSchemaVersion returns a specific schema version.
+func (b *InMemoryBackend) DescribeSchemaVersion(registryName, schemaName, schemaVersion string) (*SchemaVersion, error) {
+	if registryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if schemaVersion == "" {
+		return nil, fmt.Errorf("%w: SchemaVersion is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeSchemaVersion")
+	defer b.mu.RUnlock()
+
+	versionKey := b.schemaVersionKey(registryName, schemaName)
+	for _, sv := range b.schemaVersions[versionKey] {
+		if sv.SchemaVersion == schemaVersion {
+			cp := *sv
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: schema version %s not found for %s/%s", ErrNotFound, schemaVersion, registryName, schemaName)
+}
+
+// DeleteSchemaVersion deletes a specific version of a schema.
+// The latest version cannot be deleted unless it is the only version.
+func (b *InMemoryBackend) DeleteSchemaVersion(registryName, schemaName, schemaVersion string) error {
+	if registryName == "" {
+		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if schemaVersion == "" {
+		return fmt.Errorf("%w: SchemaVersion is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteSchemaVersion")
+	defer b.mu.Unlock()
+
+	versionKey := b.schemaVersionKey(registryName, schemaName)
+	versions := b.schemaVersions[versionKey]
+
+	idx := -1
+	for i, sv := range versions {
+		if sv.SchemaVersion == schemaVersion {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return fmt.Errorf("%w: schema version %s not found for %s/%s", ErrNotFound, schemaVersion, registryName, schemaName)
+	}
+
+	b.schemaVersions[versionKey] = append(versions[:idx], versions[idx+1:]...)
+
+	// If the deleted version was the latest, update the parent schema pointer.
+	if b.schemas[registryName] != nil {
+		if schema, ok := b.schemas[registryName][schemaName]; ok {
+			if schema.SchemaVersion == schemaVersion {
+				remaining := b.schemaVersions[versionKey]
+				if len(remaining) > 0 {
+					latest := remaining[len(remaining)-1]
+					schema.SchemaVersion = latest.SchemaVersion
+					schema.Content = latest.Content
+					schema.Type = latest.Type
+					schema.VersionCreatedDate = latest.CreatedDate
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetDiscoveredSchema generates a schema skeleton from one or more event JSON strings.
+// Returns a minimal OpenApi3 schema template (real schema inference is out of scope).
+func (b *InMemoryBackend) GetDiscoveredSchema(input GetDiscoveredSchemaInput) (string, error) {
+	if len(input.Events) == 0 {
+		return "", fmt.Errorf("%w: at least one event is required", ErrInvalidParameter)
+	}
+
+	if input.Type == "" {
+		return "", fmt.Errorf("%w: Type is required", ErrInvalidParameter)
+	}
+
+	// Return a minimal discoverable schema stub. AWS generates a full schema from
+	// the event payload; for in-process emulation a minimal valid skeleton suffices.
+	stub := `{"openapi":"3.0.0","info":{"title":"DiscoveredSchema","version":"1.0"},"paths":{}}`
+
+	return stub, nil
+}
+
+// PutCodeBinding triggers code binding generation for a schema version.
+func (b *InMemoryBackend) PutCodeBinding(input PutCodeBindingInput) (*CodeBinding, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if input.Language == "" {
+		return nil, fmt.Errorf("%w: Language is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutCodeBinding")
+	defer b.mu.Unlock()
+
+	if _, exists := b.registries[input.RegistryName]; !exists {
+		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
+	}
+
+	if b.schemas[input.RegistryName] == nil || b.schemas[input.RegistryName][input.SchemaName] == nil {
+		return nil, fmt.Errorf("%w: schema %s not found in registry %s", ErrNotFound, input.SchemaName, input.RegistryName)
+	}
+
+	schema := b.schemas[input.RegistryName][input.SchemaName]
+
+	schemaVer := input.SchemaVersion
+	if schemaVer == "" {
+		schemaVer = schema.SchemaVersion
+	}
+
+	now := time.Now()
+	binding := &CodeBinding{
+		CreationDate:  now,
+		LastModified:  now,
+		Language:      input.Language,
+		SchemaVersion: schemaVer,
+		Status:        "CREATE_COMPLETE",
+	}
+
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	b.codeBindings[key] = binding
+
+	cp := *binding
+
+	return &cp, nil
+}
+
+// DescribeCodeBinding returns the status of a code binding.
+func (b *InMemoryBackend) DescribeCodeBinding(input DescribeCodeBindingInput) (*CodeBinding, error) {
+	if input.RegistryName == "" {
+		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if input.Language == "" {
+		return nil, fmt.Errorf("%w: Language is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeCodeBinding")
+	defer b.mu.RUnlock()
+
+	key := b.codeBindingKey(input.RegistryName, input.SchemaName, input.Language)
+	binding, exists := b.codeBindings[key]
+	if !exists {
+		return nil, fmt.Errorf("%w: code binding for %s/%s language=%s not found",
+			ErrNotFound, input.RegistryName, input.SchemaName, input.Language)
+	}
+
+	cp := *binding
+
+	return &cp, nil
+}
+
+// ListCodeBindings returns all code bindings for a given schema (optionally filtered by version).
+func (b *InMemoryBackend) ListCodeBindings(input ListCodeBindingsInput) ([]CodeBinding, string, error) {
+	if input.RegistryName == "" {
+		return nil, "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if input.SchemaName == "" {
+		return nil, "", fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("ListCodeBindings")
+	defer b.mu.RUnlock()
+
+	prefix := input.RegistryName + "/" + input.SchemaName + "/"
+	all := make([]CodeBinding, 0)
+
+	for key, cb := range b.codeBindings {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		if input.SchemaVersion != "" && cb.SchemaVersion != input.SchemaVersion {
+			continue
+		}
+
+		all = append(all, *cb)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Language < all[j].Language })
+
+	page, outToken := paginate(all, input.NextToken)
+
+	return page, outToken, nil
+}
+
+// GetCodeBindingSource returns placeholder source code for a generated code binding.
+// Real source generation is out of scope for in-process emulation.
+func (b *InMemoryBackend) GetCodeBindingSource(registryName, schemaName, language, schemaVersion string) (string, error) {
+	if registryName == "" {
+		return "", fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if schemaName == "" {
+		return "", fmt.Errorf("%w: SchemaName is required", ErrInvalidParameter)
+	}
+
+	if language == "" {
+		return "", fmt.Errorf("%w: Language is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("GetCodeBindingSource")
+	defer b.mu.RUnlock()
+
+	key := b.codeBindingKey(registryName, schemaName, language)
+	if _, exists := b.codeBindings[key]; !exists {
+		return "", fmt.Errorf("%w: code binding for %s/%s language=%s not found",
+			ErrNotFound, registryName, schemaName, language)
+	}
+
+	// Return a minimal placeholder; real codegen is AWS-side only.
+	src := fmt.Sprintf("// Generated code binding for %s/%s (%s)\n// Schema version: %s\n",
+		registryName, schemaName, language, schemaVersion)
+
+	return src, nil
 }

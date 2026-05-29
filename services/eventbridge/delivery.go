@@ -563,8 +563,9 @@ func applyInputTransformer(t *InputTransformer, envelope map[string]any) string 
 	return result
 }
 
-// jsonPathExtract resolves a simple dot-notation JSONPath expression (e.g. $.source, $.detail.key)
-// against the given event envelope. Returns nil if the path cannot be resolved.
+// jsonPathExtract resolves a JSONPath expression against the given event envelope.
+// Supports dot-notation ($.source, $.detail.key) and array indexing ($.detail.items[0]).
+// Returns nil if the path cannot be resolved.
 func jsonPathExtract(path string, data map[string]any) any {
 	if path == "$" || path == "" {
 		return data
@@ -574,22 +575,71 @@ func jsonPathExtract(path string, data map[string]any) any {
 		return nil
 	}
 
-	parts := strings.Split(path[2:], ".")
+	parts := splitJSONPathParts(path[2:])
 	var current any = data
 
 	for _, part := range parts {
+		// Check for array index suffix, e.g. "items[0]".
+		key, idx, hasIndex := parseArrayIndex(part)
+
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil
 		}
 
-		current, ok = m[part]
+		val, ok := m[key]
 		if !ok {
 			return nil
 		}
+
+		if !hasIndex {
+			current = val
+
+			continue
+		}
+
+		arr, ok := val.([]any)
+		if !ok || idx < 0 || idx >= len(arr) {
+			return nil
+		}
+
+		current = arr[idx]
 	}
 
 	return current
+}
+
+// splitJSONPathParts splits a dot-separated path into segments while preserving
+// array index brackets as part of the segment (e.g. "items[0].name" → ["items[0]", "name"]).
+func splitJSONPathParts(path string) []string {
+	return strings.Split(path, ".")
+}
+
+// parseArrayIndex parses a path segment like "items[0]" into key="items", idx=0, hasIndex=true.
+// Returns hasIndex=false when no bracket expression is found.
+func parseArrayIndex(segment string) (key string, idx int, hasIndex bool) {
+	open := strings.LastIndex(segment, "[")
+	if open < 0 {
+		return segment, 0, false
+	}
+
+	close := strings.Index(segment[open:], "]")
+	if close < 0 {
+		return segment, 0, false
+	}
+
+	indexStr := segment[open+1 : open+close]
+	n := 0
+
+	for _, ch := range indexStr {
+		if ch < '0' || ch > '9' {
+			return segment, 0, false
+		}
+
+		n = n*10 + int(ch-'0')
+	}
+
+	return segment[:open], n, true
 }
 
 // isLambdaARN returns true if the ARN identifies a Lambda function.

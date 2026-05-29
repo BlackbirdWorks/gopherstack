@@ -167,16 +167,17 @@ type Archive struct {
 
 // Connection represents an EventBridge connection.
 type Connection struct {
-	ConnectionArn      string    `json:"ConnectionArn"`
-	AuthorizationType  string    `json:"AuthorizationType"`
-	ConnectionState    string    `json:"ConnectionState"`
-	CreationTime       time.Time `json:"CreationTime"`
-	Description        string    `json:"Description,omitempty"`
-	LastAuthorizedTime time.Time `json:"LastAuthorizedTime,omitzero"`
-	LastModifiedTime   time.Time `json:"LastModifiedTime"`
-	Name               string    `json:"Name"`
-	SecretArn          string    `json:"SecretArn,omitempty"`
-	StateReason        string    `json:"StateReason,omitempty"`
+	ConnectionArn      string                    `json:"ConnectionArn"`
+	AuthorizationType  string                    `json:"AuthorizationType"`
+	AuthParameters     *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+	ConnectionState    string                    `json:"ConnectionState"`
+	CreationTime       time.Time                 `json:"CreationTime"`
+	Description        string                    `json:"Description,omitempty"`
+	LastAuthorizedTime time.Time                 `json:"LastAuthorizedTime,omitzero"`
+	LastModifiedTime   time.Time                 `json:"LastModifiedTime"`
+	Name               string                    `json:"Name"`
+	SecretArn          string                    `json:"SecretArn,omitempty"`
+	StateReason        string                    `json:"StateReason,omitempty"`
 }
 
 // Endpoint represents an EventBridge global endpoint.
@@ -253,11 +254,74 @@ type CreateArchiveInput struct {
 	RetentionDays  int    `json:"RetentionDays,omitempty"`
 }
 
+// ConnectionAuthParameters holds the auth credentials for a connection.
+type ConnectionAuthParameters struct {
+	BasicAuthParameters      *ConnectionBasicAuthParameters      `json:"BasicAuthParameters,omitempty"`
+	ApiKeyAuthParameters     *ConnectionApiKeyAuthParameters     `json:"ApiKeyAuthParameters,omitempty"`
+	OAuthParameters          *ConnectionOAuthParameters          `json:"OAuthParameters,omitempty"`
+	InvocationHttpParameters *ConnectionHttpParameters           `json:"InvocationHttpParameters,omitempty"`
+}
+
+// ConnectionBasicAuthParameters holds Basic auth credentials.
+type ConnectionBasicAuthParameters struct {
+	Username string `json:"Username"`
+	Password string `json:"Password,omitempty"`
+}
+
+// ConnectionApiKeyAuthParameters holds API key auth credentials.
+type ConnectionApiKeyAuthParameters struct {
+	ApiKeyName  string `json:"ApiKeyName"`
+	ApiKeyValue string `json:"ApiKeyValue,omitempty"`
+}
+
+// ConnectionOAuthParameters holds OAuth credentials.
+type ConnectionOAuthParameters struct {
+	AuthorizationEndpoint string                           `json:"AuthorizationEndpoint"`
+	ClientParameters      *ConnectionOAuthClientParameters `json:"ClientParameters,omitempty"`
+	HttpMethod            string                           `json:"HttpMethod"`
+	OAuthHttpParameters   *ConnectionHttpParameters        `json:"OAuthHttpParameters,omitempty"`
+}
+
+// ConnectionOAuthClientParameters holds OAuth client ID and secret.
+type ConnectionOAuthClientParameters struct {
+	ClientID     string `json:"ClientID"`
+	ClientSecret string `json:"ClientSecret,omitempty"`
+}
+
+// ConnectionHttpParameters holds custom HTTP body/header/query-string parameters.
+type ConnectionHttpParameters struct {
+	BodyParameters        []ConnectionBodyParameter        `json:"BodyParameters,omitempty"`
+	HeaderParameters      []ConnectionHeaderParameter      `json:"HeaderParameters,omitempty"`
+	QueryStringParameters []ConnectionQueryStringParameter `json:"QueryStringParameters,omitempty"`
+}
+
+// ConnectionBodyParameter holds a single body parameter key/value pair.
+type ConnectionBodyParameter struct {
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
+	Key           string `json:"Key"`
+	Value         string `json:"Value,omitempty"`
+}
+
+// ConnectionHeaderParameter holds a single header key/value pair.
+type ConnectionHeaderParameter struct {
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
+	Key           string `json:"Key"`
+	Value         string `json:"Value,omitempty"`
+}
+
+// ConnectionQueryStringParameter holds a single query-string key/value pair.
+type ConnectionQueryStringParameter struct {
+	IsValueSecret bool   `json:"IsValueSecret,omitempty"`
+	Key           string `json:"Key"`
+	Value         string `json:"Value,omitempty"`
+}
+
 // CreateConnectionInput is the input for CreateConnection.
 type CreateConnectionInput struct {
-	AuthorizationType string `json:"AuthorizationType"`
-	Description       string `json:"Description,omitempty"`
-	Name              string `json:"Name"`
+	AuthorizationType string                    `json:"AuthorizationType"`
+	AuthParameters    *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+	Description       string                    `json:"Description,omitempty"`
+	Name              string                    `json:"Name"`
 }
 
 // CreateEndpointInput is the input for CreateEndpoint.
@@ -280,9 +344,10 @@ type UpdateArchiveInput struct {
 
 // UpdateConnectionInput is the input for UpdateConnection.
 type UpdateConnectionInput struct {
-	AuthorizationType string `json:"AuthorizationType,omitempty"`
-	Description       string `json:"Description,omitempty"`
-	Name              string `json:"Name"`
+	AuthorizationType string                    `json:"AuthorizationType,omitempty"`
+	AuthParameters    *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
+	Description       string                    `json:"Description,omitempty"`
+	Name              string                    `json:"Name"`
 }
 
 // UpdateEndpointInput is the input for UpdateEndpoint.
@@ -401,4 +466,113 @@ type UpdatePipeInput struct {
 	Name          string `json:"Name"`
 	RoleArn       string `json:"RoleArn,omitempty"`
 	TargetArn     string `json:"TargetArn,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Schema Registry models
+// ---------------------------------------------------------------------------
+
+// SchemaRegistry represents an EventBridge Schema Registry.
+type SchemaRegistry struct {
+	RegistryArn  string            `json:"RegistryArn"`
+	RegistryName string            `json:"RegistryName"`
+	Description  string            `json:"Description,omitempty"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+}
+
+// Schema represents a schema within a registry.
+type Schema struct {
+	LastModified       time.Time         `json:"LastModified"`
+	VersionCreatedDate time.Time         `json:"VersionCreatedDate"`
+	SchemaArn          string            `json:"SchemaArn"`
+	SchemaName         string            `json:"SchemaName"`
+	SchemaVersion      string            `json:"SchemaVersion"`
+	RegistryName       string            `json:"RegistryName"`
+	Description        string            `json:"Description,omitempty"`
+	Type               string            `json:"Type"` // OpenApi3, JSONSchemaDraft4
+	Content            string            `json:"Content"`
+	Tags               map[string]string `json:"Tags,omitempty"`
+}
+
+// SchemaVersion represents a specific version of a schema.
+type SchemaVersion struct {
+	CreatedDate    time.Time `json:"CreatedDate"`
+	SchemaArn      string    `json:"SchemaArn"`
+	SchemaName     string    `json:"SchemaName"`
+	SchemaVersion  string    `json:"SchemaVersion"`
+	RegistryName   string    `json:"RegistryName"`
+	Type           string    `json:"Type"`
+	Content        string    `json:"Content"`
+}
+
+// CodeBinding represents a generated code binding for a schema.
+type CodeBinding struct {
+	CreationDate  time.Time `json:"CreationDate"`
+	LastModified  time.Time `json:"LastModified"`
+	Language      string    `json:"Language"`
+	SchemaVersion string    `json:"SchemaVersion"`
+	Status        string    `json:"Status"` // CREATE_COMPLETE, CREATE_IN_PROGRESS, CREATE_FAILED
+}
+
+// CreateRegistryInput is the input for CreateRegistry.
+type CreateRegistryInput struct {
+	RegistryName string            `json:"RegistryName"`
+	Description  string            `json:"Description,omitempty"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+}
+
+// UpdateRegistryInput is the input for UpdateRegistry.
+type UpdateRegistryInput struct {
+	RegistryName string `json:"RegistryName"`
+	Description  string `json:"Description,omitempty"`
+}
+
+// CreateSchemaInput is the input for CreateSchema.
+type CreateSchemaInput struct {
+	RegistryName string            `json:"RegistryName"`
+	SchemaName   string            `json:"SchemaName"`
+	Type         string            `json:"Type"`
+	Content      string            `json:"Content"`
+	Description  string            `json:"Description,omitempty"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+}
+
+// UpdateSchemaInput is the input for UpdateSchema (creates a new version).
+type UpdateSchemaInput struct {
+	RegistryName string `json:"RegistryName"`
+	SchemaName   string `json:"SchemaName"`
+	Type         string `json:"Type,omitempty"`
+	Content      string `json:"Content,omitempty"`
+	Description  string `json:"Description,omitempty"`
+	ClientTokenId string `json:"ClientTokenId,omitempty"`
+}
+
+// PutCodeBindingInput is the input for PutCodeBinding.
+type PutCodeBindingInput struct {
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	Language      string `json:"Language"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+}
+
+// DescribeCodeBindingInput is the input for DescribeCodeBinding.
+type DescribeCodeBindingInput struct {
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	Language      string `json:"Language"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+}
+
+// ListCodeBindingsInput is the input for ListCodeBindings.
+type ListCodeBindingsInput struct {
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+	NextToken     string `json:"NextToken,omitempty"`
+}
+
+// GetDiscoveredSchemaInput is the input for GetDiscoveredSchema.
+type GetDiscoveredSchemaInput struct {
+	Events []string `json:"Events"`
+	Type   string   `json:"Type"`
 }
