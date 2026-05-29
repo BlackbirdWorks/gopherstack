@@ -69,7 +69,7 @@ func TestJanitor_SweepCompletedExecutions(t *testing.T) {
 			// Create a query execution with the given completion state.
 			id, err := backend.StartQueryExecution("SELECT 1", "primary",
 				athena.QueryExecutionContext{Database: "default"},
-				athena.ResultConfiguration{})
+				athena.ResultConfiguration{}, nil)
 			require.NoError(t, err)
 
 			// Override the execution's state and completion time.
@@ -98,13 +98,13 @@ func TestJanitor_PreservesActiveExecutions(t *testing.T) {
 	// Create an execution that just completed (within TTL).
 	recentID, err := backend.StartQueryExecution("SELECT 2", "primary",
 		athena.QueryExecutionContext{Database: "default"},
-		athena.ResultConfiguration{})
+		athena.ResultConfiguration{}, nil)
 	require.NoError(t, err)
 
 	// Create one that is old enough to evict.
 	oldID, err := backend.StartQueryExecution("SELECT 3", "primary",
 		athena.QueryExecutionContext{Database: "default"},
-		athena.ResultConfiguration{})
+		athena.ResultConfiguration{}, nil)
 	require.NoError(t, err)
 
 	backend.SetQueryExecutionState(oldID, "SUCCEEDED", -25*time.Hour)
