@@ -127,13 +127,16 @@ func (h *Handler) handleUpdateContainerInstancesState(
 // ----- Task set handlers -----
 
 type createTaskSetInput struct {
-	Scale           *taskSetScale `json:"scale,omitempty"`
-	Cluster         string        `json:"cluster,omitempty"`
-	Service         string        `json:"service"`
-	TaskDefinition  string        `json:"taskDefinition"`
-	ExternalID      string        `json:"externalId,omitempty"`
-	PlatformVersion string        `json:"platformVersion,omitempty"`
-	LaunchType      string        `json:"launchType,omitempty"`
+	NetworkConfiguration *networkConfigurationInput `json:"networkConfiguration,omitempty"`
+	Scale                *taskSetScale              `json:"scale,omitempty"`
+	Cluster              string                     `json:"cluster,omitempty"`
+	Service              string                     `json:"service"`
+	TaskDefinition       string                     `json:"taskDefinition"`
+	ExternalID           string                     `json:"externalId,omitempty"`
+	PlatformVersion      string                     `json:"platformVersion,omitempty"`
+	LaunchType           string                     `json:"launchType,omitempty"`
+	LoadBalancers        []loadBalancerInput        `json:"loadBalancers,omitempty"`
+	ServiceRegistries    []serviceRegistryInput     `json:"serviceRegistries,omitempty"`
 }
 
 type createTaskSetOutput struct {
@@ -147,13 +150,16 @@ func (h *Handler) handleCreateTaskSet(_ context.Context, in *createTaskSetInput)
 	}
 
 	ts, err := h.Backend.CreateTaskSet(CreateTaskSetInput{
-		Cluster:         in.Cluster,
-		Service:         in.Service,
-		TaskDefinition:  in.TaskDefinition,
-		ExternalID:      in.ExternalID,
-		PlatformVersion: in.PlatformVersion,
-		LaunchType:      in.LaunchType,
-		Scale:           scale,
+		Cluster:              in.Cluster,
+		Service:              in.Service,
+		TaskDefinition:       in.TaskDefinition,
+		ExternalID:           in.ExternalID,
+		PlatformVersion:      in.PlatformVersion,
+		LaunchType:           in.LaunchType,
+		Scale:                scale,
+		LoadBalancers:        toLoadBalancers(in.LoadBalancers),
+		ServiceRegistries:    toServiceRegistries(in.ServiceRegistries),
+		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
 	})
 	if err != nil {
 		return nil, err
@@ -334,37 +340,51 @@ type taskSetScale struct {
 }
 
 type taskSetView struct {
-	TaskSetArn        string       `json:"taskSetArn"`
-	ID                string       `json:"id"`
-	ServiceArn        string       `json:"serviceArn"`
-	ClusterArn        string       `json:"clusterArn"`
-	TaskDefinition    string       `json:"taskDefinition"`
-	Status            string       `json:"status"`
-	ExternalID        string       `json:"externalId,omitempty"`
-	PlatformVersion   string       `json:"platformVersion,omitempty"`
-	LaunchType        string       `json:"launchType,omitempty"`
-	StabilityStatus   string       `json:"stabilityStatus,omitempty"`
-	Scale             taskSetScale `json:"scale"`
-	CreatedAt         float64      `json:"createdAt"`
-	UpdatedAt         float64      `json:"updatedAt"`
-	StabilityStatusAt float64      `json:"stabilityStatusAt"`
+	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
+	TaskSetArn           string                    `json:"taskSetArn"`
+	ID                   string                    `json:"id"`
+	ServiceArn           string                    `json:"serviceArn"`
+	ClusterArn           string                    `json:"clusterArn"`
+	TaskDefinition       string                    `json:"taskDefinition"`
+	Status               string                    `json:"status"`
+	ExternalID           string                    `json:"externalId,omitempty"`
+	PlatformVersion      string                    `json:"platformVersion,omitempty"`
+	LaunchType           string                    `json:"launchType,omitempty"`
+	StabilityStatus      string                    `json:"stabilityStatus,omitempty"`
+	Scale                taskSetScale              `json:"scale"`
+	LoadBalancers        []loadBalancerView        `json:"loadBalancers,omitempty"`
+	ServiceRegistries    []serviceRegistryView     `json:"serviceRegistries,omitempty"`
+	CreatedAt            float64                   `json:"createdAt"`
+	UpdatedAt            float64                   `json:"updatedAt"`
+	StabilityStatusAt    float64                   `json:"stabilityStatusAt"`
 }
 
 func toTaskSetView(ts TaskSet) taskSetView {
-	return taskSetView{
-		TaskSetArn:        ts.TaskSetArn,
-		ID:                ts.ID,
-		ServiceArn:        ts.ServiceArn,
-		ClusterArn:        ts.ClusterArn,
-		TaskDefinition:    ts.TaskDefinition,
-		Status:            ts.Status,
-		ExternalID:        ts.ExternalID,
-		PlatformVersion:   ts.PlatformVersion,
-		LaunchType:        ts.LaunchType,
-		StabilityStatus:   ts.StabilityStatus,
-		Scale:             taskSetScale{Unit: ts.Scale.Unit, Value: ts.Scale.Value},
-		CreatedAt:         float64(ts.CreatedAt.Unix()),
-		UpdatedAt:         float64(ts.UpdatedAt.Unix()),
-		StabilityStatusAt: float64(ts.StabilityStatusAt.Unix()),
+	v := taskSetView{
+		TaskSetArn:           ts.TaskSetArn,
+		ID:                   ts.ID,
+		ServiceArn:           ts.ServiceArn,
+		ClusterArn:           ts.ClusterArn,
+		TaskDefinition:       ts.TaskDefinition,
+		Status:               ts.Status,
+		ExternalID:           ts.ExternalID,
+		PlatformVersion:      ts.PlatformVersion,
+		LaunchType:           ts.LaunchType,
+		StabilityStatus:      ts.StabilityStatus,
+		Scale:                taskSetScale{Unit: ts.Scale.Unit, Value: ts.Scale.Value},
+		CreatedAt:            float64(ts.CreatedAt.Unix()),
+		UpdatedAt:            float64(ts.UpdatedAt.Unix()),
+		StabilityStatusAt:    float64(ts.StabilityStatusAt.Unix()),
+		NetworkConfiguration: toNetworkConfigurationView(ts.NetworkConfiguration),
 	}
+
+	for _, lb := range ts.LoadBalancers {
+		v.LoadBalancers = append(v.LoadBalancers, loadBalancerView(lb))
+	}
+
+	for _, sr := range ts.ServiceRegistries {
+		v.ServiceRegistries = append(v.ServiceRegistries, serviceRegistryView(sr))
+	}
+
+	return v
 }

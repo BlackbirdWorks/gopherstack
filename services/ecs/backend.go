@@ -75,6 +75,8 @@ type ContainerDefinition struct {
 	Command                []string               `json:"command,omitempty"`
 	Environment            []KeyValuePair         `json:"environment,omitempty"`
 	Secrets                []SecretReference      `json:"secrets,omitempty"`
+	EnvironmentFiles       []EnvironmentFile      `json:"environmentFiles,omitempty"`
+	ResourceRequirements   []ResourceRequirement  `json:"resourceRequirements,omitempty"`
 	PortMappings           []PortMapping          `json:"portMappings,omitempty"`
 	MountPoints            []MountPoint           `json:"mountPoints,omitempty"`
 	VolumesFrom            []VolumeFrom           `json:"volumesFrom,omitempty"`
@@ -112,6 +114,8 @@ type PortMapping struct {
 
 // TaskDefinition represents an ECS task definition.
 type TaskDefinition struct {
+	RuntimePlatform         *RuntimePlatform      `json:"runtimePlatform,omitempty"`
+	EphemeralStorage        *EphemeralStorage     `json:"ephemeralStorage,omitempty"`
 	RegisteredAt            time.Time             `json:"registeredAt"`
 	TaskDefinitionArn       string                `json:"taskDefinitionArn"`
 	Family                  string                `json:"family"`
@@ -126,6 +130,7 @@ type TaskDefinition struct {
 	Volumes                 []Volume              `json:"volumes,omitempty"`
 	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string              `json:"requiresCompatibilities,omitempty"`
+	InferenceAccelerators   []InferenceAccelerator `json:"inferenceAccelerators,omitempty"`
 	Revision                int                   `json:"revision"`
 }
 
@@ -154,6 +159,7 @@ type Service struct {
 	DesiredCount                int                            `json:"desiredCount"`
 	PendingCount                int                            `json:"pendingCount"`
 	RunningCount                int                            `json:"runningCount"`
+	EnableExecuteCommand        bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
 // Task represents an ECS task.
@@ -181,6 +187,7 @@ type Task struct {
 	Tags                 []Tag                 `json:"tags,omitempty"`
 	Attachments          []TaskAttachment      `json:"attachments,omitempty"`
 	Containers           []Container           `json:"containers,omitempty"`
+	EnableExecuteCommand bool                  `json:"enableExecuteCommand,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -191,18 +198,21 @@ type CreateClusterInput struct {
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
 type RegisterTaskDefinitionInput struct {
-	Family                  string                `json:"family"`
-	TaskRoleArn             string                `json:"taskRoleArn,omitempty"`
-	ExecutionRoleArn        string                `json:"executionRoleArn,omitempty"`
-	NetworkMode             string                `json:"networkMode,omitempty"`
-	CPU                     string                `json:"cpu,omitempty"`
-	Memory                  string                `json:"memory,omitempty"`
-	PlatformFamily          string                `json:"platformFamily,omitempty"`
-	ContainerDefinitions    []ContainerDefinition `json:"containerDefinitions"`
-	Volumes                 []Volume              `json:"volumes,omitempty"`
-	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
-	RequiresCompatibilities []string              `json:"requiresCompatibilities,omitempty"`
-	Tags                    []Tag                 `json:"tags,omitempty"`
+	RuntimePlatform         *RuntimePlatform       `json:"runtimePlatform,omitempty"`
+	EphemeralStorage        *EphemeralStorage      `json:"ephemeralStorage,omitempty"`
+	Family                  string                 `json:"family"`
+	TaskRoleArn             string                 `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn        string                 `json:"executionRoleArn,omitempty"`
+	NetworkMode             string                 `json:"networkMode,omitempty"`
+	CPU                     string                 `json:"cpu,omitempty"`
+	Memory                  string                 `json:"memory,omitempty"`
+	PlatformFamily          string                 `json:"platformFamily,omitempty"`
+	ContainerDefinitions    []ContainerDefinition  `json:"containerDefinitions"`
+	Volumes                 []Volume               `json:"volumes,omitempty"`
+	PlacementConstraints    []PlacementConstraint  `json:"placementConstraints,omitempty"`
+	RequiresCompatibilities []string               `json:"requiresCompatibilities,omitempty"`
+	InferenceAccelerators   []InferenceAccelerator `json:"inferenceAccelerators,omitempty"`
+	Tags                    []Tag                  `json:"tags,omitempty"`
 }
 
 // CreateServiceInput holds input for CreateService.
@@ -224,10 +234,12 @@ type CreateServiceInput struct {
 	PlacementConstraints        []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	DesiredCount                int                            `json:"desiredCount"`
+	EnableExecuteCommand        bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
 type UpdateServiceInput struct {
+	EnableExecuteCommand        *bool                          `json:"enableExecuteCommand,omitempty"`
 	DesiredCount                *int                           `json:"desiredCount,omitempty"`
 	DeploymentConfiguration     *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
 	NetworkConfiguration        *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
@@ -258,6 +270,7 @@ type RunTaskInput struct {
 	serviceTagsForPropagate []Tag
 	Count                   int  `json:"count,omitempty"`
 	EnableECSManagedTags    bool `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand    bool `json:"enableExecuteCommand,omitempty"`
 }
 
 // compile-time assertion.
@@ -604,6 +617,9 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 		Volumes:                 input.Volumes,
 		PlacementConstraints:    input.PlacementConstraints,
 		RequiresCompatibilities: input.RequiresCompatibilities,
+		RuntimePlatform:         input.RuntimePlatform,
+		EphemeralStorage:        input.EphemeralStorage,
+		InferenceAccelerators:   input.InferenceAccelerators,
 		Revision:                revision,
 	}
 
@@ -866,6 +882,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		PlacementStrategy:           input.PlacementStrategy,
 		ServiceConnectConfiguration: input.ServiceConnectConfiguration,
 		DesiredCount:                input.DesiredCount,
+		EnableExecuteCommand:        input.EnableExecuteCommand,
 	}
 
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
@@ -1018,6 +1035,10 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 
 	if len(input.LoadBalancers) > 0 {
 		svc.LoadBalancers = input.LoadBalancers
+	}
+
+	if input.EnableExecuteCommand != nil {
+		svc.EnableExecuteCommand = *input.EnableExecuteCommand
 	}
 
 	cp := *svc
@@ -1227,6 +1248,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			ConnectivityAt:       &now,
 			Overrides:            input.Overrides,
 			NetworkConfiguration: input.NetworkConfiguration,
+			EnableExecuteCommand: input.EnableExecuteCommand,
 		}
 
 		if launchType == launchTypeFargate {
@@ -1441,11 +1463,13 @@ func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefi
 
 	var svcPropagateTags string
 	var svcTags []Tag
+	var svcEnableExec bool
 
 	if svcs, ok := b.services[clusterName]; ok {
 		if svc, found := svcs[serviceName]; found {
 			svcPropagateTags = svc.PropagateTags
 			svcTags = copyTags(svc.Tags)
+			svcEnableExec = svc.EnableExecuteCommand
 		}
 	}
 
@@ -1459,6 +1483,7 @@ func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefi
 		PropagateTags:           svcPropagateTags,
 		serviceNameForTags:      serviceName,
 		serviceTagsForPropagate: svcTags,
+		EnableExecuteCommand:    svcEnableExec,
 	})
 
 	return err
