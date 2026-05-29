@@ -3633,8 +3633,8 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 		domainName, _ := strings.CutSuffix(trimmed, "/serviceSoftwareUpdate")
 		body, _ := httputils.ReadBody(r)
 		var sswReq struct {
-			ScheduleAt      string `json:"ScheduleAt"`
 			DesiredStartTime *int64 `json:"DesiredStartTime"`
+			ScheduleAt       string `json:"ScheduleAt"`
 		}
 		if len(body) > 0 {
 			_ = json.Unmarshal(body, &sswReq)
