@@ -73,7 +73,7 @@ func TestBackend_SweepExpiredAPIKeys(t *testing.T) {
 		{
 			name: "no_keys",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
 				return api.APIID
@@ -84,7 +84,7 @@ func TestBackend_SweepExpiredAPIKeys(t *testing.T) {
 		{
 			name: "expired_key_is_swept",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				// Create a key that expires in the past.
 				_, err = b.CreateAPIKey(api.APIID, "expired", time.Now().Add(-1*time.Hour).Unix())
@@ -98,7 +98,7 @@ func TestBackend_SweepExpiredAPIKeys(t *testing.T) {
 		{
 			name: "valid_key_not_swept",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				// Create a key that expires far in the future.
 				_, err = b.CreateAPIKey(api.APIID, "valid", time.Now().Add(24*time.Hour).Unix())
@@ -112,7 +112,7 @@ func TestBackend_SweepExpiredAPIKeys(t *testing.T) {
 		{
 			name: "mixed_keys",
 			setup: func(b *appsync.InMemoryBackend) string {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				_, err = b.CreateAPIKey(api.APIID, "expired", time.Now().Add(-1*time.Hour).Unix())
 				require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 			apiID := "nonexistent"
 
 			if tt.setupAPIID {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				apiID = api.APIID
 			}
@@ -443,7 +443,7 @@ func TestHandler_DataSourceIntrospections(t *testing.T) {
 			body := tt.body
 
 			if tt.setupAPI {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
 				if m, ok := body.(map[string]any); ok && m["apiId"] == "__APIID__" {
@@ -537,7 +537,7 @@ func TestBackend_StartSchemaMerge(t *testing.T) {
 			apiID := "nonexistent"
 
 			if tt.createAPI {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				apiID = api.APIID
 			}
@@ -593,7 +593,7 @@ func TestHandler_SchemaMerge(t *testing.T) {
 			apiID := "nonexistent"
 
 			if tt.createAPI {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 				apiID = api.APIID
 			}
@@ -642,12 +642,14 @@ func TestBackend_UpdateSourceAPIAssociation(t *testing.T) {
 			mergedAPIID := tt.mergedAPIID
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
-				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
-				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial")
+				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial", "")
 				require.NoError(t, err)
 				assocID = assoc.AssociationID
 				mergedAPIID = merged.APIID
@@ -707,12 +709,14 @@ func TestHandler_UpdateSourceAPIAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
-				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
-				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial")
+				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial", "")
 				require.NoError(t, err)
 
 				if !tt.useWrongID {
@@ -768,12 +772,14 @@ func TestBackend_ListTypesByAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
-				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
-				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "desc")
+				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "desc", "")
 				require.NoError(t, err)
 				mergedAPIID = merged.APIID
 				assocID = assoc.AssociationID
@@ -827,12 +833,14 @@ func TestHandler_ListTypesByAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
-				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
 
-				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "desc")
+				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "desc", "")
 				require.NoError(t, err)
 				mergedAPIID = merged.APIID
 				assocID = assoc.AssociationID
@@ -1047,7 +1055,7 @@ func TestParseOperation_SubTags(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			path := fmt.Sprintf("/v1/apis/%s/tags", api.APIID)

@@ -44,7 +44,7 @@ func TestCreateGraphqlAPI_VisibilityGlobal(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", tt.visibility, nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", tt.visibility, nil, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantVis, api.Visibility)
 		})
@@ -55,7 +55,7 @@ func TestCreateGraphqlAPI_VisibilityPrivate(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeAPIKey, false, "", "PRIVATE", nil, nil)
+	api, err := b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeAPIKey, false, "", "PRIVATE", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "PRIVATE", api.Visibility)
 
@@ -68,7 +68,7 @@ func TestCreateGraphqlAPI_VisibilityInvalid(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "INTERNAL", nil, nil)
+	_, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "INTERNAL", nil, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, appsync.ErrValidation)
 }
@@ -109,10 +109,10 @@ func TestUpdateGraphqlAPI_VisibilityRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", nil, nil, nil)
 			require.NoError(t, err)
 
-			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, tt.visibility, nil)
+			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, tt.visibility, nil, nil)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, appsync.ErrValidation)
@@ -200,7 +200,9 @@ func TestCreateGraphqlAPI_AdditionalAuthProviders_RoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", tt.providers, nil)
+			api, err := b.CreateGraphqlAPI(
+				"TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", tt.providers, nil, nil,
+			)
 			require.NoError(t, err)
 
 			got, err := b.GetGraphqlAPI(api.APIID)
@@ -262,10 +264,10 @@ func TestUpdateGraphqlAPI_AdditionalAuthProviders(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", tt.initialProvs, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", tt.initialProvs, nil, nil)
 			require.NoError(t, err)
 
-			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, "", tt.updateProvs)
+			updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, "", tt.updateProvs, nil)
 			require.NoError(t, err)
 			assert.Len(t, updated.AdditionalAuthenticationProviders, tt.wantCount)
 		})
@@ -307,7 +309,7 @@ func TestCreateDataSource_EventBridge(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			created, err := b.CreateDataSource(api.APIID, &tt.ds)
@@ -329,7 +331,7 @@ func TestCreateDataSource_EventBridge_Config_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	eventBusARN := "arn:aws:events:us-east-1:000000000000:event-bus/my-bus"
@@ -393,7 +395,7 @@ func TestCreateDataSource_RelationalDatabase(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			created, err := b.CreateDataSource(api.APIID, &tt.ds)
@@ -412,7 +414,7 @@ func TestCreateDataSource_RelationalDatabase_Config_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	cfg := &appsync.RelationalDatabaseDataSourceConfig{
@@ -449,7 +451,7 @@ func TestCreateDataSource_OpenSearch_Config_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	ds := &appsync.DataSource{
@@ -502,7 +504,7 @@ func TestCreateDataSource_DynamoDB_DeltaSyncConfig(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			ds := &appsync.DataSource{
@@ -535,7 +537,7 @@ func TestCreateDataSource_DynamoDB_DeltaSyncConfig_GetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	ds := &appsync.DataSource{
@@ -597,7 +599,7 @@ func TestCreateResolver_CachingConfig(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "DS",
@@ -629,7 +631,7 @@ func TestCreateResolver_CachingConfig_GetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -710,7 +712,7 @@ func TestCreateResolver_SyncConfig(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "DS",
@@ -742,7 +744,7 @@ func TestCreateResolver_SyncConfig_GetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -796,7 +798,7 @@ func TestCreateResolver_MaxBatchSize(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "DS",
@@ -821,7 +823,7 @@ func TestCreateResolver_MaxBatchSize_GetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -849,7 +851,7 @@ func TestCreateResolver_AllAccuracyFields(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -974,7 +976,7 @@ func TestCreateDataSource_AllTypes(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			created, err := b.CreateDataSource(api.APIID, &tt.ds)
@@ -990,7 +992,7 @@ func TestCreateFunction_PipelineFunctionVersion_Default(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -1033,7 +1035,7 @@ func TestCreateFunction_PipelineFunctionVersion_Custom(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 			_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 				Name: "DS",
@@ -1060,7 +1062,7 @@ func TestCreateResolver_UnitResolver_DataSourcePreserved(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "MyDS",
@@ -1095,7 +1097,7 @@ func TestUpdateResolver_PreservesCachingAndSyncConfig(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -1137,9 +1139,9 @@ func TestListGraphqlAPIs_VisibilityPreserved(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateGraphqlAPI("GlobalAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", nil, nil)
+	_, err := b.CreateGraphqlAPI("GlobalAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", nil, nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeIAM, false, "", "PRIVATE", nil, nil)
+	_, err = b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeIAM, false, "", "PRIVATE", nil, nil, nil)
 	require.NoError(t, err)
 
 	apis, err := b.ListGraphqlAPIs("")
@@ -1171,12 +1173,12 @@ func TestUpdateGraphqlAPI_PreservesAdditionalAuthProviders(t *testing.T) {
 	}
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", providers, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", providers, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, api.AdditionalAuthenticationProviders, 2)
 
 	// Update only the name — providers should remain unchanged.
-	updated, err := b.UpdateGraphqlAPI(api.APIID, "NewName", "", nil, "", nil)
+	updated, err := b.UpdateGraphqlAPI(api.APIID, "NewName", "", nil, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "NewName", updated.Name)
 	assert.Len(t, updated.AdditionalAuthenticationProviders, 2)
@@ -1189,7 +1191,7 @@ func TestCreateDataSource_InvalidType(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
@@ -1206,7 +1208,7 @@ func TestUpdateDataSource_EventBridgeConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	ds := &appsync.DataSource{
@@ -1251,7 +1253,7 @@ func TestCreateGraphqlAPI_CognitoUserPoolConfig_RoundTrip(t *testing.T) {
 	}
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil, nil)
 	require.NoError(t, err)
 
 	got, err := b.GetGraphqlAPI(api.APIID)
@@ -1280,7 +1282,7 @@ func TestCreateGraphqlAPI_LambdaAuthorizerConfig_RoundTrip(t *testing.T) {
 	}
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil, nil)
 	require.NoError(t, err)
 
 	got, err := b.GetGraphqlAPI(api.APIID)
@@ -1310,7 +1312,7 @@ func TestCreateGraphqlAPI_OIDCConfig_RoundTrip(t *testing.T) {
 	}
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", providers, nil, nil)
 	require.NoError(t, err)
 
 	got, err := b.GetGraphqlAPI(api.APIID)
@@ -1330,7 +1332,7 @@ func TestUpdateDataSource_RelationalDatabaseConfig(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	ds := &appsync.DataSource{
@@ -1371,7 +1373,7 @@ func TestCreateDataSource_DynamoDB_Versioned_With_DeltaSync(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	ds := &appsync.DataSource{
@@ -1403,7 +1405,7 @@ func TestCreateResolver_SyncConfig_Automerge_NoLambda(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -1433,7 +1435,7 @@ func TestCreateFunction_WithCode(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
 		Name: "DS",
@@ -1467,7 +1469,7 @@ func TestCreateAPICache_StatusDefaultsToAvailable(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	cache := &appsync.APICache{
@@ -1491,7 +1493,7 @@ func TestCreateAPIKey_ExpiryDefaulted_WhenZero(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// expires=0 → backend assigns default expiry (365 days from now).
@@ -1504,7 +1506,7 @@ func TestCreateAPIKey_ExpiryClampedToMax(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// expires far in the future → clamped to max (365 days).
@@ -1517,7 +1519,7 @@ func TestUpdateAPIKey_ExpiryRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	key, err := b.CreateAPIKey(api.APIID, "initial desc", 1000)
@@ -1535,7 +1537,7 @@ func TestTagResource_GraphqlAPI_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.TagResource(api.APIID, map[string]string{
@@ -1558,7 +1560,7 @@ func TestUntagResource_GraphqlAPI(t *testing.T) {
 	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, map[string]string{
 		"env":  "prod",
 		"team": "platform",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	err = b.UntagResource(api.APIID, []string{"env"})
@@ -1579,7 +1581,7 @@ func TestGetPutGraphqlAPIEnvironmentVariables_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	envVars := map[string]string{
@@ -1599,7 +1601,7 @@ func TestPutGraphqlAPIEnvironmentVariables_ReplacesAll(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.PutGraphqlAPIEnvironmentVariables(api.APIID, map[string]string{
@@ -1625,7 +1627,7 @@ func TestDomainName_AssociateAPI_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	domain, err := b.CreateDomainName(
@@ -1670,7 +1672,7 @@ func TestType_CRUD_AllFormats(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
 			created, err := b.CreateType(api.APIID, tt.definition, tt.format)
@@ -1707,13 +1709,13 @@ func TestMergedAPI_CreateAssociation(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil)
+	src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil)
+	merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "source association")
+	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "source association", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
 	assert.Equal(t, src.APIID, assoc.SourceAPIID)
@@ -1730,7 +1732,7 @@ func TestDeleteGraphqlAPI_PrivateAPI(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeAPIKey, false, "", "PRIVATE", nil, nil)
+	api, err := b.CreateGraphqlAPI("PrivateAPI", appsync.AuthTypeAPIKey, false, "", "PRIVATE", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteGraphqlAPI(api.APIID)
@@ -1739,4 +1741,696 @@ func TestDeleteGraphqlAPI_PrivateAPI(t *testing.T) {
 	_, err = b.GetGraphqlAPI(api.APIID)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, appsync.ErrNotFound)
+}
+
+// ---- Batch-2 accuracy tests ----
+
+// ---- GraphqlAPI primary auth config ----
+
+func TestCreateGraphqlAPI_UserPoolConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{
+		UserPoolConfig: &appsync.UserPoolConfig{
+			UserPoolID:       "us-east-1_abc123",
+			AWSRegion:        "us-east-1",
+			DefaultAction:    "ALLOW",
+			AppIDClientRegex: "^my-client-",
+		},
+	}
+
+	api, err := b.CreateGraphqlAPI("CognitoAPI", appsync.AuthTypeCognito, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, api.UserPoolConfig)
+	assert.Equal(t, "us-east-1_abc123", api.UserPoolConfig.UserPoolID)
+	assert.Equal(t, "us-east-1", api.UserPoolConfig.AWSRegion)
+	assert.Equal(t, "ALLOW", api.UserPoolConfig.DefaultAction)
+	assert.Equal(t, "^my-client-", api.UserPoolConfig.AppIDClientRegex)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	require.NotNil(t, got.UserPoolConfig)
+	assert.Equal(t, "us-east-1_abc123", got.UserPoolConfig.UserPoolID)
+	assert.Equal(t, "ALLOW", got.UserPoolConfig.DefaultAction)
+}
+
+func TestCreateGraphqlAPI_OpenIDConnectConfig_Primary_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{
+		OpenIDConnectConfig: &appsync.OpenIDConnectConfig{
+			Issuer:   "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc",
+			ClientID: "my-client-id",
+			IatTTL:   3600,
+			AuthTTL:  7200,
+		},
+	}
+
+	api, err := b.CreateGraphqlAPI("OIDCPrimaryAPI", appsync.AuthTypeOIDC, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, api.OpenIDConnectConfig)
+	assert.Equal(t, "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc", api.OpenIDConnectConfig.Issuer)
+	assert.Equal(t, "my-client-id", api.OpenIDConnectConfig.ClientID)
+	assert.Equal(t, int64(3600), api.OpenIDConnectConfig.IatTTL)
+	assert.Equal(t, int64(7200), api.OpenIDConnectConfig.AuthTTL)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	require.NotNil(t, got.OpenIDConnectConfig)
+	assert.Equal(t, "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc", got.OpenIDConnectConfig.Issuer)
+}
+
+func TestCreateGraphqlAPI_LambdaAuthorizerConfig_Primary_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{
+		LambdaAuthorizerConfig: &appsync.LambdaAuthorizerConfig{
+			AuthorizerURI:                "arn:aws:lambda:us-east-1:123456789012:function:auth",
+			IdentityValidationExpression: "^Bearer .+",
+			AuthorizerResultTTLInSeconds: 300,
+		},
+	}
+
+	api, err := b.CreateGraphqlAPI("LambdaAPI", appsync.AuthTypeLambda, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, api.LambdaAuthorizerConfig)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:auth", api.LambdaAuthorizerConfig.AuthorizerURI)
+	assert.Equal(t, "^Bearer .+", api.LambdaAuthorizerConfig.IdentityValidationExpression)
+	assert.Equal(t, int32(300), api.LambdaAuthorizerConfig.AuthorizerResultTTLInSeconds)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LambdaAuthorizerConfig)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:auth", got.LambdaAuthorizerConfig.AuthorizerURI)
+}
+
+func TestCreateGraphqlAPI_LogConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{
+		LogConfig: &appsync.LogConfig{
+			CloudWatchLogsRoleARN: "arn:aws:iam::123456789012:role/appsync-logs",
+			FieldLogLevel:         "ERROR",
+			ExcludeVerboseContent: true,
+		},
+	}
+
+	api, err := b.CreateGraphqlAPI("LoggedAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, api.LogConfig)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/appsync-logs", api.LogConfig.CloudWatchLogsRoleARN)
+	assert.Equal(t, "ERROR", api.LogConfig.FieldLogLevel)
+	assert.True(t, api.LogConfig.ExcludeVerboseContent)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LogConfig)
+	assert.Equal(t, "ERROR", got.LogConfig.FieldLogLevel)
+}
+
+func TestCreateGraphqlAPI_IntrospectionConfig_DefaultEnabled(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("API", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, appsync.IntrospectionConfigEnabled, api.IntrospectionConfig)
+}
+
+func TestCreateGraphqlAPI_IntrospectionConfig_Disabled(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{IntrospectionConfig: appsync.IntrospectionConfigDisabled}
+
+	api, err := b.CreateGraphqlAPI("API", appsync.AuthTypeAPIKey, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, appsync.IntrospectionConfigDisabled, api.IntrospectionConfig)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, appsync.IntrospectionConfigDisabled, got.IntrospectionConfig)
+}
+
+func TestCreateGraphqlAPI_QueryDepthLimit_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{QueryDepthLimit: 10}
+
+	api, err := b.CreateGraphqlAPI("API", appsync.AuthTypeAPIKey, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, int32(10), api.QueryDepthLimit)
+
+	got, err := b.GetGraphqlAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, int32(10), got.QueryDepthLimit)
+}
+
+func TestCreateGraphqlAPI_ResolverCountLimit_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	cfg := &appsync.GraphqlAPIConfig{ResolverCountLimit: 500}
+
+	api, err := b.CreateGraphqlAPI("API", appsync.AuthTypeAPIKey, false, "", "", nil, nil, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, int32(500), api.ResolverCountLimit)
+}
+
+func TestUpdateGraphqlAPI_UserPoolConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("CognitoAPI", appsync.AuthTypeCognito, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, api.UserPoolConfig)
+
+	cfg := &appsync.GraphqlAPIConfig{
+		UserPoolConfig: &appsync.UserPoolConfig{
+			UserPoolID:    "us-west-2_xyz",
+			AWSRegion:     "us-west-2",
+			DefaultAction: "DENY",
+		},
+	}
+
+	updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, "", nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, updated.UserPoolConfig)
+	assert.Equal(t, "us-west-2_xyz", updated.UserPoolConfig.UserPoolID)
+	assert.Equal(t, "DENY", updated.UserPoolConfig.DefaultAction)
+}
+
+func TestUpdateGraphqlAPI_LogConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("API", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	cfg := &appsync.GraphqlAPIConfig{
+		LogConfig: &appsync.LogConfig{
+			CloudWatchLogsRoleARN: "arn:aws:iam::123:role/logs",
+			FieldLogLevel:         "ALL",
+		},
+	}
+
+	updated, err := b.UpdateGraphqlAPI(api.APIID, "", "", nil, "", nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, updated.LogConfig)
+	assert.Equal(t, "ALL", updated.LogConfig.FieldLogLevel)
+}
+
+// ---- HTTP data source AuthorizationConfig ----
+
+func TestCreateDataSource_HTTP_AuthorizationConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{
+		Name: "HTTPSigned",
+		Type: appsync.DataSourceTypeHTTP,
+		HTTPConfig: &appsync.HTTPDataSourceConfig{
+			Endpoint: "https://api.example.com",
+			AuthorizationConfig: &appsync.AuthorizationConfig{
+				AuthorizationType: "AWS_IAM",
+				AwsIamConfig: &appsync.AwsIamConfig{
+					SigningRegion:      "us-east-1",
+					SigningServiceName: "execute-api",
+				},
+			},
+		},
+	}
+
+	created, err := b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+	require.NotNil(t, created.HTTPConfig)
+	require.NotNil(t, created.HTTPConfig.AuthorizationConfig)
+	assert.Equal(t, "AWS_IAM", created.HTTPConfig.AuthorizationConfig.AuthorizationType)
+	require.NotNil(t, created.HTTPConfig.AuthorizationConfig.AwsIamConfig)
+	assert.Equal(t, "us-east-1", created.HTTPConfig.AuthorizationConfig.AwsIamConfig.SigningRegion)
+	assert.Equal(t, "execute-api", created.HTTPConfig.AuthorizationConfig.AwsIamConfig.SigningServiceName)
+
+	got, err := b.GetDataSource(api.APIID, "HTTPSigned")
+	require.NoError(t, err)
+	require.NotNil(t, got.HTTPConfig.AuthorizationConfig)
+	assert.Equal(t, "AWS_IAM", got.HTTPConfig.AuthorizationConfig.AuthorizationType)
+}
+
+func TestUpdateDataSource_HTTP_AuthorizationConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{
+		Name:       "HTTP",
+		Type:       appsync.DataSourceTypeHTTP,
+		HTTPConfig: &appsync.HTTPDataSourceConfig{Endpoint: "https://api.example.com"},
+	}
+
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	updateInput := &appsync.DataSource{
+		Name: "HTTP",
+		Type: appsync.DataSourceTypeHTTP,
+		HTTPConfig: &appsync.HTTPDataSourceConfig{
+			Endpoint: "https://api.example.com",
+			AuthorizationConfig: &appsync.AuthorizationConfig{
+				AuthorizationType: "AWS_IAM",
+				AwsIamConfig: &appsync.AwsIamConfig{
+					SigningRegion:      "eu-west-1",
+					SigningServiceName: "appsync",
+				},
+			},
+		},
+	}
+
+	updated, err := b.UpdateDataSource(api.APIID, "HTTP", updateInput)
+	require.NoError(t, err)
+	require.NotNil(t, updated.HTTPConfig.AuthorizationConfig)
+	assert.Equal(t, "eu-west-1", updated.HTTPConfig.AuthorizationConfig.AwsIamConfig.SigningRegion)
+}
+
+// ---- Resolver: Code and Runtime (APPSYNC_JS) ----
+
+func TestCreateResolver_Code_Runtime_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{Name: "NONE", Type: appsync.DataSourceTypeNone}
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	r := &appsync.Resolver{
+		TypeName:       "Query",
+		FieldName:      "hello",
+		Kind:           "UNIT",
+		DataSourceName: "NONE",
+		Code:           `export function request(ctx) { return {}; }`,
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+	}
+
+	created, err := b.CreateResolver(api.APIID, "Query", r)
+	require.NoError(t, err)
+	assert.Equal(t, `export function request(ctx) { return {}; }`, created.Code)
+	require.NotNil(t, created.Runtime)
+	assert.Equal(t, "APPSYNC_JS", created.Runtime.Name)
+	assert.Equal(t, "1.0.0", created.Runtime.RuntimeVersion)
+
+	got, err := b.GetResolver(api.APIID, "Query", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, `export function request(ctx) { return {}; }`, got.Code)
+	require.NotNil(t, got.Runtime)
+	assert.Equal(t, "APPSYNC_JS", got.Runtime.Name)
+}
+
+func TestUpdateResolver_Code_Runtime_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{Name: "NONE", Type: appsync.DataSourceTypeNone}
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	r := &appsync.Resolver{TypeName: "Query", FieldName: "hello", Kind: "UNIT", DataSourceName: "NONE"}
+	_, err = b.CreateResolver(api.APIID, "Query", r)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateResolver(api.APIID, "Query", &appsync.Resolver{
+		TypeName:       "Query",
+		FieldName:      "hello",
+		DataSourceName: "NONE",
+		Code:           `export function request(ctx) { return {payload: "hello"}; }`,
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `export function request(ctx) { return {payload: "hello"}; }`, updated.Code)
+	require.NotNil(t, updated.Runtime)
+	assert.Equal(t, "APPSYNC_JS", updated.Runtime.Name)
+}
+
+// ---- Function: Runtime and SyncConfig ----
+
+func TestCreateFunction_Runtime_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{Name: "NONE", Type: appsync.DataSourceTypeNone}
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	fn := &appsync.Function{
+		Name:           "MyJSFn",
+		DataSourceName: "NONE",
+		Code:           `export function request(ctx) { return {}; }`,
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+	}
+
+	created, err := b.CreateFunction(api.APIID, fn)
+	require.NoError(t, err)
+	require.NotNil(t, created.Runtime)
+	assert.Equal(t, "APPSYNC_JS", created.Runtime.Name)
+	assert.Equal(t, "1.0.0", created.Runtime.RuntimeVersion)
+
+	got, err := b.GetFunction(api.APIID, created.FunctionID)
+	require.NoError(t, err)
+	require.NotNil(t, got.Runtime)
+	assert.Equal(t, "APPSYNC_JS", got.Runtime.Name)
+}
+
+func TestCreateFunction_SyncConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{Name: "DYNAMO", Type: appsync.DataSourceTypeDynamoDB,
+		DynamoDBConfig: &appsync.DynamoDBDataSourceConfig{TableName: "t", AWSRegion: "us-east-1"}}
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	fn := &appsync.Function{
+		Name:           "SyncFn",
+		DataSourceName: "DYNAMO",
+		SyncConfig: &appsync.SyncConfig{
+			ConflictDetection: "VERSION",
+			ConflictHandler:   "OPTIMISTIC_CONCURRENCY",
+		},
+	}
+
+	created, err := b.CreateFunction(api.APIID, fn)
+	require.NoError(t, err)
+	require.NotNil(t, created.SyncConfig)
+	assert.Equal(t, "VERSION", created.SyncConfig.ConflictDetection)
+	assert.Equal(t, "OPTIMISTIC_CONCURRENCY", created.SyncConfig.ConflictHandler)
+
+	got, err := b.GetFunction(api.APIID, created.FunctionID)
+	require.NoError(t, err)
+	require.NotNil(t, got.SyncConfig)
+	assert.Equal(t, "VERSION", got.SyncConfig.ConflictDetection)
+}
+
+func TestUpdateFunction_Runtime_SyncConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	ds := &appsync.DataSource{Name: "NONE", Type: appsync.DataSourceTypeNone}
+	_, err = b.CreateDataSource(api.APIID, ds)
+	require.NoError(t, err)
+
+	fn := &appsync.Function{Name: "Fn", DataSourceName: "NONE"}
+	created, err := b.CreateFunction(api.APIID, fn)
+	require.NoError(t, err)
+
+	updated, err := b.UpdateFunction(api.APIID, created.FunctionID, &appsync.Function{
+		Name:           "Fn",
+		DataSourceName: "NONE",
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+		SyncConfig: &appsync.SyncConfig{
+			ConflictDetection: "NONE",
+			ConflictHandler:   "AUTOMERGE",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Runtime)
+	assert.Equal(t, "APPSYNC_JS", updated.Runtime.Name)
+	require.NotNil(t, updated.SyncConfig)
+	assert.Equal(t, "AUTOMERGE", updated.SyncConfig.ConflictHandler)
+}
+
+// ---- Event API: EventConfig ----
+
+func TestCreateAPI_EventConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	eventCfg := &appsync.EventConfig{
+		AuthProviders: []appsync.AuthProvider{
+			{AuthType: "API_KEY"},
+			{AuthType: "AWS_IAM"},
+		},
+		ConnectionAuthModes:       []appsync.AuthMode{{AuthType: "API_KEY"}},
+		DefaultPublishAuthModes:   []appsync.AuthMode{{AuthType: "API_KEY"}},
+		DefaultSubscribeAuthModes: []appsync.AuthMode{{AuthType: "API_KEY"}},
+	}
+
+	api, err := b.CreateAPI("EventsAPI", "ops@example.com", nil, eventCfg)
+	require.NoError(t, err)
+	require.NotNil(t, api.EventConfig)
+	assert.Len(t, api.EventConfig.AuthProviders, 2)
+	assert.Equal(t, "API_KEY", api.EventConfig.AuthProviders[0].AuthType)
+	assert.Equal(t, "AWS_IAM", api.EventConfig.AuthProviders[1].AuthType)
+	assert.Len(t, api.EventConfig.ConnectionAuthModes, 1)
+	assert.Equal(t, "API_KEY", api.EventConfig.ConnectionAuthModes[0].AuthType)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	require.NotNil(t, got.EventConfig)
+	assert.Len(t, got.EventConfig.AuthProviders, 2)
+}
+
+func TestCreateAPI_Dns_IsMap(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, api.DNS)
+	assert.Contains(t, api.DNS, "HTTP")
+	assert.Contains(t, api.DNS, "REALTIME")
+	assert.NotEmpty(t, api.DNS["HTTP"])
+	assert.NotEmpty(t, api.DNS["REALTIME"])
+}
+
+func TestUpdateAPI_EventConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, api.EventConfig)
+
+	eventCfg := &appsync.EventConfig{
+		AuthProviders:             []appsync.AuthProvider{{AuthType: "AWS_IAM"}},
+		ConnectionAuthModes:       []appsync.AuthMode{{AuthType: "AWS_IAM"}},
+		DefaultPublishAuthModes:   []appsync.AuthMode{{AuthType: "AWS_IAM"}},
+		DefaultSubscribeAuthModes: []appsync.AuthMode{{AuthType: "AWS_IAM"}},
+	}
+
+	updated, err := b.UpdateAPI(api.APIID, "", "", eventCfg)
+	require.NoError(t, err)
+	require.NotNil(t, updated.EventConfig)
+	assert.Equal(t, "AWS_IAM", updated.EventConfig.AuthProviders[0].AuthType)
+}
+
+// ---- Channel namespace: auth modes and handler configs ----
+
+func TestCreateChannelNamespace_PublishSubscribeAuthModes_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+
+	cfg := &appsync.ChannelNamespaceConfig{
+		PublishAuthModes:   []appsync.AuthMode{{AuthType: "API_KEY"}, {AuthType: "AWS_IAM"}},
+		SubscribeAuthModes: []appsync.AuthMode{{AuthType: "API_KEY"}},
+	}
+
+	ns, err := b.CreateChannelNamespace(api.APIID, "chat", nil, cfg)
+	require.NoError(t, err)
+	assert.Len(t, ns.PublishAuthModes, 2)
+	assert.Equal(t, "API_KEY", ns.PublishAuthModes[0].AuthType)
+	assert.Equal(t, "AWS_IAM", ns.PublishAuthModes[1].AuthType)
+	assert.Len(t, ns.SubscribeAuthModes, 1)
+	assert.Equal(t, "API_KEY", ns.SubscribeAuthModes[0].AuthType)
+
+	got, err := b.GetChannelNamespace(api.APIID, "chat")
+	require.NoError(t, err)
+	assert.Len(t, got.PublishAuthModes, 2)
+	assert.Len(t, got.SubscribeAuthModes, 1)
+}
+
+func TestCreateChannelNamespace_HandlerConfigs_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+
+	cfg := &appsync.ChannelNamespaceConfig{
+		HandlerConfigs: &appsync.HandlerConfigs{
+			OnPublish: &appsync.HandlerConfig{
+				Behavior: "CODE",
+				Integration: &appsync.Integration{
+					DataSourceName: "MyLambda",
+				},
+			},
+			OnSubscribe: &appsync.HandlerConfig{
+				Behavior: "CODE",
+				Integration: &appsync.Integration{
+					DataSourceName: "MyLambda",
+				},
+			},
+		},
+	}
+
+	ns, err := b.CreateChannelNamespace(api.APIID, "events", nil, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, ns.HandlerConfigs)
+	require.NotNil(t, ns.HandlerConfigs.OnPublish)
+	assert.Equal(t, "CODE", ns.HandlerConfigs.OnPublish.Behavior)
+	assert.Equal(t, "MyLambda", ns.HandlerConfigs.OnPublish.Integration.DataSourceName)
+	require.NotNil(t, ns.HandlerConfigs.OnSubscribe)
+	assert.Equal(t, "MyLambda", ns.HandlerConfigs.OnSubscribe.Integration.DataSourceName)
+
+	got, err := b.GetChannelNamespace(api.APIID, "events")
+	require.NoError(t, err)
+	require.NotNil(t, got.HandlerConfigs)
+	assert.Equal(t, "CODE", got.HandlerConfigs.OnPublish.Behavior)
+}
+
+func TestUpdateChannelNamespace_AuthModes_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "chat", nil, nil)
+	require.NoError(t, err)
+
+	cfg := &appsync.ChannelNamespaceConfig{
+		PublishAuthModes:   []appsync.AuthMode{{AuthType: "AWS_IAM"}},
+		SubscribeAuthModes: []appsync.AuthMode{{AuthType: "AWS_IAM"}, {AuthType: "API_KEY"}},
+	}
+
+	updated, err := b.UpdateChannelNamespace(api.APIID, "chat", cfg)
+	require.NoError(t, err)
+	assert.Len(t, updated.PublishAuthModes, 1)
+	assert.Equal(t, "AWS_IAM", updated.PublishAuthModes[0].AuthType)
+	assert.Len(t, updated.SubscribeAuthModes, 2)
+
+	got, err := b.GetChannelNamespace(api.APIID, "chat")
+	require.NoError(t, err)
+	assert.Len(t, got.PublishAuthModes, 1)
+	assert.Len(t, got.SubscribeAuthModes, 2)
+}
+
+func TestUpdateChannelNamespace_CodeHandlers_Via_Config(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateChannelNamespace(api.APIID, "ns", nil, nil)
+	require.NoError(t, err)
+
+	const code = `export const handler = () => {};`
+	cfg := &appsync.ChannelNamespaceConfig{CodeHandlers: code}
+
+	updated, err := b.UpdateChannelNamespace(api.APIID, "ns", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, code, updated.CodeHandlers)
+}
+
+// ---- SourceAPIAssociation: MergeType ----
+
+func TestAssociateMergedGraphqlAPI_MergeType_MANUAL(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	src, err := b.CreateGraphqlAPI("Src", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	merged, err := b.CreateGraphqlAPI("Merged", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "desc", "MANUAL_MERGE")
+	require.NoError(t, err)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "MANUAL_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
+}
+
+func TestAssociateMergedGraphqlAPI_MergeType_AUTO(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	src, err := b.CreateGraphqlAPI("Src", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	merged, err := b.CreateGraphqlAPI("Merged", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "", "AUTO_MERGE")
+	require.NoError(t, err)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
+}
+
+func TestAssociateMergedGraphqlAPI_MergeType_DefaultManual(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	src, err := b.CreateGraphqlAPI("Src", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	merged, err := b.CreateGraphqlAPI("Merged", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "MANUAL_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
+}
+
+func TestAssociateSourceGraphqlAPI_MergeType_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	src, err := b.CreateGraphqlAPI("Src", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	merged, err := b.CreateGraphqlAPI("Merged", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, src.APIID, "desc", "AUTO_MERGE")
+	require.NoError(t, err)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
+
+	got, err := b.GetSourceAPIAssociation(merged.APIID, assoc.AssociationID)
+	require.NoError(t, err)
+	require.NotNil(t, got.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", got.SourceAPIAssociationConfig.MergeType)
 }
