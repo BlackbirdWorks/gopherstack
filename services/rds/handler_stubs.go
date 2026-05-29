@@ -155,11 +155,10 @@ func (h *Handler) dispatchAutomatedBackupOps(action string, vals url.Values) (an
 // dispatchExtended15 routes Performance Insights and any future stub operations.
 func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error) {
 	switch action {
-	// Performance Insights
 	case "GetPerformanceInsightsMetrics":
-		return h.handleGetPerformanceInsightsMetrics(vals)
+		return h.handleGetPerformanceInsightsMetricsReal(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended16(action, vals)
 	}
 }
 
@@ -192,9 +191,13 @@ type modifyCustomDBEngineVersionResponse struct {
 }
 
 type xmlDBShardGroup struct {
-	DBShardGroupIdentifier string `xml:"DBShardGroupIdentifier"`
-	DBClusterIdentifier    string `xml:"DBClusterIdentifier,omitempty"`
-	Status                 string `xml:"Status,omitempty"`
+	DBShardGroupIdentifier string  `xml:"DBShardGroupIdentifier"`
+	DBClusterIdentifier    string  `xml:"DBClusterIdentifier,omitempty"`
+	Status                 string  `xml:"Status,omitempty"`
+	Endpoint               string  `xml:"Endpoint,omitempty"`
+	MaxACU                 float64 `xml:"MaxACU,omitempty"`
+	MinACU                 float64 `xml:"MinACU,omitempty"`
+	ComputeRedundancy      int     `xml:"ComputeRedundancy,omitempty"`
 }
 
 type xmlDBShardGroupList struct {
@@ -233,11 +236,13 @@ type rebootDBShardGroupResponse struct {
 }
 
 type xmlIntegration struct {
-	IntegrationName string `xml:"IntegrationName"`
-	IntegrationArn  string `xml:"IntegrationArn,omitempty"`
-	Status          string `xml:"Status,omitempty"`
-	SourceArn       string `xml:"SourceArn,omitempty"`
-	TargetArn       string `xml:"TargetArn,omitempty"`
+	IntegrationName        string `xml:"IntegrationName"`
+	IntegrationArn         string `xml:"IntegrationArn,omitempty"`
+	Status                 string `xml:"Status,omitempty"`
+	SourceArn              string `xml:"SourceArn,omitempty"`
+	TargetArn              string `xml:"TargetArn,omitempty"`
+	DataFilter             string `xml:"DataFilter,omitempty"`
+	IntegrationDescription string `xml:"Description,omitempty"`
 }
 
 type xmlIntegrationList struct {
@@ -451,12 +456,8 @@ func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &createDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			DBClusterIdentifier:    sg.DBClusterIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -469,11 +470,8 @@ func (h *Handler) handleDeleteDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &deleteDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -489,13 +487,7 @@ func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
 		func(a, b DBShardGroup) bool {
 			return a.DBShardGroupIdentifier < b.DBShardGroupIdentifier
 		},
-		func(sg DBShardGroup) xmlDBShardGroup {
-			return xmlDBShardGroup{
-				DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-				DBClusterIdentifier:    sg.DBClusterIdentifier,
-				Status:                 sg.Status,
-			}
-		},
+		func(sg DBShardGroup) xmlDBShardGroup { return toXMLDBShardGroup(&sg) },
 	)
 	if err != nil {
 		return nil, err
@@ -519,12 +511,8 @@ func (h *Handler) handleModifyDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &modifyDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			DBClusterIdentifier:    sg.DBClusterIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
 }
 
@@ -537,12 +525,21 @@ func (h *Handler) handleRebootDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &rebootDBShardGroupResponse{
-		Xmlns: rdsXMLNS,
-		DBShardGroup: xmlDBShardGroup{
-			DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
-			Status:                 sg.Status,
-		},
+		Xmlns:        rdsXMLNS,
+		DBShardGroup: toXMLDBShardGroup(sg),
 	}, nil
+}
+
+func toXMLDBShardGroup(sg *DBShardGroup) xmlDBShardGroup {
+	return xmlDBShardGroup{
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
+		Endpoint:               sg.Endpoint,
+		MaxACU:                 sg.MaxACU,
+		MinACU:                 sg.MinACU,
+		ComputeRedundancy:      sg.ComputeRedundancy,
+	}
 }
 
 func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
