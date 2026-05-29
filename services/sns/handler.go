@@ -171,7 +171,11 @@ type Handler struct {
 // within each topic, matching the shape returned by AWS SNS FIFO topics.
 func (h *Handler) nextFIFOSeqNum(topicArn string) string {
 	v, _ := h.fifoSeqNums.LoadOrStore(topicArn, new(atomic.Int64))
-	n := v.(*atomic.Int64).Add(1)
+	counter, ok := v.(*atomic.Int64)
+	if !ok {
+		return fmt.Sprintf("%020d", 0)
+	}
+	n := counter.Add(1)
 
 	return fmt.Sprintf("%020d", n)
 }

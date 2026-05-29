@@ -1626,27 +1626,7 @@ func (b *InMemoryBackend) Publish(
 	// Archive the message when the topic has an ArchivePolicy (e.g. FIFO topics
 	// with message retention). Archived messages are used for subscription replay.
 	if archivePolicy != "" {
-		attrsCopy := make(map[string]MessageAttribute, len(attrs))
-		for k, v := range attrs {
-			attrsCopy[k] = v
-		}
-
-		b.mu.Lock("archiveMessage")
-		archive := b.topicMessageArchive[topicArn]
-		// Evict oldest entries when cap is exceeded.
-		if len(archive) >= maxArchivedMessagesPerTopic {
-			overage := len(archive) - maxArchivedMessagesPerTopic + 1
-			archive = archive[overage:]
-		}
-
-		b.topicMessageArchive[topicArn] = append(archive, &ArchivedMessage{
-			MessageID:  messageID,
-			Message:    message,
-			Subject:    subject,
-			Attributes: attrsCopy,
-			Timestamp:  time.Now().UTC(),
-		})
-		b.mu.Unlock()
+		b.archivePublishedMessage(topicArn, messageID, message, subject, attrs)
 	}
 
 	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
@@ -2399,7 +2379,8 @@ func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationAr
 		}
 	}
 
-	attrs := make(map[string]string, len(app.Attributes)+2)
+	const computedCountFields = 2
+	attrs := make(map[string]string, len(app.Attributes)+computedCountFields)
 	maps.Copy(attrs, app.Attributes)
 
 	// AWS always returns these computed counts.
@@ -3331,4 +3312,29 @@ func (b *InMemoryBackend) Reset() {
 	b.optedOutPhoneNumbers = make(map[string]bool)
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
+}
+
+func (b *InMemoryBackend) archivePublishedMessage(
+	topicArn, messageID, message, subject string,
+	attrs map[string]MessageAttribute,
+) {
+	attrsCopy := make(map[string]MessageAttribute, len(attrs))
+	maps.Copy(attrsCopy, attrs)
+
+	b.mu.Lock("archiveMessage")
+	defer b.mu.Unlock()
+
+	archive := b.topicMessageArchive[topicArn]
+	if len(archive) >= maxArchivedMessagesPerTopic {
+		overage := len(archive) - maxArchivedMessagesPerTopic + 1
+		archive = archive[overage:]
+	}
+
+	b.topicMessageArchive[topicArn] = append(archive, &ArchivedMessage{
+		MessageID:  messageID,
+		Message:    message,
+		Subject:    subject,
+		Attributes: attrsCopy,
+		Timestamp:  time.Now().UTC(),
+	})
 }

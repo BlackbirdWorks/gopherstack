@@ -737,7 +737,7 @@ func TestBatch2_FIFOSequenceNumberMonotonicallyIncreases(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var nums []string
+	nums := make([]string, 0, 5)
 
 	for i := range 5 {
 		rec := doB2Request(t, h, url.Values{
