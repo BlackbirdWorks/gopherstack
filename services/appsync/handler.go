@@ -1606,7 +1606,7 @@ func (h *Handler) handleSourceAPIs(ctx context.Context, c *echo.Context, segs []
 // associateMergedGraphqlAPI handles POST /v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations.
 // associateAPIInput holds the common JSON fields for API association requests.
 type associateAPIInput struct {
-	SourceApiAssociationConfig *SourceApiAssociationConfig `json:"sourceApiAssociationConfig"`
+	SourceAPIAssociationConfig *SourceAPIAssociationConfig `json:"sourceApiAssociationConfig"`
 	MergedAPIIdentifier        string                      `json:"mergedApiIdentifier"`
 	SourceAPIIdentifier        string                      `json:"sourceApiIdentifier"`
 	Description                string                      `json:"description"`
@@ -1625,8 +1625,8 @@ func (h *Handler) doSourceAPIAssociation(
 	}
 
 	mergeType := ""
-	if input.SourceApiAssociationConfig != nil {
-		mergeType = input.SourceApiAssociationConfig.MergeType
+	if input.SourceAPIAssociationConfig != nil {
+		mergeType = input.SourceAPIAssociationConfig.MergeType
 	}
 
 	assoc, createErr := backendFn(primaryAPIID, secondaryAPIID, input.Description, mergeType)

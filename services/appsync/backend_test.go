@@ -1308,7 +1308,9 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, map[string]string{"k": "v"}, nil)
+	api, err := b.CreateGraphqlAPI(
+		"TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, map[string]string{"k": "v"}, nil,
+	)
 	require.NoError(t, err)
 
 	// Create a data source with tags so Reset() must close them too.
@@ -2457,9 +2459,12 @@ func TestInMemoryBackend_UpdateChannelNamespace(t *testing.T) {
 	_, err = b.CreateChannelNamespace(api.APIID, "ns1", nil, nil)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateChannelNamespace(api.APIID, "ns1", &appsync.ChannelNamespaceConfig{CodeHandlers: "export const handler = () => {}"})
+	const codeHandlers = "export const handler = () => {}"
+	updated, err := b.UpdateChannelNamespace(
+		api.APIID, "ns1", &appsync.ChannelNamespaceConfig{CodeHandlers: codeHandlers},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, "export const handler = () => {}", updated.CodeHandlers)
+	assert.Equal(t, codeHandlers, updated.CodeHandlers)
 	assert.NotZero(t, updated.LastModified)
 
 	// Not found returns error.

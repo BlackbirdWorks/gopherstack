@@ -90,7 +90,9 @@ type StorageBackend interface {
 	) (map[string]any, error)
 	// New Event API operations.
 	CreateAPI(name, ownerContact string, tagMap map[string]string, eventConfig *EventConfig) (*API, error)
-	CreateChannelNamespace(apiID, name string, tagMap map[string]string, cfg *ChannelNamespaceConfig) (*ChannelNamespace, error)
+	CreateChannelNamespace(
+		apiID, name string, tagMap map[string]string, cfg *ChannelNamespaceConfig,
+	) (*ChannelNamespace, error)
 	// API key operations.
 	CreateAPIKey(apiID, description string, expires int64) (*APIKey, error)
 	ListAPIKeys(apiID string) ([]*APIKey, error)
@@ -1284,7 +1286,9 @@ func (b *InMemoryBackend) AssociateAPI(domainName, apiID string) (*APIAssociatio
 }
 
 // CreateAPI creates a new Event API.
-func (b *InMemoryBackend) CreateAPI(name, ownerContact string, tagMap map[string]string, eventConfig *EventConfig) (*API, error) {
+func (b *InMemoryBackend) CreateAPI(
+	name, ownerContact string, tagMap map[string]string, eventConfig *EventConfig,
+) (*API, error) {
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
@@ -1300,7 +1304,7 @@ func (b *InMemoryBackend) CreateAPI(name, ownerContact string, tagMap map[string
 		Name:         name,
 		Tags:         tagMap,
 		OwnerContact: ownerContact,
-		Dns: map[string]string{
+		DNS: map[string]string{
 			"HTTP":     httpEndpoint,
 			"REALTIME": realtimeEndpoint,
 		},
@@ -1396,29 +1400,9 @@ func (b *InMemoryBackend) AssociateMergedGraphqlAPI(
 		return nil, fmt.Errorf("%w: merged api %s not found", ErrNotFound, mergedAPIIdentifier)
 	}
 
-	if mergeType == "" {
-		mergeType = mergeTypeManual
-	}
+	arnPath := fmt.Sprintf("sourceApis/%s/mergedApiAssociations", sourceAPIIdentifier)
 
-	assocID := randomAPIID()
-	assocARN := arn.Build("appsync", b.region, b.accountID,
-		fmt.Sprintf("sourceApis/%s/mergedApiAssociations/%s", sourceAPIIdentifier, assocID))
-
-	assoc := &SourceAPIAssociation{
-		AssociationID:              assocID,
-		AssociationARN:             assocARN,
-		SourceAPIID:                sourceAPIIdentifier,
-		MergedAPIID:                mergedAPIIdentifier,
-		Description:                description,
-		AssociationStatus:          "MERGE_SCHEDULED",
-		SourceApiAssociationConfig: &SourceApiAssociationConfig{MergeType: mergeType},
-	}
-
-	b.sourceAssocs[assocID] = assoc
-
-	cp := *assoc
-
-	return &cp, nil
+	return b.buildSourceAssoc(sourceAPIIdentifier, mergedAPIIdentifier, description, mergeType, arnPath), nil
 }
 
 // AssociateSourceGraphqlAPI creates an association from a merged API to a source API.
@@ -1436,29 +1420,38 @@ func (b *InMemoryBackend) AssociateSourceGraphqlAPI(
 		return nil, fmt.Errorf("%w: source api %s not found", ErrNotFound, sourceAPIIdentifier)
 	}
 
+	arnPath := fmt.Sprintf("mergedApis/%s/sourceApiAssociations", mergedAPIIdentifier)
+
+	return b.buildSourceAssoc(sourceAPIIdentifier, mergedAPIIdentifier, description, mergeType, arnPath), nil
+}
+
+// buildSourceAssoc creates and stores a SourceAPIAssociation. Caller must hold the write lock.
+func (b *InMemoryBackend) buildSourceAssoc(
+	sourceAPIID, mergedAPIID, description, mergeType, arnPathPrefix string,
+) *SourceAPIAssociation {
 	if mergeType == "" {
 		mergeType = mergeTypeManual
 	}
 
 	assocID := randomAPIID()
 	assocARN := arn.Build("appsync", b.region, b.accountID,
-		fmt.Sprintf("mergedApis/%s/sourceApiAssociations/%s", mergedAPIIdentifier, assocID))
+		fmt.Sprintf("%s/%s", arnPathPrefix, assocID))
 
 	assoc := &SourceAPIAssociation{
 		AssociationID:              assocID,
 		AssociationARN:             assocARN,
-		SourceAPIID:                sourceAPIIdentifier,
-		MergedAPIID:                mergedAPIIdentifier,
+		SourceAPIID:                sourceAPIID,
+		MergedAPIID:                mergedAPIID,
 		Description:                description,
 		AssociationStatus:          "MERGE_SCHEDULED",
-		SourceApiAssociationConfig: &SourceApiAssociationConfig{MergeType: mergeType},
+		SourceAPIAssociationConfig: &SourceAPIAssociationConfig{MergeType: mergeType},
 	}
 
 	b.sourceAssocs[assocID] = assoc
 
 	cp := *assoc
 
-	return &cp, nil
+	return &cp
 }
 
 // ListAPIKeys returns all non-expired API keys for a GraphQL API.
@@ -2250,7 +2243,9 @@ func (b *InMemoryBackend) ListChannelNamespaces(apiID string) ([]*ChannelNamespa
 }
 
 // UpdateChannelNamespace updates a channel namespace's code handlers, auth modes, and handler configs.
-func (b *InMemoryBackend) UpdateChannelNamespace(apiID, name string, cfg *ChannelNamespaceConfig) (*ChannelNamespace, error) {
+func (b *InMemoryBackend) UpdateChannelNamespace(
+	apiID, name string, cfg *ChannelNamespaceConfig,
+) (*ChannelNamespace, error) {
 	b.mu.Lock("UpdateChannelNamespace")
 	defer b.mu.Unlock()
 

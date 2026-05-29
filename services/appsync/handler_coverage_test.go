@@ -642,7 +642,9 @@ func TestBackend_UpdateSourceAPIAssociation(t *testing.T) {
 			mergedAPIID := tt.mergedAPIID
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
 				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
@@ -707,7 +709,9 @@ func TestHandler_UpdateSourceAPIAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
 				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
@@ -768,7 +772,9 @@ func TestBackend_ListTypesByAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
 				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)
@@ -827,7 +833,9 @@ func TestHandler_ListTypesByAssociation(t *testing.T) {
 			assocID := "noassoc"
 
 			if tt.createAssoc {
-				merged, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
 				require.NoError(t, err)
 				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 				require.NoError(t, err)

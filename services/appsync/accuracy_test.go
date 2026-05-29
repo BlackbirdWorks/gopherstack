@@ -200,7 +200,9 @@ func TestCreateGraphqlAPI_AdditionalAuthProviders_RoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", tt.providers, nil, nil)
+			api, err := b.CreateGraphqlAPI(
+				"TestAPI", appsync.AuthTypeAPIKey, false, "", "GLOBAL", tt.providers, nil, nil,
+			)
 			require.NoError(t, err)
 
 			got, err := b.GetGraphqlAPI(api.APIID)
@@ -2041,7 +2043,7 @@ func TestCreateResolver_Code_Runtime_RoundTrip(t *testing.T) {
 		Kind:           "UNIT",
 		DataSourceName: "NONE",
 		Code:           `export function request(ctx) { return {}; }`,
-		Runtime:        &appsync.AppSyncRuntime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
 	}
 
 	created, err := b.CreateResolver(api.APIID, "Query", r)
@@ -2081,7 +2083,7 @@ func TestUpdateResolver_Code_Runtime_RoundTrip(t *testing.T) {
 		FieldName:      "hello",
 		DataSourceName: "NONE",
 		Code:           `export function request(ctx) { return {payload: "hello"}; }`,
-		Runtime:        &appsync.AppSyncRuntime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, `export function request(ctx) { return {payload: "hello"}; }`, updated.Code)
@@ -2106,7 +2108,7 @@ func TestCreateFunction_Runtime_RoundTrip(t *testing.T) {
 		Name:           "MyJSFn",
 		DataSourceName: "NONE",
 		Code:           `export function request(ctx) { return {}; }`,
-		Runtime:        &appsync.AppSyncRuntime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
 	}
 
 	created, err := b.CreateFunction(api.APIID, fn)
@@ -2172,7 +2174,7 @@ func TestUpdateFunction_Runtime_SyncConfig_RoundTrip(t *testing.T) {
 	updated, err := b.UpdateFunction(api.APIID, created.FunctionID, &appsync.Function{
 		Name:           "Fn",
 		DataSourceName: "NONE",
-		Runtime:        &appsync.AppSyncRuntime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
+		Runtime:        &appsync.Runtime{Name: "APPSYNC_JS", RuntimeVersion: "1.0.0"},
 		SyncConfig: &appsync.SyncConfig{
 			ConflictDetection: "NONE",
 			ConflictHandler:   "AUTOMERGE",
@@ -2222,11 +2224,11 @@ func TestCreateAPI_Dns_IsMap(t *testing.T) {
 	b := newTestBackend()
 	api, err := b.CreateAPI("EventsAPI", "", nil, nil)
 	require.NoError(t, err)
-	require.NotNil(t, api.Dns)
-	assert.Contains(t, api.Dns, "HTTP")
-	assert.Contains(t, api.Dns, "REALTIME")
-	assert.NotEmpty(t, api.Dns["HTTP"])
-	assert.NotEmpty(t, api.Dns["REALTIME"])
+	require.NotNil(t, api.DNS)
+	assert.Contains(t, api.DNS, "HTTP")
+	assert.Contains(t, api.DNS, "REALTIME")
+	assert.NotEmpty(t, api.DNS["HTTP"])
+	assert.NotEmpty(t, api.DNS["REALTIME"])
 }
 
 func TestUpdateAPI_EventConfig_RoundTrip(t *testing.T) {
@@ -2376,8 +2378,8 @@ func TestAssociateMergedGraphqlAPI_MergeType_MANUAL(t *testing.T) {
 
 	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "desc", "MANUAL_MERGE")
 	require.NoError(t, err)
-	require.NotNil(t, assoc.SourceApiAssociationConfig)
-	assert.Equal(t, "MANUAL_MERGE", assoc.SourceApiAssociationConfig.MergeType)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "MANUAL_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
 }
 
 func TestAssociateMergedGraphqlAPI_MergeType_AUTO(t *testing.T) {
@@ -2392,8 +2394,8 @@ func TestAssociateMergedGraphqlAPI_MergeType_AUTO(t *testing.T) {
 
 	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "", "AUTO_MERGE")
 	require.NoError(t, err)
-	require.NotNil(t, assoc.SourceApiAssociationConfig)
-	assert.Equal(t, "AUTO_MERGE", assoc.SourceApiAssociationConfig.MergeType)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
 }
 
 func TestAssociateMergedGraphqlAPI_MergeType_DefaultManual(t *testing.T) {
@@ -2408,8 +2410,8 @@ func TestAssociateMergedGraphqlAPI_MergeType_DefaultManual(t *testing.T) {
 
 	assoc, err := b.AssociateMergedGraphqlAPI(src.APIID, merged.APIID, "", "")
 	require.NoError(t, err)
-	require.NotNil(t, assoc.SourceApiAssociationConfig)
-	assert.Equal(t, "MANUAL_MERGE", assoc.SourceApiAssociationConfig.MergeType)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "MANUAL_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
 }
 
 func TestAssociateSourceGraphqlAPI_MergeType_RoundTrip(t *testing.T) {
@@ -2424,11 +2426,11 @@ func TestAssociateSourceGraphqlAPI_MergeType_RoundTrip(t *testing.T) {
 
 	assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, src.APIID, "desc", "AUTO_MERGE")
 	require.NoError(t, err)
-	require.NotNil(t, assoc.SourceApiAssociationConfig)
-	assert.Equal(t, "AUTO_MERGE", assoc.SourceApiAssociationConfig.MergeType)
+	require.NotNil(t, assoc.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", assoc.SourceAPIAssociationConfig.MergeType)
 
 	got, err := b.GetSourceAPIAssociation(merged.APIID, assoc.AssociationID)
 	require.NoError(t, err)
-	require.NotNil(t, got.SourceApiAssociationConfig)
-	assert.Equal(t, "AUTO_MERGE", got.SourceApiAssociationConfig.MergeType)
+	require.NotNil(t, got.SourceAPIAssociationConfig)
+	assert.Equal(t, "AUTO_MERGE", got.SourceAPIAssociationConfig.MergeType)
 }

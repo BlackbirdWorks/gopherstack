@@ -154,28 +154,28 @@ type SyncConfig struct {
 	ConflictHandler             string                       `json:"conflictHandler,omitempty"`
 }
 
-// AppSyncRuntime specifies the runtime for APPSYNC_JS resolvers and functions.
-type AppSyncRuntime struct {
+// Runtime specifies the runtime for APPSYNC_JS resolvers and functions.
+type Runtime struct {
 	Name           string `json:"name"`           // APPSYNC_JS
 	RuntimeVersion string `json:"runtimeVersion"` // 1.0.0
 }
 
 // Resolver represents an AppSync resolver.
 type Resolver struct {
-	CachingConfig           *CachingConfig  `json:"cachingConfig,omitempty"`
-	SyncConfig              *SyncConfig     `json:"syncConfig,omitempty"`
-	Runtime                 *AppSyncRuntime `json:"runtime,omitempty"`
-	RequestMappingTemplate  string          `json:"requestMappingTemplate,omitempty"`
-	ResponseMappingTemplate string          `json:"responseMappingTemplate,omitempty"`
-	DataSourceName          string          `json:"dataSourceName,omitempty"`
-	ResolverARN             string          `json:"resolverArn"`
-	TypeName                string          `json:"typeName"`
-	FieldName               string          `json:"fieldName"`
-	APIID                   string          `json:"apiId"`
-	Code                    string          `json:"code,omitempty"`
-	Kind                    string          `json:"kind,omitempty"`
-	PipelineConfig          []string        `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
-	MaxBatchSize            int32           `json:"maxBatchSize,omitempty"`
+	CachingConfig           *CachingConfig `json:"cachingConfig,omitempty"`
+	SyncConfig              *SyncConfig    `json:"syncConfig,omitempty"`
+	Runtime                 *Runtime       `json:"runtime,omitempty"`
+	RequestMappingTemplate  string         `json:"requestMappingTemplate,omitempty"`
+	ResponseMappingTemplate string         `json:"responseMappingTemplate,omitempty"`
+	DataSourceName          string         `json:"dataSourceName,omitempty"`
+	ResolverARN             string         `json:"resolverArn"`
+	TypeName                string         `json:"typeName"`
+	FieldName               string         `json:"fieldName"`
+	APIID                   string         `json:"apiId"`
+	Code                    string         `json:"code,omitempty"`
+	Kind                    string         `json:"kind,omitempty"`
+	PipelineConfig          []string       `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
+	MaxBatchSize            int32          `json:"maxBatchSize,omitempty"`
 }
 
 // OpenIDConnectConfig holds the OpenID Connect configuration for an API.
@@ -196,9 +196,9 @@ type CognitoUserPoolConfig struct {
 // UserPoolConfig holds the primary Amazon Cognito user pool configuration for a GraphQL API.
 // Unlike CognitoUserPoolConfig (used in AdditionalAuthProviders), this has DefaultAction.
 type UserPoolConfig struct {
-	UserPoolID     string `json:"userPoolId"`
-	AWSRegion      string `json:"awsRegion"`
-	DefaultAction  string `json:"defaultAction"` // ALLOW or DENY
+	UserPoolID       string `json:"userPoolId"`
+	AWSRegion        string `json:"awsRegion"`
+	DefaultAction    string `json:"defaultAction"` // ALLOW or DENY
 	AppIDClientRegex string `json:"appIdClientRegex,omitempty"`
 }
 
@@ -312,19 +312,19 @@ type APICache struct {
 
 // Function represents an AppSync pipeline function.
 type Function struct {
-	Runtime                 *AppSyncRuntime `json:"runtime,omitempty"`
-	SyncConfig              *SyncConfig     `json:"syncConfig,omitempty"`
-	FunctionARN             string          `json:"functionArn"`
-	FunctionID              string          `json:"functionId"`
-	APIID                   string          `json:"apiId"`
-	Name                    string          `json:"name"`
-	Description             string          `json:"description,omitempty"`
-	DataSourceName          string          `json:"dataSourceName"`
-	FunctionVersion         string          `json:"functionVersion,omitempty"`
-	RequestMappingTemplate  string          `json:"requestMappingTemplate,omitempty"`
-	ResponseMappingTemplate string          `json:"responseMappingTemplate,omitempty"`
-	Code                    string          `json:"code,omitempty"`
-	MaxBatchSize            int32           `json:"maxBatchSize,omitempty"`
+	Runtime                 *Runtime    `json:"runtime,omitempty"`
+	SyncConfig              *SyncConfig `json:"syncConfig,omitempty"`
+	FunctionARN             string      `json:"functionArn"`
+	FunctionID              string      `json:"functionId"`
+	APIID                   string      `json:"apiId"`
+	Name                    string      `json:"name"`
+	Description             string      `json:"description,omitempty"`
+	DataSourceName          string      `json:"dataSourceName"`
+	FunctionVersion         string      `json:"functionVersion,omitempty"`
+	RequestMappingTemplate  string      `json:"requestMappingTemplate,omitempty"`
+	ResponseMappingTemplate string      `json:"responseMappingTemplate,omitempty"`
+	Code                    string      `json:"code,omitempty"`
+	MaxBatchSize            int32       `json:"maxBatchSize,omitempty"`
 }
 
 // TypeDefinitionFormat represents the format of a GraphQL type definition.
@@ -382,9 +382,9 @@ type CognitoConfig struct {
 // AuthProvider holds an authorization provider for an Event API.
 type AuthProvider struct {
 	CognitoConfig          *CognitoConfig          `json:"cognitoConfig,omitempty"`
-	OpenIDConnectConfig    *OpenIDConnectConfig     `json:"openIDConnectConfig,omitempty"`
-	LambdaAuthorizerConfig *LambdaAuthorizerConfig  `json:"lambdaAuthorizerConfig,omitempty"`
-	AuthType               string                   `json:"authType"`
+	OpenIDConnectConfig    *OpenIDConnectConfig    `json:"openIDConnectConfig,omitempty"`
+	LambdaAuthorizerConfig *LambdaAuthorizerConfig `json:"lambdaAuthorizerConfig,omitempty"`
+	AuthType               string                  `json:"authType"`
 }
 
 // EventConfig holds the authorization configuration for an Event API.
@@ -398,7 +398,7 @@ type EventConfig struct {
 // API represents an AppSync Event API.
 type API struct {
 	Tags         map[string]string `json:"tags,omitempty"`
-	Dns          map[string]string `json:"dns,omitempty"`
+	DNS          map[string]string `json:"dns,omitempty"`
 	EventConfig  *EventConfig      `json:"eventConfig,omitempty"`
 	Name         string            `json:"name"`
 	APIID        string            `json:"apiId"`
@@ -454,14 +454,14 @@ type DataSourceIntrospectionResult struct {
 	Models          []any  `json:"models,omitempty"`
 }
 
-// SourceApiAssociationConfig describes how source API merging is performed.
-type SourceApiAssociationConfig struct {
+// SourceAPIAssociationConfig describes how source API merging is performed.
+type SourceAPIAssociationConfig struct {
 	MergeType string `json:"mergeType,omitempty"` // MANUAL_MERGE or AUTO_MERGE
 }
 
 // SourceAPIAssociation represents an association between a source API and a merged API.
 type SourceAPIAssociation struct {
-	SourceApiAssociationConfig *SourceApiAssociationConfig `json:"sourceApiAssociationConfig,omitempty"`
+	SourceAPIAssociationConfig *SourceAPIAssociationConfig `json:"sourceApiAssociationConfig,omitempty"`
 	AssociationID              string                      `json:"associationId"`
 	AssociationARN             string                      `json:"associationArn"`
 	SourceAPIID                string                      `json:"sourceApiId"`
