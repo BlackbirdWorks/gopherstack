@@ -102,6 +102,7 @@ type listAttributesInput struct {
 	Cluster       string `json:"cluster,omitempty"`
 	TargetType    string `json:"targetType,omitempty"`
 	AttributeName string `json:"attributeName,omitempty"`
+	TargetID      string `json:"targetId,omitempty"`
 	NextToken     string `json:"nextToken,omitempty"`
 	MaxResults    int    `json:"maxResults,omitempty"`
 }
@@ -115,7 +116,7 @@ func (h *Handler) handleListAttributes(
 	_ context.Context,
 	in *listAttributesInput,
 ) (*listAttributesOutput, error) {
-	attrs, err := h.Backend.ListAttributes(in.Cluster, in.TargetType, in.AttributeName)
+	attrs, err := h.Backend.ListAttributes(in.Cluster, in.TargetType, in.AttributeName, in.TargetID)
 	if err != nil {
 		return nil, err
 	}

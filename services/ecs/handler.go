@@ -537,6 +537,8 @@ type networkConfigurationInput struct {
 }
 
 type registerTaskDefinitionInput struct {
+	RuntimePlatform         *RuntimePlatform           `json:"runtimePlatform,omitempty"`
+	EphemeralStorage        *EphemeralStorage          `json:"ephemeralStorage,omitempty"`
 	Family                  string                     `json:"family"`
 	TaskRoleArn             string                     `json:"taskRoleArn,omitempty"`
 	ExecutionRoleArn        string                     `json:"executionRoleArn,omitempty"`
@@ -549,6 +551,7 @@ type registerTaskDefinitionInput struct {
 	Volumes                 []Volume                   `json:"volumes,omitempty"`
 	PlacementConstraints    []placementConstraintInput `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string                   `json:"requiresCompatibilities,omitempty"`
+	InferenceAccelerators   []InferenceAccelerator     `json:"inferenceAccelerators,omitempty"`
 }
 
 type registerTaskDefinitionOutput struct {
@@ -572,6 +575,9 @@ func (h *Handler) handleRegisterTaskDefinition(
 		PlacementConstraints:    toPlacementConstraints(in.PlacementConstraints),
 		RequiresCompatibilities: in.RequiresCompatibilities,
 		Tags:                    in.Tags,
+		RuntimePlatform:         in.RuntimePlatform,
+		EphemeralStorage:        in.EphemeralStorage,
+		InferenceAccelerators:   in.InferenceAccelerators,
 	})
 	if err != nil {
 		return nil, err
@@ -729,6 +735,7 @@ type createServiceInput struct {
 	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
 	DesiredCount                int                               `json:"desiredCount"`
+	EnableExecuteCommand        bool                              `json:"enableExecuteCommand,omitempty"`
 }
 
 type createServiceOutput struct {
@@ -754,6 +761,7 @@ func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput)
 		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
 		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
 		DesiredCount:                in.DesiredCount,
+		EnableExecuteCommand:        in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err
@@ -789,6 +797,7 @@ func (h *Handler) handleDescribeServices(
 }
 
 type updateServiceInput struct {
+	EnableExecuteCommand        *bool                             `json:"enableExecuteCommand,omitempty"`
 	DesiredCount                *int                              `json:"desiredCount,omitempty"`
 	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
 	NetworkConfiguration        *networkConfigurationInput        `json:"networkConfiguration,omitempty"`
@@ -821,6 +830,7 @@ func (h *Handler) handleUpdateService(_ context.Context, in *updateServiceInput)
 		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
 		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
 		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
+		EnableExecuteCommand:        in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err
@@ -902,6 +912,7 @@ type runTaskInput struct {
 	Tags                 []Tag                      `json:"tags,omitempty"`
 	Count                int                        `json:"count,omitempty"`
 	EnableECSManagedTags bool                       `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand bool                       `json:"enableExecuteCommand,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -922,6 +933,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		Tags:                 in.Tags,
 		Overrides:            toTaskOverride(in.Overrides),
 		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
+		EnableExecuteCommand: in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err
@@ -1110,6 +1122,8 @@ type serviceRegistryView struct {
 }
 
 type taskDefinitionView struct {
+	RuntimePlatform         *RuntimePlatform          `json:"runtimePlatform,omitempty"`
+	EphemeralStorage        *EphemeralStorage         `json:"ephemeralStorage,omitempty"`
 	TaskDefinitionArn       string                    `json:"taskDefinitionArn"`
 	Family                  string                    `json:"family"`
 	TaskRoleArn             string                    `json:"taskRoleArn,omitempty"`
@@ -1123,6 +1137,7 @@ type taskDefinitionView struct {
 	Volumes                 []Volume                  `json:"volumes,omitempty"`
 	PlacementConstraints    []placementConstraintView `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string                  `json:"requiresCompatibilities,omitempty"`
+	InferenceAccelerators   []InferenceAccelerator    `json:"inferenceAccelerators,omitempty"`
 	RegisteredAt            float64                   `json:"registeredAt"`
 	Revision                int                       `json:"revision"`
 }
@@ -1143,6 +1158,9 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		RequiresCompatibilities: td.RequiresCompatibilities,
 		RegisteredAt:            float64(td.RegisteredAt.Unix()),
 		Revision:                td.Revision,
+		RuntimePlatform:         td.RuntimePlatform,
+		EphemeralStorage:        td.EphemeralStorage,
+		InferenceAccelerators:   td.InferenceAccelerators,
 	}
 
 	for _, c := range td.PlacementConstraints {
@@ -1213,6 +1231,7 @@ type serviceView struct {
 	DesiredCount                int                              `json:"desiredCount"`
 	PendingCount                int                              `json:"pendingCount"`
 	RunningCount                int                              `json:"runningCount"`
+	EnableExecuteCommand        bool                             `json:"enableExecuteCommand,omitempty"`
 }
 
 func toServiceView(s Service) serviceView {
@@ -1233,6 +1252,7 @@ func toServiceView(s Service) serviceView {
 		DesiredCount:                s.DesiredCount,
 		PendingCount:                s.PendingCount,
 		RunningCount:                s.RunningCount,
+		EnableExecuteCommand:        s.EnableExecuteCommand,
 	}
 
 	if s.DeploymentController != nil {
@@ -1370,6 +1390,7 @@ type taskView struct {
 	StartedAt            float64                   `json:"startedAt,omitempty"`
 	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
 	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`
+	EnableExecuteCommand bool                      `json:"enableExecuteCommand,omitempty"`
 }
 
 func toTaskView(t Task) taskView {
@@ -1392,6 +1413,7 @@ func toTaskView(t Task) taskView {
 		Tags:                 t.Tags,
 		Overrides:            toTaskOverrideView(t.Overrides),
 		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),
+		EnableExecuteCommand: t.EnableExecuteCommand,
 	}
 
 	for _, a := range t.Attachments {

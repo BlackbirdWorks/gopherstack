@@ -96,8 +96,8 @@ func (b *InMemoryBackend) PutAccountSettingDefault(name, value string) (*Account
 // ---- ListAttributes operation ----
 
 // ListAttributes returns attributes for resources in a cluster, optionally filtered by
-// attribute name and target type.
-func (b *InMemoryBackend) ListAttributes(cluster, targetType, attributeName string) ([]Attribute, error) {
+// attribute name, target type, and target ID.
+func (b *InMemoryBackend) ListAttributes(cluster, targetType, attributeName, targetID string) ([]Attribute, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListAttributes")
@@ -113,6 +113,10 @@ func (b *InMemoryBackend) ListAttributes(cluster, targetType, attributeName stri
 		}
 
 		if targetType != "" && attr.TargetType != targetType {
+			continue
+		}
+
+		if targetID != "" && attr.TargetID != targetID {
 			continue
 		}
 

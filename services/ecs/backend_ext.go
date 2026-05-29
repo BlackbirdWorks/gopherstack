@@ -40,20 +40,23 @@ type TaskSetScale struct {
 
 // TaskSet represents an ECS task set within a service.
 type TaskSet struct {
-	CreatedAt         time.Time    `json:"createdAt"`
-	UpdatedAt         time.Time    `json:"updatedAt"`
-	StabilityStatusAt time.Time    `json:"stabilityStatusAt"`
-	Status            string       `json:"status"`
-	TaskSetArn        string       `json:"taskSetArn"`
-	ID                string       `json:"id"`
-	ServiceArn        string       `json:"serviceArn"`
-	ClusterArn        string       `json:"clusterArn"`
-	TaskDefinition    string       `json:"taskDefinition"`
-	ExternalID        string       `json:"externalId,omitempty"`
-	PlatformVersion   string       `json:"platformVersion,omitempty"`
-	LaunchType        string       `json:"launchType,omitempty"`
-	StabilityStatus   string       `json:"stabilityStatus,omitempty"`
-	Scale             TaskSetScale `json:"scale"`
+	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
+	CreatedAt            time.Time             `json:"createdAt"`
+	UpdatedAt            time.Time             `json:"updatedAt"`
+	StabilityStatusAt    time.Time             `json:"stabilityStatusAt"`
+	Status               string                `json:"status"`
+	TaskSetArn           string                `json:"taskSetArn"`
+	ID                   string                `json:"id"`
+	ServiceArn           string                `json:"serviceArn"`
+	ClusterArn           string                `json:"clusterArn"`
+	TaskDefinition       string                `json:"taskDefinition"`
+	ExternalID           string                `json:"externalId,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	LaunchType           string                `json:"launchType,omitempty"`
+	StabilityStatus      string                `json:"stabilityStatus,omitempty"`
+	Scale                TaskSetScale          `json:"scale"`
+	LoadBalancers        []LoadBalancer        `json:"loadBalancers,omitempty"`
+	ServiceRegistries    []ServiceRegistry     `json:"serviceRegistries,omitempty"`
 }
 
 // Session represents an ECS Exec interactive session.
@@ -75,13 +78,16 @@ type ExecuteCommandOutput struct {
 
 // CreateTaskSetInput holds input for CreateTaskSet.
 type CreateTaskSetInput struct {
-	Scale           *TaskSetScale
-	Cluster         string
-	Service         string
-	TaskDefinition  string
-	ExternalID      string
-	PlatformVersion string
-	LaunchType      string
+	NetworkConfiguration *NetworkConfiguration
+	Scale                *TaskSetScale
+	Cluster              string
+	Service              string
+	TaskDefinition       string
+	ExternalID           string
+	PlatformVersion      string
+	LaunchType           string
+	LoadBalancers        []LoadBalancer
+	ServiceRegistries    []ServiceRegistry
 }
 
 // RegisterContainerInstance registers a container instance to a cluster.
@@ -382,20 +388,23 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 
 	now := time.Now()
 	ts := &TaskSet{
-		TaskSetArn:        taskSetArn,
-		ID:                "ecs-svc-" + id,
-		ServiceArn:        svc.ServiceArn,
-		ClusterArn:        fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
-		TaskDefinition:    td.TaskDefinitionArn,
-		Status:            statusActive,
-		ExternalID:        input.ExternalID,
-		PlatformVersion:   platformVersion,
-		LaunchType:        launchType,
-		Scale:             scale,
-		StabilityStatus:   "STEADY_STATE",
-		StabilityStatusAt: now,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		TaskSetArn:           taskSetArn,
+		ID:                   "ecs-svc-" + id,
+		ServiceArn:           svc.ServiceArn,
+		ClusterArn:           fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		TaskDefinition:       td.TaskDefinitionArn,
+		Status:               statusActive,
+		ExternalID:           input.ExternalID,
+		PlatformVersion:      platformVersion,
+		LaunchType:           launchType,
+		Scale:                scale,
+		StabilityStatus:      "STEADY_STATE",
+		StabilityStatusAt:    now,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		LoadBalancers:        input.LoadBalancers,
+		ServiceRegistries:    input.ServiceRegistries,
+		NetworkConfiguration: input.NetworkConfiguration,
 	}
 
 	serviceArn := svc.ServiceArn

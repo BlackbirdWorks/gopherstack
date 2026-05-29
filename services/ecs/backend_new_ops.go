@@ -256,7 +256,15 @@ func (b *InMemoryBackend) DescribeCapacityProviders(nameOrArns []string) ([]Capa
 	for _, ref := range nameOrArns {
 		_, cp := b.findCapacityProviderLocked(ref)
 		if cp == nil {
-			return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, ref)
+			// Fall back to built-in FARGATE / FARGATE_SPOT providers.
+			builtin := builtinCapacityProvider(ref)
+			if builtin == nil {
+				return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, ref)
+			}
+
+			out = append(out, *builtin)
+
+			continue
 		}
 
 		c := *cp
