@@ -157,15 +157,23 @@ type UpdateTableInput struct {
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
 }
 
-// ReplicaUpdate describes a create or delete action for a Global Tables v2 replica.
+// ReplicaUpdate describes a create, update, or delete action for a Global Tables v2 replica.
 type ReplicaUpdate struct {
 	Create *CreateReplicationGroupMemberAction `json:"Create,omitempty"`
+	Update *UpdateReplicationGroupMemberAction `json:"Update,omitempty"`
 	Delete *DeleteReplicationGroupMemberAction `json:"Delete,omitempty"`
 }
 
 // CreateReplicationGroupMemberAction specifies parameters for creating a new replica.
 type CreateReplicationGroupMemberAction struct {
 	RegionName string `json:"RegionName"`
+}
+
+// UpdateReplicationGroupMemberAction specifies per-replica setting overrides.
+type UpdateReplicationGroupMemberAction struct {
+	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
+	RegionName                   string `json:"RegionName"`
+	TableClassOverride           string `json:"TableClassOverride,omitempty"`
 }
 
 // DeleteReplicationGroupMemberAction specifies the region of the replica to delete.
@@ -175,8 +183,10 @@ type DeleteReplicationGroupMemberAction struct {
 
 // ReplicaDescription contains status information about a Global Tables v2 replica.
 type ReplicaDescription struct {
-	RegionName    string `json:"RegionName,omitempty"`
-	ReplicaStatus string `json:"ReplicaStatus,omitempty"`
+	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
+	RegionName                   string `json:"RegionName,omitempty"`
+	ReplicaStatus                string `json:"ReplicaStatus,omitempty"`
+	TableClassOverride           string `json:"TableClassOverride,omitempty"`
 }
 
 // GlobalSecondaryIndexUpdate describes a single GSI change.

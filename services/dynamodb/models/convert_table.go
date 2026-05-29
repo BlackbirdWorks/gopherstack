@@ -191,6 +191,19 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 				RegionName: &ru.Create.RegionName,
 			}
 		}
+		if ru.Update != nil {
+			update := &types.UpdateReplicationGroupMemberAction{
+				RegionName:         &ru.Update.RegionName,
+				TableClassOverride: types.TableClass(ru.Update.TableClassOverride),
+			}
+			if ru.Update.ProvisionedReadCapacityUnits != nil {
+				rcu := *ru.Update.ProvisionedReadCapacityUnits
+				update.ProvisionedThroughputOverride = &types.ProvisionedThroughputOverride{
+					ReadCapacityUnits: &rcu,
+				}
+			}
+			sdkRU.Update = update
+		}
 		if ru.Delete != nil {
 			sdkRU.Delete = &types.DeleteReplicationGroupMemberAction{
 				RegionName: &ru.Delete.RegionName,
@@ -276,10 +289,21 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 
 	replicas := make([]ReplicaDescription, len(td.Replicas))
 	for i, r := range td.Replicas {
-		replicas[i] = ReplicaDescription{
+		rep := ReplicaDescription{
 			RegionName:    ptrconv.String(r.RegionName),
 			ReplicaStatus: string(r.ReplicaStatus),
 		}
+
+		if r.ReplicaTableClassSummary != nil && r.ReplicaTableClassSummary.TableClass != "" {
+			rep.TableClassOverride = string(r.ReplicaTableClassSummary.TableClass)
+		}
+
+		if r.ProvisionedThroughputOverride != nil && r.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+			rcu := *r.ProvisionedThroughputOverride.ReadCapacityUnits
+			rep.ProvisionedReadCapacityUnits = &rcu
+		}
+
+		replicas[i] = rep
 	}
 	if len(replicas) == 0 {
 		replicas = nil

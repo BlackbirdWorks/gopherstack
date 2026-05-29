@@ -25,11 +25,26 @@ const txnPendingTTL = 5 * time.Minute
 
 // StoredGlobalTable holds the metadata for a DynamoDB global table.
 type StoredGlobalTable struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	GlobalTableName  string    `json:"GlobalTableName"`
-	GlobalTableArn   string    `json:"GlobalTableArn"`
-	// ReplicationGroup is the list of region names in the global table.
-	ReplicationGroup []string `json:"ReplicationGroup"`
+	CreationDateTime   time.Time                         `json:"CreationDateTime"`
+	WriteCapacityUnits *int64                            `json:"WriteCapacityUnits,omitempty"`
+	ReplicaSettings    map[string]*StoredReplicaSettings `json:"ReplicaSettings,omitempty"`
+	GlobalTableName    string                            `json:"GlobalTableName"`
+	GlobalTableArn     string                            `json:"GlobalTableArn"`
+	BillingMode        string                            `json:"BillingMode,omitempty"`
+	ReplicationGroup   []string                          `json:"ReplicationGroup"`
+}
+
+// StoredReplicaSettings holds per-replica settings persisted by UpdateGlobalTableSettings.
+type StoredReplicaSettings struct {
+	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+	TableClass        string `json:"TableClass,omitempty"`
+}
+
+// KinesisDestinationEntry stores a Kinesis streaming destination with its configuration.
+type KinesisDestinationEntry struct {
+	StreamARN string `json:"StreamARN"`
+	// Precision is "MICROSECOND" or "MILLISECOND"; empty means MILLISECOND (AWS default).
+	Precision string `json:"Precision,omitempty"`
 }
 
 // storedExport holds the fields needed to satisfy DescribeExport and ListExports.
@@ -196,7 +211,7 @@ type Table struct {
 	KeySchema                  []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes      []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
 	AttributeDefinitions       []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	KinesisDestinations        []string                                `json:"KinesisDestinations,omitempty"`
+	KinesisDestinations        []KinesisDestinationEntry               `json:"KinesisDestinations,omitempty"`
 	Items                      []map[string]any                        `json:"Items"`
 	streamShards               []StreamShard                           // shard genealogy for this table's stream
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
@@ -326,8 +341,8 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	// asynchronously via a goroutine inside KinesisEmitter implementations to
 	// avoid holding table.mu during the network/RPC.
 	if len(t.KinesisDestinations) > 0 && t.kinesisEmitter != nil {
-		for _, arn := range t.KinesisDestinations {
-			t.kinesisEmitter.EmitDynamoDBStreamRecord(arn, t.Name, record)
+		for _, dest := range t.KinesisDestinations {
+			t.kinesisEmitter.EmitDynamoDBStreamRecord(dest.StreamARN, t.Name, record)
 		}
 	}
 }

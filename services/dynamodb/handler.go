@@ -1350,8 +1350,9 @@ type describeKinesisInput struct {
 }
 
 type kinesisDestinationWire struct {
-	StreamArn         string `json:"StreamArn,omitempty"`
-	DestinationStatus string `json:"DestinationStatus,omitempty"`
+	StreamArn                            string `json:"StreamArn,omitempty"`
+	DestinationStatus                    string `json:"DestinationStatus,omitempty"`
+	ApproximateCreationDateTimePrecision string `json:"ApproximateCreationDateTimePrecision,omitempty"`
 }
 
 type describeKinesisOutput struct {
@@ -1424,9 +1425,14 @@ type listGlobalTablesOutput struct {
 	GlobalTables                 []globalTableWire `json:"GlobalTables"`
 }
 
+type enableKinesisStreamingConfigWire struct {
+	ApproximateCreationDateTimePrecision string `json:"ApproximateCreationDateTimePrecision,omitempty"`
+}
+
 type enableKinesisInput struct {
-	TableName string `json:"TableName"`
-	StreamArn string `json:"StreamArn"`
+	StreamingConfig *enableKinesisStreamingConfigWire `json:"EnableKinesisStreamingConfiguration,omitempty"`
+	TableName       string                            `json:"TableName"`
+	StreamArn       string                            `json:"StreamArn"`
 }
 
 type enableKinesisOutput struct {
@@ -1613,8 +1619,9 @@ func (h *DynamoDBHandler) handleDescribeKinesisStreamingDestination(
 	destinations := make([]kinesisDestinationWire, 0, len(out.KinesisDataStreamDestinations))
 	for _, d := range out.KinesisDataStreamDestinations {
 		destinations = append(destinations, kinesisDestinationWire{
-			StreamArn:         derefStr(d.StreamArn),
-			DestinationStatus: string(d.DestinationStatus),
+			StreamArn:                            derefStr(d.StreamArn),
+			DestinationStatus:                    string(d.DestinationStatus),
+			ApproximateCreationDateTimePrecision: string(d.ApproximateCreationDateTimePrecision),
 		})
 	}
 
@@ -1861,13 +1868,21 @@ func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 		return nil, err
 	}
 
-	out, err := h.Backend.EnableKinesisStreamingDestination(
-		ctx,
-		&sdkDDB.EnableKinesisStreamingDestinationInput{
-			TableName: &req.TableName,
-			StreamArn: &req.StreamArn,
-		},
-	)
+	enableInput := &sdkDDB.EnableKinesisStreamingDestinationInput{
+		TableName: &req.TableName,
+		StreamArn: &req.StreamArn,
+	}
+
+	if req.StreamingConfig != nil {
+		precision := types.ApproximateCreationDateTimePrecision(
+			req.StreamingConfig.ApproximateCreationDateTimePrecision,
+		)
+		enableInput.EnableKinesisStreamingConfiguration = &types.EnableKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: precision,
+		}
+	}
+
+	out, err := h.Backend.EnableKinesisStreamingDestination(ctx, enableInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1959,18 +1974,38 @@ func derefStr(s *string) string {
 
 // --- UpdateGlobalTableSettings handler ---
 
-type updateGlobalTableSettingsInput struct {
-	GlobalTableName string `json:"GlobalTableName"`
+type billingModeSummaryWire struct {
+	BillingMode string `json:"BillingMode,omitempty"`
 }
 
-type replicaSettingsUpdateWire struct {
-	RegionName    string `json:"RegionName"`
-	ReplicaStatus string `json:"ReplicaStatus"`
+type tableClassSummaryWire struct {
+	TableClass string `json:"TableClass,omitempty"`
+}
+
+type replicaSettingsUpdateInputWire struct {
+	ReplicaProvisionedReadCapacityUnits *int64 `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	ReplicaTableClass                   string `json:"ReplicaTableClass,omitempty"`
+	RegionName                          string `json:"RegionName"`
+}
+
+type updateGlobalTableSettingsInput struct {
+	GlobalTableName          string                           `json:"GlobalTableName"`
+	GlobalTableBillingMode   string                           `json:"GlobalTableBillingMode,omitempty"`
+	ProvisionedWriteCapacity *int64                           `json:"GlobalTableProvisionedWriteCapacityUnits,omitempty"`
+	ReplicaSettingsUpdate    []replicaSettingsUpdateInputWire `json:"ReplicaSettingsUpdate,omitempty"`
+}
+
+type replicaSettingsDescWire struct {
+	ReplicaBillingModeSummary           *billingModeSummaryWire `json:"ReplicaBillingModeSummary,omitempty"`
+	ReplicaTableClassSummary            *tableClassSummaryWire  `json:"ReplicaTableClassSummary,omitempty"`
+	ReplicaProvisionedReadCapacityUnits *int64                  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	RegionName                          string                  `json:"RegionName"`
+	ReplicaStatus                       string                  `json:"ReplicaStatus,omitempty"`
 }
 
 type updateGlobalTableSettingsOutput struct {
-	GlobalTableName string                      `json:"GlobalTableName"`
-	ReplicaSettings []replicaSettingsUpdateWire `json:"ReplicaSettings,omitempty"`
+	GlobalTableName string                    `json:"GlobalTableName"`
+	ReplicaSettings []replicaSettingsDescWire `json:"ReplicaSettings,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, body []byte) (any, error) {
@@ -1979,19 +2014,54 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, b
 		return nil, err
 	}
 
-	out, err := h.Backend.UpdateGlobalTableSettings(ctx, &sdkDDB.UpdateGlobalTableSettingsInput{
-		GlobalTableName: &req.GlobalTableName,
-	})
+	sdkInput := &sdkDDB.UpdateGlobalTableSettingsInput{
+		GlobalTableName:                          &req.GlobalTableName,
+		GlobalTableBillingMode:                   types.BillingMode(req.GlobalTableBillingMode),
+		GlobalTableProvisionedWriteCapacityUnits: req.ProvisionedWriteCapacity,
+	}
+
+	if len(req.ReplicaSettingsUpdate) > 0 {
+		sdkInput.ReplicaSettingsUpdate = make([]types.ReplicaSettingsUpdate, len(req.ReplicaSettingsUpdate))
+		for i, ru := range req.ReplicaSettingsUpdate {
+			region := ru.RegionName
+			sdkInput.ReplicaSettingsUpdate[i] = types.ReplicaSettingsUpdate{
+				RegionName:                          &region,
+				ReplicaTableClass:                   types.TableClass(ru.ReplicaTableClass),
+				ReplicaProvisionedReadCapacityUnits: ru.ReplicaProvisionedReadCapacityUnits,
+			}
+		}
+	}
+
+	out, err := h.Backend.UpdateGlobalTableSettings(ctx, sdkInput)
 	if err != nil {
 		return nil, err
 	}
 
-	wire := make([]replicaSettingsUpdateWire, 0, len(out.ReplicaSettings))
+	wire := make([]replicaSettingsDescWire, 0, len(out.ReplicaSettings))
 	for _, rs := range out.ReplicaSettings {
-		wire = append(wire, replicaSettingsUpdateWire{
+		w := replicaSettingsDescWire{
 			RegionName:    derefStr(rs.RegionName),
 			ReplicaStatus: string(rs.ReplicaStatus),
-		})
+		}
+
+		if rs.ReplicaBillingModeSummary != nil {
+			w.ReplicaBillingModeSummary = &billingModeSummaryWire{
+				BillingMode: string(rs.ReplicaBillingModeSummary.BillingMode),
+			}
+		}
+
+		if rs.ReplicaTableClassSummary != nil {
+			w.ReplicaTableClassSummary = &tableClassSummaryWire{
+				TableClass: string(rs.ReplicaTableClassSummary.TableClass),
+			}
+		}
+
+		if rs.ReplicaProvisionedReadCapacityUnits != nil {
+			rcu := *rs.ReplicaProvisionedReadCapacityUnits
+			w.ReplicaProvisionedReadCapacityUnits = &rcu
+		}
+
+		wire = append(wire, w)
 	}
 
 	return &updateGlobalTableSettingsOutput{
@@ -2002,9 +2072,14 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, b
 
 // --- UpdateKinesisStreamingDestination handler ---
 
+type updateKinesisStreamingConfigWire struct {
+	ApproximateCreationDateTimePrecision string `json:"ApproximateCreationDateTimePrecision,omitempty"`
+}
+
 type updateKinesisStreamingDestinationInput struct {
-	TableName string `json:"TableName"`
-	StreamArn string `json:"StreamArn"`
+	StreamingConfig *updateKinesisStreamingConfigWire `json:"UpdateKinesisStreamingConfiguration,omitempty"`
+	TableName       string                            `json:"TableName"`
+	StreamArn       string                            `json:"StreamArn"`
 }
 
 type updateKinesisStreamingDestinationOutput struct {
@@ -2019,10 +2094,21 @@ func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(ctx context.Co
 		return nil, err
 	}
 
-	out, err := h.Backend.UpdateKinesisStreamingDestination(ctx, &sdkDDB.UpdateKinesisStreamingDestinationInput{
+	updateInput := &sdkDDB.UpdateKinesisStreamingDestinationInput{
 		TableName: &req.TableName,
 		StreamArn: &req.StreamArn,
-	})
+	}
+
+	if req.StreamingConfig != nil {
+		precision := types.ApproximateCreationDateTimePrecision(
+			req.StreamingConfig.ApproximateCreationDateTimePrecision,
+		)
+		updateInput.UpdateKinesisStreamingConfiguration = &types.UpdateKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: precision,
+		}
+	}
+
+	out, err := h.Backend.UpdateKinesisStreamingDestination(ctx, updateInput)
 	if err != nil {
 		return nil, err
 	}
