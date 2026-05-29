@@ -2560,9 +2560,9 @@ func (h *Handler) handleListManagedRuleSets(body []byte) ([]byte, error) {
 
 	for _, ms := range items {
 		summaries = append(summaries, map[string]any{
-			"Id":        ms.ID,
-			keyName:     ms.Name,
-			keyARN:      ms.ARN,
+			"Id":         ms.ID,
+			keyName:      ms.Name,
+			keyARN:       ms.ARN,
 			keyLockToken: ms.LockToken,
 		})
 	}

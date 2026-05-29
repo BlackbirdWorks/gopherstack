@@ -132,7 +132,13 @@ func TestBatch2_ManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 		"VersionToExpire": "Version_1.0",
 		"ExpiryTimestamp": expiry,
 	})
-	require.Equal(t, http.StatusOK, updateRec.Code, "UpdateManagedRuleSetVersionExpiryDate: %s", updateRec.Body.String())
+	require.Equal(
+		t,
+		http.StatusOK,
+		updateRec.Code,
+		"UpdateManagedRuleSetVersionExpiryDate: %s",
+		updateRec.Body.String(),
+	)
 
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
@@ -780,8 +786,8 @@ func TestBatch2_RateBasedStatement_WithScopeDown(t *testing.T) {
 				"Priority": 1,
 				"Statement": map[string]any{
 					"RateBasedStatement": map[string]any{
-						"Limit":              500,
-						"AggregateKeyType":   "IP",
+						"Limit":               500,
+						"AggregateKeyType":    "IP",
 						"EvaluationWindowSec": 300,
 						"ScopeDownStatement": map[string]any{
 							"GeoMatchStatement": map[string]any{
@@ -825,7 +831,6 @@ func TestBatch2_RateBasedStatement_AllValidEvaluationWindows(t *testing.T) {
 	validWindows := []int{60, 120, 300, 600, 1800, 3600, 7200, 21600}
 
 	for _, window := range validWindows {
-		window := window
 		t.Run(string(rune('0'+window/100)), func(t *testing.T) {
 			t.Parallel()
 
@@ -1118,7 +1123,7 @@ func TestBatch2_LabelMatchStatement_RoundTrip(t *testing.T) {
 						"Key":   "awswaf:managed:aws:core-rule-set:NoUserAgent_Header",
 					},
 				},
-				"Action": map[string]any{"Block": map[string]any{}},
+				"Action":           map[string]any{"Block": map[string]any{}},
 				"VisibilityConfig": map[string]any{"MetricName": "label-rule"},
 			},
 		},
@@ -1166,7 +1171,7 @@ func TestBatch2_LabelMatchStatement_NamespaceScope(t *testing.T) {
 						"Key":   "awswaf:managed:aws:",
 					},
 				},
-				"Action": map[string]any{"Count": map[string]any{}},
+				"Action":           map[string]any{"Count": map[string]any{}},
 				"VisibilityConfig": map[string]any{"MetricName": "ns-rule"},
 			},
 		},
@@ -1294,10 +1299,14 @@ func TestBatch2_RuleGroup_UpdateRules(t *testing.T) {
 		"Capacity": 50,
 		"Rules": []map[string]any{
 			{
-				"Name":      "r1",
-				"Priority":  1,
-				"Statement": map[string]any{"IPSetReferenceStatement": map[string]any{"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/x/abc"}},
-				"Action":    map[string]any{"Allow": map[string]any{}},
+				"Name":     "r1",
+				"Priority": 1,
+				"Statement": map[string]any{
+					"IPSetReferenceStatement": map[string]any{
+						"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/x/abc",
+					},
+				},
+				"Action":           map[string]any{"Allow": map[string]any{}},
 				"VisibilityConfig": map[string]any{"MetricName": "r1"},
 			},
 		},
@@ -1315,17 +1324,25 @@ func TestBatch2_RuleGroup_UpdateRules(t *testing.T) {
 		"LockToken": rgLock,
 		"Rules": []map[string]any{
 			{
-				"Name":      "r1",
-				"Priority":  1,
-				"Statement": map[string]any{"IPSetReferenceStatement": map[string]any{"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/x/abc"}},
-				"Action":    map[string]any{"Block": map[string]any{}},
+				"Name":     "r1",
+				"Priority": 1,
+				"Statement": map[string]any{
+					"IPSetReferenceStatement": map[string]any{
+						"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/x/abc",
+					},
+				},
+				"Action":           map[string]any{"Block": map[string]any{}},
 				"VisibilityConfig": map[string]any{"MetricName": "r1"},
 			},
 			{
-				"Name":      "r2",
-				"Priority":  2,
-				"Statement": map[string]any{"IPSetReferenceStatement": map[string]any{"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/y/def"}},
-				"Action":    map[string]any{"Count": map[string]any{}},
+				"Name":     "r2",
+				"Priority": 2,
+				"Statement": map[string]any{
+					"IPSetReferenceStatement": map[string]any{
+						"ARN": "arn:aws:wafv2:us-east-1:000000000000:regional/ipset/y/def",
+					},
+				},
+				"Action":           map[string]any{"Count": map[string]any{}},
 				"VisibilityConfig": map[string]any{"MetricName": "r2"},
 			},
 		},
@@ -1559,8 +1576,8 @@ func TestBatch2_WebACL_CustomResponseBodies_RoundTrip(t *testing.T) {
 				"Action": map[string]any{
 					"Block": map[string]any{
 						"CustomResponse": map[string]any{
-							"ResponseCode":            403,
-							"CustomResponseBodyKey":   "BlockPage",
+							"ResponseCode":          403,
+							"CustomResponseBodyKey": "BlockPage",
 						},
 					},
 				},
@@ -1859,10 +1876,10 @@ func TestBatch2_WebACL_Update_ClearsOldRules(t *testing.T) {
 
 	// Update with empty rules — should clear all rules.
 	updateRec := doWafv2Request(t, h, "UpdateWebACL", map[string]any{
-		"Id":          id,
-		"LockToken":   lock,
+		"Id":            id,
+		"LockToken":     lock,
 		"DefaultAction": map[string]any{"Block": map[string]any{}},
-		"Rules":       []map[string]any{},
+		"Rules":         []map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code, "update with empty rules: %s", updateRec.Body.String())
 

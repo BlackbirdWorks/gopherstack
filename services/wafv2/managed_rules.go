@@ -2,6 +2,11 @@ package wafv2
 
 const awsVendorName = "AWS"
 
+const (
+	timestampMidYr2024 int64 = 1717200000
+	timestampNov2023   int64 = 1700000000
+)
+
 // mobileSdkReleaseInfo holds catalog metadata for a WAF mobile SDK release.
 type mobileSdkReleaseInfo struct {
 	Platform       string
@@ -43,25 +48,25 @@ func buildMobileSdkCatalog() []mobileSdkReleaseInfo {
 			Platform:       "Android",
 			ReleaseVersion: "3.1.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for Android — threat intelligence updates and bug fixes",
-			Timestamp:      1717200000,
+			Timestamp:      timestampMidYr2024,
 		},
 		{
 			Platform:       "Android",
 			ReleaseVersion: "3.0.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for Android — initial v3 release",
-			Timestamp:      1700000000,
+			Timestamp:      timestampNov2023,
 		},
 		{
 			Platform:       "iOS",
 			ReleaseVersion: "3.1.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for iOS — threat intelligence updates and bug fixes",
-			Timestamp:      1717200000,
+			Timestamp:      timestampMidYr2024,
 		},
 		{
 			Platform:       "iOS",
 			ReleaseVersion: "3.0.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for iOS — initial v3 release",
-			Timestamp:      1700000000,
+			Timestamp:      timestampNov2023,
 		},
 	}
 }
