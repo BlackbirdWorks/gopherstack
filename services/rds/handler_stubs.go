@@ -310,8 +310,14 @@ type modifyTenantDatabaseResponse struct {
 }
 
 type xmlDBClusterAutomatedBackup struct {
-	DBClusterIdentifier string `xml:"DBClusterIdentifier"`
-	Status              string `xml:"Status,omitempty"`
+	DBClusterIdentifier   string `xml:"DBClusterIdentifier"`
+	DBClusterResourceID   string `xml:"DbClusterResourceId,omitempty"`
+	Engine                string `xml:"Engine,omitempty"`
+	EngineVersion         string `xml:"EngineVersion,omitempty"`
+	Region                string `xml:"Region,omitempty"`
+	Status                string `xml:"Status,omitempty"`
+	BackupRetentionPeriod int    `xml:"BackupRetentionPeriod,omitempty"`
+	StorageEncrypted      bool   `xml:"StorageEncrypted,omitempty"`
 }
 
 type xmlDBClusterAutomatedBackupList struct {
@@ -339,8 +345,15 @@ type describeDBClusterAutomatedBackupsResponse struct {
 }
 
 type xmlDBInstanceAutomatedBackup struct {
-	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
-	Status               string `xml:"Status,omitempty"`
+	DBInstanceIdentifier  string `xml:"DBInstanceIdentifier"`
+	DbiResourceID         string `xml:"DbiResourceId,omitempty"`
+	Engine                string `xml:"Engine,omitempty"`
+	EngineVersion         string `xml:"EngineVersion,omitempty"`
+	DBInstanceArn         string `xml:"DBInstanceArn,omitempty"`
+	Region                string `xml:"Region,omitempty"`
+	Status                string `xml:"Status,omitempty"`
+	AllocatedStorage      int    `xml:"AllocatedStorage,omitempty"`
+	BackupRetentionPeriod int    `xml:"BackupRetentionPeriod,omitempty"`
 }
 
 type xmlDBInstanceAutomatedBackupList struct {
@@ -761,12 +774,36 @@ func (h *Handler) handleDeleteDBClusterAutomatedBackup(vals url.Values) (any, er
 	return &deleteDBClusterAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
 		Result: deleteDBClusterAutomatedBackupResult{
-			DBClusterAutomatedBackup: xmlDBClusterAutomatedBackup{
-				DBClusterIdentifier: backup.DBClusterIdentifier,
-				Status:              backup.Status,
-			},
+			DBClusterAutomatedBackup: toXMLClusterBackup(backup),
 		},
 	}, nil
+}
+
+func toXMLClusterBackup(b *DBClusterAutomatedBackup) xmlDBClusterAutomatedBackup {
+	return xmlDBClusterAutomatedBackup{
+		DBClusterIdentifier:   b.DBClusterIdentifier,
+		DBClusterResourceID:   b.DBClusterResourceID,
+		Engine:                b.Engine,
+		EngineVersion:         b.EngineVersion,
+		Region:                b.Region,
+		Status:                b.Status,
+		BackupRetentionPeriod: b.BackupRetentionPeriod,
+		StorageEncrypted:      b.StorageEncrypted,
+	}
+}
+
+func toXMLInstanceBackup(ab *DBInstanceAutomatedBackup) xmlDBInstanceAutomatedBackup {
+	return xmlDBInstanceAutomatedBackup{
+		DBInstanceIdentifier:  ab.DBInstanceIdentifier,
+		DbiResourceID:         ab.DbiResourceID,
+		Engine:                ab.Engine,
+		EngineVersion:         ab.EngineVersion,
+		DBInstanceArn:         ab.DBInstanceArn,
+		Region:                ab.Region,
+		Status:                ab.Status,
+		AllocatedStorage:      ab.AllocatedStorage,
+		BackupRetentionPeriod: ab.BackupRetentionPeriod,
+	}
 }
 
 func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any, error) {
@@ -774,11 +811,8 @@ func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any,
 	backups := h.Backend.DescribeDBClusterAutomatedBackups(clusterID)
 
 	members := make([]xmlDBClusterAutomatedBackup, 0, len(backups))
-	for _, b := range backups {
-		members = append(members, xmlDBClusterAutomatedBackup{
-			DBClusterIdentifier: b.DBClusterIdentifier,
-			Status:              b.Status,
-		})
+	for i := range backups {
+		members = append(members, toXMLClusterBackup(&backups[i]))
 	}
 
 	return &describeDBClusterAutomatedBackupsResponse{
@@ -803,10 +837,7 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 	return &deleteDBInstanceAutomatedBackupResponse{
 		Xmlns: rdsXMLNS,
 		Result: deleteDBInstanceAutomatedBackupResult{
-			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-				DBInstanceIdentifier: backup.DBInstanceIdentifier,
-				Status:               backup.Status,
-			},
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }
@@ -815,11 +846,9 @@ func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any
 	instanceID := vals.Get("DBInstanceIdentifier")
 	backups := h.Backend.DescribeDBInstanceAutomatedBackups(instanceID)
 	members := make([]xmlDBInstanceAutomatedBackup, 0, len(backups))
-	for _, ab := range backups {
-		members = append(members, xmlDBInstanceAutomatedBackup{
-			DBInstanceIdentifier: ab.DBInstanceIdentifier,
-			Status:               ab.Status,
-		})
+
+	for i := range backups {
+		members = append(members, toXMLInstanceBackup(&backups[i]))
 	}
 
 	return &describeDBInstanceAutomatedBackupsResponse{
@@ -842,10 +871,7 @@ func (h *Handler) handleStartDBInstanceAutomatedBackupsReplication(vals url.Valu
 	return &startDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
 		Result: startDBInstanceAutomatedBackupsReplicationResult{
-			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-				DBInstanceIdentifier: backup.DBInstanceIdentifier,
-				Status:               backup.Status,
-			},
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }
@@ -861,10 +887,7 @@ func (h *Handler) handleStopDBInstanceAutomatedBackupsReplication(vals url.Value
 	return &stopDBInstanceAutomatedBackupsReplicationResponse{
 		Xmlns: rdsXMLNS,
 		Result: stopDBInstanceAutomatedBackupsReplicationResult{
-			DBInstanceAutomatedBackup: xmlDBInstanceAutomatedBackup{
-				DBInstanceIdentifier: backup.DBInstanceIdentifier,
-				Status:               backup.Status,
-			},
+			DBInstanceAutomatedBackup: toXMLInstanceBackup(backup),
 		},
 	}, nil
 }

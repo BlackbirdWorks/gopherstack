@@ -732,3 +732,435 @@ func TestBatch3_HandlerOpsLen(t *testing.T) {
 	h := newBatch3Handler()
 	assert.Equal(t, 165, rds.HandlerOpsLen(h))
 }
+
+// ---- Persistence tests for new fields ----
+
+func TestBatch3_Persistence_ClusterNewFields(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateDBCluster("cls-snap", "aurora-mysql", "admin", "", "", 0, nil,
+		rds.DBClusterOptions{
+			StorageType:            "aurora-iopt1",
+			NetworkType:            "DUAL",
+			EngineLifecycleSupport: "open-source-rds-extended-support",
+			OptimizedWrites:        true,
+		})
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	clusters, err := b2.DescribeDBClusters("cls-snap")
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+
+	c := clusters[0]
+	assert.Equal(t, "aurora-iopt1", c.StorageType, "StorageType should survive round-trip")
+	assert.Equal(t, "DUAL", c.NetworkType, "NetworkType should survive round-trip")
+	assert.Equal(t, "open-source-rds-extended-support", c.EngineLifecycleSupport)
+	assert.True(t, c.OptimizedWrites)
+	assert.NotEmpty(t, c.ReaderEndpoint, "ReaderEndpoint should survive round-trip")
+}
+
+func TestBatch3_Persistence_InstanceNewFields(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateDBInstance("inst-snap", "postgres", "db.r6g.large", "", "admin", "", 100,
+		rds.DBInstanceOptions{
+			StorageOptimized:       true,
+			OptimizedWrites:        true,
+			EngineLifecycleSupport: "open-source-rds-extended-support-disabled",
+		})
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	instances, err := b2.DescribeDBInstances("inst-snap")
+	require.NoError(t, err)
+	require.Len(t, instances, 1)
+
+	inst := instances[0]
+	assert.True(t, inst.StorageOptimized, "StorageOptimized should survive round-trip")
+	assert.True(t, inst.OptimizedWrites, "OptimizedWrites should survive round-trip")
+	assert.Equal(t, "open-source-rds-extended-support-disabled", inst.EngineLifecycleSupport)
+}
+
+func TestBatch3_Persistence_BlueGreenTarget(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateBlueGreenDeployment("bgd-snap", "arn:aws:rds:us-east-1:123:cluster:src")
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	deployments, err := b2.DescribeBlueGreenDeployments("")
+	require.NoError(t, err)
+	require.Len(t, deployments, 1)
+
+	assert.NotEmpty(t, deployments[0].Target, "Target should survive round-trip")
+	assert.Contains(t, deployments[0].Target, "green")
+}
+
+func TestBatch3_Persistence_ShardGroupEndpoint(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateDBShardGroup("sg-snap", "cl-snap", 64, 1, 1, false)
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	groups, err := b2.DescribeDBShardGroups("")
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+
+	assert.NotEmpty(t, groups[0].Endpoint, "Endpoint should survive round-trip")
+}
+
+func TestBatch3_Persistence_IntegrationDataFilter(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateIntegration("intg-snap", "src", "tgt", "", "include(orders)", "my description")
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	integrations, err := b2.DescribeIntegrations("")
+	require.NoError(t, err)
+	require.Len(t, integrations, 1)
+
+	assert.Equal(t, "include(orders)", integrations[0].DataFilter, "DataFilter should survive round-trip")
+	assert.Equal(t, "my description", integrations[0].IntegrationDescription)
+}
+
+// ---- Multi-AZ cluster RWG tests ----
+
+func TestDBCluster_MultiAZEndpoints(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	c, err := b.CreateDBCluster("rwg-cluster", "aurora-postgresql", "admin", "prod", "", 0, nil,
+		rds.DBClusterOptions{MultiAZ: true})
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, c.Endpoint, "writer endpoint should be set")
+	assert.NotEmpty(t, c.ReaderEndpoint, "reader endpoint should be set for Multi-AZ")
+	assert.True(t, c.MultiAZ)
+
+	assert.NotEqual(t, c.Endpoint, c.ReaderEndpoint,
+		"writer and reader endpoints should be different")
+}
+
+func TestDBCluster_ServerlessV2WithIOOptimized(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	serverlessCfg := &rds.ServerlessV2ScalingConfiguration{
+		MinCapacity: 0.5,
+		MaxCapacity: 128.0,
+	}
+
+	c, err := b.CreateDBCluster("sl2-iopt", "aurora-postgresql", "admin", "", "", 0, serverlessCfg,
+		rds.DBClusterOptions{
+			StorageType:            "aurora-iopt1",
+			EngineLifecycleSupport: "open-source-rds-extended-support-disabled",
+		})
+	require.NoError(t, err)
+
+	assert.NotNil(t, c.ServerlessV2ScalingConfig)
+	assert.Equal(t, "aurora-iopt1", c.StorageType)
+	assert.Equal(t, "open-source-rds-extended-support-disabled", c.EngineLifecycleSupport)
+}
+
+// ---- Automated backup response structure ----
+
+func TestAutomatedBackup_DescribeClusterViaHandler(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	h := rds.NewHandler(b)
+
+	_, err := b.CreateDBCluster("bkp-cluster", "aurora-postgresql", "admin", "", "", 0, nil,
+		rds.DBClusterOptions{})
+	require.NoError(t, err)
+
+	rec := postRDSForm(t, h,
+		"Action=DescribeDBClusterAutomatedBackups&Version=2014-10-31&DBClusterIdentifier=bkp-cluster")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DescribeDBClusterAutomatedBackupsResponse")
+}
+
+func TestAutomatedBackup_DescribeInstanceViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h := newBatch3Handler()
+
+	rec := postRDSForm(t, h,
+		"Action=DescribeDBInstanceAutomatedBackups&Version=2014-10-31")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DescribeDBInstanceAutomatedBackupsResponse")
+}
+
+// ---- ModifyDBCluster EngineLifecycleSupport via handler ----
+
+func TestDBCluster_ModifyEngineLifecycleSupportViaHandler(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	h := rds.NewHandler(b)
+
+	_, err := b.CreateDBCluster("els-mod", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+	require.NoError(t, err)
+
+	rec := postRDSForm(t, h,
+		"Action=ModifyDBCluster&Version=2014-10-31&DBClusterIdentifier=els-mod"+
+			"&EngineLifecycleSupport=open-source-rds-extended-support")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	clusters, err := b.DescribeDBClusters("els-mod")
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+	assert.Equal(t, "open-source-rds-extended-support", clusters[0].EngineLifecycleSupport)
+}
+
+// ---- CEV describe pagination ----
+
+func TestDescribeCustomDBEngineVersions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	h := rds.NewHandler(b)
+
+	for i := range 5 {
+		_, err := b.CreateCustomDBEngineVersion(
+			"oracle-ee",
+			"19.v"+string(rune('a'+i)),
+			"version "+string(rune('a'+i)),
+		)
+		require.NoError(t, err)
+	}
+
+	rec := postRDSForm(t, h,
+		"Action=DescribeCustomDBEngineVersions&Version=2014-10-31&Engine=oracle-ee&MaxRecords=2")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	respStr := rec.Body.String()
+	assert.Contains(t, respStr, "Marker", "paginated response should have a Marker")
+}
+
+// ---- Performance Insights with custom period ----
+
+func TestPerformanceInsights_CustomPeriod(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	start := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 1, 15, 10, 10, 0, 0, time.UTC)
+
+	points300s := b.GetPerformanceInsightsData("res", "db.load.avg", start, end, 300)
+	points60s := b.GetPerformanceInsightsData("res", "db.load.avg", start, end, 60)
+
+	assert.Greater(t, len(points60s), len(points300s),
+		"shorter period should produce more data points")
+}
+
+// ---- Recommendation seeding and all status lifecycle ----
+
+func TestDBRecommendation_AddAndDescribe(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	assert.Equal(t, 0, rds.RecommendationCount(b))
+
+	b.AddDBRecommendation(rds.DBRecommendation{
+		RecommendationID: "rec-add-1",
+		TypeID:           "type-index",
+		Severity:         "high",
+		Status:           "active",
+		Description:      "Missing index on user_id",
+		ResourceARN:      "arn:aws:rds:us-east-1:123:db:mydb",
+	})
+
+	assert.Equal(t, 1, rds.RecommendationCount(b))
+
+	recs := b.DescribeDBRecommendations("rec-add-1", "")
+	require.Len(t, recs, 1)
+	assert.Equal(t, "high", recs[0].Severity)
+	assert.Equal(t, "Missing index on user_id", recs[0].Description)
+}
+
+func TestDBRecommendation_ModifyNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.ModifyDBRecommendation("nonexistent", "active")
+	require.Error(t, err)
+	require.ErrorIs(t, err, rds.ErrInvalidParameter)
+}
+
+// ---- Integration ARN format ----
+
+func TestIntegration_ARNContainsRegionAndAccount(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("111122223333", "eu-west-1")
+
+	intg, err := b.CreateIntegration("my-intg", "src", "tgt", "", "", "")
+	require.NoError(t, err)
+
+	assert.Contains(t, intg.IntegrationArn, "eu-west-1")
+	assert.Contains(t, intg.IntegrationArn, "111122223333")
+	assert.Contains(t, intg.IntegrationArn, "my-intg")
+}
+
+// ---- DBShardGroup full lifecycle via handler ----
+
+func TestDBShardGroup_FullLifecycleViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h := newBatch3Handler()
+
+	rec := postRDSForm(t, h,
+		"Action=CreateDBShardGroup&Version=2014-10-31"+
+			"&DBShardGroupIdentifier=lifecycle-sg&DBClusterIdentifier=lifecycle-cl"+
+			"&MaxACU=256&MinACU=4&ComputeRedundancy=2&PubliclyAccessible=true")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "lifecycle-sg")
+	assert.Contains(t, rec.Body.String(), "<Endpoint>")
+
+	rec = postRDSForm(t, h,
+		"Action=ModifyDBShardGroup&Version=2014-10-31"+
+			"&DBShardGroupIdentifier=lifecycle-sg&MaxACU=512")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "512")
+
+	rec = postRDSForm(t, h,
+		"Action=DescribeDBShardGroups&Version=2014-10-31&DBShardGroupIdentifier=lifecycle-sg")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<MaxACU>512</MaxACU>")
+	assert.Contains(t, rec.Body.String(), "<MinACU>4</MinACU>")
+
+	rec = postRDSForm(t, h,
+		"Action=RebootDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=lifecycle-sg")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postRDSForm(t, h,
+		"Action=DeleteDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=lifecycle-sg")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 0, rds.ShardGroupCount(newBatch3Backend()))
+}
+
+// ---- DBRecommendation via handler ----
+
+func TestDBRecommendation_ModifyViaHandler(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	h := rds.NewHandler(b)
+
+	b.AddDBRecommendation(rds.DBRecommendation{
+		RecommendationID: "rec-handler",
+		Status:           "active",
+		Description:      "test",
+	})
+
+	rec := postRDSForm(t, h,
+		"Action=ModifyDBRecommendation&Version=2014-10-31"+
+			"&RecommendationId=rec-handler&Status=paused")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	recs := b.DescribeDBRecommendations("rec-handler", "")
+	require.Len(t, recs, 1)
+	assert.Equal(t, "paused", recs[0].Status)
+}
+
+func TestDBRecommendation_DescribeViaHandler(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+	h := rds.NewHandler(b)
+
+	b.AddDBRecommendation(rds.DBRecommendation{
+		RecommendationID: "rec-desc-handler",
+		Status:           "active",
+		Severity:         "medium",
+		Description:      "Optimize checkpoint interval",
+	})
+
+	rec := postRDSForm(t, h,
+		"Action=DescribeDBRecommendations&Version=2014-10-31&RecommendationId=rec-desc-handler")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	respStr := rec.Body.String()
+	assert.Contains(t, respStr, "rec-desc-handler")
+	assert.Contains(t, respStr, "Optimize checkpoint interval")
+}
+
+// ---- New cluster fields ModifyDBCluster persistence ----
+
+func TestDBCluster_ModifyOptimizedWritesViaBackend(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch3Backend()
+
+	_, err := b.CreateDBCluster("ow-mod", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+	require.NoError(t, err)
+
+	clusters, err := b.DescribeDBClusters("ow-mod")
+	require.NoError(t, err)
+	assert.False(t, clusters[0].OptimizedWrites, "OptimizedWrites should be false by default")
+
+	_, err = b.ModifyDBCluster("ow-mod", "", rds.DBClusterOptions{OptimizedWrites: true})
+	require.NoError(t, err)
+
+	clusters, err = b.DescribeDBClusters("ow-mod")
+	require.NoError(t, err)
+	assert.True(t, clusters[0].OptimizedWrites, "OptimizedWrites should be set after modify")
+}
+
+// ---- SDK completeness still passes ----
+
+func TestBatch3_SDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rds.NewHandler(b)
+
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "DescribeCustomDBEngineVersions")
+	assert.Contains(t, ops, "GetPerformanceInsightsMetrics")
+	assert.Contains(t, ops, "CreateBlueGreenDeployment")
+	assert.Contains(t, ops, "CreateDBShardGroup")
+	assert.Contains(t, ops, "CreateIntegration")
+}
