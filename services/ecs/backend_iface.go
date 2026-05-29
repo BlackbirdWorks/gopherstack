@@ -76,7 +76,7 @@ type Backend interface {
 	// Attributes
 
 	DeleteAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
-	ListAttributes(cluster, targetType, attributeName string) ([]Attribute, error)
+	ListAttributes(cluster, targetType, attributeName, targetID string) ([]Attribute, error)
 	PutAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
 
 	// Cluster capacity providers and settings
