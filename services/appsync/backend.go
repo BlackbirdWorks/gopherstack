@@ -59,6 +59,7 @@ type StorageBackend interface {
 		visibility string,
 		additionalAuthProviders []AdditionalAuthenticationProvider,
 		tagMap map[string]string,
+		cfg *GraphqlAPIConfig,
 	) (*GraphqlAPI, error)
 	GetGraphqlAPI(apiID string) (*GraphqlAPI, error)
 	UpdateGraphqlAPI(
@@ -67,6 +68,7 @@ type StorageBackend interface {
 		xrayEnabled *bool,
 		visibility string,
 		additionalAuthProviders []AdditionalAuthenticationProvider,
+		cfg *GraphqlAPIConfig,
 	) (*GraphqlAPI, error)
 	ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error)
 	DeleteGraphqlAPI(apiID string) error
@@ -87,8 +89,8 @@ type StorageBackend interface {
 		variables map[string]any,
 	) (map[string]any, error)
 	// New Event API operations.
-	CreateAPI(name, ownerContact string, tagMap map[string]string) (*API, error)
-	CreateChannelNamespace(apiID, name string, tagMap map[string]string) (*ChannelNamespace, error)
+	CreateAPI(name, ownerContact string, tagMap map[string]string, eventConfig *EventConfig) (*API, error)
+	CreateChannelNamespace(apiID, name string, tagMap map[string]string, cfg *ChannelNamespaceConfig) (*ChannelNamespace, error)
 	// API key operations.
 	CreateAPIKey(apiID, description string, expires int64) (*APIKey, error)
 	ListAPIKeys(apiID string) ([]*APIKey, error)
@@ -136,19 +138,19 @@ type StorageBackend interface {
 	// Event API (v2) operations.
 	GetAPI(apiID string) (*API, error)
 	ListAPIs() ([]*API, error)
-	UpdateAPI(apiID, name, ownerContact string) (*API, error)
+	UpdateAPI(apiID, name, ownerContact string, eventConfig *EventConfig) (*API, error)
 	DeleteAPI(apiID string) error
 	// Channel namespace operations.
 	GetChannelNamespace(apiID, name string) (*ChannelNamespace, error)
 	ListChannelNamespaces(apiID string) ([]*ChannelNamespace, error)
-	UpdateChannelNamespace(apiID, name, codeHandlers string) (*ChannelNamespace, error)
+	UpdateChannelNamespace(apiID, name string, cfg *ChannelNamespaceConfig) (*ChannelNamespace, error)
 	DeleteChannelNamespace(apiID, name string) error
 	// Merged/source API association operations.
 	AssociateMergedGraphqlAPI(
-		sourceAPIIdentifier, mergedAPIIdentifier, description string,
+		sourceAPIIdentifier, mergedAPIIdentifier, description, mergeType string,
 	) (*SourceAPIAssociation, error)
 	AssociateSourceGraphqlAPI(
-		mergedAPIIdentifier, sourceAPIIdentifier, description string,
+		mergedAPIIdentifier, sourceAPIIdentifier, description, mergeType string,
 	) (*SourceAPIAssociation, error)
 	GetSourceAPIAssociation(mergedAPIID, associationID string) (*SourceAPIAssociation, error)
 	ListSourceAPIAssociations(mergedAPIID string) ([]*SourceAPIAssociation, error)
@@ -397,6 +399,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	visibility string,
 	additionalAuthProviders []AdditionalAuthenticationProvider,
 	tagMap map[string]string,
+	cfg *GraphqlAPIConfig,
 ) (*GraphqlAPI, error) {
 	b.mu.Lock("CreateGraphqlApi")
 	defer b.mu.Unlock()
