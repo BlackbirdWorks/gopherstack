@@ -691,6 +691,14 @@ func (b *InMemoryBackend) PutIntegration(
 		URI:                  input.URI,
 		PassthroughBehavior:  input.PassthroughBehavior,
 		RequestTemplates:     input.RequestTemplates,
+		RequestParameters:    input.RequestParameters,
+		CacheKeyParameters:   input.CacheKeyParameters,
+		ConnectionType:       input.ConnectionType,
+		ConnectionId:         input.ConnectionId,
+		ContentHandling:      input.ContentHandling,
+		Credentials:          input.Credentials,
+		CacheNamespace:       input.CacheNamespace,
+		TimeoutInMillis:      input.TimeoutInMillis,
 		IntegrationResponses: make(map[string]*IntegrationResponse),
 	}
 	m.MethodIntegration = integ
@@ -1715,17 +1723,18 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 
 	now := unixEpochTime{time.Now()}
 	stage := &Stage{
-		StageName:         input.StageName,
-		RestAPIID:         input.RestAPIID,
-		DeploymentID:      input.DeploymentID,
-		Description:       input.Description,
-		Variables:         variables,
-		CreatedDate:       now,
-		LastUpdatedDate:   now,
-		CanarySettings:    input.CanarySettings,
-		AccessLogSettings: input.AccessLogSettings,
-		MethodSettings:    input.MethodSettings,
-		TracingEnabled:    input.TracingEnabled,
+		StageName:           input.StageName,
+		RestAPIID:           input.RestAPIID,
+		DeploymentID:        input.DeploymentID,
+		Description:         input.Description,
+		Variables:           variables,
+		CreatedDate:         now,
+		LastUpdatedDate:     now,
+		CanarySettings:      input.CanarySettings,
+		AccessLogSettings:   input.AccessLogSettings,
+		MethodSettings:      input.MethodSettings,
+		TracingEnabled:      input.TracingEnabled,
+		ClientCertificateId: input.ClientCertificateId,
 	}
 	d.stages[input.StageName] = stage
 
@@ -2074,6 +2083,9 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	}
 	if input.TracingEnabled != nil {
 		stage.TracingEnabled = *input.TracingEnabled
+	}
+	if input.ClientCertificateId != "" {
+		stage.ClientCertificateId = input.ClientCertificateId
 	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
@@ -2728,12 +2740,44 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 		m.MethodIntegration.Type = input.IntegrationType
 	}
 
+	if input.IntegrationHTTPMethod != "" {
+		m.MethodIntegration.HTTPMethod = input.IntegrationHTTPMethod
+	}
+
 	if len(input.RequestTemplates) > 0 {
 		m.MethodIntegration.RequestTemplates = input.RequestTemplates
 	}
 
+	if len(input.RequestParameters) > 0 {
+		m.MethodIntegration.RequestParameters = input.RequestParameters
+	}
+
+	if len(input.CacheKeyParameters) > 0 {
+		m.MethodIntegration.CacheKeyParameters = input.CacheKeyParameters
+	}
+
 	if input.PassthroughBehavior != "" {
 		m.MethodIntegration.PassthroughBehavior = input.PassthroughBehavior
+	}
+
+	if input.ConnectionType != "" {
+		m.MethodIntegration.ConnectionType = input.ConnectionType
+	}
+
+	if input.ConnectionId != "" {
+		m.MethodIntegration.ConnectionId = input.ConnectionId
+	}
+
+	if input.ContentHandling != "" {
+		m.MethodIntegration.ContentHandling = input.ContentHandling
+	}
+
+	if input.Credentials != "" {
+		m.MethodIntegration.Credentials = input.Credentials
+	}
+
+	if input.CacheNamespace != "" {
+		m.MethodIntegration.CacheNamespace = input.CacheNamespace
 	}
 
 	if input.TimeoutInMillis > 0 {
