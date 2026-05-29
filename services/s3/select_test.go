@@ -407,8 +407,10 @@ func TestHandler_SelectObjectContent_JSON(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:     "JSON lines - isTruthy float64 path",
-			jsonData: []byte(`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":0}` + "\n"),
+			name: "JSON lines - isTruthy float64 path",
+			jsonData: []byte(
+				`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":0}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.score</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -420,8 +422,10 @@ func TestHandler_SelectObjectContent_JSON(t *testing.T) {
 			wantAbsent: "Bob",
 		},
 		{
-			name:     "JSON lines - isTruthy bool path",
-			jsonData: []byte(`{"name":"Alice","active":true}` + "\n" + `{"name":"Bob","active":false}` + "\n"),
+			name: "JSON lines - isTruthy bool path",
+			jsonData: []byte(
+				`{"name":"Alice","active":true}` + "\n" + `{"name":"Bob","active":false}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.active</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -949,8 +953,10 @@ func TestHandler_SelectObjectContent_ExtraOperators(t *testing.T) {
 			wantAbsent: "Bob",
 		},
 		{
-			name:    "CSV output with JSON input positional",
-			csvData: []byte(`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":5.0}` + "\n"),
+			name: "CSV output with JSON input positional",
+			csvData: []byte(
+				`{"name":"Alice","score":9.5}` + "\n" + `{"name":"Bob","score":5.0}` + "\n",
+			),
 			body: `<SelectObjectContentRequest>
 				<Expression>SELECT s.name FROM s3object s WHERE s.score &gt; 6</Expression>
 				<ExpressionType>SQL</ExpressionType>
@@ -1293,4 +1299,372 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_SelectObjectContent_Aggregates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantResult string
+		csvData    []byte
+		wantStatus int
+	}{
+		{
+			name:    "COUNT(*) all rows",
+			csvData: []byte("name,age\nAlice,30\nBob,25\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT COUNT(*) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "3",
+		},
+		{
+			name:    "COUNT(*) with WHERE filter",
+			csvData: []byte("name,age\nAlice,30\nBob,25\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT COUNT(*) FROM s3object WHERE age &gt; 22</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "2",
+		},
+		{
+			name:    "SUM of numeric column",
+			csvData: []byte("name,age\nAlice,30\nBob,25\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT SUM(age) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "75",
+		},
+		{
+			name:    "AVG of numeric column",
+			csvData: []byte("name,score\nAlice,90\nBob,80\nCharlie,70\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT AVG(score) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "80",
+		},
+		{
+			name:    "MIN of numeric column",
+			csvData: []byte("name,age\nAlice,30\nBob,25\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT MIN(age) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "20",
+		},
+		{
+			name:    "MAX of numeric column",
+			csvData: []byte("name,age\nAlice,30\nBob,25\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT MAX(age) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "30",
+		},
+		{
+			name:    "multiple aggregates in one SELECT",
+			csvData: []byte("name,score\nAlice,90\nBob,60\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT MIN(score), MAX(score) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "60",
+		},
+		{
+			name:    "COUNT(*) on JSON LINES",
+			csvData: []byte("{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT COUNT(*) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><JSON><Type>LINES</Type></JSON></InputSerialization>
+				<OutputSerialization><JSON/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "2",
+		},
+		{
+			name: "SUM with WHERE on JSON LINES",
+			csvData: []byte(
+				"{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n{\"name\":\"Charlie\",\"age\":20}\n",
+			),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT SUM(age) FROM s3object WHERE age &gt; 22</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><JSON><Type>LINES</Type></JSON></InputSerialization>
+				<OutputSerialization><JSON/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "55",
+		},
+		{
+			name:    "COUNT with column arg (non-null only)",
+			csvData: []byte("name,age\nAlice,30\nBob,\nCharlie,20\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT COUNT(age) FROM s3object</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantResult: "2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+
+			const bucket = "agg-bucket"
+			const key = "data.csv"
+
+			mustCreateBucket(t, backend, bucket)
+			mustPutObject(t, backend, bucket, key, tt.csvData)
+
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/"+bucket+"/"+key+"?select&select-type=2",
+				strings.NewReader(tt.body),
+			)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantResult != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantResult)
+			}
+		})
+	}
+}
+
+func TestHandler_SelectObjectContent_OrderBy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantOrder  []string
+		wantAbsent string
+		csvData    []byte
+		wantStatus int
+	}{
+		{
+			name:    "ORDER BY numeric ASC",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.age ASC</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Charlie", "Bob", "Alice"},
+		},
+		{
+			name:    "ORDER BY numeric DESC",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.age DESC</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Alice", "Bob", "Charlie"},
+		},
+		{
+			name:    "ORDER BY string ASC",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.name ASC</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Alice", "Bob", "Charlie"},
+		},
+		{
+			name:    "ORDER BY with LIMIT",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.age DESC LIMIT 2</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Alice", "Bob"},
+			wantAbsent: "Charlie",
+		},
+		{
+			name:    "ORDER BY with WHERE filter",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s WHERE s.age &gt; 20 ORDER BY s.age ASC</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Bob", "Alice"},
+			wantAbsent: "Charlie",
+		},
+		{
+			name:    "ORDER BY default (no ASC/DESC) is ASC",
+			csvData: []byte("name,age\nCharlie,20\nAlice,30\nBob,25\n"),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.age</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+				<OutputSerialization><CSV/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Charlie", "Bob", "Alice"},
+		},
+		{
+			name: "ORDER BY on JSON LINES",
+			csvData: []byte(
+				"{\"name\":\"Charlie\",\"age\":20}\n{\"name\":\"Alice\",\"age\":30}\n{\"name\":\"Bob\",\"age\":25}\n",
+			),
+			body: `<SelectObjectContentRequest>
+				<Expression>SELECT s.name FROM s3object s ORDER BY s.age ASC</Expression>
+				<ExpressionType>SQL</ExpressionType>
+				<InputSerialization><JSON><Type>LINES</Type></JSON></InputSerialization>
+				<OutputSerialization><JSON/></OutputSerialization>
+			</SelectObjectContentRequest>`,
+			wantStatus: http.StatusOK,
+			wantOrder:  []string{"Charlie", "Bob", "Alice"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+
+			const bucket = "orderby-bucket"
+			const key = "data.csv"
+
+			mustCreateBucket(t, backend, bucket)
+			mustPutObject(t, backend, bucket, key, tt.csvData)
+
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/"+bucket+"/"+key+"?select&select-type=2",
+				strings.NewReader(tt.body),
+			)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			body := rec.Body.String()
+
+			lastPos := 0
+			for _, want := range tt.wantOrder {
+				pos := strings.Index(body[lastPos:], want)
+				require.GreaterOrEqual(
+					t,
+					pos,
+					0,
+					"expected %q after position %d in response",
+					want,
+					lastPos,
+				)
+				lastPos += pos + len(want)
+			}
+
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, body, tt.wantAbsent)
+			}
+		})
+	}
+}
+
+func TestHandler_SelectObjectContent_RequestProgress(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+
+	mustCreateBucket(t, backend, "progress-bucket")
+	mustPutObject(t, backend, "progress-bucket", "data.csv", []byte("name,age\nAlice,30\nBob,25\n"))
+
+	body := `<SelectObjectContentRequest>
+		<Expression>SELECT * FROM s3object</Expression>
+		<ExpressionType>SQL</ExpressionType>
+		<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+		<OutputSerialization><CSV/></OutputSerialization>
+		<RequestProgress><Enabled>true</Enabled></RequestProgress>
+	</SelectObjectContentRequest>`
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/progress-bucket/data.csv?select&select-type=2",
+		strings.NewReader(body),
+	)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Progress")
+	assert.Contains(t, rec.Body.String(), "Stats")
+	assert.Contains(t, rec.Body.String(), "Alice")
+}
+
+func TestHandler_SelectObjectContent_RequestProgress_Disabled(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+
+	mustCreateBucket(t, backend, "noprogress-bucket")
+	mustPutObject(t, backend, "noprogress-bucket", "data.csv", []byte("name,age\nAlice,30\n"))
+
+	body := `<SelectObjectContentRequest>
+		<Expression>SELECT * FROM s3object</Expression>
+		<ExpressionType>SQL</ExpressionType>
+		<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+		<OutputSerialization><CSV/></OutputSerialization>
+		<RequestProgress><Enabled>false</Enabled></RequestProgress>
+	</SelectObjectContentRequest>`
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/noprogress-bucket/data.csv?select&select-type=2",
+		strings.NewReader(body),
+	)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "Progress")
+	assert.Contains(t, rec.Body.String(), "Stats")
 }

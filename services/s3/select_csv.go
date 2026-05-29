@@ -10,18 +10,55 @@ import (
 	"strings"
 )
 
-// evaluateCSVQuery reads CSV rows from data, applies the SQL query, and streams results.
+// evaluateCSVQuery reads all CSV rows from data, applies the SQL query, and streams results.
+// All rows are collected before evaluation so that ORDER BY and aggregate functions work correctly.
 func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	csvIn := req.InputSerialization.CSV
+	fileHeaderInfo := csvFileHeaderInfo(csvIn)
+	r := newCSVReader(csvIn, data)
 
+	rows, err := readCSVRows(r, fileHeaderInfo)
+	if err != nil {
+		return 0, err
+	}
+
+	resultRows, err := evalQuery(query, rows)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(resultRows) == 0 {
+		return 0, nil
+	}
+
+	resultBytes, err := serializeCSVQueryResults(resultRows, req.OutputSerialization)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(resultBytes) == 0 {
+		return 0, nil
+	}
+
+	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
+		return 0, wErr
+	}
+
+	return int64(len(resultBytes)), nil
+}
+
+func csvFileHeaderInfo(csvIn *selectCSVInput) string {
+	if csvIn != nil && csvIn.FileHeaderInfo != "" {
+		return strings.ToUpper(csvIn.FileHeaderInfo)
+	}
+
+	return "NONE"
+}
+
+func newCSVReader(csvIn *selectCSVInput, data []byte) *csv.Reader {
 	fieldDelim := ','
 	if csvIn != nil && csvIn.FieldDelimiter != "" {
 		fieldDelim = rune(csvIn.FieldDelimiter[0])
-	}
-
-	fileHeaderInfo := "NONE"
-	if csvIn != nil && csvIn.FileHeaderInfo != "" {
-		fileHeaderInfo = strings.ToUpper(csvIn.FileHeaderInfo)
 	}
 
 	r := csv.NewReader(bytes.NewReader(data))
@@ -33,39 +70,48 @@ func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequ
 		r.Comment = rune(csvIn.Comments[0])
 	}
 
-	var headers []string
-	var totalBytesReturned int64
-	var returnedRowsCount int
-	rowCount := 0
+	return r
+}
 
-	for query.limit <= 0 || returnedRowsCount < query.limit {
+func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, error) {
+	var headers []string
+	var rows []map[string]string
+	firstRecord := true
+
+	for {
 		rec, err := r.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
+
 		if err != nil {
-			return totalBytesReturned, fmt.Errorf("reading CSV: %w", err)
+			return nil, fmt.Errorf("reading CSV: %w", err)
 		}
 
-		if rowCount == 0 {
+		if firstRecord {
+			firstRecord = false
 			headers = prepareCSVHeaders(fileHeaderInfo, rec)
-			if fileHeaderInfo == "USE" {
-				rowCount++
 
+			if fileHeaderInfo == "USE" {
 				continue
 			}
 		}
 
-		rowCount++
-		rowBytes, returnedRows, evalErr := processCSVRow(w, query, headers, rec, req)
-		if evalErr != nil {
-			return totalBytesReturned, evalErr
-		}
-		totalBytesReturned += rowBytes
-		returnedRowsCount += returnedRows
+		rows = append(rows, csvRecordToMap(headers, rec))
 	}
 
-	return totalBytesReturned, nil
+	return rows, nil
+}
+
+func csvRecordToMap(headers []string, rec []string) map[string]string {
+	rowMap := make(map[string]string, len(headers))
+	for i, h := range headers {
+		if i < len(rec) {
+			rowMap[h] = rec[i]
+		}
+	}
+
+	return rowMap
 }
 
 func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
@@ -146,44 +192,4 @@ func mapStringToAny(m map[string]string) map[string]any {
 	}
 
 	return out
-}
-
-func processCSVRow(
-	w io.Writer,
-	query *sqlQuery,
-	headers []string,
-	rec []string,
-	req *selectRequest,
-) (int64, int, error) {
-	rowMap := make(map[string]string, len(headers))
-	for i, h := range headers {
-		if i < len(rec) {
-			rowMap[h] = rec[i]
-		}
-	}
-
-	// Evaluate query on this single row
-	resultRows, evalErr := evalQuery(query, []map[string]string{rowMap})
-	if evalErr != nil {
-		return 0, 0, evalErr
-	}
-
-	if len(resultRows) == 0 {
-		return 0, 0, nil
-	}
-
-	resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
-	if serialErr != nil {
-		return 0, 0, serialErr
-	}
-
-	if len(resultBytes) == 0 {
-		return 0, 0, nil
-	}
-
-	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
-		return 0, 0, wErr
-	}
-
-	return int64(len(resultBytes)), len(resultRows), nil
 }

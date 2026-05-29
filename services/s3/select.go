@@ -40,8 +40,14 @@ type selectRequest struct {
 	OutputSerialization selectOutputSerialization `xml:"OutputSerialization"`
 	XMLName             xml.Name                  `xml:"SelectObjectContentRequest"`
 	InputSerialization  selectInputSerialization  `xml:"InputSerialization"`
+	RequestProgress     *selectRequestProgress    `xml:"RequestProgress"`
 	Expression          string                    `xml:"Expression"`
 	ExpressionType      string                    `xml:"ExpressionType"`
+}
+
+// selectRequestProgress controls whether Progress events are emitted.
+type selectRequestProgress struct {
+	Enabled bool `xml:"Enabled"`
 }
 
 // selectInputSerialization describes how the source object is formatted.
@@ -95,6 +101,14 @@ type selectStatsXML struct {
 	BytesReturned  int64    `xml:"BytesReturned"`
 }
 
+// selectProgressXML is the XML body of a Progress event.
+type selectProgressXML struct {
+	XMLName        xml.Name `xml:"Progress"`
+	BytesScanned   int64    `xml:"BytesScanned"`
+	BytesProcessed int64    `xml:"BytesProcessed"`
+	BytesReturned  int64    `xml:"BytesReturned"`
+}
+
 func (h *S3Handler) selectObjectContent(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -127,6 +141,10 @@ func (h *S3Handler) selectObjectContent(
 		writeSelectErrorEvent(w, "InternalError", evalErr.Error())
 
 		return
+	}
+
+	if req.RequestProgress != nil && req.RequestProgress.Enabled {
+		h.writeSelectProgressEvent(w, bytesScanned, bytesReturned)
 	}
 
 	h.writeSelectStatsAndEnd(w, bytesScanned, bytesReturned)
@@ -234,6 +252,20 @@ func (h *S3Handler) writeSelectStatsAndEnd(w http.ResponseWriter, bytesScanned, 
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// writeSelectProgressEvent emits a Progress event with current scan/return byte counts.
+func (h *S3Handler) writeSelectProgressEvent(w io.Writer, bytesScanned, bytesReturned int64) {
+	progressPayload, err := xml.Marshal(selectProgressXML{
+		BytesScanned:   bytesScanned,
+		BytesProcessed: bytesScanned,
+		BytesReturned:  bytesReturned,
+	})
+	if err != nil {
+		return
+	}
+
+	_ = writeSelectEvent(w, "Progress", "text/xml", progressPayload)
 }
 
 // evaluateQuery processes the object data with the given SQL query and streams results.
