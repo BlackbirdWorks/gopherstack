@@ -131,7 +131,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/"+pathDetector) ||
-			strings.HasPrefix(path, "/"+pathTags+"/")
+			strings.HasPrefix(path, "/"+pathTags+"/arn:aws:guardduty:")
 	}
 }
 
