@@ -240,6 +240,10 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		if activateErr := b.selfSignAndActivate(ca, now); activateErr != nil {
 			return nil, activateErr
 		}
+	} else {
+		// SUBORDINATE CAs immediately transition to PENDING_CERTIFICATE, matching
+		// AWS behaviour (CREATING is only a transient internal state).
+		ca.Status = caStatusPendingCertificate
 	}
 
 	cp := copyCA(ca)
@@ -441,6 +445,10 @@ func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (stri
 		return "", "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
+	if ca.CertificateBody == "" {
+		return "", "", fmt.Errorf("%w: CA %s has no certificate imported", ErrCANotFound, caARN)
+	}
+
 	return ca.CertificateBody, ca.CertificateChain, nil
 }
 
@@ -539,8 +547,13 @@ func (b *InMemoryBackend) RevokeCertificate(caARN, serial, revocationReason stri
 	b.mu.Lock("RevokeCertificate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	ca, ok := b.cas[caARN]
+	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if ca.Status == caStatusDeleted {
+		return fmt.Errorf("%w: CA %s is DELETED", ErrInvalidState, caARN)
 	}
 
 	certARN, ok := b.certsByCASerial[caARN+"#"+serial]
@@ -599,8 +612,13 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 	b.mu.Lock("CreateCertificateAuthorityAuditReport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	auditCA, ok := b.cas[caARN]
+	if !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if auditCA.Status != caStatusActive {
+		return nil, fmt.Errorf("%w: CA %s must be ACTIVE to create an audit report", ErrInvalidState, caARN)
 	}
 
 	id, err := newRandomID()
