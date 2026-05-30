@@ -219,6 +219,9 @@ type Backend interface {
 
 	// Reset clears all backend state.
 	Reset()
+
+	// AccountID returns the AWS account ID associated with this registry.
+	AccountID() string
 }
 
 // Snapshottable is an optional interface that a Backend may implement to

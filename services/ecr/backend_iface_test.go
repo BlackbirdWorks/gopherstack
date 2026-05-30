@@ -343,7 +343,8 @@ func (s *stubBackend) ListTagsForResource(_ string) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
-func (s *stubBackend) Reset() {}
+func (s *stubBackend) Reset()       {}
+func (s *stubBackend) AccountID() string { return "000000000000" }
 
 // ---- tests --------------------------------------------------------------
 

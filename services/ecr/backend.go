@@ -428,6 +428,14 @@ func (b *InMemoryBackend) ProxyEndpoint() string {
 	return b.endpoint
 }
 
+// AccountID returns the AWS account ID associated with this registry.
+func (b *InMemoryBackend) AccountID() string {
+	b.mu.RLock("AccountID")
+	defer b.mu.RUnlock()
+
+	return b.accountID
+}
+
 // CreateRepository creates a new ECR repository.
 func (b *InMemoryBackend) CreateRepository(
 	name, imageTagMutability string,
