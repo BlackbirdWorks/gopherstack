@@ -489,7 +489,7 @@ func TestBatch4_TargetParams_HTTP_Roundtrip(t *testing.T) {
 				"Source": b4SQSSource,
 				"Target": "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
 				"TargetParameters": map[string]any{
-					"HTTPParameters": map[string]any{
+					"HttpParameters": map[string]any{
 						"HeaderParameters": map[string]any{
 							"X-Pipe-Id": "batch4-test",
 						},
@@ -511,7 +511,7 @@ func TestBatch4_TargetParams_HTTP_Roundtrip(t *testing.T) {
 			resp := b4Describe(t, h, tt.name+"-pipe")
 			tp, ok := resp["TargetParameters"].(map[string]any)
 			require.True(t, ok, "TargetParameters should be present")
-			hp, ok := tp["HTTPParameters"].(map[string]any)
+			hp, ok := tp["HttpParameters"].(map[string]any)
 			require.True(t, ok, "HTTPParameters should be present")
 			headers, ok := hp["HeaderParameters"].(map[string]any)
 			require.True(t, ok, "HeaderParameters should be present")
