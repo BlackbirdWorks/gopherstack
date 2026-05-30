@@ -2140,8 +2140,10 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 }
 
 // StartServiceSoftwareUpdate marks a domain as having a pending software update.
+// StartServiceSoftwareUpdate schedules a service software update for the domain.
+// scheduleAt must be one of "NOW", "TIMESTAMP", "OFF_PEAK_WINDOW", or "".
 func (b *InMemoryBackend) StartServiceSoftwareUpdate(
-	domainName string,
+	domainName, scheduleAt string,
 ) (*ServiceSoftwareOptions, error) {
 	b.mu.RLock("StartServiceSoftwareUpdate")
 	defer b.mu.RUnlock()
@@ -2150,13 +2152,23 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
+	status := "PENDING_UPDATE"
+	desc := "A new service software version is ready to install."
+
+	switch scheduleAt {
+	case "OFF_PEAK_WINDOW":
+		desc = "Service software update scheduled for the next off-peak window."
+	case "TIMESTAMP":
+		desc = "Service software update scheduled for the requested time."
+	}
+
 	return &ServiceSoftwareOptions{
 		CurrentVersion:  defaultEngineVersion,
 		NewVersion:      defaultEngineVersion,
 		UpdateAvailable: true,
 		Cancellable:     true,
-		UpdateStatus:    "PENDING_UPDATE",
-		Description:     "A new service software version is ready to install.",
+		UpdateStatus:    status,
+		Description:     desc,
 	}, nil
 }
 
