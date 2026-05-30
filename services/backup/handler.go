@@ -825,6 +825,10 @@ func parsePlanRoute(method, suffix string) backupRoute {
 
 // parsePlanSelectionRoute routes backup plan selection sub-paths.
 func parsePlanSelectionRoute(method, planID, rest string) backupRoute {
+	if rest == "versions" && method == http.MethodGet {
+		return backupRoute{operation: opListBackupPlanVersions, resource: planID}
+	}
+
 	if rest == "selections" {
 		switch method {
 		case http.MethodPut:
@@ -1557,12 +1561,16 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(vaults))
 
 	for _, v := range vaults {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyBackupVaultName:       v.BackupVaultName,
 			keyBackupVaultArn:        v.BackupVaultArn,
 			keyCreationDate:          epochSeconds(v.CreationTime),
 			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
-		})
+		}
+		if v.EncryptionKeyArn != "" {
+			item["EncryptionKeyArn"] = v.EncryptionKeyArn
+		}
+		items = append(items, item)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -2420,11 +2428,12 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 type restoreTestingPlanDoc struct {
 	RestoreTestingPlanName string `json:"RestoreTestingPlanName"`
 	ScheduleExpression     string `json:"ScheduleExpression,omitempty"`
+	StartWindowHours       int64  `json:"StartWindowHours,omitempty"`
 }
 
 type createRestoreTestingPlanBody struct {
-	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
 	CreatorRequestID   string                `json:"CreatorRequestId,omitempty"`
+	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
 }
 
 func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) error {
@@ -2443,6 +2452,7 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 	rtp, err := h.Backend.CreateRestoreTestingPlan(
 		in.RestoreTestingPlan.RestoreTestingPlanName,
 		in.RestoreTestingPlan.ScheduleExpression,
+		in.RestoreTestingPlan.StartWindowHours,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -2558,6 +2568,9 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		if rp.ResourceType != "" {
 			item["ResourceType"] = rp.ResourceType
 		}
+		if rp.BackupSizeInBytes > 0 {
+			item["BackupSizeInBytes"] = rp.BackupSizeInBytes
+		}
 		items = append(items, item)
 	}
 
@@ -2638,8 +2651,14 @@ func (h *Handler) handleGetRecoveryPointRestoreMetadata(c *echo.Context, resourc
 		return h.handleError(c, err)
 	}
 
+	v, err := h.Backend.DescribeBackupVault(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		keyBackupVaultArn:   "",
+		keyBackupVaultArn:   v.BackupVaultArn,
+		keyBackupVaultName:  vaultName,
 		keyRecoveryPointArn: rpArn,
 		"RestoreMetadata":   metadata,
 	})
@@ -2744,8 +2763,13 @@ func (h *Handler) handleGetBackupVaultAccessPolicy(c *echo.Context, vaultName st
 		return h.handleError(c, err)
 	}
 
+	v, err := h.Backend.DescribeBackupVault(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		keyBackupVaultArn:  "",
+		keyBackupVaultArn:  v.BackupVaultArn,
 		keyBackupVaultName: vaultName,
 		"Policy":           pol.Policy,
 	})
@@ -2877,8 +2901,13 @@ func (h *Handler) handleGetBackupVaultNotifications(c *echo.Context, vaultName s
 		return h.handleError(c, err)
 	}
 
+	v, err := h.Backend.DescribeBackupVault(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		keyBackupVaultArn:   "",
+		keyBackupVaultArn:   v.BackupVaultArn,
 		keyBackupVaultName:  vaultName,
 		"SNSTopicArn":       cfg.SNSTopicArn,
 		"BackupVaultEvents": cfg.BackupVaultEvents,
@@ -3070,13 +3099,18 @@ func (h *Handler) handleGetRestoreTestingPlan(c *echo.Context, planName string) 
 		return h.handleError(c, err)
 	}
 
+	planDoc := map[string]any{
+		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
+		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
+		"ScheduleExpression":      rtp.ScheduleExpression,
+		keyCreationTime:           epochSeconds(rtp.CreationTime),
+	}
+	if rtp.StartWindowHours > 0 {
+		planDoc["StartWindowHours"] = rtp.StartWindowHours
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingPlan": map[string]any{
-			keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
-			keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
-			"ScheduleExpression":      rtp.ScheduleExpression,
-			keyCreationTime:           epochSeconds(rtp.CreationTime),
-		},
+		"RestoreTestingPlan": planDoc,
 	})
 }
 
@@ -3085,12 +3119,16 @@ func (h *Handler) handleListRestoreTestingPlans(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(plans))
 
 	for _, rtp := range plans {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
 			keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
 			"ScheduleExpression":      rtp.ScheduleExpression,
 			keyCreationTime:           epochSeconds(rtp.CreationTime),
-		})
+		}
+		if rtp.StartWindowHours > 0 {
+			item["StartWindowHours"] = rtp.StartWindowHours
+		}
+		items = append(items, item)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -3127,6 +3165,7 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 	rtp, err := h.Backend.UpdateRestoreTestingPlan(
 		planName,
 		in.RestoreTestingPlan.ScheduleExpression,
+		in.RestoreTestingPlan.StartWindowHours,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -3937,10 +3976,12 @@ func (h *Handler) dispatchStubPlanTemplateOps(
 		}
 		items := make([]map[string]any, 0, len(versions))
 		for _, v := range versions {
-			items = append(
-				items,
-				map[string]any{"BackupPlanId": v.BackupPlanID, keyBackupPlanName: v.BackupPlanName},
-			)
+			items = append(items, map[string]any{
+				"BackupPlanId":    v.BackupPlanID,
+				keyBackupPlanName: v.BackupPlanName,
+				keyVersionID:      v.VersionID,
+				keyCreationDate:   epochSeconds(v.CreationTime),
+			})
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanVersionsList": items})
@@ -3953,18 +3994,18 @@ func (h *Handler) dispatchStubPlanTemplateOps(
 
 		return true, c.JSON(http.StatusOK, map[string]any{"CopyJobSummaries": summaries})
 	case opStartCopyJob:
-		var body struct {
+		var copyJobReq struct {
 			RecoveryPointArn          string `json:"RecoveryPointArn"`
 			SourceBackupVaultName     string `json:"SourceBackupVaultName"`
 			DestinationBackupVaultArn string `json:"DestinationBackupVaultArn"`
 			IamRoleArn                string `json:"IamRoleArn"`
 		}
-		_ = json.NewDecoder(c.Request().Body).Decode(&body)
+		_ = json.Unmarshal(body, &copyJobReq)
 		job := h.Backend.StartCopyJob(
-			body.RecoveryPointArn,
-			body.SourceBackupVaultName,
-			body.DestinationBackupVaultArn,
-			body.IamRoleArn,
+			copyJobReq.RecoveryPointArn,
+			copyJobReq.SourceBackupVaultName,
+			copyJobReq.DestinationBackupVaultArn,
+			copyJobReq.IamRoleArn,
 		)
 
 		return true, c.JSON(http.StatusOK, map[string]any{
