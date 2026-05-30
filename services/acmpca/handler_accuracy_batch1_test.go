@@ -167,8 +167,8 @@ func TestACMPCA_Accuracy_RevokeCertificate_DeletedCA(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		wantCode int
 		wantType string
+		wantCode int
 		deleted  bool
 	}{
 		{
@@ -235,8 +235,8 @@ func TestACMPCA_Accuracy_CreateAuditReport_RequiresActiveCA(t *testing.T) {
 	tests := []struct {
 		name     string
 		caType   string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "root CA (ACTIVE) succeeds",
@@ -334,11 +334,11 @@ func TestACMPCA_Accuracy_DeleteCA_StateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		caType     string
-		disableCA  bool
-		wantCode   int
+		name        string
+		caType      string
 		wantErrType string
+		wantCode    int
+		disableCA   bool
 	}{
 		{
 			name:        "ACTIVE CA cannot be deleted",
@@ -424,15 +424,25 @@ func TestACMPCA_Accuracy_PermanentDeletionTimeInDays(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		wantType string
 		days     int
 		wantCode int
-		wantType string
 	}{
 		{name: "0 days (omitted) allowed", days: 0, wantCode: http.StatusOK},
 		{name: "7 days (min) allowed", days: 7, wantCode: http.StatusOK},
 		{name: "30 days (max) allowed", days: 30, wantCode: http.StatusOK},
-		{name: "5 days (below min) rejected", days: 5, wantCode: http.StatusBadRequest, wantType: "InvalidParameterException"},
-		{name: "31 days (above max) rejected", days: 31, wantCode: http.StatusBadRequest, wantType: "InvalidParameterException"},
+		{
+			name:     "5 days (below min) rejected",
+			days:     5,
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name:     "31 days (above max) rejected",
+			days:     31,
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
 	}
 
 	for _, tt := range tests {
