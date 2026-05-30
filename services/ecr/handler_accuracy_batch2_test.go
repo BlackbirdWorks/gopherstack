@@ -108,9 +108,9 @@ func TestBatch2_PutImageScanningConfiguration_EnableDisable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		initialSOP  bool
-		updatedSOP  bool
+		name       string
+		initialSOP bool
+		updatedSOP bool
 	}{
 		{name: "enable_scan_on_push", initialSOP: false, updatedSOP: true},
 		{name: "disable_scan_on_push", initialSOP: true, updatedSOP: false},
@@ -195,8 +195,8 @@ func TestBatch2_DescribeRepositories_Pagination_NextToken(t *testing.T) {
 
 	// Second page.
 	rec2 := doAccuracy(t, h, "DescribeRepositories", map[string]any{
-		"maxResults":    2,
-		"nextToken":     nextToken,
+		"maxResults": 2,
+		"nextToken":  nextToken,
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -483,8 +483,8 @@ func TestBatch2_UpdateRepositoryCreationTemplate_AppliedForPreserved(t *testing.
 
 	h := newBatch2Handler()
 	doAccuracy(t, h, "CreateRepositoryCreationTemplate", map[string]any{
-		"prefix":      "applied-tmpl/",
-		"appliedFor":  []string{"REPLICATION", "PULL_THROUGH_CACHE"},
+		"prefix":     "applied-tmpl/",
+		"appliedFor": []string{"REPLICATION", "PULL_THROUGH_CACHE"},
 	})
 
 	rec := doAccuracy(t, h, "UpdateRepositoryCreationTemplate", map[string]any{
@@ -507,7 +507,9 @@ func TestBatch2_LifecyclePolicyPreview_RoundTrip(t *testing.T) {
 
 	h := newBatch2Handler()
 	mustCreateRepo(t, h, "preview-repo")
-	policyText := `{"rules":[{"rulePriority":1,"selection":{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":1},"action":{"type":"expire"}}]}`
+	policyText := `{"rules":[{"rulePriority":1,` +
+		`"selection":{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":1},` +
+		`"action":{"type":"expire"}}]}`
 	doAccuracy(t, h, "PutLifecyclePolicy", map[string]any{
 		"repositoryName":      "preview-repo",
 		"lifecyclePolicyText": policyText,
