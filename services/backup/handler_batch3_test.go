@@ -274,6 +274,7 @@ func TestListBackupVaultsEncryptionKeyArn(t *testing.T) {
 				m := item.(map[string]any)
 				if m["BackupVaultName"] == "kvault" {
 					found = m
+
 					break
 				}
 			}
@@ -294,8 +295,8 @@ func TestRestoreTestingPlanStartWindowHours(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		startWindowHours any
+		name             string
 		wantHours        float64
 		wantInResponse   bool
 	}{
@@ -348,9 +349,9 @@ func TestRestoreTestingPlanStartWindowHoursUpdate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		initialHours      any
 		updatedHours      any
+		name              string
 		wantHoursAfterUpd float64
 		wantPresent       bool
 	}{
@@ -410,10 +411,10 @@ func TestRestoreTestingPlanListStartWindowHours(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		hours        any
-		wantPresent  bool
-		wantHours    float64
+		hours       any
+		name        string
+		wantHours   float64
+		wantPresent bool
 	}{
 		{
 			name:        "list_includes_start_window_hours",

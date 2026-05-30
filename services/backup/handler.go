@@ -2432,8 +2432,8 @@ type restoreTestingPlanDoc struct {
 }
 
 type createRestoreTestingPlanBody struct {
-	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
 	CreatorRequestID   string                `json:"CreatorRequestId,omitempty"`
+	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
 }
 
 func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) error {
