@@ -594,10 +594,7 @@ func TestHandler_DescribeAttackStatistics(t *testing.T) {
 			var result map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
 
-			stats, ok := result["AttackStatistics"].(map[string]any)
-			require.True(t, ok)
-
-			items, ok := stats["DataItems"].([]any)
+			items, ok := result["DataItems"].([]any)
 			require.True(t, ok)
 			require.Len(t, items, 1)
 

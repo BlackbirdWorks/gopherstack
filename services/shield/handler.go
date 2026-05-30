@@ -1354,15 +1354,20 @@ func (h *Handler) handleUpdateProtectionGroup(body []byte) error {
 	)
 }
 
-// listAttacksRequest is the request body for ListAttacks.
-//
+// listAttacksTimeRange mirrors the AWS Shield TimeRange wire format for ListAttacks.
+// AWS sends StartTime/EndTime as {"FromInclusive": float64} / {"ToExclusive": float64}.
+type listAttacksTimeRange struct {
+	FromInclusive *float64 `json:"FromInclusive,omitempty"`
+	ToExclusive   *float64 `json:"ToExclusive,omitempty"`
+}
 
+// listAttacksRequest is the request body for ListAttacks.
 type listAttacksRequest struct {
-	StartTime    *int64   `json:"StartTime,omitempty"`
-	EndTime      *int64   `json:"EndTime,omitempty"`
-	NextToken    string   `json:"NextToken,omitempty"`
-	ResourceARNs []string `json:"ResourceArns"`
-	MaxResults   int      `json:"MaxResults,omitempty"`
+	StartTime    *listAttacksTimeRange `json:"StartTime,omitempty"`
+	EndTime      *listAttacksTimeRange `json:"EndTime,omitempty"`
+	NextToken    string                `json:"NextToken,omitempty"`
+	ResourceARNs []string              `json:"ResourceArns"`
+	MaxResults   int                   `json:"MaxResults,omitempty"`
 }
 
 func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
@@ -1374,12 +1379,12 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 	}
 
 	var startTime, endTime int64
-	if req.StartTime != nil {
-		startTime = *req.StartTime
+	if req.StartTime != nil && req.StartTime.FromInclusive != nil {
+		startTime = int64(*req.StartTime.FromInclusive)
 	}
 
-	if req.EndTime != nil {
-		endTime = *req.EndTime
+	if req.EndTime != nil && req.EndTime.ToExclusive != nil {
+		endTime = int64(*req.EndTime.ToExclusive)
 	}
 
 	attacks := h.Backend.ListAttacks(req.ResourceARNs, startTime, endTime)
@@ -1561,14 +1566,13 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 func (h *Handler) handleDescribeAttackStatistics() ([]byte, error) {
 	stats := h.Backend.DescribeAttackStatistics()
 
+	// AWS returns DataItems and TimeRange at the top level (no "AttackStatistics" wrapper).
 	return json.Marshal(map[string]any{
-		"AttackStatistics": map[string]any{
-			"TimeRange": map[string]any{
-				"FromInclusive": stats.TimeRange.FromInclusive,
-				"ToExclusive":   stats.TimeRange.ToExclusive,
-			},
-			"DataItems": stats.DataItems,
+		"TimeRange": map[string]any{
+			"FromInclusive": float64(stats.TimeRange.FromInclusive),
+			"ToExclusive":   float64(stats.TimeRange.ToExclusive),
 		},
+		"DataItems": stats.DataItems,
 	})
 }
 
