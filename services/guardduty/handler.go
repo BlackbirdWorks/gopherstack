@@ -26,6 +26,10 @@ const (
 	pathThreatIntelSet = "threatintelset"
 	pathTags           = "tags"
 
+	keyName   = "name"
+	keyStatus = "status"
+	keyTags   = "tags"
+
 	opCreateDetector         = "CreateDetector"
 	opGetDetector            = "GetDetector"
 	opUpdateDetector         = "UpdateDetector"
@@ -65,7 +69,7 @@ const (
 	depthItem       = 4 // /detector/{id}/filter/{name}
 	depthAction     = 4 // /detector/{id}/findings/archive
 
-	minTagPathParts      = 2
+	minTagPathParts       = 2
 	minDetectorSubIDParts = 4
 )
 
@@ -162,7 +166,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
 
 	if op == opUnknown {
-		return c.JSON(http.StatusNotFound, errBody("ResourceNotFoundException", "not found"))
+		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, "not found"))
 	}
 
 	body, err := httputils.ReadBody(c.Request())
@@ -257,6 +261,7 @@ func parseRESTPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
+//nolint:gocognit,gocyclo,cyclop // intentional switch matrix for REST path parsing
 func parseDetectorPath(method string, parts []string) (string, string) {
 	switch len(parts) {
 	case depthRoot: // /detector
@@ -399,9 +404,9 @@ func (h *Handler) dispatchDetectorOps(op, path string, body []byte) (any, int, b
 
 	case opUpdateDetector:
 		detectorID := extractID(path, pathDetector)
-		result, code, err := h.handleUpdateDetector(detectorID, body)
+		code, err := h.handleUpdateDetector(detectorID, body)
 
-		return result, code, true, err
+		return nil, code, true, err
 
 	case opDeleteDetector:
 		detectorID := extractID(path, pathDetector)
@@ -410,9 +415,9 @@ func (h *Handler) dispatchDetectorOps(op, path string, body []byte) (any, int, b
 		return nil, code, true, err
 
 	case opListDetectors:
-		result, code, err := h.handleListDetectors()
+		result, code := h.handleListDetectors()
 
-		return result, code, true, err
+		return result, code, true, nil
 	}
 
 	return nil, 0, false, nil
@@ -589,7 +594,7 @@ func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int,
 		return nil, code, err
 	}
 
-	return nil, http.StatusNotFound, errorf("ResourceNotFoundException")
+	return nil, http.StatusNotFound, errorf(errResourceNotFound)
 }
 
 // --- detector handlers ---
@@ -626,17 +631,17 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 	}
 
 	return map[string]any{
-		"status":                     d.Status,
+		keyStatus:                    d.Status,
 		"serviceRole":                d.ServiceRole,
 		"findingPublishingFrequency": d.FindingPublishingFrequency,
 		"createdAt":                  d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		"updatedAt":                  d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"tags":                       d.Tags,
+		keyTags:                      d.Tags,
 		"features":                   d.Features,
 	}, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (int, error) {
 	var req struct {
 		Enable                     *bool             `json:"enable"`
 		FindingPublishingFrequency string            `json:"findingPublishingFrequency"`
@@ -644,14 +649,16 @@ func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (any, int
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, http.StatusBadRequest, ErrValidation
+		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateDetector(detectorID, req.Enable, req.FindingPublishingFrequency, req.Features); err != nil {
-		return nil, http.StatusNotFound, err
+	if err := h.Backend.UpdateDetector(
+		detectorID, req.Enable, req.FindingPublishingFrequency, req.Features,
+	); err != nil {
+		return http.StatusNotFound, err
 	}
 
-	return nil, http.StatusOK, nil
+	return http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteDetector(detectorID string) (int, error) {
@@ -662,22 +669,22 @@ func (h *Handler) handleDeleteDetector(detectorID string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListDetectors() (any, int, error) {
+func (h *Handler) handleListDetectors() (any, int) {
 	ids := h.Backend.ListDetectors()
 
-	return map[string]any{"detectorIds": ids}, http.StatusOK, nil
+	return map[string]any{"detectorIds": ids}, http.StatusOK
 }
 
 // --- filter handlers ---
 
 func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, error) {
 	var req struct {
+		FindingCriteria map[string]any    `json:"findingCriteria"`
+		Tags            map[string]string `json:"tags"`
 		Name            string            `json:"name"`
 		Description     string            `json:"description"`
 		Action          string            `json:"action"`
 		Rank            int32             `json:"rank"`
-		FindingCriteria map[string]any    `json:"findingCriteria"`
-		Tags            map[string]string `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -705,7 +712,7 @@ func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, 
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"name": f.Name}, http.StatusOK, nil
+	return map[string]any{keyName: f.Name}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetFilter(detectorID, filterName string) (any, int, error) {
@@ -715,21 +722,21 @@ func (h *Handler) handleGetFilter(detectorID, filterName string) (any, int, erro
 	}
 
 	return map[string]any{
-		"name":            f.Name,
+		keyName:           f.Name,
 		"description":     f.Description,
 		"action":          f.Action,
 		"rank":            f.Rank,
 		"findingCriteria": f.FindingCriteria,
-		"tags":            f.Tags,
+		keyTags:           f.Tags,
 	}, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateFilter(detectorID, filterName string, body []byte) (any, int, error) {
 	var req struct {
+		FindingCriteria map[string]any `json:"findingCriteria"`
 		Description     string         `json:"description"`
 		Action          string         `json:"action"`
 		Rank            int32          `json:"rank"`
-		FindingCriteria map[string]any `json:"findingCriteria"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -741,7 +748,7 @@ func (h *Handler) handleUpdateFilter(detectorID, filterName string, body []byte)
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"name": f.Name}, http.StatusOK, nil
+	return map[string]any{keyName: f.Name}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteFilter(detectorID, filterName string) (int, error) {
@@ -851,7 +858,7 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string) (any, int, erro
 func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (int, error) {
 	var req struct {
 		FindingIDs []string `json:"findingIds"`
-		Feedback   string   `json:"feedback"`
+		Feedback   string   `json:"feedback"` //nolint:govet // fieldalignment: logical grouping preferred
 		Comments   string   `json:"comments"`
 	}
 
@@ -868,13 +875,14 @@ func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (
 
 // --- IPSet handlers ---
 
+//nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, error) {
 	var req struct {
+		Tags     map[string]string `json:"tags"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
 		Activate *bool             `json:"activate"`
-		Tags     map[string]string `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -905,11 +913,11 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 	}
 
 	return map[string]any{
-		"name":     s.Name,
+		keyName:    s.Name,
 		"format":   s.Format,
 		"location": s.Location,
-		"status":   s.Status,
-		"tags":     s.Tags,
+		keyStatus:  s.Status,
+		keyTags:    s.Tags,
 	}, http.StatusOK, nil
 }
 
@@ -950,13 +958,14 @@ func (h *Handler) handleListIPSets(detectorID string) (any, int, error) {
 
 // --- ThreatIntelSet handlers ---
 
+//nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (any, int, error) {
 	var req struct {
+		Tags     map[string]string `json:"tags"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
 		Activate *bool             `json:"activate"`
-		Tags     map[string]string `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -987,11 +996,11 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 	}
 
 	return map[string]any{
-		"name":     s.Name,
+		keyName:    s.Name,
 		"format":   s.Format,
 		"location": s.Location,
-		"status":   s.Status,
-		"tags":     s.Tags,
+		keyStatus:  s.Status,
+		keyTags:    s.Tags,
 	}, http.StatusOK, nil
 }
 
@@ -1038,7 +1047,7 @@ func (h *Handler) handleListTagsForResource(resourceARN string) (any, int, error
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"tags": tags}, http.StatusOK, nil
+	return map[string]any{keyTags: tags}, http.StatusOK, nil
 }
 
 func (h *Handler) handleTagResource(resourceARN string, body []byte) (int, error) {
@@ -1100,7 +1109,7 @@ func errorf(code string) error {
 
 // extractID extracts a resource ID from a path like /prefix/{id}/...
 //
-//nolint:unparam
+//nolint:unparam // prefix is always pathDetector by design
 func extractID(path, prefix string) string {
 	stripped := strings.TrimPrefix(path, "/"+prefix+"/")
 	before, _, found := strings.Cut(stripped, "/")
@@ -1134,9 +1143,9 @@ func extractTagResourceARN(path string) string {
 func parseTagKeys(query string) []string {
 	var keys []string
 
-	for _, part := range strings.Split(query, "&") {
-		if strings.HasPrefix(part, "tagKeys=") {
-			keys = append(keys, strings.TrimPrefix(part, "tagKeys="))
+	for part := range strings.SplitSeq(query, "&") {
+		if val, ok := strings.CutPrefix(part, "tagKeys="); ok {
+			keys = append(keys, val)
 		}
 	}
 

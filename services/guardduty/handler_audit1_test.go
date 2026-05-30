@@ -85,8 +85,8 @@ func TestAudit1_Detector_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_enabled",
@@ -249,8 +249,8 @@ func TestAudit1_Filter_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler, detectorID string)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -274,7 +274,7 @@ func TestAudit1_Filter_CRUD(t *testing.T) {
 				var gr map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
 				assert.Equal(t, "ARCHIVE", gr["action"])
-				assert.Equal(t, float64(1), gr["rank"])
+				assert.InDelta(t, 1.0, gr["rank"], 0.01)
 				assert.Equal(t, "test filter", gr["description"])
 			},
 		},
@@ -298,7 +298,7 @@ func TestAudit1_Filter_CRUD(t *testing.T) {
 				var gr map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
 				assert.Equal(t, "ARCHIVE", gr["action"])
-				assert.Equal(t, float64(2), gr["rank"])
+				assert.InDelta(t, 2.0, gr["rank"], 0.01)
 			},
 		},
 		{
@@ -362,8 +362,8 @@ func TestAudit1_Findings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler, detectorID string)
+		name string
 	}{
 		{
 			name: "create_sample_and_list",
@@ -515,8 +515,8 @@ func TestAudit1_IPSet_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler, detectorID string)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -642,8 +642,8 @@ func TestAudit1_ThreatIntelSet_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler, detectorID string)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -750,8 +750,8 @@ func TestAudit1_Tags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "tag_and_list_resource",

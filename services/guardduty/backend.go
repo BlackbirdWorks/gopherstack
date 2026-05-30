@@ -18,27 +18,36 @@ const (
 	defaultFindingSeverity = 5.0
 	severityLowThreshold   = 4.0
 	severityHighThreshold  = 7.0
+
+	statusEnabled  = "ENABLED"
+	statusDisabled = "DISABLED"
+	statusActive   = "ACTIVE"
+	statusInactive = "INACTIVE"
+	freqSixHours   = "SIX_HOURS"
+
+	errResourceNotFound  = "ResourceNotFoundException"
+	errConflictException = "ConflictException"
 )
 
 var (
 	// ErrDetectorNotFound is returned when a detector does not exist.
-	ErrDetectorNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrDetectorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrDetectorAlreadyExists is returned when a detector already exists.
-	ErrDetectorAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrDetectorAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrFilterNotFound is returned when a filter does not exist.
-	ErrFilterNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrFilterNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrFilterAlreadyExists is returned when a filter already exists.
-	ErrFilterAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrFilterAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrFindingNotFound is returned when a finding does not exist.
-	ErrFindingNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrFindingNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrIPSetNotFound is returned when an IP set does not exist.
-	ErrIPSetNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrIPSetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrIPSetAlreadyExists is returned when an IP set already exists.
-	ErrIPSetAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrIPSetAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrThreatIntelSetNotFound is returned when a threat intel set does not exist.
-	ErrThreatIntelSetNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrThreatIntelSetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrThreatIntelSetAlreadyExists is returned when a threat intel set already exists.
-	ErrThreatIntelSetAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
+	ErrThreatIntelSetAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
@@ -69,7 +78,7 @@ type AdditionalConfig struct {
 }
 
 // Filter represents a GuardDuty filter.
-type Filter struct {
+type Filter struct { //nolint:govet // fieldalignment: map fields after scalars trades padding for readability
 	CreatedAt       time.Time         `json:"createdAt"`
 	UpdatedAt       time.Time         `json:"updatedAt"`
 	Name            string            `json:"name"`
@@ -82,7 +91,7 @@ type Filter struct {
 }
 
 // Finding represents a GuardDuty finding.
-type Finding struct {
+type Finding struct { //nolint:govet // fieldalignment: float64 before strings trades padding for readability
 	AccountID     string          `json:"accountId"`
 	Arn           string          `json:"arn"`
 	CreatedAt     string          `json:"createdAt"`
@@ -100,7 +109,7 @@ type Finding struct {
 }
 
 // FindingService holds service-level metadata for a finding.
-type FindingService struct {
+type FindingService struct { //nolint:govet // fieldalignment: bool+int32 before strings trades padding for readability
 	Archived       bool   `json:"archived"`
 	Count          int32  `json:"count"`
 	DetectorID     string `json:"detectorId"`
@@ -210,12 +219,12 @@ func (b *InMemoryBackend) CreateDetector(
 	}
 
 	if frequency == "" {
-		frequency = "SIX_HOURS"
+		frequency = freqSixHours
 	}
 
-	status := "DISABLED"
+	status := statusDisabled
 	if enable {
-		status = "ENABLED"
+		status = statusEnabled
 	}
 
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -277,9 +286,9 @@ func (b *InMemoryBackend) UpdateDetector(
 
 	if enable != nil {
 		if *enable {
-			d.Status = "ENABLED"
+			d.Status = statusEnabled
 		} else {
-			d.Status = "DISABLED"
+			d.Status = statusDisabled
 		}
 	}
 
@@ -639,6 +648,8 @@ func (b *InMemoryBackend) UpdateFindingsFeedback(detectorID string, findingIDs [
 }
 
 // CreateIPSet creates a new IP set.
+//
+//nolint:dupl // IPSet and ThreatIntelSet have identical creation patterns
 func (b *InMemoryBackend) CreateIPSet(
 	detectorID, name, format, location string,
 	activate bool,
@@ -658,9 +669,9 @@ func (b *InMemoryBackend) CreateIPSet(
 	}
 
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
-	status := "INACTIVE"
+	status := statusInactive
 	if activate {
-		status = "ACTIVE"
+		status = statusActive
 	}
 
 	now := time.Now().UTC()
@@ -726,9 +737,9 @@ func (b *InMemoryBackend) UpdateIPSet(detectorID, ipSetID, name, location string
 
 	if activate != nil {
 		if *activate {
-			s.Status = "ACTIVE"
+			s.Status = statusActive
 		} else {
-			s.Status = "INACTIVE"
+			s.Status = statusInactive
 		}
 	}
 
@@ -776,6 +787,8 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 }
 
 // CreateThreatIntelSet creates a new threat intelligence set.
+//
+//nolint:dupl // IPSet and ThreatIntelSet have identical creation patterns
 func (b *InMemoryBackend) CreateThreatIntelSet(
 	detectorID, name, format, location string,
 	activate bool,
@@ -795,9 +808,9 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 	}
 
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
-	status := "INACTIVE"
+	status := statusInactive
 	if activate {
-		status = "ACTIVE"
+		status = statusActive
 	}
 
 	now := time.Now().UTC()
@@ -863,9 +876,9 @@ func (b *InMemoryBackend) UpdateThreatIntelSet(detectorID, setID, name, location
 
 	if activate != nil {
 		if *activate {
-			s.Status = "ACTIVE"
+			s.Status = statusActive
 		} else {
-			s.Status = "INACTIVE"
+			s.Status = statusInactive
 		}
 	}
 
