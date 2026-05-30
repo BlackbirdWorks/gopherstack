@@ -39,12 +39,12 @@ func TestInMemoryBackend_CreateCertificateAuthority(t *testing.T) {
 			wantStatus: "ACTIVE",
 		},
 		{
-			name:   "subordinate CA stays creating",
+			name:   "subordinate CA starts pending certificate",
 			caType: "SUBORDINATE",
 			cfg: acmpca.CertificateAuthorityConfiguration{
 				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
 			},
-			wantStatus: "CREATING",
+			wantStatus: "PENDING_CERTIFICATE",
 		},
 		{
 			name:    "invalid type",
@@ -602,16 +602,16 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			},
 		},
 		{
-			name: "delete from CREATING state succeeds",
+			name: "delete from PENDING_CERTIFICATE state succeeds",
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				// SUBORDINATE CAs start in CREATING state (no auto-sign).
+				// SUBORDINATE CAs start in PENDING_CERTIFICATE state (no auto-sign).
 				ca, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Creating CA"},
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Pending CA"},
 				})
 				require.NoError(t, err)
-				assert.Equal(t, "CREATING", ca.Status)
+				assert.Equal(t, "PENDING_CERTIFICATE", ca.Status)
 
 				err = b.DeleteCertificateAuthority(ca.ARN, 0)
 				require.NoError(t, err)
