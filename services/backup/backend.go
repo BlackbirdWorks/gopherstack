@@ -246,6 +246,7 @@ type RestoreTestingPlan struct {
 	RestoreTestingPlanName string    `json:"restoreTestingPlanName"`
 	RestoreTestingPlanArn  string    `json:"restoreTestingPlanArn"`
 	ScheduleExpression     string    `json:"scheduleExpression,omitempty"`
+	StartWindowHours       int64     `json:"startWindowHours,omitempty"`
 }
 
 // RestoreTestingSelection represents a selection within a restore testing plan.
@@ -496,6 +497,11 @@ func (b *InMemoryBackend) DeleteBackupVault(name string) error {
 	v, ok := b.vaults[name]
 	if !ok {
 		return fmt.Errorf("%w: vault %s not found", ErrNotFound, name)
+	}
+
+	if v.NumberOfRecoveryPoints > 0 {
+		return fmt.Errorf("%w: vault %s has %d recovery points; delete them first",
+			ErrValidation, name, v.NumberOfRecoveryPoints)
 	}
 
 	delete(b.vaultARNIndex, v.BackupVaultArn)
@@ -1084,6 +1090,7 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 // CreateRestoreTestingPlan creates a restore testing plan.
 func (b *InMemoryBackend) CreateRestoreTestingPlan(
 	name, scheduleExpression string,
+	startWindowHours int64,
 ) (*RestoreTestingPlan, error) {
 	b.mu.Lock("CreateRestoreTestingPlan")
 	defer b.mu.Unlock()
@@ -1097,6 +1104,7 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 		RestoreTestingPlanName: name,
 		RestoreTestingPlanArn:  planARN,
 		ScheduleExpression:     scheduleExpression,
+		StartWindowHours:       startWindowHours,
 		CreationTime:           time.Now().UTC(),
 	}
 	b.restoreTestingPlans[name] = rtp
@@ -1729,6 +1737,7 @@ func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
 // UpdateRestoreTestingPlan updates a restore testing plan.
 func (b *InMemoryBackend) UpdateRestoreTestingPlan(
 	planName, scheduleExpression string,
+	startWindowHours int64,
 ) (*RestoreTestingPlan, error) {
 	b.mu.Lock("UpdateRestoreTestingPlan")
 	defer b.mu.Unlock()
@@ -1739,6 +1748,9 @@ func (b *InMemoryBackend) UpdateRestoreTestingPlan(
 	}
 
 	rtp.ScheduleExpression = scheduleExpression
+	if startWindowHours > 0 {
+		rtp.StartWindowHours = startWindowHours
+	}
 	cp := *rtp
 
 	return &cp, nil
