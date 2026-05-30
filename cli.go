@@ -117,6 +117,7 @@ import (
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
@@ -2718,6 +2719,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
 		&forecastbackend.Provider{},
+		&macie2backend.Provider{},
 	}
 }
 
