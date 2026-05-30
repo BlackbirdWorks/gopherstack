@@ -467,7 +467,7 @@ func TestRefinement1_HandleError_ErrPermissionNotFound(t *testing.T) {
 		"permissionArn": "arn:aws:ram:us-east-1:000000000000:permission/does-not-exist",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+	assert.Contains(t, rec.Body.String(), "UnknownResourceException")
 }
 
 // TestRefinement1_GetResourceShareInvitations_SortedByCreation verifies invitations are

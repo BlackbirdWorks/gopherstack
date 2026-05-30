@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,8 @@ const (
 	invitationStatusAccepted = "ACCEPTED"
 	// invitationStatusRejected is the rejected status for an invitation.
 	invitationStatusRejected = "REJECTED"
+	// invitationStatusExpired is the expired status for an invitation.
+	invitationStatusExpired = "EXPIRED"
 	// permissionTypeCustomer is the customer managed permission type.
 	permissionTypeCustomer = "CUSTOMER_MANAGED"
 	// permissionTypeAWSManaged is the AWS-managed permission type.
@@ -43,8 +46,14 @@ const (
 	resourceOwnerOtherAccounts = "OTHER-ACCOUNTS"
 	// resourceRegionScopeRegional indicates a resource is region-scoped.
 	resourceRegionScopeRegional = "REGIONAL"
+	// resourceRegionScopeGlobal indicates a resource is globally scoped.
+	resourceRegionScopeGlobal = "GLOBAL"
 	// accountIDLen is the number of digits in an AWS account ID.
 	accountIDLen = 12
+	// arnPartCountPrincipal is the min number of colon-separated parts to extract an account from an ARN.
+	arnPartCountPrincipal = 6
+	// arnAccountIdx is the index of the account field in a colon-split ARN.
+	arnAccountIdx = 4
 
 	// Resource type strings shared between backend and built-in permission seeds.
 	resourceTypeEC2Subnet         = "ec2:Subnet"
@@ -75,10 +84,22 @@ var (
 		"ResourceShareInvitationAlreadyAcceptedException",
 		awserr.ErrConflict,
 	)
+	// ErrInvitationAlreadyRejected is returned when accepting or rejecting an already-rejected invitation.
+	ErrInvitationAlreadyRejected = awserr.New(
+		"ResourceShareInvitationAlreadyRejectedException",
+		awserr.ErrConflict,
+	)
+	// ErrInvitationExpired is returned when acting on an expired invitation.
+	ErrInvitationExpired = awserr.New(
+		"ResourceShareInvitationExpiredException",
+		awserr.ErrConflict,
+	)
 	// ErrPermissionVersionNotFound is returned when a permission version does not exist.
 	ErrPermissionVersionNotFound = awserr.New("InvalidParameterException", awserr.ErrNotFound)
 	// ErrOperationNotPermitted is returned when an operation is not permitted on an AWS-managed resource.
 	ErrOperationNotPermitted = awserr.New("OperationNotPermittedException", awserr.ErrConflict)
+	// ErrPermissionInUse is returned when deleting a permission that is associated with active shares.
+	ErrPermissionInUse = awserr.New("PermissionInUseException", awserr.ErrConflict)
 )
 
 // ResourceShare represents an AWS RAM resource share.
@@ -103,6 +124,7 @@ type ResourceShareAssociation struct {
 	AssociatedEntity  string    `json:"associatedEntity"`
 	AssociationType   string    `json:"associationType"`
 	Status            string    `json:"status"`
+	StatusMessage     string    `json:"statusMessage,omitempty"`
 	External          bool      `json:"external"`
 }
 
@@ -338,17 +360,31 @@ func (b *InMemoryBackend) CreateResourceShare(
 	}
 	b.resourceShares[shareARN] = rs
 
-	// Add principal associations.
+	// Add principal associations, enforcing AllowExternalPrincipals.
 	for _, p := range principals {
+		external := b.isExternalPrincipal(p)
+		if external && !allowExternalPrincipals {
+			return nil, fmt.Errorf(
+				"%w: external principals not allowed for this resource share",
+				ErrValidation,
+			)
+		}
+
 		b.associations = append(b.associations, &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: name,
 			AssociatedEntity:  p,
 			AssociationType:   associationTypePrincipal,
 			Status:            associationStatusAssociated,
+			External:          external,
 			CreationTime:      now,
 			LastUpdatedTime:   now,
 		})
+
+		if external {
+			receiverID := principalReceiverAccountID(p)
+			b.createInvitationLocked(shareARN, name, receiverID)
+		}
 	}
 
 	// Add resource associations.
@@ -568,18 +604,32 @@ func (b *InMemoryBackend) AssociateResourceShare(
 			continue
 		}
 
+		external := b.isExternalPrincipal(p)
+		if external && !rs.AllowExternalPrincipals {
+			return nil, fmt.Errorf(
+				"%w: external principals not allowed for resource share %s",
+				ErrValidation,
+				shareARN,
+			)
+		}
+
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: rs.Name,
 			AssociatedEntity:  p,
 			AssociationType:   associationTypePrincipal,
 			Status:            associationStatusAssociated,
-			External:          b.isExternalPrincipal(p),
+			External:          external,
 			CreationTime:      now,
 			LastUpdatedTime:   now,
 		}
 		b.associations = append(b.associations, assoc)
 		added = append(added, cloneAssociation(assoc))
+
+		if external {
+			receiverID := principalReceiverAccountID(p)
+			b.createInvitationLocked(shareARN, rs.Name, receiverID)
+		}
 	}
 
 	for _, r := range resourceARNs {
@@ -887,16 +937,18 @@ func (b *InMemoryBackend) DeletePermission(permissionARN string) error {
 		)
 	}
 
-	p.Deleted = true
-
-	// Cascade: remove from all resource shares that reference this permission.
-	for shareARN, perms := range b.sharePermissions {
-		delete(perms, permissionARN)
-
-		if len(perms) == 0 {
-			delete(b.sharePermissions, shareARN)
+	// Refuse deletion if permission is associated with any active resource share.
+	for _, perms := range b.sharePermissions {
+		if _, inUse := perms[permissionARN]; inUse {
+			return fmt.Errorf(
+				"%w: permission %s is associated with one or more resource shares",
+				ErrPermissionInUse,
+				permissionARN,
+			)
 		}
 	}
+
+	p.Deleted = true
 
 	return nil
 }
@@ -942,6 +994,18 @@ func (b *InMemoryBackend) DeletePermissionVersion(
 
 		slices.Sort(versions)
 		p.LatestVersion = versions[len(versions)-1]
+	}
+
+	// Cascade: remove share-permission associations pointing at the deleted version.
+	permARN := permissionARN
+	for shareARN, perms := range b.sharePermissions {
+		if ver, ok := perms[permARN]; ok && ver == permissionVersion {
+			delete(perms, permARN)
+
+			if len(perms) == 0 {
+				delete(b.sharePermissions, shareARN)
+			}
+		}
 	}
 
 	return nil
@@ -1095,18 +1159,57 @@ func (b *InMemoryBackend) AcceptResourceShareInvitation(
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
 
-	if inv.Status == invitationStatusAccepted {
-		return nil, fmt.Errorf(
-			"%w: invitation %s already accepted",
-			ErrInvitationAlreadyAccepted,
-			invitationARN,
-		)
+	switch inv.Status {
+	case invitationStatusAccepted:
+		return nil, fmt.Errorf("%w: invitation %s already accepted", ErrInvitationAlreadyAccepted, invitationARN)
+	case invitationStatusRejected:
+		return nil, fmt.Errorf("%w: invitation %s already rejected", ErrInvitationAlreadyRejected, invitationARN)
+	case invitationStatusExpired:
+		return nil, fmt.Errorf("%w: invitation %s has expired", ErrInvitationExpired, invitationARN)
 	}
 
 	inv.Status = invitationStatusAccepted
 	inv.LastUpdatedTime = time.Now()
 
 	return cloneInvitation(inv), nil
+}
+
+// createInvitationLocked creates a pending invitation without acquiring a lock.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcctID string) *ResourceShareInvitation {
+	invID := uuid.NewString()
+	invARN := b.invitationARN(invID)
+	now := time.Now()
+
+	inv := &ResourceShareInvitation{
+		InvitationARN:     invARN,
+		ResourceShareARN:  shareARN,
+		ResourceShareName: shareNm,
+		SenderAccountID:   b.accountID,
+		ReceiverAccountID: receiverAcctID,
+		Status:            invitationStatusPending,
+		CreationTime:      now,
+		LastUpdatedTime:   now,
+	}
+	b.invitations[invARN] = inv
+
+	return cloneInvitation(inv)
+}
+
+// principalReceiverAccountID extracts the effective AWS account ID from a principal string.
+// For 12-digit account IDs the string itself is returned; for ARNs the account field is extracted.
+func principalReceiverAccountID(principal string) string {
+	if len(principal) == accountIDLen {
+		return principal
+	}
+
+	// ARN format: arn:partition:service:region:account-id:...
+	parts := strings.SplitN(principal, ":", arnPartCountPrincipal)
+	if len(parts) >= arnAccountIdx+1 && parts[0] == "arn" {
+		return parts[arnAccountIdx]
+	}
+
+	return principal
 }
 
 // CreateInvitation creates a pending invitation for a resource share.
@@ -1430,12 +1533,13 @@ func (b *InMemoryBackend) RejectResourceShareInvitation(
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
 
-	if inv.Status != invitationStatusPending {
-		return nil, fmt.Errorf(
-			"%w: invitation %s is not in PENDING status",
-			ErrInvitationAlreadyAccepted,
-			invitationARN,
-		)
+	switch inv.Status {
+	case invitationStatusAccepted:
+		return nil, fmt.Errorf("%w: invitation %s already accepted", ErrInvitationAlreadyAccepted, invitationARN)
+	case invitationStatusRejected:
+		return nil, fmt.Errorf("%w: invitation %s already rejected", ErrInvitationAlreadyRejected, invitationARN)
+	case invitationStatusExpired:
+		return nil, fmt.Errorf("%w: invitation %s has expired", ErrInvitationExpired, invitationARN)
 	}
 
 	inv.Status = invitationStatusRejected
