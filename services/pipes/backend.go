@@ -390,7 +390,7 @@ type TargetParameters struct {
 	BatchJobParameters            *BatchJobTargetParameters          `json:"BatchJobParameters,omitempty"`
 	EcsTaskParameters             *ECSTaskTargetParameters           `json:"EcsTaskParameters,omitempty"`
 	TimestreamParameters          *TimestreamParameters              `json:"TimestreamParameters,omitempty"`
-	HTTPParameters                *TargetHTTPParameters              `json:"HTTPParameters,omitempty"`
+	HTTPParameters                *TargetHTTPParameters              `json:"HttpParameters,omitempty"`
 	InputTemplate                 string                             `json:"InputTemplate,omitempty"`
 }
 
@@ -408,7 +408,7 @@ type EnrichmentHTTPParameters struct {
 
 // EnrichmentParameters holds enrichment-specific configuration.
 type EnrichmentParameters struct {
-	HTTPParameters *EnrichmentHTTPParameters `json:"HTTPParameters,omitempty"`
+	HTTPParameters *EnrichmentHTTPParameters `json:"HttpParameters,omitempty"`
 	InputTemplate  string                    `json:"InputTemplate,omitempty"`
 }
 
