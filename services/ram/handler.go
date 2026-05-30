@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,7 +71,10 @@ const (
 const (
 	ramService       = "ram"
 	ramMatchPriority = 87
+	maxShareNameLen  = 256
 )
+
+var ramShareNameRegex = regexp.MustCompile(`^[\w\-.]+$`)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -642,7 +646,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrPermissionNotFound), errors.Is(err, ErrPermissionVersionNotFound):
+	case errors.Is(err, ErrPermissionNotFound):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "UnknownResourceException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrPermissionVersionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InvalidParameterException",
 			keyMessageField: err.Error(),
@@ -666,6 +677,27 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrInvitationAlreadyAccepted):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceShareInvitationAlreadyAcceptedException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvitationAlreadyRejected):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "ResourceShareInvitationAlreadyRejectedException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvitationExpired):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "ResourceShareInvitationExpiredException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrPermissionInUse):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "PermissionInUseException",
 			keyMessageField: err.Error(),
 		})
 
@@ -821,6 +853,7 @@ type associationObject struct {
 	AssociatedEntity  string  `json:"associatedEntity"`
 	AssociationType   string  `json:"associationType"`
 	Status            string  `json:"status"`
+	StatusMessage     string  `json:"statusMessage,omitempty"`
 	CreationTime      float64 `json:"creationTime"`
 	LastUpdatedTime   float64 `json:"lastUpdatedTime"`
 	External          bool    `json:"external"`
@@ -833,6 +866,7 @@ func toAssociationObject(a *ResourceShareAssociation) associationObject {
 		AssociatedEntity:  a.AssociatedEntity,
 		AssociationType:   a.AssociationType,
 		Status:            a.Status,
+		StatusMessage:     a.StatusMessage,
 		CreationTime:      epochSeconds(a.CreationTime),
 		LastUpdatedTime:   epochSeconds(a.LastUpdatedTime),
 		External:          a.External,
@@ -860,6 +894,13 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	if len(req.Name) > maxShareNameLen || !ramShareNameRegex.MatchString(req.Name) {
+		return nil, fmt.Errorf(
+			"%w: name must be 1-256 characters matching ^[\\w\\-.]+$",
+			ErrValidation,
+		)
 	}
 
 	rs, err := h.Backend.CreateResourceShare(
@@ -1512,13 +1553,15 @@ func (h *Handler) handleDeletePermissionVersion(
 		)
 	}
 
-	var version int32
-	if _, err := fmt.Sscanf(versionStr, "%d", &version); err != nil {
-		return nil, fmt.Errorf("%w: permissionVersion must be an integer", errInvalidRequest)
+	v64, parseErr := strconv.ParseInt(versionStr, 10, 32)
+	if parseErr != nil || v64 <= 0 {
+		return nil, fmt.Errorf("%w: permissionVersion must be a positive integer", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePermissionVersion(permissionARN, version); err != nil {
-		return nil, err
+	version := int32(v64)
+
+	if delErr := h.Backend.DeletePermissionVersion(permissionARN, version); delErr != nil {
+		return nil, delErr
 	}
 
 	return json.Marshal(
@@ -2130,8 +2173,9 @@ func (h *Handler) handleListPendingInvitationResources(
 // --- ListResourceTypes ---
 
 type resourceTypeObject struct {
-	ResourceType string `json:"resourceType"`
-	ServiceName  string `json:"serviceName"`
+	ResourceType        string `json:"resourceType"`
+	ServiceName         string `json:"serviceName"`
+	ResourceRegionScope string `json:"resourceRegionScope"`
 }
 
 type listResourceTypesResponse struct {
@@ -2139,18 +2183,81 @@ type listResourceTypesResponse struct {
 	ResourceTypes []resourceTypeObject `json:"resourceTypes"`
 }
 
-const serviceNameEC2 = "ec2"
+const (
+	serviceNameEC2             = "ec2"
+	serviceNameRoute53Resolver = "route53resolver"
+	serviceNameGlue            = "glue"
+	serviceNameNetworkFirewall = "network-firewall"
+	serviceNameCodeBuild       = "codebuild"
+)
+
+//nolint:gochecknoglobals // read-only table initialized once; represents the AWS-supported shareable resource types
+var awsShareableResourceTypes = []resourceTypeObject{
+	{ResourceType: "ec2:Subnet", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "ec2:VPC", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "ec2:TransitGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "ec2:LocalGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "ec2:PrefixList", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "route53resolver:ResolverRule",
+		ServiceName:         serviceNameRoute53Resolver,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "route53resolver:FirewallRuleGroup",
+		ServiceName:         serviceNameRoute53Resolver,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "license-manager:LicenseConfiguration",
+		ServiceName:         "license-manager",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "codebuild:Project",
+		ServiceName:         serviceNameCodeBuild,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "codebuild:ReportGroup",
+		ServiceName:         serviceNameCodeBuild,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{ResourceType: "glue:Catalog", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "glue:Database", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "glue:Table", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "appmesh:Mesh", ServiceName: "appmesh", ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "outposts:Outpost", ServiceName: "outposts", ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "resource-groups:Group",
+		ServiceName:         "resource-groups",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{ResourceType: "ssm-contacts:Contact", ServiceName: "ssm-contacts", ResourceRegionScope: resourceRegionScopeGlobal},
+	{
+		ResourceType:        "ssm-incidents:ResponsePlan",
+		ServiceName:         "ssm-incidents",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:FirewallPolicy",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:StatefulRuleGroup",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:StatelessRuleGroup",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+}
 
 func (h *Handler) handleListResourceTypes(_ context.Context, _ []byte) ([]byte, error) {
-	// Return a static set of well-known shareable resource types.
-	types := []resourceTypeObject{
-		{ResourceType: "ec2:Subnet", ServiceName: serviceNameEC2},
-		{ResourceType: "ec2:VPC", ServiceName: serviceNameEC2},
-		{ResourceType: "ec2:TransitGateway", ServiceName: serviceNameEC2},
-		{ResourceType: "route53resolver:ResolverRule", ServiceName: "route53resolver"},
-	}
-
-	return json.Marshal(listResourceTypesResponse{ResourceTypes: types})
+	return json.Marshal(listResourceTypesResponse{ResourceTypes: awsShareableResourceTypes})
 }
 
 // --- ListReplacePermissionAssociationsWork ---

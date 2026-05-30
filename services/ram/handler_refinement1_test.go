@@ -126,7 +126,7 @@ func TestRefinement1_DeletePermissionVersion_UpdatesLatest(t *testing.T) {
 
 // TestRefinement1_DeletePermission_CascadesSharePermissions verifies that deleting a
 // permission also removes it from all resource shares.
-func TestRefinement1_DeletePermission_CascadesSharePermissions(t *testing.T) {
+func TestRefinement1_DeletePermission_RejectsWhenInUse(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -144,10 +144,15 @@ func TestRefinement1_DeletePermission_CascadesSharePermissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, ram.SharePermissionCount(h.Backend.(*ram.InMemoryBackend)))
 
-	// Delete permission → should remove from sharePermissions.
+	// Delete permission while in use → must fail with PermissionInUseException.
+	err = h.Backend.DeletePermission(p.ARN)
+	require.ErrorIs(t, err, ram.ErrPermissionInUse)
+
+	// Disassociate first, then deletion must succeed.
+	err = h.Backend.DisassociateResourceSharePermission(rs.ARN, p.ARN)
+	require.NoError(t, err)
 	err = h.Backend.DeletePermission(p.ARN)
 	require.NoError(t, err)
-	assert.Equal(t, 0, ram.SharePermissionCount(h.Backend.(*ram.InMemoryBackend)))
 }
 
 // TestRefinement1_DeleteResourceShare_SoftDelete verifies that a deleted resource share
@@ -157,7 +162,7 @@ func TestRefinement1_DeleteResourceShare_SoftDelete(t *testing.T) {
 
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-	rs, err := b.CreateResourceShare("soft-share", false, nil, []string{"999999999999"}, nil)
+	rs, err := b.CreateResourceShare("soft-share", true, nil, []string{"999999999999"}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, ram.AssociationCount(b))
@@ -210,7 +215,7 @@ func TestRefinement1_AssociateResourceShare_External(t *testing.T) {
 
 			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-			rs, err := b.CreateResourceShare("share-"+tt.name, false, nil, nil, nil)
+			rs, err := b.CreateResourceShare("share-"+tt.name, true, nil, nil, nil)
 			require.NoError(t, err)
 
 			assocs, err := b.AssociateResourceShare(rs.ARN, []string{tt.principal}, nil)
@@ -467,7 +472,7 @@ func TestRefinement1_HandleError_ErrPermissionNotFound(t *testing.T) {
 		"permissionArn": "arn:aws:ram:us-east-1:000000000000:permission/does-not-exist",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+	assert.Contains(t, rec.Body.String(), "UnknownResourceException")
 }
 
 // TestRefinement1_GetResourceShareInvitations_SortedByCreation verifies invitations are
@@ -743,7 +748,7 @@ func TestRefinement1_GetResourceShareAssociations_TypeFilter(t *testing.T) {
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
 	rs, err := b.CreateResourceShare("assoc-filter", false, nil,
-		[]string{"principal-1"},
+		[]string{"000000000000"},
 		[]string{"arn:aws:ec2:us-east-1:000000000000:subnet/sub-1"},
 	)
 	require.NoError(t, err)
@@ -826,7 +831,7 @@ func TestRefinement1_UpdateResourceShare_SyncAssocName(t *testing.T) {
 
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-	rs, err := b.CreateResourceShare("old-name", false, nil, []string{"principal-1"}, nil)
+	rs, err := b.CreateResourceShare("old-name", false, nil, []string{"000000000000"}, nil)
 	require.NoError(t, err)
 
 	_, err = b.UpdateResourceShare(rs.ARN, "new-name", nil)
@@ -875,11 +880,11 @@ func TestRefinement1_ResourceShareAssociation_DuplicateIdempotent(t *testing.T) 
 	rs, err := b.CreateResourceShare("idem-share", false, nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.AssociateResourceShare(rs.ARN, []string{"principal-1"}, nil)
+	_, err = b.AssociateResourceShare(rs.ARN, []string{"000000000000"}, nil)
 	require.NoError(t, err)
 
 	// Second association of same entity should not duplicate.
-	added, err := b.AssociateResourceShare(rs.ARN, []string{"principal-1"}, nil)
+	added, err := b.AssociateResourceShare(rs.ARN, []string{"000000000000"}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, added, "duplicate association should not add a new entry")
 	assert.Equal(t, 1, ram.AssociationCount(b))
