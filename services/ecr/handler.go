@@ -1249,7 +1249,10 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 		out = append(out, *toRepositoryCreationTemplateView(&tmpls[i]))
 	}
 
-	return &describeRepositoryCreationTemplatesOutput{RepositoryCreationTemplates: out}, nil
+	return &describeRepositoryCreationTemplatesOutput{
+		RegistryID:                  h.Backend.AccountID(),
+		RepositoryCreationTemplates: out,
+	}, nil
 }
 
 func (h *Handler) handleUpdateRepositoryCreationTemplate(
