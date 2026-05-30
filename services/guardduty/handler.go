@@ -261,7 +261,7 @@ func parseRESTPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-//nolint:gocognit,gocyclo,cyclop // intentional switch matrix for REST path parsing
+//nolint:gocognit,gocyclo,cyclop,funlen // intentional switch matrix for REST path parsing
 func parseDetectorPath(method string, parts []string) (string, string) {
 	switch len(parts) {
 	case depthRoot: // /detector
@@ -856,9 +856,10 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string) (any, int, erro
 }
 
 func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (int, error) {
+	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		FindingIDs []string `json:"findingIds"`
-		Feedback   string   `json:"feedback"` //nolint:govet // fieldalignment: logical grouping preferred
+		Feedback   string   `json:"feedback"`
 		Comments   string   `json:"comments"`
 	}
 
@@ -877,6 +878,7 @@ func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, error) {
+	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Tags     map[string]string `json:"tags"`
 		Name     string            `json:"name"`
@@ -922,6 +924,7 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateIPSet(detectorID, ipSetID string, body []byte) (int, error) {
+	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Name     string `json:"name"`
 		Location string `json:"location"`
@@ -960,6 +963,7 @@ func (h *Handler) handleListIPSets(detectorID string) (any, int, error) {
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (any, int, error) {
+	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Tags     map[string]string `json:"tags"`
 		Name     string            `json:"name"`
@@ -1005,6 +1009,7 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 }
 
 func (h *Handler) handleUpdateThreatIntelSet(detectorID, setID string, body []byte) (int, error) {
+	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Name     string `json:"name"`
 		Location string `json:"location"`
