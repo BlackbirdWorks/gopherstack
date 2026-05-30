@@ -585,9 +585,11 @@ type updateEmailChannelRequest struct {
 
 // updateSMSChannelRequest is the request body for UpdateSmsChannel.
 type updateSMSChannelRequest struct {
-	SenderID  string `json:"SenderId,omitempty"`
-	ShortCode string `json:"ShortCode,omitempty"`
-	Enabled   bool   `json:"Enabled"`
+	SenderID                       string `json:"SenderId,omitempty"`
+	ShortCode                      string `json:"ShortCode,omitempty"`
+	PromotionalMessagesPerSecond   int    `json:"PromotionalMessagesPerSecond,omitempty"`
+	TransactionalMessagesPerSecond int    `json:"TransactionalMessagesPerSecond,omitempty"`
+	Enabled                        bool   `json:"Enabled"`
 }
 
 // updateADMChannelRequest is the request body for UpdateAdmChannel.
@@ -674,27 +676,6 @@ type templateVersionItem struct {
 	TemplateName    string `json:"TemplateName"`
 	TemplateType    string `json:"TemplateType"`
 	TemplateVersion string `json:"Version"`
-}
-
-// channelResponse is the JSON wire format of a channel response.
-type channelResponse struct {
-	ExtraFields       map[string]any `json:"-"`
-	ApplicationID     string         `json:"ApplicationId"`
-	ChannelType       string         `json:"ChannelType"`
-	Platform          string         `json:"Platform,omitempty"`
-	CreationDate      string         `json:"CreationDate,omitempty"`
-	LastModifiedDate  string         `json:"LastModifiedDate,omitempty"`
-	Version           int            `json:"Version,omitempty"`
-	MessagesPerSecond int            `json:"MessagesPerSecond,omitempty"`
-	Enabled           bool           `json:"Enabled"`
-	IsArchived        bool           `json:"IsArchived"`
-	HasCredential     bool           `json:"HasCredential,omitempty"`
-	HasTokenKey       bool           `json:"HasTokenKey,omitempty"`
-}
-
-// channelsResponse is the JSON wire format of GetChannels response.
-type channelsResponse struct {
-	Channels map[string]channelResponse `json:"Channels"`
 }
 
 // endpointUser response embeds user info in endpoint responses.
@@ -815,10 +796,19 @@ type phoneNumberValidateResponse struct {
 
 // numberValidateResponse is the inner response for PhoneNumberValidate.
 type numberValidateResponse struct {
-	Carrier                 string `json:"Carrier,omitempty"`
-	PhoneType               string `json:"PhoneType,omitempty"`
-	CleansedPhoneNumberE164 string `json:"CleansedPhoneNumberE164,omitempty"`
-	PhoneTypeCode           int    `json:"PhoneTypeCode"`
+	Carrier                           string `json:"Carrier,omitempty"`
+	City                              string `json:"City,omitempty"`
+	CleansedPhoneNumberE164           string `json:"CleansedPhoneNumberE164,omitempty"`
+	CleansedPhoneNumberNationalFormat string `json:"CleansedPhoneNumberNationalFormat,omitempty"`
+	Country                           string `json:"Country,omitempty"`
+	CountryCodeIso2                   string `json:"CountryCodeIso2,omitempty"`
+	CountryCodeNumeric                string `json:"CountryCodeNumeric,omitempty"`
+	OriginalCountryCodeIso2           string `json:"OriginalCountryCodeIso2,omitempty"`
+	OriginalPhoneNumber               string `json:"OriginalPhoneNumber,omitempty"`
+	PhoneType                         string `json:"PhoneType,omitempty"`
+	Timezone                          string `json:"Timezone,omitempty"`
+	ZipCode                           string `json:"ZipCode,omitempty"`
+	PhoneTypeCode                     int    `json:"PhoneTypeCode"`
 }
 
 // attributesResource is the response for RemoveAttributes.
@@ -974,4 +964,20 @@ type pagedSegmentsResponse struct {
 type pagedJourneysResponse struct {
 	NextToken *string           `json:"NextToken,omitempty"`
 	Item      []journeyResponse `json:"Item"`
+}
+
+// eventsResponse is the response for PutEvents.
+type eventsResponse struct {
+	Results map[string]endpointItemResponse `json:"Results"`
+}
+
+// endpointItemResponse is a per-endpoint result in the PutEvents response.
+type endpointItemResponse struct {
+	EventsItemResponse map[string]itemEventResponse `json:"EventsItemResponse"`
+}
+
+// itemEventResponse is the per-event acknowledgment in a PutEvents response.
+type itemEventResponse struct {
+	Message    string `json:"Message"`
+	StatusCode int    `json:"StatusCode"`
 }
