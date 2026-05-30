@@ -565,11 +565,10 @@ func TestAudit_Gap12_DescribeAttackStatisticsWithVolume(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	stats := resp["AttackStatistics"].(map[string]any)
-	assert.NotNil(t, stats["TimeRange"])
-	assert.NotNil(t, stats["DataItems"])
+	assert.NotNil(t, resp["TimeRange"])
+	assert.NotNil(t, resp["DataItems"])
 
-	items := stats["DataItems"].([]any)
+	items := resp["DataItems"].([]any)
 	assert.NotEmpty(t, items)
 }
 
@@ -586,8 +585,7 @@ func TestAudit_Gap12_DescribeAttackStatisticsEmptyWhenNoAttacks(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	stats := resp["AttackStatistics"].(map[string]any)
-	items := stats["DataItems"].([]any)
+	items := resp["DataItems"].([]any)
 	assert.Len(t, items, 1)
 }
 
@@ -1109,8 +1107,7 @@ func TestAudit_AttackSimulationEndToEnd(t *testing.T) {
 
 	var statsResp map[string]any
 	require.NoError(t, json.Unmarshal(statsRec.Body.Bytes(), &statsResp))
-	stats := statsResp["AttackStatistics"].(map[string]any)
-	items := stats["DataItems"].([]any)
+	items := statsResp["DataItems"].([]any)
 	require.NotEmpty(t, items)
 
 	item0 := items[0].(map[string]any)
