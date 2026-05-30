@@ -126,7 +126,7 @@ type AllowListDetail struct {
 }
 
 // CustomDataIdentifier represents a custom data identifier.
-type CustomDataIdentifier struct {
+type CustomDataIdentifier struct { //nolint:govet // fieldalignment: readability over padding
 	Tags                 map[string]string `json:"tags,omitempty"`
 	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
 	Keywords             []string          `json:"keywords,omitempty"`

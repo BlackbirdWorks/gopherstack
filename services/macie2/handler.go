@@ -690,7 +690,7 @@ func (h *Handler) handleGetAllowList(id string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+	var req struct {
 		Criteria    *AllowListCriteria `json:"criteria"`
 		Description string             `json:"description"`
 		Name        string             `json:"name"`
