@@ -14,6 +14,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	defaultFindingSeverity = 5.0
+	severityLowThreshold   = 4.0
+	severityHighThreshold  = 7.0
+)
+
 var (
 	// ErrDetectorNotFound is returned when a detector does not exist.
 	ErrDetectorNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -39,20 +45,20 @@ var (
 
 // Detector represents a GuardDuty detector.
 type Detector struct {
-	CreatedAt                  time.Time          `json:"createdAt"`
-	UpdatedAt                  time.Time          `json:"updatedAt"`
-	DetectorID                 string             `json:"detectorId"`
-	Status                     string             `json:"status"`
-	FindingPublishingFrequency string             `json:"findingPublishingFrequency,omitempty"`
-	ServiceRole                string             `json:"serviceRole"`
-	Tags                       map[string]string  `json:"tags,omitempty"`
-	Features                   []DetectorFeature  `json:"features,omitempty"`
+	CreatedAt                  time.Time         `json:"createdAt"`
+	UpdatedAt                  time.Time         `json:"updatedAt"`
+	DetectorID                 string            `json:"detectorId"`
+	Status                     string            `json:"status"`
+	FindingPublishingFrequency string            `json:"findingPublishingFrequency,omitempty"`
+	ServiceRole                string            `json:"serviceRole"`
+	Tags                       map[string]string `json:"tags,omitempty"`
+	Features                   []DetectorFeature `json:"features,omitempty"`
 }
 
 // DetectorFeature represents a feature configuration for a detector.
 type DetectorFeature struct {
-	Name   string                    `json:"name"`
-	Status string                    `json:"status"`
+	Name                    string             `json:"name"`
+	Status                  string             `json:"status"`
 	AdditionalConfiguration []AdditionalConfig `json:"additionalConfiguration,omitempty"`
 }
 
@@ -64,40 +70,40 @@ type AdditionalConfig struct {
 
 // Filter represents a GuardDuty filter.
 type Filter struct {
-	CreatedAt   time.Time              `json:"createdAt"`
-	UpdatedAt   time.Time             `json:"updatedAt"`
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Action      string                `json:"action"`
-	Rank        int32                 `json:"rank"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description,omitempty"`
+	Action          string            `json:"action"`
+	Rank            int32             `json:"rank"`
 	FindingCriteria map[string]any    `json:"findingCriteria,omitempty"`
-	Tags        map[string]string     `json:"tags,omitempty"`
-	DetectorID  string                `json:"-"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	DetectorID      string            `json:"-"`
 }
 
 // Finding represents a GuardDuty finding.
 type Finding struct {
-	AccountID    string         `json:"accountId"`
-	Arn          string         `json:"arn"`
-	CreatedAt    string         `json:"createdAt"`
-	Description  string         `json:"description"`
-	DetectorID   string         `json:"detectorId"`
-	ID           string         `json:"id"`
-	Region       string         `json:"region"`
-	Severity     float64        `json:"severity"`
-	Title        string         `json:"title"`
-	Type         string         `json:"type"`
-	UpdatedAt    string         `json:"updatedAt"`
-	Service      FindingService `json:"service"`
-	Resource     FindingResource `json:"resource"`
-	SchemaVersion string        `json:"schemaVersion"`
+	AccountID     string          `json:"accountId"`
+	Arn           string          `json:"arn"`
+	CreatedAt     string          `json:"createdAt"`
+	Description   string          `json:"description"`
+	DetectorID    string          `json:"detectorId"`
+	ID            string          `json:"id"`
+	Region        string          `json:"region"`
+	Severity      float64         `json:"severity"`
+	Title         string          `json:"title"`
+	Type          string          `json:"type"`
+	UpdatedAt     string          `json:"updatedAt"`
+	Service       FindingService  `json:"service"`
+	Resource      FindingResource `json:"resource"`
+	SchemaVersion string          `json:"schemaVersion"`
 }
 
 // FindingService holds service-level metadata for a finding.
 type FindingService struct {
-	Archived    bool   `json:"archived"`
-	Count       int32  `json:"count"`
-	DetectorID  string `json:"detectorId"`
+	Archived       bool   `json:"archived"`
+	Count          int32  `json:"count"`
+	DetectorID     string `json:"detectorId"`
 	EventFirstSeen string `json:"eventFirstSeen"`
 	EventLastSeen  string `json:"eventLastSeen"`
 	ResourceRole   string `json:"resourceRole"`
@@ -138,12 +144,12 @@ type ThreatIntelSet struct {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	mu              *lockmetrics.RWMutex
-	detectors       map[string]*Detector               // detectorID → Detector
-	filters         map[string]map[string]*Filter      // detectorID → filterName → Filter
-	findings        map[string]map[string]*Finding     // detectorID → findingID → Finding
-	ipSets          map[string]map[string]*IPSet       // detectorID → ipSetID → IPSet
+	detectors       map[string]*Detector                  // detectorID → Detector
+	filters         map[string]map[string]*Filter         // detectorID → filterName → Filter
+	findings        map[string]map[string]*Finding        // detectorID → findingID → Finding
+	ipSets          map[string]map[string]*IPSet          // detectorID → ipSetID → IPSet
 	threatIntelSets map[string]map[string]*ThreatIntelSet // detectorID → setID → ThreatIntelSet
-	tags            map[string]map[string]string       // resourceARN → tags
+	tags            map[string]map[string]string          // resourceARN → tags
 	accountID       string
 	region          string
 }
@@ -176,7 +182,13 @@ func (b *InMemoryBackend) ipSetARN(detectorID, ipSetID string) string {
 }
 
 func (b *InMemoryBackend) threatIntelSetARN(detectorID, setID string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/threatintelset/%s", b.region, b.accountID, detectorID, setID)
+	return fmt.Sprintf(
+		"arn:aws:guardduty:%s:%s:detector/%s/threatintelset/%s",
+		b.region,
+		b.accountID,
+		detectorID,
+		setID,
+	)
 }
 
 func (b *InMemoryBackend) findingARN(detectorID, findingID string) string {
@@ -184,7 +196,12 @@ func (b *InMemoryBackend) findingARN(detectorID, findingID string) string {
 }
 
 // CreateDetector creates a new GuardDuty detector for this account+region.
-func (b *InMemoryBackend) CreateDetector(enable bool, frequency string, tags map[string]string, features []DetectorFeature) (*Detector, error) {
+func (b *InMemoryBackend) CreateDetector(
+	enable bool,
+	frequency string,
+	tags map[string]string,
+	features []DetectorFeature,
+) (*Detector, error) {
 	b.mu.Lock("CreateDetector")
 	defer b.mu.Unlock()
 
@@ -207,11 +224,14 @@ func (b *InMemoryBackend) CreateDetector(enable bool, frequency string, tags map
 		DetectorID:                 id,
 		Status:                     status,
 		FindingPublishingFrequency: frequency,
-		ServiceRole:                fmt.Sprintf("arn:aws:iam::%s:role/aws-service-role/guardduty.amazonaws.com/AWSServiceRoleForAmazonGuardDuty", b.accountID),
-		CreatedAt:                  now,
-		UpdatedAt:                  now,
-		Tags:                       tags,
-		Features:                   features,
+		ServiceRole: fmt.Sprintf(
+			"arn:aws:iam::%s:role/aws-service-role/guardduty.amazonaws.com/AWSServiceRoleForAmazonGuardDuty",
+			b.accountID,
+		),
+		CreatedAt: now,
+		UpdatedAt: now,
+		Tags:      tags,
+		Features:  features,
 	}
 	b.detectors[id] = d
 	b.filters[id] = make(map[string]*Filter)
@@ -241,7 +261,12 @@ func (b *InMemoryBackend) GetDetector(detectorID string) (*Detector, error) {
 }
 
 // UpdateDetector updates a detector's configuration.
-func (b *InMemoryBackend) UpdateDetector(detectorID string, enable *bool, frequency string, features []DetectorFeature) error {
+func (b *InMemoryBackend) UpdateDetector(
+	detectorID string,
+	enable *bool,
+	frequency string,
+	features []DetectorFeature,
+) error {
 	b.mu.Lock("UpdateDetector")
 	defer b.mu.Unlock()
 
@@ -306,7 +331,12 @@ func (b *InMemoryBackend) ListDetectors() []string {
 }
 
 // CreateFilter creates a new filter for a detector.
-func (b *InMemoryBackend) CreateFilter(detectorID, name, description, action string, rank int32, findingCriteria map[string]any, tags map[string]string) (*Filter, error) {
+func (b *InMemoryBackend) CreateFilter(
+	detectorID, name, description, action string,
+	rank int32,
+	findingCriteria map[string]any,
+	tags map[string]string,
+) (*Filter, error) {
 	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
@@ -358,7 +388,11 @@ func (b *InMemoryBackend) GetFilter(detectorID, filterName string) (*Filter, err
 }
 
 // UpdateFilter updates a filter's configuration.
-func (b *InMemoryBackend) UpdateFilter(detectorID, filterName, description, action string, rank int32, findingCriteria map[string]any) (*Filter, error) {
+func (b *InMemoryBackend) UpdateFilter(
+	detectorID, filterName, description, action string,
+	rank int32,
+	findingCriteria map[string]any,
+) (*Filter, error) {
 	b.mu.Lock("UpdateFilter")
 	defer b.mu.Unlock()
 
@@ -526,17 +560,17 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 	for _, ft := range findingTypes {
 		id := strings.ReplaceAll(uuid.New().String(), "-", "")
 		b.findings[detectorID][id] = &Finding{
-			AccountID:   b.accountID,
-			Arn:         b.findingARN(detectorID, id),
-			CreatedAt:   now,
-			Description: "Sample finding: " + ft,
-			DetectorID:  detectorID,
-			ID:          id,
-			Region:      b.region,
-			Severity:    5.0,
-			Title:       "Sample: " + ft,
-			Type:        ft,
-			UpdatedAt:   now,
+			AccountID:     b.accountID,
+			Arn:           b.findingARN(detectorID, id),
+			CreatedAt:     now,
+			Description:   "Sample finding: " + ft,
+			DetectorID:    detectorID,
+			ID:            id,
+			Region:        b.region,
+			Severity:      defaultFindingSeverity,
+			Title:         "Sample: " + ft,
+			Type:          ft,
+			UpdatedAt:     now,
 			SchemaVersion: "2.0",
 			Service: FindingService{
 				Archived:       false,
@@ -573,9 +607,9 @@ func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]a
 
 	for _, f := range b.findings[detectorID] {
 		switch {
-		case f.Severity < 4.0:
+		case f.Severity < severityLowThreshold:
 			countBySeverity["Low"]++
-		case f.Severity < 7.0:
+		case f.Severity < severityHighThreshold:
 			countBySeverity["Medium"]++
 		default:
 			countBySeverity["High"]++
@@ -605,7 +639,11 @@ func (b *InMemoryBackend) UpdateFindingsFeedback(detectorID string, findingIDs [
 }
 
 // CreateIPSet creates a new IP set.
-func (b *InMemoryBackend) CreateIPSet(detectorID, name, format, location string, activate bool, tags map[string]string) (*IPSet, error) {
+func (b *InMemoryBackend) CreateIPSet(
+	detectorID, name, format, location string,
+	activate bool,
+	tags map[string]string,
+) (*IPSet, error) {
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
 
@@ -738,7 +776,11 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 }
 
 // CreateThreatIntelSet creates a new threat intelligence set.
-func (b *InMemoryBackend) CreateThreatIntelSet(detectorID, name, format, location string, activate bool, tags map[string]string) (*ThreatIntelSet, error) {
+func (b *InMemoryBackend) CreateThreatIntelSet(
+	detectorID, name, format, location string,
+	activate bool,
+	tags map[string]string,
+) (*ThreatIntelSet, error) {
 	b.mu.Lock("CreateThreatIntelSet")
 	defer b.mu.Unlock()
 
@@ -879,9 +921,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.tags[resourceARN][k] = v
-	}
+	maps.Copy(b.tags[resourceARN], tags)
 
 	return nil
 }

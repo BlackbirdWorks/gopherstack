@@ -19,44 +19,44 @@ const (
 	guardDutyService = "guardduty"
 	matchPriority    = service.PriorityPathVersioned
 
-	pathDetector        = "detector"
-	pathFilter          = "filter"
-	pathFindings        = "findings"
-	pathIPSet           = "ipset"
-	pathThreatIntelSet  = "threatintelset"
-	pathTags            = "tags"
+	pathDetector       = "detector"
+	pathFilter         = "filter"
+	pathFindings       = "findings"
+	pathIPSet          = "ipset"
+	pathThreatIntelSet = "threatintelset"
+	pathTags           = "tags"
 
-	opCreateDetector        = "CreateDetector"
-	opGetDetector           = "GetDetector"
-	opUpdateDetector        = "UpdateDetector"
-	opDeleteDetector        = "DeleteDetector"
-	opListDetectors         = "ListDetectors"
-	opCreateFilter          = "CreateFilter"
-	opGetFilter             = "GetFilter"
-	opUpdateFilter          = "UpdateFilter"
-	opDeleteFilter          = "DeleteFilter"
-	opListFilters           = "ListFilters"
-	opGetFindings           = "GetFindings"
-	opListFindings          = "ListFindings"
-	opArchiveFindings       = "ArchiveFindings"
-	opUnarchiveFindings     = "UnarchiveFindings"
-	opCreateSampleFindings  = "CreateSampleFindings"
-	opGetFindingsStatistics = "GetFindingsStatistics"
+	opCreateDetector         = "CreateDetector"
+	opGetDetector            = "GetDetector"
+	opUpdateDetector         = "UpdateDetector"
+	opDeleteDetector         = "DeleteDetector"
+	opListDetectors          = "ListDetectors"
+	opCreateFilter           = "CreateFilter"
+	opGetFilter              = "GetFilter"
+	opUpdateFilter           = "UpdateFilter"
+	opDeleteFilter           = "DeleteFilter"
+	opListFilters            = "ListFilters"
+	opGetFindings            = "GetFindings"
+	opListFindings           = "ListFindings"
+	opArchiveFindings        = "ArchiveFindings"
+	opUnarchiveFindings      = "UnarchiveFindings"
+	opCreateSampleFindings   = "CreateSampleFindings"
+	opGetFindingsStatistics  = "GetFindingsStatistics"
 	opUpdateFindingsFeedback = "UpdateFindingsFeedback"
-	opCreateIPSet           = "CreateIPSet"
-	opGetIPSet              = "GetIPSet"
-	opUpdateIPSet           = "UpdateIPSet"
-	opDeleteIPSet           = "DeleteIPSet"
-	opListIPSets            = "ListIPSets"
-	opCreateThreatIntelSet  = "CreateThreatIntelSet"
-	opGetThreatIntelSet     = "GetThreatIntelSet"
-	opUpdateThreatIntelSet  = "UpdateThreatIntelSet"
-	opDeleteThreatIntelSet  = "DeleteThreatIntelSet"
-	opListThreatIntelSets   = "ListThreatIntelSets"
-	opTagResource           = "TagResource"
-	opUntagResource         = "UntagResource"
-	opListTagsForResource   = "ListTagsForResource"
-	opUnknown               = "Unknown"
+	opCreateIPSet            = "CreateIPSet"
+	opGetIPSet               = "GetIPSet"
+	opUpdateIPSet            = "UpdateIPSet"
+	opDeleteIPSet            = "DeleteIPSet"
+	opListIPSets             = "ListIPSets"
+	opCreateThreatIntelSet   = "CreateThreatIntelSet"
+	opGetThreatIntelSet      = "GetThreatIntelSet"
+	opUpdateThreatIntelSet   = "UpdateThreatIntelSet"
+	opDeleteThreatIntelSet   = "DeleteThreatIntelSet"
+	opListThreatIntelSets    = "ListThreatIntelSets"
+	opTagResource            = "TagResource"
+	opUntagResource          = "UntagResource"
+	opListTagsForResource    = "ListTagsForResource"
+	opUnknown                = "Unknown"
 
 	// URL depth constants for path parsing.
 	depthRoot       = 1 // /detector
@@ -64,6 +64,9 @@ const (
 	depthCollection = 3 // /detector/{id}/filter
 	depthItem       = 4 // /detector/{id}/filter/{name}
 	depthAction     = 4 // /detector/{id}/findings/archive
+
+	minTagPathParts      = 2
+	minDetectorSubIDParts = 4
 )
 
 // Handler handles GuardDuty HTTP requests.
@@ -234,7 +237,8 @@ func (h *Handler) dispatch(
 //	/detector/{id}/ipset                   → CreateIPSet (POST) / ListIPSets (GET)
 //	/detector/{id}/ipset/{ipSetId}         → GetIPSet (GET) / UpdateIPSet (POST) / DeleteIPSet (DELETE)
 //	/detector/{id}/threatintelset          → CreateThreatIntelSet (POST) / ListThreatIntelSets (GET)
-//	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) / DeleteThreatIntelSet (DELETE)
+//	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) /
+//	                                          DeleteThreatIntelSet (DELETE)
 //	/tags/{resourceArn}                    → ListTagsForResource (GET) / TagResource (POST) / UntagResource (DELETE)
 func parseRESTPath(method, path string) (string, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -362,7 +366,7 @@ func parseDetectorPath(method string, parts []string) (string, string) {
 }
 
 func parseTagPath(method string, parts []string) (string, string) {
-	if len(parts) < 2 {
+	if len(parts) < minTagPathParts {
 		return opUnknown, ""
 	}
 
@@ -423,19 +427,19 @@ func (h *Handler) dispatchFilterOps(op, path string, body []byte) (any, int, boo
 		return result, code, true, err
 
 	case opGetFilter:
-		detectorID, filterName := extractDetectorAndSubID(path, pathFilter)
+		detectorID, filterName := extractDetectorAndSubID(path)
 		result, code, err := h.handleGetFilter(detectorID, filterName)
 
 		return result, code, true, err
 
 	case opUpdateFilter:
-		detectorID, filterName := extractDetectorAndSubID(path, pathFilter)
+		detectorID, filterName := extractDetectorAndSubID(path)
 		result, code, err := h.handleUpdateFilter(detectorID, filterName, body)
 
 		return result, code, true, err
 
 	case opDeleteFilter:
-		detectorID, filterName := extractDetectorAndSubID(path, pathFilter)
+		detectorID, filterName := extractDetectorAndSubID(path)
 		code, err := h.handleDeleteFilter(detectorID, filterName)
 
 		return nil, code, true, err
@@ -502,19 +506,19 @@ func (h *Handler) dispatchIPSetOps(op, path string, body []byte) (any, int, bool
 		return result, code, true, err
 
 	case opGetIPSet:
-		detectorID, ipSetID := extractDetectorAndSubID(path, pathIPSet)
+		detectorID, ipSetID := extractDetectorAndSubID(path)
 		result, code, err := h.handleGetIPSet(detectorID, ipSetID)
 
 		return result, code, true, err
 
 	case opUpdateIPSet:
-		detectorID, ipSetID := extractDetectorAndSubID(path, pathIPSet)
+		detectorID, ipSetID := extractDetectorAndSubID(path)
 		code, err := h.handleUpdateIPSet(detectorID, ipSetID, body)
 
 		return nil, code, true, err
 
 	case opDeleteIPSet:
-		detectorID, ipSetID := extractDetectorAndSubID(path, pathIPSet)
+		detectorID, ipSetID := extractDetectorAndSubID(path)
 		code, err := h.handleDeleteIPSet(detectorID, ipSetID)
 
 		return nil, code, true, err
@@ -538,19 +542,19 @@ func (h *Handler) dispatchThreatIntelSetOps(op, path string, body []byte) (any, 
 		return result, code, true, err
 
 	case opGetThreatIntelSet:
-		detectorID, setID := extractDetectorAndSubID(path, pathThreatIntelSet)
+		detectorID, setID := extractDetectorAndSubID(path)
 		result, code, err := h.handleGetThreatIntelSet(detectorID, setID)
 
 		return result, code, true, err
 
 	case opUpdateThreatIntelSet:
-		detectorID, setID := extractDetectorAndSubID(path, pathThreatIntelSet)
+		detectorID, setID := extractDetectorAndSubID(path)
 		code, err := h.handleUpdateThreatIntelSet(detectorID, setID, body)
 
 		return nil, code, true, err
 
 	case opDeleteThreatIntelSet:
-		detectorID, setID := extractDetectorAndSubID(path, pathThreatIntelSet)
+		detectorID, setID := extractDetectorAndSubID(path)
 		code, err := h.handleDeleteThreatIntelSet(detectorID, setID)
 
 		return nil, code, true, err
@@ -585,7 +589,7 @@ func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int,
 		return nil, code, err
 	}
 
-	return nil, http.StatusNotFound, errorf("ResourceNotFoundException", "unknown operation")
+	return nil, http.StatusNotFound, errorf("ResourceNotFoundException")
 }
 
 // --- detector handlers ---
@@ -668,11 +672,11 @@ func (h *Handler) handleListDetectors() (any, int, error) {
 
 func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, error) {
 	var req struct {
-		Name            string         `json:"name"`
-		Description     string         `json:"description"`
-		Action          string         `json:"action"`
-		Rank            int32          `json:"rank"`
-		FindingCriteria map[string]any `json:"findingCriteria"`
+		Name            string            `json:"name"`
+		Description     string            `json:"description"`
+		Action          string            `json:"action"`
+		Rank            int32             `json:"rank"`
+		FindingCriteria map[string]any    `json:"findingCriteria"`
 		Tags            map[string]string `json:"tags"`
 	}
 
@@ -688,7 +692,15 @@ func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, 
 		req.Action = "NOOP"
 	}
 
-	f, err := h.Backend.CreateFilter(detectorID, req.Name, req.Description, req.Action, req.Rank, req.FindingCriteria, req.Tags)
+	f, err := h.Backend.CreateFilter(
+		detectorID,
+		req.Name,
+		req.Description,
+		req.Action,
+		req.Rank,
+		req.FindingCriteria,
+		req.Tags,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -814,8 +826,10 @@ func (h *Handler) handleCreateSampleFindings(detectorID string, body []byte) (in
 		FindingTypes []string `json:"findingTypes"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return http.StatusBadRequest, ErrValidation
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return http.StatusBadRequest, ErrValidation
+		}
 	}
 
 	if err := h.Backend.CreateSampleFindings(detectorID, req.FindingTypes); err != nil {
@@ -1080,29 +1094,31 @@ func errBody(code, message string) map[string]string {
 	}
 }
 
-func errorf(code, message string) error {
+func errorf(code string) error {
 	return awserr.New(code, awserr.ErrInvalidParameter)
 }
 
 // extractID extracts a resource ID from a path like /prefix/{id}/...
+//
+//nolint:unparam
 func extractID(path, prefix string) string {
 	stripped := strings.TrimPrefix(path, "/"+prefix+"/")
-	idx := strings.Index(stripped, "/")
+	before, _, found := strings.Cut(stripped, "/")
 
-	if idx == -1 {
+	if !found {
 		return stripped
 	}
 
-	return stripped[:idx]
+	return before
 }
 
 // extractDetectorAndSubID extracts detectorID and the sub-resource ID from
 // paths like /detector/{id}/{collection}/{subID}.
-func extractDetectorAndSubID(path, collection string) (string, string) {
+func extractDetectorAndSubID(path string) (string, string) {
 	// path: /detector/{detectorID}/{collection}/{subID}
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	if len(parts) < 4 {
+	if len(parts) < minDetectorSubIDParts {
 		return "", ""
 	}
 

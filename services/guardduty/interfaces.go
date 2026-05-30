@@ -8,9 +8,18 @@ type StorageBackend interface {
 	DeleteDetector(detectorID string) error
 	ListDetectors() []string
 
-	CreateFilter(detectorID, name, description, action string, rank int32, findingCriteria map[string]any, tags map[string]string) (*Filter, error)
+	CreateFilter(
+		detectorID, name, description, action string,
+		rank int32,
+		findingCriteria map[string]any,
+		tags map[string]string,
+	) (*Filter, error)
 	GetFilter(detectorID, filterName string) (*Filter, error)
-	UpdateFilter(detectorID, filterName, description, action string, rank int32, findingCriteria map[string]any) (*Filter, error)
+	UpdateFilter(
+		detectorID, filterName, description, action string,
+		rank int32,
+		findingCriteria map[string]any,
+	) (*Filter, error)
 	DeleteFilter(detectorID, filterName string) error
 	ListFilters(detectorID string) ([]string, error)
 
@@ -28,7 +37,11 @@ type StorageBackend interface {
 	DeleteIPSet(detectorID, ipSetID string) error
 	ListIPSets(detectorID string) ([]string, error)
 
-	CreateThreatIntelSet(detectorID, name, format, location string, activate bool, tags map[string]string) (*ThreatIntelSet, error)
+	CreateThreatIntelSet(
+		detectorID, name, format, location string,
+		activate bool,
+		tags map[string]string,
+	) (*ThreatIntelSet, error)
 	GetThreatIntelSet(detectorID, setID string) (*ThreatIntelSet, error)
 	UpdateThreatIntelSet(detectorID, setID, name, location string, activate *bool) error
 	DeleteThreatIntelSet(detectorID, setID string) error
