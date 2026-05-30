@@ -365,8 +365,12 @@ func extractPipeName(path string) string {
 	return ""
 }
 
-func epochSeconds(t time.Time) float64 {
-	return float64(t.Unix())
+// epochMillis returns t as a Unix epoch value with millisecond precision,
+// matching the AWS Pipes API timestamp format (fractional seconds, 3 decimal places).
+func epochMillis(t time.Time) float64 {
+	const msPerSec = 1000.0
+
+	return float64(t.UnixMilli()) / msPerSec
 }
 
 type createPipeRequest struct {
@@ -437,8 +441,8 @@ func toPipeResponse(p *Pipe) pipeResponse {
 		DesiredState:            p.DesiredState,
 		CurrentState:            p.CurrentState,
 		StateReason:             p.StateReason,
-		CreationTime:            epochSeconds(p.CreationTime),
-		LastModifiedTime:        epochSeconds(p.LastModifiedTime),
+		CreationTime:            epochMillis(p.CreationTime),
+		LastModifiedTime:        epochMillis(p.LastModifiedTime),
 		Tags:                    p.Tags,
 		SourceParameters:        p.SourceParameters,
 		TargetParameters:        p.TargetParameters,
@@ -548,8 +552,8 @@ func (h *Handler) handleListPipes(_ context.Context, query url.Values) ([]byte, 
 			CurrentState:     p.CurrentState,
 			DesiredState:     p.DesiredState,
 			StateReason:      p.StateReason,
-			CreationTime:     epochSeconds(p.CreationTime),
-			LastModifiedTime: epochSeconds(p.LastModifiedTime),
+			CreationTime:     epochMillis(p.CreationTime),
+			LastModifiedTime: epochMillis(p.LastModifiedTime),
 		})
 	}
 

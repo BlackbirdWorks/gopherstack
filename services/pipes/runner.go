@@ -102,6 +102,11 @@ type PipeCloudWatchLogsPutter interface {
 	) error
 }
 
+// PipeFirehosePutter puts a record into a Kinesis Data Firehose delivery stream.
+type PipeFirehosePutter interface {
+	PutRecord(ctx context.Context, deliveryStreamARN string, data []byte) error
+}
+
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
 	sqsReader SQSReader
@@ -112,6 +117,7 @@ type Runner struct {
 	kinesis   PipeKinesisPutter
 	eventBus  PipeEventBridgePutter
 	cwLogs    PipeCloudWatchLogsPutter
+	firehose  PipeFirehosePutter
 	backend   *InMemoryBackend
 	sem       chan struct{}
 	done      chan struct{}
@@ -136,6 +142,7 @@ func (r *Runner) SetSQSSender(s SQSSender)                           { r.sqsSend
 func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)               { r.kinesis = k }
 func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)       { r.eventBus = e }
 func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs = c }
+func (r *Runner) SetFirehosePutter(f PipeFirehosePutter)             { r.firehose = f }
 
 func (r *Runner) Start(ctx context.Context) {
 	r.doneMu.Lock()
@@ -364,6 +371,8 @@ func (r *Runner) invokeTargetWithPayload(
 		return receiptHandles, r.invokeEventBridgeTarget(ctx, p, payload)
 	case strings.HasPrefix(p.Target, "arn:aws:logs:"):
 		return receiptHandles, r.invokeCloudWatchLogsTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:firehose:"):
+		return receiptHandles, r.invokeFirehoseTarget(ctx, p, payload)
 	}
 
 	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)
@@ -551,6 +560,16 @@ func (r *Runner) invokeCloudWatchLogsTarget(ctx context.Context, p *Pipe, payloa
 	}
 
 	return r.cwLogs.PutLogEvents(ctx, logGroupARN, logStreamName, []string{string(payload)})
+}
+
+func (r *Runner) invokeFirehoseTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if r.firehose == nil {
+		return nil
+	}
+
+	payload = applyInputTemplate(p, payload)
+
+	return r.firehose.PutRecord(ctx, p.Target, payload)
 }
 
 func lambdaFunctionNameFromPipeARN(arn string) string {

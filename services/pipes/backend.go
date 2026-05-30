@@ -331,6 +331,52 @@ type ECSTaskTargetParameters struct {
 	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
 }
 
+// TargetHTTPParameters holds HTTP-specific parameters for API Gateway and API destination targets.
+type TargetHTTPParameters struct {
+	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
+	QueryStringParameters map[string]string `json:"QueryStringParameters,omitempty"`
+	PathParameterValues   []string          `json:"PathParameterValues,omitempty"`
+}
+
+// TimestreamDimensionMapping maps an event field to a Timestream dimension.
+type TimestreamDimensionMapping struct {
+	DimensionName      string `json:"DimensionName,omitempty"`
+	DimensionValue     string `json:"DimensionValue,omitempty"`
+	DimensionValueType string `json:"DimensionValueType,omitempty"`
+}
+
+// TimestreamSingleMeasureMapping maps an event field to a single Timestream measure.
+type TimestreamSingleMeasureMapping struct {
+	MeasureName      string `json:"MeasureName,omitempty"`
+	MeasureValue     string `json:"MeasureValue,omitempty"`
+	MeasureValueType string `json:"MeasureValueType,omitempty"`
+}
+
+// TimestreamMultiMeasureAttributeMapping maps an event field to a multi-measure attribute.
+type TimestreamMultiMeasureAttributeMapping struct {
+	MeasureValue              string `json:"MeasureValue,omitempty"`
+	MeasureValueType          string `json:"MeasureValueType,omitempty"`
+	MultiMeasureAttributeName string `json:"MultiMeasureAttributeName,omitempty"`
+}
+
+// TimestreamMultiMeasureMapping maps event fields to a Timestream multi-measure record.
+type TimestreamMultiMeasureMapping struct {
+	MultiMeasureName              string                                   `json:"MultiMeasureName,omitempty"`
+	MultiMeasureAttributeMappings []TimestreamMultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+// TimestreamParameters holds Timestream target configuration.
+type TimestreamParameters struct {
+	TimeValue             string                           `json:"TimeValue,omitempty"`
+	TimeFieldType         string                           `json:"TimeFieldType,omitempty"`
+	TimestampFormat       string                           `json:"TimestampFormat,omitempty"`
+	EpochTimeUnit         string                           `json:"EpochTimeUnit,omitempty"`
+	VersionValue          string                           `json:"VersionValue,omitempty"`
+	DimensionMappings     []TimestreamDimensionMapping     `json:"DimensionMappings,omitempty"`
+	SingleMeasureMappings []TimestreamSingleMeasureMapping `json:"SingleMeasureMappings,omitempty"`
+	MultiMeasureMappings  []TimestreamMultiMeasureMapping  `json:"MultiMeasureMappings,omitempty"`
+}
+
 // TargetParameters holds target-specific configuration.
 type TargetParameters struct {
 	LambdaFunctionParameters      *LambdaFunctionParameters          `json:"LambdaFunctionParameters,omitempty"`
@@ -343,6 +389,8 @@ type TargetParameters struct {
 	SageMakerPipelineParameters   *SageMakerPipelineTargetParameters `json:"SageMakerPipelineParameters,omitempty"`
 	BatchJobParameters            *BatchJobTargetParameters          `json:"BatchJobParameters,omitempty"`
 	EcsTaskParameters             *ECSTaskTargetParameters           `json:"EcsTaskParameters,omitempty"`
+	TimestreamParameters          *TimestreamParameters              `json:"TimestreamParameters,omitempty"`
+	HTTPParameters                *TargetHTTPParameters              `json:"HttpParameters,omitempty"`
 	InputTemplate                 string                             `json:"InputTemplate,omitempty"`
 }
 
@@ -687,6 +735,24 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 	}
 	if src.EcsTaskParameters != nil {
 		tp.EcsTaskParameters = cloneECSTaskParameters(src.EcsTaskParameters)
+	}
+	if src.TimestreamParameters != nil {
+		v := *src.TimestreamParameters
+		v.DimensionMappings = append([]TimestreamDimensionMapping(nil), src.TimestreamParameters.DimensionMappings...)
+		v.SingleMeasureMappings = append(
+			[]TimestreamSingleMeasureMapping(nil),
+			src.TimestreamParameters.SingleMeasureMappings...)
+		v.MultiMeasureMappings = append(
+			[]TimestreamMultiMeasureMapping(nil),
+			src.TimestreamParameters.MultiMeasureMappings...)
+		tp.TimestreamParameters = &v
+	}
+	if src.HTTPParameters != nil {
+		v := *src.HTTPParameters
+		v.HeaderParameters = maps.Clone(src.HTTPParameters.HeaderParameters)
+		v.QueryStringParameters = maps.Clone(src.HTTPParameters.QueryStringParameters)
+		v.PathParameterValues = append([]string(nil), src.HTTPParameters.PathParameterValues...)
+		tp.HTTPParameters = &v
 	}
 
 	return &tp

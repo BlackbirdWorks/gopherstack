@@ -36,6 +36,11 @@ func (b *InMemoryBackend) ListPipesAll() []*Pipe {
 	return b.ListPipes(ListPipesFilter{}).Pipes
 }
 
+// EpochMillisForTest exposes epochMillis for direct unit testing of timestamp precision.
+func EpochMillisForTest(t time.Time) float64 {
+	return epochMillis(t)
+}
+
 // WaitPipeRunning waits up to 500ms for a pipe to reach RUNNING state.
 func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 	t.Helper()
