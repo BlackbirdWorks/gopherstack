@@ -17,7 +17,6 @@ import (
 const (
 	statusEnabled  = "ENABLED"
 	statusDisabled = "DISABLED"
-	statusEnabling = "ENABLING"
 
 	ec2ScanModeEC2SSMAgentBased = "EC2_SSM_AGENT_BASED"
 	ecrRescanDurationLifetime   = "LIFETIME"
@@ -47,7 +46,7 @@ type Filter struct { //nolint:govet // fieldalignment: map fields after scalars 
 	Action      string            `json:"action"`
 	Description string            `json:"description,omitempty"`
 	Reason      string            `json:"reason,omitempty"`
-	OwnerId     string            `json:"ownerId"`
+	OwnerID     string            `json:"ownerId"`
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Criteria    map[string]any    `json:"filterCriteria,omitempty"`
@@ -57,7 +56,7 @@ type Filter struct { //nolint:govet // fieldalignment: map fields after scalars 
 // Finding represents an Inspector2 finding (minimal stub for list support).
 type Finding struct {
 	FindingArn  string `json:"findingArn"`
-	AccountId   string `json:"awsAccountId"`
+	AccountID   string `json:"awsAccountId"`
 	Type        string `json:"type"`
 	Severity    string `json:"severity"`
 	Status      string `json:"status"`
@@ -72,7 +71,7 @@ type Configuration struct {
 
 // AccountStatusResponse holds Enable/Disable/BatchGetAccountStatus output.
 type AccountStatusResponse struct {
-	AccountId    string `json:"accountId"`
+	AccountID    string `json:"accountId"`
 	Status       string `json:"status"`
 	Ec2Status    string `json:"ec2Status"`
 	EcrStatus    string `json:"ecrStatus"`
@@ -80,9 +79,9 @@ type AccountStatusResponse struct {
 }
 
 // InMemoryBackend is the in-memory implementation of Inspector2.
-type InMemoryBackend struct {
+type InMemoryBackend struct { //nolint:govet // fieldalignment: bool before pointer is intentional
 	mu        *lockmetrics.RWMutex
-	filters   map[string]*Filter // arn → filter
+	filters   map[string]*Filter
 	tags      map[string]map[string]string
 	config    Configuration
 	enabled   bool
@@ -152,7 +151,7 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	}
 
 	return &AccountStatusResponse{
-		AccountId:    b.accountID,
+		AccountID:    b.accountID,
 		Status:       status,
 		Ec2Status:    status,
 		EcrStatus:    status,
@@ -162,6 +161,7 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 
 func (b *InMemoryBackend) buildFilterARN() string {
 	id := uuid.New().String()
+
 	return arn.Build(inspector2Service, b.region, b.accountID, "filter/"+id)
 }
 
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) CreateFilter(
 		Action:      action,
 		Description: description,
 		Reason:      reason,
-		OwnerId:     b.accountID,
+		OwnerID:     b.accountID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Criteria:    criteria,
@@ -201,6 +201,7 @@ func (b *InMemoryBackend) CreateFilter(
 	}
 
 	b.filters[filterARN] = f
+
 	if len(tags) > 0 {
 		b.tags[filterARN] = maps.Clone(tags)
 	}
@@ -267,14 +268,14 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	var result []*Filter
-
 	sortedARNs := make([]string, 0, len(b.filters))
 	for a := range b.filters {
 		sortedARNs = append(sortedARNs, a)
 	}
 
 	sort.Strings(sortedARNs)
+
+	var result []*Filter
 
 	for _, a := range sortedARNs {
 		f := b.filters[a]
@@ -294,7 +295,7 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 }
 
 // ListFindings returns a page of findings (stub — always empty in this implementation).
-func (b *InMemoryBackend) ListFindings(maxResults int32, nextToken string) ([]*Finding, string, error) {
+func (b *InMemoryBackend) ListFindings(_ int32, _ string) ([]*Finding, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
@@ -340,19 +341,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.tags[resourceARN][k] = v
-	}
+	maps.Copy(b.tags[resourceARN], tags)
 
-	// Mirror tags into filter if applicable.
 	if f, ok := b.filters[resourceARN]; ok {
 		if f.Tags == nil {
 			f.Tags = make(map[string]string)
 		}
 
-		for k, v := range tags {
-			f.Tags[k] = v
-		}
+		maps.Copy(f.Tags, tags)
 	}
 
 	return nil
@@ -387,10 +383,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		return nil, ErrTagsResourceNotFound
 	}
 
-	result := make(map[string]string)
-	for k, v := range b.tags[resourceARN] {
-		result[k] = v
-	}
+	result := make(map[string]string, len(b.tags[resourceARN]))
+	maps.Copy(result, b.tags[resourceARN])
 
 	return result, nil
 }
@@ -402,18 +396,7 @@ func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 		return true
 	}
 
-	// The account itself is always a valid tagging target for Inspector2.
-	expected := fmt.Sprintf("arn:aws:%s:%s:%s:owner/%s",
-		inspector2Service, b.region, b.accountID, b.accountID)
-	if resourceARN == expected {
-		if b.tags[resourceARN] == nil {
-			return true
-		}
-
-		return true
-	}
-
-	// Accept any previously tagged ARN.
+	// Accept any previously tagged ARN (including account-level ARNs).
 	_, tagged := b.tags[resourceARN]
 
 	return tagged
@@ -430,7 +413,7 @@ func (b *InMemoryBackend) Reset() {
 	b.enabled = false
 }
 
-type backendSnapshot struct {
+type backendSnapshot struct { //nolint:govet // fieldalignment: readability over padding
 	Filters   map[string]*Filter           `json:"filters"`
 	Tags      map[string]map[string]string `json:"tags"`
 	Config    Configuration                `json:"config"`

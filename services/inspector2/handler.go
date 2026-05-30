@@ -32,6 +32,25 @@ const (
 	opUntagResource         = "UntagResource"
 	opListTagsForResource   = "ListTagsForResource"
 	opUnknown               = "Unknown"
+
+	pathEnable              = "/enable"
+	pathDisable             = "/disable"
+	pathStatusBatchGet      = "/status/batch/get"
+	pathFiltersCreate       = "/filters/create"
+	pathFiltersUpdate       = "/filters/update"
+	pathFiltersDelete       = "/filters/delete"
+	pathFiltersList         = "/filters/list"
+	pathFindingsList        = "/findings/list"
+	pathConfigurationGet    = "/configuration/get"
+	pathConfigurationUpdate = "/configuration/update"
+	pathTagsPrefix          = "/tags/"
+
+	keyAccounts       = "accounts"
+	keyAccountID      = "accountId"
+	keyResourceStatus = "resourceStatus"
+	keyStatus         = "status"
+	keyFailedAccounts = "failedAccounts"
+	keyArn            = "arn"
 )
 
 // Handler handles Inspector2 HTTP requests.
@@ -74,24 +93,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		for _, prefix := range inspector2Prefixes {
-			if strings.HasPrefix(path, prefix) {
-				return true
-			}
-		}
-
-		return false
+		return strings.HasPrefix(path, pathEnable) ||
+			strings.HasPrefix(path, pathDisable) ||
+			strings.HasPrefix(path, "/status/") ||
+			strings.HasPrefix(path, "/filters/") ||
+			strings.HasPrefix(path, "/findings/") ||
+			strings.HasPrefix(path, "/configuration/") ||
+			strings.HasPrefix(path, pathTagsPrefix+"arn:aws:inspector2:")
 	}
-}
-
-var inspector2Prefixes = []string{
-	"/enable",
-	"/disable",
-	"/status/",
-	"/filters/",
-	"/findings/",
-	"/configuration/",
-	"/tags/arn:aws:inspector2:",
 }
 
 // MatchPriority returns the routing priority.
@@ -99,17 +108,15 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation extracts the operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op := classifyPath(c.Request().Method, c.Request().URL.Path)
-
-	return op
+	return classifyPath(c.Request().Method, c.Request().URL.Path)
 }
 
 // ExtractResource extracts the resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 
-	if strings.HasPrefix(path, "/tags/") {
-		return path[len("/tags/"):]
+	if resource, ok := strings.CutPrefix(path, pathTagsPrefix); ok {
+		return resource
 	}
 
 	return path
@@ -126,32 +133,32 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
-	switch {
-	case method == http.MethodPost && path == "/enable":
-		return h.handleEnable(c)
-	case method == http.MethodPost && path == "/disable":
-		return h.handleDisable(c)
-	case method == http.MethodPost && path == "/status/batch/get":
+	switch classifyPath(method, path) {
+	case opEnable:
+		return h.handleToggle(c, true)
+	case opDisable:
+		return h.handleToggle(c, false)
+	case opBatchGetAccountStatus:
 		return h.handleBatchGetAccountStatus(c)
-	case method == http.MethodPost && path == "/filters/create":
+	case opCreateFilter:
 		return h.handleCreateFilter(c)
-	case method == http.MethodPost && path == "/filters/update":
+	case opUpdateFilter:
 		return h.handleUpdateFilter(c)
-	case method == http.MethodPost && path == "/filters/delete":
+	case opDeleteFilter:
 		return h.handleDeleteFilter(c)
-	case method == http.MethodPost && path == "/filters/list":
+	case opListFilters:
 		return h.handleListFilters(c)
-	case method == http.MethodPost && path == "/findings/list":
+	case opListFindings:
 		return h.handleListFindings(c)
-	case method == http.MethodPost && path == "/configuration/get":
+	case opGetConfiguration:
 		return h.handleGetConfiguration(c)
-	case method == http.MethodPost && path == "/configuration/update":
+	case opUpdateConfiguration:
 		return h.handleUpdateConfiguration(c)
-	case method == http.MethodGet && strings.HasPrefix(path, "/tags/"):
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
-	case method == http.MethodPost && strings.HasPrefix(path, "/tags/"):
+	case opTagResource:
 		return h.handleTagResource(c)
-	case method == http.MethodDelete && strings.HasPrefix(path, "/tags/"):
+	case opUntagResource:
 		return h.handleUntagResource(c)
 	}
 
@@ -164,42 +171,42 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	})
 }
 
-// classifyPath maps a method+path to an operation name.
+//nolint:cyclop // exhaustive path-to-operation mapping is inherently complex
 func classifyPath(method, path string) string {
 	switch {
-	case method == http.MethodPost && path == "/enable":
+	case method == http.MethodPost && path == pathEnable:
 		return opEnable
-	case method == http.MethodPost && path == "/disable":
+	case method == http.MethodPost && path == pathDisable:
 		return opDisable
-	case method == http.MethodPost && path == "/status/batch/get":
+	case method == http.MethodPost && path == pathStatusBatchGet:
 		return opBatchGetAccountStatus
-	case method == http.MethodPost && path == "/filters/create":
+	case method == http.MethodPost && path == pathFiltersCreate:
 		return opCreateFilter
-	case method == http.MethodPost && path == "/filters/update":
+	case method == http.MethodPost && path == pathFiltersUpdate:
 		return opUpdateFilter
-	case method == http.MethodPost && path == "/filters/delete":
+	case method == http.MethodPost && path == pathFiltersDelete:
 		return opDeleteFilter
-	case method == http.MethodPost && path == "/filters/list":
+	case method == http.MethodPost && path == pathFiltersList:
 		return opListFilters
-	case method == http.MethodPost && path == "/findings/list":
+	case method == http.MethodPost && path == pathFindingsList:
 		return opListFindings
-	case method == http.MethodPost && path == "/configuration/get":
+	case method == http.MethodPost && path == pathConfigurationGet:
 		return opGetConfiguration
-	case method == http.MethodPost && path == "/configuration/update":
+	case method == http.MethodPost && path == pathConfigurationUpdate:
 		return opUpdateConfiguration
-	case method == http.MethodGet && strings.HasPrefix(path, "/tags/"):
+	case method == http.MethodGet && strings.HasPrefix(path, pathTagsPrefix):
 		return opListTagsForResource
-	case method == http.MethodPost && strings.HasPrefix(path, "/tags/"):
+	case method == http.MethodPost && strings.HasPrefix(path, pathTagsPrefix):
 		return opTagResource
-	case method == http.MethodDelete && strings.HasPrefix(path, "/tags/"):
+	case method == http.MethodDelete && strings.HasPrefix(path, pathTagsPrefix):
 		return opUntagResource
 	}
 
 	return opUnknown
 }
 
-// handleEnable handles POST /enable.
-func (h *Handler) handleEnable(c *echo.Context) error {
+// handleToggle handles POST /enable and POST /disable.
+func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
@@ -210,61 +217,32 @@ func (h *Handler) handleEnable(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
 
-	if err := h.Backend.Enable(req.ResourceTypes); err != nil {
-		return h.mapError(c, err)
+	if enable {
+		err = h.Backend.Enable(req.ResourceTypes)
+	} else {
+		err = h.Backend.Disable(req.ResourceTypes)
 	}
 
-	status := h.Backend.GetStatus()
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"accounts": []map[string]any{
-			{
-				"accountId":      status.AccountId,
-				"resourceStatus": buildResourceStatus(status),
-				"status":         status.Status,
-			},
-		},
-		"failedAccounts": []any{},
-	})
-}
-
-// handleDisable handles POST /disable.
-func (h *Handler) handleDisable(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
-	}
-
-	var req struct {
-		ResourceTypes []string `json:"resourceTypes"`
-	}
-
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
-		}
-	}
-
-	if err := h.Backend.Disable(req.ResourceTypes); err != nil {
 		return h.mapError(c, err)
 	}
 
 	status := h.Backend.GetStatus()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accounts": []map[string]any{
+		keyAccounts: []map[string]any{
 			{
-				"accountId":      status.AccountId,
-				"resourceStatus": buildResourceStatus(status),
-				"status":         status.Status,
+				keyAccountID:      status.AccountID,
+				keyResourceStatus: buildResourceStatus(status),
+				keyStatus:         status.Status,
 			},
 		},
-		"failedAccounts": []any{},
+		keyFailedAccounts: []any{},
 	})
 }
 
@@ -273,18 +251,18 @@ func (h *Handler) handleBatchGetAccountStatus(c *echo.Context) error {
 	status := h.Backend.GetStatus()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accounts": []map[string]any{
+		keyAccounts: []map[string]any{
 			{
-				"accountId":      status.AccountId,
-				"resourceStatus": buildResourceStatus(status),
+				keyAccountID:      status.AccountID,
+				keyResourceStatus: buildResourceStatus(status),
 				"state": map[string]any{
-					"status": map[string]any{
-						"status": status.Status,
+					keyStatus: map[string]any{
+						keyStatus: status.Status,
 					},
 				},
 			},
 		},
-		"failedAccounts": []any{},
+		keyFailedAccounts: []any{},
 	})
 }
 
@@ -296,15 +274,15 @@ func (h *Handler) handleCreateFilter(c *echo.Context) error {
 	}
 
 	var req struct {
+		FilterCriteria map[string]any    `json:"filterCriteria"`
+		Tags           map[string]string `json:"tags"`
 		Name           string            `json:"name"`
 		Action         string            `json:"action"`
 		Description    string            `json:"description"`
 		Reason         string            `json:"reason"`
-		FilterCriteria map[string]any    `json:"filterCriteria"`
-		Tags           map[string]string `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -316,14 +294,19 @@ func (h *Handler) handleCreateFilter(c *echo.Context) error {
 		req.Action = "NONE"
 	}
 
-	f, err := h.Backend.CreateFilter(req.Name, req.Action, req.Description, req.Reason, req.FilterCriteria, req.Tags)
-	if err != nil {
-		return h.mapError(c, err)
+	f, createErr := h.Backend.CreateFilter(
+		req.Name,
+		req.Action,
+		req.Description,
+		req.Reason,
+		req.FilterCriteria,
+		req.Tags,
+	)
+	if createErr != nil {
+		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"arn": f.Arn,
-	})
+	return c.JSON(http.StatusOK, map[string]any{keyArn: f.Arn})
 }
 
 // handleUpdateFilter handles POST /filters/update.
@@ -334,14 +317,14 @@ func (h *Handler) handleUpdateFilter(c *echo.Context) error {
 	}
 
 	var req struct {
+		FilterCriteria map[string]any `json:"filterCriteria"`
 		FilterArn      string         `json:"filterArn"`
 		Action         string         `json:"action"`
 		Description    string         `json:"description"`
 		Reason         string         `json:"reason"`
-		FilterCriteria map[string]any `json:"filterCriteria"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -349,14 +332,12 @@ func (h *Handler) handleUpdateFilter(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "filterArn is required"))
 	}
 
-	f, err := h.Backend.UpdateFilter(req.FilterArn, req.Action, req.Description, req.Reason, req.FilterCriteria)
-	if err != nil {
-		return h.mapError(c, err)
+	f, updateErr := h.Backend.UpdateFilter(req.FilterArn, req.Action, req.Description, req.Reason, req.FilterCriteria)
+	if updateErr != nil {
+		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"arn": f.Arn,
-	})
+	return c.JSON(http.StatusOK, map[string]any{keyArn: f.Arn})
 }
 
 // handleDeleteFilter handles POST /filters/delete.
@@ -370,7 +351,7 @@ func (h *Handler) handleDeleteFilter(c *echo.Context) error {
 		Arn string `json:"arn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -378,13 +359,11 @@ func (h *Handler) handleDeleteFilter(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "arn is required"))
 	}
 
-	if err := h.Backend.DeleteFilter(req.Arn); err != nil {
-		return h.mapError(c, err)
+	if deleteErr := h.Backend.DeleteFilter(req.Arn); deleteErr != nil {
+		return h.mapError(c, deleteErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"arn": req.Arn,
-	})
+	return c.JSON(http.StatusOK, map[string]any{keyArn: req.Arn})
 }
 
 // handleListFilters handles POST /filters/list.
@@ -395,29 +374,28 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 	}
 
 	var req struct {
-		Arns      []string `json:"arns"`
-		Action    string   `json:"action"`
-		NextToken string   `json:"nextToken"`
+		Action string   `json:"action"`
+		Arns   []string `json:"arns"`
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
 
-	filters, err := h.Backend.ListFilters(req.Arns, req.Action)
-	if err != nil {
-		return h.mapError(c, err)
+	filters, listErr := h.Backend.ListFilters(req.Arns, req.Action)
+	if listErr != nil {
+		return h.mapError(c, listErr)
 	}
 
 	result := make([]map[string]any, 0, len(filters))
 	for _, f := range filters {
 		entry := map[string]any{
-			"arn":       f.Arn,
+			keyArn:      f.Arn,
 			"name":      f.Name,
 			"action":    f.Action,
-			"ownerId":   f.OwnerId,
+			"ownerId":   f.OwnerID,
 			"createdAt": f.CreatedAt,
 			"updatedAt": f.UpdatedAt,
 		}
@@ -441,9 +419,7 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 		result = append(result, entry)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"filters": result,
-	})
+	return c.JSON(http.StatusOK, map[string]any{"filters": result})
 }
 
 // handleListFindings handles POST /findings/list.
@@ -454,24 +430,22 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 	}
 
 	var req struct {
-		MaxResults int32  `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int32  `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
 
-	findings, nextToken, err := h.Backend.ListFindings(req.MaxResults, req.NextToken)
-	if err != nil {
-		return h.mapError(c, err)
+	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken)
+	if findErr != nil {
+		return h.mapError(c, findErr)
 	}
 
-	resp := map[string]any{
-		"findings": findings,
-	}
+	resp := map[string]any{"findings": findings}
 
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
@@ -494,7 +468,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 		"ecrConfiguration": map[string]any{
 			"rescanDurationState": map[string]any{
 				"rescanDuration": cfg.EcrRescanDuration,
-				"status":         statusEnabled,
+				keyStatus:        statusEnabled,
 				"updatedAt":      nil,
 			},
 		},
@@ -518,7 +492,7 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
@@ -533,8 +507,8 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 		ecrRescanDuration = req.EcrConfiguration.RescanDuration
 	}
 
-	if err := h.Backend.UpdateConfiguration(ec2ScanMode, ecrRescanDuration); err != nil {
-		return h.mapError(c, err)
+	if updateErr := h.Backend.UpdateConfiguration(ec2ScanMode, ecrRescanDuration); updateErr != nil {
+		return h.mapError(c, updateErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -547,18 +521,16 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resourceArn is required"))
 	}
 
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
-	if err != nil {
-		return h.mapError(c, err)
+	tags, listErr := h.Backend.ListTagsForResource(resourceARN)
+	if listErr != nil {
+		return h.mapError(c, listErr)
 	}
 
 	if tags == nil {
 		tags = map[string]string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"tags": tags,
-	})
+	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
 }
 
 // handleTagResource handles POST /tags/{resourceArn}.
@@ -577,12 +549,12 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 		Tags map[string]string `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	if err := h.Backend.TagResource(resourceARN, req.Tags); err != nil {
-		return h.mapError(c, err)
+	if tagErr := h.Backend.TagResource(resourceARN, req.Tags); tagErr != nil {
+		return h.mapError(c, tagErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -597,8 +569,8 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
-		return h.mapError(c, err)
+	if untagErr := h.Backend.UntagResource(resourceARN, tagKeys); untagErr != nil {
+		return h.mapError(c, untagErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -606,13 +578,13 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 // extractResourceARN extracts the resource ARN from the URL path.
 func extractResourceARN(path string) string {
-	const prefix = "/tags/"
+	resource, _ := strings.CutPrefix(path, pathTagsPrefix)
 
-	if idx := strings.Index(path, prefix); idx >= 0 {
-		return path[idx+len(prefix):]
+	if resource == path {
+		return ""
 	}
 
-	return ""
+	return resource
 }
 
 // buildResourceStatus constructs the resourceStatus map.

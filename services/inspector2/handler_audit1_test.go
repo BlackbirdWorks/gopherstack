@@ -383,7 +383,7 @@ func TestAudit1_Filter_Lifecycle(t *testing.T) {
 				listRec2 := auditDo(t, h, http.MethodPost, "/filters/list", map[string]any{})
 				var listResp2 map[string]any
 				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
-				assert.Len(t, listResp2["filters"].([]any), 0)
+				assert.Empty(t, listResp2["filters"].([]any))
 			},
 		},
 		{
