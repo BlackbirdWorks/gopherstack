@@ -1090,6 +1090,7 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 		name           string
 		principals     []string
 		resourceArns   []string
+		allowExternal  bool
 		wantPrincipals int
 		wantResources  int
 	}{
@@ -1097,6 +1098,7 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 			name:           "only principals",
 			principals:     []string{"123456789012", "arn:aws:iam::999999999999:root"},
 			resourceArns:   nil,
+			allowExternal:  true,
 			wantPrincipals: 2,
 			wantResources:  0,
 		},
@@ -1104,6 +1106,7 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 			name:           "only resources",
 			principals:     nil,
 			resourceArns:   []string{"arn:aws:ec2:us-east-1:123456789012:subnet/subnet-abc"},
+			allowExternal:  false,
 			wantPrincipals: 0,
 			wantResources:  1,
 		},
@@ -1111,6 +1114,7 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 			name:           "both principals and resources",
 			principals:     []string{"111111111111"},
 			resourceArns:   []string{"arn:aws:ec2:us-east-1:123456789012:subnet/subnet-abc"},
+			allowExternal:  true,
 			wantPrincipals: 1,
 			wantResources:  1,
 		},
@@ -1118,6 +1122,7 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 			name:           "no associations",
 			principals:     nil,
 			resourceArns:   nil,
+			allowExternal:  false,
 			wantPrincipals: 0,
 			wantResources:  0,
 		},
@@ -1128,7 +1133,11 @@ func TestRAM_Accuracy_CreateResourceShare_WithPrincipalsAndResources(t *testing.
 			t.Parallel()
 
 			h := newTestHandler(t)
-			body := map[string]any{"name": "assoc-share-" + tt.name}
+			shareName := strings.ReplaceAll("assoc-share-"+tt.name, " ", "-")
+			body := map[string]any{
+				"name":                    shareName,
+				"allowExternalPrincipals": tt.allowExternal,
+			}
 			if len(tt.principals) > 0 {
 				body["principals"] = tt.principals
 			}
@@ -1349,7 +1358,7 @@ func TestRAM_Accuracy_GetResourceShareAssociations_Filters(t *testing.T) {
 			h := newTestHandler(t)
 			rs, err := h.Backend.CreateResourceShare(
 				"assoc-filter-share",
-				false,
+				true,
 				nil,
 				tt.setupPrincipals,
 				tt.setupResources,

@@ -61,7 +61,7 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *ram.InMemoryBackend) {
 				t.Helper()
 
-				rs, err := b.CreateResourceShare("shared", false, nil, nil, nil)
+				rs, err := b.CreateResourceShare("shared", true, nil, nil, nil)
 				require.NoError(t, err)
 
 				_, err = b.AssociateResourceShare(

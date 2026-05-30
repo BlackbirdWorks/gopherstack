@@ -997,10 +997,9 @@ func (b *InMemoryBackend) DeletePermissionVersion(
 	}
 
 	// Cascade: remove share-permission associations pointing at the deleted version.
-	permARN := permissionARN
 	for shareARN, perms := range b.sharePermissions {
-		if ver, ok := perms[permARN]; ok && ver == permissionVersion {
-			delete(perms, permARN)
+		if ver, exists := perms[permissionARN]; exists && ver == permissionVersion {
+			delete(perms, permissionARN)
 
 			if len(perms) == 0 {
 				delete(b.sharePermissions, shareARN)
@@ -1176,12 +1175,12 @@ func (b *InMemoryBackend) AcceptResourceShareInvitation(
 
 // createInvitationLocked creates a pending invitation without acquiring a lock.
 // Caller must hold the write lock.
-func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcctID string) *ResourceShareInvitation {
+func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcctID string) {
 	invID := uuid.NewString()
 	invARN := b.invitationARN(invID)
 	now := time.Now()
 
-	inv := &ResourceShareInvitation{
+	b.invitations[invARN] = &ResourceShareInvitation{
 		InvitationARN:     invARN,
 		ResourceShareARN:  shareARN,
 		ResourceShareName: shareNm,
@@ -1191,9 +1190,6 @@ func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcct
 		CreationTime:      now,
 		LastUpdatedTime:   now,
 	}
-	b.invitations[invARN] = inv
-
-	return cloneInvitation(inv)
 }
 
 // principalReceiverAccountID extracts the effective AWS account ID from a principal string.

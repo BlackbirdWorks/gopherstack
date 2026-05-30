@@ -69,12 +69,11 @@ const (
 )
 
 const (
-	ramService        = "ram"
-	ramMatchPriority  = 87
-	maxShareNameLen   = 256
+	ramService       = "ram"
+	ramMatchPriority = 87
+	maxShareNameLen  = 256
 )
 
-//nolint:gochecknoglobals // compiled once at init; regex is immutable
 var ramShareNameRegex = regexp.MustCompile(`^[\w\-.]+$`)
 
 var (
@@ -1554,15 +1553,15 @@ func (h *Handler) handleDeletePermissionVersion(
 		)
 	}
 
-	v64, err := strconv.ParseInt(versionStr, 10, 32)
-	if err != nil || v64 <= 0 {
+	v64, parseErr := strconv.ParseInt(versionStr, 10, 32)
+	if parseErr != nil || v64 <= 0 {
 		return nil, fmt.Errorf("%w: permissionVersion must be a positive integer", errInvalidRequest)
 	}
 
 	version := int32(v64)
 
-	if err := h.Backend.DeletePermissionVersion(permissionARN, version); err != nil {
-		return nil, err
+	if delErr := h.Backend.DeletePermissionVersion(permissionARN, version); delErr != nil {
+		return nil, delErr
 	}
 
 	return json.Marshal(
@@ -2184,7 +2183,13 @@ type listResourceTypesResponse struct {
 	ResourceTypes []resourceTypeObject `json:"resourceTypes"`
 }
 
-const serviceNameEC2 = "ec2"
+const (
+	serviceNameEC2             = "ec2"
+	serviceNameRoute53Resolver = "route53resolver"
+	serviceNameGlue            = "glue"
+	serviceNameNetworkFirewall = "network-firewall"
+	serviceNameCodeBuild       = "codebuild"
+)
 
 //nolint:gochecknoglobals // read-only table initialized once; represents the AWS-supported shareable resource types
 var awsShareableResourceTypes = []resourceTypeObject{
@@ -2193,22 +2198,62 @@ var awsShareableResourceTypes = []resourceTypeObject{
 	{ResourceType: "ec2:TransitGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
 	{ResourceType: "ec2:LocalGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
 	{ResourceType: "ec2:PrefixList", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "route53resolver:ResolverRule", ServiceName: "route53resolver", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "route53resolver:FirewallRuleGroup", ServiceName: "route53resolver", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "license-manager:LicenseConfiguration", ServiceName: "license-manager", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "codebuild:Project", ServiceName: "codebuild", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "codebuild:ReportGroup", ServiceName: "codebuild", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "glue:Catalog", ServiceName: "glue", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "glue:Database", ServiceName: "glue", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "glue:Table", ServiceName: "glue", ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "route53resolver:ResolverRule",
+		ServiceName:         serviceNameRoute53Resolver,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "route53resolver:FirewallRuleGroup",
+		ServiceName:         serviceNameRoute53Resolver,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "license-manager:LicenseConfiguration",
+		ServiceName:         "license-manager",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "codebuild:Project",
+		ServiceName:         serviceNameCodeBuild,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "codebuild:ReportGroup",
+		ServiceName:         serviceNameCodeBuild,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{ResourceType: "glue:Catalog", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "glue:Database", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
+	{ResourceType: "glue:Table", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
 	{ResourceType: "appmesh:Mesh", ServiceName: "appmesh", ResourceRegionScope: resourceRegionScopeRegional},
 	{ResourceType: "outposts:Outpost", ServiceName: "outposts", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "resource-groups:Group", ServiceName: "resource-groups", ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "resource-groups:Group",
+		ServiceName:         "resource-groups",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
 	{ResourceType: "ssm-contacts:Contact", ServiceName: "ssm-contacts", ResourceRegionScope: resourceRegionScopeGlobal},
-	{ResourceType: "ssm-incidents:ResponsePlan", ServiceName: "ssm-incidents", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "network-firewall:FirewallPolicy", ServiceName: "network-firewall", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "network-firewall:StatefulRuleGroup", ServiceName: "network-firewall", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "network-firewall:StatelessRuleGroup", ServiceName: "network-firewall", ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "ssm-incidents:ResponsePlan",
+		ServiceName:         "ssm-incidents",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:FirewallPolicy",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:StatefulRuleGroup",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "network-firewall:StatelessRuleGroup",
+		ServiceName:         serviceNameNetworkFirewall,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
 }
 
 func (h *Handler) handleListResourceTypes(_ context.Context, _ []byte) ([]byte, error) {
