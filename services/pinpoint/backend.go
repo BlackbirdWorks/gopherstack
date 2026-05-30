@@ -600,6 +600,8 @@ func (b *InMemoryBackend) CreateExportJob(
 }
 
 // CreateImportJob creates a new Pinpoint import job for an application.
+// It also materialises an associated IMPORT-type Segment so that callers can
+// reference the segment by ID after the job completes (AWS behaviour).
 func (b *InMemoryBackend) CreateImportJob(
 	region, accountID, appID string,
 	req createImportJobRequest,
@@ -613,6 +615,7 @@ func (b *InMemoryBackend) CreateImportJob(
 
 	id := uuid.NewString()
 	jobARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/jobs/import/%s", appID, id))
+	now := nowRFC3339()
 
 	j := &ImportJob{
 		ARN:           jobARN,
@@ -622,10 +625,44 @@ func (b *InMemoryBackend) CreateImportJob(
 		S3Url:         req.S3Url,
 		Format:        req.Format,
 		JobStatus:     jobStatusCreated,
-		CreationDate:  nowRFC3339(),
+		CreationDate:  now,
 	}
 
 	b.importJobs[id] = j
+
+	// Materialise an IMPORT-type segment so Terraform/clients can look it up.
+	segName := req.SegmentName
+	if segName == "" {
+		segName = "import-" + id
+	}
+
+	segID := uuid.NewString()
+	segARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/segments/%s", appID, segID))
+
+	importDef := map[string]any{
+		"Format":  req.Format,
+		"RoleArn": req.RoleArn,
+		"S3Url":   req.S3Url,
+		"Size":    0,
+	}
+
+	seg := &Segment{
+		ApplicationID:    appID,
+		ARN:              segARN,
+		ID:               segID,
+		Name:             segName,
+		SegmentType:      segmentTypeImport,
+		ImportDefinition: importDef,
+		CreationDate:     now,
+		LastModifiedDate: now,
+		Version:          1,
+	}
+
+	b.segments[segID] = seg
+	b.arnIndex[segARN] = seg
+
+	versionKey := appID + "/" + segID
+	b.segmentVersions[versionKey] = []*Segment{cloneSegment(seg)}
 
 	cp := *j
 
