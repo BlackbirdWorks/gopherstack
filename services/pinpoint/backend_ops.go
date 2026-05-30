@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"net/http"
 	"slices"
 	"sort"
 	"strconv"
@@ -1724,16 +1725,50 @@ func (b *InMemoryBackend) SendMessages(
 	return result, nil
 }
 
-// SendUsersMessages sends messages to users (stub).
-func (b *InMemoryBackend) SendUsersMessages(appID string) (*usersMessageResponse, error) {
-	b.mu.RLock("SendUsersMessages")
-	defer b.mu.RUnlock()
+// SendUsersMessages sends messages to users, returning per-endpoint results keyed by userID.
+func (b *InMemoryBackend) SendUsersMessages(
+	appID string,
+	req sendUsersMessagesRequest,
+) (*usersMessageResponse, error) {
+	b.mu.Lock("SendUsersMessages")
+	defer b.mu.Unlock()
 
 	if _, ok := b.apps[appID]; !ok {
 		return nil, ErrAppNotFound
 	}
 
-	return &usersMessageResponse{Result: make(map[string]map[string]messageResult)}, nil
+	result := make(map[string]map[string]messageResult)
+
+	for userID := range req.SendUsersMessageRequest.Users {
+		endpointResults := make(map[string]messageResult)
+
+		for key, ep := range b.endpoints {
+			if ep.ApplicationID != appID || ep.UserID != userID {
+				continue
+			}
+
+			// key is "appID/endpointID" — extract endpointID.
+			endpointID := key[len(appID)+1:]
+			endpointResults[endpointID] = messageResult{
+				DeliveryStatus: "SUCCESSFUL",
+				MessageID:      uuid.NewString(),
+				StatusCode:     statusCodeOK,
+			}
+		}
+
+		// If user has no registered endpoints, return a placeholder per-user entry.
+		if len(endpointResults) == 0 {
+			endpointResults["unknown"] = messageResult{
+				DeliveryStatus: "OPT_OUT",
+				StatusCode:     http.StatusOK,
+			}
+		}
+
+		result[userID] = endpointResults
+		b.sentMessages[appID]++
+	}
+
+	return &usersMessageResponse{Result: result}, nil
 }
 
 // SendOTPMessage sends an OTP message and stores the generated code.
@@ -1761,8 +1796,10 @@ func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse,
 	}, nil
 }
 
-// VerifyOTPMessage verifies an OTP — valid if an OTP was previously sent for this app.
-func (b *InMemoryBackend) VerifyOTPMessage(appID string) (*verifyOTPMessageResponse, error) {
+// VerifyOTPMessage verifies an OTP code for the given app.
+// If code is non-empty it must match the stored code exactly.
+// If code is empty it falls back to checking whether any OTP was ever sent.
+func (b *InMemoryBackend) VerifyOTPMessage(appID, code string) (*verifyOTPMessageResponse, error) {
 	b.mu.RLock("VerifyOTPMessage")
 	defer b.mu.RUnlock()
 
@@ -1770,9 +1807,17 @@ func (b *InMemoryBackend) VerifyOTPMessage(appID string) (*verifyOTPMessageRespo
 		return nil, ErrAppNotFound
 	}
 
-	_, hasPendingOTP := b.otpCodes[appID]
+	stored, hasPendingOTP := b.otpCodes[appID]
 
-	return &verifyOTPMessageResponse{Valid: hasPendingOTP}, nil
+	var valid bool
+
+	if code != "" {
+		valid = hasPendingOTP && stored == code
+	} else {
+		valid = hasPendingOTP
+	}
+
+	return &verifyOTPMessageResponse{Valid: valid}, nil
 }
 
 // PutEvents records events for an application.

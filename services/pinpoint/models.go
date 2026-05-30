@@ -944,3 +944,49 @@ type storedPinpointEvent struct {
 	EventType string `json:"EventType"`
 	Timestamp string `json:"Timestamp"`
 }
+
+// verifyOTPMessageRequest is the request body for VerifyOTPMessage.
+type verifyOTPMessageRequest struct {
+	VerifyOTPMessageRequestParameters struct {
+		DestinationIdentity string `json:"DestinationIdentity,omitempty"`
+		Otp                 string `json:"Otp"`
+		ReferenceId         string `json:"ReferenceId,omitempty"`
+	} `json:"VerifyOTPMessageRequestParameters"`
+}
+
+// sendUsersMessagesRequest is the request body for SendUsersMessages.
+type sendUsersMessagesRequest struct {
+	SendUsersMessageRequest struct {
+		Users                  map[string]endpointSendConfig `json:"Users,omitempty"`
+		MessageConfiguration   map[string]any                `json:"MessageConfiguration,omitempty"`
+		TemplateConfiguration  map[string]any                `json:"TemplateConfiguration,omitempty"`
+		TraceId                string                        `json:"TraceId,omitempty"`
+	} `json:"SendUsersMessageRequest"`
+}
+
+// endpointSendConfig is per-endpoint config in SendUsersMessages.
+type endpointSendConfig struct {
+	BodyOverride    string         `json:"BodyOverride,omitempty"`
+	TitleOverride   string         `json:"TitleOverride,omitempty"`
+	Context         map[string]string `json:"Context,omitempty"`
+	RawContent      string         `json:"RawContent,omitempty"`
+	Substitutions   map[string][]string `json:"Substitutions,omitempty"`
+}
+
+// pagedCampaignsResponse is the JSON wire format of CampaignsResponse with pagination.
+type pagedCampaignsResponse struct {
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []campaignResponse `json:"Item"`
+}
+
+// pagedSegmentsResponse is the JSON wire format of SegmentsResponse with pagination.
+type pagedSegmentsResponse struct {
+	NextToken *string           `json:"NextToken,omitempty"`
+	Item      []segmentResponse `json:"Item"`
+}
+
+// pagedJourneysResponse is the JSON wire format of JourneysResponse with pagination.
+type pagedJourneysResponse struct {
+	NextToken *string          `json:"NextToken,omitempty"`
+	Item      []journeyResponse `json:"Item"`
+}
