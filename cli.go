@@ -117,6 +117,7 @@ import (
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -311,6 +312,7 @@ type CLI struct {
 	kinesisanalyticsHandler       service.Registerable
 	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
+	guarddutyHandler              service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
@@ -1203,6 +1205,11 @@ func (c *CLI) GetLakeFormationHandler() service.Registerable { return c.lakeform
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
+
+// GetGuardDutyHandler returns the GuardDuty handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGuardDutyHandler() service.Registerable { return c.guarddutyHandler }
 
 // GetKafkaHandler returns the Kafka handler (dashboard.AWSSDKProvider).
 //
@@ -2300,6 +2307,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
 	cli.lakeformationHandler = byName["LakeFormation"]
 	cli.glueHandler = byName["Glue"]
+	cli.guarddutyHandler = byName["GuardDuty"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
@@ -2632,6 +2640,7 @@ func getServiceProviders() []service.Provider {
 		&emrserverlessbackend.Provider{},
 		&emrbackend.Provider{},
 		&gluebackend.Provider{},
+		&guarddutybackend.Provider{},
 		&docdbbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},

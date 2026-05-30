@@ -7,7 +7,7 @@ toolchain go1.26.3
 require (
 	github.com/alecthomas/kong v1.15.0
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/aws/aws-sdk-go-v2 v1.41.7
+	github.com/aws/aws-sdk-go-v2 v1.41.9
 	github.com/aws/aws-sdk-go-v2/config v1.32.18
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.17
 	github.com/aws/aws-sdk-go-v2/service/acm v1.37.21
@@ -61,7 +61,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
 	github.com/aws/aws-sdk-go-v2/service/support v1.31.23
 	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
-	github.com/aws/smithy-go v1.25.1
+	github.com/aws/smithy-go v1.26.0
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -176,6 +176,7 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/guardduty v1.78.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0 // indirect
 )
 
@@ -192,8 +193,8 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.25 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.25 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.34.0
 	github.com/aws/aws-sdk-go-v2/service/emr v1.57.7
