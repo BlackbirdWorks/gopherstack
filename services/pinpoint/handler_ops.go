@@ -1,6 +1,7 @@
 package pinpoint
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +13,57 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+const defaultPageSize = 100
+
+// parsePageParams parses page-size and token query params.
+// Returns offset (0-based index) and page size.
+func parsePageParams(c *echo.Context) (int, int) {
+	pageSize := defaultPageSize
+	offset := 0
+
+	if ps := c.QueryParam("page-size"); ps != "" {
+		if n, err := strconv.Atoi(ps); err == nil && n > 0 {
+			pageSize = n
+		}
+	}
+
+	if tok := c.QueryParam("token"); tok != "" {
+		if raw, err := base64.StdEncoding.DecodeString(tok); err == nil {
+			if n, atoiErr := strconv.Atoi(string(raw)); atoiErr == nil && n >= 0 {
+				offset = n
+			}
+		}
+	}
+
+	return offset, pageSize
+}
+
+// applyPageParams slices items to the requested page and returns the NextToken if more items remain.
+func applyPageParams(offset, pageSize, total int) (int, int, *string) {
+	if offset >= total {
+		offset = total
+	}
+
+	end := offset + pageSize
+
+	var nextToken *string
+
+	if end < total {
+		nextToken = makeNextToken(end)
+	} else {
+		end = total
+	}
+
+	return offset, end, nextToken
+}
+
+// makeNextToken encodes an offset into a pagination token.
+func makeNextToken(offset int) *string {
+	tok := base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+
+	return &tok
+}
 
 // ──────────────────────────────────────────────────
 // Channel handlers
@@ -233,13 +285,19 @@ func (h *Handler) handleGetCampaigns(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]campaignResponse, 0, len(campaigns))
+	offset, pageSize := parsePageParams(c)
+	start, end, nextToken := applyPageParams(offset, pageSize, len(campaigns))
 
-	for _, c2 := range campaigns {
+	items := make([]campaignResponse, 0, end-start)
+
+	for _, c2 := range campaigns[start:end] {
 		items = append(items, toCampaignResponse(c2))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, campaignsListResponse{Item: items})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, pagedCampaignsResponse{
+		NextToken: nextToken,
+		Item:      items,
+	})
 
 	return nil
 }
@@ -397,13 +455,19 @@ func (h *Handler) handleGetSegments(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]segmentResponse, 0, len(segments))
+	offset, pageSize := parsePageParams(c)
+	start, end, nextToken := applyPageParams(offset, pageSize, len(segments))
 
-	for _, s := range segments {
+	items := make([]segmentResponse, 0, end-start)
+
+	for _, s := range segments[start:end] {
 		items = append(items, toSegmentResponse(s))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, segmentsListResponse{Item: items})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, pagedSegmentsResponse{
+		NextToken: nextToken,
+		Item:      items,
+	})
 
 	return nil
 }
@@ -554,13 +618,19 @@ func (h *Handler) handleListJourneys(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]journeyResponse, 0, len(journeys))
+	offset, pageSize := parsePageParams(c)
+	start, end, nextToken := applyPageParams(offset, pageSize, len(journeys))
 
-	for _, j := range journeys {
+	items := make([]journeyResponse, 0, end-start)
+
+	for _, j := range journeys[start:end] {
 		items = append(items, toJourneyResponse(j))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, journeysListResponse{Item: items})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, pagedJourneysResponse{
+		NextToken: nextToken,
+		Item:      items,
+	})
 
 	return nil
 }
@@ -1061,6 +1131,10 @@ func (h *Handler) handleUpdateEndpoint(c *echo.Context, appID, endpointID string
 
 	e, backendErr := h.Backend.UpdateEndpoint(appID, endpointID, req)
 	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
@@ -1244,15 +1318,25 @@ func (h *Handler) handleSendMessages(c *echo.Context, appID string) error {
 
 // handleSendUsersMessages handles POST /v1/apps/{appId}/users-messages.
 func (h *Handler) handleSendUsersMessages(c *echo.Context, appID string) error {
-	_, _ = httputils.ReadBody(c.Request())
-
-	resp, err := h.Backend.SendUsersMessages(appID)
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+	}
+
+	var req sendUsersMessagesRequest
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		}
+	}
+
+	resp, backendErr := h.Backend.SendUsersMessages(appID, req)
+	if backendErr != nil {
+		if errors.Is(backendErr, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
 		}
 
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
@@ -1280,9 +1364,16 @@ func (h *Handler) handleSendOTPMessage(c *echo.Context, appID string) error {
 
 // handleVerifyOTPMessage handles POST /v1/apps/{appId}/verify-otp.
 func (h *Handler) handleVerifyOTPMessage(c *echo.Context, appID string) error {
-	_, _ = httputils.ReadBody(c.Request())
+	body, _ := httputils.ReadBody(c.Request())
 
-	resp, err := h.Backend.VerifyOTPMessage(appID)
+	var req verifyOTPMessageRequest
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	code := req.VerifyOTPMessageRequestParameters.Otp
+
+	resp, err := h.Backend.VerifyOTPMessage(appID, code)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

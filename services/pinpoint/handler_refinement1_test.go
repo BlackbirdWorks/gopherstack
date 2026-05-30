@@ -710,7 +710,9 @@ func TestRefinement1_CountHelpersViaBackend(t *testing.T) {
 	assert.Equal(t, 1, pinpoint.ExportJobCount(b))
 	assert.Equal(t, 1, pinpoint.ImportJobCount(b))
 	assert.Equal(t, 1, pinpoint.JourneyCount(b))
-	assert.Equal(t, 1, pinpoint.SegmentCount(b))
+	// CreateImportJob materialises an IMPORT-type segment, so count is 2:
+	// one from CreateSegment and one from CreateImportJob.
+	assert.Equal(t, 2, pinpoint.SegmentCount(b))
 	assert.Equal(t, 1, pinpoint.RecommenderCount(b))
 }
 

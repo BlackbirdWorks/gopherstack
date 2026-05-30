@@ -29,6 +29,8 @@ const (
 	otpModulus     = 1000000
 
 	statusCodeOK = 200
+
+	deliveryStatusSuccessful = "SUCCESSFUL"
 )
 
 // ──────────────────────────────────────────────────
@@ -61,7 +63,25 @@ const (
 	ChannelTypeVoice = "VOICE"
 	// ChannelTypeInApp is the In-App channel.
 	ChannelTypeInApp = "IN_APP"
+	// ChannelTypeCustom is the Custom channel.
+	ChannelTypeCustom = "CUSTOM"
+	// ChannelTypePush is the generic push channel.
+	ChannelTypePush = "PUSH"
 )
+
+// isValidEndpointChannelType reports whether ct is a valid ChannelType for UpdateEndpoint.
+func isValidEndpointChannelType(ct string) bool {
+	switch ct {
+	case ChannelTypeADM, ChannelTypeAPNS, ChannelTypeAPNSSandbox,
+		ChannelTypeAPNSVoip, ChannelTypeAPNSVoipSandbox,
+		ChannelTypeBaidu, ChannelTypeEmail, ChannelTypeGCM,
+		ChannelTypeSMS, ChannelTypeVoice, ChannelTypeInApp,
+		ChannelTypeCustom, ChannelTypePush:
+		return true
+	}
+
+	return false
+}
 
 // Channel represents a generic Pinpoint channel response.
 type Channel struct {
@@ -1057,6 +1077,12 @@ func (b *InMemoryBackend) UpdateEndpoint(
 	appID, endpointID string,
 	req updateEndpointRequest,
 ) (*Endpoint, error) {
+	if req.ChannelType != "" {
+		if !isValidEndpointChannelType(req.ChannelType) {
+			return nil, ErrValidation
+		}
+	}
+
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
@@ -1715,7 +1741,7 @@ func (b *InMemoryBackend) SendMessages(
 
 	for addr := range req.MessageRequest.Addresses {
 		result.Result[addr] = messageResult{
-			DeliveryStatus: "SUCCESSFUL",
+			DeliveryStatus: deliveryStatusSuccessful,
 			MessageID:      uuid.NewString(),
 			StatusCode:     statusCodeOK,
 		}
@@ -1750,7 +1776,7 @@ func (b *InMemoryBackend) SendUsersMessages(
 			// key is "appID/endpointID" — extract endpointID.
 			endpointID := key[len(appID)+1:]
 			endpointResults[endpointID] = messageResult{
-				DeliveryStatus: "SUCCESSFUL",
+				DeliveryStatus: deliveryStatusSuccessful,
 				MessageID:      uuid.NewString(),
 				StatusCode:     statusCodeOK,
 			}
@@ -1790,7 +1816,7 @@ func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse,
 	return &sendOTPMessageResponse{
 		MessageResponse: messageResponse{
 			Result: map[string]messageResult{
-				appID: {DeliveryStatus: "SUCCESSFUL", MessageID: msgID, StatusCode: statusCodeOK},
+				appID: {DeliveryStatus: deliveryStatusSuccessful, MessageID: msgID, StatusCode: statusCodeOK},
 			},
 		},
 	}, nil
