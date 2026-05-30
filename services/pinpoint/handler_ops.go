@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -69,21 +70,34 @@ func makeNextToken(offset int) *string {
 // Channel handlers
 // ──────────────────────────────────────────────────
 
-// toChannelResponse converts a Channel to its wire format.
-func toChannelResponse(ch *Channel) channelResponse {
-	return channelResponse{
-		ApplicationID:     ch.ApplicationID,
-		ChannelType:       ch.ChannelType,
-		Platform:          ch.Platform,
-		Enabled:           ch.Enabled,
-		IsArchived:        ch.IsArchived,
-		HasCredential:     ch.HasCredential,
-		HasTokenKey:       ch.HasTokenKey,
-		Version:           ch.Version,
-		CreationDate:      ch.CreationDate,
-		LastModifiedDate:  ch.LastModifiedDate,
-		MessagesPerSecond: ch.MessagesPerSecond,
+// toChannelResponse converts a Channel to its wire format including per-type extra fields.
+func toChannelResponse(ch *Channel) map[string]any {
+	resp := map[string]any{
+		"ApplicationId":    ch.ApplicationID,
+		"ChannelType":      ch.ChannelType,
+		"Platform":         ch.Platform,
+		"Enabled":          ch.Enabled,
+		"IsArchived":       ch.IsArchived,
+		"Version":          ch.Version,
+		"CreationDate":     ch.CreationDate,
+		"LastModifiedDate": ch.LastModifiedDate,
 	}
+
+	if ch.HasCredential {
+		resp["HasCredential"] = true
+	}
+
+	if ch.HasTokenKey {
+		resp["HasTokenKey"] = true
+	}
+
+	if ch.MessagesPerSecond > 0 {
+		resp["MessagesPerSecond"] = ch.MessagesPerSecond
+	}
+
+	maps.Copy(resp, ch.ExtraData)
+
+	return resp
 }
 
 // handleGetChannel handles GET /v1/apps/{appId}/channels/{channelType}.
@@ -97,13 +111,13 @@ func (h *Handler) handleGetChannel(c *echo.Context, appID, channelType string) e
 // handleGetChannels handles GET /v1/apps/{appId}/channels.
 func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 	channels := h.Backend.GetAllChannels(appID)
-	resp := channelsResponse{Channels: make(map[string]channelResponse)}
+	chMap := make(map[string]map[string]any, len(channels))
 
 	for _, ch := range channels {
-		resp.Channels[ch.ChannelType] = toChannelResponse(ch)
+		chMap[ch.ChannelType] = toChannelResponse(ch)
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, map[string]any{"Channels": chMap})
 }
 
 func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
@@ -181,6 +195,14 @@ func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
 		extra["ShortCode"] = req.ShortCode
 	}
 
+	if req.PromotionalMessagesPerSecond > 0 {
+		extra["PromotionalMessagesPerSecond"] = req.PromotionalMessagesPerSecond
+	}
+
+	if req.TransactionalMessagesPerSecond > 0 {
+		extra["TransactionalMessagesPerSecond"] = req.TransactionalMessagesPerSecond
+	}
+
 	return req.Enabled, extra
 }
 
@@ -207,6 +229,10 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 			extra["ClientId"] = req.ClientID
 		}
 
+		if req.ClientSecret != "" {
+			extra["ClientSecret"] = req.ClientSecret
+		}
+
 		return req.Enabled, extra
 	case "baidu":
 		var req updateBaiduChannelRequest
@@ -218,6 +244,10 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 
 		if req.APIKey != "" {
 			extra["ApiKey"] = req.APIKey
+		}
+
+		if req.SecretKey != "" {
+			extra["SecretKey"] = req.SecretKey
 		}
 
 		return req.Enabled, extra
@@ -1399,16 +1429,12 @@ func (h *Handler) handlePutEvents(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	if backendErr := h.Backend.PutEvents(appID, req); backendErr != nil {
+	resp, backendErr := h.Backend.PutEvents(appID, req)
+	if backendErr != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(
-		c.Request().Context(),
-		c.Response(),
-		http.StatusAccepted,
-		messageBodyResponse{Message: acceptedMessage},
-	)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, resp)
 
 	return nil
 }

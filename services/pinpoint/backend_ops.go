@@ -1846,22 +1846,69 @@ func (b *InMemoryBackend) VerifyOTPMessage(appID, code string) (*verifyOTPMessag
 	return &verifyOTPMessageResponse{Valid: valid}, nil
 }
 
-// PutEvents records events for an application.
-func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) error {
+// PutEvents records events for an application and returns per-endpoint per-event results.
+func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) (*eventsResponse, error) {
 	b.mu.Lock("PutEvents")
 	defer b.mu.Unlock()
 
 	if _, ok := b.apps[appID]; !ok {
-		return ErrAppNotFound
+		return nil, ErrAppNotFound
 	}
 
-	for _, epEvents := range req.EventsRequest.BatchItem {
-		for _, ev := range epEvents.Events {
+	results := make(map[string]endpointItemResponse, len(req.EventsRequest.BatchItem))
+
+	for epID, epEvents := range req.EventsRequest.BatchItem {
+		evResults := make(map[string]itemEventResponse, len(epEvents.Events))
+
+		for evID, ev := range epEvents.Events {
 			b.appEvents[appID] = append(b.appEvents[appID], storedPinpointEvent(ev))
+			evResults[evID] = itemEventResponse{
+				Message:    "Accepted",
+				StatusCode: http.StatusAccepted,
+			}
+		}
+
+		results[epID] = endpointItemResponse{EventsItemResponse: evResults}
+	}
+
+	return &eventsResponse{Results: results}, nil
+}
+
+// countryInfo holds basic phone-number country metadata keyed by E164 country-code prefix.
+type countryInfo struct {
+	ISO2        string
+	NumericCode string
+	Name        string
+	Timezone    string
+}
+
+// lookupCountry returns country metadata for the given E164 number.
+func lookupCountry(e164 string) countryInfo {
+	type prefixEntry struct {
+		prefix string
+		info   countryInfo
+	}
+
+	table := []prefixEntry{
+		{"+1", countryInfo{"US", "1", "United States", "America/New_York"}},
+		{"+44", countryInfo{"GB", "44", "United Kingdom", "Europe/London"}},
+		{"+49", countryInfo{"DE", "49", "Germany", "Europe/Berlin"}},
+		{"+33", countryInfo{"FR", "33", "France", "Europe/Paris"}},
+		{"+81", countryInfo{"JP", "81", "Japan", "Asia/Tokyo"}},
+		{"+86", countryInfo{"CN", "86", "China", "Asia/Shanghai"}},
+		{"+91", countryInfo{"IN", "91", "India", "Asia/Kolkata"}},
+		{"+55", countryInfo{"BR", "55", "Brazil", "America/Sao_Paulo"}},
+		{"+61", countryInfo{"AU", "61", "Australia", "Australia/Sydney"}},
+		{"+52", countryInfo{"MX", "52", "Mexico", "America/Mexico_City"}},
+	}
+
+	for _, entry := range table {
+		if strings.HasPrefix(e164, entry.prefix) {
+			return entry.info
 		}
 	}
 
-	return nil
+	return countryInfo{ISO2: "ZZ", NumericCode: "0", Name: "Unknown", Timezone: "UTC"}
 }
 
 // PhoneNumberValidate validates a phone number and returns a cleaned E164 response.
@@ -1889,12 +1936,21 @@ func (b *InMemoryBackend) PhoneNumberValidate(
 		e164 = "+" + digits
 	}
 
+	country := lookupCountry(e164)
+
 	return &phoneNumberValidateResponse{
 		NumberValidateResponse: numberValidateResponse{
-			Carrier:                 "Unknown",
-			PhoneType:               "MOBILE",
-			PhoneTypeCode:           0,
-			CleansedPhoneNumberE164: e164,
+			Carrier:                           "Unknown",
+			PhoneType:                         "MOBILE",
+			PhoneTypeCode:                     0,
+			CleansedPhoneNumberE164:           e164,
+			CleansedPhoneNumberNationalFormat: e164,
+			Country:                           country.Name,
+			CountryCodeIso2:                   country.ISO2,
+			CountryCodeNumeric:                country.NumericCode,
+			OriginalCountryCodeIso2:           country.ISO2,
+			OriginalPhoneNumber:               phoneNumber,
+			Timezone:                          country.Timezone,
 		},
 	}, nil
 }
