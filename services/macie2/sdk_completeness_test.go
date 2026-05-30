@@ -63,6 +63,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListResourceProfileArtifacts",
 		"ListResourceProfileDetections",
 		"ListSensitivityInspectionTemplates",
+		"GetFindingsPublicationConfiguration",
 		"PutClassificationExportConfiguration",
 		"PutFindingsPublicationConfiguration",
 		"SearchResources",

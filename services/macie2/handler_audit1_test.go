@@ -14,11 +14,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
-func newTestHandler(t *testing.T) (*macie2.Handler, *macie2.InMemoryBackend) {
+func newTestHandler(t *testing.T) *macie2.Handler {
 	t.Helper()
 	backend := macie2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	return macie2.NewHandler(backend), backend
+	return macie2.NewHandler(backend)
 }
 
 func doRequest(t *testing.T, h *macie2.Handler, method, path string, body any) *httptest.ResponseRecorder {
@@ -48,7 +48,7 @@ func doRequest(t *testing.T, h *macie2.Handler, method, path string, body any) *
 func TestMacie2_Session(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler)
 		method   string
@@ -69,7 +69,7 @@ func TestMacie2_Session(t *testing.T) {
 			path:   "/macie",
 			body: map[string]string{
 				"findingPublishingFrequency": "FIFTEEN_MINUTES",
-				"status":                    "ENABLED",
+				"status":                     "ENABLED",
 			},
 			wantCode: http.StatusOK,
 		},
@@ -113,10 +113,10 @@ func TestMacie2_Session(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "DisableMacie when not enabled returns 403",
+			name:     "DisableMacie when not enabled returns 200 (idempotent)",
 			method:   http.MethodDelete,
 			path:     "/macie",
-			wantCode: http.StatusForbidden,
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -124,7 +124,7 @@ func TestMacie2_Session(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			if tt.setup != nil {
 				tt.setup(h)
@@ -144,7 +144,7 @@ func TestMacie2_Session(t *testing.T) {
 func TestMacie2_AllowLists(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler) string
 		method   string
@@ -200,15 +200,15 @@ func TestMacie2_AllowLists(t *testing.T) {
 			},
 		},
 		{
-			name:   "GetAllowList not found returns 404",
-			method: http.MethodGet,
-			pathFn: func(_ string) string { return "/allow-lists/nonexistent" },
+			name:     "GetAllowList not found returns 404",
+			method:   http.MethodGet,
+			pathFn:   func(_ string) string { return "/allow-lists/nonexistent" },
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name:   "ListAllowLists returns allowLists key",
-			method: http.MethodGet,
-			pathFn: func(_ string) string { return "/allow-lists" },
+			name:     "ListAllowLists returns allowLists key",
+			method:   http.MethodGet,
+			pathFn:   func(_ string) string { return "/allow-lists" },
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -240,7 +240,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			id := ""
 			if tt.setup != nil {
@@ -262,7 +262,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler) string
 		method   string
@@ -311,7 +311,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 				assert.Equal(t, "phone-detector", resp["name"])
 				assert.Equal(t, "detects phone numbers", resp["description"])
 				assert.NotEmpty(t, resp["arn"])
-				assert.Equal(t, float64(50), resp["maximumMatchDistance"])
+				assert.InDelta(t, float64(50), resp["maximumMatchDistance"], 0.001)
 			},
 		},
 		{
@@ -327,14 +327,14 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Equal(t, float64(2), resp["matchCount"])
+				assert.InDelta(t, float64(2), resp["matchCount"], 0.001)
 			},
 		},
 		{
-			name:   "ListCustomDataIdentifiers returns items key",
-			method: http.MethodPost,
-			pathFn: func(_ string) string { return "/custom-data-identifiers/list" },
-			body:   map[string]any{},
+			name:     "ListCustomDataIdentifiers returns items key",
+			method:   http.MethodPost,
+			pathFn:   func(_ string) string { return "/custom-data-identifiers/list" },
+			body:     map[string]any{},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -365,7 +365,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			id := ""
 			if tt.setup != nil {
@@ -387,7 +387,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 func TestMacie2_FindingsFilters(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler) string
 		method   string
@@ -439,13 +439,13 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 				assert.Equal(t, "test-filter", resp["name"])
 				assert.Equal(t, "NOOP", resp["action"])
 				assert.Equal(t, "test desc", resp["description"])
-				assert.Equal(t, float64(3), resp["position"])
+				assert.InDelta(t, float64(3), resp["position"], 0.001)
 			},
 		},
 		{
-			name:   "ListFindingsFilters returns findingsFilterListItems key",
-			method: http.MethodGet,
-			pathFn: func(_ string) string { return "/findingsfilters" },
+			name:     "ListFindingsFilters returns findingsFilterListItems key",
+			method:   http.MethodGet,
+			pathFn:   func(_ string) string { return "/findingsfilters" },
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -476,7 +476,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			id := ""
 			if tt.setup != nil {
@@ -498,7 +498,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 func TestMacie2_Findings(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler)
 		method   string
@@ -580,7 +580,7 @@ func TestMacie2_Findings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			if tt.setup != nil {
 				tt.setup(h)
@@ -612,7 +612,7 @@ func TestMacie2_Tags(t *testing.T) {
 
 	const testARN = "arn:aws:macie2:us-east-1:000000000000:allow-list/test-id"
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
 		setup    func(h *macie2.Handler)
 		method   string
@@ -664,7 +664,7 @@ func TestMacie2_Tags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newTestHandler(t)
+			h := newTestHandler(t)
 
 			if tt.setup != nil {
 				tt.setup(h)
@@ -684,7 +684,7 @@ func TestMacie2_Tags(t *testing.T) {
 func TestMacie2_RouteMatching(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler(t)
+	h := newTestHandler(t)
 	matcher := h.RouteMatcher()
 
 	tests := []struct {

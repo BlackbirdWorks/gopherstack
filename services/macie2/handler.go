@@ -26,35 +26,40 @@ const (
 	pathFindings       = "findings"
 	pathTags           = "tags"
 
-	opEnableMacie              = "EnableMacie"
-	opDisableMacie             = "DisableMacie"
-	opGetMacieSession          = "GetMacieSession"
-	opUpdateMacieSession       = "UpdateMacieSession"
-	opCreateAllowList          = "CreateAllowList"
-	opGetAllowList             = "GetAllowList"
-	opUpdateAllowList          = "UpdateAllowList"
-	opDeleteAllowList          = "DeleteAllowList"
-	opListAllowLists           = "ListAllowLists"
-	opCreateCustomDataID       = "CreateCustomDataIdentifier"
-	opGetCustomDataID          = "GetCustomDataIdentifier"
-	opDeleteCustomDataID       = "DeleteCustomDataIdentifier"
-	opListCustomDataIDs        = "ListCustomDataIdentifiers"
-	opTestCustomDataID         = "TestCustomDataIdentifier"
-	opCreateFindingsFilter     = "CreateFindingsFilter"
-	opGetFindingsFilter        = "GetFindingsFilter"
-	opUpdateFindingsFilter     = "UpdateFindingsFilter"
-	opDeleteFindingsFilter     = "DeleteFindingsFilter"
-	opListFindingsFilters      = "ListFindingsFilters"
-	opGetFindings              = "GetFindings"
-	opListFindings             = "ListFindings"
-	opCreateSampleFindings     = "CreateSampleFindings"
-	opGetFindingStatistics     = "GetFindingStatistics"
-	opTagResource              = "TagResource"
-	opUntagResource            = "UntagResource"
-	opListTagsForResource      = "ListTagsForResource"
-	opUnknown                  = "Unknown"
+	opEnableMacie          = "EnableMacie"
+	opDisableMacie         = "DisableMacie"
+	opGetMacieSession      = "GetMacieSession"
+	opUpdateMacieSession   = "UpdateMacieSession"
+	opCreateAllowList      = "CreateAllowList"
+	opGetAllowList         = "GetAllowList"
+	opUpdateAllowList      = "UpdateAllowList"
+	opDeleteAllowList      = "DeleteAllowList"
+	opListAllowLists       = "ListAllowLists"
+	opCreateCustomDataID   = "CreateCustomDataIdentifier"
+	opGetCustomDataID      = "GetCustomDataIdentifier"
+	opDeleteCustomDataID   = "DeleteCustomDataIdentifier"
+	opListCustomDataIDs    = "ListCustomDataIdentifiers"
+	opTestCustomDataID     = "TestCustomDataIdentifier"
+	opCreateFindingsFilter = "CreateFindingsFilter"
+	opGetFindingsFilter    = "GetFindingsFilter"
+	opUpdateFindingsFilter = "UpdateFindingsFilter"
+	opDeleteFindingsFilter = "DeleteFindingsFilter"
+	opListFindingsFilters  = "ListFindingsFilters"
+	opGetFindings          = "GetFindings"
+	opListFindings         = "ListFindings"
+	opCreateSampleFindings = "CreateSampleFindings"
+	opGetFindingStatistics = "GetFindingStatistics"
+	opTagResource          = "TagResource"
+	opUntagResource        = "UntagResource"
+	opListTagsForResource  = "ListTagsForResource"
+	opUnknown              = "Unknown"
 
 	minTagPathParts = 2
+
+	keyArn        = "arn"
+	depthRoot     = 1
+	depthResource = 2
+	splitTwo      = 2
 )
 
 // Handler handles Macie2 HTTP requests.
@@ -278,14 +283,14 @@ func parseMaciePath(method string, _ []string) (string, string) {
 
 func parseAllowListPath(method string, parts []string) (string, string) {
 	switch len(parts) {
-	case 1: // /allow-lists
+	case depthRoot: // /allow-lists
 		switch method {
 		case http.MethodPost:
 			return opCreateAllowList, ""
 		case http.MethodGet:
 			return opListAllowLists, ""
 		}
-	case 2: // /allow-lists/{id}
+	case depthResource: // /allow-lists/{id}
 		id := parts[1]
 		switch method {
 		case http.MethodGet:
@@ -302,11 +307,11 @@ func parseAllowListPath(method string, parts []string) (string, string) {
 
 func parseCustomDataIDPath(method string, parts []string) (string, string) {
 	switch len(parts) {
-	case 1: // /custom-data-identifiers
+	case depthRoot: // /custom-data-identifiers
 		if method == http.MethodPost {
 			return opCreateCustomDataID, ""
 		}
-	case 2: // /custom-data-identifiers/{id|list|test}
+	case depthResource: // /custom-data-identifiers/{id|list|test}
 		sub := parts[1]
 		switch sub {
 		case "list":
@@ -332,14 +337,14 @@ func parseCustomDataIDPath(method string, parts []string) (string, string) {
 
 func parseFindingsFilterPath(method string, parts []string) (string, string) {
 	switch len(parts) {
-	case 1: // /findingsfilters
+	case depthRoot: // /findingsfilters
 		switch method {
 		case http.MethodPost:
 			return opCreateFindingsFilter, ""
 		case http.MethodGet:
 			return opListFindingsFilters, ""
 		}
-	case 2: // /findingsfilters/{id}
+	case depthResource: // /findingsfilters/{id}
 		id := parts[1]
 		switch method {
 		case http.MethodGet:
@@ -356,11 +361,11 @@ func parseFindingsFilterPath(method string, parts []string) (string, string) {
 
 func parseFindingsPath(method string, parts []string) (string, string) {
 	switch len(parts) {
-	case 1: // /findings
+	case depthRoot: // /findings
 		if method == http.MethodPost {
 			return opListFindings, ""
 		}
-	case 2: // /findings/{action}
+	case depthResource: // /findings/{action}
 		if method == http.MethodPost {
 			switch parts[1] {
 			case "describe":
@@ -397,9 +402,9 @@ func parseTagPath(method string, parts []string) (string, string) {
 func (h *Handler) dispatchSessionOps(op string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetMacieSession:
-		result, code, err := h.handleGetMacieSession()
+		result, code := h.handleGetMacieSession()
 
-		return result, code, true, err
+		return result, code, true, nil
 
 	case opEnableMacie:
 		code, err := h.handleEnableMacie(body)
@@ -573,10 +578,10 @@ func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int,
 
 // Session handlers
 
-func (h *Handler) handleGetMacieSession() (any, int, error) {
+func (h *Handler) handleGetMacieSession() (any, int) {
 	session := h.Backend.GetSession()
 	if session == nil {
-		return nil, http.StatusForbidden, ErrNotEnabled
+		return errBody(errMacieNotEnabled, "Macie is not enabled for this account"), http.StatusForbidden
 	}
 
 	return map[string]any{
@@ -585,7 +590,7 @@ func (h *Handler) handleGetMacieSession() (any, int, error) {
 		"serviceRole":                session.ServiceRole,
 		"status":                     session.Status,
 		"updatedAt":                  session.UpdatedAt,
-	}, http.StatusOK, nil
+	}, http.StatusOK
 }
 
 func (h *Handler) handleEnableMacie(body []byte) (int, error) {
@@ -614,10 +619,6 @@ func (h *Handler) handleEnableMacie(body []byte) (int, error) {
 
 func (h *Handler) handleDisableMacie() (int, error) {
 	if err := h.Backend.DisableMacie(); err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return http.StatusForbidden, err
-		}
-
 		return http.StatusInternalServerError, err
 	}
 
@@ -637,10 +638,6 @@ func (h *Handler) handleUpdateMacieSession(body []byte) (int, error) {
 	}
 
 	if err := h.Backend.UpdateMacieSession(req.FindingPublishingFrequency, req.Status); err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return http.StatusForbidden, err
-		}
-
 		return http.StatusInternalServerError, err
 	}
 
@@ -650,12 +647,12 @@ func (h *Handler) handleUpdateMacieSession(body []byte) (int, error) {
 // Allow list handlers
 
 func (h *Handler) handleCreateAllowList(body []byte) (any, int, error) {
-	var req struct {
-		ClientToken string            `json:"clientToken"`
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+		ClientToken string             `json:"clientToken"`
 		Criteria    *AllowListCriteria `json:"criteria"`
-		Description string            `json:"description"`
-		Name        string            `json:"name"`
-		Tags        map[string]string `json:"tags"`
+		Description string             `json:"description"`
+		Name        string             `json:"name"`
+		Tags        map[string]string  `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -676,7 +673,7 @@ func (h *Handler) handleCreateAllowList(body []byte) (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"arn": al.Arn, "id": al.ID}, http.StatusOK, nil
+	return map[string]string{keyArn: al.Arn, "id": al.ID}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetAllowList(id string) (any, int, error) {
@@ -693,10 +690,10 @@ func (h *Handler) handleGetAllowList(id string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error) {
-	var req struct {
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
 		Criteria    *AllowListCriteria `json:"criteria"`
-		Description string            `json:"description"`
-		Name        string            `json:"name"`
+		Description string             `json:"description"`
+		Name        string             `json:"name"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -717,7 +714,7 @@ func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"arn": al.Arn, "id": al.ID}, http.StatusOK, nil
+	return map[string]string{keyArn: al.Arn, "id": al.ID}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteAllowList(id string) (int, error) {
@@ -741,14 +738,14 @@ func (h *Handler) handleListAllowLists() (any, int) {
 // Custom data identifier handlers
 
 func (h *Handler) handleCreateCustomDataID(body []byte) (any, int, error) {
-	var req struct {
-		ClientToken          string   `json:"clientToken"`
-		Description          string   `json:"description"`
-		IgnoreWords          []string `json:"ignoreWords"`
-		Keywords             []string `json:"keywords"`
-		MaximumMatchDistance *int32   `json:"maximumMatchDistance"`
-		Name                 string   `json:"name"`
-		Regex                string   `json:"regex"`
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+		ClientToken          string            `json:"clientToken"`
+		Description          string            `json:"description"`
+		IgnoreWords          []string          `json:"ignoreWords"`
+		Keywords             []string          `json:"keywords"`
+		MaximumMatchDistance *int32            `json:"maximumMatchDistance"`
+		Name                 string            `json:"name"`
+		Regex                string            `json:"regex"`
 		Tags                 map[string]string `json:"tags"`
 	}
 
@@ -811,7 +808,7 @@ func (h *Handler) handleListCustomDataIDs() (any, int, error) {
 }
 
 func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
-	var req struct {
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
 		IgnoreWords          []string `json:"ignoreWords"`
 		Keywords             []string `json:"keywords"`
 		MaximumMatchDistance *int32   `json:"maximumMatchDistance"`
@@ -841,7 +838,7 @@ func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
 // Findings filter handlers
 
 func (h *Handler) handleCreateFindingsFilter(body []byte) (any, int, error) {
-	var req struct {
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
 		Action          string            `json:"action"`
 		ClientToken     string            `json:"clientToken"`
 		Description     string            `json:"description"`
@@ -867,7 +864,7 @@ func (h *Handler) handleCreateFindingsFilter(body []byte) (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"arn": ff.Arn, "id": ff.ID}, http.StatusOK, nil
+	return map[string]string{keyArn: ff.Arn, "id": ff.ID}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetFindingsFilter(id string) (any, int, error) {
@@ -884,7 +881,7 @@ func (h *Handler) handleGetFindingsFilter(id string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, error) {
-	var req struct {
+	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
 		Action          string         `json:"action"`
 		Description     string         `json:"description"`
 		FindingCriteria map[string]any `json:"findingCriteria"`
@@ -908,7 +905,7 @@ func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, 
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"arn": ff.Arn, "id": ff.ID}, http.StatusOK, nil
+	return map[string]string{keyArn: ff.Arn, "id": ff.ID}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteFindingsFilter(id string) (int, error) {
@@ -933,14 +930,14 @@ func (h *Handler) handleListFindingsFilters() (any, int) {
 
 func (h *Handler) handleGetFindings(body []byte) (any, int, error) {
 	var req struct {
-		FindingIds []string `json:"findingIds"`
+		FindingIDs []string `json:"findingIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	findings, err := h.Backend.GetFindings(req.FindingIds)
+	findings, err := h.Backend.GetFindings(req.FindingIDs)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return nil, http.StatusNotFound, err
@@ -1033,15 +1030,19 @@ func (h *Handler) handleUntagResource(resourceARN, query string) (int, error) {
 // Error handling
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	code := http.StatusInternalServerError
 	msg := err.Error()
 
-	if errors.Is(err, awserr.ErrNotFound) {
+	var code int
+
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
 		code = http.StatusNotFound
-	} else if errors.Is(err, awserr.ErrConflict) {
+	case errors.Is(err, awserr.ErrConflict):
 		code = http.StatusConflict
-	} else if errors.Is(err, awserr.ErrInvalidParameter) {
+	case errors.Is(err, awserr.ErrInvalidParameter):
 		code = http.StatusBadRequest
+	default:
+		code = http.StatusInternalServerError
 	}
 
 	return c.JSON(code, errBody(msg, msg))
@@ -1055,7 +1056,7 @@ func errBody(code, message string) map[string]string {
 
 func extractID(path, prefix string) string {
 	trimmed := strings.TrimPrefix(path, "/"+prefix+"/")
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", splitTwo)
 
 	return parts[0]
 }
@@ -1069,9 +1070,9 @@ func extractTagARN(path string) string {
 func parseTagKeys(query string) []string {
 	var keys []string
 
-	for _, part := range strings.Split(query, "&") {
-		if strings.HasPrefix(part, "tagKeys=") {
-			keys = append(keys, strings.TrimPrefix(part, "tagKeys="))
+	for part := range strings.SplitSeq(query, "&") {
+		if v, ok := strings.CutPrefix(part, "tagKeys="); ok {
+			keys = append(keys, v)
 		}
 	}
 

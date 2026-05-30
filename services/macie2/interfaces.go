@@ -11,7 +11,11 @@ type StorageBackend interface {
 	UpdateMacieSession(frequency, status string) error
 
 	// Allow list operations
-	CreateAllowList(name, description string, criteria AllowListCriteria, tags map[string]string) (*AllowListSummary, error)
+	CreateAllowList(
+		name, description string,
+		criteria AllowListCriteria,
+		tags map[string]string,
+	) (*AllowListSummary, error)
 	GetAllowList(id string) (*AllowListDetail, error)
 	UpdateAllowList(id, name, description string, criteria AllowListCriteria) (*AllowListSummary, error)
 	DeleteAllowList(id string) error
@@ -27,12 +31,26 @@ type StorageBackend interface {
 	GetCustomDataIdentifier(id string) (*CustomDataIdentifier, error)
 	DeleteCustomDataIdentifier(id string) error
 	ListCustomDataIdentifiers() ([]*CustomDataIdentifierSummary, error)
-	TestCustomDataIdentifier(regex string, ignoreWords, keywords []string, maxMatchDistance *int32, sampleText string) (int32, error)
+	TestCustomDataIdentifier(
+		regex string,
+		ignoreWords, keywords []string,
+		maxMatchDistance *int32,
+		sampleText string,
+	) (int32, error)
 
 	// Findings filter operations
-	CreateFindingsFilter(name, description, action string, position *int32, criteria map[string]any, tags map[string]string) (*FindingsFilterSummary, error)
+	CreateFindingsFilter(
+		name, description, action string,
+		position *int32,
+		criteria map[string]any,
+		tags map[string]string,
+	) (*FindingsFilterSummary, error)
 	GetFindingsFilter(id string) (*FindingsFilterDetail, error)
-	UpdateFindingsFilter(id, name, description, action string, position *int32, criteria map[string]any) (*FindingsFilterSummary, error)
+	UpdateFindingsFilter(
+		id, name, description, action string,
+		position *int32,
+		criteria map[string]any,
+	) (*FindingsFilterSummary, error)
 	DeleteFindingsFilter(id string) error
 	ListFindingsFilters() ([]*FindingsFilterSummary, error)
 
@@ -67,8 +85,8 @@ type Session struct {
 
 // AllowListCriteria holds criteria for an allow list.
 type AllowListCriteria struct {
-	Regex        *string        `json:"regex,omitempty"`
-	S3WordsList  *S3WordsList   `json:"s3WordsList,omitempty"`
+	Regex       *string      `json:"regex,omitempty"`
+	S3WordsList *S3WordsList `json:"s3WordsList,omitempty"`
 }
 
 // S3WordsList references an S3 object containing ignore words.
@@ -85,41 +103,41 @@ type AllowListStatus struct {
 
 // AllowListSummary is the summary view of an allow list.
 type AllowListSummary struct {
-	Arn         string            `json:"arn"`
 	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Arn         string            `json:"arn"`
 	Description string            `json:"description,omitempty"`
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
 }
 
 // AllowListDetail is the full detail view of an allow list.
 type AllowListDetail struct {
-	Arn         string            `json:"arn"`
 	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Tags        map[string]string `json:"tags,omitempty"`
 	Criteria    AllowListCriteria `json:"criteria"`
+	Status      AllowListStatus   `json:"status"`
+	Arn         string            `json:"arn"`
 	Description string            `json:"description,omitempty"`
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
-	Status      AllowListStatus   `json:"status"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
 }
 
 // CustomDataIdentifier represents a custom data identifier.
 type CustomDataIdentifier struct {
-	Arn                  string            `json:"arn"`
-	CreatedAt            time.Time         `json:"createdAt"`
-	Deleted              bool              `json:"deleted"`
-	Description          string            `json:"description,omitempty"`
-	ID                   string            `json:"id"`
+	Tags                 map[string]string `json:"tags,omitempty"`
 	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
 	Keywords             []string          `json:"keywords,omitempty"`
-	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	Arn                  string            `json:"arn"`
+	Description          string            `json:"description,omitempty"`
+	ID                   string            `json:"id"`
 	Name                 string            `json:"name"`
 	Regex                string            `json:"regex"`
-	Tags                 map[string]string `json:"tags,omitempty"`
+	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
+	Deleted              bool              `json:"deleted"`
 }
 
 // CustomDataIdentifierSummary is the summary view of a custom data identifier.
@@ -133,25 +151,25 @@ type CustomDataIdentifierSummary struct {
 
 // FindingsFilterDetail is the full detail of a findings filter.
 type FindingsFilterDetail struct {
+	FindingCriteria map[string]any    `json:"findingCriteria,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
 	Action          string            `json:"action"`
 	Arn             string            `json:"arn"`
 	Description     string            `json:"description,omitempty"`
-	FindingCriteria map[string]any    `json:"findingCriteria,omitempty"`
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Position        int32             `json:"position"`
-	Tags            map[string]string `json:"tags,omitempty"`
 }
 
 // FindingsFilterSummary is the summary view of a findings filter.
 type FindingsFilterSummary struct {
+	Tags        map[string]string `json:"tags,omitempty"`
 	Action      string            `json:"action"`
 	Arn         string            `json:"arn"`
 	Description string            `json:"description,omitempty"`
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Position    int32             `json:"position"`
-	Tags        map[string]string `json:"tags,omitempty"`
 }
 
 // FindingType represents the type of a finding.
@@ -180,8 +198,8 @@ type Severity struct {
 
 // FindingStatisticsGroup holds a group of finding statistics.
 type FindingStatisticsGroup struct {
-	Count    int64  `json:"count"`
 	GroupKey string `json:"groupKey"`
+	Count    int64  `json:"count"`
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

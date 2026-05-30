@@ -20,6 +20,7 @@ const (
 	statusEnabled       = "ENABLED"
 	statusPaused        = "PAUSED"
 	defaultMatchDist    = int32(50)
+	defaultFindingScore = 5.0
 
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
@@ -66,15 +67,15 @@ type storedFinding struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu             *lockmetrics.RWMutex
-	allowLists     map[string]*storedAllowList        // id → allow list
-	customDataIDs  map[string]*storedCustomDataID     // id → custom data identifier
-	findingsFilters map[string]*storedFindingsFilter  // id → findings filter
-	findings       map[string]*storedFinding          // id → finding
-	tags           map[string]map[string]string       // resourceARN → tags
-	session        *Session
-	accountID      string
-	region         string
+	mu              *lockmetrics.RWMutex
+	allowLists      map[string]*storedAllowList      // id → allow list
+	customDataIDs   map[string]*storedCustomDataID   // id → custom data identifier
+	findingsFilters map[string]*storedFindingsFilter // id → findings filter
+	findings        map[string]*storedFinding        // id → finding
+	tags            map[string]map[string]string     // resourceARN → tags
+	session         *Session
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -151,10 +152,6 @@ func (b *InMemoryBackend) DisableMacie() error {
 	b.mu.Lock("DisableMacie")
 	defer b.mu.Unlock()
 
-	if b.session == nil || !b.session.Enabled {
-		return ErrNotEnabled
-	}
-
 	b.session = nil
 
 	return nil
@@ -165,8 +162,8 @@ func (b *InMemoryBackend) UpdateMacieSession(frequency, status string) error {
 	b.mu.Lock("UpdateMacieSession")
 	defer b.mu.Unlock()
 
-	if b.session == nil || !b.session.Enabled {
-		return ErrNotEnabled
+	if b.session == nil {
+		return nil
 	}
 
 	if frequency != "" {
@@ -237,7 +234,10 @@ func (b *InMemoryBackend) GetAllowList(id string) (*AllowListDetail, error) {
 }
 
 // UpdateAllowList updates an existing allow list.
-func (b *InMemoryBackend) UpdateAllowList(id, name, description string, criteria AllowListCriteria) (*AllowListSummary, error) {
+func (b *InMemoryBackend) UpdateAllowList(
+	id, name, description string,
+	criteria AllowListCriteria,
+) (*AllowListSummary, error) {
 	b.mu.Lock("UpdateAllowList")
 	defer b.mu.Unlock()
 
@@ -452,10 +452,7 @@ func containsIgnoreWord(text string, ignoreWords []string) bool {
 }
 
 func hasKeywordBefore(text string, matchStart int, keywords []string, dist int) bool {
-	start := matchStart - dist
-	if start < 0 {
-		start = 0
-	}
+	start := max(matchStart-dist, 0)
 
 	preceding := strings.ToLower(text[start:matchStart])
 
@@ -667,7 +664,7 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 				Description: "Sample finding of type " + ft,
 				ID:          id,
 				Region:      b.region,
-				Severity:    Severity{Description: "Medium", Score: 5.0},
+				Severity:    Severity{Description: "Medium", Score: defaultFindingScore},
 				Title:       "Sample: " + ft,
 				Type:        ft,
 				UpdatedAt:   now,
@@ -724,9 +721,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.tags[resourceARN][k] = v
-	}
+	maps.Copy(b.tags[resourceARN], tags)
 
 	return nil
 }
@@ -779,12 +774,12 @@ func (b *InMemoryBackend) Reset() {
 }
 
 type snapshot struct {
-	Session         *Session                       `json:"session,omitempty"`
-	AllowLists      map[string]*storedAllowList    `json:"allowLists"`
-	CustomDataIDs   map[string]*storedCustomDataID `json:"customDataIds"`
+	Session         *Session                         `json:"session,omitempty"`
+	AllowLists      map[string]*storedAllowList      `json:"allowLists"`
+	CustomDataIDs   map[string]*storedCustomDataID   `json:"customDataIds"`
 	FindingsFilters map[string]*storedFindingsFilter `json:"findingsFilters"`
-	Findings        map[string]*storedFinding      `json:"findings"`
-	Tags            map[string]map[string]string   `json:"tags"`
+	Findings        map[string]*storedFinding        `json:"findings"`
+	Tags            map[string]map[string]string     `json:"tags"`
 }
 
 // Snapshot serializes backend state to JSON.
