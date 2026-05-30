@@ -844,6 +844,14 @@ func TestAudit1b_DetachPolicy_Scenarios(t *testing.T) {
 func TestAudit1b_ListPoliciesForTarget_Filter(t *testing.T) {
 	t.Parallel()
 
+	t.Run("empty_filter_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b, rootID := newOrgBackend(t)
+		_, err := b.ListPoliciesForTarget(rootID, "")
+		require.Error(t, err, "empty filter must be rejected (AWS requires Filter)")
+	})
+
 	tests := []struct {
 		name      string
 		filter    string
@@ -852,7 +860,6 @@ func TestAudit1b_ListPoliciesForTarget_Filter(t *testing.T) {
 		{name: "filter_scp", filter: "SERVICE_CONTROL_POLICY", wantCount: 2},
 		{name: "filter_tag", filter: "TAG_POLICY", wantCount: 1},
 		{name: "filter_backup", filter: "BACKUP_POLICY", wantCount: 0},
-		{name: "no_filter", filter: "", wantCount: 3},
 	}
 
 	for _, tt := range tests {

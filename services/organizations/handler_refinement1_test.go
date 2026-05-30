@@ -221,7 +221,7 @@ func TestRefinement1_ListPolicies_Sorted(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			policies, err := b.ListPolicies("")
+			policies, err := b.ListPolicies("SERVICE_CONTROL_POLICY")
 			require.NoError(t, err)
 			require.Len(t, policies, tt.wantLen)
 

@@ -3,6 +3,7 @@ package organizations
 import (
 	"cmp"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -19,6 +20,7 @@ const (
 	targetTypeAccount = "ACCOUNT"
 
 	handshakeActionInvite         = "INVITE"
+	handshakeActionLeave          = "LEAVE_ORGANIZATION"
 	handshakeActionEnableFeatures = "ENABLE_ALL_FEATURES"
 	handshakeActionApproveAll     = "APPROVE_ALL_FEATURES"
 	handshakeResourceOrg          = "ORGANIZATION"
@@ -204,7 +206,10 @@ func validPolicyTypes() []string {
 	}
 }
 
-const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+const (
+	idChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
+	hexChars = "0123456789abcdef"
+)
 
 func randomChars(n int) string {
 	b := make([]byte, n)
@@ -256,7 +261,26 @@ func newOUID(rootID string) string {
 	return "ou-" + base + "-" + randomChars(ouRandomLen)
 }
 
-func newPolicyID() string    { return "p-" + randomChars(policyIDLen) }
+// randomHex returns n random lowercase hex characters (0-9a-f).
+func randomHex(n int) string {
+	b := make([]byte, n)
+	hexLen := big.NewInt(int64(len(hexChars)))
+
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, hexLen)
+		if err != nil {
+			b[i] = hexChars[0]
+
+			continue
+		}
+
+		b[i] = hexChars[idx.Int64()]
+	}
+
+	return string(b)
+}
+
+func newPolicyID() string    { return "p-" + randomHex(policyIDLen) }
 func newHandshakeID() string { return "h-" + randomChars(handshakeIDLen) }
 func newGovCloudAccountID(counter int) string {
 	return fmt.Sprintf("%012d", counter+govCloudAccountIDOffset)
@@ -658,6 +682,13 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 		return ErrAccountNotFound
 	}
 
+	acct := b.accounts[accountID]
+
+	// Clean policyTargets reverse mapping: remove accountID from each policy's target list.
+	for _, policyID := range b.targetPolicies[accountID] {
+		b.policyTargets[policyID] = removeString(b.policyTargets[policyID], accountID)
+	}
+
 	delete(b.accounts, accountID)
 	delete(b.accountParent, accountID)
 	delete(b.tags, accountID)
@@ -668,6 +699,25 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 		if len(admins) == 0 {
 			delete(b.delegatedAdmins, svcPrincipal)
 		}
+	}
+
+	// For INVITED accounts, generate a terminal LEAVE_ORGANIZATION handshake record.
+	if b.org != nil && acct != nil && acct.JoinedMethod == joinedMethodInvited {
+		now := time.Now()
+		hID := newHandshakeID()
+		h := &Handshake{
+			ID:                  hID,
+			ARN:                 b.handshakeARN(b.org.ID, handshakeActionLeave, hID),
+			Action:              handshakeActionLeave,
+			State:               handshakeStateAccepted,
+			RequestedTimestamp:  now,
+			ExpirationTimestamp: now.Add(handshakeExpirationDuration),
+			Parties: []HandshakeParty{
+				{ID: b.org.ID, Type: "ORGANIZATION"},
+				{ID: accountID, Type: "ACCOUNT"},
+			},
+		}
+		b.handshakes[hID] = h
 	}
 
 	return nil
@@ -1183,6 +1233,7 @@ func (b *InMemoryBackend) DeletePolicy(policyID string) error {
 }
 
 // ListPolicies returns all policies of a given type.
+// AWS requires a non-empty Filter; empty filter returns InvalidInputException.
 func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
@@ -1191,10 +1242,14 @@ func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 		return nil, ErrOrgNotFound
 	}
 
+	if filter == "" {
+		return nil, ErrInvalidInput
+	}
+
 	var out []*Policy
 
 	for _, p := range b.policies {
-		if filter == "" || p.PolicySummary.Type == filter {
+		if p.PolicySummary.Type == filter {
 			out = append(out, copyPolicy(p))
 		}
 	}
@@ -1269,6 +1324,7 @@ func (b *InMemoryBackend) DetachPolicy(policyID, targetID string) error {
 }
 
 // ListPoliciesForTarget returns policies attached to a target, filtered by type.
+// AWS requires a non-empty Filter; empty filter returns InvalidInputException.
 func (b *InMemoryBackend) ListPoliciesForTarget(targetID, filter string) ([]*Policy, error) {
 	b.mu.RLock("ListPoliciesForTarget")
 	defer b.mu.RUnlock()
@@ -1277,13 +1333,17 @@ func (b *InMemoryBackend) ListPoliciesForTarget(targetID, filter string) ([]*Pol
 		return nil, ErrOrgNotFound
 	}
 
+	if filter == "" {
+		return nil, ErrInvalidInput
+	}
+
 	policyIDs := b.targetPolicies[targetID]
 
 	var out []*Policy
 
 	for _, pid := range policyIDs {
 		if p, ok := b.policies[pid]; ok {
-			if filter == "" || p.PolicySummary.Type == filter {
+			if p.PolicySummary.Type == filter {
 				out = append(out, copyPolicy(p))
 			}
 		}
@@ -1891,15 +1951,40 @@ func (b *InMemoryBackend) DescribeEffectivePolicy(
 	}, nil
 }
 
-// findEffectivePolicyLocked walks the hierarchy upward looking for an attached policy of the given type.
+// findEffectivePolicyLocked walks the full hierarchy from targetID up to root,
+// collecting all policies of policyType, then merges them per AWS rules.
+// For TAG_POLICY/BACKUP_POLICY/AISERVICES_OPT_OUT_POLICY: deep-merge JSON objects
+// (child overrides parent). For all other types (SCP/RCP): child takes precedence
+// (last attached at each level wins; root-level policies form the baseline).
+// Returns (mergedContent, lastPolicyID) or ("","") if no policies found.
 // Must be called with a read lock held.
 func (b *InMemoryBackend) findEffectivePolicyLocked(policyType, targetID string) (string, string) {
+	chain := b.collectPolicyChainLocked(policyType, targetID)
+	if len(chain) == 0 {
+		return "", ""
+	}
+
+	return b.mergePolicyChain(policyType, chain)
+}
+
+// effectivePolicyEntry holds a single policy in the effective-policy chain.
+type effectivePolicyEntry struct {
+	id      string
+	content string
+}
+
+// collectPolicyChainLocked walks from targetID up to root, collecting all policies
+// of policyType in order (target first, root last).
+// Must be called with a read lock held.
+func (b *InMemoryBackend) collectPolicyChainLocked(policyType, targetID string) []effectivePolicyEntry {
+	var chain []effectivePolicyEntry
+
 	current := targetID
 
 	for current != "" {
 		for _, pid := range b.targetPolicies[current] {
 			if p, ok := b.policies[pid]; ok && p.PolicySummary.Type == policyType {
-				return p.Content, p.PolicySummary.ID
+				chain = append(chain, effectivePolicyEntry{id: p.PolicySummary.ID, content: p.Content})
 			}
 		}
 
@@ -1922,7 +2007,42 @@ func (b *InMemoryBackend) findEffectivePolicyLocked(policyType, targetID string)
 		break
 	}
 
-	return "", ""
+	return chain
+}
+
+// mergePolicyChain merges a chain of policies per AWS effective-policy rules.
+// For TAG_POLICY/BACKUP_POLICY/AISERVICES_OPT_OUT_POLICY: deep-merge JSON objects
+// (root is base, child overrides). For all other types: child wins (first entry).
+func (b *InMemoryBackend) mergePolicyChain(policyType string, chain []effectivePolicyEntry) (string, string) {
+	if len(chain) == 1 {
+		return chain[0].content, chain[0].id
+	}
+
+	switch policyType {
+	case "TAG_POLICY", "BACKUP_POLICY", "AISERVICES_OPT_OUT_POLICY":
+		return b.mergeTagStyleChain(chain)
+	}
+
+	return chain[0].content, chain[0].id
+}
+
+// mergeTagStyleChain merges TAG_POLICY-style policy chains: merge from root to target,
+// child overrides parent (last write wins per key).
+func (b *InMemoryBackend) mergeTagStyleChain(chain []effectivePolicyEntry) (string, string) {
+	merged := make(map[string]any)
+
+	for _, entry := range slices.Backward(chain) {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(entry.content), &obj); err == nil {
+			mergeJSONObjects(merged, obj)
+		}
+	}
+
+	if data, err := json.Marshal(merged); err == nil {
+		return string(data), chain[0].id
+	}
+
+	return chain[0].content, chain[0].id
 }
 
 // expireStaleHandshakesLocked transitions OPEN handshakes past their ExpirationTimestamp to EXPIRED.
@@ -1941,6 +2061,23 @@ func (b *InMemoryBackend) expireStaleHandshakesLocked() {
 // removeString returns a copy of s with all occurrences of v removed.
 func removeString(s []string, v string) []string {
 	return slices.DeleteFunc(slices.Clone(s), func(x string) bool { return x == v })
+}
+
+// mergeJSONObjects merges src into dst in-place, overwriting conflicting keys.
+// Nested maps are merged recursively; all other types are overwritten.
+func mergeJSONObjects(dst, src map[string]any) {
+	for k, srcVal := range src {
+		srcMap, srcIsMap := srcVal.(map[string]any)
+		dstMap, dstIsMap := dst[k].(map[string]any)
+
+		if srcIsMap && dstIsMap {
+			mergeJSONObjects(dstMap, srcMap)
+
+			continue
+		}
+
+		dst[k] = srcVal
+	}
 }
 
 // copyOrg returns a deep copy of org (including slice fields).
