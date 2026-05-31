@@ -1,0 +1,513 @@
+package appstream
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+)
+
+const (
+	appstreamTargetPrefix = "PhotonAdminProxyService."
+	appstreamContentType  = "application/x-amz-json-1.1"
+	keyTags               = "Tags"
+)
+
+// Handler serves AppStream 2.0 JSON operations.
+type Handler struct {
+	Backend StorageBackend
+	ops     map[string]func(context.Context, []byte) (any, error)
+}
+
+// NewHandler creates an AppStream 2.0 handler backed by b.
+func NewHandler(b StorageBackend) *Handler {
+	h := &Handler{Backend: b}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+// Name returns the service name.
+func (h *Handler) Name() string { return "AppStream" }
+
+// Reset clears backend state.
+func (h *Handler) Reset() { h.Backend.Reset() }
+
+// MatchPriority returns header matching priority.
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
+
+// RouteMatcher matches AppStream 2.0 X-Amz-Target headers.
+func (h *Handler) RouteMatcher() service.Matcher {
+	return func(c *echo.Context) bool {
+		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), appstreamTargetPrefix)
+	}
+}
+
+// ExtractOperation extracts the AppStream action from the X-Amz-Target header.
+func (h *Handler) ExtractOperation(c *echo.Context) string {
+	target := c.Request().Header.Get("X-Amz-Target")
+	if !strings.HasPrefix(target, appstreamTargetPrefix) {
+		return "Unknown"
+	}
+
+	return strings.TrimPrefix(target, appstreamTargetPrefix)
+}
+
+// ExtractResource returns an empty string (AppStream identifies resources by name in body).
+func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
+
+// GetSupportedOperations returns all implemented operation names.
+func (h *Handler) GetSupportedOperations() []string {
+	ops := make([]string, 0, len(h.ops))
+	for name := range h.ops {
+		ops = append(ops, name)
+	}
+
+	return ops
+}
+
+// Snapshot returns a serialized snapshot of the backend state.
+func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+
+// Restore restores the backend state from a snapshot.
+func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+
+// Handler returns the Echo handler function.
+func (h *Handler) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()), h.Name(), appstreamContentType,
+			h.GetSupportedOperations(), h.dispatch, h.handleError,
+		)
+	}
+}
+
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.ops[action]
+	if !ok {
+		return nil, awserr.New("OperationNotPermitted", awserr.ErrInvalidParameter)
+	}
+
+	result, err := fn(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	code := "InternalServiceError"
+	status := http.StatusInternalServerError
+
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		code, status = errResourceNotFound, http.StatusBadRequest
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		code, status = errInvalidParameter, http.StatusBadRequest
+	}
+
+	return c.JSON(status, map[string]string{
+		"__type":  code,
+		"message": err.Error(),
+	})
+}
+
+func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, error) {
+	return map[string]func(context.Context, []byte) (any, error){
+		"CreateStack":          h.opCreateStack,
+		"DescribeStacks":       h.opDescribeStacks,
+		"UpdateStack":          h.opUpdateStack,
+		"DeleteStack":          h.opDeleteStack,
+		"CreateFleet":          h.opCreateFleet,
+		"DescribeFleets":       h.opDescribeFleets,
+		"UpdateFleet":          h.opUpdateFleet,
+		"DeleteFleet":          h.opDeleteFleet,
+		"StartFleet":           h.opStartFleet,
+		"StopFleet":            h.opStopFleet,
+		"AssociateFleet":       h.opAssociateFleet,
+		"DisassociateFleet":    h.opDisassociateFleet,
+		"ListAssociatedFleets": h.opListAssociatedFleets,
+		"ListAssociatedStacks": h.opListAssociatedStacks,
+		"TagResource":          h.opTagResource,
+		"UntagResource":        h.opUntagResource,
+		"ListTagsForResource":  h.opListTagsForResource,
+	}
+}
+
+// --- Stack handlers ---
+
+type createStackInput struct {
+	Tags        map[string]string `json:"Tags"`
+	Name        string            `json:"Name"`
+	DisplayName string            `json:"DisplayName"`
+	Description string            `json:"Description"`
+}
+
+func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
+	var req createStackInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	stack, err := h.Backend.CreateStack(req.Name, req.DisplayName, req.Description, req.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Stack": stackToResponse(stack)}, nil
+}
+
+type describeStacksInput struct {
+	Names []string `json:"Names"`
+}
+
+func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) {
+	var req describeStacksInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+		}
+	}
+
+	stacks, err := h.Backend.DescribeStacks(req.Names)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]any, 0, len(stacks))
+	for _, s := range stacks {
+		resp = append(resp, stackToResponse(s))
+	}
+
+	return map[string]any{"Stacks": resp}, nil
+}
+
+type updateStackInput struct {
+	Name        string `json:"Name"`
+	DisplayName string `json:"DisplayName"`
+	Description string `json:"Description"`
+}
+
+func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
+	var req updateStackInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	stack, err := h.Backend.UpdateStack(req.Name, req.DisplayName, req.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Stack": stackToResponse(stack)}, nil
+}
+
+type deleteStackInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) opDeleteStack(_ context.Context, body []byte) (any, error) {
+	var req deleteStackInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteStack(req.Name); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+// --- Fleet handlers ---
+
+type createFleetInput struct {
+	Tags                       map[string]string `json:"Tags"`
+	Name                       string            `json:"Name"`
+	DisplayName                string            `json:"DisplayName"`
+	Description                string            `json:"Description"`
+	InstanceType               string            `json:"InstanceType"`
+	FleetType                  string            `json:"FleetType"`
+	MaxUserDurationInSeconds   int               `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds int               `json:"DisconnectTimeoutInSeconds"`
+}
+
+func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
+	var req createFleetInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	fleet, err := h.Backend.CreateFleet(
+		req.Name, req.DisplayName, req.Description,
+		req.InstanceType, req.FleetType,
+		req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+		req.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Fleet": fleetToResponse(fleet)}, nil
+}
+
+type describeFleetsInput struct {
+	Names []string `json:"Names"`
+}
+
+func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) {
+	var req describeFleetsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+		}
+	}
+
+	fleets, err := h.Backend.DescribeFleets(req.Names)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]any, 0, len(fleets))
+	for _, f := range fleets {
+		resp = append(resp, fleetToResponse(f))
+	}
+
+	return map[string]any{"Fleets": resp}, nil
+}
+
+type updateFleetInput struct {
+	Name                       string `json:"Name"`
+	DisplayName                string `json:"DisplayName"`
+	Description                string `json:"Description"`
+	InstanceType               string `json:"InstanceType"`
+	MaxUserDurationInSeconds   int    `json:"MaxUserDurationInSeconds"`
+	DisconnectTimeoutInSeconds int    `json:"DisconnectTimeoutInSeconds"`
+}
+
+func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
+	var req updateFleetInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	fleet, err := h.Backend.UpdateFleet(
+		req.Name, req.DisplayName, req.Description, req.InstanceType,
+		req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Fleet": fleetToResponse(fleet)}, nil
+}
+
+type deleteFleetInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) opDeleteFleet(_ context.Context, body []byte) (any, error) {
+	var req deleteFleetInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteFleet(req.Name); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+type fleetNameInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) opStartFleet(_ context.Context, body []byte) (any, error) {
+	var req fleetNameInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.StartFleet(req.Name); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) opStopFleet(_ context.Context, body []byte) (any, error) {
+	var req fleetNameInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.StopFleet(req.Name); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+// --- Association handlers ---
+
+type associateFleetInput struct {
+	FleetName string `json:"FleetName"`
+	StackName string `json:"StackName"`
+}
+
+func (h *Handler) opAssociateFleet(_ context.Context, body []byte) (any, error) {
+	var req associateFleetInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.AssociateFleet(req.FleetName, req.StackName); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) opDisassociateFleet(_ context.Context, body []byte) (any, error) {
+	var req associateFleetInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DisassociateFleet(req.FleetName, req.StackName); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+type listAssociatedFleetsInput struct {
+	StackName string `json:"StackName"`
+}
+
+func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, error) {
+	var req listAssociatedFleetsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	names, err := h.Backend.ListAssociatedFleets(req.StackName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Names": names}, nil
+}
+
+type listAssociatedStacksInput struct {
+	FleetName string `json:"FleetName"`
+}
+
+func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, error) {
+	var req listAssociatedStacksInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	names, err := h.Backend.ListAssociatedStacks(req.FleetName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Names": names}, nil
+}
+
+// --- Tag handlers ---
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
+}
+
+func (h *Handler) opTagResource(_ context.Context, body []byte) (any, error) {
+	var req tagResourceInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.TagResource(req.ResourceArn, req.Tags); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+// untagResourceInput lists string before slice to satisfy fieldalignment.
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) opUntagResource(_ context.Context, body []byte) (any, error) {
+	var req untagResourceInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	if err := h.Backend.UntagResource(req.ResourceArn, req.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) opListTagsForResource(_ context.Context, body []byte) (any, error) {
+	var req listTagsForResourceInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	tags, err := h.Backend.ListTagsForResource(req.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyTags: tags}, nil
+}
+
+// --- Response helpers ---
+
+func stackToResponse(s *Stack) map[string]any {
+	return map[string]any{
+		"Name":        s.Name,
+		"Arn":         s.Arn,
+		"DisplayName": s.DisplayName,
+		"Description": s.Description,
+		"CreatedTime": s.CreatedTime.Unix(),
+		keyTags:       s.Tags,
+	}
+}
+
+func fleetToResponse(f *Fleet) map[string]any {
+	return map[string]any{
+		"Name":                       f.Name,
+		"Arn":                        f.Arn,
+		"DisplayName":                f.DisplayName,
+		"Description":                f.Description,
+		"InstanceType":               f.InstanceType,
+		"FleetType":                  f.FleetType,
+		"State":                      f.State,
+		"MaxUserDurationInSeconds":   f.MaxUserDurationSecs,
+		"DisconnectTimeoutInSeconds": f.DisconnectTimeoutSecs,
+		"CreatedTime":                f.CreatedTime.Unix(),
+		keyTags:                      f.Tags,
+	}
+}

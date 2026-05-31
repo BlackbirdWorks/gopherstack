@@ -65,6 +65,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
@@ -2727,6 +2728,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&databrewbackend.Provider{},
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
+		&appstreambackend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
