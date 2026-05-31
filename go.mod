@@ -177,6 +177,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/guardduty v1.78.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/inspector2 v1.48.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24 // indirect
 )
