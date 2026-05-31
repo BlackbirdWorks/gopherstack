@@ -108,11 +108,11 @@ func TestDataSync_Agent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(h *datasync.Handler)
 		body     any
-		action   string
+		setup    func(h *datasync.Handler)
 		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
 		wantCode int
 	}{
 		{
@@ -164,9 +164,12 @@ func TestDataSync_Agent(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "UpdateAgent unknown ARN returns 400",
-			action:   "UpdateAgent",
-			body:     map[string]any{"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist", "Name": "new"},
+			name:   "UpdateAgent unknown ARN returns 400",
+			action: "UpdateAgent",
+			body: map[string]any{
+				"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist",
+				"Name":     "new",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -261,11 +264,11 @@ func TestDataSync_LocationS3(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(h *datasync.Handler)
 		body     any
-		action   string
+		setup    func(h *datasync.Handler)
 		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
 		wantCode int
 	}{
 		{
@@ -380,10 +383,10 @@ func TestDataSync_Task(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		action   string
 		body     any
 		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
 		wantCode int
 	}{
 		{
@@ -525,7 +528,12 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	assert.Empty(t, listResp["TaskExecutions"])
 
 	// StartTaskExecution unknown task returns 400
-	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"})
+	rec = doRequest(
+		t,
+		h,
+		"StartTaskExecution",
+		map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
+	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

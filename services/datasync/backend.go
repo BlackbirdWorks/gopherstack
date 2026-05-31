@@ -17,15 +17,15 @@ import (
 )
 
 const (
-	invalidRequestType      = "InvalidRequestException"
-	resourceNotFoundType    = "ResourceNotFoundException"
-	conflictExceptionType   = "ResourceExistsException"
+	invalidRequestType    = "InvalidRequestException"
+	resourceNotFoundType  = "ResourceNotFoundException"
+	conflictExceptionType = "ResourceExistsException"
 
-	agentStatusOnline  = "ONLINE"
+	agentStatusOnline   = "ONLINE"
 	taskStatusAvailable = "AVAILABLE"
 
-	executionStatusLaunching   = "LAUNCHING"
-	executionStatusSuccess     = "SUCCESS"
+	executionStatusLaunching = "LAUNCHING"
+	executionStatusSuccess   = "SUCCESS"
 
 	defaultMaxResults = 100
 )
@@ -157,11 +157,11 @@ func (e *storedTaskExecution) toTaskExecution() TaskExecution {
 
 // snapshot holds serializable backend state.
 type snapshot struct {
-	Agents     map[string]*storedAgent                   `json:"agents"`
-	Locations  map[string]*storedLocation                `json:"locations"`
-	Tasks      map[string]*storedTask                    `json:"tasks"`
+	Agents     map[string]*storedAgent                    `json:"agents"`
+	Locations  map[string]*storedLocation                 `json:"locations"`
+	Tasks      map[string]*storedTask                     `json:"tasks"`
 	Executions map[string]map[string]*storedTaskExecution `json:"executions"` // taskArn → executionArn → execution
-	Tags       map[string]map[string]string              `json:"tags"`
+	Tags       map[string]map[string]string               `json:"tags"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -170,7 +170,7 @@ type InMemoryBackend struct {
 	agents     map[string]*storedAgent                    // agentArn → agent
 	locations  map[string]*storedLocation                 // locationArn → location
 	tasks      map[string]*storedTask                     // taskArn → task
-	executions map[string]map[string]*storedTaskExecution  // taskArn → executionArn → execution
+	executions map[string]map[string]*storedTaskExecution // taskArn → executionArn → execution
 	tags       map[string]map[string]string               // resourceArn → tags
 	accountID  string
 	region     string
@@ -321,7 +321,11 @@ func (b *InMemoryBackend) ListAgents(maxResults int32, nextToken string) ([]*Age
 }
 
 // CreateLocationS3 creates a new S3 location.
-func (b *InMemoryBackend) CreateLocationS3(subdirectory, s3BucketArn, s3StorageClass string, s3Config S3Config, tags map[string]string) (*Location, error) {
+func (b *InMemoryBackend) CreateLocationS3(
+	subdirectory, s3BucketArn, s3StorageClass string,
+	s3Config S3Config,
+	tags map[string]string,
+) (*Location, error) {
 	b.mu.Lock("CreateLocationS3")
 	defer b.mu.Unlock()
 
@@ -424,7 +428,10 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 }
 
 // CreateTask creates a new DataSync task.
-func (b *InMemoryBackend) CreateTask(sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string, tags map[string]string) (*Task, error) {
+func (b *InMemoryBackend) CreateTask(
+	sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string,
+	tags map[string]string,
+) (*Task, error) {
 	b.mu.Lock("CreateTask")
 	defer b.mu.Unlock()
 
@@ -628,7 +635,11 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 }
 
 // ListTaskExecutions returns executions for a task, sorted by ARN.
-func (b *InMemoryBackend) ListTaskExecutions(taskArn string, maxResults int32, nextToken string) ([]*TaskExecutionListEntry, string, error) {
+func (b *InMemoryBackend) ListTaskExecutions(
+	taskArn string,
+	maxResults int32,
+	nextToken string,
+) ([]*TaskExecutionListEntry, string, error) {
 	b.mu.RLock("ListTaskExecutions")
 	defer b.mu.RUnlock()
 
@@ -688,7 +699,11 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 }
 
 // ListTagsForResource returns tags for a resource with pagination.
-func (b *InMemoryBackend) ListTagsForResource(resourceArn string, maxResults int32, nextToken string) (map[string]string, string, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	resourceArn string,
+	maxResults int32,
+	nextToken string,
+) (map[string]string, string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 

@@ -187,9 +187,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // --- Agent operations ---
 
 type createAgentInput struct {
-	ActivationKey string            `json:"ActivationKey"`
-	AgentName     string            `json:"AgentName"`
-	Tags          []tagInput        `json:"Tags"`
+	ActivationKey string     `json:"ActivationKey"`
+	AgentName     string     `json:"AgentName"`
+	Tags          []tagInput `json:"Tags"`
 }
 
 type createAgentOutput struct {
@@ -280,8 +280,8 @@ func (h *Handler) handleDeleteAgent(_ context.Context, in *deleteAgentInput) (*d
 }
 
 type listAgentsInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type agentListEntryOutput struct {
@@ -291,8 +291,8 @@ type agentListEntryOutput struct {
 }
 
 type listAgentsOutput struct {
-	Agents    []agentListEntryOutput `json:"Agents"`
 	NextToken string                 `json:"NextToken,omitempty"`
+	Agents    []agentListEntryOutput `json:"Agents"`
 }
 
 func (h *Handler) handleListAgents(_ context.Context, in *listAgentsInput) (*listAgentsOutput, error) {
@@ -320,18 +320,21 @@ type s3ConfigInput struct {
 }
 
 type createLocationS3Input struct {
-	S3Config        *s3ConfigInput `json:"S3Config"`
-	Tags            []tagInput     `json:"Tags"`
-	S3BucketArn     string         `json:"S3BucketArn"`
-	Subdirectory    string         `json:"Subdirectory"`
-	S3StorageClass  string         `json:"S3StorageClass"`
+	S3Config       *s3ConfigInput `json:"S3Config"`
+	S3BucketArn    string         `json:"S3BucketArn"`
+	Subdirectory   string         `json:"Subdirectory"`
+	S3StorageClass string         `json:"S3StorageClass"`
+	Tags           []tagInput     `json:"Tags"`
 }
 
 type createLocationS3Output struct {
 	LocationArn string `json:"LocationArn"`
 }
 
-func (h *Handler) handleCreateLocationS3(_ context.Context, in *createLocationS3Input) (*createLocationS3Output, error) {
+func (h *Handler) handleCreateLocationS3(
+	_ context.Context,
+	in *createLocationS3Input,
+) (*createLocationS3Output, error) {
 	if in.S3BucketArn == "" {
 		return nil, fmt.Errorf("%w: S3BucketArn is required", errInvalidRequest)
 	}
@@ -369,7 +372,10 @@ type describeLocationS3Output struct {
 	CreationTime   int64           `json:"CreationTime"`
 }
 
-func (h *Handler) handleDescribeLocationS3(_ context.Context, in *describeLocationS3Input) (*describeLocationS3Output, error) {
+func (h *Handler) handleDescribeLocationS3(
+	_ context.Context,
+	in *describeLocationS3Input,
+) (*describeLocationS3Output, error) {
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}
@@ -414,8 +420,8 @@ func (h *Handler) handleDeleteLocation(_ context.Context, in *deleteLocationInpu
 }
 
 type listLocationsInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type locationListEntryOutput struct {
@@ -425,8 +431,8 @@ type locationListEntryOutput struct {
 }
 
 type listLocationsOutput struct {
-	Locations []locationListEntryOutput `json:"Locations"`
 	NextToken string                    `json:"NextToken,omitempty"`
+	Locations []locationListEntryOutput `json:"Locations"`
 }
 
 func (h *Handler) handleListLocations(_ context.Context, in *listLocationsInput) (*listLocationsOutput, error) {
@@ -450,11 +456,11 @@ func (h *Handler) handleListLocations(_ context.Context, in *listLocationsInput)
 // --- Task operations ---
 
 type createTaskInput struct {
-	Tags                   []tagInput `json:"Tags"`
 	SourceLocationArn      string     `json:"SourceLocationArn"`
 	DestinationLocationArn string     `json:"DestinationLocationArn"`
 	Name                   string     `json:"Name"`
 	CloudWatchLogGroupArn  string     `json:"CloudWatchLogGroupArn,omitempty"`
+	Tags                   []tagInput `json:"Tags"`
 }
 
 type createTaskOutput struct {
@@ -472,7 +478,13 @@ func (h *Handler) handleCreateTask(_ context.Context, in *createTaskInput) (*cre
 
 	tags := tagsFromInput(in.Tags)
 
-	t, err := h.Backend.CreateTask(in.SourceLocationArn, in.DestinationLocationArn, in.Name, in.CloudWatchLogGroupArn, tags)
+	t, err := h.Backend.CreateTask(
+		in.SourceLocationArn,
+		in.DestinationLocationArn,
+		in.Name,
+		in.CloudWatchLogGroupArn,
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -556,8 +568,8 @@ func (h *Handler) handleDeleteTask(_ context.Context, in *deleteTaskInput) (*del
 }
 
 type listTasksInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type taskListEntryOutput struct {
@@ -567,8 +579,8 @@ type taskListEntryOutput struct {
 }
 
 type listTasksOutput struct {
-	Tasks     []taskListEntryOutput `json:"Tasks"`
 	NextToken string                `json:"NextToken,omitempty"`
+	Tasks     []taskListEntryOutput `json:"Tasks"`
 }
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
@@ -599,7 +611,10 @@ type startTaskExecutionOutput struct {
 	TaskExecutionArn string `json:"TaskExecutionArn"`
 }
 
-func (h *Handler) handleStartTaskExecution(_ context.Context, in *startTaskExecutionInput) (*startTaskExecutionOutput, error) {
+func (h *Handler) handleStartTaskExecution(
+	_ context.Context,
+	in *startTaskExecutionInput,
+) (*startTaskExecutionOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
 	}
@@ -618,7 +633,10 @@ type cancelTaskExecutionInput struct {
 
 type cancelTaskExecutionOutput struct{}
 
-func (h *Handler) handleCancelTaskExecution(_ context.Context, in *cancelTaskExecutionInput) (*cancelTaskExecutionOutput, error) {
+func (h *Handler) handleCancelTaskExecution(
+	_ context.Context,
+	in *cancelTaskExecutionInput,
+) (*cancelTaskExecutionOutput, error) {
 	if in.TaskExecutionArn == "" {
 		return nil, fmt.Errorf("%w: TaskExecutionArn is required", errInvalidRequest)
 	}
@@ -644,7 +662,10 @@ type describeTaskExecutionOutput struct {
 	BytesTransferred         int64  `json:"BytesTransferred"`
 }
 
-func (h *Handler) handleDescribeTaskExecution(_ context.Context, in *describeTaskExecutionInput) (*describeTaskExecutionOutput, error) {
+func (h *Handler) handleDescribeTaskExecution(
+	_ context.Context,
+	in *describeTaskExecutionInput,
+) (*describeTaskExecutionOutput, error) {
 	if in.TaskExecutionArn == "" {
 		return nil, fmt.Errorf("%w: TaskExecutionArn is required", errInvalidRequest)
 	}
@@ -667,8 +688,8 @@ func (h *Handler) handleDescribeTaskExecution(_ context.Context, in *describeTas
 
 type listTaskExecutionsInput struct {
 	TaskArn    string `json:"TaskArn"`
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type taskExecutionListEntryOutput struct {
@@ -677,11 +698,14 @@ type taskExecutionListEntryOutput struct {
 }
 
 type listTaskExecutionsOutput struct {
-	TaskExecutions []taskExecutionListEntryOutput `json:"TaskExecutions"`
 	NextToken      string                         `json:"NextToken,omitempty"`
+	TaskExecutions []taskExecutionListEntryOutput `json:"TaskExecutions"`
 }
 
-func (h *Handler) handleListTaskExecutions(_ context.Context, in *listTaskExecutionsInput) (*listTaskExecutionsOutput, error) {
+func (h *Handler) handleListTaskExecutions(
+	_ context.Context,
+	in *listTaskExecutionsInput,
+) (*listTaskExecutionsOutput, error) {
 	executions, nextToken, err := h.Backend.ListTaskExecutions(in.TaskArn, in.MaxResults, in.NextToken)
 	if err != nil {
 		return nil, err
@@ -746,16 +770,19 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 
 type listTagsForResourceInput struct {
 	ResourceArn string `json:"ResourceArn"`
-	MaxResults  int32  `json:"MaxResults"`
 	NextToken   string `json:"NextToken"`
+	MaxResults  int32  `json:"MaxResults"`
 }
 
 type listTagsForResourceOutput struct {
-	Tags      []tagInput `json:"Tags"`
 	NextToken string     `json:"NextToken,omitempty"`
+	Tags      []tagInput `json:"Tags"`
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, in *listTagsForResourceInput) (*listTagsForResourceOutput, error) {
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}

@@ -12,13 +12,20 @@ type StorageBackend interface {
 	ListAgents(maxResults int32, nextToken string) ([]*AgentListEntry, string, error)
 
 	// Location operations (S3)
-	CreateLocationS3(subdirectory, s3BucketArn, s3StorageClass string, s3Config S3Config, tags map[string]string) (*Location, error)
+	CreateLocationS3(
+		subdirectory, s3BucketArn, s3StorageClass string,
+		s3Config S3Config,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationS3(locationArn string) (*LocationS3, error)
 	DeleteLocation(locationArn string) error
 	ListLocations(maxResults int32, nextToken string) ([]*LocationListEntry, string, error)
 
 	// Task operations
-	CreateTask(sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string, tags map[string]string) (*Task, error)
+	CreateTask(
+		sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string,
+		tags map[string]string,
+	) (*Task, error)
 	DescribeTask(taskArn string) (*Task, error)
 	UpdateTask(taskArn, name, cloudWatchLogGroupArn string) error
 	DeleteTask(taskArn string) error
@@ -95,15 +102,15 @@ type LocationListEntry struct {
 // Task represents a DataSync transfer task.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Task struct {
-	CreationTime             time.Time
-	Tags                     map[string]string
-	TaskArn                  string
-	Name                     string
-	Status                   string
-	SourceLocationArn        string
-	DestinationLocationArn   string
-	CloudWatchLogGroupArn    string
-	CurrentTaskExecutionArn  string
+	CreationTime            time.Time
+	Tags                    map[string]string
+	TaskArn                 string
+	Name                    string
+	Status                  string
+	SourceLocationArn       string
+	DestinationLocationArn  string
+	CloudWatchLogGroupArn   string
+	CurrentTaskExecutionArn string
 }
 
 // TaskListEntry is a task entry in a list response.
@@ -116,9 +123,9 @@ type TaskListEntry struct {
 // TaskExecution represents a DataSync task execution.
 // StartTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type TaskExecution struct {
-	StartTime            time.Time
-	TaskExecutionArn     string
-	Status               string
+	StartTime                time.Time
+	TaskExecutionArn         string
+	Status                   string
 	EstimatedFilesToTransfer int64
 	EstimatedBytesToTransfer int64
 	FilesTransferred         int64
