@@ -180,6 +180,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/macie2 v1.51.4
 	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0
+	github.com/aws/aws-sdk-go-v2/service/securityhub v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
