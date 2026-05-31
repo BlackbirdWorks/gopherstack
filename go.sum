@@ -166,6 +166,8 @@ github.com/aws/aws-sdk-go-v2/service/fis v1.37.18 h1:dmu/ow3nsssfkQWM9JfM0ktJt7g
 github.com/aws/aws-sdk-go-v2/service/fis v1.37.18/go.mod h1:VuDLTyye9rEQx3lfs2UrO74ENboOHzkY1pehPvG3HvM=
 github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0 h1:QbTvwW+dJkvwjk8+HyiCvOYpR7+ynWMcIGKJGaxOGVo=
 github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0/go.mod h1:TwIEn4Wf9PlItwPe2/gYGUdFIl2omNyefLcTIlRecC8=
+github.com/aws/aws-sdk-go-v2/service/fsx v1.66.2 h1:/umHIBv/6mHDCUQ+xdAHVc6lG+l3k06dZezh66k9u8I=
+github.com/aws/aws-sdk-go-v2/service/fsx v1.66.2/go.mod h1:lVXNf8sPiHRSVIQdbEdo9N2Bkf6ACBTDk+h4iguBLDI=
 github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4 h1:zUC3y5Lxb2VHMYiF5+9omeBzsl6t4lNUFD+yTasFh08=
 github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4/go.mod h1:b4qWUoebMZwe/s5iG/Y4+Q4iKGYP7HLWJOU7RKyJQdg=
 github.com/aws/aws-sdk-go-v2/service/glue v1.137.2 h1:qGCcDn2ASnsWw20B6rPtV+e2sEbmHtbj/zQniK3z6ko=
@@ -236,8 +238,6 @@ github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 h1:Akp3PA62O+s8Tze5/4f3Ythr
 github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1/go.mod h1:YNCq3tFuuD8sxXKR9NC7n8gdafguPzxp+WFKuivplTw=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0 h1:rhlLa2SwSeKva0DEUrbRc5DN2bAsIPvcmW7N/c2MUgI=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0/go.mod h1:ONvZiWIqgJzRaqzynnqCZO7ofBDKJhmeRbrYiGtjFWM=
-github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0 h1:wTMEW5MX0+KDR2twK2UkdZ2AHItnab8/XFrM6bHYvtY=
-github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0/go.mod h1:pGgL2+mF6Gtjq9diAn/tVmvRqfFI+2/oyz3dENRCPXw=
 github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4 h1:cxBoPUd3gj7+AmpB0btKhGK/9kbOsiNcgZvoERW6sMI=
 github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4/go.mod h1:LIHqxZyzLBtVufP32kdC3tcUmhIN+5n++w6WCS+kswQ=
 github.com/aws/aws-sdk-go-v2/service/personalize v1.47.11 h1:FfNTRxeZQ9HvlnsE+wXfZGKwHeOcuv8hZE2V1p+LNMg=

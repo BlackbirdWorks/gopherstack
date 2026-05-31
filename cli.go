@@ -116,6 +116,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -2727,7 +2728,14 @@ func getMostRecentServiceProviders() []service.Provider {
 		&macie2backend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
+<<<<<<< HEAD
 		&opsworksbackend.Provider{},
+=======
+		&medialivebackend.Provider{},
+		&mediapackagebackend.Provider{},
+		&translatebackend.Provider{},
+		&fsxbackend.Provider{},
+>>>>>>> dbe74c95 (feat(fsx): batch-1 AWS-accuracy audit (go-ubuk))
 	}
 }
 
