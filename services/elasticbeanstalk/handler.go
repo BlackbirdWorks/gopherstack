@@ -319,16 +319,20 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 
 // applicationDescType is used in XML responses.
 type applicationDescType struct {
-	ApplicationName string `xml:"ApplicationName"`
-	ApplicationArn  string `xml:"ApplicationArn"`
-	Description     string `xml:"Description,omitempty"`
+	ConfigurationTemplates []string `xml:"ConfigurationTemplates>member,omitempty"`
+	ApplicationName        string   `xml:"ApplicationName"`
+	ApplicationArn         string   `xml:"ApplicationArn"`
+	Description            string   `xml:"Description,omitempty"`
+	DateCreated            string   `xml:"DateCreated,omitempty"`
 }
 
-func toApplicationDesc(app *Application) applicationDescType {
+func toApplicationDesc(app *Application, configTemplateNames []string) applicationDescType {
 	return applicationDescType{
-		ApplicationName: app.ApplicationName,
-		ApplicationArn:  app.ApplicationARN,
-		Description:     app.Description,
+		ApplicationName:        app.ApplicationName,
+		ApplicationArn:         app.ApplicationARN,
+		Description:            app.Description,
+		DateCreated:            app.DateCreated,
+		ConfigurationTemplates: configTemplateNames,
 	}
 }
 
@@ -360,7 +364,7 @@ func (h *Handler) handleCreateApplication(vals url.Values) (any, error) {
 
 	return &createApplicationResponse{
 		Xmlns:                   ebXMLNS,
-		CreateApplicationResult: createApplicationResult{Application: toApplicationDesc(app)},
+		CreateApplicationResult: createApplicationResult{Application: toApplicationDesc(app, nil)},
 		ResponseMetadata:        responseMetadata{RequestID: "eb-create-app"},
 	}, nil
 }
@@ -383,7 +387,14 @@ func (h *Handler) handleDescribeApplications(vals url.Values) (any, error) {
 	members := make([]applicationDescType, 0, len(apps))
 
 	for _, app := range apps {
-		members = append(members, toApplicationDesc(app))
+		templates := h.Backend.DescribeConfigurationTemplates(app.ApplicationName)
+		templateNames := make([]string, 0, len(templates))
+
+		for _, tmpl := range templates {
+			templateNames = append(templateNames, tmpl.TemplateName)
+		}
+
+		members = append(members, toApplicationDesc(app, templateNames))
 	}
 
 	return &describeApplicationsResponse{
@@ -419,7 +430,7 @@ func (h *Handler) handleUpdateApplication(vals url.Values) (any, error) {
 
 	return &updateApplicationResponse{
 		Xmlns:                   ebXMLNS,
-		UpdateApplicationResult: updateApplicationResult{Application: toApplicationDesc(app)},
+		UpdateApplicationResult: updateApplicationResult{Application: toApplicationDesc(app, nil)},
 		ResponseMetadata:        responseMetadata{RequestID: "eb-update-app"},
 	}, nil
 }
@@ -464,6 +475,7 @@ type environmentDescType struct {
 	PlatformArn       string              `xml:"PlatformArn,omitempty"`
 	VersionLabel      string              `xml:"VersionLabel,omitempty"`
 	OperationsRole    string              `xml:"OperationsRole,omitempty"`
+	DateCreated       string              `xml:"DateCreated,omitempty"`
 	Status            string              `xml:"Status"`
 	Health            string              `xml:"Health"`
 	Tier              environmentTierType `xml:"Tier"`
@@ -506,6 +518,7 @@ func toEnvironmentDesc(env *Environment, region string) environmentDescType {
 		PlatformArn:       env.PlatformARN,
 		VersionLabel:      env.VersionLabel,
 		OperationsRole:    env.OperationsRole,
+		DateCreated:       env.DateCreated,
 		Status:            env.Status,
 		Health:            env.Health,
 		Tier: environmentTierType{
@@ -730,6 +743,7 @@ type appVersionDescType struct {
 	VersionLabel           string                      `xml:"VersionLabel"`
 	ApplicationVersionArn  string                      `xml:"ApplicationVersionArn"`
 	Description            string                      `xml:"Description,omitempty"`
+	DateCreated            string                      `xml:"DateCreated,omitempty"`
 	Status                 string                      `xml:"Status"`
 }
 
@@ -750,6 +764,7 @@ func toAppVersionDesc(ver *ApplicationVersion) appVersionDescType {
 		VersionLabel:          ver.VersionLabel,
 		ApplicationVersionArn: ver.ApplicationVersionARN,
 		Description:           ver.Description,
+		DateCreated:           ver.DateCreated,
 		Status:                ver.Status,
 	}
 	if ver.S3Bucket != "" || ver.S3Key != "" {
