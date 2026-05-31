@@ -118,6 +118,8 @@ github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0 h1:wuMzTtsMNVfR954WDxxuTSx
 github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0/go.mod h1:JR6djN/YtdK6R03KYsrMoh/GzmFsIDAdtzjl1RjqqSQ=
 github.com/aws/aws-sdk-go-v2/service/dax v1.29.18 h1:sZwTAlW7WiDiLBjDk6OvmbOBjXQPooArNkUbTzCupOU=
 github.com/aws/aws-sdk-go-v2/service/dax v1.29.18/go.mod h1:zAdYaGSQXmr+LwBX8pp5vHvcToXC5SEOKPlDUhZMMRc=
+github.com/aws/aws-sdk-go-v2/service/detective v1.39.1 h1:1thuyQ62I37RCNck64j6UG5DKde+FHOuMRjnRohA7Lo=
+github.com/aws/aws-sdk-go-v2/service/detective v1.39.1/go.mod h1:SrAt+XLuO5xJtI9W5bM0fyd8Y109jy/8+vWmIjdoA54=
 github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11 h1:7D5G4fCH+ZE14P0sZdSkQQjIWnCZzB05kggmPWW0Gss=
 github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11/go.mod h1:Iw7ntHMQ/0/dNQiK/sJZl08jbmR9wRr4JOMFPxFgxmM=
 github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.4 h1:0E3bfw1Va3vfCrmtATvKRnGojY4oIlLl0u0xRDDUgfY=
