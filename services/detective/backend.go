@@ -37,10 +37,11 @@ var (
 )
 
 // storedGraph holds a behavior graph with all fields.
+// CreatedTime is first: time.Time's non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedGraph struct {
-	Arn         string            `json:"arn"`
 	CreatedTime time.Time         `json:"createdTime"`
 	Tags        map[string]string `json:"tags"`
+	Arn         string            `json:"arn"`
 }
 
 func (g *storedGraph) toGraph() Graph {
@@ -52,14 +53,15 @@ func (g *storedGraph) toGraph() Graph {
 }
 
 // storedMember holds a member with all fields.
+// time.Time fields are first: their non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedMember struct {
+	InvitedTime     time.Time `json:"invitedTime"`
+	UpdatedTime     time.Time `json:"updatedTime"`
 	AccountID       string    `json:"accountId"`
 	AdministratorID string    `json:"administratorId"`
 	EmailAddress    string    `json:"emailAddress"`
 	GraphARN        string    `json:"graphArn"`
-	InvitedTime     time.Time `json:"invitedTime"`
 	Status          string    `json:"status"`
-	UpdatedTime     time.Time `json:"updatedTime"`
 }
 
 func (m *storedMember) toMemberDetail() MemberDetail {

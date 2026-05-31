@@ -148,24 +148,25 @@ func (h *Handler) handleREST(c *echo.Context) error {
 }
 
 func classifyGraphPath(method, path string) string {
-	switch {
-	case path == pathGraph && method == http.MethodPost:
-		return opCreateGraph
-	case path == pathGraphRemoval && method == http.MethodPost:
-		return opDeleteGraph
-	case path == pathGraphsList && method == http.MethodPost:
-		return opListGraphs
-	case path == pathGraphMembers && method == http.MethodPost:
-		return opCreateMembers
-	case path == pathMembersRemoval && method == http.MethodPost:
-		return opDeleteMembers
-	case path == pathMembersGet && method == http.MethodPost:
-		return opGetMembers
-	case path == pathMembersList && method == http.MethodPost:
-		return opListMembers
-	default:
+	if method != http.MethodPost {
 		return opUnknown
 	}
+
+	postPathOps := map[string]string{
+		pathGraph:          opCreateGraph,
+		pathGraphRemoval:   opDeleteGraph,
+		pathGraphsList:     opListGraphs,
+		pathGraphMembers:   opCreateMembers,
+		pathMembersRemoval: opDeleteMembers,
+		pathMembersGet:     opGetMembers,
+		pathMembersList:    opListMembers,
+	}
+
+	if op, ok := postPathOps[path]; ok {
+		return op
+	}
+
+	return opUnknown
 }
 
 func classifyTagPath(method string) string {
@@ -287,12 +288,12 @@ func (h *Handler) handleCreateMembers(c *echo.Context) error {
 	}
 
 	var req struct {
+		GraphArn string `json:"GraphArn"`
+		Message  string `json:"Message"`
 		Accounts []struct {
 			AccountID    string `json:"AccountId"`
 			EmailAddress string `json:"EmailAddress"`
 		} `json:"Accounts"`
-		GraphArn string `json:"GraphArn"`
-		Message  string `json:"Message"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -317,8 +318,8 @@ func (h *Handler) handleCreateMembers(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Members":                memberDetailsToJSON(members),
-		keyUnprocessedAccounts:  unprocessedToJSON(unprocessed),
+		"Members":              memberDetailsToJSON(members),
+		keyUnprocessedAccounts: unprocessedToJSON(unprocessed),
 	})
 }
 
@@ -329,8 +330,8 @@ func (h *Handler) handleDeleteMembers(c *echo.Context) error {
 	}
 
 	var req struct {
-		AccountIDs []string `json:"AccountIds"`
 		GraphArn   string   `json:"GraphArn"`
+		AccountIDs []string `json:"AccountIds"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -347,8 +348,8 @@ func (h *Handler) handleDeleteMembers(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"AccountIds":             deleted,
-		keyUnprocessedAccounts:  unprocessedToJSON(unprocessed),
+		"AccountIds":           deleted,
+		keyUnprocessedAccounts: unprocessedToJSON(unprocessed),
 	})
 }
 
@@ -359,8 +360,8 @@ func (h *Handler) handleGetMembers(c *echo.Context) error {
 	}
 
 	var req struct {
-		AccountIDs []string `json:"AccountIds"`
 		GraphArn   string   `json:"GraphArn"`
+		AccountIDs []string `json:"AccountIds"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -377,8 +378,8 @@ func (h *Handler) handleGetMembers(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"MemberDetails":          memberDetailsToJSON(members),
-		keyUnprocessedAccounts:  unprocessedToJSON(unprocessed),
+		"MemberDetails":        memberDetailsToJSON(members),
+		keyUnprocessedAccounts: unprocessedToJSON(unprocessed),
 	})
 }
 

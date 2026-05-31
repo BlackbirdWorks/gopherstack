@@ -17,6 +17,7 @@ import (
 func newTestHandler(t *testing.T) *detective.Handler {
 	t.Helper()
 	backend := detective.NewInMemoryBackend("000000000000", "us-east-1")
+
 	return detective.NewHandler(backend)
 }
 
@@ -26,10 +27,10 @@ func doRequest(t *testing.T, h *detective.Handler, method, path string, body any
 	var bodyBytes []byte
 
 	if body != nil {
-		var err error
+		var marshalErr error
 
-		bodyBytes, err = json.Marshal(body)
-		require.NoError(t, err)
+		bodyBytes, marshalErr = json.Marshal(body)
+		require.NoError(t, marshalErr)
 	}
 
 	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
@@ -38,8 +39,8 @@ func doRequest(t *testing.T, h *detective.Handler, method, path string, body any
 
 	e := echo.New()
 	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
+	handlerErr := h.Handler()(c)
+	require.NoError(t, handlerErr)
 
 	return rec
 }
@@ -50,11 +51,11 @@ func TestDetective_Graph(t *testing.T) {
 	tests := []struct {
 		name     string
 		setup    func(h *detective.Handler)
+		body     any
+		check    func(t *testing.T, body []byte)
 		method   string
 		path     string
-		body     any
 		wantCode int
-		check    func(t *testing.T, body []byte)
 	}{
 		{
 			name:     "CreateGraph returns graphArn",
@@ -62,10 +63,10 @@ func TestDetective_Graph(t *testing.T) {
 			path:     "/graph",
 			body:     map[string]any{"Tags": map[string]string{"env": "test"}},
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp))
 				assert.Contains(t, resp["GraphArn"], "arn:aws:detective:")
 			},
 		},
@@ -78,10 +79,10 @@ func TestDetective_Graph(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 			},
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp))
 				assert.Contains(t, resp["GraphArn"], "arn:aws:detective:")
 			},
 		},
@@ -93,11 +94,6 @@ func TestDetective_Graph(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 			},
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
-				t.Helper()
-
-				// get the graphArn from a fresh create first
-			},
 		},
 		{
 			name:     "DeleteGraph unknown arn returns 404",
@@ -119,10 +115,10 @@ func TestDetective_Graph(t *testing.T) {
 			path:     "/graphs/list",
 			body:     map[string]any{},
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp))
 				list, ok := resp["GraphList"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, list)
@@ -137,10 +133,10 @@ func TestDetective_Graph(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 			},
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp))
 				list, ok := resp["GraphList"].([]any)
 				require.True(t, ok)
 				assert.Len(t, list, 1)
@@ -149,8 +145,6 @@ func TestDetective_Graph(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -160,15 +154,12 @@ func TestDetective_Graph(t *testing.T) {
 				tc.setup(h)
 			}
 
-			var body any
-
-			if tc.body != nil {
-				body = tc.body
-			} else if tc.setup != nil && tc.method == http.MethodPost && tc.path == "/graph/removal" {
+			body := tc.body
+			if body == nil && tc.setup != nil && tc.method == http.MethodPost && tc.path == "/graph/removal" {
 				// get graphArn from listing
-				rec := doRequest(t, h, http.MethodPost, "/graphs/list", map[string]any{})
+				listRec := doRequest(t, h, http.MethodPost, "/graphs/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 				list := listResp["GraphList"].([]any)
 				if len(list) > 0 {
 					graph := list[0].(map[string]any)
@@ -191,11 +182,11 @@ func TestDetective_Members(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		body     any
+		check    func(t *testing.T, body []byte)
 		method   string
 		path     string
-		body     any
 		wantCode int
-		check    func(t *testing.T, body []byte)
 	}{
 		{
 			name:   "CreateMembers without graph returns 404",
@@ -251,8 +242,6 @@ func TestDetective_Members(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -344,7 +333,7 @@ func TestDetective_MembersLifecycle(t *testing.T) {
 	assert.Len(t, memberDetails, 1)
 }
 
-func TestDetective_Tags(t *testing.T) {
+func TestDetective_Tags(t *testing.T) { //nolint:tparallel // subtests share handler state intentionally
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -359,21 +348,21 @@ func TestDetective_Tags(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		body     any
+		check    func(t *testing.T, body []byte)
 		method   string
 		path     string
-		body     any
 		wantCode int
-		check    func(t *testing.T, body []byte)
 	}{
 		{
 			name:     "ListTagsForResource returns empty tags",
 			method:   http.MethodGet,
 			path:     "/tags/" + graphArn,
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp))
 				tags, ok := resp["Tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Empty(t, tags)
@@ -391,7 +380,7 @@ func TestDetective_Tags(t *testing.T) {
 			method:   http.MethodGet,
 			path:     "/tags/" + graphArn,
 			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte) {
+			check: func(t *testing.T, _ []byte) {
 				t.Helper()
 
 				// tag first
@@ -399,9 +388,9 @@ func TestDetective_Tags(t *testing.T) {
 					"Tags": map[string]string{"mykey": "myval"},
 				})
 
-				rec2 := doRequest(t, h, http.MethodGet, "/tags/"+graphArn, nil)
+				tagRec := doRequest(t, h, http.MethodGet, "/tags/"+graphArn, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &resp))
 				tags := resp["Tags"].(map[string]any)
 				assert.Equal(t, "myval", tags["mykey"])
 			},
@@ -421,15 +410,13 @@ func TestDetective_Tags(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
-
+	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doRequest(t, h, tc.method, tc.path, tc.body)
-			assert.Equal(t, tc.wantCode, rec.Code)
+			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantCode, rec2.Code)
 
 			if tc.check != nil {
-				tc.check(t, rec.Body.Bytes())
+				tc.check(t, rec2.Body.Bytes())
 			}
 		})
 	}

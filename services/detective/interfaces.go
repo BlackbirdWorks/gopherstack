@@ -25,10 +25,11 @@ type StorageBackend interface {
 }
 
 // Graph represents a Detective behavior graph.
+// CreatedTime is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type Graph struct {
+	CreatedTime time.Time
 	Tags        map[string]string
 	Arn         string
-	CreatedTime time.Time
 }
 
 // Account is an AWS account for member operations.
@@ -38,15 +39,15 @@ type Account struct {
 }
 
 // MemberDetail is the detail of a behavior graph member.
+// time.Time fields are first so their non-pointer prefix reduces GC pointer bytes.
 type MemberDetail struct {
-	Tags            map[string]string
+	InvitedTime     time.Time
+	UpdatedTime     time.Time
 	AccountID       string
 	AdministratorID string
 	EmailAddress    string
 	GraphARN        string
 	Status          string
-	InvitedTime     time.Time
-	UpdatedTime     time.Time
 }
 
 // UnprocessedAccount is an account that could not be processed.
