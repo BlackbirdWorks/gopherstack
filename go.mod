@@ -180,7 +180,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
-require github.com/aws/aws-sdk-go-v2/service/detective v1.39.1 // indirect
+require (
+	github.com/aws/aws-sdk-go-v2/service/detective v1.39.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dlm v1.37.2 // indirect
+)
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
