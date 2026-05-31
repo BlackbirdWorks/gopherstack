@@ -1117,7 +1117,7 @@ func TestBatch1_EnableDefaultStandardsAutoEnablesDefaults(t *testing.T) {
 	})
 
 	count := securityhub.StandardsSubscriptionCount(b)
-	assert.Greater(t, count, 0, "enabling with EnableDefaultStandards=true must auto-enable default standards")
+	assert.Positive(t, count, "enabling with EnableDefaultStandards=true must auto-enable default standards")
 }
 
 // Batch-1 accuracy gap: EnableDefaultStandards=false must NOT auto-enable standards.

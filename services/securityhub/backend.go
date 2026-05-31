@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -455,9 +456,9 @@ func (b *InMemoryBackend) DescribeHub() (*Hub, error) {
 		return nil, ErrHubNotEnabled
 	}
 
-	copy := *b.hub
+	cp := *b.hub
 
-	return &copy, nil
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) UpdateHubConfiguration(
@@ -532,7 +533,7 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 
 func (b *InMemoryBackend) GetFindings(
 	filters map[string]any,
-	sortCriteria []map[string]any,
+	_ []map[string]any,
 	nextToken string,
 	maxResults int,
 ) ([]map[string]any, string) {
@@ -684,10 +685,10 @@ func (b *InMemoryBackend) BatchUpdateFindings(
 }
 
 func (b *InMemoryBackend) GetFindingHistory(
-	findingIdentifier map[string]any,
-	startTime, endTime string,
-	nextToken string,
-	maxResults int,
+	_ map[string]any,
+	_, _ string,
+	_ string,
+	_ int,
 ) ([]map[string]any, string) {
 	b.mu.RLock("GetFindingHistory")
 	defer b.mu.RUnlock()
@@ -933,6 +934,7 @@ func (b *InMemoryBackend) GetEnabledStandards(
 	b.mu.RLock("GetEnabledStandards")
 	defer b.mu.RUnlock()
 	results := filterOrAll(subscriptionArns, b.standardsSubscriptions)
+
 	return paginateSlice(results, nextToken, maxResults, maxStandardsResults)
 }
 
@@ -942,8 +944,8 @@ func (b *InMemoryBackend) DescribeStandards(nextToken string, maxResults int) ([
 
 	results := make([]*Standard, len(knownStandards))
 	for i := range knownStandards {
-		copy := knownStandards[i]
-		results[i] = &copy
+		cp := knownStandards[i]
+		results[i] = &cp
 	}
 
 	if maxResults <= 0 || maxResults > 25 {
@@ -1195,6 +1197,7 @@ func (b *InMemoryBackend) DescribeActionTargets(
 	b.mu.RLock("DescribeActionTargets")
 	defer b.mu.RUnlock()
 	results := filterOrAll(actionTargetArns, b.actionTargets)
+
 	return paginateSlice(results, nextToken, maxResults, maxDefaultResults)
 }
 
@@ -1408,8 +1411,9 @@ func (b *InMemoryBackend) GetSecurityControlDefinition(securityControlID string)
 
 	for i := range knownSecurityControls {
 		if knownSecurityControls[i].SecurityControlID == securityControlID {
-			copy := knownSecurityControls[i]
-			return &copy, nil
+			cp := knownSecurityControls[i]
+
+			return &cp, nil
 		}
 	}
 
@@ -1417,7 +1421,7 @@ func (b *InMemoryBackend) GetSecurityControlDefinition(securityControlID string)
 }
 
 func (b *InMemoryBackend) ListSecurityControlDefinitions(
-	standardsArn, nextToken string,
+	_, nextToken string,
 	maxResults int,
 ) ([]*SecurityControlDefinition, string) {
 	b.mu.RLock("ListSecurityControlDefinitions")
@@ -1425,8 +1429,8 @@ func (b *InMemoryBackend) ListSecurityControlDefinitions(
 
 	results := make([]*SecurityControlDefinition, len(knownSecurityControls))
 	for i := range knownSecurityControls {
-		copy := knownSecurityControls[i]
-		results[i] = &copy
+		cp := knownSecurityControls[i]
+		results[i] = &cp
 	}
 
 	if maxResults <= 0 || maxResults > 100 {
@@ -1463,8 +1467,8 @@ func (b *InMemoryBackend) BatchGetSecurityControls(securityControlIDs []string) 
 
 		for i := range knownSecurityControls {
 			if knownSecurityControls[i].SecurityControlID == id {
-				copy := knownSecurityControls[i]
-				def = &copy
+				cp := knownSecurityControls[i]
+				def = &cp
 
 				break
 			}
@@ -1480,7 +1484,7 @@ func (b *InMemoryBackend) BatchGetSecurityControls(securityControlIDs []string) 
 			continue
 		}
 
-		params, _ := b.controlParams[id]
+		params := b.controlParams[id]
 		if params == nil {
 			params = map[string]any{}
 		}
@@ -1512,7 +1516,7 @@ func (b *InMemoryBackend) BatchGetSecurityControls(securityControlIDs []string) 
 func (b *InMemoryBackend) UpdateSecurityControl(
 	securityControlID string,
 	parameters map[string]any,
-	lastUpdateReason string,
+	_ string,
 ) error {
 	b.mu.Lock("UpdateSecurityControl")
 	defer b.mu.Unlock()
@@ -1795,6 +1799,7 @@ func filterOrAll[T any](arns []string, m map[string]T) []T {
 			results = append(results, v)
 		}
 	}
+
 	return results
 }
 
@@ -1813,13 +1818,14 @@ func paginateSlice[T any](results []T, nextToken string, maxResults, maxCap int)
 	if end < len(results) {
 		nextOut = encodeToken(end)
 	}
+
 	return results[start:end], nextOut
 }
 
 // --- Token helpers ---
 
 func encodeToken(offset int) string {
-	return fmt.Sprintf("%d", offset)
+	return strconv.Itoa(offset)
 }
 
 func decodeToken(token string) int {

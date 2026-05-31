@@ -31,6 +31,7 @@ const (
 	keyCreatedAt              = "CreatedAt"
 	keyStandardsSubscriptions = "StandardsSubscriptions"
 	keyUnprocessedAutoRules   = "UnprocessedAutomationRules"
+	keyMaxResults             = "MaxResults"
 
 	msgHubNotEnabled   = "SecurityHub is not enabled"
 	msgInsightNotFound = "Insight not found"
@@ -210,6 +211,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // isSecurityHubRequest checks the Authorization header for the securityhub signing service.
 func isSecurityHubRequest(c *echo.Context) bool {
 	auth := c.Request().Header.Get("Authorization")
+
 	return strings.Contains(auth, "/"+securityHubServiceName+"/")
 }
 
@@ -312,6 +314,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if fn, ok := handlers[op]; ok {
 		return fn()
 	}
+
 	return c.JSON(http.StatusNotFound, map[string]any{
 		keyMessage: "unknown operation",
 	})
@@ -613,7 +616,7 @@ func (h *Handler) handleGetFindings(c *echo.Context, body map[string]any) error 
 	filters, _ := body["Filters"].(map[string]any)
 	sortCriteria, _ := body["SortCriteria"].([]any)
 	nextToken, _ := body["NextToken"].(string)
-	maxResults := intFromBody(body, "MaxResults")
+	maxResults := intFromBody(body)
 
 	var sortMaps []map[string]any
 
@@ -704,7 +707,7 @@ func (h *Handler) handleGetFindingHistory(c *echo.Context, body map[string]any) 
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
 	nextToken, _ := body["NextToken"].(string)
-	maxResults := intFromBody(body, "MaxResults")
+	maxResults := intFromBody(body)
 
 	records, nextOut := h.Backend.GetFindingHistory(ident, startTime, endTime, nextToken, maxResults)
 
@@ -749,7 +752,7 @@ func (h *Handler) handleGetInsights(c *echo.Context, body map[string]any) error 
 	}
 
 	nextToken, _ := body["NextToken"].(string)
-	maxResults := intFromBody(body, "MaxResults")
+	maxResults := intFromBody(body)
 
 	insights, nextOut, err := h.Backend.GetInsights(arns, nextToken, maxResults)
 	if err != nil {
@@ -897,7 +900,7 @@ func (h *Handler) handleGetEnabledStandards(c *echo.Context, body map[string]any
 	}
 
 	nextToken, _ := body["NextToken"].(string)
-	maxResults := intFromBody(body, "MaxResults")
+	maxResults := intFromBody(body)
 
 	subscriptions, nextOut := h.Backend.GetEnabledStandards(arns, nextToken, maxResults)
 	items := standardsSubscriptionsToMaps(subscriptions)
@@ -927,7 +930,7 @@ func standardsSubscriptionsToMaps(subs []*StandardsSubscription) []map[string]an
 
 func (h *Handler) handleDescribeStandards(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	standards, nextOut := h.Backend.DescribeStandards(nextToken, maxResults)
 	items := make([]map[string]any, len(standards))
@@ -951,7 +954,7 @@ func (h *Handler) handleDescribeStandards(c *echo.Context) error {
 
 func (h *Handler) handleDescribeStandardsControls(c *echo.Context, subscriptionArn string) error {
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	controls, nextOut := h.Backend.DescribeStandardsControls(subscriptionArn, nextToken, maxResults)
 	items := make([]map[string]any, len(controls))
@@ -993,7 +996,7 @@ func (h *Handler) handleUpdateStandardsControl(c *echo.Context, controlArn strin
 func (h *Handler) handleListStandardsControlAssociations(c *echo.Context) error {
 	secCtlID := c.QueryParam("SecurityControlId")
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	assocs, nextOut := h.Backend.ListStandardsControlAssociations(secCtlID, nextToken, maxResults)
 	items := standardsControlAssociationsToMaps(assocs)
@@ -1093,7 +1096,7 @@ func (h *Handler) handleDescribeActionTargets(c *echo.Context, body map[string]a
 	}
 
 	nextToken, _ := body["NextToken"].(string)
-	maxResults := intFromBody(body, "MaxResults")
+	maxResults := intFromBody(body)
 
 	targets, nextOut := h.Backend.DescribeActionTargets(arns, nextToken, maxResults)
 	items := make([]map[string]any, len(targets))
@@ -1147,7 +1150,7 @@ func (h *Handler) handleDeleteActionTarget(c *echo.Context, actionTargetArn stri
 func (h *Handler) handleDescribeProducts(c *echo.Context) error {
 	productArn := c.QueryParam("ProductArn")
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	products, nextOut := h.Backend.DescribeProducts(productArn, nextToken, maxResults)
 	items := make([]map[string]any, len(products))
@@ -1175,7 +1178,7 @@ func (h *Handler) handleDescribeProducts(c *echo.Context) error {
 
 func (h *Handler) handleListEnabledProductsForImport(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	arns, nextOut := h.Backend.ListEnabledProductsForImport(nextToken, maxResults)
 
@@ -1236,7 +1239,7 @@ func (h *Handler) handleGetSecurityControlDefinition(c *echo.Context) error {
 func (h *Handler) handleListSecurityControlDefinitions(c *echo.Context) error {
 	standardsArn := c.QueryParam("StandardsArn")
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	defs, nextOut := h.Backend.ListSecurityControlDefinitions(standardsArn, nextToken, maxResults)
 	items := make([]map[string]any, len(defs))
@@ -1317,7 +1320,7 @@ func (h *Handler) handleUpdateSecurityControl(c *echo.Context, body map[string]a
 
 func (h *Handler) handleListAutomationRules(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
-	maxResults := queryInt(c, "MaxResults")
+	maxResults := queryInt(c)
 
 	rules, nextOut := h.Backend.ListAutomationRules(nextToken, maxResults)
 	items := make([]map[string]any, len(rules))
@@ -1466,16 +1469,16 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 
 // --- Helpers ---
 
-func intFromBody(body map[string]any, key string) int {
-	if v, ok := body[key].(float64); ok {
+func intFromBody(body map[string]any) int {
+	if v, ok := body[keyMaxResults].(float64); ok {
 		return int(v)
 	}
 
 	return 0
 }
 
-func queryInt(c *echo.Context, key string) int {
-	v, err := strconv.Atoi(c.QueryParam(key))
+func queryInt(c *echo.Context) int {
+	v, err := strconv.Atoi(c.QueryParam(keyMaxResults))
 	if err != nil {
 		return 0
 	}
