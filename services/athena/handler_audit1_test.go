@@ -269,7 +269,8 @@ func TestAudit1_WorkGroup_Lifecycle(t *testing.T) {
 					t,
 					h,
 					"CreateWorkGroup",
-					`{"Name":"cfg-wg","Configuration":{"EnforceWorkGroupConfiguration":true,"ExecutionRole":"arn:aws:iam::000000000000:role/AthenaRole"}}`,
+					`{"Name":"cfg-wg","Configuration":{"EnforceWorkGroupConfiguration":true,`+
+						`"ExecutionRole":"arn:aws:iam::000000000000:role/AthenaRole"}}`,
 				)
 				rec := a1Do(t, h, "GetWorkGroup", `{"WorkGroup":"cfg-wg"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
