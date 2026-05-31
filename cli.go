@@ -180,6 +180,7 @@ import (
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
+	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
@@ -216,6 +217,7 @@ type CLI struct {
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	xrayHandler                   service.Registerable
+	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
 	verifiedPermissionsHandler    service.Registerable
 	transferHandler               service.Registerable
@@ -1350,6 +1352,11 @@ func (c *CLI) GetVerifiedPermissionsHandler() service.Registerable {
 	return c.verifiedPermissionsHandler
 }
 
+// GetWAFHandler returns the WAF Classic handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetWAFHandler() service.Registerable { return c.wafHandler }
+
 // GetWafv2Handler returns the WAFv2 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2343,6 +2350,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
 	cli.verifiedPermissionsHandler = byName["VerifiedPermissions"]
+	cli.wafHandler = byName["WAF"]
 	cli.wafv2Handler = byName["Wafv2"]
 	cli.xrayHandler = byName["Xray"]
 	cli.s3tablesHandler = byName["S3tables"]
@@ -2695,6 +2703,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},
 		&verifiedpermissionsbackend.Provider{},
+		&wafbackend.Provider{},
 		&wafv2backend.Provider{},
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
