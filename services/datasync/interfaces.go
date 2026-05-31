@@ -77,7 +77,7 @@ type S3Config struct {
 type Location struct {
 	CreationTime time.Time
 	LocationArn  string
-	LocationUri  string
+	LocationURI  string
 }
 
 // LocationS3 is a DataSync S3 location with full details.
@@ -86,7 +86,7 @@ type LocationS3 struct {
 	CreationTime   time.Time
 	S3Config       S3Config
 	LocationArn    string
-	LocationUri    string
+	LocationURI    string
 	S3BucketArn    string
 	Subdirectory   string
 	S3StorageClass string
@@ -96,7 +96,7 @@ type LocationS3 struct {
 type LocationListEntry struct {
 	CreationTime time.Time
 	LocationArn  string
-	LocationUri  string
+	LocationURI  string
 }
 
 // Task represents a DataSync transfer task.

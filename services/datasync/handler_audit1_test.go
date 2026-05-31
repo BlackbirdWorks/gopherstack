@@ -202,7 +202,7 @@ func TestDataSync_Agent(t *testing.T) {
 				tc.setup(h)
 			}
 
-			var body any = tc.body
+			body := tc.body
 			// For DescribeAgent after setup, derive body from created agent.
 			if tc.action == "DescribeAgent" && tc.setup != nil && tc.body == nil {
 				agentArn := createTestAgent(t, h)

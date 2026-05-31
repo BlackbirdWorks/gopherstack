@@ -365,7 +365,7 @@ type s3ConfigOutput struct {
 type describeLocationS3Output struct {
 	S3Config       *s3ConfigOutput `json:"S3Config,omitempty"`
 	LocationArn    string          `json:"LocationArn"`
-	LocationUri    string          `json:"LocationUri"`
+	LocationURI    string          `json:"LocationUri"`
 	S3BucketArn    string          `json:"S3BucketArn"`
 	Subdirectory   string          `json:"Subdirectory,omitempty"`
 	S3StorageClass string          `json:"S3StorageClass,omitempty"`
@@ -387,7 +387,7 @@ func (h *Handler) handleDescribeLocationS3(
 
 	out := &describeLocationS3Output{
 		LocationArn:    l.LocationArn,
-		LocationUri:    l.LocationUri,
+		LocationURI:    l.LocationURI,
 		S3BucketArn:    l.S3BucketArn,
 		Subdirectory:   l.Subdirectory,
 		S3StorageClass: l.S3StorageClass,
@@ -426,7 +426,7 @@ type listLocationsInput struct {
 
 type locationListEntryOutput struct {
 	LocationArn  string `json:"LocationArn"`
-	LocationUri  string `json:"LocationUri"`
+	LocationURI  string `json:"LocationUri"`
 	CreationTime int64  `json:"CreationTime"`
 }
 
@@ -445,7 +445,7 @@ func (h *Handler) handleListLocations(_ context.Context, in *listLocationsInput)
 	for _, l := range locations {
 		out = append(out, locationListEntryOutput{
 			LocationArn:  l.LocationArn,
-			LocationUri:  l.LocationUri,
+			LocationURI:  l.LocationURI,
 			CreationTime: l.CreationTime.Unix(),
 		})
 	}

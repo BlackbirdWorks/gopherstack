@@ -28,6 +28,8 @@ const (
 	executionStatusSuccess   = "SUCCESS"
 
 	defaultMaxResults = 100
+
+	arnSplitParts = 2
 )
 
 var (
@@ -68,7 +70,7 @@ type storedLocation struct {
 	S3Config       *storedS3Config   `json:"s3Config,omitempty"`
 	Tags           map[string]string `json:"tags"`
 	LocationArn    string            `json:"locationArn"`
-	LocationUri    string            `json:"locationUri"`
+	LocationURI    string            `json:"locationUri"`
 	S3BucketArn    string            `json:"s3BucketArn,omitempty"`
 	Subdirectory   string            `json:"subdirectory,omitempty"`
 	S3StorageClass string            `json:"s3StorageClass,omitempty"`
@@ -82,7 +84,7 @@ type storedS3Config struct {
 func (l *storedLocation) toLocation() Location {
 	return Location{
 		LocationArn:  l.LocationArn,
-		LocationUri:  l.LocationUri,
+		LocationURI:  l.LocationURI,
 		CreationTime: l.CreationTime,
 	}
 }
@@ -90,7 +92,7 @@ func (l *storedLocation) toLocation() Location {
 func (l *storedLocation) toLocationS3() LocationS3 {
 	loc := LocationS3{
 		LocationArn:    l.LocationArn,
-		LocationUri:    l.LocationUri,
+		LocationURI:    l.LocationURI,
 		S3BucketArn:    l.S3BucketArn,
 		Subdirectory:   l.Subdirectory,
 		S3StorageClass: l.S3StorageClass,
@@ -204,8 +206,8 @@ func (b *InMemoryBackend) taskARN(id string) string {
 
 func (b *InMemoryBackend) executionARN(taskArn, id string) string {
 	// Extract task resource portion: task/<task-id>
-	parts := strings.SplitN(taskArn, ":task/", 2)
-	if len(parts) == 2 {
+	parts := strings.SplitN(taskArn, ":task/", arnSplitParts)
+	if len(parts) == arnSplitParts {
 		return arn.Build("datasync", b.region, b.accountID, fmt.Sprintf("task/%s/execution/%s", parts[1], id))
 	}
 
@@ -336,7 +338,7 @@ func (b *InMemoryBackend) CreateLocationS3(
 	// Build S3 URI: s3://<bucket-name>/<subdirectory>
 	bucketName := extractBucketName(s3BucketArn)
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationUri := fmt.Sprintf("s3://%s/%s", bucketName, sub)
+	locationURI := fmt.Sprintf("s3://%s/%s", bucketName, sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -345,7 +347,7 @@ func (b *InMemoryBackend) CreateLocationS3(
 
 	l := &storedLocation{
 		LocationArn:    locationArn,
-		LocationUri:    locationUri,
+		LocationURI:    locationURI,
 		S3BucketArn:    s3BucketArn,
 		Subdirectory:   subdirectory,
 		S3StorageClass: s3StorageClass,
@@ -416,7 +418,7 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 		l := b.locations[a]
 		all = append(all, &LocationListEntry{
 			LocationArn:  l.LocationArn,
-			LocationUri:  l.LocationUri,
+			LocationURI:  l.LocationURI,
 			CreationTime: l.CreationTime,
 		})
 	}
@@ -602,7 +604,7 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 
 	delete(execMap, taskExecutionArn)
 
-	if t, ok := b.tasks[taskArn]; ok && t.CurrentTaskExecutionArn == taskExecutionArn {
+	if t, found := b.tasks[taskArn]; found && t.CurrentTaskExecutionArn == taskExecutionArn {
 		t.CurrentTaskExecutionArn = ""
 	}
 
@@ -836,12 +838,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // extractBucketName extracts the bucket name from an S3 ARN.
-// Format: arn:aws:s3:::bucket-name or arn:aws:s3:::bucket-name/prefix
+// Format: arn:aws:s3:::bucket-name or arn:aws:s3:::bucket-name/prefix.
 func extractBucketName(s3BucketArn string) string {
 	// S3 ARNs: arn:aws:s3:::bucket-name
-	parts := strings.SplitN(s3BucketArn, ":::", 2)
-	if len(parts) == 2 {
-		name := strings.SplitN(parts[1], "/", 2)[0]
+	parts := strings.SplitN(s3BucketArn, ":::", arnSplitParts)
+	if len(parts) == arnSplitParts {
+		name := strings.SplitN(parts[1], "/", arnSplitParts)[0]
 		if name != "" {
 			return name
 		}
@@ -851,7 +853,7 @@ func extractBucketName(s3BucketArn string) string {
 }
 
 // extractTaskArnFromExecution extracts the task ARN from a task execution ARN.
-// Execution ARN format: arn:aws:datasync:region:account:task/<task-id>/execution/<exec-id>
+// Execution ARN format: arn:aws:datasync:region:account:task/<task-id>/execution/<exec-id>.
 func extractTaskArnFromExecution(execArn string) string {
 	// Find /execution/ suffix and strip it.
 	idx := strings.LastIndex(execArn, "/execution/")
