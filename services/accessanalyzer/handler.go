@@ -100,13 +100,21 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a function that matches Access Analyzer requests by path prefix.
+// For /tags/{ARN} paths, only matches when the ARN belongs to Access Analyzer
+// (i.e. contains ":access-analyzer:") to avoid intercepting tag requests for other services.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/"+pathAnalyzer) ||
-			strings.HasPrefix(path, "/"+pathTags+"/") ||
-			path == "/"+pathResource+"/"+pathScan ||
+		if strings.HasPrefix(path, "/"+pathAnalyzer) {
+			return true
+		}
+
+		if after, ok := strings.CutPrefix(path, "/"+pathTags+"/"); ok {
+			return strings.Contains(after, ":"+accessAnalyzerService+":")
+		}
+
+		return path == "/"+pathResource+"/"+pathScan ||
 			path == "/"+pathAnalyzedResource ||
 			strings.HasPrefix(path, "/"+pathAnalyzedResource)
 	}
