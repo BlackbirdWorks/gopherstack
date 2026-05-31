@@ -64,11 +64,11 @@ func TestAudit1_Protocol_ContentType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		action      string
-		body        string
-		wantStatus  int
-		wantCT      string
+		name       string
+		action     string
+		body       string
+		wantCT     string
+		wantStatus int
 	}{
 		{
 			name:       "success_response_has_json11_content_type",
@@ -188,8 +188,8 @@ func TestAudit1_WorkGroup_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "create_response_is_empty_object",
@@ -237,6 +237,7 @@ func TestAudit1_WorkGroup_Lifecycle(t *testing.T) {
 					s, _ := item.(map[string]any)
 					if s["Name"] == "audit-wg" {
 						found = s
+
 						break
 					}
 				}
@@ -264,7 +265,12 @@ func TestAudit1_WorkGroup_Lifecycle(t *testing.T) {
 			name: "configuration_present_when_set",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
-				a1Do(t, h, "CreateWorkGroup", `{"Name":"cfg-wg","Configuration":{"EnforceWorkGroupConfiguration":true,"ExecutionRole":"arn:aws:iam::000000000000:role/AthenaRole"}}`)
+				a1Do(
+					t,
+					h,
+					"CreateWorkGroup",
+					`{"Name":"cfg-wg","Configuration":{"EnforceWorkGroupConfiguration":true,"ExecutionRole":"arn:aws:iam::000000000000:role/AthenaRole"}}`,
+				)
 				rec := a1Do(t, h, "GetWorkGroup", `{"WorkGroup":"cfg-wg"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
 				wg := a1Unmarshal(t, rec)["WorkGroup"].(map[string]any)
@@ -305,8 +311,8 @@ func TestAudit1_QueryExecution_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "start_returns_execution_id",
@@ -402,8 +408,8 @@ func TestAudit1_PreparedStatement_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "create_and_get_shape",
@@ -500,8 +506,8 @@ func TestAudit1_DataCatalog_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "glue_catalog_status_create_complete",
@@ -545,6 +551,7 @@ func TestAudit1_DataCatalog_Lifecycle(t *testing.T) {
 					s := item.(map[string]any)
 					if s["CatalogName"] == "list-cat" {
 						found = s
+
 						break
 					}
 				}
@@ -570,8 +577,8 @@ func TestAudit1_CapacityReservation_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "create_and_get_shape",
@@ -650,8 +657,8 @@ func TestAudit1_Tag_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "tag_list_untag_workgroup",
@@ -706,8 +713,8 @@ func TestAudit1_Session_Calculation_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "session_start_and_get_shape",
@@ -790,8 +797,8 @@ func TestAudit1_NamedQuery_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *athena.Handler)
+		name string
 	}{
 		{
 			name: "create_returns_id",
@@ -809,8 +816,12 @@ func TestAudit1_NamedQuery_Lifecycle(t *testing.T) {
 			name: "get_response_shape",
 			fn: func(t *testing.T, h *athena.Handler) {
 				t.Helper()
-				cRec := a1Do(t, h, "CreateNamedQuery",
-					`{"Name":"q2","Database":"mydb","QueryString":"SELECT 2","WorkGroup":"primary","Description":"test"}`)
+				cRec := a1Do(
+					t,
+					h,
+					"CreateNamedQuery",
+					`{"Name":"q2","Database":"mydb","QueryString":"SELECT 2","WorkGroup":"primary","Description":"test"}`,
+				)
 				id := a1Unmarshal(t, cRec)["NamedQueryId"].(string)
 
 				rec := a1Do(t, h, "GetNamedQuery", `{"NamedQueryId":"`+id+`"}`)
