@@ -116,6 +116,8 @@ github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.61.8 h1:BeYGK6F
 github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.61.8/go.mod h1:IpW8Z8o6U2Q838eXSY0xidmBiyNX6OaQw4O8CYzbPd0=
 github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0 h1:wuMzTtsMNVfR954WDxxuTSxE84uBjbUZpkHzl8FGEzY=
 github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0/go.mod h1:JR6djN/YtdK6R03KYsrMoh/GzmFsIDAdtzjl1RjqqSQ=
+github.com/aws/aws-sdk-go-v2/service/datasync v1.59.2 h1:HTX7q0tp1rxQMr8670zJZSRFvbCMBxfjUpRcFpIZ4cw=
+github.com/aws/aws-sdk-go-v2/service/datasync v1.59.2/go.mod h1:SvyTh5chBFqwRLRjSVXGSS+buCxlzao+IRKeYJaympM=
 github.com/aws/aws-sdk-go-v2/service/dax v1.29.18 h1:sZwTAlW7WiDiLBjDk6OvmbOBjXQPooArNkUbTzCupOU=
 github.com/aws/aws-sdk-go-v2/service/dax v1.29.18/go.mod h1:zAdYaGSQXmr+LwBX8pp5vHvcToXC5SEOKPlDUhZMMRc=
 github.com/aws/aws-sdk-go-v2/service/detective v1.39.1 h1:1thuyQ62I37RCNck64j6UG5DKde+FHOuMRjnRohA7Lo=
