@@ -132,6 +132,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
@@ -2718,6 +2719,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
 		&forecastbackend.Provider{},
+		&macie2backend.Provider{},
 	}
 }
 
