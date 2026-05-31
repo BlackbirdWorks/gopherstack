@@ -12,10 +12,10 @@ type backendSnapshot struct {
 	ConfigTemplates      map[string]*ConfigurationTemplate  `json:"configTemplates"`
 	PlatformVersions     map[string]*PlatformVersion        `json:"platformVersions"`
 	ManagedActionHistory map[string][]*ManagedActionHistory `json:"managedActionHistory,omitempty"`
-	Events               []*EventRecord                     `json:"events,omitempty"`
 	AccountID            string                             `json:"accountID"`
 	Region               string                             `json:"region"`
 	StorageLocation      string                             `json:"storageLocation"`
+	Events               []*EventRecord                     `json:"events,omitempty"`
 	EnvCounter           int                                `json:"envCounter"`
 }
 

@@ -155,17 +155,17 @@ type EventRecord struct {
 }
 
 // InMemoryBackend stores AWS Elastic Beanstalk state in memory.
-type InMemoryBackend struct {
+type InMemoryBackend struct { //nolint:govet // fieldalignment: field order prioritises readability
 	applications         map[string]*Application
 	environments         map[string]*Environment
 	appVersions          map[string]*ApplicationVersion
 	configTemplates      map[string]*ConfigurationTemplate  // configTemplateKey → template
 	platformVersions     map[string]*PlatformVersion        // platformARN → version
 	managedActionHistory map[string][]*ManagedActionHistory // envName → history items
+	appARNIndex          map[string]string                  // ARN → app name
+	envARNIndex          map[string]string                  // ARN → envKey
+	verARNIndex          map[string]string                  // ARN → appVersionKey
 	events               []*EventRecord
-	appARNIndex          map[string]string // ARN → app name
-	envARNIndex          map[string]string // ARN → envKey
-	verARNIndex          map[string]string // ARN → appVersionKey
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	region               string
@@ -1360,9 +1360,7 @@ func (b *InMemoryBackend) DescribeEvents(appName, envName string) []*EventRecord
 
 	out := make([]*EventRecord, 0, len(b.events))
 
-	for i := len(b.events) - 1; i >= 0; i-- {
-		e := b.events[i]
-
+	for _, e := range slices.Backward(b.events) {
 		if appName != "" && e.ApplicationName != appName {
 			continue
 		}

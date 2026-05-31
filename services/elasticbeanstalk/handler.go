@@ -317,22 +317,33 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 
 // --- Application operations ---
 
+// appConfigTemplatesXML wraps the ConfigurationTemplates list for XML encoding.
+// Using a pointer to this struct enables omitempty to suppress the outer element when empty.
+type appConfigTemplatesXML struct {
+	Members []string `xml:"member"`
+}
+
 // applicationDescType is used in XML responses.
 type applicationDescType struct {
-	ConfigurationTemplates []string `xml:"ConfigurationTemplates>member,omitempty"`
-	ApplicationName        string   `xml:"ApplicationName"`
-	ApplicationArn         string   `xml:"ApplicationArn"`
-	Description            string   `xml:"Description,omitempty"`
-	DateCreated            string   `xml:"DateCreated,omitempty"`
+	ConfigurationTemplates *appConfigTemplatesXML `xml:"ConfigurationTemplates,omitempty"`
+	ApplicationName        string                 `xml:"ApplicationName"`
+	ApplicationArn         string                 `xml:"ApplicationArn"`
+	Description            string                 `xml:"Description,omitempty"`
+	DateCreated            string                 `xml:"DateCreated,omitempty"`
 }
 
 func toApplicationDesc(app *Application, configTemplateNames []string) applicationDescType {
+	var templates *appConfigTemplatesXML
+	if len(configTemplateNames) > 0 {
+		templates = &appConfigTemplatesXML{Members: configTemplateNames}
+	}
+
 	return applicationDescType{
 		ApplicationName:        app.ApplicationName,
 		ApplicationArn:         app.ApplicationARN,
 		Description:            app.Description,
 		DateCreated:            app.DateCreated,
-		ConfigurationTemplates: configTemplateNames,
+		ConfigurationTemplates: templates,
 	}
 }
 
@@ -991,12 +1002,28 @@ type describeEventsResponse struct {
 	DescribeEventsResult describeEventsResult `xml:"DescribeEventsResult"`
 }
 
-// handleDescribeEvents returns an empty events list.
-// The Terraform provider calls DescribeEvents to poll environment creation status.
-func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
+// handleDescribeEvents returns stored events, filtered by ApplicationName and EnvironmentName.
+// The Terraform provider calls DescribeEvents to poll environment creation and termination status.
+func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	envName := vals.Get("EnvironmentName")
+
+	records := h.Backend.DescribeEvents(appName, envName)
+	members := make([]eventDescType, 0, len(records))
+
+	for _, r := range records {
+		members = append(members, eventDescType{
+			ApplicationName: r.ApplicationName,
+			EnvironmentName: r.EnvironmentName,
+			EventDate:       r.EventDate,
+			Message:         r.Message,
+			Severity:        r.Severity,
+		})
+	}
+
 	return &describeEventsResponse{
 		Xmlns:                ebXMLNS,
-		DescribeEventsResult: describeEventsResult{},
+		DescribeEventsResult: describeEventsResult{Events: members},
 		ResponseMetadata:     responseMetadata{RequestID: "eb-describe-events"},
 	}, nil
 }
@@ -1073,7 +1100,8 @@ type configurationOptionSettingType struct {
 
 type configurationSettingsDescType struct {
 	ApplicationName   string                           `xml:"ApplicationName"`
-	EnvironmentName   string                           `xml:"EnvironmentName"`
+	EnvironmentName   string                           `xml:"EnvironmentName,omitempty"`
+	TemplateName      string                           `xml:"TemplateName,omitempty"`
 	SolutionStackName string                           `xml:"SolutionStackName"`
 	OptionSettings    []configurationOptionSettingType `xml:"OptionSettings>member"`
 }
@@ -1089,37 +1117,52 @@ type describeConfigurationSettingsResponse struct {
 	DescribeConfigurationSettingsResult describeConfigurationSettingsResult `xml:"DescribeConfigurationSettingsResult"`
 }
 
-// handleDescribeConfigurationSettings returns the configuration settings for an environment.
-// The Terraform provider calls this after environment creation to populate all_settings.
-// SolutionStackName must be populated to prevent the provider from dereferencing a nil pointer.
+// handleDescribeConfigurationSettings returns the configuration settings for an environment
+// or a configuration template. The Terraform provider calls this after environment creation
+// to populate all_settings. SolutionStackName must be populated to prevent the provider
+// from dereferencing a nil pointer.
 func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
-
-	var env *Environment
-
-	if envName != "" {
-		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
-		if len(envs) > 0 {
-			env = envs[0]
-		}
-	}
+	templateName := vals.Get("TemplateName")
 
 	settings := make([]configurationSettingsDescType, 0)
 
-	if env != nil {
-		optionSettings := make([]configurationOptionSettingType, 0, len(env.OptionSettings))
-		for _, setting := range env.OptionSettings {
-			optionSettings = append(optionSettings, configurationOptionSettingType{
-				Namespace: setting.Namespace, OptionName: setting.OptionName, Value: setting.Value,
+	if envName != "" {
+		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
+
+		if len(envs) > 0 {
+			env := envs[0]
+			optionSettings := make([]configurationOptionSettingType, 0, len(env.OptionSettings))
+
+			for _, setting := range env.OptionSettings {
+				optionSettings = append(optionSettings, configurationOptionSettingType{
+					Namespace: setting.Namespace, OptionName: setting.OptionName, Value: setting.Value,
+				})
+			}
+
+			settings = append(settings, configurationSettingsDescType{
+				ApplicationName:   env.ApplicationName,
+				EnvironmentName:   env.EnvironmentName,
+				SolutionStackName: env.SolutionStackName,
+				OptionSettings:    optionSettings,
 			})
 		}
-		settings = append(settings, configurationSettingsDescType{
-			ApplicationName:   env.ApplicationName,
-			EnvironmentName:   env.EnvironmentName,
-			SolutionStackName: env.SolutionStackName,
-			OptionSettings:    optionSettings,
-		})
+	} else if templateName != "" {
+		templates := h.Backend.DescribeConfigurationTemplates(appName)
+
+		for _, tmpl := range templates {
+			if tmpl.TemplateName == templateName {
+				settings = append(settings, configurationSettingsDescType{
+					ApplicationName:   tmpl.ApplicationName,
+					TemplateName:      tmpl.TemplateName,
+					SolutionStackName: tmpl.SolutionStackName,
+					OptionSettings:    make([]configurationOptionSettingType, 0),
+				})
+
+				break
+			}
+		}
 	}
 
 	return &describeConfigurationSettingsResponse{
