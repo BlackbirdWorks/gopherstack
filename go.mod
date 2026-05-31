@@ -167,19 +167,17 @@ require (
 require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0
 	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0
+	github.com/aws/aws-sdk-go-v2/service/guardduty v1.78.2
+	github.com/aws/aws-sdk-go-v2/service/inspector2 v1.48.2
+	github.com/aws/aws-sdk-go-v2/service/macie2 v1.51.4
 	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
-)
-
-require (
-	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/guardduty v1.78.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/macie2 v1.51.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24 // indirect
+	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0
+	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
 require (
