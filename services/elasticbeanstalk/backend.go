@@ -42,6 +42,10 @@ const (
 	defaultEnvironmentTierName = "WebServer"
 	// defaultEnvironmentTierType is the AWS default standard tier type.
 	defaultEnvironmentTierType = "Standard"
+	// resourceCreatedAt is the fixed creation timestamp returned for all resources.
+	resourceCreatedAt = "2026-01-01T00:00:00Z"
+	// eventSeverityInfo is the severity level for informational events.
+	eventSeverityInfo = "INFO"
 )
 
 // Application represents an Elastic Beanstalk application.
@@ -50,6 +54,7 @@ type Application struct {
 	ApplicationName              string            `json:"applicationName"`
 	ApplicationARN               string            `json:"applicationArn"`
 	Description                  string            `json:"description,omitempty"`
+	DateCreated                  string            `json:"dateCreated,omitempty"`
 	ResourceLifecycleServiceRole string            `json:"resourceLifecycleServiceRole,omitempty"`
 }
 
@@ -79,6 +84,7 @@ type Environment struct {
 	VPCID             string            `json:"vpcId,omitempty"`
 	Subnets           string            `json:"subnets,omitempty"`
 	InstanceProfile   string            `json:"instanceProfile,omitempty"`
+	DateCreated       string            `json:"dateCreated,omitempty"`
 	OptionSettings    []OptionSetting   `json:"optionSettings,omitempty"`
 }
 
@@ -90,6 +96,7 @@ type ApplicationVersion struct {
 	VersionLabel           string                  `json:"versionLabel"`
 	ApplicationVersionARN  string                  `json:"applicationVersionArn"`
 	Description            string                  `json:"description,omitempty"`
+	DateCreated            string                  `json:"dateCreated,omitempty"`
 	Status                 string                  `json:"status"`
 	S3Bucket               string                  `json:"s3Bucket,omitempty"`
 	S3Key                  string                  `json:"s3Key,omitempty"`
@@ -138,8 +145,17 @@ type ManagedActionHistory struct {
 	FinishedTime      string `json:"finishedTime"`
 }
 
+// EventRecord represents a single Elastic Beanstalk event.
+type EventRecord struct {
+	ApplicationName string `json:"applicationName,omitempty"`
+	EnvironmentName string `json:"environmentName,omitempty"`
+	EventDate       string `json:"eventDate"`
+	Message         string `json:"message"`
+	Severity        string `json:"severity"`
+}
+
 // InMemoryBackend stores AWS Elastic Beanstalk state in memory.
-type InMemoryBackend struct {
+type InMemoryBackend struct { //nolint:govet // fieldalignment: field order prioritises readability
 	applications         map[string]*Application
 	environments         map[string]*Environment
 	appVersions          map[string]*ApplicationVersion
@@ -149,6 +165,7 @@ type InMemoryBackend struct {
 	appARNIndex          map[string]string                  // ARN → app name
 	envARNIndex          map[string]string                  // ARN → envKey
 	verARNIndex          map[string]string                  // ARN → appVersionKey
+	events               []*EventRecord
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	region               string
@@ -223,6 +240,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		configTemplates:      make(map[string]*ConfigurationTemplate),
 		platformVersions:     make(map[string]*PlatformVersion),
 		managedActionHistory: make(map[string][]*ManagedActionHistory),
+		events:               make([]*EventRecord, 0),
 		appARNIndex:          make(map[string]string),
 		envARNIndex:          make(map[string]string),
 		verARNIndex:          make(map[string]string),
@@ -264,6 +282,7 @@ func (b *InMemoryBackend) CreateApplication(
 		ApplicationName: name,
 		ApplicationARN:  appARN,
 		Description:     description,
+		DateCreated:     resourceCreatedAt,
 		Tags:            copyTags(tags),
 	}
 	b.applications[name] = app
@@ -485,10 +504,16 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Subnets:           params.Subnets,
 		InstanceProfile:   params.InstanceProfile,
 		CustomAMI:         params.CustomAMI,
+		DateCreated:       resourceCreatedAt,
 		Tags:              copyTags(tags),
 	}
 	b.environments[key] = env
 	b.envARNIndex[envARN] = key
+
+	b.appendEvent(appName, envName,
+		"Successfully launched environment: "+envName+".",
+		eventSeverityInfo,
+	)
 
 	return cloneEnvironment(env), nil
 }
@@ -596,6 +621,11 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 
 	env.OptionSettings = updateOptionSettings(env.OptionSettings, params.OptionSettings, params.OptionsToRemove)
 
+	b.appendEvent(appName, envName,
+		"Environment update completed successfully.",
+		eventSeverityInfo,
+	)
+
 	return cloneEnvironment(env), nil
 }
 
@@ -643,6 +673,11 @@ func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Enviro
 	out := cloneEnvironment(env)
 	delete(b.envARNIndex, env.EnvironmentARN)
 	delete(b.environments, key)
+
+	b.appendEvent(appName, envName,
+		"terminateEnvironment completed successfully.",
+		eventSeverityInfo,
+	)
 
 	return out, nil
 }
@@ -766,6 +801,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 		VersionLabel:           versionLabel,
 		ApplicationVersionARN:  vARN,
 		Description:            params.Description,
+		DateCreated:            resourceCreatedAt,
 		Status:                 status,
 		Process:                params.Process,
 		S3Bucket:               params.S3Bucket,
@@ -931,6 +967,7 @@ func (b *InMemoryBackend) Reset() {
 	b.configTemplates = make(map[string]*ConfigurationTemplate)
 	b.platformVersions = make(map[string]*PlatformVersion)
 	b.managedActionHistory = make(map[string][]*ManagedActionHistory)
+	b.events = make([]*EventRecord, 0)
 	b.appARNIndex = make(map[string]string)
 	b.envARNIndex = make(map[string]string)
 	b.verARNIndex = make(map[string]string)
@@ -1299,6 +1336,44 @@ func (b *InMemoryBackend) UpdateConfigurationTemplate(
 	tmpl.Description = description
 
 	return cloneConfigurationTemplate(tmpl), nil
+}
+
+// --- Event helpers ---
+
+// appendEvent appends an event record to the backend's event log.
+// Caller must hold at least a write lock or call this within a locked section.
+func (b *InMemoryBackend) appendEvent(appName, envName, message, severity string) {
+	b.events = append(b.events, &EventRecord{
+		ApplicationName: appName,
+		EnvironmentName: envName,
+		EventDate:       resourceCreatedAt,
+		Message:         message,
+		Severity:        severity,
+	})
+}
+
+// DescribeEvents returns event records filtered by optional application and environment name.
+// The most recent events are returned first (reverse insertion order).
+func (b *InMemoryBackend) DescribeEvents(appName, envName string) []*EventRecord {
+	b.mu.RLock("DescribeEvents")
+	defer b.mu.RUnlock()
+
+	out := make([]*EventRecord, 0, len(b.events))
+
+	for _, e := range slices.Backward(b.events) {
+		if appName != "" && e.ApplicationName != appName {
+			continue
+		}
+
+		if envName != "" && e.EnvironmentName != envName {
+			continue
+		}
+
+		cp := *e
+		out = append(out, &cp)
+	}
+
+	return out
 }
 
 // --- Seed helpers (used in tests via export_test.go) ---

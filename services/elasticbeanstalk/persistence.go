@@ -15,6 +15,7 @@ type backendSnapshot struct {
 	AccountID            string                             `json:"accountID"`
 	Region               string                             `json:"region"`
 	StorageLocation      string                             `json:"storageLocation"`
+	Events               []*EventRecord                     `json:"events,omitempty"`
 	EnvCounter           int                                `json:"envCounter"`
 }
 
@@ -30,6 +31,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ConfigTemplates:      b.configTemplates,
 		PlatformVersions:     b.platformVersions,
 		ManagedActionHistory: b.managedActionHistory,
+		Events:               b.events,
 		AccountID:            b.accountID,
 		Region:               b.region,
 		StorageLocation:      b.storageLocation,
@@ -81,12 +83,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.ManagedActionHistory = make(map[string][]*ManagedActionHistory)
 	}
 
+	if snap.Events == nil {
+		snap.Events = make([]*EventRecord, 0)
+	}
+
 	b.applications = snap.Applications
 	b.environments = snap.Environments
 	b.appVersions = snap.AppVersions
 	b.configTemplates = snap.ConfigTemplates
 	b.platformVersions = snap.PlatformVersions
 	b.managedActionHistory = snap.ManagedActionHistory
+	b.events = snap.Events
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.storageLocation = snap.StorageLocation
