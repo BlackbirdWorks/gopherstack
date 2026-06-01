@@ -761,6 +761,10 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "FileSystemId is required"))
 	}
 
+	if in.SubnetID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "SubnetId is required"))
+	}
+
 	req := CreateMountTargetRequest(in)
 
 	mt, err := h.Backend.CreateMountTarget(req)

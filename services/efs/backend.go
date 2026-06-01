@@ -56,6 +56,9 @@ const (
 	maxFileSystemPolicyBytes = 20 * 1024
 
 	throughputCooldown = 24 * time.Hour
+
+	maxCreationTokenLen        = 64
+	maxReplicationDestinations = 1
 )
 
 func isValidTransitionToIA(v string) bool {
@@ -390,6 +393,15 @@ func validateProvisionedThroughput(mode string, mib float64) error {
 }
 
 func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
+	if len(req.CreationToken) > maxCreationTokenLen {
+		return "", fmt.Errorf(
+			"%w: CreationToken length must be 1-%d, got %d",
+			ErrValidation,
+			maxCreationTokenLen,
+			len(req.CreationToken),
+		)
+	}
+
 	if err := validateTags(req.Tags); err != nil {
 		return "", err
 	}
@@ -523,7 +535,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 	if fileSystemID != "" {
 		fs, ok := b.fileSystems[fileSystemID]
 		if !ok {
-			return []*FileSystem{}, "", nil
+			return nil, "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 		}
 		cp := *fs
 
@@ -1021,6 +1033,15 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 	sourceFileSystemID string,
 	destinations []ReplicationDestination,
 ) (*ReplicationConfiguration, error) {
+	if len(destinations) != maxReplicationDestinations {
+		return nil, fmt.Errorf(
+			"%w: exactly %d destination is required, got %d",
+			ErrValidation,
+			maxReplicationDestinations,
+			len(destinations),
+		)
+	}
+
 	b.mu.Lock("CreateReplicationConfiguration")
 	defer b.mu.Unlock()
 
@@ -1131,6 +1152,10 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 
 // CreateTags adds tags to a file system (legacy operation, delegates to TagResource).
 func (b *InMemoryBackend) CreateTags(fileSystemID string, kv map[string]string) error {
+	if err := validateTags(kv); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 

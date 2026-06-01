@@ -643,7 +643,7 @@ func TestRefinement1_DeleteFileSystem_RequiresEmptyState(t *testing.T) {
 	}
 }
 
-// TestRefinement1_DescribeFileSystems_FilterMiss_EmptyList verifies empty list on unknown FS ID.
+// TestRefinement1_DescribeFileSystems_FilterMiss_EmptyList verifies FileSystemNotFound on unknown FS ID.
 func TestRefinement1_DescribeFileSystems_FilterMiss_EmptyList(t *testing.T) {
 	t.Parallel()
 
@@ -660,9 +660,8 @@ func TestRefinement1_DescribeFileSystems_FilterMiss_EmptyList(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			list, _, err := b.DescribeFileSystems(tt.id, "", 0)
-			require.NoError(t, err)
-			assert.Empty(t, list)
+			_, _, err := b.DescribeFileSystems(tt.id, "", 0)
+			require.ErrorIs(t, err, efs.ErrNotFound)
 		})
 	}
 }
