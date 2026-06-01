@@ -26,6 +26,9 @@ const (
 	maxCollectionsPerPage      = 4096
 	maxFacesPerPage            = 4096
 	maxStreamProcessorsPerPage = 1000
+
+	defaultFaceConfidence = 99.9
+	defaultFaceSimilarity = 90.0
 )
 
 var (
@@ -221,22 +224,24 @@ func (b *InMemoryBackend) DescribeCollection(collectionID string) (*Collection, 
 	return result, nil
 }
 
-// ListCollections returns a paginated list of collections.
-func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([]*Collection, string, error) {
-	b.mu.RLock("ListCollections")
-	defer b.mu.RUnlock()
-
-	ids := make([]string, 0, len(b.collections))
-	for id := range b.collections {
-		ids = append(ids, id)
+// paginateStringMap pages over a map[string]V, sorted by key, and converts each value via convert.
+func paginateStringMap[V any, R any](
+	m map[string]V,
+	maxResults, maxPerPage int32,
+	nextToken string,
+	convert func(V) R,
+) ([]R, string) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
 
-	sort.Strings(ids)
+	sort.Strings(keys)
 
 	start := 0
 	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
+		for i, k := range keys {
+			if k == nextToken {
 				start = i
 
 				break
@@ -244,22 +249,34 @@ func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([
 		}
 	}
 
-	limit := int32(maxCollectionsPerPage)
+	limit := maxPerPage
 	if maxResults > 0 && maxResults < limit {
 		limit = maxResults
 	}
 
-	end := min(start+int(limit), len(ids))
+	end := min(start+int(limit), len(keys))
 
-	result := make([]*Collection, 0, end-start)
-	for _, id := range ids[start:end] {
-		result = append(result, b.collections[id].toCollection())
+	result := make([]R, 0, end-start)
+	for _, k := range keys[start:end] {
+		result = append(result, convert(m[k]))
 	}
 
 	var outToken string
-	if end < len(ids) {
-		outToken = ids[end]
+	if end < len(keys) {
+		outToken = keys[end]
 	}
+
+	return result, outToken
+}
+
+// ListCollections returns a paginated list of collections.
+func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([]*Collection, string, error) {
+	b.mu.RLock("ListCollections")
+	defer b.mu.RUnlock()
+
+	result, outToken := paginateStringMap(
+		b.collections, maxResults, maxCollectionsPerPage, nextToken, (*storedCollection).toCollection,
+	)
 
 	return result, outToken, nil
 }
@@ -278,7 +295,7 @@ func (b *InMemoryBackend) IndexFaces(collectionID, externalImageID string) ([]*F
 		ImageID:         uuid.NewString(),
 		ExternalImageID: externalImageID,
 		CollectionID:    collectionID,
-		Confidence:      99.9,
+		Confidence:      defaultFaceConfidence,
 	}
 	b.faces[collectionID] = append(b.faces[collectionID], face)
 
@@ -393,7 +410,7 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 		}
 
 		matches = append(matches, &FaceMatch{
-			Similarity: 90.0,
+			Similarity: defaultFaceSimilarity,
 			Face:       f.toFace(),
 		})
 
@@ -423,7 +440,7 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 
 	for _, f := range b.faces[collectionID] {
 		matches = append(matches, &FaceMatch{
-			Similarity: 90.0,
+			Similarity: defaultFaceSimilarity,
 			Face:       f.toFace(),
 		})
 
@@ -502,40 +519,10 @@ func (b *InMemoryBackend) ListStreamProcessors(maxResults int32, nextToken strin
 	b.mu.RLock("ListStreamProcessors")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.streamProcessors))
-	for name := range b.streamProcessors {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	start := 0
-	if nextToken != "" {
-		for i, name := range names {
-			if name == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	limit := int32(maxStreamProcessorsPerPage)
-	if maxResults > 0 && maxResults < limit {
-		limit = maxResults
-	}
-
-	end := min(start+int(limit), len(names))
-
-	result := make([]*StreamProcessor, 0, end-start)
-	for _, name := range names[start:end] {
-		result = append(result, b.streamProcessors[name].toStreamProcessor())
-	}
-
-	var outToken string
-	if end < len(names) {
-		outToken = names[end]
-	}
+	result, outToken := paginateStringMap(
+		b.streamProcessors, maxResults, maxStreamProcessorsPerPage, nextToken,
+		(*storedStreamProcessor).toStreamProcessor,
+	)
 
 	return result, outToken, nil
 }

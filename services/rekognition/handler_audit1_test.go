@@ -96,7 +96,7 @@ func TestRekognition_Collections(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Equal(t, float64(200), resp["StatusCode"])
+				assert.InDelta(t, float64(200), resp["StatusCode"], 0)
 			},
 		},
 		{
@@ -124,7 +124,7 @@ func TestRekognition_Collections(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Contains(t, resp["CollectionARN"], "arn:aws:rekognition:")
-				assert.Equal(t, float64(0), resp["FaceCount"])
+				assert.InDelta(t, float64(0), resp["FaceCount"], 0)
 			},
 		},
 		{

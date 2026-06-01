@@ -67,7 +67,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the resource identifier from the request body.
-func (h *Handler) ExtractResource(c *echo.Context) string {
+func (h *Handler) ExtractResource(_ *echo.Context) string {
 	return ""
 }
 
@@ -161,7 +161,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 type createCollectionReq struct {
 	Tags         map[string]string `json:"Tags"`
-	CollectionId string            `json:"CollectionId"`
+	CollectionID string            `json:"CollectionId"`
 }
 
 type createCollectionResp struct {
@@ -171,11 +171,11 @@ type createCollectionResp struct {
 }
 
 func (h *Handler) handleCreateCollection(_ context.Context, req *createCollectionReq) (*createCollectionResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	coll, err := h.Backend.CreateCollection(req.CollectionId, req.Tags)
+	coll, err := h.Backend.CreateCollection(req.CollectionID, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (h *Handler) handleCreateCollection(_ context.Context, req *createCollectio
 }
 
 type deleteCollectionReq struct {
-	CollectionId string `json:"CollectionId"`
+	CollectionID string `json:"CollectionId"`
 }
 
 type deleteCollectionResp struct {
@@ -196,11 +196,11 @@ type deleteCollectionResp struct {
 }
 
 func (h *Handler) handleDeleteCollection(_ context.Context, req *deleteCollectionReq) (*deleteCollectionResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteCollection(req.CollectionId); err != nil {
+	if err := h.Backend.DeleteCollection(req.CollectionID); err != nil {
 		return nil, err
 	}
 
@@ -208,7 +208,7 @@ func (h *Handler) handleDeleteCollection(_ context.Context, req *deleteCollectio
 }
 
 type describeCollectionReq struct {
-	CollectionId string `json:"CollectionId"`
+	CollectionID string `json:"CollectionId"`
 }
 
 type describeCollectionResp struct {
@@ -222,16 +222,16 @@ func (h *Handler) handleDescribeCollection(
 	_ context.Context,
 	req *describeCollectionReq,
 ) (*describeCollectionResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	coll, err := h.Backend.DescribeCollection(req.CollectionId)
+	coll, err := h.Backend.DescribeCollection(req.CollectionID)
 	if err != nil {
 		return nil, err
 	}
 
-	faces, _, err := h.Backend.ListFaces(req.CollectionId, 0, "")
+	faces, _, err := h.Backend.ListFaces(req.CollectionID, 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ type listCollectionsReq struct {
 
 type listCollectionsResp struct {
 	NextToken         string   `json:"NextToken,omitempty"`
-	CollectionIds     []string `json:"CollectionIds"`
+	CollectionIDs     []string `json:"CollectionIds"`
 	FaceModelVersions []string `json:"FaceModelVersions"`
 }
 
@@ -270,7 +270,7 @@ func (h *Handler) handleListCollections(_ context.Context, req *listCollectionsR
 	}
 
 	return &listCollectionsResp{
-		CollectionIds:     ids,
+		CollectionIDs:     ids,
 		FaceModelVersions: versions,
 		NextToken:         nextToken,
 	}, nil
@@ -279,15 +279,15 @@ func (h *Handler) handleListCollections(_ context.Context, req *listCollectionsR
 // --- Face requests ---
 
 type indexFacesReq struct {
-	CollectionId    string `json:"CollectionId"`
-	ExternalImageId string `json:"ExternalImageId"`
+	CollectionID    string `json:"CollectionId"`
+	ExternalImageID string `json:"ExternalImageId"`
 }
 
 type faceRecord struct {
 	Face struct {
-		FaceId          string  `json:"FaceId"`
-		ImageId         string  `json:"ImageId"`
-		ExternalImageId string  `json:"ExternalImageId"`
+		FaceID          string  `json:"FaceId"`
+		ImageID         string  `json:"ImageId"`
+		ExternalImageID string  `json:"ExternalImageId"`
 		Confidence      float64 `json:"Confidence"`
 	} `json:"Face"`
 }
@@ -298,11 +298,11 @@ type indexFacesResp struct {
 }
 
 func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*indexFacesResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	faces, err := h.Backend.IndexFaces(req.CollectionId, req.ExternalImageId)
+	faces, err := h.Backend.IndexFaces(req.CollectionID, req.ExternalImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -311,9 +311,9 @@ func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*inde
 
 	for _, f := range faces {
 		var rec faceRecord
-		rec.Face.FaceId = f.FaceID
-		rec.Face.ImageId = f.ImageID
-		rec.Face.ExternalImageId = f.ExternalImageID
+		rec.Face.FaceID = f.FaceID
+		rec.Face.ImageID = f.ImageID
+		rec.Face.ExternalImageID = f.ExternalImageID
 		rec.Face.Confidence = f.Confidence
 		records = append(records, rec)
 	}
@@ -325,8 +325,8 @@ func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*inde
 }
 
 type deleteFacesReq struct {
-	CollectionId string   `json:"CollectionId"`
-	FaceIds      []string `json:"FaceIds"`
+	CollectionID string   `json:"CollectionId"`
+	FaceIDs      []string `json:"FaceIds"`
 }
 
 type deleteFacesResp struct {
@@ -334,11 +334,11 @@ type deleteFacesResp struct {
 }
 
 func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*deleteFacesResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	deleted, err := h.Backend.DeleteFaces(req.CollectionId, req.FaceIds)
+	deleted, err := h.Backend.DeleteFaces(req.CollectionID, req.FaceIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -351,15 +351,15 @@ func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*de
 }
 
 type listFacesReq struct {
-	CollectionId string `json:"CollectionId"`
+	CollectionID string `json:"CollectionId"`
 	NextToken    string `json:"NextToken"`
 	MaxResults   int32  `json:"MaxResults"`
 }
 
 type faceEntry struct {
-	FaceId          string  `json:"FaceId"`
-	ImageId         string  `json:"ImageId"`
-	ExternalImageId string  `json:"ExternalImageId"`
+	FaceID          string  `json:"FaceId"`
+	ImageID         string  `json:"ImageId"`
+	ExternalImageID string  `json:"ExternalImageId"`
 	Confidence      float64 `json:"Confidence"`
 }
 
@@ -370,11 +370,11 @@ type listFacesResp struct {
 }
 
 func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFacesResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	faces, nextToken, err := h.Backend.ListFaces(req.CollectionId, req.MaxResults, req.NextToken)
+	faces, nextToken, err := h.Backend.ListFaces(req.CollectionID, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -383,9 +383,9 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 
 	for _, f := range faces {
 		entries = append(entries, faceEntry{
-			FaceId:          f.FaceID,
-			ImageId:         f.ImageID,
-			ExternalImageId: f.ExternalImageID,
+			FaceID:          f.FaceID,
+			ImageID:         f.ImageID,
+			ExternalImageID: f.ExternalImageID,
 			Confidence:      f.Confidence,
 		})
 	}
@@ -398,8 +398,8 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 }
 
 type searchFacesReq struct {
-	CollectionId string `json:"CollectionId"`
-	FaceId       string `json:"FaceId"`
+	CollectionID string `json:"CollectionId"`
+	FaceID       string `json:"FaceId"`
 	MaxFaces     int32  `json:"MaxFaces"`
 }
 
@@ -410,20 +410,20 @@ type faceMatchEntry struct {
 
 type searchFacesResp struct {
 	FaceModelVersion string           `json:"FaceModelVersion"`
-	SearchedFaceId   string           `json:"SearchedFaceId"`
+	SearchedFaceID   string           `json:"SearchedFaceId"`
 	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
 }
 
 func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*searchFacesResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	if req.FaceId == "" {
+	if req.FaceID == "" {
 		return nil, fmt.Errorf("%w: FaceId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchFaces(req.CollectionId, req.FaceId, req.MaxFaces)
+	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces)
 	if err != nil {
 		return nil, err
 	}
@@ -434,9 +434,9 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 		entries = append(entries, faceMatchEntry{
 			Similarity: m.Similarity,
 			Face: faceEntry{
-				FaceId:          m.Face.FaceID,
-				ImageId:         m.Face.ImageID,
-				ExternalImageId: m.Face.ExternalImageID,
+				FaceID:          m.Face.FaceID,
+				ImageID:         m.Face.ImageID,
+				ExternalImageID: m.Face.ExternalImageID,
 				Confidence:      m.Face.Confidence,
 			},
 		})
@@ -445,12 +445,12 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 	return &searchFacesResp{
 		FaceMatches:      entries,
 		FaceModelVersion: faceModelVersion,
-		SearchedFaceId:   req.FaceId,
+		SearchedFaceID:   req.FaceID,
 	}, nil
 }
 
 type searchFacesByImageReq struct {
-	CollectionId string `json:"CollectionId"`
+	CollectionID string `json:"CollectionId"`
 	MaxFaces     int32  `json:"MaxFaces"`
 }
 
@@ -463,11 +463,11 @@ func (h *Handler) handleSearchFacesByImage(
 	_ context.Context,
 	req *searchFacesByImageReq,
 ) (*searchFacesByImageResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchFacesByImage(req.CollectionId, req.MaxFaces)
+	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces)
 	if err != nil {
 		return nil, err
 	}
@@ -478,9 +478,9 @@ func (h *Handler) handleSearchFacesByImage(
 		entries = append(entries, faceMatchEntry{
 			Similarity: m.Similarity,
 			Face: faceEntry{
-				FaceId:          m.Face.FaceID,
-				ImageId:         m.Face.ImageID,
-				ExternalImageId: m.Face.ExternalImageID,
+				FaceID:          m.Face.FaceID,
+				ImageID:         m.Face.ImageID,
+				ExternalImageID: m.Face.ExternalImageID,
 				Confidence:      m.Face.Confidence,
 			},
 		})
