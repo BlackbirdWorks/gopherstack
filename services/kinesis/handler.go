@@ -950,6 +950,27 @@ func errorDetails(err error) (string, string, int) {
 	}
 }
 
+const (
+	// maxTagKeyLen is the maximum byte length of a Kinesis tag key.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the maximum byte length of a Kinesis tag value.
+	maxTagValueLen = 256
+)
+
+// validateTagKVs checks that all tag keys are 1-128 bytes and values are 0-256 bytes.
+func validateTagKVs(tags map[string]string) error {
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return ErrInvalidArgument
+		}
+		if len(v) > maxTagValueLen {
+			return ErrInvalidArgument
+		}
+	}
+
+	return nil
+}
+
 type handleAddTagsToStreamInput struct {
 	Tags       *svcTags.Tags `json:"Tags"`
 	StreamName string        `json:"StreamName"`
@@ -964,10 +985,20 @@ func (h *Handler) handleAddTagsToStream(
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument
 	}
+
+	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+		return nil, err
+	}
+
 	var kv map[string]string
 	if req.Tags != nil {
 		kv = req.Tags.Clone()
 	}
+
+	if err := validateTagKVs(kv); err != nil {
+		return nil, err
+	}
+
 	existing := h.getTags(req.StreamName)
 	merged := make(map[string]string, len(existing))
 	maps.Copy(merged, existing)
@@ -994,6 +1025,11 @@ func (h *Handler) handleRemoveTagsFromStream(
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument
 	}
+
+	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+		return nil, err
+	}
+
 	h.removeTags(req.StreamName, req.TagKeys)
 
 	return struct{}{}, nil
@@ -1014,6 +1050,11 @@ func (h *Handler) handleListTagsForStream(
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument
 	}
+
+	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+		return nil, err
+	}
+
 	tagsMap := h.getTags(req.StreamName)
 
 	keys := make([]string, 0, len(tagsMap))
@@ -1029,14 +1070,21 @@ func (h *Handler) handleListTagsForStream(
 		}
 	}
 
-	const defaultTagPageSize = 10
+	const (
+		defaultTagPageSize = 10
+		maxTagPageSize     = 50
+	)
 	limit := defaultTagPageSize
+	if req.Limit >= 1 && req.Limit <= maxTagPageSize {
+		limit = req.Limit
+	}
+
 	tagList := make([]svcTags.KV, 0, limit)
 	for i := startIdx; i < len(keys) && len(tagList) < limit; i++ {
 		tagList = append(tagList, svcTags.KV{Key: keys[i], Value: tagsMap[keys[i]]})
 	}
 
-	hasMore := startIdx+limit < len(keys)
+	hasMore := startIdx+len(tagList) < len(keys)
 
 	return &listTagsForStreamOutput{
 		Tags:        tagList,
@@ -1820,6 +1868,10 @@ func (h *Handler) handleTagResource(
 	var req jsonTagResourceReq
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument
+	}
+
+	if err := validateTagKVs(req.Tags); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.TagResource(&TagResourceInput{

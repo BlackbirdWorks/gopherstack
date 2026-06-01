@@ -80,9 +80,17 @@ type purger interface {
 // streamNameRe validates Kinesis stream names: 1–128 alphanumeric, hyphen, underscore, or dot chars.
 var streamNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,128}$`)
 
+// consumerNameRe validates Kinesis consumer names: same charset as stream names.
+var consumerNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,128}$`)
+
 // isValidStreamName reports whether s is a valid Kinesis stream name.
 func isValidStreamName(s string) bool {
 	return streamNameRe.MatchString(s)
+}
+
+// isValidConsumerName reports whether s is a valid Kinesis consumer name.
+func isValidConsumerName(s string) bool {
+	return consumerNameRe.MatchString(s)
 }
 
 // sortedKeys returns the keys of map m in sorted order.
@@ -1053,6 +1061,10 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 		stream.Consumers = make(map[string]*Consumer)
 	}
 
+	if !isValidConsumerName(input.ConsumerName) {
+		return nil, ErrInvalidArgument
+	}
+
 	if _, exists := stream.Consumers[input.ConsumerName]; exists {
 		return nil, ErrConsumerAlreadyExists
 	}
@@ -1134,7 +1146,23 @@ func (b *InMemoryBackend) ListStreamConsumers(input *ListStreamConsumersInput) (
 		return consumers[i].ConsumerName < consumers[j].ConsumerName
 	})
 
-	return &ListStreamConsumersOutput{Consumers: consumers}, nil
+	// Apply NextToken as exclusive start consumer name.
+	if input.NextToken != "" {
+		start := 0
+		for start < len(consumers) && consumers[start].ConsumerName <= input.NextToken {
+			start++
+		}
+		consumers = consumers[start:]
+	}
+
+	// Apply MaxResults cap.
+	var nextToken string
+	if input.MaxResults > 0 && input.MaxResults < len(consumers) {
+		nextToken = consumers[input.MaxResults-1].ConsumerName
+		consumers = consumers[:input.MaxResults]
+	}
+
+	return &ListStreamConsumersOutput{Consumers: consumers, NextToken: nextToken}, nil
 }
 
 // DeregisterStreamConsumer removes a registered consumer from a stream.
@@ -1494,6 +1522,10 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	stream.mu.Lock("MergeShards.stream")
 	defer stream.mu.Unlock()
 
+	if stream.StreamMode == streamModeOnDemand {
+		return ErrInvalidArgument
+	}
+
 	shard1 := findShard(stream.Shards, input.ShardToMerge)
 	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
 
@@ -1565,6 +1597,10 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 	}
 	stream.mu.Lock("SplitShard.stream")
 	defer stream.mu.Unlock()
+
+	if stream.StreamMode == streamModeOnDemand {
+		return ErrInvalidArgument
+	}
 
 	shard := findShard(stream.Shards, input.ShardToSplit)
 	if shard == nil {
