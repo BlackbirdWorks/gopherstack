@@ -83,11 +83,11 @@ func TestBatch2_AddTags_KeyValueValidation(t *testing.T) {
 			t.Parallel()
 
 			rec := doELBv2(t, h, url.Values{
-				"Action":                   {"AddTags"},
-				"Version":                  {"2015-12-01"},
-				"ResourceArns.member.1":    {lbArn},
-				"Tags.member.1.Key":        {tc.tagKey},
-				"Tags.member.1.Value":      {tc.tagValue},
+				"Action":                {"AddTags"},
+				"Version":               {"2015-12-01"},
+				"ResourceArns.member.1": {lbArn},
+				"Tags.member.1.Key":     {tc.tagKey},
+				"Tags.member.1.Value":   {tc.tagValue},
 			})
 			assert.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
 		})
@@ -103,7 +103,7 @@ func TestBatch2_AddTags_MaxTagsPerResource(t *testing.T) {
 	lbArn := mustCreateLB(t, h, "max-tags-lb")
 
 	// Add 50 tags one at a time.
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		rec := doELBv2(t, h, url.Values{
 			"Action":                {"AddTags"},
 			"Version":               {"2015-12-01"},
@@ -139,7 +139,7 @@ func TestBatch2_AddTags_UpdateExistingKeyDoesNotCount(t *testing.T) {
 		"Version":               {"2015-12-01"},
 		"ResourceArns.member.1": {lbArn},
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		vals.Set("Tags.member."+itoa(i+1)+".Key", "key-"+itoa(i))
 		vals.Set("Tags.member."+itoa(i+1)+".Value", "v")
 	}
@@ -170,7 +170,9 @@ func TestBatch2_DescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 	}{
 		{
 			name: "single_unknown_arn",
-			arns: []string{"arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/no-such-tg/0000000000000000"},
+			arns: []string{
+				"arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/no-such-tg/0000000000000000",
+			},
 		},
 		{
 			name: "mix_of_known_and_unknown",
@@ -293,10 +295,10 @@ func TestBatch2_DescribeRules_AllKnownArnsSucceeds(t *testing.T) {
 	ruleArn2 := mustCreateRule(t, h, listenerArn, tgArn, "20")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":              {"DescribeRules"},
-		"Version":             {"2015-12-01"},
-		"RuleArns.member.1":   {ruleArn1},
-		"RuleArns.member.2":   {ruleArn2},
+		"Action":            {"DescribeRules"},
+		"Version":           {"2015-12-01"},
+		"RuleArns.member.1": {ruleArn1},
+		"RuleArns.member.2": {ruleArn2},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
@@ -320,14 +322,14 @@ func mustCreateRule(t *testing.T, h *elbv2.Handler, listenerArn, tgArn, priority
 	t.Helper()
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                                  {"CreateRule"},
-		"Version":                                 {"2015-12-01"},
-		"ListenerArn":                             {listenerArn},
-		"Priority":                                {priority},
-		"Conditions.member.1.Field":               {"path-pattern"},
-		"Conditions.member.1.Values.member.1":     {"/p-" + priority + "/*"},
-		"Actions.member.1.Type":                   {"forward"},
-		"Actions.member.1.TargetGroupArn":         {tgArn},
+		"Action":                              {"CreateRule"},
+		"Version":                             {"2015-12-01"},
+		"ListenerArn":                         {listenerArn},
+		"Priority":                            {priority},
+		"Conditions.member.1.Field":           {"path-pattern"},
+		"Conditions.member.1.Values.member.1": {"/p-" + priority + "/*"},
+		"Actions.member.1.Type":               {"forward"},
+		"Actions.member.1.TargetGroupArn":     {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
