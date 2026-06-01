@@ -63,7 +63,7 @@ type StorageBackend interface {
 
 	// Tag operations
 	ListTags(resourceARN string) map[string]string
-	CreateTags(resourceARN string, tags map[string]string)
+	CreateTags(resourceARN string, tags map[string]string) error
 	DeleteTags(resourceARN string, tagKeys []string)
 
 	// Lifecycle
