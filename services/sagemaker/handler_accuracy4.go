@@ -67,7 +67,7 @@ func accuracy4OpsSupported() []string {
 
 // dispatchAccuracy4Ops dispatches the accuracy4 real stateful operations.
 //
-//nolint:cyclop,gocyclo,funlen // large switch for 25 operations
+//nolint:cyclop,funlen // large switch for 25 operations
 func (h *Handler) dispatchAccuracy4Ops(
 	_ context.Context,
 	op string,
@@ -77,86 +77,111 @@ func (h *Handler) dispatchAccuracy4Ops(
 	// DeviceFleet
 	case opCreateDeviceFleet:
 		r, err := h.handleCreateDeviceFleet(body)
+
 		return r, true, err
 	case opDescribeDeviceFleet:
 		r, err := h.handleDescribeDeviceFleet(body)
+
 		return r, true, err
 	case opListDeviceFleets:
 		r, err := h.handleListDeviceFleets(body)
+
 		return r, true, err
 	case opUpdateDeviceFleet:
 		r, err := h.handleUpdateDeviceFleet(body)
+
 		return r, true, err
 	case opDeleteDeviceFleet:
 		r, err := h.handleDeleteDeviceFleet(body)
+
 		return r, true, err
 
 	// Device
 	case opRegisterDevices:
 		r, err := h.handleRegisterDevices(body)
+
 		return r, true, err
 	case opDeregisterDevices:
 		r, err := h.handleDeregisterDevices(body)
+
 		return r, true, err
 	case opDescribeDevice:
 		r, err := h.handleDescribeDevice(body)
+
 		return r, true, err
 	case opListDevices:
 		r, err := h.handleListDevices(body)
+
 		return r, true, err
 
 	// InferenceComponent
 	case opCreateInferenceComponent:
 		r, err := h.handleCreateInferenceComponent(body)
+
 		return r, true, err
 	case opDescribeInferenceComponent:
 		r, err := h.handleDescribeInferenceComponent(body)
+
 		return r, true, err
 	case opListInferenceComponents:
 		r, err := h.handleListInferenceComponents(body)
+
 		return r, true, err
 	case opUpdateInferenceComponent:
 		r, err := h.handleUpdateInferenceComponent(body)
+
 		return r, true, err
 	case opUpdateInferenceComponentRuntimeConfig:
 		r, err := h.handleUpdateInferenceComponentRuntimeConfig(body)
+
 		return r, true, err
 	case opDeleteInferenceComponent:
 		r, err := h.handleDeleteInferenceComponent(body)
+
 		return r, true, err
 
 	// ClusterSchedulerConfig
 	case opCreateClusterSchedulerConfig:
 		r, err := h.handleCreateClusterSchedulerConfig(body)
+
 		return r, true, err
 	case opDescribeClusterSchedulerConfig:
 		r, err := h.handleDescribeClusterSchedulerConfig(body)
+
 		return r, true, err
 	case opListClusterSchedulerConfigs:
 		r, err := h.handleListClusterSchedulerConfigs(body)
+
 		return r, true, err
 	case opUpdateClusterSchedulerConfig:
 		r, err := h.handleUpdateClusterSchedulerConfig(body)
+
 		return r, true, err
 	case opDeleteClusterSchedulerConfig:
 		r, err := h.handleDeleteClusterSchedulerConfig(body)
+
 		return r, true, err
 
 	// ComputeQuota
 	case opCreateComputeQuota:
 		r, err := h.handleCreateComputeQuota(body)
+
 		return r, true, err
 	case opDescribeComputeQuota:
 		r, err := h.handleDescribeComputeQuota(body)
+
 		return r, true, err
 	case opListComputeQuotas:
 		r, err := h.handleListComputeQuotas(body)
+
 		return r, true, err
 	case opUpdateComputeQuota:
 		r, err := h.handleUpdateComputeQuota(body)
+
 		return r, true, err
 	case opDeleteComputeQuota:
 		r, err := h.handleDeleteComputeQuota(body)
+
 		return r, true, err
 	}
 
@@ -222,10 +247,10 @@ func (h *Handler) handleListDeviceFleets(body []byte) ([]byte, error) {
 	items := make([]map[string]any, 0, len(fleets))
 	for _, f := range fleets {
 		items = append(items, map[string]any{
-			keyDeviceFleetName:   f.DeviceFleetName,
-			"DeviceFleetArn":     f.DeviceFleetArn,
-			keyCreationTime:      f.CreationTime,
-			keyLastModifiedTime:  f.LastModifiedTime,
+			keyDeviceFleetName:  f.DeviceFleetName,
+			"DeviceFleetArn":    f.DeviceFleetArn,
+			keyCreationTime:     f.CreationTime,
+			keyLastModifiedTime: f.LastModifiedTime,
 		})
 	}
 
@@ -272,13 +297,13 @@ func (h *Handler) handleDeleteDeviceFleet(body []byte) ([]byte, error) {
 
 func (h *Handler) handleRegisterDevices(body []byte) ([]byte, error) {
 	var req struct {
-		Devices []struct {
+		DeviceFleetName string `json:"DeviceFleetName"`
+		Devices         []struct {
+			Tags         map[string]string `json:"Tags"`
 			DeviceName   string            `json:"DeviceName"`
 			Description  string            `json:"Description"`
 			IotThingName string            `json:"IotThingName"`
-			Tags         map[string]string `json:"Tags"`
 		} `json:"Devices"`
-		DeviceFleetName string `json:"DeviceFleetName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -368,13 +393,13 @@ func (h *Handler) handleListDevices(body []byte) ([]byte, error) {
 
 func (h *Handler) handleCreateInferenceComponent(body []byte) ([]byte, error) {
 	var req struct {
-		Tags                   map[string]string `json:"Tags"`
-		InferenceComponentName string            `json:"InferenceComponentName"`
-		EndpointName           string            `json:"EndpointName"`
-		VariantName            string            `json:"VariantName"`
-		RuntimeConfig          *struct {
+		Tags          map[string]string `json:"Tags"`
+		RuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
 		} `json:"RuntimeConfig"`
+		InferenceComponentName string `json:"InferenceComponentName"`
+		EndpointName           string `json:"EndpointName"`
+		VariantName            string `json:"VariantName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -448,11 +473,11 @@ func (h *Handler) handleListInferenceComponents(body []byte) ([]byte, error) {
 
 func (h *Handler) handleUpdateInferenceComponent(body []byte) ([]byte, error) {
 	var req struct {
-		InferenceComponentName string `json:"InferenceComponentName"`
-		VariantName            string `json:"VariantName"`
-		RuntimeConfig          *struct {
+		RuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
 		} `json:"RuntimeConfig"`
+		InferenceComponentName string `json:"InferenceComponentName"`
+		VariantName            string `json:"VariantName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -480,10 +505,10 @@ func (h *Handler) handleUpdateInferenceComponent(body []byte) ([]byte, error) {
 
 func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(body []byte) ([]byte, error) {
 	var req struct {
-		InferenceComponentName string `json:"InferenceComponentName"`
-		DesiredRuntimeConfig   *struct {
+		DesiredRuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
 		} `json:"DesiredRuntimeConfig"`
+		InferenceComponentName string `json:"InferenceComponentName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -696,11 +721,11 @@ func (h *Handler) handleListComputeQuotas(body []byte) ([]byte, error) {
 	items := make([]map[string]any, 0, len(quotas))
 	for _, q := range quotas {
 		items = append(items, map[string]any{
-			"ComputeQuotaName":    q.ComputeQuotaName,
-			keyComputeQuotaArn:    q.ComputeQuotaArn,
-			keyStatus:             q.Status,
-			keyCreationTime:       q.CreationTime,
-			keyLastModifiedTime:   q.LastModifiedTime,
+			"ComputeQuotaName":  q.ComputeQuotaName,
+			keyComputeQuotaArn:  q.ComputeQuotaArn,
+			keyStatus:           q.Status,
+			keyCreationTime:     q.CreationTime,
+			keyLastModifiedTime: q.LastModifiedTime,
 		})
 	}
 

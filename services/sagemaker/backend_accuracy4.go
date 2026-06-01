@@ -11,7 +11,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-const statusCreating = "Creating"
+const (
+	statusCreating       = "Creating"
+	deviceCompositeparts = 2
+)
 
 // ---------------------------------------------------------------------------
 // DeviceFleet
@@ -298,8 +301,8 @@ func (b *InMemoryBackend) ListDevices(fleetFilter, nextToken string) ([]*Device,
 
 	out := make([]*Device, 0, end-start)
 	for _, composite := range keys[start:end] {
-		parts := strings.SplitN(composite, "/", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(composite, "/", deviceCompositeparts)
+		if len(parts) != deviceCompositeparts {
 			continue
 		}
 
