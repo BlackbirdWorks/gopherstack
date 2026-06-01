@@ -383,7 +383,6 @@ func TestAuditB2_Status_Terminal_NotPromoted(t *testing.T) {
 	terminalStatuses := []string{"AVAILABLE", "CREATE_FAILED", "UPDATE_FAILED", "UNAVAILABLE", "ERROR"}
 
 	for _, status := range terminalStatuses {
-		status := status
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 
@@ -530,8 +529,8 @@ func TestAuditB2_LoggingConfig_Enabled_RoundTrip(t *testing.T) {
 	falseVal := false
 
 	tests := []struct {
-		name    string
 		enabled *bool
+		name    string
 	}{
 		{name: "enabled_true", enabled: &trueVal},
 		{name: "enabled_false", enabled: &falseVal},
@@ -812,16 +811,16 @@ func TestAuditB2_HTTP_GetEnvironment_DefaultsPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	// Second GET to get AVAILABLE state.
+	_ = doMWAARequest(t, h, http.MethodGet, "/environments/snap-defaults-env", nil)
 	getRec := doMWAARequest(t, h, http.MethodGet, "/environments/snap-defaults-env", nil)
-	getRec = doMWAARequest(t, h, http.MethodGet, "/environments/snap-defaults-env", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
 
 	env := resp["Environment"].(map[string]any)
-	assert.Equal(t, float64(10), env["MaxWorkers"], "default MaxWorkers=10 should be visible via HTTP")
-	assert.Equal(t, float64(1), env["MinWorkers"], "default MinWorkers=1 should be visible via HTTP")
+	assert.InEpsilon(t, float64(10), env["MaxWorkers"], 0.001, "default MaxWorkers=10 should be visible via HTTP")
+	assert.InEpsilon(t, float64(1), env["MinWorkers"], 0.001, "default MinWorkers=1 should be visible via HTTP")
 	assert.Equal(t, "2.10.3", env["AirflowVersion"])
 	assert.Equal(t, "mw1.small", env["EnvironmentClass"])
 	assert.Equal(t, "AVAILABLE", env["Status"])
