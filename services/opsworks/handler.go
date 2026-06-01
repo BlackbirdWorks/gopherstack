@@ -302,7 +302,7 @@ func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error)
 func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID  string   `json:"StackId"`
-		LayerIds []string `json:"LayerIds"`
+		LayerIDs []string `json:"LayerIds"`
 	}
 
 	if len(body) > 0 {
@@ -311,7 +311,7 @@ func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, err
 		}
 	}
 
-	layers, err := h.Backend.DescribeLayers(req.StackID, req.LayerIds)
+	layers, err := h.Backend.DescribeLayers(req.StackID, req.LayerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, err
 // handleUpdateLayer handles UpdateLayer requests.
 func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		LayerId string `json:"LayerId"`
+		LayerID string `json:"LayerId"`
 		Name    string `json:"Name"`
 	}
 
@@ -330,7 +330,7 @@ func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error)
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateLayer(req.LayerId, req.Name); err != nil {
+	if err := h.Backend.UpdateLayer(req.LayerID, req.Name); err != nil {
 		return nil, err
 	}
 
@@ -340,14 +340,14 @@ func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error)
 // handleDeleteLayer handles DeleteLayer requests.
 func (h *Handler) handleDeleteLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		LayerId string `json:"LayerId"`
+		LayerID string `json:"LayerId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.DeleteLayer(req.LayerId); err != nil {
+	if err := h.Backend.DeleteLayer(req.LayerID); err != nil {
 		return nil, err
 	}
 
@@ -359,7 +359,7 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 	var req struct {
 		StackID      string   `json:"StackId"`
 		InstanceType string   `json:"InstanceType"`
-		LayerIds     []string `json:"LayerIds"`
+		LayerIDs     []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -367,8 +367,8 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 	}
 
 	layerID := ""
-	if len(req.LayerIds) > 0 {
-		layerID = req.LayerIds[0]
+	if len(req.LayerIDs) > 0 {
+		layerID = req.LayerIDs[0]
 	}
 
 	instance, err := h.Backend.CreateInstance(req.StackID, layerID, req.InstanceType)
@@ -383,8 +383,8 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID     string   `json:"StackId"`
-		LayerId     string   `json:"LayerId"`
-		InstanceIds []string `json:"InstanceIds"`
+		LayerID     string   `json:"LayerId"`
+		InstanceIDs []string `json:"InstanceIds"`
 	}
 
 	if len(body) > 0 {
@@ -393,7 +393,7 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 		}
 	}
 
-	instances, err := h.Backend.DescribeInstances(req.StackID, req.LayerId, req.InstanceIds)
+	instances, err := h.Backend.DescribeInstances(req.StackID, req.LayerID, req.InstanceIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 // handleUpdateInstance handles UpdateInstance requests.
 func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceId string `json:"InstanceId"`
+		InstanceID string `json:"InstanceId"`
 		Hostname   string `json:"Hostname"`
 	}
 
@@ -412,7 +412,7 @@ func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateInstance(req.InstanceId, req.Hostname); err != nil {
+	if err := h.Backend.UpdateInstance(req.InstanceID, req.Hostname); err != nil {
 		return nil, err
 	}
 
@@ -422,14 +422,14 @@ func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, err
 // handleDeleteInstance handles DeleteInstance requests.
 func (h *Handler) handleDeleteInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceId string `json:"InstanceId"`
+		InstanceID string `json:"InstanceId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.DeleteInstance(req.InstanceId); err != nil {
+	if err := h.Backend.DeleteInstance(req.InstanceID); err != nil {
 		return nil, err
 	}
 
@@ -439,14 +439,14 @@ func (h *Handler) handleDeleteInstance(_ context.Context, body []byte) (any, err
 // handleStartInstance handles StartInstance requests.
 func (h *Handler) handleStartInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceId string `json:"InstanceId"`
+		InstanceID string `json:"InstanceId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.StartInstance(req.InstanceId); err != nil {
+	if err := h.Backend.StartInstance(req.InstanceID); err != nil {
 		return nil, err
 	}
 
@@ -456,14 +456,14 @@ func (h *Handler) handleStartInstance(_ context.Context, body []byte) (any, erro
 // handleStopInstance handles StopInstance requests.
 func (h *Handler) handleStopInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceId string `json:"InstanceId"`
+		InstanceID string `json:"InstanceId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.StopInstance(req.InstanceId); err != nil {
+	if err := h.Backend.StopInstance(req.InstanceID); err != nil {
 		return nil, err
 	}
 
@@ -473,14 +473,14 @@ func (h *Handler) handleStopInstance(_ context.Context, body []byte) (any, error
 // handleRebootInstance handles RebootInstance requests.
 func (h *Handler) handleRebootInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceId string `json:"InstanceId"`
+		InstanceID string `json:"InstanceId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.RebootInstance(req.InstanceId); err != nil {
+	if err := h.Backend.RebootInstance(req.InstanceID); err != nil {
 		return nil, err
 	}
 
@@ -511,7 +511,7 @@ func (h *Handler) handleCreateApp(_ context.Context, body []byte) (any, error) {
 func (h *Handler) handleDescribeApps(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID string   `json:"StackId"`
-		AppIds  []string `json:"AppIds"`
+		AppIDs  []string `json:"AppIds"`
 	}
 
 	if len(body) > 0 {
@@ -520,7 +520,7 @@ func (h *Handler) handleDescribeApps(_ context.Context, body []byte) (any, error
 		}
 	}
 
-	apps, err := h.Backend.DescribeApps(req.StackID, req.AppIds)
+	apps, err := h.Backend.DescribeApps(req.StackID, req.AppIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +531,7 @@ func (h *Handler) handleDescribeApps(_ context.Context, body []byte) (any, error
 // handleUpdateApp handles UpdateApp requests.
 func (h *Handler) handleUpdateApp(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		AppId string `json:"AppId"`
+		AppID string `json:"AppId"`
 		Name  string `json:"Name"`
 	}
 
@@ -539,7 +539,7 @@ func (h *Handler) handleUpdateApp(_ context.Context, body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateApp(req.AppId, req.Name); err != nil {
+	if err := h.Backend.UpdateApp(req.AppID, req.Name); err != nil {
 		return nil, err
 	}
 
@@ -549,14 +549,14 @@ func (h *Handler) handleUpdateApp(_ context.Context, body []byte) (any, error) {
 // handleDeleteApp handles DeleteApp requests.
 func (h *Handler) handleDeleteApp(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		AppId string `json:"AppId"`
+		AppID string `json:"AppId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.DeleteApp(req.AppId); err != nil {
+	if err := h.Backend.DeleteApp(req.AppID); err != nil {
 		return nil, err
 	}
 
@@ -567,7 +567,7 @@ func (h *Handler) handleDeleteApp(_ context.Context, body []byte) (any, error) {
 func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID string `json:"StackId"`
-		AppId   string `json:"AppId"`
+		AppID   string `json:"AppId"`
 		Command struct {
 			Name string `json:"Name"`
 		} `json:"Command"`
@@ -577,7 +577,7 @@ func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	deployment, err := h.Backend.CreateDeployment(req.StackID, req.AppId, req.Command.Name)
+	deployment, err := h.Backend.CreateDeployment(req.StackID, req.AppID, req.Command.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -589,8 +589,8 @@ func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, e
 func (h *Handler) handleDescribeDeployments(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackID       string   `json:"StackId"`
-		AppId         string   `json:"AppId"`
-		DeploymentIds []string `json:"DeploymentIds"`
+		AppID         string   `json:"AppId"`
+		DeploymentIDs []string `json:"DeploymentIds"`
 	}
 
 	if len(body) > 0 {
@@ -599,7 +599,7 @@ func (h *Handler) handleDescribeDeployments(_ context.Context, body []byte) (any
 		}
 	}
 
-	deployments, err := h.Backend.DescribeDeployments(req.StackID, req.AppId, req.DeploymentIds)
+	deployments, err := h.Backend.DescribeDeployments(req.StackID, req.AppID, req.DeploymentIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -610,8 +610,8 @@ func (h *Handler) handleDescribeDeployments(_ context.Context, body []byte) (any
 // handleDescribeCommands handles DescribeCommands requests.
 func (h *Handler) handleDescribeCommands(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		DeploymentId string   `json:"DeploymentId"`
-		InstanceId   string   `json:"InstanceId"`
+		DeploymentID string   `json:"DeploymentId"`
+		InstanceID   string   `json:"InstanceId"`
 		CommandIds   []string `json:"CommandIds"`
 	}
 
@@ -621,7 +621,7 @@ func (h *Handler) handleDescribeCommands(_ context.Context, body []byte) (any, e
 		}
 	}
 
-	commands, err := h.Backend.DescribeCommands(req.DeploymentId, req.InstanceId, req.CommandIds)
+	commands, err := h.Backend.DescribeCommands(req.DeploymentID, req.InstanceID, req.CommandIds)
 	if err != nil {
 		return nil, err
 	}
