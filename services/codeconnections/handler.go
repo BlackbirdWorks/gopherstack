@@ -204,10 +204,17 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleEchoError(_ context.Context, c *echo.Context, _ string, err error) error {
 	errType, statusCode := resolveErrorType(err)
 
-	return c.JSON(statusCode, service.JSONErrorResponse{
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
 		Message: err.Error(),
 	})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", ccContentType)
+
+	return c.JSONBlob(statusCode, payload)
 }
 
 func resolveErrorType(err error) (string, int) {
