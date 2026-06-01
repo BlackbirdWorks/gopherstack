@@ -322,6 +322,8 @@ github.com/aws/aws-sdk-go-v2/service/transcribe v1.55.0 h1:RKV4MScftqxaWNft0S5Mq
 github.com/aws/aws-sdk-go-v2/service/transcribe v1.55.0/go.mod h1:z29t64Pva4oeaYboSZrJhhYJDZu80VCV/AnMnqhNvwE=
 github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
 github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4/go.mod h1:uirylF9/pmoaUQBoMxNIj7zniwHtZJu8pA81LNCcqGM=
+github.com/aws/aws-sdk-go-v2/service/translate v1.34.2 h1:wOeKaa4YkLvAfueCoVNGb6IQKmgcXiOQSHVKgfxEKa0=
+github.com/aws/aws-sdk-go-v2/service/translate v1.34.2/go.mod h1:9sMvZzh9f34gFXrARkjL4FRKlBAwZWsrPWWq+oAUg/k=
 github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4 h1:n0jsEM3jPz0dtujoqreiuUJAEgGHIQcxekY7/kMqHqI=
 github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4/go.mod h1:cyCWU2gte7GgK6ALIQDeN/Uza9RvxcZCc1BcHQaYeTg=
 github.com/aws/aws-sdk-go-v2/service/waf v1.30.24 h1:oxcv9gZ55iV4WYDPwQ1k2HFro19Ik3vImFyNGM/K2CU=

@@ -140,9 +140,9 @@ import (
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
+	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
-	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
@@ -187,6 +187,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
@@ -2738,7 +2739,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&directoryservicebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&medialivebackend.Provider{},
-		&mediatailorbackend.Provider{},
+		&mediapackagebackend.Provider{},
+		&translatebackend.Provider{},
 	}
 }
 
