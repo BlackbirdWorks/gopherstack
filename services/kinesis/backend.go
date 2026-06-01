@@ -1061,6 +1061,10 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 		stream.Consumers = make(map[string]*Consumer)
 	}
 
+	if !isValidConsumerName(input.ConsumerName) {
+		return nil, ErrInvalidArgument
+	}
+
 	if _, exists := stream.Consumers[input.ConsumerName]; exists {
 		return nil, ErrConsumerAlreadyExists
 	}
@@ -1142,7 +1146,23 @@ func (b *InMemoryBackend) ListStreamConsumers(input *ListStreamConsumersInput) (
 		return consumers[i].ConsumerName < consumers[j].ConsumerName
 	})
 
-	return &ListStreamConsumersOutput{Consumers: consumers}, nil
+	// Apply NextToken as exclusive start consumer name.
+	if input.NextToken != "" {
+		start := 0
+		for start < len(consumers) && consumers[start].ConsumerName <= input.NextToken {
+			start++
+		}
+		consumers = consumers[start:]
+	}
+
+	// Apply MaxResults cap.
+	var nextToken string
+	if input.MaxResults > 0 && input.MaxResults < len(consumers) {
+		nextToken = consumers[input.MaxResults-1].ConsumerName
+		consumers = consumers[:input.MaxResults]
+	}
+
+	return &ListStreamConsumersOutput{Consumers: consumers, NextToken: nextToken}, nil
 }
 
 // DeregisterStreamConsumer removes a registered consumer from a stream.
@@ -1502,6 +1522,10 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	stream.mu.Lock("MergeShards.stream")
 	defer stream.mu.Unlock()
 
+	if stream.StreamMode == streamModeOnDemand {
+		return ErrInvalidArgument
+	}
+
 	shard1 := findShard(stream.Shards, input.ShardToMerge)
 	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
 
@@ -1573,6 +1597,10 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 	}
 	stream.mu.Lock("SplitShard.stream")
 	defer stream.mu.Unlock()
+
+	if stream.StreamMode == streamModeOnDemand {
+		return ErrInvalidArgument
+	}
 
 	shard := findShard(stream.Shards, input.ShardToSplit)
 	if shard == nil {

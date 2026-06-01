@@ -820,8 +820,14 @@ func TestHandleRemoveTagsFromStream(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "rm-tag-stream",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	// Add tags
-	rec := doRequest(t, h, "AddTagsToStream", map[string]any{
+	rec = doRequest(t, h, "AddTagsToStream", map[string]any{
 		"StreamName": "rm-tag-stream",
 		"Tags":       map[string]string{"env": "prod", "team": "platform"},
 	})
@@ -855,6 +861,8 @@ func TestHandleListTagsForStreamEmpty(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "no-tags-stream", "ShardCount": 1})
 
 	rec := doRequest(t, h, "ListTagsForStream", map[string]any{
 		"StreamName": "no-tags-stream",
