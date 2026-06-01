@@ -26,7 +26,59 @@ const (
 
 	opUnknown = "Unknown"
 
-	// path segment indices
+	// operation name constants.
+	opCreateNamespace         = "CreateNamespace"
+	opDescribeNamespace       = "DescribeNamespace"
+	opDeleteNamespace         = "DeleteNamespace"
+	opListNamespaces          = "ListNamespaces"
+	opCreateGroup             = "CreateGroup"
+	opDescribeGroup           = "DescribeGroup"
+	opUpdateGroup             = "UpdateGroup"
+	opDeleteGroup             = "DeleteGroup"
+	opListGroups              = "ListGroups"
+	opSearchGroups            = "SearchGroups"
+	opCreateGroupMembership   = "CreateGroupMembership"
+	opDescribeGroupMembership = "DescribeGroupMembership"
+	opDeleteGroupMembership   = "DeleteGroupMembership"
+	opListGroupMemberships    = "ListGroupMemberships"
+	opRegisterUser            = "RegisterUser"
+	opDescribeUser            = "DescribeUser"
+	opUpdateUser              = "UpdateUser"
+	opDeleteUser              = "DeleteUser"
+	opDeleteUserByPrincipalID = "DeleteUserByPrincipalId"
+	opListUsers               = "ListUsers"
+	opListUserGroups          = "ListUserGroups"
+	opCreateDataSource        = "CreateDataSource"
+	opDescribeDataSource      = "DescribeDataSource"
+	opUpdateDataSource        = "UpdateDataSource"
+	opDeleteDataSource        = "DeleteDataSource"
+	opListDataSources         = "ListDataSources"
+	opCreateDataSet           = "CreateDataSet"
+	opDescribeDataSet         = "DescribeDataSet"
+	opUpdateDataSet           = "UpdateDataSet"
+	opDeleteDataSet           = "DeleteDataSet"
+	opListDataSets            = "ListDataSets"
+	opCreateIngestion         = "CreateIngestion"
+	opDescribeIngestion       = "DescribeIngestion"
+	opCancelIngestion         = "CancelIngestion"
+	opListIngestions          = "ListIngestions"
+	opCreateDashboard         = "CreateDashboard"
+	opDescribeDashboard       = "DescribeDashboard"
+	opUpdateDashboard         = "UpdateDashboard"
+	opDeleteDashboard         = "DeleteDashboard"
+	opListDashboards          = "ListDashboards"
+	opListDashboardVersions   = "ListDashboardVersions"
+	opCreateAnalysis          = "CreateAnalysis"
+	opDescribeAnalysis        = "DescribeAnalysis"
+	opUpdateAnalysis          = "UpdateAnalysis"
+	opDeleteAnalysis          = "DeleteAnalysis"
+	opListAnalyses            = "ListAnalyses"
+	opRestoreAnalysis         = "RestoreAnalysis"
+	opTagResource             = "TagResource"
+	opUntagResource           = "UntagResource"
+	opListTagsForResource     = "ListTagsForResource"
+
+	// path segment indices.
 	segAccountID   = 1
 	segResource    = 2
 	segResID       = 3
@@ -35,35 +87,77 @@ const (
 	segSubSubRes   = 6
 	segSubSubResID = 7
 
-	// JSON response keys
-	keyRequestID = "RequestId"
-	keyStatus    = "Status"
-	keyNextToken = "NextToken"
+	// segment count constants.
+	nSegsAccountRoot  = 2
+	nSegsAccountRes   = 3
+	nSegsAccountResID = 4
+	nSegsSubRes       = 5
+	nSegsSubResID     = 6
+	nSegsSubSubRes    = 7
+	nSegsSubSubResID  = 8
 
-	// request ID placeholder
+	// JSON response keys.
+	keyRequestID            = "RequestId"
+	keyStatus               = "Status"
+	keyNextToken            = "NextToken"
+	keyGroup                = "Group"
+	keyGroupList            = "GroupList"
+	keyUser                 = "User"
+	keyUserList             = "UserList"
+	keyDataSource           = "DataSource"
+	keyDataSources          = "DataSources"
+	keyDataSourceID         = "DataSourceId"
+	keyDataSet              = "DataSet"
+	keyDataSetSummaries     = "DataSetSummaries"
+	keyDataSetID            = "DataSetId"
+	keyIngestion            = "Ingestion"
+	keyIngestions           = "Ingestions"
+	keyIngestionID          = "IngestionId"
+	keyIngestionStatus      = "IngestionStatus"
+	keyDashboard            = "Dashboard"
+	keyDashboardSummaryList = "DashboardSummaryList"
+	keyDashboardID          = "DashboardId"
+	keyAnalysis             = "Analysis"
+	keyAnalysisSummaryList  = "AnalysisSummaryList"
+	keyAnalysisID           = "AnalysisId"
+	keyCreatedTime          = "CreatedTime"
+	keyLastUpdatedTime      = "LastUpdatedTime"
+	keyArn                  = "Arn"
+	keyName                 = "Name"
+	keyCapacityRegion       = "CapacityRegion"
+	keyCreationStatus       = "CreationStatus"
+	keyIdentityStore        = "IdentityStore"
+	keyNamespace            = "Namespace"
+	keyMemberName           = "MemberName"
+
+	// request ID placeholder.
 	reqIDPlaceholder = "request-id"
 
-	// path segment names
-	pathSegAccounts      = "accounts"
-	pathSegNamespaces    = "namespaces"
-	pathSegGroups        = "groups"
-	pathSegMembers       = "members"
-	pathSegUsers         = "users"
-	pathSegDataSources   = "data-sources"
-	pathSegDataSets      = "data-sets"
-	pathSegIngestions    = "ingestions"
-	pathSegDashboards    = "dashboards"
-	pathSegAnalyses      = "analyses"
-	pathSegVersions      = "versions"
-	pathSegSearch        = "search"
-	pathSegRestore       = "restore"
-	pathSegResources     = "resources"
-	pathSegTagsSuffix    = "tags"
-	pathSegGroupsSearch  = "groups-search"
+	// path segment names.
+	pathSegAccounts       = "accounts"
+	pathSegNamespaces     = "namespaces"
+	pathSegGroups         = "groups"
+	pathSegMembers        = "members"
+	pathSegUsers          = "users"
+	pathSegDataSources    = "data-sources"
+	pathSegDataSets       = "data-sets"
+	pathSegIngestions     = "ingestions"
+	pathSegDashboards     = "dashboards"
+	pathSegAnalyses       = "analyses"
+	pathSegVersions       = "versions"
+	pathSegSearch         = "search"
+	pathSegRestore        = "restore"
+	pathSegResources      = "resources"
+	pathSegTagsSuffix     = "tags"
+	pathSegGroupsSearch   = "groups-search"
 	pathSegUserPrincipals = "user-principals"
 
-	// time format
+	// time format.
 	timeFormat = "2006-01-02T15:04:05Z"
+
+	// error codes.
+	errInvalidParam = "InvalidParameterValueException"
+	errInvalidBody  = "invalid request body"
 )
 
 // Handler is the Echo HTTP handler for QuickSight operations.
@@ -128,56 +222,56 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // GetSupportedOperations returns the list of implemented QuickSight operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateNamespace",
-		"DescribeNamespace",
-		"DeleteNamespace",
-		"ListNamespaces",
-		"CreateGroup",
-		"DescribeGroup",
-		"UpdateGroup",
-		"DeleteGroup",
-		"ListGroups",
-		"SearchGroups",
-		"CreateGroupMembership",
-		"DescribeGroupMembership",
-		"DeleteGroupMembership",
-		"ListGroupMemberships",
-		"RegisterUser",
-		"DescribeUser",
-		"UpdateUser",
-		"DeleteUser",
-		"DeleteUserByPrincipalId",
-		"ListUsers",
-		"ListUserGroups",
-		"CreateDataSource",
-		"DescribeDataSource",
-		"UpdateDataSource",
-		"DeleteDataSource",
-		"ListDataSources",
-		"CreateDataSet",
-		"DescribeDataSet",
-		"UpdateDataSet",
-		"DeleteDataSet",
-		"ListDataSets",
-		"CreateIngestion",
-		"DescribeIngestion",
-		"CancelIngestion",
-		"ListIngestions",
-		"CreateDashboard",
-		"DescribeDashboard",
-		"UpdateDashboard",
-		"DeleteDashboard",
-		"ListDashboards",
-		"ListDashboardVersions",
-		"CreateAnalysis",
-		"DescribeAnalysis",
-		"UpdateAnalysis",
-		"DeleteAnalysis",
-		"ListAnalyses",
-		"RestoreAnalysis",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
+		opCreateNamespace,
+		opDescribeNamespace,
+		opDeleteNamespace,
+		opListNamespaces,
+		opCreateGroup,
+		opDescribeGroup,
+		opUpdateGroup,
+		opDeleteGroup,
+		opListGroups,
+		opSearchGroups,
+		opCreateGroupMembership,
+		opDescribeGroupMembership,
+		opDeleteGroupMembership,
+		opListGroupMemberships,
+		opRegisterUser,
+		opDescribeUser,
+		opUpdateUser,
+		opDeleteUser,
+		opDeleteUserByPrincipalID,
+		opListUsers,
+		opListUserGroups,
+		opCreateDataSource,
+		opDescribeDataSource,
+		opUpdateDataSource,
+		opDeleteDataSource,
+		opListDataSources,
+		opCreateDataSet,
+		opDescribeDataSet,
+		opUpdateDataSet,
+		opDeleteDataSet,
+		opListDataSets,
+		opCreateIngestion,
+		opDescribeIngestion,
+		opCancelIngestion,
+		opListIngestions,
+		opCreateDashboard,
+		opDescribeDashboard,
+		opUpdateDashboard,
+		opDeleteDashboard,
+		opListDashboards,
+		opListDashboardVersions,
+		opCreateAnalysis,
+		opDescribeAnalysis,
+		opUpdateAnalysis,
+		opDeleteAnalysis,
+		opListAnalyses,
+		opRestoreAnalysis,
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
 	}
 }
 
@@ -200,131 +294,94 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this handler serves.
 func (h *Handler) ChaosRegions() []string { return []string{h.region} }
 
+func isNamespaceOp(op string) bool {
+	switch op {
+	case opCreateNamespace, opDescribeNamespace, opDeleteNamespace, opListNamespaces:
+		return true
+	}
+	return false
+}
+
+func isGroupOp(op string) bool {
+	switch op {
+	case opCreateGroup, opDescribeGroup, opUpdateGroup, opDeleteGroup, opListGroups, opSearchGroups,
+		opCreateGroupMembership, opDescribeGroupMembership, opDeleteGroupMembership, opListGroupMemberships:
+		return true
+	}
+	return false
+}
+
+func isUserOp(op string) bool {
+	switch op {
+	case opRegisterUser, opDescribeUser, opUpdateUser, opDeleteUser,
+		opDeleteUserByPrincipalID, opListUsers, opListUserGroups:
+		return true
+	}
+	return false
+}
+
+func isDataSourceOp(op string) bool {
+	switch op {
+	case opCreateDataSource, opDescribeDataSource, opUpdateDataSource, opDeleteDataSource, opListDataSources:
+		return true
+	}
+	return false
+}
+
+func isDataSetOp(op string) bool {
+	switch op {
+	case opCreateDataSet, opDescribeDataSet, opUpdateDataSet, opDeleteDataSet, opListDataSets,
+		opCreateIngestion, opDescribeIngestion, opCancelIngestion, opListIngestions:
+		return true
+	}
+	return false
+}
+
+func isDashboardOp(op string) bool {
+	switch op {
+	case opCreateDashboard, opDescribeDashboard, opUpdateDashboard, opDeleteDashboard,
+		opListDashboards, opListDashboardVersions:
+		return true
+	}
+	return false
+}
+
+func isAnalysisOp(op string) bool {
+	switch op {
+	case opCreateAnalysis, opDescribeAnalysis, opUpdateAnalysis, opDeleteAnalysis,
+		opListAnalyses, opRestoreAnalysis:
+		return true
+	}
+	return false
+}
+
+func isTagOp(op string) bool {
+	switch op {
+	case opTagResource, opUntagResource, opListTagsForResource:
+		return true
+	}
+	return false
+}
+
 func (h *Handler) dispatch(c *echo.Context) error {
 	op, _ := classifyRequest(c.Request().Method, c.Request().URL.Path)
-
-	var err error
-	switch op {
-	// Namespaces
-	case "CreateNamespace":
-		err = h.handleCreateNamespace(c)
-	case "DescribeNamespace":
-		err = h.handleDescribeNamespace(c)
-	case "DeleteNamespace":
-		err = h.handleDeleteNamespace(c)
-	case "ListNamespaces":
-		err = h.handleListNamespaces(c)
-
-	// Groups
-	case "CreateGroup":
-		err = h.handleCreateGroup(c)
-	case "DescribeGroup":
-		err = h.handleDescribeGroup(c)
-	case "UpdateGroup":
-		err = h.handleUpdateGroup(c)
-	case "DeleteGroup":
-		err = h.handleDeleteGroup(c)
-	case "ListGroups":
-		err = h.handleListGroups(c)
-	case "SearchGroups":
-		err = h.handleSearchGroups(c)
-
-	// Group Memberships
-	case "CreateGroupMembership":
-		err = h.handleCreateGroupMembership(c)
-	case "DescribeGroupMembership":
-		err = h.handleDescribeGroupMembership(c)
-	case "DeleteGroupMembership":
-		err = h.handleDeleteGroupMembership(c)
-	case "ListGroupMemberships":
-		err = h.handleListGroupMemberships(c)
-
-	// Users
-	case "RegisterUser":
-		err = h.handleRegisterUser(c)
-	case "DescribeUser":
-		err = h.handleDescribeUser(c)
-	case "UpdateUser":
-		err = h.handleUpdateUser(c)
-	case "DeleteUser":
-		err = h.handleDeleteUser(c)
-	case "DeleteUserByPrincipalId":
-		err = h.handleDeleteUserByPrincipalID(c)
-	case "ListUsers":
-		err = h.handleListUsers(c)
-	case "ListUserGroups":
-		err = h.handleListUserGroups(c)
-
-	// DataSources
-	case "CreateDataSource":
-		err = h.handleCreateDataSource(c)
-	case "DescribeDataSource":
-		err = h.handleDescribeDataSource(c)
-	case "UpdateDataSource":
-		err = h.handleUpdateDataSource(c)
-	case "DeleteDataSource":
-		err = h.handleDeleteDataSource(c)
-	case "ListDataSources":
-		err = h.handleListDataSources(c)
-
-	// DataSets
-	case "CreateDataSet":
-		err = h.handleCreateDataSet(c)
-	case "DescribeDataSet":
-		err = h.handleDescribeDataSet(c)
-	case "UpdateDataSet":
-		err = h.handleUpdateDataSet(c)
-	case "DeleteDataSet":
-		err = h.handleDeleteDataSet(c)
-	case "ListDataSets":
-		err = h.handleListDataSets(c)
-
-	// Ingestions
-	case "CreateIngestion":
-		err = h.handleCreateIngestion(c)
-	case "DescribeIngestion":
-		err = h.handleDescribeIngestion(c)
-	case "CancelIngestion":
-		err = h.handleCancelIngestion(c)
-	case "ListIngestions":
-		err = h.handleListIngestions(c)
-
-	// Dashboards
-	case "CreateDashboard":
-		err = h.handleCreateDashboard(c)
-	case "DescribeDashboard":
-		err = h.handleDescribeDashboard(c)
-	case "UpdateDashboard":
-		err = h.handleUpdateDashboard(c)
-	case "DeleteDashboard":
-		err = h.handleDeleteDashboard(c)
-	case "ListDashboards":
-		err = h.handleListDashboards(c)
-	case "ListDashboardVersions":
-		err = h.handleListDashboardVersions(c)
-
-	// Analyses
-	case "CreateAnalysis":
-		err = h.handleCreateAnalysis(c)
-	case "DescribeAnalysis":
-		err = h.handleDescribeAnalysis(c)
-	case "UpdateAnalysis":
-		err = h.handleUpdateAnalysis(c)
-	case "DeleteAnalysis":
-		err = h.handleDeleteAnalysis(c)
-	case "ListAnalyses":
-		err = h.handleListAnalyses(c)
-	case "RestoreAnalysis":
-		err = h.handleRestoreAnalysis(c)
-
-	// Tags
-	case "TagResource":
-		err = h.handleTagResource(c)
-	case "UntagResource":
-		err = h.handleUntagResource(c)
-	case "ListTagsForResource":
-		err = h.handleListTagsForResource(c)
-
+	switch {
+	case isNamespaceOp(op):
+		return h.dispatchNamespace(c, op)
+	case isGroupOp(op):
+		return h.dispatchGroup(c, op)
+	case isUserOp(op):
+		return h.dispatchUser(c, op)
+	case isDataSourceOp(op):
+		return h.dispatchDataSource(c, op)
+	case isDataSetOp(op):
+		return h.dispatchDataSet(c, op)
+	case isDashboardOp(op):
+		return h.dispatchDashboard(c, op)
+	case isAnalysisOp(op):
+		return h.dispatchAnalysis(c, op)
+	case isTagOp(op):
+		return h.dispatchTag(c, op)
 	default:
 		return writeError(
 			c,
@@ -333,8 +390,194 @@ func (h *Handler) dispatch(c *echo.Context) error {
 			fmt.Sprintf("operation %q not implemented", op),
 		)
 	}
+}
 
-	return err
+func (h *Handler) dispatchNamespace(c *echo.Context, op string) error {
+	switch op {
+	case opCreateNamespace:
+		return h.handleCreateNamespace(c)
+	case opDescribeNamespace:
+		return h.handleDescribeNamespace(c)
+	case opDeleteNamespace:
+		return h.handleDeleteNamespace(c)
+	case opListNamespaces:
+		return h.handleListNamespaces(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchGroup(c *echo.Context, op string) error {
+	switch op {
+	case opCreateGroup:
+		return h.handleCreateGroup(c)
+	case opDescribeGroup:
+		return h.handleDescribeGroup(c)
+	case opUpdateGroup:
+		return h.handleUpdateGroup(c)
+	case opDeleteGroup:
+		return h.handleDeleteGroup(c)
+	case opListGroups:
+		return h.handleListGroups(c)
+	case opSearchGroups:
+		return h.handleSearchGroups(c)
+	case opCreateGroupMembership:
+		return h.handleCreateGroupMembership(c)
+	case opDescribeGroupMembership:
+		return h.handleDescribeGroupMembership(c)
+	case opDeleteGroupMembership:
+		return h.handleDeleteGroupMembership(c)
+	case opListGroupMemberships:
+		return h.handleListGroupMemberships(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchUser(c *echo.Context, op string) error {
+	switch op {
+	case opRegisterUser:
+		return h.handleRegisterUser(c)
+	case opDescribeUser:
+		return h.handleDescribeUser(c)
+	case opUpdateUser:
+		return h.handleUpdateUser(c)
+	case opDeleteUser:
+		return h.handleDeleteUser(c)
+	case opDeleteUserByPrincipalID:
+		return h.handleDeleteUserByPrincipalID(c)
+	case opListUsers:
+		return h.handleListUsers(c)
+	case opListUserGroups:
+		return h.handleListUserGroups(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchDataSource(c *echo.Context, op string) error {
+	switch op {
+	case opCreateDataSource:
+		return h.handleCreateDataSource(c)
+	case opDescribeDataSource:
+		return h.handleDescribeDataSource(c)
+	case opUpdateDataSource:
+		return h.handleUpdateDataSource(c)
+	case opDeleteDataSource:
+		return h.handleDeleteDataSource(c)
+	case opListDataSources:
+		return h.handleListDataSources(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchDataSet(c *echo.Context, op string) error {
+	switch op {
+	case opCreateDataSet:
+		return h.handleCreateDataSet(c)
+	case opDescribeDataSet:
+		return h.handleDescribeDataSet(c)
+	case opUpdateDataSet:
+		return h.handleUpdateDataSet(c)
+	case opDeleteDataSet:
+		return h.handleDeleteDataSet(c)
+	case opListDataSets:
+		return h.handleListDataSets(c)
+	case opCreateIngestion:
+		return h.handleCreateIngestion(c)
+	case opDescribeIngestion:
+		return h.handleDescribeIngestion(c)
+	case opCancelIngestion:
+		return h.handleCancelIngestion(c)
+	case opListIngestions:
+		return h.handleListIngestions(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchDashboard(c *echo.Context, op string) error {
+	switch op {
+	case opCreateDashboard:
+		return h.handleCreateDashboard(c)
+	case opDescribeDashboard:
+		return h.handleDescribeDashboard(c)
+	case opUpdateDashboard:
+		return h.handleUpdateDashboard(c)
+	case opDeleteDashboard:
+		return h.handleDeleteDashboard(c)
+	case opListDashboards:
+		return h.handleListDashboards(c)
+	case opListDashboardVersions:
+		return h.handleListDashboardVersions(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchAnalysis(c *echo.Context, op string) error {
+	switch op {
+	case opCreateAnalysis:
+		return h.handleCreateAnalysis(c)
+	case opDescribeAnalysis:
+		return h.handleDescribeAnalysis(c)
+	case opUpdateAnalysis:
+		return h.handleUpdateAnalysis(c)
+	case opDeleteAnalysis:
+		return h.handleDeleteAnalysis(c)
+	case opListAnalyses:
+		return h.handleListAnalyses(c)
+	case opRestoreAnalysis:
+		return h.handleRestoreAnalysis(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
+func (h *Handler) dispatchTag(c *echo.Context, op string) error {
+	switch op {
+	case opTagResource:
+		return h.handleTagResource(c)
+	case opUntagResource:
+		return h.handleUntagResource(c)
+	case opListTagsForResource:
+		return h.handleListTagsForResource(c)
+	}
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
 }
 
 // ---- path classification ----
@@ -370,30 +613,30 @@ func classifyRequest(method, path string) (string, string) {
 	n := len(segs)
 
 	// /resources/{arn}/tags — tag operations
-	if n >= 3 && segs[0] == pathSegResources && segs[n-1] == pathSegTagsSuffix {
+	if n >= nSegsAccountRes && segs[0] == pathSegResources && segs[n-1] == pathSegTagsSuffix {
 		arn := strings.Join(segs[1:n-1], "/")
 		switch method {
 		case http.MethodPost:
-			return "TagResource", arn
+			return opTagResource, arn
 		case http.MethodGet:
-			return "ListTagsForResource", arn
+			return opListTagsForResource, arn
 		case http.MethodDelete:
-			return "UntagResource", arn
+			return opUntagResource, arn
 		}
 
 		return opUnknown, ""
 	}
 
 	// All remaining paths start with /accounts/{accountId}
-	if n < 2 || segs[0] != pathSegAccounts {
+	if n < nSegsAccountRoot || segs[0] != pathSegAccounts {
 		return opUnknown, ""
 	}
 
 	// segs[0]=accounts, segs[1]=accountId, segs[2]=resource-type, ...
-	if n == 2 {
+	if n == nSegsAccountRoot {
 		// POST /accounts/{accountId} → CreateNamespace
 		if method == http.MethodPost {
-			return "CreateNamespace", seg(segs, segAccountID)
+			return opCreateNamespace, seg(segs, segAccountID)
 		}
 
 		return opUnknown, ""
@@ -423,128 +666,148 @@ func classifyRequest(method, path string) (string, string) {
 
 func classifyNamespacePaths(method string, segs []string, n int) (string, string) {
 	switch n {
-	case 3:
-		// /accounts/{id}/namespaces
-		if method == http.MethodGet {
-			return "ListNamespaces", seg(segs, segAccountID)
-		}
-	case 4:
-		// /accounts/{id}/namespaces/{ns}
-		ns := seg(segs, segResID)
-		switch method {
-		case http.MethodGet:
-			return "DescribeNamespace", ns
-		case http.MethodDelete:
-			return "DeleteNamespace", ns
-		}
-	case 5:
-		// /accounts/{id}/namespaces/{ns}/groups or users
-		ns := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegGroups:
-			switch method {
-			case http.MethodPost:
-				return "CreateGroup", ns
-			case http.MethodGet:
-				return "ListGroups", ns
-			}
-		case pathSegUsers:
-			switch method {
-			case http.MethodPost:
-				return "RegisterUser", ns
-			case http.MethodGet:
-				return "ListUsers", ns
-			}
-		case pathSegGroupsSearch:
-			if method == http.MethodPost {
-				return "SearchGroups", ns
-			}
-		}
-	case 6:
-		// /accounts/{id}/namespaces/{ns}/groups/{gn}
-		// or /accounts/{id}/namespaces/{ns}/users/{un}
-		// or /accounts/{id}/namespaces/{ns}/user-principals/{pid}
-		ns := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		id := seg(segs, segSubResID)
-		switch sub {
-		case pathSegGroups:
-			switch method {
-			case http.MethodGet:
-				return "DescribeGroup", id
-			case http.MethodPut:
-				return "UpdateGroup", id
-			case http.MethodDelete:
-				return "DeleteGroup", id
-			}
-		case pathSegUsers:
-			switch method {
-			case http.MethodGet:
-				return "DescribeUser", id
-			case http.MethodPut:
-				return "UpdateUser", id
-			case http.MethodDelete:
-				return "DeleteUser", id
-			}
-		case pathSegUserPrincipals:
-			if method == http.MethodDelete {
-				return "DeleteUserByPrincipalId", ns
-			}
-		}
-	case 7:
-		// /accounts/{id}/namespaces/{ns}/groups/{gn}/members
-		// /accounts/{id}/namespaces/{ns}/users/{un}/groups
-		sub := seg(segs, segSubRes)
-		id := seg(segs, segSubResID)
-		tail := seg(segs, segSubSubRes)
-		switch {
-		case sub == pathSegGroups && tail == pathSegMembers:
-			if method == http.MethodGet {
-				return "ListGroupMemberships", id
-			}
-		case sub == pathSegUsers && tail == pathSegGroups:
-			if method == http.MethodGet {
-				return "ListUserGroups", id
-			}
-		}
-	case 8:
-		// /accounts/{id}/namespaces/{ns}/groups/{gn}/members/{mn}
-		sub := seg(segs, segSubRes)
-		tail := seg(segs, segSubSubRes)
-		if sub == pathSegGroups && tail == pathSegMembers {
-			switch method {
-			case http.MethodPut:
-				return "CreateGroupMembership", seg(segs, segSubResID)
-			case http.MethodGet:
-				return "DescribeGroupMembership", seg(segs, segSubResID)
-			case http.MethodDelete:
-				return "DeleteGroupMembership", seg(segs, segSubResID)
-			}
-		}
+	case nSegsAccountRes:
+		return classifyNsRoot(method)
+	case nSegsAccountResID:
+		return classifyNsWithID(method, segs)
+	case nSegsSubRes:
+		return classifyNsWithSubRes(method, segs)
+	case nSegsSubResID:
+		return classifyNsWithSubResID(method, segs)
+	case nSegsSubSubRes:
+		return classifyNsWithSubSubRes(method, segs)
+	case nSegsSubSubResID:
+		return classifyNsWithSubSubResID(method, segs)
 	}
 
 	return opUnknown, ""
 }
 
-func classifyDataSourcePaths(method string, segs []string, n int) (string, string) {
-	switch n {
-	case 3:
+func classifyNsRoot(method string) (string, string) {
+	if method == http.MethodGet {
+		return opListNamespaces, ""
+	}
+	return opUnknown, ""
+}
+
+func classifyNsWithID(method string, segs []string) (string, string) {
+	ns := seg(segs, segResID)
+	switch method {
+	case http.MethodGet:
+		return opDescribeNamespace, ns
+	case http.MethodDelete:
+		return opDeleteNamespace, ns
+	}
+	return opUnknown, ""
+}
+
+func classifyNsWithSubRes(method string, segs []string) (string, string) {
+	ns := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+	switch sub {
+	case pathSegGroups:
 		switch method {
 		case http.MethodPost:
-			return "CreateDataSource", seg(segs, segAccountID)
+			return opCreateGroup, ns
 		case http.MethodGet:
-			return "ListDataSources", seg(segs, segAccountID)
+			return opListGroups, ns
 		}
-	case 4:
+	case pathSegUsers:
+		switch method {
+		case http.MethodPost:
+			return opRegisterUser, ns
+		case http.MethodGet:
+			return opListUsers, ns
+		}
+	case pathSegGroupsSearch:
+		if method == http.MethodPost {
+			return opSearchGroups, ns
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyNsWithSubResID(method string, segs []string) (string, string) {
+	sub := seg(segs, segSubRes)
+	id := seg(segs, segSubResID)
+	switch sub {
+	case pathSegGroups:
+		switch method {
+		case http.MethodGet:
+			return opDescribeGroup, id
+		case http.MethodPut:
+			return opUpdateGroup, id
+		case http.MethodDelete:
+			return opDeleteGroup, id
+		}
+	case pathSegUsers:
+		switch method {
+		case http.MethodGet:
+			return opDescribeUser, id
+		case http.MethodPut:
+			return opUpdateUser, id
+		case http.MethodDelete:
+			return opDeleteUser, id
+		}
+	case pathSegUserPrincipals:
+		if method == http.MethodDelete {
+			return opDeleteUserByPrincipalID, seg(segs, segResID)
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyNsWithSubSubRes(method string, segs []string) (string, string) {
+	sub := seg(segs, segSubRes)
+	id := seg(segs, segSubResID)
+	tail := seg(segs, segSubSubRes)
+	switch {
+	case sub == pathSegGroups && tail == pathSegMembers:
+		if method == http.MethodGet {
+			return opListGroupMemberships, id
+		}
+	case sub == pathSegUsers && tail == pathSegGroups:
+		if method == http.MethodGet {
+			return opListUserGroups, id
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyNsWithSubSubResID(method string, segs []string) (string, string) {
+	sub := seg(segs, segSubRes)
+	tail := seg(segs, segSubSubRes)
+	if sub == pathSegGroups && tail == pathSegMembers {
+		switch method {
+		case http.MethodPut:
+			return opCreateGroupMembership, seg(segs, segSubResID)
+		case http.MethodGet:
+			return opDescribeGroupMembership, seg(segs, segSubResID)
+		case http.MethodDelete:
+			return opDeleteGroupMembership, seg(segs, segSubResID)
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyDataSourcePaths(method string, segs []string, n int) (string, string) {
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateDataSource, seg(segs, segAccountID)
+		case http.MethodGet:
+			return opListDataSources, seg(segs, segAccountID)
+		}
+	case nSegsAccountResID:
 		id := seg(segs, segResID)
 		switch method {
 		case http.MethodGet:
-			return "DescribeDataSource", id
+			return opDescribeDataSource, id
 		case http.MethodPut:
-			return "UpdateDataSource", id
+			return opUpdateDataSource, id
 		case http.MethodDelete:
-			return "DeleteDataSource", id
+			return opDeleteDataSource, id
 		}
 	}
 
@@ -553,19 +816,19 @@ func classifyDataSourcePaths(method string, segs []string, n int) (string, strin
 
 func classifyIngestionPaths(method string, segs []string, n int) (string, string) {
 	switch n {
-	case 5:
+	case nSegsSubRes:
 		if method == http.MethodGet {
-			return "ListIngestions", seg(segs, segResID)
+			return opListIngestions, seg(segs, segResID)
 		}
-	case 6:
+	case nSegsSubResID:
 		ingID := seg(segs, segSubResID)
 		switch method {
 		case http.MethodPut:
-			return "CreateIngestion", ingID
+			return opCreateIngestion, ingID
 		case http.MethodGet:
-			return "DescribeIngestion", ingID
+			return opDescribeIngestion, ingID
 		case http.MethodDelete:
-			return "CancelIngestion", ingID
+			return opCancelIngestion, ingID
 		}
 	}
 
@@ -574,24 +837,24 @@ func classifyIngestionPaths(method string, segs []string, n int) (string, string
 
 func classifyDataSetPaths(method string, segs []string, n int) (string, string) {
 	switch n {
-	case 3:
+	case nSegsAccountRes:
 		switch method {
 		case http.MethodPost:
-			return "CreateDataSet", seg(segs, segAccountID)
+			return opCreateDataSet, seg(segs, segAccountID)
 		case http.MethodGet:
-			return "ListDataSets", seg(segs, segAccountID)
+			return opListDataSets, seg(segs, segAccountID)
 		}
-	case 4:
+	case nSegsAccountResID:
 		id := seg(segs, segResID)
 		switch method {
 		case http.MethodGet:
-			return "DescribeDataSet", id
+			return opDescribeDataSet, id
 		case http.MethodPut:
-			return "UpdateDataSet", id
+			return opUpdateDataSet, id
 		case http.MethodDelete:
-			return "DeleteDataSet", id
+			return opDeleteDataSet, id
 		}
-	case 5, 6:
+	case nSegsSubRes, nSegsSubResID:
 		if seg(segs, segSubRes) == pathSegIngestions {
 			return classifyIngestionPaths(method, segs, n)
 		}
@@ -602,25 +865,25 @@ func classifyDataSetPaths(method string, segs []string, n int) (string, string) 
 
 func classifyDashboardPaths(method string, segs []string, n int) (string, string) {
 	switch n {
-	case 3:
+	case nSegsAccountRes:
 		if method == http.MethodGet {
-			return "ListDashboards", seg(segs, segAccountID)
+			return opListDashboards, seg(segs, segAccountID)
 		}
-	case 4:
+	case nSegsAccountResID:
 		id := seg(segs, segResID)
 		switch method {
 		case http.MethodPost:
-			return "CreateDashboard", id
+			return opCreateDashboard, id
 		case http.MethodGet:
-			return "DescribeDashboard", id
+			return opDescribeDashboard, id
 		case http.MethodPut:
-			return "UpdateDashboard", id
+			return opUpdateDashboard, id
 		case http.MethodDelete:
-			return "DeleteDashboard", id
+			return opDeleteDashboard, id
 		}
-	case 5:
+	case nSegsSubRes:
 		if seg(segs, segSubRes) == pathSegVersions && method == http.MethodGet {
-			return "ListDashboardVersions", seg(segs, segResID)
+			return opListDashboardVersions, seg(segs, segResID)
 		}
 	}
 
@@ -629,21 +892,21 @@ func classifyDashboardPaths(method string, segs []string, n int) (string, string
 
 func classifyAnalysisPaths(method string, segs []string, n int) (string, string) {
 	switch n {
-	case 3:
+	case nSegsAccountRes:
 		if method == http.MethodGet {
-			return "ListAnalyses", seg(segs, segAccountID)
+			return opListAnalyses, seg(segs, segAccountID)
 		}
-	case 4:
+	case nSegsAccountResID:
 		id := seg(segs, segResID)
 		switch method {
 		case http.MethodPost:
-			return "CreateAnalysis", id
+			return opCreateAnalysis, id
 		case http.MethodGet:
-			return "DescribeAnalysis", id
+			return opDescribeAnalysis, id
 		case http.MethodPut:
-			return "UpdateAnalysis", id
+			return opUpdateAnalysis, id
 		case http.MethodDelete:
-			return "DeleteAnalysis", id
+			return opDeleteAnalysis, id
 		}
 	}
 
@@ -651,7 +914,7 @@ func classifyAnalysisPaths(method string, segs []string, n int) (string, string)
 }
 
 func classifySearchPaths(method string, segs []string, n int) (string, string) {
-	if method != http.MethodPost || n < 4 {
+	if method != http.MethodPost || n < nSegsAccountResID {
 		return opUnknown, ""
 	}
 
@@ -673,8 +936,8 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 
 func classifyRestorePaths(method string, segs []string, n int) (string, string) {
 	// POST /accounts/{id}/restore/analyses/{analysisId}
-	if method == http.MethodPost && n == 5 && seg(segs, segResID) == pathSegAnalyses {
-		return "RestoreAnalysis", seg(segs, segSubRes)
+	if method == http.MethodPost && n == nSegsSubRes && seg(segs, segResID) == pathSegAnalyses {
+		return opRestoreAnalysis, seg(segs, segSubRes)
 	}
 
 	return opUnknown, ""
@@ -700,9 +963,9 @@ func strField(body map[string]any, key string) string {
 func intField(body map[string]any, key string) int32 {
 	switch v := body[key].(type) {
 	case float64:
-		return int32(v) //nolint:gosec // JSON numbers are bounded by the API
+		return int32(v)
 	case int:
-		return int32(v) //nolint:gosec // JSON numbers are bounded by the API
+		return int32(v)
 	}
 
 	return 0
@@ -742,7 +1005,7 @@ func maxResultsParam(c *echo.Context) int32 {
 	}
 	n, _ := strconv.ParseInt(s, 10, 32)
 
-	return int32(n) //nolint:gosec // bitSize 32 ensures safe conversion
+	return int32(n)
 }
 
 func nextTokenParam(c *echo.Context) string {
@@ -777,7 +1040,7 @@ func httpErr(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+		return writeError(c, http.StatusBadRequest, errInvalidParam, err.Error())
 	}
 
 	log.Error("quicksight: unexpected error", "error", err)
@@ -797,7 +1060,7 @@ func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	namespace := strField(body, "Namespace")
@@ -809,11 +1072,11 @@ func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Arn":            ns.Arn,
-		"CapacityRegion": ns.CapacityRegion,
-		"CreationStatus": ns.CreationStatus,
-		"IdentityStore":  ns.IdentityStore,
-		"Name":           ns.Name,
+		keyArn:            ns.Arn,
+		keyCapacityRegion: ns.CapacityRegion,
+		keyCreationStatus: ns.CreationStatus,
+		keyIdentityStore:  ns.IdentityStore,
+		keyName:           ns.Name,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusOK,
 	})
@@ -830,12 +1093,12 @@ func (h *Handler) handleDescribeNamespace(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Namespace": map[string]any{
-			"Arn":            ns.Arn,
-			"CapacityRegion": ns.CapacityRegion,
-			"CreationStatus": ns.CreationStatus,
-			"IdentityStore":  ns.IdentityStore,
-			"Name":           ns.Name,
+		keyNamespace: map[string]any{
+			keyArn:            ns.Arn,
+			keyCapacityRegion: ns.CapacityRegion,
+			keyCreationStatus: ns.CreationStatus,
+			keyIdentityStore:  ns.IdentityStore,
+			keyName:           ns.Name,
 		},
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -869,18 +1132,18 @@ func (h *Handler) handleListNamespaces(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(namespaces))
 	for _, ns := range namespaces {
 		items = append(items, map[string]any{
-			"Arn":            ns.Arn,
-			"CapacityRegion": ns.CapacityRegion,
-			"CreationStatus": ns.CreationStatus,
-			"IdentityStore":  ns.IdentityStore,
-			"Name":           ns.Name,
+			keyArn:            ns.Arn,
+			keyCapacityRegion: ns.CapacityRegion,
+			keyCreationStatus: ns.CreationStatus,
+			keyIdentityStore:  ns.IdentityStore,
+			keyName:           ns.Name,
 		})
 	}
 
 	resp := map[string]any{
 		"Namespaces": items,
-		keyRequestID:  reqIDPlaceholder,
-		keyStatus:     http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
 		resp[keyNextToken] = next
@@ -898,7 +1161,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	groupName := strField(body, "GroupName")
@@ -910,7 +1173,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Group":     groupToMap(g),
+		keyGroup:     groupToMap(g),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -928,7 +1191,7 @@ func (h *Handler) handleDescribeGroup(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Group":     groupToMap(g),
+		keyGroup:     groupToMap(g),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -942,7 +1205,7 @@ func (h *Handler) handleUpdateGroup(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	description := strField(body, "Description")
@@ -953,7 +1216,7 @@ func (h *Handler) handleUpdateGroup(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Group":     groupToMap(g),
+		keyGroup:     groupToMap(g),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -991,7 +1254,7 @@ func (h *Handler) handleListGroups(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"GroupList": items,
+		keyGroupList: items,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	}
@@ -1029,7 +1292,7 @@ func (h *Handler) handleSearchGroups(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"GroupList": items,
+		keyGroupList: items,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	}
@@ -1042,10 +1305,10 @@ func (h *Handler) handleSearchGroups(c *echo.Context) error {
 
 func groupToMap(g *Group) map[string]any {
 	return map[string]any{
-		"Arn":         g.Arn,
+		keyArn:        g.Arn,
 		"Description": g.Description,
 		"GroupName":   g.GroupName,
-		"Namespace":   g.Namespace,
+		keyNamespace:  g.Namespace,
 		"PrincipalId": g.PrincipalID,
 	}
 }
@@ -1066,8 +1329,8 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"GroupMember": map[string]any{
-			"Arn":        m.Arn,
-			"MemberName": m.MemberName,
+			keyArn:        m.Arn,
+			keyMemberName: m.MemberName,
 		},
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -1088,8 +1351,8 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"GroupMember": map[string]any{
-			"Arn":        m.Arn,
-			"MemberName": m.MemberName,
+			keyArn:        m.Arn,
+			keyMemberName: m.MemberName,
 		},
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -1133,15 +1396,15 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(members))
 	for _, m := range members {
 		items = append(items, map[string]any{
-			"Arn":        m.Arn,
-			"MemberName": m.MemberName,
+			keyArn:        m.Arn,
+			keyMemberName: m.MemberName,
 		})
 	}
 
 	resp := map[string]any{
 		"GroupMemberList": items,
-		keyRequestID:       reqIDPlaceholder,
-		keyStatus:          http.StatusOK,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
 	}
 	if next != "" {
 		resp[keyNextToken] = next
@@ -1159,7 +1422,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	u, err := h.Backend.RegisterUser(
@@ -1175,7 +1438,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"User":      userToMap(u),
+		keyUser:      userToMap(u),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1193,7 +1456,7 @@ func (h *Handler) handleDescribeUser(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"User":      userToMap(u),
+		keyUser:      userToMap(u),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1207,7 +1470,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	u, err := h.Backend.UpdateUser(accountID, namespace, userName, strField(body, "Email"), strField(body, "Role"))
@@ -1216,7 +1479,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"User":      userToMap(u),
+		keyUser:      userToMap(u),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1270,7 +1533,7 @@ func (h *Handler) handleListUsers(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"UserList":  items,
+		keyUserList:  items,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	}
@@ -1298,7 +1561,7 @@ func (h *Handler) handleListUserGroups(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"GroupList": items,
+		keyGroupList: items,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	}
@@ -1312,10 +1575,10 @@ func (h *Handler) handleListUserGroups(c *echo.Context) error {
 func userToMap(u *User) map[string]any {
 	return map[string]any{
 		"Active":       u.Active,
-		"Arn":          u.Arn,
+		keyArn:         u.Arn,
 		"Email":        u.Email,
 		"IdentityType": u.IdentityType,
-		"Namespace":    u.Namespace,
+		keyNamespace:   u.Namespace,
 		"PrincipalId":  u.PrincipalID,
 		"Role":         u.Role,
 		"UserName":     u.UserName,
@@ -1330,7 +1593,7 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	ds, err := h.Backend.CreateDataSource(
@@ -1345,9 +1608,9 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusCreated, map[string]any{
-		"Arn":            ds.Arn,
-		"CreationStatus": ds.Status,
-		"DataSourceId":   ds.DataSourceID,
+		keyArn:            ds.Arn,
+		keyCreationStatus: ds.Status,
+		keyDataSourceID:   ds.DataSourceID,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusCreated,
 	})
@@ -1364,7 +1627,7 @@ func (h *Handler) handleDescribeDataSource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"DataSource": dataSourceToMap(ds),
+		keyDataSource: dataSourceToMap(ds),
 		keyRequestID:  reqIDPlaceholder,
 		keyStatus:     http.StatusOK,
 	})
@@ -1377,7 +1640,7 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	ds, err := h.Backend.UpdateDataSource(accountID, dataSourceID, strField(body, "Name"))
@@ -1386,11 +1649,11 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Arn":          ds.Arn,
-		"DataSourceId": ds.DataSourceID,
+		keyArn:          ds.Arn,
+		keyDataSourceID: ds.DataSourceID,
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-		"UpdateStatus": ds.Status,
+		"UpdateStatus":  ds.Status,
 	})
 }
 
@@ -1424,7 +1687,7 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"DataSources": items,
+		keyDataSources: items,
 		keyRequestID:   reqIDPlaceholder,
 		keyStatus:      http.StatusOK,
 	}
@@ -1437,13 +1700,13 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 
 func dataSourceToMap(ds *DataSource) map[string]any {
 	return map[string]any{
-		"Arn":             ds.Arn,
-		"CreatedTime":     ds.CreatedTime.Format(timeFormat),
-		"DataSourceId":    ds.DataSourceID,
-		"LastUpdatedTime": ds.LastUpdatedTime.Format(timeFormat),
-		"Name":            ds.Name,
+		keyArn:             ds.Arn,
+		keyCreatedTime:     ds.CreatedTime.Format(timeFormat),
+		keyDataSourceID:    ds.DataSourceID,
+		keyLastUpdatedTime: ds.LastUpdatedTime.Format(timeFormat),
+		keyName:            ds.Name,
 		keyStatus:          ds.Status,
-		"Type":            ds.Type,
+		"Type":             ds.Type,
 	}
 }
 
@@ -1455,7 +1718,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	ds, err := h.Backend.CreateDataSet(
@@ -1470,12 +1733,12 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusCreated, map[string]any{
-		"Arn":          ds.Arn,
-		"DataSetId":    ds.DataSetID,
+		keyArn:         ds.Arn,
+		keyDataSetID:   ds.DataSetID,
 		"IngestionArn": fmt.Sprintf("%s/ingestion/auto", ds.Arn),
 		"IngestionId":  "auto",
-		keyRequestID:    reqIDPlaceholder,
-		keyStatus:       http.StatusCreated,
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusCreated,
 	})
 }
 
@@ -1490,7 +1753,7 @@ func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"DataSet":   dataSetToMap(ds),
+		keyDataSet:   dataSetToMap(ds),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1503,7 +1766,7 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	ds, err := h.Backend.UpdateDataSet(accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"))
@@ -1512,8 +1775,8 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Arn":       ds.Arn,
-		"DataSetId": ds.DataSetID,
+		keyArn:       ds.Arn,
+		keyDataSetID: ds.DataSetID,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1549,7 +1812,7 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"DataSetSummaries": items,
+		keyDataSetSummaries: items,
 		keyRequestID:        reqIDPlaceholder,
 		keyStatus:           http.StatusOK,
 	}
@@ -1562,12 +1825,12 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 
 func dataSetToMap(ds *DataSet) map[string]any {
 	return map[string]any{
-		"Arn":             ds.Arn,
-		"CreatedTime":     ds.CreatedTime.Format(timeFormat),
-		"DataSetId":       ds.DataSetID,
-		"ImportMode":      ds.ImportMode,
-		"LastUpdatedTime": ds.LastUpdatedTime.Format(timeFormat),
-		"Name":            ds.Name,
+		keyArn:             ds.Arn,
+		keyCreatedTime:     ds.CreatedTime.Format(timeFormat),
+		keyDataSetID:       ds.DataSetID,
+		"ImportMode":       ds.ImportMode,
+		keyLastUpdatedTime: ds.LastUpdatedTime.Format(timeFormat),
+		keyName:            ds.Name,
 	}
 }
 
@@ -1585,9 +1848,9 @@ func (h *Handler) handleCreateIngestion(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusCreated, map[string]any{
-		"Arn":             ing.Arn,
-		"IngestionId":     ing.IngestionID,
-		"IngestionStatus": ing.IngestionStatus,
+		keyArn:             ing.Arn,
+		keyIngestionID:     ing.IngestionID,
+		keyIngestionStatus: ing.IngestionStatus,
 		keyRequestID:       reqIDPlaceholder,
 		keyStatus:          http.StatusCreated,
 	})
@@ -1605,11 +1868,11 @@ func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Ingestion": map[string]any{
-			"Arn":             ing.Arn,
-			"CreatedTime":     ing.CreatedTime.Format(timeFormat),
-			"IngestionId":     ing.IngestionID,
-			"IngestionStatus": ing.IngestionStatus,
+		keyIngestion: map[string]any{
+			keyArn:             ing.Arn,
+			keyCreatedTime:     ing.CreatedTime.Format(timeFormat),
+			keyIngestionID:     ing.IngestionID,
+			keyIngestionStatus: ing.IngestionStatus,
 		},
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -1645,15 +1908,15 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(ingestions))
 	for _, ing := range ingestions {
 		items = append(items, map[string]any{
-			"Arn":             ing.Arn,
-			"CreatedTime":     ing.CreatedTime.Format(timeFormat),
-			"IngestionId":     ing.IngestionID,
-			"IngestionStatus": ing.IngestionStatus,
+			keyArn:             ing.Arn,
+			keyCreatedTime:     ing.CreatedTime.Format(timeFormat),
+			keyIngestionID:     ing.IngestionID,
+			keyIngestionStatus: ing.IngestionStatus,
 		})
 	}
 
 	resp := map[string]any{
-		"Ingestions": items,
+		keyIngestions: items,
 		keyRequestID:  reqIDPlaceholder,
 		keyStatus:     http.StatusOK,
 	}
@@ -1673,7 +1936,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	name := strField(body, "Name")
@@ -1687,12 +1950,12 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Arn":            d.Arn,
-		"CreationStatus": d.Status,
-		"DashboardId":    d.DashboardID,
+		keyArn:            d.Arn,
+		keyCreationStatus: d.Status,
+		keyDashboardID:    d.DashboardID,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusOK,
-		"VersionArn":     fmt.Sprintf("%s/version/1", d.Arn),
+		"VersionArn":      fmt.Sprintf("%s/version/1", d.Arn),
 	})
 }
 
@@ -1707,7 +1970,7 @@ func (h *Handler) handleDescribeDashboard(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Dashboard": dashboardToMap(d),
+		keyDashboard: dashboardToMap(d),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1720,7 +1983,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	d, err := h.Backend.UpdateDashboard(accountID, dashboardID, strField(body, "Name"))
@@ -1729,11 +1992,11 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Arn":         d.Arn,
-		"DashboardId": d.DashboardID,
+		keyArn:         d.Arn,
+		keyDashboardID: d.DashboardID,
 		keyRequestID:   reqIDPlaceholder,
 		keyStatus:      http.StatusOK,
-		"VersionArn":  fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
+		"VersionArn":   fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
 	})
 }
 
@@ -1767,7 +2030,7 @@ func (h *Handler) handleListDashboards(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"DashboardSummaryList": items,
+		keyDashboardSummaryList: items,
 		keyRequestID:            reqIDPlaceholder,
 		keyStatus:               http.StatusOK,
 	}
@@ -1796,17 +2059,17 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
 		items = append(items, map[string]any{
-			"Arn":           v.Arn,
-			"CreatedTime":   v.CreatedTime.Format(timeFormat),
-			keyStatus:        v.Status,
+			keyArn:          v.Arn,
+			keyCreatedTime:  v.CreatedTime.Format(timeFormat),
+			keyStatus:       v.Status,
 			"VersionNumber": v.VersionNumber,
 		})
 	}
 
 	resp := map[string]any{
 		"DashboardVersionSummaryList": items,
-		keyRequestID:                   reqIDPlaceholder,
-		keyStatus:                      http.StatusOK,
+		keyRequestID:                  reqIDPlaceholder,
+		keyStatus:                     http.StatusOK,
 	}
 	if next != "" {
 		resp[keyNextToken] = next
@@ -1817,11 +2080,11 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 
 func dashboardToMap(d *Dashboard) map[string]any {
 	return map[string]any{
-		"Arn":                    d.Arn,
-		"CreatedTime":            d.CreatedTime.Format(timeFormat),
-		"DashboardId":            d.DashboardID,
-		"LastUpdatedTime":        d.LastUpdatedTime.Format(timeFormat),
-		"Name":                   d.Name,
+		keyArn:                   d.Arn,
+		keyCreatedTime:           d.CreatedTime.Format(timeFormat),
+		keyDashboardID:           d.DashboardID,
+		keyLastUpdatedTime:       d.LastUpdatedTime.Format(timeFormat),
+		keyName:                  d.Name,
 		"PublishedVersionNumber": d.VersionNumber,
 	}
 }
@@ -1835,7 +2098,7 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	name := strField(body, "Name")
@@ -1849,9 +2112,9 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AnalysisId":     a.AnalysisID,
-		"Arn":            a.Arn,
-		"CreationStatus": a.Status,
+		keyAnalysisID:     a.AnalysisID,
+		keyArn:            a.Arn,
+		keyCreationStatus: a.Status,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusOK,
 	})
@@ -1868,7 +2131,7 @@ func (h *Handler) handleDescribeAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Analysis":  analysisToMap(a),
+		keyAnalysis:  analysisToMap(a),
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
@@ -1881,7 +2144,7 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 
 	body, err := readBody(c)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	a, err := h.Backend.UpdateAnalysis(accountID, analysisID, strField(body, "Name"))
@@ -1890,10 +2153,10 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AnalysisId":   a.AnalysisID,
-		"Arn":          a.Arn,
-		keyRequestID:    reqIDPlaceholder,
-		keyStatus:       http.StatusOK,
+		keyAnalysisID:  a.AnalysisID,
+		keyArn:         a.Arn,
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
 		"UpdateStatus": a.Status,
 	})
 }
@@ -1910,7 +2173,7 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AnalysisId": analysisID,
+		keyAnalysisID: analysisID,
 		keyRequestID:  reqIDPlaceholder,
 		keyStatus:     http.StatusOK,
 	})
@@ -1931,7 +2194,7 @@ func (h *Handler) handleListAnalyses(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"AnalysisSummaryList": items,
+		keyAnalysisSummaryList: items,
 		keyRequestID:           reqIDPlaceholder,
 		keyStatus:              http.StatusOK,
 	}
@@ -1954,8 +2217,8 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AnalysisId": a.AnalysisID,
-		"Arn":        a.Arn,
+		keyAnalysisID: a.AnalysisID,
+		keyArn:        a.Arn,
 		keyRequestID:  reqIDPlaceholder,
 		keyStatus:     http.StatusOK,
 	})
@@ -1963,11 +2226,11 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 
 func analysisToMap(a *Analysis) map[string]any {
 	return map[string]any{
-		"AnalysisId":      a.AnalysisID,
-		"Arn":             a.Arn,
-		"CreatedTime":     a.CreatedTime.Format(timeFormat),
-		"LastUpdatedTime": a.LastUpdatedTime.Format(timeFormat),
-		"Name":            a.Name,
+		keyAnalysisID:      a.AnalysisID,
+		keyArn:             a.Arn,
+		keyCreatedTime:     a.CreatedTime.Format(timeFormat),
+		keyLastUpdatedTime: a.LastUpdatedTime.Format(timeFormat),
+		keyName:            a.Name,
 		keyStatus:          a.Status,
 	}
 }
@@ -1979,9 +2242,9 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	// /resources/{arnParts...}/tags
 	arn := strings.Join(segs[1:len(segs)-1], "/")
 
-	body, err := readBody(c)
-	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
+	body, bodyErr := readBody(c)
+	if bodyErr != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
 	tags := tagsFromBody(body)
@@ -2028,6 +2291,6 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
-		"Tags":      items,
+		"Tags":       items,
 	})
 }

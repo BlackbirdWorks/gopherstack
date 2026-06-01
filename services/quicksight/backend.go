@@ -20,6 +20,7 @@ const (
 	errValidation        = "InvalidParameterValueException"
 
 	defaultNamespace         = "default"
+	identityStoreQuickSight  = "QUICKSIGHT"
 	statusCreationSuccessful = "CREATION_SUCCESSFUL"
 	statusCreationInProgress = "CREATION_IN_PROGRESS"
 	statusUpdateSuccessful   = "UPDATE_SUCCESSFUL"
@@ -294,7 +295,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		Arn:            b.buildARN("namespace", defaultNamespace),
 		CapacityRegion: region,
 		Status:         statusCreationSuccessful,
-		IdentityStore:  "QUICKSIGHT",
+		IdentityStore:  identityStoreQuickSight,
 	}
 
 	return b
@@ -327,7 +328,7 @@ func (b *InMemoryBackend) Reset() {
 		Arn:            b.buildARN("namespace", defaultNamespace),
 		CapacityRegion: b.region,
 		Status:         statusCreationSuccessful,
-		IdentityStore:  "QUICKSIGHT",
+		IdentityStore:  identityStoreQuickSight,
 	}
 }
 
@@ -446,7 +447,7 @@ func (b *InMemoryBackend) CreateNamespace(accountID, namespace, capacityRegion s
 		Arn:            fmt.Sprintf("arn:aws:quicksight:%s:%s:namespace/%s", b.region, accountID, namespace),
 		CapacityRegion: capacityRegion,
 		Status:         statusCreationSuccessful,
-		IdentityStore:  "QUICKSIGHT",
+		IdentityStore:  identityStoreQuickSight,
 	}
 	b.namespaces[key] = ns
 
@@ -831,7 +832,7 @@ func (b *InMemoryBackend) RegisterUser(
 		role = "READER"
 	}
 	if identityType == "" {
-		identityType = "QUICKSIGHT"
+		identityType = identityStoreQuickSight
 	}
 
 	u := &storedUser{
