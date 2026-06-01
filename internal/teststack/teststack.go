@@ -27,6 +27,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -204,6 +205,7 @@ type Stack struct {
 	AthenaHandler                  *athenabackend.Handler
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
+	AppRunnerHandler               *apprunnerbackend.Handler
 	BackupHandler                  *backupbackend.Handler
 	CloudTrailHandler              *cloudtrailbackend.Handler
 	BatchHandler                   *batchbackend.Handler
@@ -512,6 +514,27 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.organizations)
 }
 
+// registerExtraServices registers additional service handlers.
+func registerExtraServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.apprunner)
+	_ = registry.Register(h.elasticbeanstalk)
+	_ = registry.Register(h.elasticsearch)
+	_ = registry.Register(h.efs)
+	_ = registry.Register(h.eks)
+	_ = registry.Register(h.elb)
+	_ = registry.Register(h.elbv2)
+	_ = registry.Register(h.emrserverless)
+	_ = registry.Register(h.emr)
+	_ = registry.Register(h.fis)
+	_ = registry.Register(h.identitystore)
+	_ = registry.Register(h.glacier)
+	_ = registry.Register(h.iotanalytics)
+	_ = registry.Register(h.iotwireless)
+	_ = registry.Register(h.kinesisanalytics)
+	_ = registry.Register(h.kafka)
+	_ = registry.Register(h.mwaa)
+}
+
 // registerLatestServices registers the most recently added service handlers.
 func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.polly)
@@ -613,6 +636,7 @@ type handlers struct {
 	dms                 *dmsbackend.Handler
 	codeStarConn        *codestarconnectionsbackend.Handler
 	dynamodbStreams     *dynamodbstreamsbackend.Handler
+	apprunner           *apprunnerbackend.Handler
 	elasticbeanstalk    *elasticbeanstalkbackend.Handler
 	efs                 *efsbackend.Handler
 	eks                 *eksbackend.Handler
@@ -855,6 +879,10 @@ func populateNewestHandlers(h *handlers) {
 	if ddbBk, ok := h.ddb.Backend.(ddbbackend.StreamsBackend); ok {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
 	}
+
+	h.apprunner = apprunnerbackend.NewHandler(
+		apprunnerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 
 	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
 		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1123,22 +1151,7 @@ func New(t *testing.T) *Stack {
 		_ = registry.Register(h.dynamodbStreams)
 	}
 
-	_ = registry.Register(h.elasticbeanstalk)
-	_ = registry.Register(h.elasticsearch)
-	_ = registry.Register(h.efs)
-	_ = registry.Register(h.eks)
-	_ = registry.Register(h.elb)
-	_ = registry.Register(h.elbv2)
-	_ = registry.Register(h.emrserverless)
-	_ = registry.Register(h.emr)
-	_ = registry.Register(h.fis)
-	_ = registry.Register(h.identitystore)
-	_ = registry.Register(h.glacier)
-	_ = registry.Register(h.iotanalytics)
-	_ = registry.Register(h.iotwireless)
-	_ = registry.Register(h.kinesisanalytics)
-	_ = registry.Register(h.kafka)
-	_ = registry.Register(h.mwaa)
+	registerExtraServices(registry, h)
 	registerLatestServices(registry, h)
 	registerMediaServices(registry, h)
 
@@ -1243,16 +1256,12 @@ func buildStack(
 		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
+		AppRunnerHandler:               h.apprunner,
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
 		EKSHandler:                     h.eks,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
-		GlacierHandler:                 h.glacier,
-		IoTAnalyticsHandler:            h.iotanalytics,
-		IoTWirelessHandler:             h.iotwireless,
-		KinesisAnalyticsHandler:        h.kinesisanalytics,
-		KafkaHandler:                   h.kafka,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
@@ -1266,6 +1275,9 @@ func buildStack(
 // setNewestStackHandlers sets the most recently added handler fields on a Stack.
 // It is extracted from buildStack to satisfy the funlen limit.
 func setNewestStackHandlers(s *Stack, h handlers) {
+	s.GlacierHandler = h.glacier
+	s.IoTAnalyticsHandler = h.iotanalytics
+	s.IoTWirelessHandler = h.iotwireless
 	s.ElasticsearchHandler = h.elasticsearch
 	s.EmrServerlessHandler = h.emrserverless
 	s.EMRHandler = h.emr
