@@ -121,7 +121,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
 	if !ok {
-		return nil, fmt.Errorf("operation %q not implemented", action)
+		return nil, fmt.Errorf("%w: operation %q not implemented", ErrUnknownOperation, action)
 	}
 
 	result, err := fn(ctx, body)

@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"sort"
@@ -40,6 +41,8 @@ var (
 	ErrFaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrUnknownOperation is returned when the requested operation is not implemented.
+	ErrUnknownOperation = errors.New("unknown operation")
 )
 
 // storedCollection holds a face collection with all fields.
