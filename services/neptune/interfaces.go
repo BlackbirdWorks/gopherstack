@@ -36,9 +36,9 @@ type StorageBackend interface {
 	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
 
 	// Tag operations
-	AddTagsToResource(arn string, tags []Tag)
-	RemoveTagsFromResource(arn string, keys []string)
-	ListTagsForResource(arn string) []Tag
+	AddTagsToResource(arn string, tags []Tag) error
+	RemoveTagsFromResource(arn string, keys []string) error
+	ListTagsForResource(arn string) ([]Tag, error)
 
 	// New operations (Issue #902)
 	AddRoleToDBCluster(clusterID, roleARN string) error

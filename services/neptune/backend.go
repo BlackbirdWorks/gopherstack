@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -37,6 +38,7 @@ var (
 	ErrGlobalClusterAlreadyExists         = errors.New("GlobalClusterAlreadyExists")
 	ErrInvalidParameter                   = errors.New("InvalidParameterValue")
 	ErrUnknownAction                      = errors.New("InvalidAction")
+	ErrInvalidDBClusterStateFault         = errors.New("InvalidDBClusterStateFault")
 )
 
 const (
@@ -48,6 +50,10 @@ const (
 	clusterStatusAvailable       = "available"
 	clusterStatusStopped         = "stopped"
 	subscriptionStatusActive     = "active"
+	maxPromotionTier             = 15
+	maxTagsPerResource           = 50
+	maxTagKeyLen                 = 128
+	maxTagValueLen               = 256
 	endpointTypeReader           = "READER"
 	endpointTypeWriter           = "WRITER"
 	endpointTypeCustom           = "CUSTOM"
@@ -422,6 +428,13 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if c.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: cluster %s cannot be deleted because deletion protection is enabled",
+			ErrInvalidDBClusterStateFault,
+			id,
+		)
+	}
 	cp := cloneCluster(c)
 	delete(b.clusters, id)
 	delete(b.tags, b.clusterARN(id))
@@ -501,6 +514,9 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if c.Status == clusterStatusStopped {
+		return nil, fmt.Errorf("%w: cluster %s is already stopped", ErrInvalidDBClusterStateFault, id)
+	}
 	c.Status = clusterStatusStopped
 	cp := cloneCluster(c)
 
@@ -514,6 +530,9 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	c, exists := b.clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	if c.Status != clusterStatusStopped {
+		return nil, fmt.Errorf("%w: cluster %s is not in stopped state", ErrInvalidDBClusterStateFault, id)
 	}
 	c.Status = clusterStatusAvailable
 	cp := cloneCluster(c)
@@ -773,12 +792,24 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 	return nil
 }
 
+// validNeptuneParameterGroupFamily returns true for known Neptune parameter group families.
+func validNeptuneParameterGroupFamily(family string) bool {
+	return family == pgFamilyNeptune12 || family == pgFamilyNeptune13 || family == "neptune1.4"
+}
+
 // CreateDBClusterParameterGroup creates a Neptune DB cluster parameter group.
 func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 	name, family, description string,
 ) (*DBClusterParameterGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
+	}
+	if family == "" || !validNeptuneParameterGroupFamily(family) {
+		return nil, fmt.Errorf(
+			"%w: DBParameterGroupFamily %q is not valid; must be one of neptune1.2, neptune1.3, neptune1.4",
+			ErrInvalidParameter,
+			family,
+		)
 	}
 	b.mu.Lock("CreateDBClusterParameterGroup")
 	defer b.mu.Unlock()
@@ -920,14 +951,71 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	return &cp, nil
 }
 
+// validateResourceARN checks whether an ARN refers to a known Neptune resource.
+// Must be called while holding at least a read lock.
+func (b *InMemoryBackend) validateResourceARN(arnStr string) error {
+	// ARN format: arn:partition:service:region:account:type:id
+	parts := strings.SplitN(arnStr, ":", 7)
+	if len(parts) < 7 {
+		return fmt.Errorf("%w: invalid ARN format: %s", ErrInvalidParameter, arnStr)
+	}
+	resType, resID := parts[5], parts[6]
+	switch resType {
+	case "cluster":
+		if _, ok := b.clusters[resID]; !ok {
+			return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, resID)
+		}
+	case "db":
+		if _, ok := b.instances[resID]; !ok {
+			return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, resID)
+		}
+	case "cluster-snapshot":
+		if _, ok := b.clusterSnapshots[resID]; !ok {
+			return fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, resID)
+		}
+	case "subgrp":
+		if _, ok := b.subnetGroups[resID]; !ok {
+			return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, resID)
+		}
+	case "cluster-pg":
+		if _, ok := b.clusterParameterGroups[resID]; !ok {
+			return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, resID)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported resource type in ARN: %s", ErrInvalidParameter, arnStr)
+	}
+
+	return nil
+}
+
 // AddTagsToResource adds or updates tags on a Neptune resource.
-func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
+func (b *InMemoryBackend) AddTagsToResource(arnStr string, tags []Tag) error {
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
-	current := b.tags[arn]
+	if err := b.validateResourceARN(arnStr); err != nil {
+		return err
+	}
+	for _, t := range tags {
+		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+	current := b.tags[arnStr]
 	idx := make(map[string]int, len(current))
 	for i, t := range current {
 		idx[t.Key] = i
+	}
+	newCount := len(current)
+	for _, t := range tags {
+		if _, exists := idx[t.Key]; !exists {
+			newCount++
+		}
+	}
+	if newCount > maxTagsPerResource {
+		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidParameter, maxTagsPerResource)
 	}
 	for _, t := range tags {
 		if i, ok := idx[t.Key]; ok {
@@ -937,36 +1025,46 @@ func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
 			current = append(current, t)
 		}
 	}
-	b.tags[arn] = current
+	b.tags[arnStr] = current
+
+	return nil
 }
 
 // RemoveTagsFromResource removes tags from a Neptune resource.
-func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {
+func (b *InMemoryBackend) RemoveTagsFromResource(arnStr string, keys []string) error {
 	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
+	if err := b.validateResourceARN(arnStr); err != nil {
+		return err
+	}
 	remove := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		remove[k] = true
 	}
-	current := b.tags[arn]
+	current := b.tags[arnStr]
 	kept := make([]Tag, 0, len(current))
 	for _, t := range current {
 		if !remove[t.Key] {
 			kept = append(kept, t)
 		}
 	}
-	b.tags[arn] = kept
+	b.tags[arnStr] = kept
+
+	return nil
 }
 
 // ListTagsForResource returns the tags for a Neptune resource.
-func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
+func (b *InMemoryBackend) ListTagsForResource(arnStr string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
-	src := b.tags[arn]
+	if err := b.validateResourceARN(arnStr); err != nil {
+		return nil, err
+	}
+	src := b.tags[arnStr]
 	cp := make([]Tag, len(src))
 	copy(cp, src)
 
-	return cp
+	return cp, nil
 }
 
 // AddRoleToDBCluster associates an IAM role with a Neptune DB cluster.
@@ -1184,6 +1282,13 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description string) (*DBParameterGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBParameterGroupName is required", ErrInvalidParameter)
+	}
+	if family == "" || !validNeptuneParameterGroupFamily(family) {
+		return nil, fmt.Errorf(
+			"%w: DBParameterGroupFamily %q is not valid; must be one of neptune1.2, neptune1.3, neptune1.4",
+			ErrInvalidParameter,
+			family,
+		)
 	}
 	b.mu.Lock("CreateDBParameterGroup")
 	defer b.mu.Unlock()
