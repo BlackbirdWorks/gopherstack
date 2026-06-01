@@ -1,0 +1,151 @@
+package mediatailor
+
+// StorageBackend is the interface for MediaTailor storage operations.
+type StorageBackend interface {
+	// PlaybackConfiguration
+	PutPlaybackConfiguration(
+		name, adDecisionServerURL, videoContentSourceURL string,
+		tags map[string]string,
+	) (*PlaybackConfiguration, error)
+	GetPlaybackConfiguration(name string) (*PlaybackConfiguration, error)
+	DeletePlaybackConfiguration(name string) error
+	ListPlaybackConfigurations(maxResults int, nextToken string) ([]*PlaybackConfigurationSummary, string, error)
+
+	// Channel
+	CreateChannel(name, playbackMode string, outputs []OutputItem, tags map[string]string) (*Channel, error)
+	DescribeChannel(name string) (*Channel, error)
+	UpdateChannel(name string, outputs []OutputItem) (*Channel, error)
+	DeleteChannel(name string) error
+	ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error)
+	StartChannel(name string) error
+	StopChannel(name string) error
+
+	// SourceLocation
+	CreateSourceLocation(name, baseURL string, tags map[string]string) (*SourceLocation, error)
+	DescribeSourceLocation(name string) (*SourceLocation, error)
+	UpdateSourceLocation(name, baseURL string) (*SourceLocation, error)
+	DeleteSourceLocation(name string) error
+	ListSourceLocations(maxResults int, nextToken string) ([]*SourceLocationSummary, string, error)
+
+	// VodSource
+	CreateVodSource(
+		sourceLocationName, vodSourceName string,
+		httpPackageConfigurations []HTTPPackageConfiguration,
+		tags map[string]string,
+	) (*VodSource, error)
+	DescribeVodSource(sourceLocationName, vodSourceName string) (*VodSource, error)
+	UpdateVodSource(
+		sourceLocationName, vodSourceName string,
+		httpPackageConfigurations []HTTPPackageConfiguration,
+	) (*VodSource, error)
+	DeleteVodSource(sourceLocationName, vodSourceName string) error
+	ListVodSources(sourceLocationName string, maxResults int, nextToken string) ([]*VodSourceSummary, string, error)
+
+	// Tags
+	ListTagsForResource(resourceARN string) (map[string]string, error)
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
+
+	AccountID() string
+	Region() string
+	Reset()
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// PlaybackConfiguration represents a MediaTailor playback configuration.
+// Tags first: reduces GC pointer scan.
+type PlaybackConfiguration struct {
+	Tags                        map[string]string
+	Name                        string
+	AdDecisionServerURL         string
+	VideoContentSourceURL       string
+	PlaybackConfigurationARN    string
+	PlaybackEndpointPrefix      string
+	SessionInitializationPrefix string
+}
+
+// PlaybackConfigurationSummary is a playback configuration in a list response.
+type PlaybackConfigurationSummary struct {
+	Tags                     map[string]string
+	Name                     string
+	AdDecisionServerURL      string
+	VideoContentSourceURL    string
+	PlaybackConfigurationARN string
+}
+
+// Channel represents a MediaTailor channel.
+// Tags first, strings before slice: reduces GC pointer scan.
+type Channel struct {
+	Tags         map[string]string
+	ARN          string
+	Name         string
+	PlaybackMode string
+	ChannelState string
+	Outputs      []OutputItem
+}
+
+// ChannelSummary is a channel in a list response.
+type ChannelSummary struct {
+	Tags         map[string]string
+	Name         string
+	ARN          string
+	PlaybackMode string
+	ChannelState string
+}
+
+// OutputItem represents a channel output configuration.
+// HlsPlaylistSettings first: reduces GC pointer scan.
+type OutputItem struct {
+	HlsPlaylistSettings *HlsPlaylistSettings `json:"hlsPlaylistSettings,omitempty"`
+	ManifestName        string               `json:"manifestName"`
+	SourceGroup         string               `json:"sourceGroup"`
+}
+
+// HlsPlaylistSettings holds HLS playlist configuration.
+type HlsPlaylistSettings struct {
+	ManifestWindowSeconds int `json:"manifestWindowSeconds"`
+}
+
+// SourceLocation represents a MediaTailor source location.
+type SourceLocation struct {
+	Tags                 map[string]string
+	Name                 string
+	ARN                  string
+	HTTPConfigurationURL string
+}
+
+// SourceLocationSummary is a source location in a list response.
+type SourceLocationSummary struct {
+	Tags                 map[string]string
+	Name                 string
+	ARN                  string
+	HTTPConfigurationURL string
+}
+
+// VodSource represents a MediaTailor VOD source.
+// Tags first, strings before slice: reduces GC pointer scan.
+type VodSource struct {
+	Tags                      map[string]string
+	ARN                       string
+	SourceLocationName        string
+	VodSourceName             string
+	HTTPPackageConfigurations []HTTPPackageConfiguration
+}
+
+// VodSourceSummary is a VOD source in a list response.
+type VodSourceSummary struct {
+	Tags               map[string]string
+	SourceLocationName string
+	VodSourceName      string
+	ARN                string
+}
+
+// HTTPPackageConfiguration is a packaging configuration for a VOD source.
+type HTTPPackageConfiguration struct {
+	Path        string `json:"path"`
+	SourceGroup string `json:"sourceGroup"`
+	Type        string `json:"type"`
+}
+
+var _ StorageBackend = (*InMemoryBackend)(nil)

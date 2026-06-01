@@ -181,13 +181,14 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/inspector2 v1.48.2
 	github.com/aws/aws-sdk-go-v2/service/macie2 v1.51.4
 	github.com/aws/aws-sdk-go-v2/service/medialive v1.97.2
+	github.com/aws/aws-sdk-go-v2/service/mediapackage v1.39.25
 	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0
 	github.com/aws/aws-sdk-go-v2/service/securityhub v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
-require github.com/aws/aws-sdk-go-v2/service/mediapackage v1.39.25 // indirect
+require github.com/aws/aws-sdk-go-v2/service/mediatailor v1.59.2
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
