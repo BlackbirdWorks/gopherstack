@@ -1894,7 +1894,7 @@ func TestRefinement1_ProviderTypeValidation(t *testing.T) {
 		{name: "valid_bitbucket", providerType: "Bitbucket", wantStatus: http.StatusOK},
 		{name: "valid_ghe", providerType: "GitHubEnterpriseServer", wantStatus: http.StatusOK},
 		{name: "invalid_provider", providerType: "InvalidProvider", wantStatus: http.StatusBadRequest},
-		{name: "empty_provider_allowed", providerType: "", wantStatus: http.StatusOK},
+		{name: "empty_provider_rejected", providerType: "", wantStatus: http.StatusBadRequest},
 	}
 
 	for i, tt := range tests {

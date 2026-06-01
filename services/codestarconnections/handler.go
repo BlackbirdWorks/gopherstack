@@ -199,38 +199,40 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+const codestarContentType = "application/x-amz-json-1.0"
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	var errType string
+	var statusCode int
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType, statusCode = "ResourceNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidInputException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType, statusCode = "InvalidInputException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		errType, statusCode = "ValidationException", http.StatusBadRequest
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		errType, statusCode = "InvalidInputException", http.StatusBadRequest
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		errType, statusCode = "InternalFailure", http.StatusInternalServerError
 	}
+
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
+		Type:    errType,
+		Message: err.Error(),
+	})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", codestarContentType)
+
+	return c.JSONBlob(statusCode, payload)
 }
 
 // tagEntry is a key-value pair used in the API tag array format.

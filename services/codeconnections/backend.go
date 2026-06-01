@@ -105,10 +105,8 @@ func (b *InMemoryBackend) CreateConnection(
 		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
 	}
 
-	if providerType != "" {
-		if !validProviderTypes()[providerType] {
-			return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
-		}
+	if providerType == "" || !validProviderTypes()[providerType] {
+		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
 	}
 
 	b.mu.Lock("CreateConnection")
@@ -299,10 +297,8 @@ func (b *InMemoryBackend) CreateHost(
 		return nil, fmt.Errorf("%w: ProviderEndpoint is required", ErrValidation)
 	}
 
-	if providerType != "" {
-		if !validProviderTypes()[providerType] {
-			return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
-		}
+	if providerType == "" || !validProviderTypes()[providerType] {
+		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
 	}
 
 	b.mu.Lock("CreateHost")
