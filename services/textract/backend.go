@@ -451,6 +451,7 @@ const (
 	confidenceWord2 = 99.7
 	confidenceWord3 = 99.9
 	blockTypeWord   = "WORD"
+	textTypePrinted = "PRINTED"
 
 	// Block type string constants to avoid repeated literals.
 	blockTypeKeyValueSet = "KEY_VALUE_SET"
@@ -619,6 +620,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "Synthetic",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord1,
 			ID:         word1ID,
 			Page:       &page1,
@@ -627,6 +629,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "extracted",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord2,
 			ID:         word2ID,
 			Page:       &page1,
@@ -635,6 +638,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "text",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord3,
 			ID:         word3ID,
 			Page:       &page1,
@@ -643,6 +647,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "Document",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord1,
 			ID:         word4ID,
 			Page:       &page1,
@@ -651,6 +656,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "processed",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord2,
 			ID:         word5ID,
 			Page:       &page1,
@@ -737,6 +743,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         keyWord1ID,
 			Text:       "Name:",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoLeft, geoFormTop1, geoWordWidth, geoHeight),
@@ -746,6 +753,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         valueWord1ID,
 			Text:       "John",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoFormValLeft, geoFormTop1, geoWordWidth, geoHeight),
@@ -780,6 +788,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         keyWord2ID,
 			Text:       "Status:",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoLeft, geoFormTop2, geoWordWidth, geoHeight),
@@ -789,6 +798,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         valueWord2ID,
 			Text:       "Active",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoFormValLeft, geoFormTop2, geoWordWidth, geoHeight),
