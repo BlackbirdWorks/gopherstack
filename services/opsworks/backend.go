@@ -27,7 +27,6 @@ const (
 
 	commandStatusSuccessful = "successful"
 
-	maxTagsPerPage = 200
 )
 
 var (

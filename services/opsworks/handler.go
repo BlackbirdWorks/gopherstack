@@ -612,7 +612,7 @@ func (h *Handler) handleDescribeCommands(_ context.Context, body []byte) (any, e
 	var req struct {
 		DeploymentID string   `json:"DeploymentId"`
 		InstanceID   string   `json:"InstanceId"`
-		CommandIds   []string `json:"CommandIds"`
+		CommandIDs   []string `json:"CommandIDs"`
 	}
 
 	if len(body) > 0 {
@@ -621,7 +621,7 @@ func (h *Handler) handleDescribeCommands(_ context.Context, body []byte) (any, e
 		}
 	}
 
-	commands, err := h.Backend.DescribeCommands(req.DeploymentID, req.InstanceID, req.CommandIds)
+	commands, err := h.Backend.DescribeCommands(req.DeploymentID, req.InstanceID, req.CommandIDs)
 	if err != nil {
 		return nil, err
 	}
