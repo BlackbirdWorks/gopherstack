@@ -526,7 +526,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 	engine := vals.Get("Engine")
-	promotionTier := 0
+	promotionTier := 1 // AWS default
 	if ptStr := vals.Get("PromotionTier"); ptStr != "" {
 		promotionTier, _ = strconv.Atoi(ptStr)
 	}
@@ -1651,7 +1651,7 @@ type xmlDBInstance struct {
 	PubliclyAccessible           bool           `xml:"PubliclyAccessible"`
 	CopyTagsToSnapshot           bool           `xml:"CopyTagsToSnapshot"`
 	Port                         int            `xml:"Endpoint>Port"`
-	PromotionTier                int            `xml:"PromotionTier,omitempty"`
+	PromotionTier                int            `xml:"PromotionTier"`
 }
 
 type xmlDBInstanceList struct {

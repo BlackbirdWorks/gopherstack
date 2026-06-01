@@ -74,7 +74,7 @@ const (
 	maxBackupRetentionPeriod = 35
 )
 
-var validDocDBVersions = map[string]bool{
+var validDocDBVersions = map[string]bool{ //nolint:gochecknoglobals // compile-time constant set
 	docDBEngineVersion36: true,
 	defaultEngineVersion: true,
 	docDBEngineVersion5:  true,
@@ -380,6 +380,35 @@ func (b *InMemoryBackend) globalClusterARN(id string) string {
 	return arn.Build("rds", b.region, b.accountID, "global-cluster:"+id)
 }
 
+func validateCreateDBClusterParams(
+	id, engineVersion, masterUserPassword string,
+	backupRetentionPeriod int,
+	tags map[string]string,
+) error {
+	if id == "" {
+		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if err := validateEngineVersion(engineVersion); err != nil {
+		return err
+	}
+	if masterUserPassword != "" {
+		if err := validateMasterUserPassword(masterUserPassword); err != nil {
+			return err
+		}
+	}
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+	if backupRetentionPeriod != 0 && (backupRetentionPeriod < 1 || backupRetentionPeriod > maxBackupRetentionPeriod) {
+		return fmt.Errorf(
+			"%w: BackupRetentionPeriod must be between 1 and %d",
+			ErrInvalidParameter, maxBackupRetentionPeriod,
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName string,
 	port int,
@@ -390,25 +419,10 @@ func (b *InMemoryBackend) CreateDBCluster(
 	tags map[string]string,
 	opts *CreateDBClusterOptions,
 ) (*DBCluster, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
-	}
-	if err := validateEngineVersion(engineVersion); err != nil {
+	if err := validateCreateDBClusterParams(
+		id, engineVersion, masterUserPassword, backupRetentionPeriod, tags,
+	); err != nil {
 		return nil, err
-	}
-	if masterUserPassword != "" {
-		if err := validateMasterUserPassword(masterUserPassword); err != nil {
-			return nil, err
-		}
-	}
-	if err := validateTags(tags); err != nil {
-		return nil, err
-	}
-	if backupRetentionPeriod != 0 && (backupRetentionPeriod < 1 || backupRetentionPeriod > maxBackupRetentionPeriod) {
-		return nil, fmt.Errorf(
-			"%w: BackupRetentionPeriod must be between 1 and %d",
-			ErrInvalidParameter, maxBackupRetentionPeriod,
-		)
 	}
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
@@ -897,22 +911,23 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if preferredMaintenanceWindow != "" {
 		inst.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
-	if opts != nil {
-		if opts.CACertificateIdentifier != "" {
-			inst.CACertificateIdentifier = opts.CACertificateIdentifier
+	if opts == nil {
+		return copyInstance(inst), nil
+	}
+	if opts.CACertificateIdentifier != "" {
+		inst.CACertificateIdentifier = opts.CACertificateIdentifier
+	}
+	if opts.CopyTagsToSnapshot != nil {
+		inst.CopyTagsToSnapshot = *opts.CopyTagsToSnapshot
+	}
+	if opts.PromotionTier != nil {
+		if *opts.PromotionTier < 0 || *opts.PromotionTier > maxPromotionTier {
+			return nil, fmt.Errorf(
+				"%w: PromotionTier must be between 0 and %d",
+				ErrInvalidParameter, maxPromotionTier,
+			)
 		}
-		if opts.CopyTagsToSnapshot != nil {
-			inst.CopyTagsToSnapshot = *opts.CopyTagsToSnapshot
-		}
-		if opts.PromotionTier != nil {
-			if *opts.PromotionTier < 0 || *opts.PromotionTier > maxPromotionTier {
-				return nil, fmt.Errorf(
-					"%w: PromotionTier must be between 0 and %d",
-					ErrInvalidParameter, maxPromotionTier,
-				)
-			}
-			inst.PromotionTier = *opts.PromotionTier
-		}
+		inst.PromotionTier = *opts.PromotionTier
 	}
 
 	return copyInstance(inst), nil
