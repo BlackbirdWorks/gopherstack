@@ -22,8 +22,8 @@ const (
 	processorRunning = "RUNNING"
 	processorStopped = "STOPPED"
 
-	maxCollectionsPerPage     = 4096
-	maxFacesPerPage           = 4096
+	maxCollectionsPerPage      = 4096
+	maxFacesPerPage            = 4096
 	maxStreamProcessorsPerPage = 1000
 )
 
@@ -111,12 +111,12 @@ func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
 
 // snapshot holds serializable backend state.
 type snapshot struct {
-	Collections      []*storedCollection      `json:"collections"`
-	Faces            []*storedFace            `json:"faces"`
-	StreamProcessors []*storedStreamProcessor `json:"streamProcessors"`
 	Tags             map[string]map[string]string `json:"tags"`
-	AccountID        string                   `json:"accountId"`
-	Region           string                   `json:"region"`
+	AccountID        string                       `json:"accountId"`
+	Region           string                       `json:"region"`
+	Collections      []*storedCollection          `json:"collections"`
+	Faces            []*storedFace                `json:"faces"`
+	StreamProcessors []*storedStreamProcessor     `json:"streamProcessors"`
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -436,7 +436,10 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 }
 
 // CreateStreamProcessor creates a new stream processor.
-func (b *InMemoryBackend) CreateStreamProcessor(name, roleARN string, tags map[string]string) (*StreamProcessor, error) {
+func (b *InMemoryBackend) CreateStreamProcessor(
+	name, roleARN string,
+	tags map[string]string,
+) (*StreamProcessor, error) {
 	b.mu.Lock("CreateStreamProcessor")
 	defer b.mu.Unlock()
 

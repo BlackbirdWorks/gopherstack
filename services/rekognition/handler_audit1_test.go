@@ -49,11 +49,11 @@ func TestRekognition_Collections(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     any
+		setup    func(h *rekognition.Handler)
+		check    func(t *testing.T, body []byte)
 		name     string
 		action   string
-		setup    func(h *rekognition.Handler)
-		body     any
-		check    func(t *testing.T, body []byte)
 		wantCode int
 	}{
 		{
@@ -182,11 +182,11 @@ func TestRekognition_Faces(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     any
+		setup    func(h *rekognition.Handler)
+		check    func(t *testing.T, body []byte)
 		name     string
 		action   string
-		setup    func(h *rekognition.Handler)
-		body     any
-		check    func(t *testing.T, body []byte)
 		wantCode int
 	}{
 		{
@@ -313,11 +313,11 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     any
+		setup    func(h *rekognition.Handler)
+		check    func(t *testing.T, body []byte)
 		name     string
 		action   string
-		setup    func(h *rekognition.Handler)
-		body     any
-		check    func(t *testing.T, body []byte)
 		wantCode int
 	}{
 		{
@@ -453,11 +453,11 @@ func TestRekognition_Tags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		action   string
 		setup    func(h *rekognition.Handler) string
 		bodyFn   func(arn string) any
 		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
 		wantCode int
 	}{
 		{
@@ -479,7 +479,12 @@ func TestRekognition_Tags(t *testing.T) {
 			name:   "ListTagsForResource returns tags",
 			action: "ListTagsForResource",
 			setup: func(h *rekognition.Handler) string {
-				rec := doRequest(t, h, "CreateCollection", map[string]any{"CollectionId": "ltfr-coll", "Tags": map[string]string{"k": "v"}})
+				rec := doRequest(
+					t,
+					h,
+					"CreateCollection",
+					map[string]any{"CollectionId": "ltfr-coll", "Tags": map[string]string{"k": "v"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -501,7 +506,12 @@ func TestRekognition_Tags(t *testing.T) {
 			name:   "UntagResource removes tag",
 			action: "UntagResource",
 			setup: func(h *rekognition.Handler) string {
-				rec := doRequest(t, h, "CreateCollection", map[string]any{"CollectionId": "untag-coll", "Tags": map[string]string{"k": "v"}})
+				rec := doRequest(
+					t,
+					h,
+					"CreateCollection",
+					map[string]any{"CollectionId": "untag-coll", "Tags": map[string]string{"k": "v"}},
+				)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				arn := resp["CollectionArn"].(string)

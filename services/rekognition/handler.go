@@ -96,25 +96,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateCollection":     service.WrapOp(h.handleCreateCollection),
-		"DeleteCollection":     service.WrapOp(h.handleDeleteCollection),
-		"DescribeCollection":   service.WrapOp(h.handleDescribeCollection),
-		"ListCollections":      service.WrapOp(h.handleListCollections),
-		"IndexFaces":           service.WrapOp(h.handleIndexFaces),
-		"DeleteFaces":          service.WrapOp(h.handleDeleteFaces),
-		"ListFaces":            service.WrapOp(h.handleListFaces),
-		"SearchFaces":          service.WrapOp(h.handleSearchFaces),
-		"SearchFacesByImage":   service.WrapOp(h.handleSearchFacesByImage),
-		"CreateStreamProcessor":  service.WrapOp(h.handleCreateStreamProcessor),
-		"DeleteStreamProcessor":  service.WrapOp(h.handleDeleteStreamProcessor),
+		"CreateCollection":        service.WrapOp(h.handleCreateCollection),
+		"DeleteCollection":        service.WrapOp(h.handleDeleteCollection),
+		"DescribeCollection":      service.WrapOp(h.handleDescribeCollection),
+		"ListCollections":         service.WrapOp(h.handleListCollections),
+		"IndexFaces":              service.WrapOp(h.handleIndexFaces),
+		"DeleteFaces":             service.WrapOp(h.handleDeleteFaces),
+		"ListFaces":               service.WrapOp(h.handleListFaces),
+		"SearchFaces":             service.WrapOp(h.handleSearchFaces),
+		"SearchFacesByImage":      service.WrapOp(h.handleSearchFacesByImage),
+		"CreateStreamProcessor":   service.WrapOp(h.handleCreateStreamProcessor),
+		"DeleteStreamProcessor":   service.WrapOp(h.handleDeleteStreamProcessor),
 		"DescribeStreamProcessor": service.WrapOp(h.handleDescribeStreamProcessor),
-		"ListStreamProcessors":   service.WrapOp(h.handleListStreamProcessors),
-		"StartStreamProcessor":   service.WrapOp(h.handleStartStreamProcessor),
-		"StopStreamProcessor":    service.WrapOp(h.handleStopStreamProcessor),
-		"UpdateStreamProcessor":  service.WrapOp(h.handleUpdateStreamProcessor),
-		"TagResource":           service.WrapOp(h.handleTagResource),
-		"UntagResource":         service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+		"ListStreamProcessors":    service.WrapOp(h.handleListStreamProcessors),
+		"StartStreamProcessor":    service.WrapOp(h.handleStartStreamProcessor),
+		"StopStreamProcessor":     service.WrapOp(h.handleStopStreamProcessor),
+		"UpdateStreamProcessor":   service.WrapOp(h.handleUpdateStreamProcessor),
+		"TagResource":             service.WrapOp(h.handleTagResource),
+		"UntagResource":           service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
 	}
 }
 
@@ -160,8 +160,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // --- Collection requests ---
 
 type createCollectionReq struct {
-	CollectionId string            `json:"CollectionId"`
 	Tags         map[string]string `json:"Tags"`
+	CollectionId string            `json:"CollectionId"`
 }
 
 type createCollectionResp struct {
@@ -212,13 +212,16 @@ type describeCollectionReq struct {
 }
 
 type describeCollectionResp struct {
-	CollectionARN    string `json:"CollectionARN"`
+	CollectionARN     string `json:"CollectionARN"`
 	CreationTimestamp string `json:"CreationTimestamp"`
-	FaceCount        int64  `json:"FaceCount"`
-	FaceModelVersion string `json:"FaceModelVersion"`
+	FaceModelVersion  string `json:"FaceModelVersion"`
+	FaceCount         int64  `json:"FaceCount"`
 }
 
-func (h *Handler) handleDescribeCollection(_ context.Context, req *describeCollectionReq) (*describeCollectionResp, error) {
+func (h *Handler) handleDescribeCollection(
+	_ context.Context,
+	req *describeCollectionReq,
+) (*describeCollectionResp, error) {
 	if req.CollectionId == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
@@ -234,22 +237,22 @@ func (h *Handler) handleDescribeCollection(_ context.Context, req *describeColle
 	}
 
 	return &describeCollectionResp{
-		CollectionARN:    coll.CollectionARN,
+		CollectionARN:     coll.CollectionARN,
 		CreationTimestamp: coll.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
-		FaceCount:        int64(len(faces)),
-		FaceModelVersion: coll.FaceModelVersion,
+		FaceCount:         int64(len(faces)),
+		FaceModelVersion:  coll.FaceModelVersion,
 	}, nil
 }
 
 type listCollectionsReq struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listCollectionsResp struct {
-	CollectionIds    []string `json:"CollectionIds"`
+	NextToken         string   `json:"NextToken,omitempty"`
+	CollectionIds     []string `json:"CollectionIds"`
 	FaceModelVersions []string `json:"FaceModelVersions"`
-	NextToken        string   `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListCollections(_ context.Context, req *listCollectionsReq) (*listCollectionsResp, error) {
@@ -267,9 +270,9 @@ func (h *Handler) handleListCollections(_ context.Context, req *listCollectionsR
 	}
 
 	return &listCollectionsResp{
-		CollectionIds:    ids,
+		CollectionIds:     ids,
 		FaceModelVersions: versions,
-		NextToken:        nextToken,
+		NextToken:         nextToken,
 	}, nil
 }
 
@@ -349,8 +352,8 @@ func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*de
 
 type listFacesReq struct {
 	CollectionId string `json:"CollectionId"`
-	MaxResults   int32  `json:"MaxResults"`
 	NextToken    string `json:"NextToken"`
+	MaxResults   int32  `json:"MaxResults"`
 }
 
 type faceEntry struct {
@@ -362,8 +365,8 @@ type faceEntry struct {
 
 type listFacesResp struct {
 	FaceModelVersion string      `json:"FaceModelVersion"`
-	Faces            []faceEntry `json:"Faces"`
 	NextToken        string      `json:"NextToken,omitempty"`
+	Faces            []faceEntry `json:"Faces"`
 }
 
 func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFacesResp, error) {
@@ -406,9 +409,9 @@ type faceMatchEntry struct {
 }
 
 type searchFacesResp struct {
-	FaceMatches     []faceMatchEntry `json:"FaceMatches"`
-	FaceModelVersion string          `json:"FaceModelVersion"`
-	SearchedFaceId  string           `json:"SearchedFaceId"`
+	FaceModelVersion string           `json:"FaceModelVersion"`
+	SearchedFaceId   string           `json:"SearchedFaceId"`
+	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
 }
 
 func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*searchFacesResp, error) {
@@ -440,9 +443,9 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 	}
 
 	return &searchFacesResp{
-		FaceMatches:     entries,
+		FaceMatches:      entries,
 		FaceModelVersion: faceModelVersion,
-		SearchedFaceId:  req.FaceId,
+		SearchedFaceId:   req.FaceId,
 	}, nil
 }
 
@@ -452,11 +455,14 @@ type searchFacesByImageReq struct {
 }
 
 type searchFacesByImageResp struct {
-	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
 	FaceModelVersion string           `json:"FaceModelVersion"`
+	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
 }
 
-func (h *Handler) handleSearchFacesByImage(_ context.Context, req *searchFacesByImageReq) (*searchFacesByImageResp, error) {
+func (h *Handler) handleSearchFacesByImage(
+	_ context.Context,
+	req *searchFacesByImageReq,
+) (*searchFacesByImageResp, error) {
 	if req.CollectionId == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
@@ -489,16 +495,19 @@ func (h *Handler) handleSearchFacesByImage(_ context.Context, req *searchFacesBy
 // --- Stream processor requests ---
 
 type createStreamProcessorReq struct {
+	Tags    map[string]string `json:"Tags"`
 	Name    string            `json:"Name"`
 	RoleArn string            `json:"RoleArn"`
-	Tags    map[string]string `json:"Tags"`
 }
 
 type createStreamProcessorResp struct {
 	StreamProcessorArn string `json:"StreamProcessorArn"`
 }
 
-func (h *Handler) handleCreateStreamProcessor(_ context.Context, req *createStreamProcessorReq) (*createStreamProcessorResp, error) {
+func (h *Handler) handleCreateStreamProcessor(
+	_ context.Context,
+	req *createStreamProcessorReq,
+) (*createStreamProcessorResp, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
@@ -532,14 +541,17 @@ type describeStreamProcessorReq struct {
 }
 
 type describeStreamProcessorResp struct {
-	CreationTimestamp string `json:"CreationTimestamp"`
-	Name              string `json:"Name"`
-	RoleArn           string `json:"RoleArn"`
-	Status            string `json:"Status"`
+	CreationTimestamp  string `json:"CreationTimestamp"`
+	Name               string `json:"Name"`
+	RoleArn            string `json:"RoleArn"`
+	Status             string `json:"Status"`
 	StreamProcessorArn string `json:"StreamProcessorArn"`
 }
 
-func (h *Handler) handleDescribeStreamProcessor(_ context.Context, req *describeStreamProcessorReq) (*describeStreamProcessorResp, error) {
+func (h *Handler) handleDescribeStreamProcessor(
+	_ context.Context,
+	req *describeStreamProcessorReq,
+) (*describeStreamProcessorResp, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
@@ -559,8 +571,8 @@ func (h *Handler) handleDescribeStreamProcessor(_ context.Context, req *describe
 }
 
 type listStreamProcessorsReq struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type streamProcessorEntry struct {
@@ -573,7 +585,10 @@ type listStreamProcessorsResp struct {
 	StreamProcessors []streamProcessorEntry `json:"StreamProcessors"`
 }
 
-func (h *Handler) handleListStreamProcessors(_ context.Context, req *listStreamProcessorsReq) (*listStreamProcessorsResp, error) {
+func (h *Handler) handleListStreamProcessors(
+	_ context.Context,
+	req *listStreamProcessorsReq,
+) (*listStreamProcessorsResp, error) {
 	procs, nextToken, err := h.Backend.ListStreamProcessors(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -641,8 +656,8 @@ func (h *Handler) handleUpdateStreamProcessor(_ context.Context, req *updateStre
 // --- Tag requests ---
 
 type tagResourceReq struct {
-	ResourceArn string            `json:"ResourceArn"`
 	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
 }
 
 func (h *Handler) handleTagResource(_ context.Context, req *tagResourceReq) (*struct{}, error) {
@@ -682,7 +697,10 @@ type listTagsForResourceResp struct {
 	Tags map[string]string `json:"Tags"`
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, req *listTagsForResourceReq) (*listTagsForResourceResp, error) {
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	req *listTagsForResourceReq,
+) (*listTagsForResourceResp, error) {
 	if req.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
 	}

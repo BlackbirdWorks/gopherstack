@@ -55,19 +55,19 @@ type Face struct {
 
 // FaceMatch represents a face match result.
 type FaceMatch struct {
-	Similarity float64
 	Face       *Face
+	Similarity float64
 }
 
 // StreamProcessor represents a Rekognition stream processor.
 // CreationTimestamp is first so its non-pointer prefix reduces GC pointer bytes.
 type StreamProcessor struct {
-	CreationTimestamp time.Time
-	Tags              map[string]string
-	Name              string
+	CreationTimestamp  time.Time
+	Tags               map[string]string
+	Name               string
 	StreamProcessorARN string
-	RoleARN           string
-	Status            string
+	RoleARN            string
+	Status             string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
