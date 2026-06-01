@@ -174,18 +174,18 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/datasync v1.59.2
 	github.com/aws/aws-sdk-go-v2/service/dax v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/detective v1.39.1
+	github.com/aws/aws-sdk-go-v2/service/directoryservice v1.38.20
 	github.com/aws/aws-sdk-go-v2/service/dlm v1.37.2
 	github.com/aws/aws-sdk-go-v2/service/forecast v1.42.0
 	github.com/aws/aws-sdk-go-v2/service/guardduty v1.78.2
 	github.com/aws/aws-sdk-go-v2/service/inspector2 v1.48.2
 	github.com/aws/aws-sdk-go-v2/service/macie2 v1.51.4
+	github.com/aws/aws-sdk-go-v2/service/medialive v1.97.2
 	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0
 	github.com/aws/aws-sdk-go-v2/service/securityhub v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
-
-require github.com/aws/aws-sdk-go-v2/service/directoryservice v1.38.20
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
