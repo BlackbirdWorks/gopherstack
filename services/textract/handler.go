@@ -21,6 +21,7 @@ const (
 	keyTypeField         = "__type"
 	keyMessageField      = "message"
 	modelVersion10       = "1.0"
+	textractContentType  = "application/x-amz-json-1.1"
 )
 
 var (
@@ -202,30 +203,30 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	var code string
+	var status int
+
 	switch {
 	case errors.Is(err, ErrJobNotFound):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    "InvalidJobIdException",
-			keyMessageField: err.Error(),
-		})
+		code, status = "InvalidJobIdException", http.StatusBadRequest
 	case errors.Is(err, ErrAdapterNotFound), errors.Is(err, ErrAdapterVersionNotFound):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    "InvalidParameterException",
-			keyMessageField: err.Error(),
-		})
+		code, status = "InvalidParameterException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    "ValidationException",
-			keyMessageField: err.Error(),
-		})
+		code, status = "ValidationException", http.StatusBadRequest
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServerError",
-			keyMessageField: err.Error(),
-		})
+		code, status = "InternalServerError", http.StatusInternalServerError
 	}
+
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", textractContentType)
+
+	return c.JSONBlob(status, payload)
 }
 
 // documentInput is the input for synchronous document operations.
