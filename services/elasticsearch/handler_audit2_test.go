@@ -1,6 +1,7 @@
 package elasticsearch_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,10 +21,10 @@ func TestAudit2_TagKeyLength(t *testing.T) {
 		key        string
 		wantStatus int
 	}{
-		{name: "empty_key", key: "", wantStatus: http.StatusBadRequest},
-		{name: "max_key_128", key: strings.Repeat("k", 128), wantStatus: http.StatusOK},
-		{name: "key_too_long_129", key: strings.Repeat("k", 129), wantStatus: http.StatusBadRequest},
-		{name: "valid_key", key: "env", wantStatus: http.StatusOK},
+		{name: "empty-key", key: "", wantStatus: http.StatusBadRequest},
+		{name: "max-key", key: strings.Repeat("k", 128), wantStatus: http.StatusOK},
+		{name: "key-too-long", key: strings.Repeat("k", 129), wantStatus: http.StatusBadRequest},
+		{name: "valid-key", key: "env", wantStatus: http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -31,7 +32,7 @@ func TestAudit2_TagKeyLength(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			arn := createDomainAndGetARN(t, h, "tag-key-"+tt.name[:min(len(tt.name), 12)])
+			arn := createDomainAndGetARN(t, h, "a2-tagkey-"+tt.name[:3])
 
 			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 				"ARN":     arn,
@@ -52,9 +53,9 @@ func TestAudit2_TagValueLength(t *testing.T) {
 		value      string
 		wantStatus int
 	}{
-		{name: "empty_value", value: "", wantStatus: http.StatusOK},
-		{name: "max_value_256", value: strings.Repeat("v", 256), wantStatus: http.StatusOK},
-		{name: "value_too_long_257", value: strings.Repeat("v", 257), wantStatus: http.StatusBadRequest},
+		{name: "empty-val", value: "", wantStatus: http.StatusOK},
+		{name: "max-val", value: strings.Repeat("v", 256), wantStatus: http.StatusOK},
+		{name: "val-too-long", value: strings.Repeat("v", 257), wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -62,7 +63,7 @@ func TestAudit2_TagValueLength(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			arn := createDomainAndGetARN(t, h, "tag-val-"+tt.name[:min(len(tt.name), 11)])
+			arn := createDomainAndGetARN(t, h, "a2-tagval-"+tt.name[:3])
 
 			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 				"ARN":     arn,
@@ -79,13 +80,13 @@ func TestAudit2_TagMaxPerResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	arn := createDomainAndGetARN(t, h, "tag-max-dom")
+	arn := createDomainAndGetARN(t, h, "a2-tagmax-dom")
 
-	// Add 50 tags — should succeed.
 	tags50 := make([]map[string]string, 50)
 	for i := range tags50 {
-		tags50[i] = map[string]string{"Key": strings.Repeat("a", 1) + string(rune('A'+i%26)) + string(rune('0'+i%10)), "Value": "v"}
+		tags50[i] = map[string]string{"Key": fmt.Sprintf("tag-key-%02d", i), "Value": "v"}
 	}
+
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 		"ARN":     arn,
 		"TagList": tags50,
@@ -93,7 +94,7 @@ func TestAudit2_TagMaxPerResource(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Adding one more new tag exceeds limit — should fail.
+	// Adding one new tag exceeds the 50-tag limit.
 	resp2 := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 		"ARN":     arn,
 		"TagList": []map[string]string{{"Key": "overflow-key", "Value": "x"}},
@@ -102,18 +103,18 @@ func TestAudit2_TagMaxPerResource(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp2.StatusCode)
 }
 
-// TestAudit2_TagUpdateExistingKeyNoLimit verifies that updating an existing tag key does not count as new.
+// TestAudit2_TagUpdateExistingKeyNoLimit verifies updating an existing tag key does not count as new.
 func TestAudit2_TagUpdateExistingKeyNoLimit(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	arn := createDomainAndGetARN(t, h, "tag-upd-dom")
+	arn := createDomainAndGetARN(t, h, "a2-tagupd-dom")
 
-	// Add 50 tags.
 	tags50 := make([]map[string]string, 50)
 	for i := range tags50 {
-		tags50[i] = map[string]string{"Key": strings.Repeat("a", 1) + string(rune('A'+i%26)) + string(rune('0'+i%10)), "Value": "v"}
+		tags50[i] = map[string]string{"Key": fmt.Sprintf("tag-key-%02d", i), "Value": "v"}
 	}
+
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 		"ARN":     arn,
 		"TagList": tags50,
@@ -121,7 +122,7 @@ func TestAudit2_TagUpdateExistingKeyNoLimit(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Updating the same key does not add a new tag — should succeed.
+	// Updating an existing key does not add a new tag — should succeed.
 	resp2 := doRequest(t, h, http.MethodPost, "/2015-01-01/tags", map[string]any{
 		"ARN":     arn,
 		"TagList": []map[string]string{{"Key": tags50[0]["Key"], "Value": "new-val"}},
@@ -139,13 +140,13 @@ func TestAudit2_ElasticsearchVersionValidation(t *testing.T) {
 		version    string
 		wantStatus int
 	}{
-		{name: "empty_defaults_to_710", version: "", wantStatus: http.StatusOK},
-		{name: "valid_710", version: "7.10", wantStatus: http.StatusOK},
-		{name: "valid_68", version: "6.8", wantStatus: http.StatusOK},
-		{name: "valid_23", version: "2.3", wantStatus: http.StatusOK},
-		{name: "invalid_800", version: "8.0", wantStatus: http.StatusBadRequest},
-		{name: "invalid_opensearch", version: "OpenSearch_1.0", wantStatus: http.StatusBadRequest},
-		{name: "invalid_garbage", version: "not-a-version", wantStatus: http.StatusBadRequest},
+		{name: "empty-defaults", version: "", wantStatus: http.StatusOK},
+		{name: "valid-710", version: "7.10", wantStatus: http.StatusOK},
+		{name: "valid-68", version: "6.8", wantStatus: http.StatusOK},
+		{name: "valid-23", version: "2.3", wantStatus: http.StatusOK},
+		{name: "invalid-800", version: "8.0", wantStatus: http.StatusBadRequest},
+		{name: "invalid-open", version: "OpenSearch_1.0", wantStatus: http.StatusBadRequest},
+		{name: "invalid-str", version: "not-a-ver", wantStatus: http.StatusBadRequest},
 	}
 
 	for i, tt := range tests {
@@ -154,7 +155,7 @@ func TestAudit2_ElasticsearchVersionValidation(t *testing.T) {
 
 			h := newTestHandler()
 			body := map[string]any{
-				"DomainName": "ver-test-" + string(rune('a'+i)),
+				"DomainName": fmt.Sprintf("a2-ver-%02d", i),
 			}
 			if tt.version != "" {
 				body["ElasticsearchVersion"] = tt.version
@@ -176,8 +177,8 @@ func TestAudit2_DescribeDomainsMaxFive(t *testing.T) {
 		count      int
 		wantStatus int
 	}{
-		{name: "five_ok", count: 5, wantStatus: http.StatusOK},
-		{name: "six_rejected", count: 6, wantStatus: http.StatusBadRequest},
+		{name: "five-ok", count: 5, wantStatus: http.StatusOK},
+		{name: "six-rejected", count: 6, wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -187,7 +188,7 @@ func TestAudit2_DescribeDomainsMaxFive(t *testing.T) {
 			h := newTestHandler()
 			names := make([]string, tt.count)
 			for i := range names {
-				names[i] = "desc-dom-" + string(rune('a'+i))
+				names[i] = fmt.Sprintf("a2-desc-%02d", i)
 			}
 
 			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain-info", map[string]any{
@@ -208,10 +209,10 @@ func TestAudit2_PackageTypeValidation(t *testing.T) {
 		packageType string
 		wantStatus  int
 	}{
-		{name: "txt_dictionary", packageType: "TXT-DICTIONARY", wantStatus: http.StatusOK},
-		{name: "zip_plugin", packageType: "ZIP-PLUGIN", wantStatus: http.StatusOK},
-		{name: "invalid_type", packageType: "INVALID-TYPE", wantStatus: http.StatusBadRequest},
-		{name: "empty_type", packageType: "", wantStatus: http.StatusBadRequest},
+		{name: "txt-dictionary", packageType: "TXT-DICTIONARY", wantStatus: http.StatusOK},
+		{name: "zip-plugin", packageType: "ZIP-PLUGIN", wantStatus: http.StatusOK},
+		{name: "invalid-type", packageType: "INVALID-TYPE", wantStatus: http.StatusBadRequest},
+		{name: "empty-type", packageType: "", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -257,12 +258,4 @@ func TestAudit2_ESVersionBackend(t *testing.T) {
 
 	_, err = b.CreateDomain("ver-dom2", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
 	require.NoError(t, err)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-
-	return b
 }
