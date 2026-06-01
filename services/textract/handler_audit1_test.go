@@ -66,9 +66,9 @@ func TestAudit1_Textract_Protocol_ContentType_Error(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
 		{
 			name:   "invalid_job_id",
@@ -124,9 +124,13 @@ func TestAudit1_Textract_Protocol_ErrorEnvelope(t *testing.T) {
 			wantType: "InvalidParameterException",
 		},
 		{
-			name:     "validation_error_gives_ValidationException",
-			action:   "StartDocumentAnalysis",
-			body:     map[string]any{"DocumentLocation": map[string]any{"S3Object": map[string]any{"Bucket": "", "Name": ""}}},
+			name:   "validation_error_gives_ValidationException",
+			action: "StartDocumentAnalysis",
+			body: map[string]any{
+				"DocumentLocation": map[string]any{
+					"S3Object": map[string]any{"Bucket": "", "Name": ""},
+				},
+			},
 			wantType: "ValidationException",
 		},
 		{
@@ -247,7 +251,7 @@ func TestAudit1_Textract_Block_WORD_Has_TextType(t *testing.T) {
 			"TextType must be PRINTED or HANDWRITING, got %q", textType)
 	}
 
-	assert.Greater(t, wordCount, 0, "expected at least one WORD block")
+	assert.Positive(t, wordCount, "expected at least one WORD block")
 }
 
 // --- Block field accuracy: Page field ---
@@ -388,7 +392,7 @@ func TestAudit1_Textract_AnalyzeExpense_ExpenseIndex(t *testing.T) {
 	require.True(t, ok2)
 	idx, ok3 := doc["ExpenseIndex"].(float64)
 	assert.True(t, ok3, "ExpenseDocument must have ExpenseIndex")
-	assert.Equal(t, 1.0, idx, "first ExpenseDocument.ExpenseIndex must be 1")
+	assert.InEpsilon(t, 1.0, idx, 0.001, "first ExpenseDocument.ExpenseIndex must be 1")
 }
 
 // --- AnalyzeID: DocumentIndex and AnalyzeIDModelVersion ---
@@ -413,7 +417,7 @@ func TestAudit1_Textract_AnalyzeID_DocumentIndex(t *testing.T) {
 	require.True(t, ok2)
 	idx, ok3 := doc["DocumentIndex"].(float64)
 	assert.True(t, ok3, "IdentityDocument must have DocumentIndex")
-	assert.Equal(t, 1.0, idx, "first IdentityDocument.DocumentIndex must be 1")
+	assert.InEpsilon(t, 1.0, idx, 0.001, "first IdentityDocument.DocumentIndex must be 1")
 }
 
 func TestAudit1_Textract_AnalyzeID_ModelVersion(t *testing.T) {
@@ -652,8 +656,8 @@ func TestAudit1_Textract_AnalyzeID_MultiPage_DocumentIndex(t *testing.T) {
 	doc1, ok1 := docs[1].(map[string]any)
 	require.True(t, ok0 && ok1)
 
-	assert.Equal(t, 1.0, doc0["DocumentIndex"], "first DocumentIndex must be 1")
-	assert.Equal(t, 2.0, doc1["DocumentIndex"], "second DocumentIndex must be 2")
+	assert.InEpsilon(t, 1.0, doc0["DocumentIndex"], 0.001, "first DocumentIndex must be 1")
+	assert.InEpsilon(t, 2.0, doc1["DocumentIndex"], 0.001, "second DocumentIndex must be 2")
 }
 
 // --- GetDocumentAnalysis job status is SUCCEEDED ---

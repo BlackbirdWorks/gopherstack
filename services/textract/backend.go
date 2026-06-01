@@ -702,6 +702,22 @@ func analyzeDocumentBlocks(documentURI string, featureTypes []string, queries *Q
 
 // buildFormsBlocks builds KEY_VALUE_SET and SELECTION_ELEMENT blocks.
 func buildFormsBlocks(page int) []Block {
+	selID := uuid.NewString()
+	blocks := buildFormKVBlocks(page)
+	blocks = append(blocks, Block{
+		BlockType:       "SELECTION_ELEMENT",
+		ID:              selID,
+		Confidence:      confidenceSelElem,
+		SelectionStatus: "SELECTED",
+		Page:            &page,
+		Geometry:        makeGeometry(geoLeft, geoSelTop, geoSelWidth, geoSelHeight),
+	})
+
+	return blocks
+}
+
+// buildFormKVBlocks builds the KEY_VALUE_SET and WORD blocks for form fields.
+func buildFormKVBlocks(page int) []Block {
 	keyWord1ID := uuid.NewString()
 	keyWord2ID := uuid.NewString()
 	valueWord1ID := uuid.NewString()
@@ -710,9 +726,8 @@ func buildFormsBlocks(page int) []Block {
 	val1ID := uuid.NewString()
 	key2ID := uuid.NewString()
 	val2ID := uuid.NewString()
-	selID := uuid.NewString()
 
-	blocks := []Block{
+	return []Block{
 		// Key 1
 		{
 			BlockType:   blockTypeKeyValueSet,
@@ -803,18 +818,7 @@ func buildFormsBlocks(page int) []Block {
 			Page:       &page,
 			Geometry:   makeGeometry(geoFormValLeft, geoFormTop2, geoWordWidth, geoHeight),
 		},
-		// Selection element
-		{
-			BlockType:       "SELECTION_ELEMENT",
-			ID:              selID,
-			Confidence:      confidenceSelElem,
-			SelectionStatus: "SELECTED",
-			Page:            &page,
-			Geometry:        makeGeometry(geoLeft, geoSelTop, geoSelWidth, geoSelHeight),
-		},
 	}
-
-	return blocks
 }
 
 // buildTablesBlocks builds TABLE and CELL blocks.
