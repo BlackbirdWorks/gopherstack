@@ -279,6 +279,12 @@ func TestHandler_DBInstances(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+				"Engine":              {"docdb"},
+			})
 			if tt.name != "create_instance" {
 				doRequest(t, h, url.Values{
 					"Action":               {"CreateDBInstance"},
@@ -1691,7 +1697,7 @@ func TestRefinement1_SortedListTags(t *testing.T) {
 			t.Parallel()
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags)
+			require.NoError(t, b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags))
 
 			got := b.ListTagsForResource("arn:aws:rds:us-east-1:000000000000:cluster:test")
 
@@ -3364,6 +3370,14 @@ func TestRefinement1_DescribeDBInstancesByCluster(t *testing.T) {
 			name: "filter_by_cluster",
 			setup: func(t *testing.T, h *docdb.Handler) {
 				t.Helper()
+				for _, cid := range []string{"cluster-a", "cluster-b"} {
+					doRequest(t, h, url.Values{
+						"Action":              {"CreateDBCluster"},
+						"Version":             {"2014-10-31"},
+						"DBClusterIdentifier": {cid},
+						"Engine":              {"docdb"},
+					})
+				}
 				for _, id := range []string{"inst-a1", "inst-a2", "inst-b1"} {
 					clusterID := "cluster-a"
 					if id == "inst-b1" {
@@ -4943,7 +4957,7 @@ func TestAudit_ClusterInheritedDefaults(t *testing.T) {
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			cluster, err := b.CreateDBCluster(
-				"defaults-cluster", "", "", "admin", "", "", "",
+				"defaults-cluster", "", "", "admin", "", "", "", "",
 				0, false, false, 0, "", "", nil, nil, nil,
 			)
 			require.NoError(t, err)
@@ -5659,6 +5673,538 @@ func TestAudit_SubnetGroup_DeleteInUseFails(t *testing.T) {
 				"Version":           {"2014-10-31"},
 				"DBSubnetGroupName": {"inuse-sg"},
 			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_MasterUserPassword_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		password     string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "valid_password",
+			password:     "ValidPass1",
+			wantContains: "CreateDBClusterResponse",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "too_short",
+			password:     "short",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "too_long",
+			password:     strings.Repeat("a", 101),
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "contains_slash",
+			password:     "password/here",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "contains_at_sign",
+			password:     "password@here",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "no_password_ok",
+			password:     "",
+			wantStatus:   http.StatusOK,
+			wantContains: "CreateDBClusterResponse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"pw-cluster"},
+				"Engine":              {"docdb"},
+			}
+			if tt.password != "" {
+				vals.Set("MasterUserPassword", tt.password)
+			}
+			rr := doRequest(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_EngineVersion_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		engineVersion string
+		wantContains  string
+		wantStatus    int
+	}{
+		{
+			name:          "valid_3_6",
+			engineVersion: "3.6.0",
+			wantStatus:    http.StatusOK,
+			wantContains:  "3.6.0",
+		},
+		{
+			name:          "valid_4_0",
+			engineVersion: "4.0.0",
+			wantStatus:    http.StatusOK,
+			wantContains:  "4.0.0",
+		},
+		{
+			name:          "valid_5_0",
+			engineVersion: "5.0.0",
+			wantStatus:    http.StatusOK,
+			wantContains:  "5.0.0",
+		},
+		{
+			name:          "invalid_version",
+			engineVersion: "6.0.0",
+			wantStatus:    http.StatusBadRequest,
+			wantContains:  "InvalidParameterValue",
+		},
+		{
+			name:          "empty_defaults_to_4_0",
+			engineVersion: "",
+			wantStatus:    http.StatusOK,
+			wantContains:  "4.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"ev-cluster"},
+				"Engine":              {"docdb"},
+			}
+			if tt.engineVersion != "" {
+				vals.Set("EngineVersion", tt.engineVersion)
+			}
+			rr := doRequest(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_CreateInstance_RequiresCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantContains  string
+		createCluster bool
+		wantStatus    int
+	}{
+		{
+			name:          "cluster_exists",
+			createCluster: true,
+			wantStatus:    http.StatusOK,
+			wantContains:  "CreateDBInstanceResponse",
+		},
+		{
+			name:          "cluster_missing",
+			createCluster: false,
+			wantStatus:    http.StatusBadRequest,
+			wantContains:  "DBClusterNotFoundFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.createCluster {
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+					"Engine":              {"docdb"},
+				})
+			}
+			rr := doRequest(t, h, url.Values{
+				"Action":               {"CreateDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"my-inst"},
+				"DBClusterIdentifier":  {"my-cluster"},
+				"Engine":               {"docdb"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_PromotionTier_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		tier         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "tier_0_valid",
+			tier:         "0",
+			wantStatus:   http.StatusOK,
+			wantContains: "<PromotionTier>0</PromotionTier>",
+		},
+		{
+			name:         "tier_15_valid",
+			tier:         "15",
+			wantStatus:   http.StatusOK,
+			wantContains: "<PromotionTier>15</PromotionTier>",
+		},
+		{
+			name:         "tier_16_invalid",
+			tier:         "16",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "default_tier_1",
+			tier:         "",
+			wantStatus:   http.StatusOK,
+			wantContains: "<PromotionTier>1</PromotionTier>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"pt-cluster"},
+				"Engine":              {"docdb"},
+			})
+			vals := url.Values{
+				"Action":               {"CreateDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"pt-inst"},
+				"DBClusterIdentifier":  {"pt-cluster"},
+				"Engine":               {"docdb"},
+			}
+			if tt.tier != "" {
+				vals.Set("PromotionTier", tt.tier)
+			}
+			rr := doRequest(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_DBClusterMembers_Populated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		instanceCount int
+		wantMembers   int
+	}{
+		{
+			name:          "no_instances",
+			instanceCount: 0,
+			wantMembers:   0,
+		},
+		{
+			name:          "one_instance",
+			instanceCount: 1,
+			wantMembers:   1,
+		},
+		{
+			name:          "two_instances",
+			instanceCount: 2,
+			wantMembers:   2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"member-cluster"},
+				"Engine":              {"docdb"},
+			})
+			for i := range tt.instanceCount {
+				doRequest(t, h, url.Values{
+					"Action":               {"CreateDBInstance"},
+					"Version":              {"2014-10-31"},
+					"DBInstanceIdentifier": {fmt.Sprintf("member-inst-%d", i)},
+					"DBClusterIdentifier":  {"member-cluster"},
+					"Engine":               {"docdb"},
+				})
+			}
+
+			rr := doRequest(t, h, url.Values{
+				"Action":              {"DescribeDBClusters"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"member-cluster"},
+			})
+			assert.Equal(t, http.StatusOK, rr.Code)
+
+			type member struct {
+				XMLName xml.Name `xml:"DBClusterMember"`
+			}
+			type result struct {
+				Members []member `xml:"DescribeDBClustersResult>DBClusters>DBCluster>DBClusterMembers>DBClusterMember"`
+			}
+			var res result
+			require.NoError(t, xml.Unmarshal(rr.Body.Bytes(), &res))
+			assert.Len(t, res.Members, tt.wantMembers)
+		})
+	}
+}
+
+func TestAudit2_TagValidation_OnCreate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		tagCount     int
+		keyLen       int
+		valueLen     int
+		wantStatus   int
+	}{
+		{
+			name:         "valid_single_tag",
+			tagCount:     1,
+			keyLen:       3,
+			valueLen:     4,
+			wantStatus:   http.StatusOK,
+			wantContains: "CreateDBClusterResponse",
+		},
+		{
+			name:         "key_128_chars_ok",
+			tagCount:     1,
+			keyLen:       128,
+			valueLen:     1,
+			wantStatus:   http.StatusOK,
+			wantContains: "CreateDBClusterResponse",
+		},
+		{
+			name:         "key_129_chars_fails",
+			tagCount:     1,
+			keyLen:       129,
+			valueLen:     1,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "value_256_chars_ok",
+			tagCount:     1,
+			keyLen:       3,
+			valueLen:     256,
+			wantStatus:   http.StatusOK,
+			wantContains: "CreateDBClusterResponse",
+		},
+		{
+			name:         "value_257_chars_fails",
+			tagCount:     1,
+			keyLen:       3,
+			valueLen:     257,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "50_tags_ok",
+			tagCount:     50,
+			keyLen:       3,
+			valueLen:     1,
+			wantStatus:   http.StatusOK,
+			wantContains: "CreateDBClusterResponse",
+		},
+		{
+			name:         "51_tags_fails",
+			tagCount:     51,
+			keyLen:       3,
+			valueLen:     1,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"tag-cluster"},
+				"Engine":              {"docdb"},
+			}
+			for i := range tt.tagCount {
+				vals.Set(fmt.Sprintf("Tags.Tag.%d.Key", i+1), fmt.Sprintf("%s%d", strings.Repeat("k", tt.keyLen-1), i))
+				vals.Set(fmt.Sprintf("Tags.Tag.%d.Value", i+1), strings.Repeat("v", tt.valueLen))
+			}
+			rr := doRequest(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_AddTagsToResource_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		tagCount     int
+		keyLen       int
+		valueLen     int
+		wantStatus   int
+	}{
+		{
+			name:         "valid_tag",
+			tagCount:     1,
+			keyLen:       3,
+			valueLen:     4,
+			wantStatus:   http.StatusOK,
+			wantContains: "AddTagsToResourceResponse",
+		},
+		{
+			name:         "key_too_long",
+			tagCount:     1,
+			keyLen:       129,
+			valueLen:     1,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "value_too_long",
+			tagCount:     1,
+			keyLen:       3,
+			valueLen:     257,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "51_tags_fails",
+			tagCount:     51,
+			keyLen:       3,
+			valueLen:     1,
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"tag-cluster"},
+				"Engine":              {"docdb"},
+			})
+			clusters, err := h.Backend.DescribeDBClusters("tag-cluster")
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
+			clusterARN := clusters[0].DBClusterArn
+
+			vals := url.Values{
+				"Action":       {"AddTagsToResource"},
+				"Version":      {"2014-10-31"},
+				"ResourceName": {clusterARN},
+			}
+			for i := range tt.tagCount {
+				vals.Set(fmt.Sprintf("Tags.Tag.%d.Key", i+1), fmt.Sprintf("%s%d", strings.Repeat("k", tt.keyLen-1), i))
+				vals.Set(fmt.Sprintf("Tags.Tag.%d.Value", i+1), strings.Repeat("v", tt.valueLen))
+			}
+			rr := doRequest(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestAudit2_BackupRetentionPeriod_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		retention    string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "valid_7",
+			retention:    "7",
+			wantStatus:   http.StatusOK,
+			wantContains: "<BackupRetentionPeriod>7</BackupRetentionPeriod>",
+		},
+		{
+			name:         "valid_35",
+			retention:    "35",
+			wantStatus:   http.StatusOK,
+			wantContains: "<BackupRetentionPeriod>35</BackupRetentionPeriod>",
+		},
+		{
+			name:         "too_large_36",
+			retention:    "36",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "default_1",
+			retention:    "",
+			wantStatus:   http.StatusOK,
+			wantContains: "<BackupRetentionPeriod>1</BackupRetentionPeriod>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			vals := url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"brp-cluster"},
+				"Engine":              {"docdb"},
+			}
+			if tt.retention != "" {
+				vals.Set("BackupRetentionPeriod", tt.retention)
+			}
+			rr := doRequest(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})
