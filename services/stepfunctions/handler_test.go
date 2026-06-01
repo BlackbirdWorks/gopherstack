@@ -253,7 +253,8 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 				sfnPost(ctx, t, h, e, "CreateStateMachine",
 					makeSMBody("dup", validPassDef, ""))
 			},
-			body:     makeSMBody("dup", validPassDef, ""),
+			// Different definition → StateMachineAlreadyExists (same def would be idempotent).
+			body:     makeSMBody("dup", `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`, ""),
 			wantCode: http.StatusConflict,
 		},
 		{

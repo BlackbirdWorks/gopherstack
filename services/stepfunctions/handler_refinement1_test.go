@@ -221,7 +221,8 @@ func TestRefinement1_Reset(t *testing.T) {
 	assert.Equal(t, 0, b.StateMachineCount())
 }
 
-// TestRefinement1_CreateStateMachineAlreadyExists verifies duplicate state machine creation returns error.
+// TestRefinement1_CreateStateMachineAlreadyExists verifies duplicate state machine creation with
+// different definition returns error; same definition is idempotent.
 func TestRefinement1_CreateStateMachineAlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -229,7 +230,8 @@ func TestRefinement1_CreateStateMachineAlreadyExists(t *testing.T) {
 	_, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
-	_, err = b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
+	_, err = b.CreateStateMachine("sm1", altDef, "arn:role", "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }

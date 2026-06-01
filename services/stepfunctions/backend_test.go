@@ -36,16 +36,17 @@ func TestCreateStateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErr    error
-		name       string
-		smName     string
-		definition string
-		roleArn    string
-		smType     string
-		wantName   string
-		wantStatus string
-		wantType   string
-		preCreate  bool
+		wantErr             error
+		name                string
+		smName              string
+		definition          string
+		preCreateDefinition string // if set, used for the preCreate call instead of definition
+		roleArn             string
+		smType              string
+		wantName            string
+		wantStatus          string
+		wantType            string
+		preCreate           bool
 	}{
 		{
 			name:       "basic",
@@ -66,13 +67,14 @@ func TestCreateStateMachine(t *testing.T) {
 			wantType:   "STANDARD",
 		},
 		{
-			name:       "AlreadyExists",
-			smName:     "dup-sm",
-			definition: passDefinition,
-			roleArn:    "arn:role",
-			smType:     "STANDARD",
-			preCreate:  true,
-			wantErr:    stepfunctions.ErrStateMachineAlreadyExists,
+			name:                "AlreadyExists",
+			smName:              "dup-sm",
+			preCreateDefinition: passDefinition,
+			definition:          `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`,
+			roleArn:             "arn:role",
+			smType:              "STANDARD",
+			preCreate:           true,
+			wantErr:             stepfunctions.ErrStateMachineAlreadyExists,
 		},
 		{
 			name:       "InvalidDefinition",
@@ -98,7 +100,11 @@ func TestCreateStateMachine(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			if tt.preCreate {
-				_, err := b.CreateStateMachine(tt.smName, tt.definition, tt.roleArn, tt.smType)
+				preCreateDef := tt.definition
+				if tt.preCreateDefinition != "" {
+					preCreateDef = tt.preCreateDefinition
+				}
+				_, err := b.CreateStateMachine(tt.smName, preCreateDef, tt.roleArn, tt.smType)
 				require.NoError(t, err)
 			}
 
