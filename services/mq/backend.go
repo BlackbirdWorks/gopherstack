@@ -75,6 +75,30 @@ const (
 	// AWS MQ rejects configuration data larger than 250 KiB; we enforce the same limit
 	// to avoid unbounded memory growth from a malicious or buggy client.
 	maxConfigurationDataBytes = 256 * 1024
+
+	// maxActiveMQUsers is the maximum number of users per ActiveMQ broker.
+	// AWS MQ enforces a hard limit of 250 users per ActiveMQ broker.
+	maxActiveMQUsers = 250
+
+	// maxUserGroups is the maximum number of groups a single ActiveMQ user may belong to.
+	// AWS MQ enforces a limit of 20 groups per user.
+	maxUserGroups = 20
+
+	// maxTagsPerResource is the maximum number of tags per resource.
+	// AWS MQ enforces a limit of 50 tags per broker or configuration.
+	maxTagsPerResource = 50
+
+	// maxTagKeyLen is the maximum length of a tag key in bytes.
+	maxTagKeyLen = 128
+
+	// maxTagValueLen is the maximum length of a tag value in bytes.
+	maxTagValueLen = 256
+
+	// minUsernameLen is the minimum length of a broker user username.
+	minUsernameLen = 2
+
+	// maxUsernameLen is the maximum length of a broker user username.
+	maxUsernameLen = 100
 )
 
 // validateCreateBrokerInput validates the three most commonly invalid fields in
@@ -180,6 +204,95 @@ func validateActiveMQPassword(password string) error {
 			"%w: ActiveMQ password must contain at least %d unique characters (got %d)",
 			ErrValidation, minPasswordUniqueChars, len(unique),
 		)
+	}
+
+	return nil
+}
+
+// validateUsername enforces AWS MQ broker username constraints:
+// 2-100 characters, must start with alphanumeric, only alphanumeric, hyphens,
+// and underscores allowed, no commas or colons.
+func validateUsername(username string) error {
+	if len(username) < minUsernameLen || len(username) > maxUsernameLen {
+		return fmt.Errorf(
+			"%w: username must be %d-%d characters (got %d)",
+			ErrValidation, minUsernameLen, maxUsernameLen, len(username),
+		)
+	}
+
+	if !isAlphanumeric(rune(username[0])) {
+		return fmt.Errorf("%w: username must start with an alphanumeric character", ErrValidation)
+	}
+
+	for _, c := range username {
+		if !isAlphanumeric(c) && c != '-' && c != '_' {
+			return fmt.Errorf(
+				"%w: username must contain only alphanumeric characters, hyphens, and underscores, got %q",
+				ErrValidation, c,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateTagKey enforces AWS MQ tag key constraints: 1-128 characters.
+func validateTagKey(key string) error {
+	if len(key) < 1 || len(key) > maxTagKeyLen {
+		return fmt.Errorf(
+			"%w: tag key must be 1-%d characters (got %d)",
+			ErrValidation, maxTagKeyLen, len(key),
+		)
+	}
+
+	return nil
+}
+
+// validateTagValue enforces AWS MQ tag value constraints: 0-256 characters.
+func validateTagValue(value string) error {
+	if len(value) > maxTagValueLen {
+		return fmt.Errorf(
+			"%w: tag value must be 0-%d characters (got %d)",
+			ErrValidation, maxTagValueLen, len(value),
+		)
+	}
+
+	return nil
+}
+
+// validateTagsMap checks that all tag keys and values satisfy AWS MQ limits.
+func validateTagsMap(tags map[string]string) error {
+	for k, v := range tags {
+		if err := validateTagKey(k); err != nil {
+			return err
+		}
+
+		if err := validateTagValue(v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateActiveMQUserConstraints checks ActiveMQ-specific user creation limits.
+func validateActiveMQUserConstraints(currentUsers, groupCount int, password string) error {
+	if currentUsers >= maxActiveMQUsers {
+		return fmt.Errorf(
+			"%w: ActiveMQ broker cannot have more than %d users",
+			ErrValidation, maxActiveMQUsers,
+		)
+	}
+
+	if groupCount > maxUserGroups {
+		return fmt.Errorf(
+			"%w: user groups must not exceed %d (got %d)",
+			ErrValidation, maxUserGroups, groupCount,
+		)
+	}
+
+	if password != "" {
+		return validateActiveMQPassword(password)
 	}
 
 	return nil
@@ -416,12 +529,16 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	tags map[string]string,
 	opts *CreateBrokerOptions,
 ) (*Broker, error) {
-	b.mu.Lock("CreateBroker")
-	defer b.mu.Unlock()
-
 	if err := validateCreateBrokerInput(name, deploymentMode, engineType); err != nil {
 		return nil, err
 	}
+
+	if err := validateTagsMap(tags); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateBroker")
+	defer b.mu.Unlock()
 
 	// Idempotency: a retry with the same CreatorRequestId returns the existing broker.
 	if opts != nil && opts.CreatorRequestID != "" {
@@ -834,6 +951,10 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 
 // CreateUser creates a user on a broker.
 func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups []string, console bool) error {
+	if err := validateUsername(username); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -846,8 +967,8 @@ func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups
 		return fmt.Errorf("%w: user %s already exists on broker %s", ErrAlreadyExists, username, brokerID)
 	}
 
-	if br.EngineType == EngineTypeActiveMQ && password != "" {
-		if err := validateActiveMQPassword(password); err != nil {
+	if br.EngineType == EngineTypeActiveMQ {
+		if err := validateActiveMQUserConstraints(len(br.Users), len(groups), password); err != nil {
 			return err
 		}
 	}
@@ -908,6 +1029,13 @@ func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups
 	}
 
 	if groups != nil {
+		if br.EngineType == EngineTypeActiveMQ && len(groups) > maxUserGroups {
+			return fmt.Errorf(
+				"%w: user groups must not exceed %d (got %d)",
+				ErrValidation, maxUserGroups, len(groups),
+			)
+		}
+
 		u.Groups = groups
 	}
 
@@ -964,6 +1092,10 @@ func (b *InMemoryBackend) CreateConfiguration(
 	name, description, engineType, engineVersion string,
 	tags map[string]string,
 ) (*Configuration, error) {
+	if err := validateTagsMap(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 
@@ -1337,15 +1469,38 @@ func (b *InMemoryBackend) ListTags(resourceARN string) map[string]string {
 // CreateTags adds or updates tags for a resource ARN.
 // Note: b.tags[arn] and the corresponding broker/config Tags field share
 // the same map pointer, so a single write here updates both automatically.
-func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string) {
+func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string) error {
+	if err := validateTagsMap(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
-	if b.tags[resourceARN] == nil {
-		b.tags[resourceARN] = make(map[string]string)
+	existing := b.tags[resourceARN]
+	if existing == nil {
+		existing = make(map[string]string)
+		b.tags[resourceARN] = existing
 	}
 
-	maps.Copy(b.tags[resourceARN], tags)
+	// Count how many new distinct keys will be added.
+	newCount := 0
+	for k := range tags {
+		if _, ok := existing[k]; !ok {
+			newCount++
+		}
+	}
+
+	if len(existing)+newCount > maxTagsPerResource {
+		return fmt.Errorf(
+			"%w: resource cannot have more than %d tags",
+			ErrValidation, maxTagsPerResource,
+		)
+	}
+
+	maps.Copy(existing, tags)
+
+	return nil
 }
 
 // DeleteTags removes the specified tag keys from a resource ARN.

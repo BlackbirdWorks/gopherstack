@@ -1005,7 +1005,9 @@ func (h *Handler) handleCreateTags(c *echo.Context, resourceARN string, body []b
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	h.Backend.CreateTags(resourceARN, in.Tags)
+	if err := h.Backend.CreateTags(resourceARN, in.Tags); err != nil {
+		return h.writeError(c, err)
+	}
 
 	return c.NoContent(http.StatusOK)
 }
