@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -26,6 +27,11 @@ const (
 	keyCrossClusterSearchConnection = "CrossClusterSearchConnection"
 	minimumInstanceCount            = 1
 	maximumInstanceCount            = 20
+
+	maxTagKeyLen           = 128
+	maxTagValueLen         = 256
+	maxTagsPerResource     = 50
+	maxDescribeDomainNames = 5
 )
 
 const (
@@ -994,6 +1000,13 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 		return
 	}
 
+	if len(req.DomainNames) > maxDescribeDomainNames {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("DescribeElasticsearchDomains accepts a maximum of %d domain names", maxDescribeDomainNames))
+
+		return
+	}
+
 	list := make([]domainStatusJSON, 0, len(req.DomainNames))
 
 	for _, name := range req.DomainNames {
@@ -1179,9 +1192,35 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, t := range req.TagList {
+		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+				fmt.Sprintf("tag key must be 1-%d characters", maxTagKeyLen))
+
+			return
+		}
+
+		if len(t.Value) > maxTagValueLen {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+				fmt.Sprintf("tag value must be 0-%d characters", maxTagValueLen))
+
+			return
+		}
+	}
+
 	tagMap := make(map[string]string, len(req.TagList))
 	for _, t := range req.TagList {
 		tagMap[t.Key] = t.Value
+	}
+
+	existing, _ := h.Backend.ListTags(req.ARN)
+	maps.Copy(existing, tagMap)
+
+	if len(existing) > maxTagsPerResource {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("resource cannot have more than %d tags", maxTagsPerResource))
+
+		return
 	}
 
 	_ = h.Backend.AddTags(req.ARN, tagMap)

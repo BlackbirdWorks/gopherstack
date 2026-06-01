@@ -41,6 +41,38 @@ var (
 // 3–28 lowercase alphanumeric characters or hyphens, must start with a letter.
 var domainNameRe = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
 
+// validElasticsearchVersions is the set of versions accepted by AWS Elasticsearch Service.
+var validElasticsearchVersions = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"1.5":  true,
+	"2.3":  true,
+	"5.1":  true,
+	"5.3":  true,
+	"5.5":  true,
+	"5.6":  true,
+	"6.0":  true,
+	"6.2":  true,
+	"6.3":  true,
+	"6.4":  true,
+	"6.5":  true,
+	"6.7":  true,
+	"6.8":  true,
+	"7.1":  true,
+	"7.4":  true,
+	"7.7":  true,
+	"7.8":  true,
+	"7.9":  true,
+	"7.10": true,
+	"7.13": true,
+	"7.16": true,
+	"7.17": true,
+}
+
+// validPackageTypes is the set of package types accepted by AWS Elasticsearch Service.
+var validPackageTypes = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"TXT-DICTIONARY": true,
+	"ZIP-PLUGIN":     true,
+}
+
 // Package represents an Elasticsearch package (e.g., a custom dictionary or synonym file).
 type Package struct {
 	ID          string `json:"packageID"`
@@ -219,6 +251,8 @@ func (b *InMemoryBackend) CreateDomain(
 
 	if esVersion == "" {
 		esVersion = defaultElasticsearchVersion
+	} else if !validElasticsearchVersions[esVersion] {
+		return nil, fmt.Errorf("%w: invalid ElasticsearchVersion %q", ErrValidation, esVersion)
 	}
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
@@ -414,6 +448,14 @@ func (b *InMemoryBackend) nextIDLocked() int {
 func (b *InMemoryBackend) CreatePackage(name, packageType, description string) (*Package, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: PackageName is required", ErrValidation)
+	}
+
+	if !validPackageTypes[packageType] {
+		return nil, fmt.Errorf(
+			"%w: PackageType must be TXT-DICTIONARY or ZIP-PLUGIN, got %q",
+			ErrValidation,
+			packageType,
+		)
 	}
 
 	b.mu.Lock("CreatePackage")
