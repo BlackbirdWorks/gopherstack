@@ -41,7 +41,44 @@ const (
 	stateDeleting         = "DELETING"
 	stateProvisioning     = "PROVISIONING"
 	stateActive           = "ACTIVE"
+
+	// maxNameLen is the maximum length (in characters) for Glue resource names.
+	// AWS enforces a 255-character limit for database, table, crawler, and job names.
+	maxNameLen = 255
+
+	// maxTagsPerResource is the maximum number of tags allowed per Glue resource.
+	maxTagsPerResource = 50
+
+	// maxTagKeyLen is the maximum byte length of a tag key.
+	maxTagKeyLen = 128
+
+	// maxTagValueLen is the maximum byte length of a tag value.
+	maxTagValueLen = 256
+
+	// maxJobRetries is the maximum value for MaxRetries on a Glue job.
+	maxJobRetries = 10
+
+	// maxBatchCreatePartitions is the maximum number of partitions per BatchCreatePartition call.
+	maxBatchCreatePartitions = 100
 )
+
+// validateTags checks that tags conform to AWS Glue limits:
+// max 50 tags, key 1-128 chars, value 0-256 chars.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: too many tags: maximum is %d", ErrValidation, maxTagsPerResource)
+	}
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key length must be 1-%d", ErrValidation, maxTagKeyLen)
+		}
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value length must be 0-%d", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
@@ -579,8 +616,12 @@ func (b *InMemoryBackend) CreateDatabase(input DatabaseInput, tags map[string]st
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
-	if input.Name == "" {
+	if input.Name == "" || len(input.Name) > maxNameLen {
 		return nil, ErrValidation
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	if _, ok := b.databases[input.Name]; ok {
@@ -812,8 +853,12 @@ func (b *InMemoryBackend) CreateCrawler(
 	b.mu.Lock("CreateCrawler")
 	defer b.mu.Unlock()
 
-	if name == "" || role == "" {
+	if name == "" || len(name) > maxNameLen || role == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	if dbName != "" {
@@ -900,8 +945,13 @@ func (b *InMemoryBackend) DeleteCrawler(name string) error {
 	b.mu.Lock("DeleteCrawler")
 	defer b.mu.Unlock()
 
-	if _, ok := b.crawlers[name]; !ok {
+	c, ok := b.crawlers[name]
+	if !ok {
 		return ErrNotFound
+	}
+
+	if c.State == stateRunning || c.State == stateStarting || c.State == stateStopping {
+		return ErrCrawlerRunning
 	}
 
 	delete(b.crawlers, name)
@@ -916,8 +966,20 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
-	if input.Name == "" || input.Role == "" {
+	if input.Name == "" || len(input.Name) > maxNameLen || input.Role == "" {
 		return nil, ErrValidation
+	}
+
+	if input.Command.Name == "" {
+		return nil, fmt.Errorf("%w: Command.Name is required", ErrValidation)
+	}
+
+	if input.MaxRetries < 0 || input.MaxRetries > maxJobRetries {
+		return nil, fmt.Errorf("%w: MaxRetries must be between 0 and %d", ErrValidation, maxJobRetries)
+	}
+
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
 	}
 
 	if _, ok := b.jobs[input.Name]; ok {
@@ -984,6 +1046,10 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 		return ErrNotFound
 	}
 
+	if input.MaxRetries < 0 || input.MaxRetries > maxJobRetries {
+		return fmt.Errorf("%w: MaxRetries must be between 0 and %d", ErrValidation, maxJobRetries)
+	}
+
 	j.Description = input.Description
 	j.Role = input.Role
 	j.Command = input.Command
@@ -1022,6 +1088,10 @@ func (b *InMemoryBackend) DeleteJob(name string) error {
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	if err := validateTags(tags); err != nil {
+		return err
+	}
 
 	return b.tagResource(resourceARN, tags)
 }

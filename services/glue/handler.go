@@ -1123,6 +1123,10 @@ func (h *Handler) handleBatchCreatePartition(
 	_ context.Context,
 	in *batchCreatePartitionInput,
 ) (*batchCreatePartitionOutput, error) {
+	if len(in.PartitionInputList) > maxBatchCreatePartitions {
+		return nil, fmt.Errorf("%w: too many partitions: maximum is %d", ErrValidation, maxBatchCreatePartitions)
+	}
+
 	created, errs := h.Backend.BatchCreatePartition(in.DatabaseName, in.TableName, in.PartitionInputList)
 
 	return &batchCreatePartitionOutput{Partitions: created, Errors: errs}, nil

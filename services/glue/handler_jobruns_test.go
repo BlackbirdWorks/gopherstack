@@ -42,7 +42,11 @@ func TestHandlerJobRuns_StartJobRun(t *testing.T) {
 					t,
 					h,
 					"CreateJob",
-					map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+					map[string]any{
+						"Name":    "my-job",
+						"Role":    "arn:aws:iam::000000000000:role/r",
+						"Command": map[string]any{"Name": "glueetl"},
+					},
 				)
 			}
 
@@ -89,7 +93,11 @@ func TestHandlerJobRuns_GetJobRun(t *testing.T) {
 				t,
 				h,
 				"CreateJob",
-				map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+				map[string]any{
+					"Name":    "my-job",
+					"Role":    "arn:aws:iam::000000000000:role/r",
+					"Command": map[string]any{"Name": "glueetl"},
+				},
 			)
 
 			runID := tt.runID
@@ -138,7 +146,11 @@ func TestHandlerJobRuns_GetJobRuns(t *testing.T) {
 				t,
 				h,
 				"CreateJob",
-				map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+				map[string]any{
+					"Name":    "my-job",
+					"Role":    "arn:aws:iam::000000000000:role/r",
+					"Command": map[string]any{"Name": "glueetl"},
+				},
 			)
 
 			for range tt.numRuns {
@@ -189,7 +201,11 @@ func TestHandlerJobRuns_BatchStopJobRun(t *testing.T) {
 				t,
 				h,
 				"CreateJob",
-				map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+				map[string]any{
+					"Name":    "my-job",
+					"Role":    "arn:aws:iam::000000000000:role/r",
+					"Command": map[string]any{"Name": "glueetl"},
+				},
 			)
 
 			startRec := doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "my-job"})
@@ -239,7 +255,11 @@ func TestHandlerJobRuns_GetJobBookmark(t *testing.T) {
 				t,
 				h,
 				"CreateJob",
-				map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+				map[string]any{
+					"Name":    "my-job",
+					"Role":    "arn:aws:iam::000000000000:role/r",
+					"Command": map[string]any{"Name": "glueetl"},
+				},
 			)
 
 			rec := doGlueRequest(t, h, "GetJobBookmark", map[string]any{"JobName": tt.jobName})
@@ -275,7 +295,11 @@ func TestHandlerJobRuns_ResetJobBookmark(t *testing.T) {
 				t,
 				h,
 				"CreateJob",
-				map[string]any{"Name": "my-job", "Role": "arn:aws:iam::000000000000:role/r"},
+				map[string]any{
+					"Name":    "my-job",
+					"Role":    "arn:aws:iam::000000000000:role/r",
+					"Command": map[string]any{"Name": "glueetl"},
+				},
 			)
 
 			rec := doGlueRequest(t, h, "ResetJobBookmark", map[string]any{"JobName": "my-job"})
