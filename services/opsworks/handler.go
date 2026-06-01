@@ -19,6 +19,13 @@ const (
 	opsworksTargetPrefix = "OpsWorks_20130218."
 	matchPriority        = service.PriorityHeaderExact
 	contentType          = "application/x-amz-json-1.1"
+
+	keyStackID   = "StackId"
+	keyArn       = "Arn"
+	keyName      = "Name"
+	keyStatus    = "Status"
+	keyCreatedAt = "CreatedAt"
+	keyType      = "Type"
 )
 
 var (
@@ -207,7 +214,7 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 		return nil, err
 	}
 
-	return map[string]any{"StackId": stack.StackID}, nil
+	return map[string]any{keyStackID: stack.StackID}, nil
 }
 
 // handleDescribeStacks handles DescribeStacks requests.
@@ -684,14 +691,14 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 	result := make([]map[string]any, 0, len(stacks))
 	for _, s := range stacks {
 		result = append(result, map[string]any{
-			"StackId":                  s.StackID,
-			"Arn":                      s.Arn,
-			"Name":                     s.Name,
+			keyStackID:                 s.StackID,
+			keyArn:                     s.Arn,
+			keyName:                    s.Name,
 			"Region":                   s.Region,
 			"DefaultInstanceProfileArn": s.DefaultInstanceProfileArn,
 			"ServiceRoleArn":           s.ServiceRoleArn,
-			"Status":                   s.Status,
-			"CreatedAt":                s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyStatus:                  s.Status,
+			keyCreatedAt:               s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -703,12 +710,12 @@ func layersToJSON(layers []*Layer) []map[string]any {
 	for _, l := range layers {
 		result = append(result, map[string]any{
 			"LayerId":   l.LayerID,
-			"StackId":   l.StackID,
-			"Arn":       l.Arn,
-			"Type":      l.Type,
-			"Name":      l.Name,
+			keyStackID:  l.StackID,
+			keyArn:      l.Arn,
+			keyType:     l.Type,
+			keyName:     l.Name,
 			"Shortname": l.Shortname,
-			"CreatedAt": l.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt: l.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -720,13 +727,13 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 	for _, i := range instances {
 		result = append(result, map[string]any{
 			"InstanceId":   i.InstanceID,
-			"StackId":      i.StackID,
+			keyStackID:     i.StackID,
 			"LayerId":      i.LayerID,
-			"Arn":          i.Arn,
+			keyArn:         i.Arn,
 			"Hostname":     i.Hostname,
 			"InstanceType": i.InstanceType,
-			"Status":       i.Status,
-			"CreatedAt":    i.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyStatus:      i.Status,
+			keyCreatedAt:   i.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -737,12 +744,12 @@ func appsToJSON(apps []*App) []map[string]any {
 	result := make([]map[string]any, 0, len(apps))
 	for _, a := range apps {
 		result = append(result, map[string]any{
-			"AppId":     a.AppID,
-			"StackId":   a.StackID,
-			"Arn":       a.Arn,
-			"Name":      a.Name,
-			"Type":      a.Type,
-			"CreatedAt": a.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			"AppId":    a.AppID,
+			keyStackID: a.StackID,
+			keyArn:     a.Arn,
+			keyName:    a.Name,
+			keyType:    a.Type,
+			keyCreatedAt: a.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -754,12 +761,12 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 	for _, d := range deployments {
 		result = append(result, map[string]any{
 			"DeploymentId": d.DeploymentID,
-			"StackId":      d.StackID,
+			keyStackID:     d.StackID,
 			"AppId":        d.AppID,
-			"Command":      map[string]any{"Name": d.Command},
-			"Status":       d.Status,
+			"Command":      map[string]any{keyName: d.Command},
+			keyStatus:      d.Status,
 			"Duration":     d.Duration,
-			"CreatedAt":    d.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:   d.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 			"CompletedAt":  d.CompletedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
@@ -774,11 +781,11 @@ func commandsToJSON(commands []*Command) []map[string]any {
 			"CommandId":      c.CommandID,
 			"DeploymentId":   c.DeploymentID,
 			"InstanceId":     c.InstanceID,
-			"Type":           c.Type,
-			"Status":         c.Status,
+			keyType:          c.Type,
+			keyStatus:        c.Status,
 			"ExitCode":       c.ExitCode,
 			"LogUrl":         c.LogURL,
-			"CreatedAt":      c.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:     c.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 			"AcknowledgedAt": c.AcknowledgedAt.Format("2006-01-02T15:04:05+00:00"),
 			"CompletedAt":    c.CompletedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
