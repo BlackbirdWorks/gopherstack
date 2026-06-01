@@ -262,6 +262,20 @@ func (b *InMemoryBackend) CreateMembers(
 	accounts []Account,
 	_ string,
 ) ([]*MemberDetail, []UnprocessedAccount, error) {
+	if len(accounts) > maxCreateMembersPerBatch {
+		return nil, nil, fmt.Errorf("%w: cannot specify more than %d accounts", ErrValidation, maxCreateMembersPerBatch)
+	}
+
+	for _, acc := range accounts {
+		if !validateAccountID(acc.AccountID) {
+			return nil, nil, fmt.Errorf("%w: account ID must be a 12-digit number", ErrValidation)
+		}
+
+		if acc.EmailAddress != "" && !validateEmail(acc.EmailAddress) {
+			return nil, nil, fmt.Errorf("%w: invalid email address format", ErrValidation)
+		}
+	}
+
 	b.mu.Lock("CreateMembers")
 	defer b.mu.Unlock()
 
@@ -429,6 +443,10 @@ func (b *InMemoryBackend) ListMembers(
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -436,10 +454,24 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return ErrGraphNotFound
 	}
 
-	if b.tags[resourceARN] == nil {
-		b.tags[resourceARN] = make(map[string]string)
+	existing := b.tags[resourceARN]
+	if existing == nil {
+		existing = make(map[string]string)
+		b.tags[resourceARN] = existing
 	}
-	maps.Copy(b.tags[resourceARN], tags)
+
+	newCount := len(existing)
+	for k := range tags {
+		if _, alreadyExists := existing[k]; !alreadyExists {
+			newCount++
+		}
+	}
+
+	if newCount > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed the %d tag limit", ErrValidation, maxTagCount)
+	}
+
+	maps.Copy(existing, tags)
 
 	return nil
 }
