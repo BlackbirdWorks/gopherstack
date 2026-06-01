@@ -1,6 +1,7 @@
 package efs_test
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -68,8 +69,8 @@ func TestAudit2_DescribeFileSystems_NotFound(t *testing.T) {
 	tests := []struct {
 		name       string
 		fsID       string
-		wantStatus int
 		wantErr    string
+		wantStatus int
 	}{
 		{
 			name:       "nonexistent_id_returns_404",
@@ -129,9 +130,9 @@ func TestAudit2_CreateTags_Validates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		tags      map[string]string
 		name      string
-		wantErrIs error
 		wantErr   bool
 	}{
 		{
@@ -158,6 +159,7 @@ func TestAudit2_CreateTags_Validates(t *testing.T) {
 				for i := range 51 {
 					m[strings.Repeat("k", i+1)] = "v"
 				}
+
 				return m
 			}(),
 			wantErr:   true,
@@ -189,8 +191,8 @@ func TestAudit2_CreateReplicationConfiguration_DestinationCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		destinations []map[string]any
 		name         string
+		destinations []map[string]any
 		wantStatus   int
 	}{
 		{
@@ -269,9 +271,7 @@ func TestAudit2_CreateMountTarget_SubnetIDRequired(t *testing.T) {
 			fsID := createFS(t, h, "mt-subnet-"+tt.name)
 
 			body := map[string]any{"FileSystemId": fsID}
-			for k, v := range tt.body {
-				body[k] = v
-			}
+			maps.Copy(body, tt.body)
 
 			rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/mount-targets", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)

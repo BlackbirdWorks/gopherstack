@@ -57,8 +57,8 @@ const (
 
 	throughputCooldown = 24 * time.Hour
 
-	maxCreationTokenLen          = 64
-	maxReplicationDestinations   = 1
+	maxCreationTokenLen        = 64
+	maxReplicationDestinations = 1
 )
 
 func isValidTransitionToIA(v string) bool {
