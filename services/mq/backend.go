@@ -275,6 +275,29 @@ func validateTagsMap(tags map[string]string) error {
 	return nil
 }
 
+// validateActiveMQUserConstraints checks ActiveMQ-specific user creation limits.
+func validateActiveMQUserConstraints(currentUsers, groupCount int, password string) error {
+	if currentUsers >= maxActiveMQUsers {
+		return fmt.Errorf(
+			"%w: ActiveMQ broker cannot have more than %d users",
+			ErrValidation, maxActiveMQUsers,
+		)
+	}
+
+	if groupCount > maxUserGroups {
+		return fmt.Errorf(
+			"%w: user groups must not exceed %d (got %d)",
+			ErrValidation, maxUserGroups, groupCount,
+		)
+	}
+
+	if password != "" {
+		return validateActiveMQPassword(password)
+	}
+
+	return nil
+}
+
 // BrokerInstance holds endpoint information for a broker instance.
 type BrokerInstance struct {
 	ConsoleURL string   `json:"consoleURL"`
@@ -516,9 +539,6 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 
 	b.mu.Lock("CreateBroker")
 	defer b.mu.Unlock()
-
-	// validateCreateBrokerInput already ran; skip duplicate check before early lock.
-	_ = name
 
 	// Idempotency: a retry with the same CreatorRequestId returns the existing broker.
 	if opts != nil && opts.CreatorRequestID != "" {
@@ -948,24 +968,8 @@ func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups
 	}
 
 	if br.EngineType == EngineTypeActiveMQ {
-		if len(br.Users) >= maxActiveMQUsers {
-			return fmt.Errorf(
-				"%w: ActiveMQ broker cannot have more than %d users",
-				ErrValidation, maxActiveMQUsers,
-			)
-		}
-
-		if len(groups) > maxUserGroups {
-			return fmt.Errorf(
-				"%w: user groups must not exceed %d (got %d)",
-				ErrValidation, maxUserGroups, len(groups),
-			)
-		}
-
-		if password != "" {
-			if err := validateActiveMQPassword(password); err != nil {
-				return err
-			}
+		if err := validateActiveMQUserConstraints(len(br.Users), len(groups), password); err != nil {
+			return err
 		}
 	}
 
@@ -1088,6 +1092,10 @@ func (b *InMemoryBackend) CreateConfiguration(
 	name, description, engineType, engineVersion string,
 	tags map[string]string,
 ) (*Configuration, error) {
+	if err := validateTagsMap(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 

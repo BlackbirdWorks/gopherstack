@@ -20,12 +20,12 @@ func newAudit2Handler(t *testing.T) *mq.Handler {
 	return mq.NewHandler(mq.NewInMemoryBackend("123456789012", "us-east-1"))
 }
 
-func createAudit2Broker(t *testing.T, h *mq.Handler, name, engineType string) string {
+func createAudit2Broker(t *testing.T, h *mq.Handler, name string) string {
 	t.Helper()
 
 	rec := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", map[string]any{
 		"brokerName": name,
-		"engineType": engineType,
+		"engineType": mq.EngineTypeActiveMQ,
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker failed: %s", rec.Body.String())
 
@@ -109,7 +109,7 @@ func TestMQ_Audit2_UsernameValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newAudit2Handler(t)
-			bid := createAudit2Broker(t, h, "test-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "test-broker")
 
 			rec := doAccuracyMQ(t, h, http.MethodPost,
 				fmt.Sprintf("/v1/brokers/%s/users/%s", bid, tt.username),
@@ -194,10 +194,10 @@ func TestMQ_Audit2_ActiveMQ_MaxUsers(t *testing.T) {
 			b := mq.NewInMemoryBackend("123456789012", "us-east-1")
 			h := mq.NewHandler(b)
 
-			bid := createAudit2Broker(t, h, "big-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "big-broker")
 
 			// Seed users up to tt.count-1 via backend to avoid HTTP overhead.
-			for i := 0; i < tt.count-1; i++ {
+			for i := range tt.count - 1 {
 				err := b.CreateUser(bid, fmt.Sprintf("user%04d", i), "ValidPass12!!", nil, false)
 				require.NoError(t, err)
 			}
@@ -249,7 +249,7 @@ func TestMQ_Audit2_ActiveMQ_MaxGroups(t *testing.T) {
 			t.Parallel()
 
 			h := newAudit2Handler(t)
-			bid := createAudit2Broker(t, h, "groups-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "groups-broker")
 
 			body := map[string]any{"password": "ValidPass12!!"}
 			if tt.groups != nil {
@@ -294,7 +294,7 @@ func TestMQ_Audit2_UpdateUser_MaxGroups(t *testing.T) {
 			t.Parallel()
 
 			h := newAudit2Handler(t)
-			bid := createAudit2Broker(t, h, "upd-groups-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "upd-groups-broker")
 
 			// Create user first.
 			rec := doAccuracyMQ(t, h, http.MethodPost,
@@ -368,7 +368,7 @@ func TestMQ_Audit2_CreateTags_KeyValueValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newAudit2Handler(t)
-			bid := createAudit2Broker(t, h, "tag-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "tag-broker")
 
 			// Get the broker ARN.
 			descRec := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -393,10 +393,10 @@ func TestMQ_Audit2_CreateTags_MaxTagsPerResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		existing  int
-		addTags   map[string]string
-		wantCode  int
+		addTags  map[string]string
+		name     string
+		wantCode int
+		existing int
 	}{
 		{
 			name:     "adding tags when at 49 (to reach 50) succeeds",
@@ -425,7 +425,7 @@ func TestMQ_Audit2_CreateTags_MaxTagsPerResource(t *testing.T) {
 			b := mq.NewInMemoryBackend("123456789012", "us-east-1")
 			h := mq.NewHandler(b)
 
-			bid := createAudit2Broker(t, h, "maxtag-broker", mq.EngineTypeActiveMQ)
+			bid := createAudit2Broker(t, h, "maxtag-broker")
 
 			descRec := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
 			require.Equal(t, http.StatusOK, descRec.Code)
@@ -433,7 +433,7 @@ func TestMQ_Audit2_CreateTags_MaxTagsPerResource(t *testing.T) {
 
 			// Seed existing tags directly via backend.
 			existing := make(map[string]string, tt.existing)
-			for i := 0; i < tt.existing; i++ {
+			for i := range tt.existing {
 				existing[fmt.Sprintf("tag%d", i)] = "v"
 			}
 
