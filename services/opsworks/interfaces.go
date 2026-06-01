@@ -53,15 +53,15 @@ type StorageBackend interface {
 // Stack represents an OpsWorks stack.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
 type Stack struct {
-	CreatedAt                time.Time
-	Tags                     map[string]string
-	StackID                  string
-	Arn                      string
-	Name                     string
-	Region                   string
+	CreatedAt                 time.Time
+	Tags                      map[string]string
+	StackID                   string
+	Arn                       string
+	Name                      string
+	Region                    string
 	DefaultInstanceProfileArn string
-	ServiceRoleArn           string
-	Status                   string
+	ServiceRoleArn            string
+	Status                    string
 }
 
 // Layer represents an OpsWorks layer.
@@ -124,8 +124,8 @@ type Command struct {
 	CommandID      string
 	Type           string
 	Status         string
-	ExitCode       int32
 	LogURL         string
+	ExitCode       int32
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

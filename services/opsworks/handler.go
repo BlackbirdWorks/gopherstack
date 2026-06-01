@@ -199,10 +199,10 @@ func errResp(code, message string) map[string]string {
 // handleCreateStack handles CreateStack requests.
 func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		Name                     string `json:"Name"`
-		Region                   string `json:"Region"`
+		Name                      string `json:"Name"`
+		Region                    string `json:"Region"`
 		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
-		ServiceRoleArn           string `json:"ServiceRoleArn"`
+		ServiceRoleArn            string `json:"ServiceRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -357,8 +357,8 @@ func (h *Handler) handleDeleteLayer(_ context.Context, body []byte) (any, error)
 func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		StackId      string   `json:"StackId"`
-		LayerIds     []string `json:"LayerIds"`
 		InstanceType string   `json:"InstanceType"`
+		LayerIds     []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -631,8 +631,8 @@ func (h *Handler) handleDescribeCommands(_ context.Context, body []byte) (any, e
 // handleTagResource handles TagResource requests.
 func (h *Handler) handleTagResource(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		ResourceArn string            `json:"ResourceArn"`
 		Tags        map[string]string `json:"Tags"`
+		ResourceArn string            `json:"ResourceArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -668,8 +668,8 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) (any, erro
 func (h *Handler) handleListTags(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
-		MaxResults  int32  `json:"MaxResults"`
 		NextToken   string `json:"NextToken"`
+		MaxResults  int32  `json:"MaxResults"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -695,14 +695,14 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 	result := make([]map[string]any, 0, len(stacks))
 	for _, s := range stacks {
 		result = append(result, map[string]any{
-			keyStackID:                 s.StackID,
-			keyArn:                     s.Arn,
-			keyName:                    s.Name,
-			"Region":                   s.Region,
+			keyStackID:                  s.StackID,
+			keyArn:                      s.Arn,
+			keyName:                     s.Name,
+			"Region":                    s.Region,
 			"DefaultInstanceProfileArn": s.DefaultInstanceProfileArn,
-			"ServiceRoleArn":           s.ServiceRoleArn,
-			keyStatus:                  s.Status,
-			keyCreatedAt:               s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			"ServiceRoleArn":            s.ServiceRoleArn,
+			keyStatus:                   s.Status,
+			keyCreatedAt:                s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -713,12 +713,12 @@ func layersToJSON(layers []*Layer) []map[string]any {
 	result := make([]map[string]any, 0, len(layers))
 	for _, l := range layers {
 		result = append(result, map[string]any{
-			keyLayerID:  l.LayerID,
-			keyStackID:  l.StackID,
-			keyArn:      l.Arn,
-			keyType:     l.Type,
-			keyName:     l.Name,
-			"Shortname": l.Shortname,
+			keyLayerID:   l.LayerID,
+			keyStackID:   l.StackID,
+			keyArn:       l.Arn,
+			keyType:      l.Type,
+			keyName:      l.Name,
+			"Shortname":  l.Shortname,
 			keyCreatedAt: l.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
@@ -748,11 +748,11 @@ func appsToJSON(apps []*App) []map[string]any {
 	result := make([]map[string]any, 0, len(apps))
 	for _, a := range apps {
 		result = append(result, map[string]any{
-			keyAppID:   a.AppID,
-			keyStackID: a.StackID,
-			keyArn:     a.Arn,
-			keyName:    a.Name,
-			keyType:    a.Type,
+			keyAppID:     a.AppID,
+			keyStackID:   a.StackID,
+			keyArn:       a.Arn,
+			keyName:      a.Name,
+			keyType:      a.Type,
 			keyCreatedAt: a.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
@@ -767,11 +767,11 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 			keyDeploymentID: d.DeploymentID,
 			keyStackID:      d.StackID,
 			keyAppID:        d.AppID,
-			"Command":      map[string]any{keyName: d.Command},
-			keyStatus:      d.Status,
-			"Duration":     d.Duration,
-			keyCreatedAt:   d.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
-			"CompletedAt":  d.CompletedAt.Format("2006-01-02T15:04:05+00:00"),
+			"Command":       map[string]any{keyName: d.Command},
+			keyStatus:       d.Status,
+			"Duration":      d.Duration,
+			keyCreatedAt:    d.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			"CompletedAt":   d.CompletedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
 
@@ -782,7 +782,7 @@ func commandsToJSON(commands []*Command) []map[string]any {
 	result := make([]map[string]any, 0, len(commands))
 	for _, c := range commands {
 		result = append(result, map[string]any{
-			"CommandId":       c.CommandID,
+			"CommandId":      c.CommandID,
 			keyDeploymentID:  c.DeploymentID,
 			keyInstanceID:    c.InstanceID,
 			keyType:          c.Type,

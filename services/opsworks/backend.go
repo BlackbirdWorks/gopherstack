@@ -18,11 +18,11 @@ const (
 	errValidation       = "ValidationException"
 
 	instanceStatusStopped  = "stopped"
-	instanceStatusStarting  = "starting"
-	instanceStatusStopping  = "stopping"
-	instanceStatusOnline    = "online"
+	instanceStatusStarting = "starting"
+	instanceStatusStopping = "stopping"
+	instanceStatusOnline   = "online"
 
-	deploymentStatusRunning   = "running"
+	deploymentStatusRunning    = "running"
 	deploymentStatusSuccessful = "successful"
 
 	commandStatusSuccessful = "successful"
@@ -49,15 +49,15 @@ var (
 
 // storedStack holds a stack with all fields.
 type storedStack struct {
-	CreatedAt                time.Time         `json:"createdAt"`
-	Tags                     map[string]string `json:"tags"`
-	StackID                  string            `json:"stackId"`
-	Arn                      string            `json:"arn"`
-	Name                     string            `json:"name"`
-	Region                   string            `json:"region"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	Tags                      map[string]string `json:"tags"`
+	StackID                   string            `json:"stackId"`
+	Arn                       string            `json:"arn"`
+	Name                      string            `json:"name"`
+	Region                    string            `json:"region"`
 	DefaultInstanceProfileArn string            `json:"defaultInstanceProfileArn"`
-	ServiceRoleArn           string            `json:"serviceRoleArn"`
-	Status                   string            `json:"status"`
+	ServiceRoleArn            string            `json:"serviceRoleArn"`
+	Status                    string            `json:"status"`
 }
 
 func (s *storedStack) toStack() *Stack {
@@ -65,15 +65,15 @@ func (s *storedStack) toStack() *Stack {
 	maps.Copy(tags, s.Tags)
 
 	return &Stack{
-		CreatedAt:                s.CreatedAt,
-		Tags:                     tags,
-		StackID:                  s.StackID,
-		Arn:                      s.Arn,
-		Name:                     s.Name,
-		Region:                   s.Region,
+		CreatedAt:                 s.CreatedAt,
+		Tags:                      tags,
+		StackID:                   s.StackID,
+		Arn:                       s.Arn,
+		Name:                      s.Name,
+		Region:                    s.Region,
 		DefaultInstanceProfileArn: s.DefaultInstanceProfileArn,
-		ServiceRoleArn:           s.ServiceRoleArn,
-		Status:                   s.Status,
+		ServiceRoleArn:            s.ServiceRoleArn,
+		Status:                    s.Status,
 	}
 }
 
@@ -332,15 +332,15 @@ func (b *InMemoryBackend) CreateStack(
 	arn := b.stackARN(id)
 
 	s := &storedStack{
-		CreatedAt:                now,
-		Tags:                     make(map[string]string),
-		StackID:                  id,
-		Arn:                      arn,
-		Name:                     name,
-		Region:                   region,
+		CreatedAt:                 now,
+		Tags:                      make(map[string]string),
+		StackID:                   id,
+		Arn:                       arn,
+		Name:                      name,
+		Region:                    region,
 		DefaultInstanceProfileArn: defaultInstanceProfileArn,
-		ServiceRoleArn:           serviceRoleArn,
-		Status:                   "running",
+		ServiceRoleArn:            serviceRoleArn,
+		Status:                    "running",
 	}
 	b.stacks[id] = s
 
