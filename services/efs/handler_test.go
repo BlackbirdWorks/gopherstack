@@ -114,12 +114,9 @@ func TestFileSystemCRUD(t *testing.T) {
 				rec2 := doREST(t, h, http.MethodDelete, "/2015-02-01/file-systems/"+fsID, nil)
 				assert.Equal(t, http.StatusNoContent, rec2.Code)
 
-				// Describe after delete returns empty list (AWS behaviour).
+				// Describe after delete returns 404 FileSystemNotFound (AWS behaviour).
 				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/file-systems/"+fsID, nil)
-				assert.Equal(t, http.StatusOK, rec3.Code)
-				resp3 := parseResp(t, rec3)
-				list := resp3["FileSystems"].([]any)
-				assert.Empty(t, list)
+				assert.Equal(t, http.StatusNotFound, rec3.Code)
 			},
 		},
 		{
@@ -971,7 +968,7 @@ func TestReplicationConfiguration(t *testing.T) {
 
 				rec := doREST(t, h, http.MethodPost,
 					"/2015-02-01/file-systems/fs-notexist/replication-configuration",
-					map[string]any{"Destinations": []map[string]any{}},
+					map[string]any{"Destinations": []map[string]any{{"Region": "us-west-2"}}},
 				)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},

@@ -1182,8 +1182,8 @@ func TestRefinement2_ErrorBodyShape(t *testing.T) {
 			name:          "not_found_sets_header",
 			method:        http.MethodGet,
 			path:          "/2015-02-01/file-systems/fs-notexist",
-			wantStatus:    http.StatusOK,
-			wantErrorType: "",
+			wantStatus:    http.StatusNotFound,
+			wantErrorType: "FileSystemNotFound",
 		},
 		{
 			name:          "bad_performance_mode_sets_header",
