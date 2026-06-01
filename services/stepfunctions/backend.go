@@ -601,7 +601,8 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
 	}
 
-	startDate := float64(time.Now().UnixMilli()) / 1000.0
+	const millisPerSecond = 1000.0
+	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
 	execARN := b.execARN(smName, name)
 
 	// Express Workflows must complete within 5 minutes per AWS spec.
@@ -723,7 +724,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
-	now := float64(time.Now().UnixMilli()) / 1000.0
+	const millisPerSecond = 1000.0
+	now := float64(time.Now().UnixMilli()) / millisPerSecond
 	exec := &Execution{
 		StartDate:       now,
 		ExecutionArn:    execArn,
@@ -1523,7 +1525,8 @@ func validateRoutingConfig(routing []AliasRoutingConfig) error {
 		total += r.Weight
 	}
 
-	if total != 100 {
+	const totalWeight = 100
+	if total != totalWeight {
 		return fmt.Errorf("%w: routing weights must sum to 100, got %d", ErrInvalidRoutingConfiguration, total)
 	}
 
