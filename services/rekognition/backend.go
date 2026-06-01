@@ -238,6 +238,7 @@ func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -248,10 +249,7 @@ func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([
 		limit = maxResults
 	}
 
-	end := start + int(limit)
-	if end > len(ids) {
-		end = len(ids)
-	}
+	end := min(start+int(limit), len(ids))
 
 	result := make([]*Collection, 0, end-start)
 	for _, id := range ids[start:end] {
@@ -333,6 +331,7 @@ func (b *InMemoryBackend) ListFaces(collectionID string, maxResults int32, nextT
 		for i, f := range faces {
 			if f.FaceID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -343,10 +342,7 @@ func (b *InMemoryBackend) ListFaces(collectionID string, maxResults int32, nextT
 		limit = maxResults
 	}
 
-	end := start + int(limit)
-	if end > len(faces) {
-		end = len(faces)
-	}
+	end := min(start+int(limit), len(faces))
 
 	result := make([]*Face, 0, end-start)
 	for _, f := range faces[start:end] {
@@ -375,6 +371,7 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 	for _, f := range b.faces[collectionID] {
 		if f.FaceID == faceID {
 			found = true
+
 			break
 		}
 	}
@@ -517,6 +514,7 @@ func (b *InMemoryBackend) ListStreamProcessors(maxResults int32, nextToken strin
 		for i, name := range names {
 			if name == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -527,10 +525,7 @@ func (b *InMemoryBackend) ListStreamProcessors(maxResults int32, nextToken strin
 		limit = maxResults
 	}
 
-	end := start + int(limit)
-	if end > len(names) {
-		end = len(names)
-	}
+	end := min(start+int(limit), len(names))
 
 	result := make([]*StreamProcessor, 0, end-start)
 	for _, name := range names[start:end] {
