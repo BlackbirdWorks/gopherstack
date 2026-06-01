@@ -26,7 +26,6 @@ const (
 	deploymentStatusSuccessful = "successful"
 
 	commandStatusSuccessful = "successful"
-
 )
 
 var (
