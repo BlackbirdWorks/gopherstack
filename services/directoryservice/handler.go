@@ -36,16 +36,40 @@ const (
 	opRemoveTagsFromResource = "RemoveTagsFromResource"
 	opListTagsForResource    = "ListTagsForResource"
 	opUnknown                = "Unknown"
+
+	keyDirectoryID = "DirectoryId"
+	keySnapshotID  = "SnapshotId"
 )
 
 // Handler handles DirectoryService HTTP requests.
 type Handler struct {
-	Backend StorageBackend
+	Backend  StorageBackend
+	dispatch map[string]echo.HandlerFunc
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	h := &Handler{Backend: b}
+	h.dispatch = map[string]echo.HandlerFunc{
+		opCreateDirectory:        h.handleCreateDirectory,
+		opCreateMicrosoftAD:      h.handleCreateMicrosoftAD,
+		opDeleteDirectory:        h.handleDeleteDirectory,
+		opDescribeDirectories:    h.handleDescribeDirectories,
+		opCreateAlias:            h.handleCreateAlias,
+		opEnableSso:              h.handleEnableSso,
+		opDisableSso:             h.handleDisableSso,
+		opGetDirectoryLimits:     h.handleGetDirectoryLimits,
+		opCreateSnapshot:         h.handleCreateSnapshot,
+		opDeleteSnapshot:         h.handleDeleteSnapshot,
+		opDescribeSnapshots:      h.handleDescribeSnapshots,
+		opGetSnapshotLimits:      h.handleGetSnapshotLimits,
+		opRestoreFromSnapshot:    h.handleRestoreFromSnapshot,
+		opAddTagsToResource:      h.handleAddTagsToResource,
+		opRemoveTagsFromResource: h.handleRemoveTagsFromResource,
+		opListTagsForResource:    h.handleListTagsForResource,
+	}
+
+	return h
 }
 
 // Name returns the service name.
@@ -112,7 +136,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"DirectoryId", "ResourceId"} {
+	for _, key := range []string{keyDirectoryID, "ResourceId"} {
 		if v, ok := data[key].(string); ok && v != "" {
 			return v
 		}
@@ -124,49 +148,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		return h.dispatch(c)
+		return h.doDispatch(c)
 	}
 }
 
-func (h *Handler) dispatch(c *echo.Context) error {
+func (h *Handler) doDispatch(c *echo.Context) error {
 	op := h.ExtractOperation(c)
-
-	switch op {
-	case opCreateDirectory:
-		return h.handleCreateDirectory(c)
-	case opCreateMicrosoftAD:
-		return h.handleCreateMicrosoftAD(c)
-	case opDeleteDirectory:
-		return h.handleDeleteDirectory(c)
-	case opDescribeDirectories:
-		return h.handleDescribeDirectories(c)
-	case opCreateAlias:
-		return h.handleCreateAlias(c)
-	case opEnableSso:
-		return h.handleEnableSso(c)
-	case opDisableSso:
-		return h.handleDisableSso(c)
-	case opGetDirectoryLimits:
-		return h.handleGetDirectoryLimits(c)
-	case opCreateSnapshot:
-		return h.handleCreateSnapshot(c)
-	case opDeleteSnapshot:
-		return h.handleDeleteSnapshot(c)
-	case opDescribeSnapshots:
-		return h.handleDescribeSnapshots(c)
-	case opGetSnapshotLimits:
-		return h.handleGetSnapshotLimits(c)
-	case opRestoreFromSnapshot:
-		return h.handleRestoreFromSnapshot(c)
-	case opAddTagsToResource:
-		return h.handleAddTagsToResource(c)
-	case opRemoveTagsFromResource:
-		return h.handleRemoveTagsFromResource(c)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c)
-	default:
-		return c.JSON(http.StatusNotImplemented, errResp("NotImplementedException", "operation not implemented: "+op))
+	if fn, ok := h.dispatch[op]; ok {
+		return fn(c)
 	}
+
+	return c.JSON(http.StatusNotImplemented, errResp("NotImplementedException", "operation not implemented: "+op))
 }
 
 func (h *Handler) handleCreateDirectory(c *echo.Context) error {
@@ -210,7 +202,7 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryId": d.DirectoryID,
+		keyDirectoryID: d.DirectoryID,
 	})
 }
 
@@ -253,7 +245,7 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryId": d.DirectoryID,
+		keyDirectoryID: d.DirectoryID,
 	})
 }
 
@@ -280,7 +272,7 @@ func (h *Handler) handleDeleteDirectory(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryId": req.DirectoryID,
+		keyDirectoryID: req.DirectoryID,
 	})
 }
 
@@ -291,9 +283,9 @@ func (h *Handler) handleDescribeDirectories(c *echo.Context) error {
 	}
 
 	var req struct {
-		DirectoryIds []string `json:"DirectoryIds"`
-		Limit        int32    `json:"Limit"`
 		NextToken    string   `json:"NextToken"`
+		DirectoryIDs []string `json:"DirectoryIds"`
+		Limit        int32    `json:"Limit"`
 	}
 
 	if len(body) > 0 {
@@ -302,7 +294,7 @@ func (h *Handler) handleDescribeDirectories(c *echo.Context) error {
 		}
 	}
 
-	dirs, nextToken, listErr := h.Backend.DescribeDirectories(req.DirectoryIds, req.Limit, req.NextToken)
+	dirs, nextToken, listErr := h.Backend.DescribeDirectories(req.DirectoryIDs, req.Limit, req.NextToken)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -346,8 +338,8 @@ func (h *Handler) handleCreateAlias(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryId": req.DirectoryID,
-		"Alias":       req.Alias,
+		keyDirectoryID: req.DirectoryID,
+		"Alias":        req.Alias,
 	})
 }
 
@@ -444,7 +436,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"SnapshotId": snap.SnapshotID,
+		keySnapshotID: snap.SnapshotID,
 	})
 }
 
@@ -471,7 +463,7 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"SnapshotId": req.SnapshotID,
+		keySnapshotID: req.SnapshotID,
 	})
 }
 
@@ -483,9 +475,9 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context) error {
 
 	var req struct {
 		DirectoryID string   `json:"DirectoryId"`
-		SnapshotIds []string `json:"SnapshotIds"`
-		Limit       int32    `json:"Limit"`
 		NextToken   string   `json:"NextToken"`
+		SnapshotIDs []string `json:"SnapshotIds"`
+		Limit       int32    `json:"Limit"`
 	}
 
 	if len(body) > 0 {
@@ -494,7 +486,7 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context) error {
 		}
 	}
 
-	snaps, nextToken, listErr := h.Backend.DescribeSnapshots(req.DirectoryID, req.SnapshotIds, req.Limit, req.NextToken)
+	snaps, nextToken, listErr := h.Backend.DescribeSnapshots(req.DirectoryID, req.SnapshotIDs, req.Limit, req.NextToken)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -636,8 +628,8 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 
 	var req struct {
 		ResourceID string `json:"ResourceId"`
-		Limit      int32  `json:"Limit"`
 		NextToken  string `json:"NextToken"`
+		Limit      int32  `json:"Limit"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -695,29 +687,29 @@ func errResp(code, message string) map[string]string {
 
 func directoryToJSON(d *Directory) map[string]any {
 	return map[string]any{
-		"DirectoryId": d.DirectoryID,
-		"Name":        d.Name,
-		"ShortName":   d.ShortName,
-		"Description": d.Description,
-		"Alias":       d.Alias,
-		"AccessUrl":   d.AccessURL,
-		"Type":        string(d.Type),
-		"Stage":       string(d.Stage),
-		"Size":        string(d.Size),
-		"Edition":     string(d.Edition),
-		"SsoEnabled":  d.SsoEnabled,
-		"LaunchTime":  d.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		keyDirectoryID: d.DirectoryID,
+		"Name":         d.Name,
+		"ShortName":    d.ShortName,
+		"Description":  d.Description,
+		"Alias":        d.Alias,
+		"AccessUrl":    d.AccessURL,
+		"Type":         string(d.Type),
+		"Stage":        string(d.Stage),
+		"Size":         string(d.Size),
+		"Edition":      string(d.Edition),
+		"SsoEnabled":   d.SsoEnabled,
+		"LaunchTime":   d.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func snapshotToJSON(s *Snapshot) map[string]any {
 	return map[string]any{
-		"SnapshotId":  s.SnapshotID,
-		"DirectoryId": s.DirectoryID,
-		"Name":        s.Name,
-		"Status":      string(s.Status),
-		"Type":        string(s.Type),
-		"StartTime":   s.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		keySnapshotID:  s.SnapshotID,
+		keyDirectoryID: s.DirectoryID,
+		"Name":         s.Name,
+		"Status":       string(s.Status),
+		"Type":         string(s.Type),
+		"StartTime":    s.StartTime.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 

@@ -123,12 +123,12 @@ type Tag struct {
 type DirectoryLimits struct {
 	CloudOnlyDirectoriesCurrentCount int32
 	CloudOnlyDirectoriesLimit        int32
-	CloudOnlyDirectoriesLimitReached bool
 	CloudOnlyMicrosoftADCurrentCount int32
 	CloudOnlyMicrosoftADLimit        int32
-	CloudOnlyMicrosoftADLimitReached bool
 	ConnectedDirectoriesCurrentCount int32
 	ConnectedDirectoriesLimit        int32
+	CloudOnlyDirectoriesLimitReached bool
+	CloudOnlyMicrosoftADLimitReached bool
 	ConnectedDirectoriesLimitReached bool
 }
 

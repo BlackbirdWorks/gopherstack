@@ -133,6 +133,32 @@ func (b *InMemoryBackend) defaultAccessURL(alias string) string {
 	return fmt.Sprintf("%s.awsapps.com", alias)
 }
 
+func (b *InMemoryBackend) newStoredDirectory(
+	name, shortName, description string,
+	dirType DirectoryType,
+	size DirectorySize,
+	edition DirectoryEdition,
+	tags []Tag,
+) *storedDirectory {
+	id := b.newDirectoryID()
+	alias := b.defaultAlias(id)
+
+	return &storedDirectory{
+		LaunchTime:  time.Now().UTC(),
+		DirectoryID: id,
+		Name:        name,
+		ShortName:   shortName,
+		Description: description,
+		Alias:       alias,
+		AccessURL:   b.defaultAccessURL(alias),
+		DirType:     string(dirType),
+		Stage:       string(DirectoryStageActive),
+		Size:        string(size),
+		Edition:     string(edition),
+		Tags:        tagsToMap(tags),
+	}
+}
+
 // CreateDirectory creates a new Simple AD directory.
 func (b *InMemoryBackend) CreateDirectory(
 	name, shortName, description, _ string,
@@ -145,27 +171,9 @@ func (b *InMemoryBackend) CreateDirectory(
 		return nil, ErrInvalidParameter
 	}
 
-	id := b.newDirectoryID()
-	alias := b.defaultAlias(id)
-	now := time.Now().UTC()
-
-	tagMap := tagsToMap(tags)
-
-	d := &storedDirectory{
-		LaunchTime:  now,
-		DirectoryID: id,
-		Name:        name,
-		ShortName:   shortName,
-		Description: description,
-		Alias:       alias,
-		AccessURL:   b.defaultAccessURL(alias),
-		DirType:     string(DirectoryTypeSimpleAD),
-		Stage:       string(DirectoryStageActive),
-		Size:        string(size),
-		Tags:        tagMap,
-	}
-	b.directories[id] = d
-	b.aliases[alias] = id
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", tags)
+	b.directories[d.DirectoryID] = d
+	b.aliases[d.Alias] = d.DirectoryID
 
 	cp := d.toDirectory()
 
@@ -184,27 +192,9 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 		return nil, ErrInvalidParameter
 	}
 
-	id := b.newDirectoryID()
-	alias := b.defaultAlias(id)
-	now := time.Now().UTC()
-
-	tagMap := tagsToMap(tags)
-
-	d := &storedDirectory{
-		LaunchTime:  now,
-		DirectoryID: id,
-		Name:        name,
-		ShortName:   shortName,
-		Description: description,
-		Alias:       alias,
-		AccessURL:   b.defaultAccessURL(alias),
-		DirType:     string(DirectoryTypeMicrosoftAD),
-		Stage:       string(DirectoryStageActive),
-		Edition:     string(edition),
-		Tags:        tagMap,
-	}
-	b.directories[id] = d
-	b.aliases[alias] = id
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, tags)
+	b.directories[d.DirectoryID] = d
+	b.aliases[d.Alias] = d.DirectoryID
 
 	cp := d.toDirectory()
 
@@ -251,8 +241,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 				return nil, "", ErrDirectoryNotFound
 			}
 		}
-		ids = make([]string, len(directoryIDs))
-		copy(ids, directoryIDs)
+		ids = append([]string(nil), directoryIDs...)
 		sort.Strings(ids)
 	} else {
 		ids = make([]string, 0, len(b.directories))
