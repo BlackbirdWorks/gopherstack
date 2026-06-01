@@ -859,8 +859,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 // ListTags lists tags for a resource with pagination.
 func (b *InMemoryBackend) ListTags(
 	resourceARN string,
-	maxResults int32,
-	nextToken string,
+	_ int32,
+	_ string,
 ) (map[string]string, string, error) {
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()

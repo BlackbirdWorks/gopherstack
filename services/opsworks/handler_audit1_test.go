@@ -345,7 +345,7 @@ func TestAudit1_Layer(t *testing.T) {
 func TestAudit1_Instance(t *testing.T) {
 	t.Parallel()
 
-	setup := func(h *opsworks.Handler) (stackID, layerID string) {
+	setup := func(h *opsworks.Handler) (string, string) {
 		rec := doTarget(t, h, "CreateStack", map[string]any{
 			"Name":                      "stack",
 			"Region":                    "us-east-1",
@@ -353,7 +353,7 @@ func TestAudit1_Instance(t *testing.T) {
 			"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-		stackID = parseJSON(t, rec.Body.Bytes())["StackId"].(string)
+		stackID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)
 
 		rec = doTarget(t, h, "CreateLayer", map[string]any{
 			"StackId":   stackID,
@@ -362,7 +362,7 @@ func TestAudit1_Instance(t *testing.T) {
 			"Shortname": "l",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-		layerID = parseJSON(t, rec.Body.Bytes())["LayerId"].(string)
+		layerID := parseJSON(t, rec.Body.Bytes())["LayerId"].(string)
 
 		return stackID, layerID
 	}
@@ -558,7 +558,7 @@ func TestAudit1_App(t *testing.T) {
 func TestAudit1_Deployment(t *testing.T) {
 	t.Parallel()
 
-	createStackAndApp := func(h *opsworks.Handler) (stackID, appID string) {
+	createStackAndApp := func(h *opsworks.Handler) (string, string) {
 		rec := doTarget(t, h, "CreateStack", map[string]any{
 			"Name":                      "stack",
 			"Region":                    "us-east-1",
@@ -566,7 +566,7 @@ func TestAudit1_Deployment(t *testing.T) {
 			"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-		stackID = parseJSON(t, rec.Body.Bytes())["StackId"].(string)
+		stackID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)
 
 		rec = doTarget(t, h, "CreateApp", map[string]any{
 			"StackId": stackID,
@@ -574,7 +574,7 @@ func TestAudit1_Deployment(t *testing.T) {
 			"Type":    "other",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-		appID = parseJSON(t, rec.Body.Bytes())["AppId"].(string)
+		appID := parseJSON(t, rec.Body.Bytes())["AppId"].(string)
 
 		return stackID, appID
 	}
@@ -662,7 +662,7 @@ func TestAudit1_Deployment(t *testing.T) {
 func TestAudit1_Tags(t *testing.T) {
 	t.Parallel()
 
-	createStack := func(h *opsworks.Handler) (stackID, arn string) {
+	createStack := func(h *opsworks.Handler) (string, string) {
 		rec := doTarget(t, h, "CreateStack", map[string]any{
 			"Name":                      "tagged-stack",
 			"Region":                    "us-east-1",
@@ -670,8 +670,8 @@ func TestAudit1_Tags(t *testing.T) {
 			"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
-		stackID = parseJSON(t, rec.Body.Bytes())["StackId"].(string)
-		arn = "arn:aws:opsworks:us-east-1:000000000000:stack/" + stackID
+		stackID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)
+		arn := "arn:aws:opsworks:us-east-1:000000000000:stack/" + stackID
 
 		return stackID, arn
 	}
