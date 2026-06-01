@@ -92,8 +92,16 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, pathOriginEndpoints+"/") ||
 			path == pathHarvestJobs ||
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||
-			strings.HasPrefix(path, pathTags)
+			isMediaPackageTagPath(path)
 	}
+}
+
+// isMediaPackageTagPath reports whether path is a /tags/{arn} path for a MediaPackage ARN.
+// Other services (e.g. FIS) also expose /tags/{arn} at the same path prefix; we must not
+// steal their requests. MediaPackage ARNs always contain ":mediapackage:".
+func isMediaPackageTagPath(path string) bool {
+	arn, ok := strings.CutPrefix(path, pathTags)
+	return ok && strings.Contains(arn, ":mediapackage:")
 }
 
 // MatchPriority returns the routing priority.
