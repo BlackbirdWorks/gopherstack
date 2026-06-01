@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -27,10 +28,10 @@ const (
 	minimumInstanceCount            = 1
 	maximumInstanceCount            = 20
 
-	maxTagKeyLen            = 128
-	maxTagValueLen          = 256
-	maxTagsPerResource      = 50
-	maxDescribeDomainNames  = 5
+	maxTagKeyLen           = 128
+	maxTagValueLen         = 256
+	maxTagsPerResource     = 50
+	maxDescribeDomainNames = 5
 )
 
 const (
@@ -1213,9 +1214,7 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existing, _ := h.Backend.ListTags(req.ARN)
-	for k, v := range tagMap {
-		existing[k] = v
-	}
+	maps.Copy(existing, tagMap)
 
 	if len(existing) > maxTagsPerResource {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException",
