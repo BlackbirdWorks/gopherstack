@@ -101,6 +101,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // steal their requests. MediaPackage ARNs always contain ":mediapackage:".
 func isMediaPackageTagPath(path string) bool {
 	arn, ok := strings.CutPrefix(path, pathTags)
+
 	return ok && strings.Contains(arn, ":mediapackage:")
 }
 

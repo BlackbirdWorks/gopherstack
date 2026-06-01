@@ -135,6 +135,7 @@ func isMediaTailorPath(path string) bool {
 // steal their requests. MediaTailor ARNs always contain ":mediatailor:".
 func isMediaTailorTagPath(path string) bool {
 	arn, ok := strings.CutPrefix(path, pathTags)
+
 	return ok && strings.Contains(arn, ":mediatailor:")
 }
 
