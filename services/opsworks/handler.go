@@ -20,12 +20,16 @@ const (
 	matchPriority        = service.PriorityHeaderExact
 	contentType          = "application/x-amz-json-1.1"
 
-	keyStackID   = "StackId"
-	keyArn       = "Arn"
-	keyName      = "Name"
-	keyStatus    = "Status"
-	keyCreatedAt = "CreatedAt"
-	keyType      = "Type"
+	keyStackID      = "StackId"
+	keyLayerID      = "LayerId"
+	keyInstanceID   = "InstanceId"
+	keyAppID        = "AppId"
+	keyDeploymentID = "DeploymentId"
+	keyArn          = "Arn"
+	keyName         = "Name"
+	keyStatus       = "Status"
+	keyCreatedAt    = "CreatedAt"
+	keyType         = "Type"
 )
 
 var (
@@ -290,7 +294,7 @@ func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error)
 		return nil, err
 	}
 
-	return map[string]any{"LayerId": layer.LayerID}, nil
+	return map[string]any{keyLayerID: layer.LayerID}, nil
 }
 
 // handleDescribeLayers handles DescribeLayers requests.
@@ -371,7 +375,7 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 		return nil, err
 	}
 
-	return map[string]any{"InstanceId": instance.InstanceID}, nil
+	return map[string]any{keyInstanceID: instance.InstanceID}, nil
 }
 
 // handleDescribeInstances handles DescribeInstances requests.
@@ -499,7 +503,7 @@ func (h *Handler) handleCreateApp(_ context.Context, body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"AppId": app.AppID}, nil
+	return map[string]any{keyAppID: app.AppID}, nil
 }
 
 // handleDescribeApps handles DescribeApps requests.
@@ -577,7 +581,7 @@ func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"DeploymentId": deployment.DeploymentID}, nil
+	return map[string]any{keyDeploymentID: deployment.DeploymentID}, nil
 }
 
 // handleDescribeDeployments handles DescribeDeployments requests.
@@ -709,7 +713,7 @@ func layersToJSON(layers []*Layer) []map[string]any {
 	result := make([]map[string]any, 0, len(layers))
 	for _, l := range layers {
 		result = append(result, map[string]any{
-			"LayerId":   l.LayerID,
+			keyLayerID:  l.LayerID,
 			keyStackID:  l.StackID,
 			keyArn:      l.Arn,
 			keyType:     l.Type,
@@ -726,9 +730,9 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 	result := make([]map[string]any, 0, len(instances))
 	for _, i := range instances {
 		result = append(result, map[string]any{
-			"InstanceId":   i.InstanceID,
+			keyInstanceID:  i.InstanceID,
 			keyStackID:     i.StackID,
-			"LayerId":      i.LayerID,
+			keyLayerID:     i.LayerID,
 			keyArn:         i.Arn,
 			"Hostname":     i.Hostname,
 			"InstanceType": i.InstanceType,
@@ -744,7 +748,7 @@ func appsToJSON(apps []*App) []map[string]any {
 	result := make([]map[string]any, 0, len(apps))
 	for _, a := range apps {
 		result = append(result, map[string]any{
-			"AppId":    a.AppID,
+			keyAppID:   a.AppID,
 			keyStackID: a.StackID,
 			keyArn:     a.Arn,
 			keyName:    a.Name,
@@ -760,9 +764,9 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 	result := make([]map[string]any, 0, len(deployments))
 	for _, d := range deployments {
 		result = append(result, map[string]any{
-			"DeploymentId": d.DeploymentID,
-			keyStackID:     d.StackID,
-			"AppId":        d.AppID,
+			keyDeploymentID: d.DeploymentID,
+			keyStackID:      d.StackID,
+			keyAppID:        d.AppID,
 			"Command":      map[string]any{keyName: d.Command},
 			keyStatus:      d.Status,
 			"Duration":     d.Duration,
@@ -778,9 +782,9 @@ func commandsToJSON(commands []*Command) []map[string]any {
 	result := make([]map[string]any, 0, len(commands))
 	for _, c := range commands {
 		result = append(result, map[string]any{
-			"CommandId":      c.CommandID,
-			"DeploymentId":   c.DeploymentID,
-			"InstanceId":     c.InstanceID,
+			"CommandId":       c.CommandID,
+			keyDeploymentID:  c.DeploymentID,
+			keyInstanceID:    c.InstanceID,
 			keyType:          c.Type,
 			keyStatus:        c.Status,
 			"ExitCode":       c.ExitCode,
