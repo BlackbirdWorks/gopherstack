@@ -98,6 +98,7 @@ func TestAudit1_Stack(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
+
 				return resp["StackId"].(string)
 			},
 			wantCode: http.StatusOK,
@@ -126,6 +127,7 @@ func TestAudit1_Stack(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
+
 				return resp["StackId"].(string)
 			},
 			wantCode: http.StatusOK,
@@ -151,6 +153,7 @@ func TestAudit1_Stack(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
+
 				return resp["StackId"].(string)
 			},
 			wantCode: http.StatusOK,
@@ -172,6 +175,7 @@ func TestAudit1_Stack(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
+
 				return resp["StackId"].(string)
 			},
 			wantCode: http.StatusOK,
@@ -229,6 +233,7 @@ func TestAudit1_Layer(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		resp := parseJSON(t, rec.Body.Bytes())
+
 		return resp["StackId"].(string)
 	}
 
@@ -320,7 +325,7 @@ func TestAudit1_Layer(t *testing.T) {
 
 				rec = doTarget(t, h, "DescribeLayers", map[string]any{"StackId": stackID})
 				resp := parseJSON(t, rec.Body.Bytes())
-				assert.Len(t, resp["Layers"].([]any), 0)
+				assert.Empty(t, resp["Layers"].([]any))
 			},
 		},
 	}
@@ -472,6 +477,7 @@ func TestAudit1_App(t *testing.T) {
 			"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
+
 		return parseJSON(t, rec.Body.Bytes())["StackId"].(string)
 	}
 
@@ -532,7 +538,7 @@ func TestAudit1_App(t *testing.T) {
 
 				rec = doTarget(t, h, "DescribeApps", map[string]any{"StackId": stackID})
 				resp := parseJSON(t, rec.Body.Bytes())
-				assert.Len(t, resp["Apps"].([]any), 0)
+				assert.Empty(t, resp["Apps"].([]any))
 			},
 		},
 	}
@@ -666,6 +672,7 @@ func TestAudit1_Tags(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		stackID = parseJSON(t, rec.Body.Bytes())["StackId"].(string)
 		arn = "arn:aws:opsworks:us-east-1:000000000000:stack/" + stackID
+
 		return stackID, arn
 	}
 

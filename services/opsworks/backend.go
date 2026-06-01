@@ -361,6 +361,7 @@ func (b *InMemoryBackend) DescribeStacks(stackIDs []string) ([]*Stack, error) {
 			}
 			result = append(result, s.toStack())
 		}
+
 		return result, nil
 	}
 
@@ -447,6 +448,7 @@ func (b *InMemoryBackend) DescribeLayers(stackID string, layerIDs []string) ([]*
 			}
 			result = append(result, l.toLayer())
 		}
+
 		return result, nil
 	}
 
@@ -533,6 +535,7 @@ func (b *InMemoryBackend) DescribeInstances(stackID, layerID string, instanceIDs
 			}
 			result = append(result, i.toInstance())
 		}
+
 		return result, nil
 	}
 
@@ -669,6 +672,7 @@ func (b *InMemoryBackend) DescribeApps(stackID string, appIDs []string) ([]*App,
 			}
 			result = append(result, a.toApp())
 		}
+
 		return result, nil
 	}
 
@@ -768,6 +772,7 @@ func (b *InMemoryBackend) DescribeDeployments(stackID, appID string, deploymentI
 			}
 			result = append(result, d.toDeployment())
 		}
+
 		return result, nil
 	}
 
@@ -799,6 +804,7 @@ func (b *InMemoryBackend) DescribeCommands(deploymentID, instanceID string, comm
 			}
 			result = append(result, c.toCommand())
 		}
+
 		return result, nil
 	}
 
@@ -851,7 +857,11 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 }
 
 // ListTags lists tags for a resource with pagination.
-func (b *InMemoryBackend) ListTags(resourceARN string, maxResults int32, nextToken string) (map[string]string, string, error) {
+func (b *InMemoryBackend) ListTags(
+	resourceARN string,
+	maxResults int32,
+	nextToken string,
+) (map[string]string, string, error) {
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
@@ -870,23 +880,28 @@ func (b *InMemoryBackend) resourceExists(arn string) bool {
 	if strings.Contains(arn, ":stack/") {
 		id := arnSuffix(arn)
 		_, ok := b.stacks[id]
+
 		return ok
 	}
 	if strings.Contains(arn, ":layer/") {
 		id := arnSuffix(arn)
 		_, ok := b.layers[id]
+
 		return ok
 	}
 	if strings.Contains(arn, ":instance/") {
 		id := arnSuffix(arn)
 		_, ok := b.instances[id]
+
 		return ok
 	}
 	if strings.Contains(arn, ":app/") {
 		id := arnSuffix(arn)
 		_, ok := b.apps[id]
+
 		return ok
 	}
+
 	return false
 }
 
@@ -895,5 +910,6 @@ func arnSuffix(arn string) string {
 	if len(parts) == 0 {
 		return ""
 	}
+
 	return parts[len(parts)-1]
 }
