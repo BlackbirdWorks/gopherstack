@@ -219,15 +219,6 @@ func (d *storedDashboard) toDashboard() *Dashboard {
 	}
 }
 
-func (d *storedDashboard) toVersion() *DashboardVersion {
-	return &DashboardVersion{
-		CreatedTime:   d.CreatedTime,
-		Arn:           fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
-		Status:        d.Status,
-		VersionNumber: d.VersionNumber,
-	}
-}
-
 type storedAnalysis struct {
 	CreatedTime     time.Time `json:"createdTime"`
 	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
@@ -776,8 +767,8 @@ func (b *InMemoryBackend) ListGroupMemberships(
 	fullPrefix := accountID + "/" + namespace + "/" + groupName + "/"
 	var members []string
 	for k := range b.groupMembers {
-		if strings.HasPrefix(k, fullPrefix) {
-			members = append(members, strings.TrimPrefix(k, fullPrefix))
+		if member, ok := strings.CutPrefix(k, fullPrefix); ok {
+			members = append(members, member)
 		}
 	}
 
@@ -790,6 +781,7 @@ func (b *InMemoryBackend) ListGroupMemberships(
 		for i, m := range members {
 			if m == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -912,6 +904,7 @@ func (b *InMemoryBackend) DeleteUserByPrincipalID(accountID, namespace, principa
 	for k, u := range b.users {
 		if strings.HasPrefix(k, prefix) && u.PrincipalID == principalID {
 			delete(b.users, k)
+
 			return nil
 		}
 	}
@@ -919,6 +912,7 @@ func (b *InMemoryBackend) DeleteUserByPrincipalID(accountID, namespace, principa
 	return ErrUserNotFound
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListUsers(
 	accountID, namespace string,
 	maxResults int32,
@@ -944,6 +938,7 @@ func (b *InMemoryBackend) ListUsers(
 		for i, u := range all {
 			if u.UserName == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -989,7 +984,9 @@ func (b *InMemoryBackend) ListUserGroups(
 		}
 	}
 
-	return paginateGroups(all, maxResults, nextToken)
+	result, next := paginateGroups(all, maxResults, nextToken)
+
+	return result, next, nil
 }
 
 // ---- DataSources ----
@@ -1076,6 +1073,7 @@ func (b *InMemoryBackend) DeleteDataSource(accountID, dataSourceID string) error
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListDataSources(
 	accountID string,
 	maxResults int32,
@@ -1101,6 +1099,7 @@ func (b *InMemoryBackend) ListDataSources(
 		for i, ds := range all {
 			if ds.DataSourceID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1211,6 +1210,7 @@ func (b *InMemoryBackend) DeleteDataSet(accountID, dataSetID string) error {
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListDataSets(
 	accountID string,
 	maxResults int32,
@@ -1236,6 +1236,7 @@ func (b *InMemoryBackend) ListDataSets(
 		for i, ds := range all {
 			if ds.DataSetID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1317,6 +1318,7 @@ func (b *InMemoryBackend) CancelIngestion(accountID, dataSetID, ingestionID stri
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListIngestions(
 	accountID, dataSetID string,
 	maxResults int32,
@@ -1342,6 +1344,7 @@ func (b *InMemoryBackend) ListIngestions(
 		for i, ing := range all {
 			if ing.IngestionID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1447,6 +1450,7 @@ func (b *InMemoryBackend) DeleteDashboard(accountID, dashboardID string) error {
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListDashboards(
 	accountID string,
 	maxResults int32,
@@ -1472,6 +1476,7 @@ func (b *InMemoryBackend) ListDashboards(
 		for i, d := range all {
 			if d.DashboardID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1495,8 +1500,8 @@ func (b *InMemoryBackend) ListDashboards(
 
 func (b *InMemoryBackend) ListDashboardVersions(
 	accountID, dashboardID string,
-	maxResults int32,
-	nextToken string,
+	_ int32,
+	_ string,
 ) ([]*DashboardVersion, string, error) {
 	b.mu.RLock("ListDashboardVersions")
 	defer b.mu.RUnlock()
@@ -1606,6 +1611,7 @@ func (b *InMemoryBackend) DeleteAnalysis(accountID, analysisID string, forceDele
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListAnalyses(
 	accountID string,
 	maxResults int32,
@@ -1631,6 +1637,7 @@ func (b *InMemoryBackend) ListAnalyses(
 		for i, a := range all {
 			if a.AnalysisID == nextToken {
 				start = i
+
 				break
 			}
 		}

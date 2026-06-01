@@ -25,6 +25,45 @@ const (
 	quicksightMatchPriority = service.PriorityPathVersioned + 1
 
 	opUnknown = "Unknown"
+
+	// path segment indices
+	segAccountID   = 1
+	segResource    = 2
+	segResID       = 3
+	segSubRes      = 4
+	segSubResID    = 5
+	segSubSubRes   = 6
+	segSubSubResID = 7
+
+	// JSON response keys
+	keyRequestID = "RequestId"
+	keyStatus    = "Status"
+	keyNextToken = "NextToken"
+
+	// request ID placeholder
+	reqIDPlaceholder = "request-id"
+
+	// path segment names
+	pathSegAccounts      = "accounts"
+	pathSegNamespaces    = "namespaces"
+	pathSegGroups        = "groups"
+	pathSegMembers       = "members"
+	pathSegUsers         = "users"
+	pathSegDataSources   = "data-sources"
+	pathSegDataSets      = "data-sets"
+	pathSegIngestions    = "ingestions"
+	pathSegDashboards    = "dashboards"
+	pathSegAnalyses      = "analyses"
+	pathSegVersions      = "versions"
+	pathSegSearch        = "search"
+	pathSegRestore       = "restore"
+	pathSegResources     = "resources"
+	pathSegTagsSuffix    = "tags"
+	pathSegGroupsSearch  = "groups-search"
+	pathSegUserPrincipals = "user-principals"
+
+	// time format
+	timeFormat = "2006-01-02T15:04:05Z"
 )
 
 // Handler is the Echo HTTP handler for QuickSight operations.
@@ -303,7 +342,7 @@ func (h *Handler) dispatch(c *echo.Context) error {
 // pathSegs splits a URL path and returns non-empty segments.
 func pathSegs(path string) []string {
 	var segs []string
-	for _, s := range strings.Split(path, "/") {
+	for s := range strings.SplitSeq(path, "/") {
 		if s != "" {
 			segs = append(segs, s)
 		}
@@ -325,13 +364,13 @@ func seg(segs []string, i int) string {
 	return v
 }
 
-//nolint:cyclop,gocognit // path router requires many branches
+//nolint:cyclop // path router requires many branches
 func classifyRequest(method, path string) (string, string) {
 	segs := pathSegs(path)
 	n := len(segs)
 
 	// /resources/{arn}/tags — tag operations
-	if n >= 3 && segs[0] == "resources" && segs[n-1] == "tags" {
+	if n >= 3 && segs[0] == pathSegResources && segs[n-1] == pathSegTagsSuffix {
 		arn := strings.Join(segs[1:n-1], "/")
 		switch method {
 		case http.MethodPost:
@@ -346,7 +385,7 @@ func classifyRequest(method, path string) (string, string) {
 	}
 
 	// All remaining paths start with /accounts/{accountId}
-	if n < 2 || segs[0] != "accounts" {
+	if n < 2 || segs[0] != pathSegAccounts {
 		return opUnknown, ""
 	}
 
@@ -354,28 +393,28 @@ func classifyRequest(method, path string) (string, string) {
 	if n == 2 {
 		// POST /accounts/{accountId} → CreateNamespace
 		if method == http.MethodPost {
-			return "CreateNamespace", seg(segs, 1)
+			return "CreateNamespace", seg(segs, segAccountID)
 		}
 
 		return opUnknown, ""
 	}
 
-	resourceType := seg(segs, 2)
+	resourceType := seg(segs, segResource)
 
 	switch resourceType {
-	case "namespaces":
+	case pathSegNamespaces:
 		return classifyNamespacePaths(method, segs, n)
-	case "data-sources":
+	case pathSegDataSources:
 		return classifyDataSourcePaths(method, segs, n)
-	case "data-sets":
+	case pathSegDataSets:
 		return classifyDataSetPaths(method, segs, n)
-	case "dashboards":
+	case pathSegDashboards:
 		return classifyDashboardPaths(method, segs, n)
-	case "analyses":
+	case pathSegAnalyses:
 		return classifyAnalysisPaths(method, segs, n)
-	case "search":
+	case pathSegSearch:
 		return classifySearchPaths(method, segs, n)
-	case "restore":
+	case pathSegRestore:
 		return classifyRestorePaths(method, segs, n)
 	}
 
@@ -387,11 +426,11 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 	case 3:
 		// /accounts/{id}/namespaces
 		if method == http.MethodGet {
-			return "ListNamespaces", seg(segs, 1)
+			return "ListNamespaces", seg(segs, segAccountID)
 		}
 	case 4:
 		// /accounts/{id}/namespaces/{ns}
-		ns := seg(segs, 3)
+		ns := seg(segs, segResID)
 		switch method {
 		case http.MethodGet:
 			return "DescribeNamespace", ns
@@ -400,24 +439,24 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 		}
 	case 5:
 		// /accounts/{id}/namespaces/{ns}/groups or users
-		ns := seg(segs, 3)
-		sub := seg(segs, 4)
+		ns := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
 		switch sub {
-		case "groups":
+		case pathSegGroups:
 			switch method {
 			case http.MethodPost:
 				return "CreateGroup", ns
 			case http.MethodGet:
 				return "ListGroups", ns
 			}
-		case "users":
+		case pathSegUsers:
 			switch method {
 			case http.MethodPost:
 				return "RegisterUser", ns
 			case http.MethodGet:
 				return "ListUsers", ns
 			}
-		case "groups-search":
+		case pathSegGroupsSearch:
 			if method == http.MethodPost {
 				return "SearchGroups", ns
 			}
@@ -426,11 +465,11 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 		// /accounts/{id}/namespaces/{ns}/groups/{gn}
 		// or /accounts/{id}/namespaces/{ns}/users/{un}
 		// or /accounts/{id}/namespaces/{ns}/user-principals/{pid}
-		ns := seg(segs, 3)
-		sub := seg(segs, 4)
-		id := seg(segs, 5)
+		ns := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		id := seg(segs, segSubResID)
 		switch sub {
-		case "groups":
+		case pathSegGroups:
 			switch method {
 			case http.MethodGet:
 				return "DescribeGroup", id
@@ -439,7 +478,7 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 			case http.MethodDelete:
 				return "DeleteGroup", id
 			}
-		case "users":
+		case pathSegUsers:
 			switch method {
 			case http.MethodGet:
 				return "DescribeUser", id
@@ -448,7 +487,7 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 			case http.MethodDelete:
 				return "DeleteUser", id
 			}
-		case "user-principals":
+		case pathSegUserPrincipals:
 			if method == http.MethodDelete {
 				return "DeleteUserByPrincipalId", ns
 			}
@@ -456,35 +495,31 @@ func classifyNamespacePaths(method string, segs []string, n int) (string, string
 	case 7:
 		// /accounts/{id}/namespaces/{ns}/groups/{gn}/members
 		// /accounts/{id}/namespaces/{ns}/users/{un}/groups
-		sub := seg(segs, 4)
-		id := seg(segs, 5)
-		tail := seg(segs, 6)
+		sub := seg(segs, segSubRes)
+		id := seg(segs, segSubResID)
+		tail := seg(segs, segSubSubRes)
 		switch {
-		case sub == "groups" && tail == "members":
+		case sub == pathSegGroups && tail == pathSegMembers:
 			if method == http.MethodGet {
 				return "ListGroupMemberships", id
 			}
-		case sub == "users" && tail == "groups":
+		case sub == pathSegUsers && tail == pathSegGroups:
 			if method == http.MethodGet {
 				return "ListUserGroups", id
 			}
 		}
 	case 8:
 		// /accounts/{id}/namespaces/{ns}/groups/{gn}/members/{mn}
-		sub := seg(segs, 4)
-		groupName := seg(segs, 5)
-		tail := seg(segs, 6)
-		memberName := seg(segs, 7)
-		_ = groupName
-		_ = memberName
-		if sub == "groups" && tail == "members" {
+		sub := seg(segs, segSubRes)
+		tail := seg(segs, segSubSubRes)
+		if sub == pathSegGroups && tail == pathSegMembers {
 			switch method {
 			case http.MethodPut:
-				return "CreateGroupMembership", seg(segs, 5)
+				return "CreateGroupMembership", seg(segs, segSubResID)
 			case http.MethodGet:
-				return "DescribeGroupMembership", seg(segs, 5)
+				return "DescribeGroupMembership", seg(segs, segSubResID)
 			case http.MethodDelete:
-				return "DeleteGroupMembership", seg(segs, 5)
+				return "DeleteGroupMembership", seg(segs, segSubResID)
 			}
 		}
 	}
@@ -497,12 +532,12 @@ func classifyDataSourcePaths(method string, segs []string, n int) (string, strin
 	case 3:
 		switch method {
 		case http.MethodPost:
-			return "CreateDataSource", seg(segs, 1)
+			return "CreateDataSource", seg(segs, segAccountID)
 		case http.MethodGet:
-			return "ListDataSources", seg(segs, 1)
+			return "ListDataSources", seg(segs, segAccountID)
 		}
 	case 4:
-		id := seg(segs, 3)
+		id := seg(segs, segResID)
 		switch method {
 		case http.MethodGet:
 			return "DescribeDataSource", id
@@ -516,17 +551,38 @@ func classifyDataSourcePaths(method string, segs []string, n int) (string, strin
 	return opUnknown, ""
 }
 
+func classifyIngestionPaths(method string, segs []string, n int) (string, string) {
+	switch n {
+	case 5:
+		if method == http.MethodGet {
+			return "ListIngestions", seg(segs, segResID)
+		}
+	case 6:
+		ingID := seg(segs, segSubResID)
+		switch method {
+		case http.MethodPut:
+			return "CreateIngestion", ingID
+		case http.MethodGet:
+			return "DescribeIngestion", ingID
+		case http.MethodDelete:
+			return "CancelIngestion", ingID
+		}
+	}
+
+	return opUnknown, ""
+}
+
 func classifyDataSetPaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case 3:
 		switch method {
 		case http.MethodPost:
-			return "CreateDataSet", seg(segs, 1)
+			return "CreateDataSet", seg(segs, segAccountID)
 		case http.MethodGet:
-			return "ListDataSets", seg(segs, 1)
+			return "ListDataSets", seg(segs, segAccountID)
 		}
 	case 4:
-		id := seg(segs, 3)
+		id := seg(segs, segResID)
 		switch method {
 		case http.MethodGet:
 			return "DescribeDataSet", id
@@ -535,23 +591,9 @@ func classifyDataSetPaths(method string, segs []string, n int) (string, string) 
 		case http.MethodDelete:
 			return "DeleteDataSet", id
 		}
-	case 5:
-		// /accounts/{id}/data-sets/{dsId}/ingestions
-		if seg(segs, 4) == "ingestions" && method == http.MethodGet {
-			return "ListIngestions", seg(segs, 3)
-		}
-	case 6:
-		// /accounts/{id}/data-sets/{dsId}/ingestions/{ingId}
-		if seg(segs, 4) == "ingestions" {
-			ingID := seg(segs, 5)
-			switch method {
-			case http.MethodPut:
-				return "CreateIngestion", ingID
-			case http.MethodGet:
-				return "DescribeIngestion", ingID
-			case http.MethodDelete:
-				return "CancelIngestion", ingID
-			}
+	case 5, 6:
+		if seg(segs, segSubRes) == pathSegIngestions {
+			return classifyIngestionPaths(method, segs, n)
 		}
 	}
 
@@ -562,10 +604,10 @@ func classifyDashboardPaths(method string, segs []string, n int) (string, string
 	switch n {
 	case 3:
 		if method == http.MethodGet {
-			return "ListDashboards", seg(segs, 1)
+			return "ListDashboards", seg(segs, segAccountID)
 		}
 	case 4:
-		id := seg(segs, 3)
+		id := seg(segs, segResID)
 		switch method {
 		case http.MethodPost:
 			return "CreateDashboard", id
@@ -577,8 +619,8 @@ func classifyDashboardPaths(method string, segs []string, n int) (string, string
 			return "DeleteDashboard", id
 		}
 	case 5:
-		if seg(segs, 4) == "versions" && method == http.MethodGet {
-			return "ListDashboardVersions", seg(segs, 3)
+		if seg(segs, segSubRes) == pathSegVersions && method == http.MethodGet {
+			return "ListDashboardVersions", seg(segs, segResID)
 		}
 	}
 
@@ -589,10 +631,10 @@ func classifyAnalysisPaths(method string, segs []string, n int) (string, string)
 	switch n {
 	case 3:
 		if method == http.MethodGet {
-			return "ListAnalyses", seg(segs, 1)
+			return "ListAnalyses", seg(segs, segAccountID)
 		}
 	case 4:
-		id := seg(segs, 3)
+		id := seg(segs, segResID)
 		switch method {
 		case http.MethodPost:
 			return "CreateAnalysis", id
@@ -613,14 +655,14 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 		return opUnknown, ""
 	}
 
-	switch seg(segs, 3) {
-	case "analyses":
+	switch seg(segs, segResID) {
+	case pathSegAnalyses:
 		return "SearchAnalyses", ""
-	case "dashboards":
+	case pathSegDashboards:
 		return "SearchDashboards", ""
-	case "data-sets":
+	case pathSegDataSets:
 		return "SearchDataSets", ""
-	case "data-sources":
+	case pathSegDataSources:
 		return "SearchDataSources", ""
 	case "folders":
 		return "SearchFolders", ""
@@ -631,8 +673,8 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 
 func classifyRestorePaths(method string, segs []string, n int) (string, string) {
 	// POST /accounts/{id}/restore/analyses/{analysisId}
-	if method == http.MethodPost && n == 5 && seg(segs, 3) == "analyses" {
-		return "RestoreAnalysis", seg(segs, 4)
+	if method == http.MethodPost && n == 5 && seg(segs, segResID) == pathSegAnalyses {
+		return "RestoreAnalysis", seg(segs, segSubRes)
 	}
 
 	return opUnknown, ""
@@ -658,9 +700,9 @@ func strField(body map[string]any, key string) string {
 func intField(body map[string]any, key string) int32 {
 	switch v := body[key].(type) {
 	case float64:
-		return int32(v)
+		return int32(v) //nolint:gosec // JSON numbers are bounded by the API
 	case int:
-		return int32(v)
+		return int32(v) //nolint:gosec // JSON numbers are bounded by the API
 	}
 
 	return 0
@@ -700,7 +742,7 @@ func maxResultsParam(c *echo.Context) int32 {
 	}
 	n, _ := strconv.ParseInt(s, 10, 32)
 
-	return int32(n)
+	return int32(n) //nolint:gosec // bitSize 32 ensures safe conversion
 }
 
 func nextTokenParam(c *echo.Context) string {
@@ -751,7 +793,7 @@ func pathSegsFromCtx(c *echo.Context) []string {
 
 func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -772,15 +814,15 @@ func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 		"CreationStatus": ns.CreationStatus,
 		"IdentityStore":  ns.IdentityStore,
 		"Name":           ns.Name,
-		"RequestId":      "request-id",
-		"Status":         http.StatusOK,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDescribeNamespace(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	ns, err := h.Backend.DescribeNamespace(accountID, namespace)
 	if err != nil {
@@ -795,29 +837,29 @@ func (h *Handler) handleDescribeNamespace(c *echo.Context) error {
 			"IdentityStore":  ns.IdentityStore,
 			"Name":           ns.Name,
 		},
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteNamespace(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	if err := h.Backend.DeleteNamespace(accountID, namespace); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListNamespaces(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	namespaces, next, err := h.Backend.ListNamespaces(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -837,11 +879,11 @@ func (h *Handler) handleListNamespaces(c *echo.Context) error {
 
 	resp := map[string]any{
 		"Namespaces": items,
-		"RequestId":  "request-id",
-		"Status":     http.StatusOK,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -851,8 +893,8 @@ func (h *Handler) handleListNamespaces(c *echo.Context) error {
 
 func (h *Handler) handleCreateGroup(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -869,16 +911,16 @@ func (h *Handler) handleCreateGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Group":     groupToMap(g),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDescribeGroup(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
 
 	g, err := h.Backend.DescribeGroup(accountID, namespace, groupName)
 	if err != nil {
@@ -887,16 +929,16 @@ func (h *Handler) handleDescribeGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Group":     groupToMap(g),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateGroup(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -912,31 +954,31 @@ func (h *Handler) handleUpdateGroup(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Group":     groupToMap(g),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteGroup(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
 
 	if err := h.Backend.DeleteGroup(accountID, namespace, groupName); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListGroups(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	groups, next, err := h.Backend.ListGroups(accountID, namespace, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -950,11 +992,11 @@ func (h *Handler) handleListGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		"GroupList": items,
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -962,8 +1004,8 @@ func (h *Handler) handleListGroups(c *echo.Context) error {
 
 func (h *Handler) handleSearchGroups(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	body, _ := readBody(c)
 	query := strField(body, "Query")
@@ -988,11 +1030,11 @@ func (h *Handler) handleSearchGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		"GroupList": items,
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1012,10 +1054,10 @@ func groupToMap(g *Group) map[string]any {
 
 func (h *Handler) handleCreateGroupMembership(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
-	memberName := seg(segs, 7)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
+	memberName := seg(segs, segSubSubResID)
 
 	m, err := h.Backend.CreateGroupMembership(accountID, namespace, groupName, memberName)
 	if err != nil {
@@ -1027,17 +1069,17 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context) error {
 			"Arn":        m.Arn,
 			"MemberName": m.MemberName,
 		},
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDescribeGroupMembership(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
-	memberName := seg(segs, 7)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
+	memberName := seg(segs, segSubSubResID)
 
 	m, err := h.Backend.DescribeGroupMembership(accountID, namespace, groupName, memberName)
 	if err != nil {
@@ -1049,33 +1091,33 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context) error {
 			"Arn":        m.Arn,
 			"MemberName": m.MemberName,
 		},
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteGroupMembership(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
-	memberName := seg(segs, 7)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
+	memberName := seg(segs, segSubSubResID)
 
 	if err := h.Backend.DeleteGroupMembership(accountID, namespace, groupName, memberName); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListGroupMemberships(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	groupName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	groupName := seg(segs, segSubResID)
 
 	members, next, err := h.Backend.ListGroupMemberships(
 		accountID,
@@ -1098,11 +1140,11 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context) error {
 
 	resp := map[string]any{
 		"GroupMemberList": items,
-		"RequestId":       "request-id",
-		"Status":          http.StatusOK,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1112,8 +1154,8 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context) error {
 
 func (h *Handler) handleRegisterUser(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1134,16 +1176,16 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"User":      userToMap(u),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDescribeUser(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	userName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	userName := seg(segs, segSubResID)
 
 	u, err := h.Backend.DescribeUser(accountID, namespace, userName)
 	if err != nil {
@@ -1152,16 +1194,16 @@ func (h *Handler) handleDescribeUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"User":      userToMap(u),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateUser(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	userName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	userName := seg(segs, segSubResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1175,47 +1217,47 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"User":      userToMap(u),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteUser(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	userName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	userName := seg(segs, segSubResID)
 
 	if err := h.Backend.DeleteUser(accountID, namespace, userName); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteUserByPrincipalID(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	principalID := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	principalID := seg(segs, segSubResID)
 
 	if err := h.Backend.DeleteUserByPrincipalID(accountID, namespace, principalID); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListUsers(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
 
 	users, next, err := h.Backend.ListUsers(accountID, namespace, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1229,11 +1271,11 @@ func (h *Handler) handleListUsers(c *echo.Context) error {
 
 	resp := map[string]any{
 		"UserList":  items,
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1241,9 +1283,9 @@ func (h *Handler) handleListUsers(c *echo.Context) error {
 
 func (h *Handler) handleListUserGroups(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	namespace := seg(segs, 3)
-	userName := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	namespace := seg(segs, segResID)
+	userName := seg(segs, segSubResID)
 
 	groups, next, err := h.Backend.ListUserGroups(accountID, namespace, userName, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1257,11 +1299,11 @@ func (h *Handler) handleListUserGroups(c *echo.Context) error {
 
 	resp := map[string]any{
 		"GroupList": items,
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1284,7 +1326,7 @@ func userToMap(u *User) map[string]any {
 
 func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1306,15 +1348,15 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 		"Arn":            ds.Arn,
 		"CreationStatus": ds.Status,
 		"DataSourceId":   ds.DataSourceID,
-		"RequestId":      "request-id",
-		"Status":         http.StatusCreated,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusCreated,
 	})
 }
 
 func (h *Handler) handleDescribeDataSource(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSourceID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSourceID := seg(segs, segResID)
 
 	ds, err := h.Backend.DescribeDataSource(accountID, dataSourceID)
 	if err != nil {
@@ -1323,15 +1365,15 @@ func (h *Handler) handleDescribeDataSource(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"DataSource": dataSourceToMap(ds),
-		"RequestId":  "request-id",
-		"Status":     http.StatusOK,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSourceID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSourceID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1346,30 +1388,30 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Arn":          ds.Arn,
 		"DataSourceId": ds.DataSourceID,
-		"RequestId":    "request-id",
-		"Status":       http.StatusOK,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 		"UpdateStatus": ds.Status,
 	})
 }
 
 func (h *Handler) handleDeleteDataSource(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSourceID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSourceID := seg(segs, segResID)
 
 	if err := h.Backend.DeleteDataSource(accountID, dataSourceID); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListDataSources(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	sources, next, err := h.Backend.ListDataSources(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1383,11 +1425,11 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 
 	resp := map[string]any{
 		"DataSources": items,
-		"RequestId":   "request-id",
-		"Status":      http.StatusOK,
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1396,11 +1438,11 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 func dataSourceToMap(ds *DataSource) map[string]any {
 	return map[string]any{
 		"Arn":             ds.Arn,
-		"CreatedTime":     ds.CreatedTime.Format("2006-01-02T15:04:05Z"),
+		"CreatedTime":     ds.CreatedTime.Format(timeFormat),
 		"DataSourceId":    ds.DataSourceID,
-		"LastUpdatedTime": ds.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		"LastUpdatedTime": ds.LastUpdatedTime.Format(timeFormat),
 		"Name":            ds.Name,
-		"Status":          ds.Status,
+		keyStatus:          ds.Status,
 		"Type":            ds.Type,
 	}
 }
@@ -1409,7 +1451,7 @@ func dataSourceToMap(ds *DataSource) map[string]any {
 
 func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1432,15 +1474,15 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		"DataSetId":    ds.DataSetID,
 		"IngestionArn": fmt.Sprintf("%s/ingestion/auto", ds.Arn),
 		"IngestionId":  "auto",
-		"RequestId":    "request-id",
-		"Status":       http.StatusCreated,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusCreated,
 	})
 }
 
 func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
 
 	ds, err := h.Backend.DescribeDataSet(accountID, dataSetID)
 	if err != nil {
@@ -1449,15 +1491,15 @@ func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"DataSet":   dataSetToMap(ds),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1472,29 +1514,29 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Arn":       ds.Arn,
 		"DataSetId": ds.DataSetID,
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDeleteDataSet(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
 
 	if err := h.Backend.DeleteDataSet(accountID, dataSetID); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListDataSets(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	datasets, next, err := h.Backend.ListDataSets(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1508,11 +1550,11 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 
 	resp := map[string]any{
 		"DataSetSummaries": items,
-		"RequestId":        "request-id",
-		"Status":           http.StatusOK,
+		keyRequestID:        reqIDPlaceholder,
+		keyStatus:           http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1521,10 +1563,10 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 func dataSetToMap(ds *DataSet) map[string]any {
 	return map[string]any{
 		"Arn":             ds.Arn,
-		"CreatedTime":     ds.CreatedTime.Format("2006-01-02T15:04:05Z"),
+		"CreatedTime":     ds.CreatedTime.Format(timeFormat),
 		"DataSetId":       ds.DataSetID,
 		"ImportMode":      ds.ImportMode,
-		"LastUpdatedTime": ds.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		"LastUpdatedTime": ds.LastUpdatedTime.Format(timeFormat),
 		"Name":            ds.Name,
 	}
 }
@@ -1533,9 +1575,9 @@ func dataSetToMap(ds *DataSet) map[string]any {
 
 func (h *Handler) handleCreateIngestion(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
-	ingestionID := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
+	ingestionID := seg(segs, segSubResID)
 
 	ing, err := h.Backend.CreateIngestion(accountID, dataSetID, ingestionID)
 	if err != nil {
@@ -1546,16 +1588,16 @@ func (h *Handler) handleCreateIngestion(c *echo.Context) error {
 		"Arn":             ing.Arn,
 		"IngestionId":     ing.IngestionID,
 		"IngestionStatus": ing.IngestionStatus,
-		"RequestId":       "request-id",
-		"Status":          http.StatusCreated,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusCreated,
 	})
 }
 
 func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
-	ingestionID := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
+	ingestionID := seg(segs, segSubResID)
 
 	ing, err := h.Backend.DescribeIngestion(accountID, dataSetID, ingestionID)
 	if err != nil {
@@ -1565,35 +1607,35 @@ func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Ingestion": map[string]any{
 			"Arn":             ing.Arn,
-			"CreatedTime":     ing.CreatedTime.Format("2006-01-02T15:04:05Z"),
+			"CreatedTime":     ing.CreatedTime.Format(timeFormat),
 			"IngestionId":     ing.IngestionID,
 			"IngestionStatus": ing.IngestionStatus,
 		},
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleCancelIngestion(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
-	ingestionID := seg(segs, 5)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
+	ingestionID := seg(segs, segSubResID)
 
 	if err := h.Backend.CancelIngestion(accountID, dataSetID, ingestionID); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListIngestions(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dataSetID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dataSetID := seg(segs, segResID)
 
 	ingestions, next, err := h.Backend.ListIngestions(accountID, dataSetID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1604,7 +1646,7 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 	for _, ing := range ingestions {
 		items = append(items, map[string]any{
 			"Arn":             ing.Arn,
-			"CreatedTime":     ing.CreatedTime.Format("2006-01-02T15:04:05Z"),
+			"CreatedTime":     ing.CreatedTime.Format(timeFormat),
 			"IngestionId":     ing.IngestionID,
 			"IngestionStatus": ing.IngestionStatus,
 		})
@@ -1612,11 +1654,11 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 
 	resp := map[string]any{
 		"Ingestions": items,
-		"RequestId":  "request-id",
-		"Status":     http.StatusOK,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1626,8 +1668,8 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 
 func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dashboardID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1648,16 +1690,16 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		"Arn":            d.Arn,
 		"CreationStatus": d.Status,
 		"DashboardId":    d.DashboardID,
-		"RequestId":      "request-id",
-		"Status":         http.StatusOK,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
 		"VersionArn":     fmt.Sprintf("%s/version/1", d.Arn),
 	})
 }
 
 func (h *Handler) handleDescribeDashboard(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dashboardID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
 
 	d, err := h.Backend.DescribeDashboard(accountID, dashboardID)
 	if err != nil {
@@ -1666,15 +1708,15 @@ func (h *Handler) handleDescribeDashboard(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Dashboard": dashboardToMap(d),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dashboardID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1689,30 +1731,30 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Arn":         d.Arn,
 		"DashboardId": d.DashboardID,
-		"RequestId":   "request-id",
-		"Status":      http.StatusOK,
+		keyRequestID:   reqIDPlaceholder,
+		keyStatus:      http.StatusOK,
 		"VersionArn":  fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
 	})
 }
 
 func (h *Handler) handleDeleteDashboard(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dashboardID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
 
 	if err := h.Backend.DeleteDashboard(accountID, dashboardID); err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListDashboards(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	dashboards, next, err := h.Backend.ListDashboards(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1726,11 +1768,11 @@ func (h *Handler) handleListDashboards(c *echo.Context) error {
 
 	resp := map[string]any{
 		"DashboardSummaryList": items,
-		"RequestId":            "request-id",
-		"Status":               http.StatusOK,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1738,8 +1780,8 @@ func (h *Handler) handleListDashboards(c *echo.Context) error {
 
 func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	dashboardID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	dashboardID := seg(segs, segResID)
 
 	versions, next, err := h.Backend.ListDashboardVersions(
 		accountID,
@@ -1755,19 +1797,19 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 	for _, v := range versions {
 		items = append(items, map[string]any{
 			"Arn":           v.Arn,
-			"CreatedTime":   v.CreatedTime.Format("2006-01-02T15:04:05Z"),
-			"Status":        v.Status,
+			"CreatedTime":   v.CreatedTime.Format(timeFormat),
+			keyStatus:        v.Status,
 			"VersionNumber": v.VersionNumber,
 		})
 	}
 
 	resp := map[string]any{
 		"DashboardVersionSummaryList": items,
-		"RequestId":                   "request-id",
-		"Status":                      http.StatusOK,
+		keyRequestID:                   reqIDPlaceholder,
+		keyStatus:                      http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1776,9 +1818,9 @@ func (h *Handler) handleListDashboardVersions(c *echo.Context) error {
 func dashboardToMap(d *Dashboard) map[string]any {
 	return map[string]any{
 		"Arn":                    d.Arn,
-		"CreatedTime":            d.CreatedTime.Format("2006-01-02T15:04:05Z"),
+		"CreatedTime":            d.CreatedTime.Format(timeFormat),
 		"DashboardId":            d.DashboardID,
-		"LastUpdatedTime":        d.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		"LastUpdatedTime":        d.LastUpdatedTime.Format(timeFormat),
 		"Name":                   d.Name,
 		"PublishedVersionNumber": d.VersionNumber,
 	}
@@ -1788,8 +1830,8 @@ func dashboardToMap(d *Dashboard) map[string]any {
 
 func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	analysisID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1810,15 +1852,15 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 		"AnalysisId":     a.AnalysisID,
 		"Arn":            a.Arn,
 		"CreationStatus": a.Status,
-		"RequestId":      "request-id",
-		"Status":         http.StatusOK,
+		keyRequestID:      reqIDPlaceholder,
+		keyStatus:         http.StatusOK,
 	})
 }
 
 func (h *Handler) handleDescribeAnalysis(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	analysisID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
 
 	a, err := h.Backend.DescribeAnalysis(accountID, analysisID)
 	if err != nil {
@@ -1827,15 +1869,15 @@ func (h *Handler) handleDescribeAnalysis(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Analysis":  analysisToMap(a),
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
 func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	analysisID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
 
 	body, err := readBody(c)
 	if err != nil {
@@ -1850,16 +1892,16 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AnalysisId":   a.AnalysisID,
 		"Arn":          a.Arn,
-		"RequestId":    "request-id",
-		"Status":       http.StatusOK,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 		"UpdateStatus": a.Status,
 	})
 }
 
 func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
-	analysisID := seg(segs, 3)
+	accountID := seg(segs, segAccountID)
+	analysisID := seg(segs, segResID)
 
 	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == "true"
 
@@ -1869,14 +1911,14 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AnalysisId": analysisID,
-		"RequestId":  "request-id",
-		"Status":     http.StatusOK,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	})
 }
 
 func (h *Handler) handleListAnalyses(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 
 	analyses, next, err := h.Backend.ListAnalyses(accountID, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
@@ -1890,11 +1932,11 @@ func (h *Handler) handleListAnalyses(c *echo.Context) error {
 
 	resp := map[string]any{
 		"AnalysisSummaryList": items,
-		"RequestId":           "request-id",
-		"Status":              http.StatusOK,
+		keyRequestID:           reqIDPlaceholder,
+		keyStatus:              http.StatusOK,
 	}
 	if next != "" {
-		resp["NextToken"] = next
+		resp[keyNextToken] = next
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
@@ -1902,9 +1944,9 @@ func (h *Handler) handleListAnalyses(c *echo.Context) error {
 
 func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
-	accountID := seg(segs, 1)
+	accountID := seg(segs, segAccountID)
 	// path: /accounts/{id}/restore/analyses/{analysisId}
-	analysisID := seg(segs, 4)
+	analysisID := seg(segs, segSubRes)
 
 	a, err := h.Backend.RestoreAnalysis(accountID, analysisID)
 	if err != nil {
@@ -1914,8 +1956,8 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AnalysisId": a.AnalysisID,
 		"Arn":        a.Arn,
-		"RequestId":  "request-id",
-		"Status":     http.StatusOK,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	})
 }
 
@@ -1923,10 +1965,10 @@ func analysisToMap(a *Analysis) map[string]any {
 	return map[string]any{
 		"AnalysisId":      a.AnalysisID,
 		"Arn":             a.Arn,
-		"CreatedTime":     a.CreatedTime.Format("2006-01-02T15:04:05Z"),
-		"LastUpdatedTime": a.LastUpdatedTime.Format("2006-01-02T15:04:05Z"),
+		"CreatedTime":     a.CreatedTime.Format(timeFormat),
+		"LastUpdatedTime": a.LastUpdatedTime.Format(timeFormat),
 		"Name":            a.Name,
-		"Status":          a.Status,
+		keyStatus:          a.Status,
 	}
 }
 
@@ -1948,8 +1990,8 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
@@ -1964,8 +2006,8 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 	})
 }
 
@@ -1984,8 +2026,8 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"RequestId": "request-id",
-		"Status":    http.StatusOK,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
 		"Tags":      items,
 	})
 }
