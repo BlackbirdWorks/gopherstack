@@ -709,8 +709,8 @@ func (h *Handler) aliasActions() map[string]actionFn {
 }
 
 const (
-	maxTagKeyLen   = 128
-	maxTagValueLen = 256
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
 	maxTagsPerResource = 50
 )
 

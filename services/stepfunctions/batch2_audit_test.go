@@ -19,7 +19,7 @@ func TestAudit2_CreateStateMachine_Idempotent_SameParams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name   string
 		smType string
 	}{
 		{name: "standard_type", smType: "STANDARD"},
@@ -112,8 +112,8 @@ func TestAudit2_CreateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		routing []stepfunctions.AliasRoutingConfig
 		name    string
+		routing []stepfunctions.AliasRoutingConfig
 		wantErr bool
 	}{
 		{
@@ -182,10 +182,20 @@ func TestAudit2_CreateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine("alias-weight-sm-"+tt.name[:min(len(tt.name), 20)], minimalDefinition, validRoleARN, "STANDARD")
+			sm, err := b.CreateStateMachine(
+				"alias-weight-sm-"+tt.name[:min(len(tt.name), 20)],
+				minimalDefinition,
+				validRoleARN,
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
-			_, err = b.CreateStateMachineAlias(sm.StateMachineArn, "my-alias-"+tt.name[:min(len(tt.name), 10)], "", tt.routing)
+			_, err = b.CreateStateMachineAlias(
+				sm.StateMachineArn,
+				"my-alias-"+tt.name[:min(len(tt.name), 10)],
+				"",
+				tt.routing,
+			)
 			if tt.wantErr {
 				require.ErrorIs(t, err, stepfunctions.ErrInvalidRoutingConfiguration)
 			} else {

@@ -384,8 +384,10 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 			// AWS idempotency: same name+definition+type+roleArn → return existing without error.
 			if sm.Definition == definition && sm.Type == smType && sm.RoleArn == roleArn {
 				cp := *sm
+
 				return &cp, nil
 			}
+
 			return nil, fmt.Errorf("%w: %s", ErrStateMachineAlreadyExists, name)
 		}
 	}
