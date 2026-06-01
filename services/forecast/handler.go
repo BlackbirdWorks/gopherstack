@@ -330,25 +330,31 @@ func createFails(kind resourceKind, input map[string]any) bool {
 	return stringValue(s3Config["Path"]) == ""
 }
 
+const forecastContentType = "application/x-amz-json-1.1"
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var code int
+	var errType string
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-
-		return c.JSON(http.StatusBadRequest, errorPayload("ResourceNotFoundException", err))
+		code, errType = http.StatusBadRequest, "ResourceNotFoundException"
 	case errors.Is(err, ErrAlreadyExists):
-
-		return c.JSON(http.StatusBadRequest, errorPayload("ResourceAlreadyExistsException", err))
+		code, errType = http.StatusBadRequest, "ResourceAlreadyExistsException"
 	case errors.Is(err, ErrValidation):
-
-		return c.JSON(http.StatusBadRequest, errorPayload("InvalidInputException", err))
+		code, errType = http.StatusBadRequest, "InvalidInputException"
 	default:
-
-		return c.JSON(http.StatusInternalServerError, errorPayload("InternalServerException", err))
+		code, errType = http.StatusInternalServerError, "InternalServerException"
 	}
-}
 
-func errorPayload(errorType string, err error) map[string]string {
-	return map[string]string{"__type": errorType, "message": err.Error()}
+	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": err.Error()})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", forecastContentType)
+
+	return c.JSONBlob(code, payload)
 }
 
 func forecastOperations() map[string]operationSpec {
