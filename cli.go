@@ -97,6 +97,7 @@ import (
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -2732,6 +2733,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
 		&detectivebackend.Provider{},
+		&directoryservicebackend.Provider{},
 		&datasyncbackend.Provider{},
 	}
 }

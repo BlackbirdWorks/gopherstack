@@ -168,6 +168,7 @@ require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0
+	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2
 	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0
 	github.com/aws/aws-sdk-go-v2/service/datasync v1.59.2
@@ -184,7 +185,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
-require github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2 // indirect
+require github.com/aws/aws-sdk-go-v2/service/directoryservice v1.38.20
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
