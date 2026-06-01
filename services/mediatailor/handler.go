@@ -127,7 +127,16 @@ func isMediaTailorPath(path string) bool {
 		strings.HasPrefix(path, pathChannel) ||
 		path == pathSourceLocations ||
 		strings.HasPrefix(path, pathSourceLocation) ||
-		strings.HasPrefix(path, pathTags)
+		isMediaTailorTagPath(path)
+}
+
+// isMediaTailorTagPath reports whether path is a /tags/{arn} path for a MediaTailor ARN.
+// Other services (e.g. FIS) also expose /tags/{arn} at the same path prefix; we must not
+// steal their requests. MediaTailor ARNs always contain ":mediatailor:".
+func isMediaTailorTagPath(path string) bool {
+	arn, ok := strings.CutPrefix(path, pathTags)
+
+	return ok && strings.Contains(arn, ":mediatailor:")
 }
 
 // MatchPriority returns the routing priority.
