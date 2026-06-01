@@ -451,6 +451,7 @@ const (
 	confidenceWord2 = 99.7
 	confidenceWord3 = 99.9
 	blockTypeWord   = "WORD"
+	textTypePrinted = "PRINTED"
 
 	// Block type string constants to avoid repeated literals.
 	blockTypeKeyValueSet = "KEY_VALUE_SET"
@@ -619,6 +620,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "Synthetic",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord1,
 			ID:         word1ID,
 			Page:       &page1,
@@ -627,6 +629,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "extracted",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord2,
 			ID:         word2ID,
 			Page:       &page1,
@@ -635,6 +638,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "text",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord3,
 			ID:         word3ID,
 			Page:       &page1,
@@ -643,6 +647,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "Document",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord1,
 			ID:         word4ID,
 			Page:       &page1,
@@ -651,6 +656,7 @@ func syntheticBlocks(documentURI string) []Block {
 		{
 			BlockType:  blockTypeWord,
 			Text:       "processed",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWord2,
 			ID:         word5ID,
 			Page:       &page1,
@@ -696,6 +702,22 @@ func analyzeDocumentBlocks(documentURI string, featureTypes []string, queries *Q
 
 // buildFormsBlocks builds KEY_VALUE_SET and SELECTION_ELEMENT blocks.
 func buildFormsBlocks(page int) []Block {
+	selID := uuid.NewString()
+	blocks := buildFormKVBlocks(page)
+	blocks = append(blocks, Block{
+		BlockType:       "SELECTION_ELEMENT",
+		ID:              selID,
+		Confidence:      confidenceSelElem,
+		SelectionStatus: "SELECTED",
+		Page:            &page,
+		Geometry:        makeGeometry(geoLeft, geoSelTop, geoSelWidth, geoSelHeight),
+	})
+
+	return blocks
+}
+
+// buildFormKVBlocks builds the KEY_VALUE_SET and WORD blocks for form fields.
+func buildFormKVBlocks(page int) []Block {
 	keyWord1ID := uuid.NewString()
 	keyWord2ID := uuid.NewString()
 	valueWord1ID := uuid.NewString()
@@ -704,9 +726,8 @@ func buildFormsBlocks(page int) []Block {
 	val1ID := uuid.NewString()
 	key2ID := uuid.NewString()
 	val2ID := uuid.NewString()
-	selID := uuid.NewString()
 
-	blocks := []Block{
+	return []Block{
 		// Key 1
 		{
 			BlockType:   blockTypeKeyValueSet,
@@ -737,6 +758,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         keyWord1ID,
 			Text:       "Name:",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoLeft, geoFormTop1, geoWordWidth, geoHeight),
@@ -746,6 +768,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         valueWord1ID,
 			Text:       "John",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoFormValLeft, geoFormTop1, geoWordWidth, geoHeight),
@@ -780,6 +803,7 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         keyWord2ID,
 			Text:       "Status:",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoLeft, geoFormTop2, geoWordWidth, geoHeight),
@@ -789,22 +813,12 @@ func buildFormsBlocks(page int) []Block {
 			BlockType:  blockTypeWord,
 			ID:         valueWord2ID,
 			Text:       "Active",
+			TextType:   textTypePrinted,
 			Confidence: confidenceWordForm,
 			Page:       &page,
 			Geometry:   makeGeometry(geoFormValLeft, geoFormTop2, geoWordWidth, geoHeight),
 		},
-		// Selection element
-		{
-			BlockType:       "SELECTION_ELEMENT",
-			ID:              selID,
-			Confidence:      confidenceSelElem,
-			SelectionStatus: "SELECTED",
-			Page:            &page,
-			Geometry:        makeGeometry(geoLeft, geoSelTop, geoSelWidth, geoSelHeight),
-		},
 	}
-
-	return blocks
 }
 
 // buildTablesBlocks builds TABLE and CELL blocks.
