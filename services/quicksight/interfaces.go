@@ -22,7 +22,11 @@ type StorageBackend interface {
 	CreateGroupMembership(accountID, namespace, groupName, memberName string) (*GroupMember, error)
 	DescribeGroupMembership(accountID, namespace, groupName, memberName string) (*GroupMember, error)
 	DeleteGroupMembership(accountID, namespace, groupName, memberName string) error
-	ListGroupMemberships(accountID, namespace, groupName string, maxResults int32, nextToken string) ([]*GroupMember, string, error)
+	ListGroupMemberships(
+		accountID, namespace, groupName string,
+		maxResults int32,
+		nextToken string,
+	) ([]*GroupMember, string, error)
 
 	// Users
 	RegisterUser(accountID, namespace, userName, email, role, identityType, sessionName string) (*User, error)
@@ -59,7 +63,11 @@ type StorageBackend interface {
 	UpdateDashboard(accountID, dashboardID, name string) (*Dashboard, error)
 	DeleteDashboard(accountID, dashboardID string) error
 	ListDashboards(accountID string, maxResults int32, nextToken string) ([]*Dashboard, string, error)
-	ListDashboardVersions(accountID, dashboardID string, maxResults int32, nextToken string) ([]*DashboardVersion, string, error)
+	ListDashboardVersions(
+		accountID, dashboardID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*DashboardVersion, string, error)
 
 	// Analyses
 	CreateAnalysis(accountID, analysisID, name string, tags map[string]string) (*Analysis, error)
@@ -81,11 +89,11 @@ type StorageBackend interface {
 
 // Namespace represents a QuickSight namespace.
 type Namespace struct {
-	CreationStatus  string
-	Name            string
-	Arn             string
-	CapacityRegion  string
-	IdentityStore   string
+	CreationStatus string
+	Name           string
+	Arn            string
+	CapacityRegion string
+	IdentityStore  string
 }
 
 // Group represents a QuickSight group.

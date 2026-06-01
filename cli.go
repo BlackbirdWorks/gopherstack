@@ -167,6 +167,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
+	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -2719,6 +2720,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
+		&quicksightbackend.Provider{},
 		&rekognitionbackend.Provider{},
 		&sagemakerbackend.Provider{},
 		&sagemakerruntimebackend.Provider{},

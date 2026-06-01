@@ -19,7 +19,7 @@ const (
 	errConflictException = "ConflictException"
 	errValidation        = "InvalidParameterValueException"
 
-	defaultNamespace     = "default"
+	defaultNamespace         = "default"
 	statusCreationSuccessful = "CREATION_SUCCESSFUL"
 	statusCreationInProgress = "CREATION_IN_PROGRESS"
 	statusUpdateSuccessful   = "UPDATE_SUCCESSFUL"
@@ -250,21 +250,21 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 
 // state is the serializable snapshot of the backend.
 type state struct {
-	Namespaces   map[string]*storedNamespace `json:"namespaces"`
-	Groups       map[string]*storedGroup     `json:"groups"`
-	GroupMembers map[string]bool             `json:"groupMembers"`
-	Users        map[string]*storedUser      `json:"users"`
+	Namespaces   map[string]*storedNamespace  `json:"namespaces"`
+	Groups       map[string]*storedGroup      `json:"groups"`
+	GroupMembers map[string]bool              `json:"groupMembers"`
+	Users        map[string]*storedUser       `json:"users"`
 	DataSources  map[string]*storedDataSource `json:"dataSources"`
-	DataSets     map[string]*storedDataSet   `json:"dataSets"`
-	Ingestions   map[string]*storedIngestion `json:"ingestions"`
-	Dashboards   map[string]*storedDashboard `json:"dashboards"`
-	Analyses     map[string]*storedAnalysis  `json:"analyses"`
+	DataSets     map[string]*storedDataSet    `json:"dataSets"`
+	Ingestions   map[string]*storedIngestion  `json:"ingestions"`
+	Dashboards   map[string]*storedDashboard  `json:"dashboards"`
+	Analyses     map[string]*storedAnalysis   `json:"analyses"`
 	Tags         map[string]map[string]string `json:"tags"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu           lockmetrics.RWMutex
+	mu           *lockmetrics.RWMutex
 	namespaces   map[string]*storedNamespace
 	groups       map[string]*storedGroup
 	groupMembers map[string]bool
@@ -295,7 +295,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		analyses:     make(map[string]*storedAnalysis),
 		tags:         make(map[string]map[string]string),
 	}
-	b.mu = lockmetrics.NewRWMutex("quicksight")
+	b.mu = lockmetrics.New("quicksight")
 
 	// Pre-create the default namespace so basic operations work without explicit setup.
 	b.namespaces[nsKey(accountID, defaultNamespace)] = &storedNamespace{
@@ -492,7 +492,11 @@ func (b *InMemoryBackend) DeleteNamespace(accountID, namespace string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListNamespaces(accountID string, maxResults int32, nextToken string) ([]*Namespace, string, error) {
+func (b *InMemoryBackend) ListNamespaces(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*Namespace, string, error) {
 	b.mu.RLock("ListNamespaces")
 	defer b.mu.RUnlock()
 
@@ -504,10 +508,12 @@ func (b *InMemoryBackend) ListNamespaces(accountID string, maxResults int32, nex
 		}
 	}
 
-	return paginateNamespaces(all, maxResults, nextToken)
+	result, next := paginateNamespaces(all, maxResults, nextToken)
+
+	return result, next, nil
 }
 
-func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken string) ([]*Namespace, string, error) {
+func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken string) ([]*Namespace, string) {
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
 	}
@@ -517,6 +523,7 @@ func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken stri
 		for i, ns := range all {
 			if ns.Name == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -535,7 +542,7 @@ func paginateNamespaces(all []*storedNamespace, maxResults int32, nextToken stri
 		result = append(result, ns.toNamespace())
 	}
 
-	return result, next, nil
+	return result, next
 }
 
 // ---- Groups ----
@@ -618,7 +625,11 @@ func (b *InMemoryBackend) DeleteGroup(accountID, namespace, groupName string) er
 	return nil
 }
 
-func (b *InMemoryBackend) ListGroups(accountID, namespace string, maxResults int32, nextToken string) ([]*Group, string, error) {
+func (b *InMemoryBackend) ListGroups(
+	accountID, namespace string,
+	maxResults int32,
+	nextToken string,
+) ([]*Group, string, error) {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
@@ -633,10 +644,16 @@ func (b *InMemoryBackend) ListGroups(accountID, namespace string, maxResults int
 		}
 	}
 
-	return paginateGroups(all, maxResults, nextToken)
+	result, next := paginateGroups(all, maxResults, nextToken)
+
+	return result, next, nil
 }
 
-func (b *InMemoryBackend) SearchGroups(accountID, namespace, query string, maxResults int32, nextToken string) ([]*Group, string, error) {
+func (b *InMemoryBackend) SearchGroups(
+	accountID, namespace, query string,
+	maxResults int32,
+	nextToken string,
+) ([]*Group, string, error) {
 	b.mu.RLock("SearchGroups")
 	defer b.mu.RUnlock()
 
@@ -650,10 +667,12 @@ func (b *InMemoryBackend) SearchGroups(accountID, namespace, query string, maxRe
 		}
 	}
 
-	return paginateGroups(all, maxResults, nextToken)
+	result, next := paginateGroups(all, maxResults, nextToken)
+
+	return result, next, nil
 }
 
-func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*Group, string, error) {
+func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*Group, string) {
 	if maxResults <= 0 || maxResults > defaultMaxResults {
 		maxResults = defaultMaxResults
 	}
@@ -663,6 +682,7 @@ func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*
 		for i, g := range all {
 			if g.GroupName == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -681,12 +701,14 @@ func paginateGroups(all []*storedGroup, maxResults int32, nextToken string) ([]*
 		result = append(result, g.toGroup())
 	}
 
-	return result, next, nil
+	return result, next
 }
 
 // ---- Group Memberships ----
 
-func (b *InMemoryBackend) CreateGroupMembership(accountID, namespace, groupName, memberName string) (*GroupMember, error) {
+func (b *InMemoryBackend) CreateGroupMembership(
+	accountID, namespace, groupName, memberName string,
+) (*GroupMember, error) {
 	b.mu.Lock("CreateGroupMembership")
 	defer b.mu.Unlock()
 
@@ -707,7 +729,9 @@ func (b *InMemoryBackend) CreateGroupMembership(accountID, namespace, groupName,
 	}, nil
 }
 
-func (b *InMemoryBackend) DescribeGroupMembership(accountID, namespace, groupName, memberName string) (*GroupMember, error) {
+func (b *InMemoryBackend) DescribeGroupMembership(
+	accountID, namespace, groupName, memberName string,
+) (*GroupMember, error) {
 	b.mu.RLock("DescribeGroupMembership")
 	defer b.mu.RUnlock()
 
@@ -735,7 +759,11 @@ func (b *InMemoryBackend) DeleteGroupMembership(accountID, namespace, groupName,
 	return nil
 }
 
-func (b *InMemoryBackend) ListGroupMemberships(accountID, namespace, groupName string, maxResults int32, nextToken string) ([]*GroupMember, string, error) {
+func (b *InMemoryBackend) ListGroupMemberships(
+	accountID, namespace, groupName string,
+	maxResults int32,
+	nextToken string,
+) ([]*GroupMember, string, error) {
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
@@ -788,7 +816,9 @@ func (b *InMemoryBackend) ListGroupMemberships(accountID, namespace, groupName s
 
 // ---- Users ----
 
-func (b *InMemoryBackend) RegisterUser(accountID, namespace, userName, email, role, identityType, sessionName string) (*User, error) {
+func (b *InMemoryBackend) RegisterUser(
+	accountID, namespace, userName, email, role, identityType, sessionName string,
+) (*User, error) {
 	if userName == "" || email == "" {
 		return nil, ErrValidation
 	}
@@ -889,7 +919,11 @@ func (b *InMemoryBackend) DeleteUserByPrincipalID(accountID, namespace, principa
 	return ErrUserNotFound
 }
 
-func (b *InMemoryBackend) ListUsers(accountID, namespace string, maxResults int32, nextToken string) ([]*User, string, error) {
+func (b *InMemoryBackend) ListUsers(
+	accountID, namespace string,
+	maxResults int32,
+	nextToken string,
+) ([]*User, string, error) {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
@@ -931,7 +965,11 @@ func (b *InMemoryBackend) ListUsers(accountID, namespace string, maxResults int3
 	return result, next, nil
 }
 
-func (b *InMemoryBackend) ListUserGroups(accountID, namespace, userName string, maxResults int32, nextToken string) ([]*Group, string, error) {
+func (b *InMemoryBackend) ListUserGroups(
+	accountID, namespace, userName string,
+	maxResults int32,
+	nextToken string,
+) ([]*Group, string, error) {
 	b.mu.RLock("ListUserGroups")
 	defer b.mu.RUnlock()
 
@@ -956,7 +994,10 @@ func (b *InMemoryBackend) ListUserGroups(accountID, namespace, userName string, 
 
 // ---- DataSources ----
 
-func (b *InMemoryBackend) CreateDataSource(accountID, dataSourceID, name, dsType string, tags map[string]string) (*DataSource, error) {
+func (b *InMemoryBackend) CreateDataSource(
+	accountID, dataSourceID, name, dsType string,
+	tags map[string]string,
+) (*DataSource, error) {
 	if dataSourceID == "" || name == "" {
 		return nil, ErrValidation
 	}
@@ -1035,7 +1076,11 @@ func (b *InMemoryBackend) DeleteDataSource(accountID, dataSourceID string) error
 	return nil
 }
 
-func (b *InMemoryBackend) ListDataSources(accountID string, maxResults int32, nextToken string) ([]*DataSource, string, error) {
+func (b *InMemoryBackend) ListDataSources(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*DataSource, string, error) {
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
@@ -1079,7 +1124,10 @@ func (b *InMemoryBackend) ListDataSources(accountID string, maxResults int32, ne
 
 // ---- DataSets ----
 
-func (b *InMemoryBackend) CreateDataSet(accountID, dataSetID, name, importMode string, tags map[string]string) (*DataSet, error) {
+func (b *InMemoryBackend) CreateDataSet(
+	accountID, dataSetID, name, importMode string,
+	tags map[string]string,
+) (*DataSet, error) {
 	if dataSetID == "" || name == "" {
 		return nil, ErrValidation
 	}
@@ -1163,7 +1211,11 @@ func (b *InMemoryBackend) DeleteDataSet(accountID, dataSetID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error) {
+func (b *InMemoryBackend) ListDataSets(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*DataSet, string, error) {
 	b.mu.RLock("ListDataSets")
 	defer b.mu.RUnlock()
 
@@ -1221,9 +1273,15 @@ func (b *InMemoryBackend) CreateIngestion(accountID, dataSetID, ingestionID stri
 	}
 
 	ing := &storedIngestion{
-		CreatedTime:     time.Now().UTC(),
-		IngestionID:     ingestionID,
-		Arn:             fmt.Sprintf("arn:aws:quicksight:%s:%s:dataset/%s/ingestion/%s", b.region, accountID, dataSetID, ingestionID),
+		CreatedTime: time.Now().UTC(),
+		IngestionID: ingestionID,
+		Arn: fmt.Sprintf(
+			"arn:aws:quicksight:%s:%s:dataset/%s/ingestion/%s",
+			b.region,
+			accountID,
+			dataSetID,
+			ingestionID,
+		),
 		DataSetID:       dataSetID,
 		IngestionStatus: statusRunning,
 	}
@@ -1259,7 +1317,11 @@ func (b *InMemoryBackend) CancelIngestion(accountID, dataSetID, ingestionID stri
 	return nil
 }
 
-func (b *InMemoryBackend) ListIngestions(accountID, dataSetID string, maxResults int32, nextToken string) ([]*Ingestion, string, error) {
+func (b *InMemoryBackend) ListIngestions(
+	accountID, dataSetID string,
+	maxResults int32,
+	nextToken string,
+) ([]*Ingestion, string, error) {
 	b.mu.RLock("ListIngestions")
 	defer b.mu.RUnlock()
 
@@ -1303,7 +1365,10 @@ func (b *InMemoryBackend) ListIngestions(accountID, dataSetID string, maxResults
 
 // ---- Dashboards ----
 
-func (b *InMemoryBackend) CreateDashboard(accountID, dashboardID, name string, tags map[string]string) (*Dashboard, error) {
+func (b *InMemoryBackend) CreateDashboard(
+	accountID, dashboardID, name string,
+	tags map[string]string,
+) (*Dashboard, error) {
 	if dashboardID == "" || name == "" {
 		return nil, ErrValidation
 	}
@@ -1382,7 +1447,11 @@ func (b *InMemoryBackend) DeleteDashboard(accountID, dashboardID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListDashboards(accountID string, maxResults int32, nextToken string) ([]*Dashboard, string, error) {
+func (b *InMemoryBackend) ListDashboards(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*Dashboard, string, error) {
 	b.mu.RLock("ListDashboards")
 	defer b.mu.RUnlock()
 
@@ -1424,7 +1493,11 @@ func (b *InMemoryBackend) ListDashboards(accountID string, maxResults int32, nex
 	return result, next, nil
 }
 
-func (b *InMemoryBackend) ListDashboardVersions(accountID, dashboardID string, maxResults int32, nextToken string) ([]*DashboardVersion, string, error) {
+func (b *InMemoryBackend) ListDashboardVersions(
+	accountID, dashboardID string,
+	maxResults int32,
+	nextToken string,
+) ([]*DashboardVersion, string, error) {
 	b.mu.RLock("ListDashboardVersions")
 	defer b.mu.RUnlock()
 
@@ -1448,7 +1521,10 @@ func (b *InMemoryBackend) ListDashboardVersions(accountID, dashboardID string, m
 
 // ---- Analyses ----
 
-func (b *InMemoryBackend) CreateAnalysis(accountID, analysisID, name string, tags map[string]string) (*Analysis, error) {
+func (b *InMemoryBackend) CreateAnalysis(
+	accountID, analysisID, name string,
+	tags map[string]string,
+) (*Analysis, error) {
 	if analysisID == "" || name == "" {
 		return nil, ErrValidation
 	}
@@ -1530,7 +1606,11 @@ func (b *InMemoryBackend) DeleteAnalysis(accountID, analysisID string, forceDele
 	return nil
 }
 
-func (b *InMemoryBackend) ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error) {
+func (b *InMemoryBackend) ListAnalyses(
+	accountID string,
+	maxResults int32,
+	nextToken string,
+) ([]*Analysis, string, error) {
 	b.mu.RLock("ListAnalyses")
 	defer b.mu.RUnlock()
 
