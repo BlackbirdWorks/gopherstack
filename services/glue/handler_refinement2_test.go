@@ -324,7 +324,12 @@ func TestRefinement2_Timestamps(t *testing.T) {
 		{
 			name: "job_timestamps",
 			setup: func(h *glue.Handler) {
-				doGlueRequest(t, h, "CreateJob", map[string]any{"Name": "j", "Role": "r"})
+				doGlueRequest(
+					t,
+					h,
+					"CreateJob",
+					map[string]any{"Name": "j", "Role": "r", "Command": map[string]any{"Name": "glueetl"}},
+				)
 			},
 			action:      "GetJob",
 			body:        map[string]any{"JobName": "j"},
@@ -438,7 +443,12 @@ func TestRefinement2_JobLifecycle(t *testing.T) {
 		{
 			name: "delete_cascades_runs_and_bookmarks",
 			setup: func(h *glue.Handler) string {
-				doGlueRequest(t, h, "CreateJob", map[string]any{"Name": "cascade-job", "Role": "r"})
+				doGlueRequest(
+					t,
+					h,
+					"CreateJob",
+					map[string]any{"Name": "cascade-job", "Role": "r", "Command": map[string]any{"Name": "glueetl"}},
+				)
 				doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "cascade-job"})
 				doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "cascade-job"})
 
@@ -460,7 +470,12 @@ func TestRefinement2_JobLifecycle(t *testing.T) {
 		{
 			name: "reset_bookmark_returns_post_reset_state",
 			setup: func(h *glue.Handler) string {
-				doGlueRequest(t, h, "CreateJob", map[string]any{"Name": "j", "Role": "r"})
+				doGlueRequest(
+					t,
+					h,
+					"CreateJob",
+					map[string]any{"Name": "j", "Role": "r", "Command": map[string]any{"Name": "glueetl"}},
+				)
 				doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "j"})
 
 				return "j"
@@ -486,7 +501,12 @@ func TestRefinement2_JobLifecycle(t *testing.T) {
 		{
 			name: "bookmark_active_run_tracking",
 			setup: func(h *glue.Handler) string {
-				doGlueRequest(t, h, "CreateJob", map[string]any{"Name": "j", "Role": "r"})
+				doGlueRequest(
+					t,
+					h,
+					"CreateJob",
+					map[string]any{"Name": "j", "Role": "r", "Command": map[string]any{"Name": "glueetl"}},
+				)
 				doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "j"})
 
 				return "j"
@@ -559,7 +579,7 @@ func TestRefinement2_MaxConcurrentRuns(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			body := map[string]any{"Name": "limited-job", "Role": "r"}
+			body := map[string]any{"Name": "limited-job", "Role": "r", "Command": map[string]any{"Name": "glueetl"}}
 			if tt.maxConcurrentRuns > 0 {
 				body["ExecutionProperty"] = map[string]any{"MaxConcurrentRuns": tt.maxConcurrentRuns}
 			}
@@ -774,7 +794,12 @@ func TestRefinement2_BatchStopJobRun(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doGlueRequest(t, h, "CreateJob", map[string]any{"Name": "j", "Role": "r"})
+			doGlueRequest(
+				t,
+				h,
+				"CreateJob",
+				map[string]any{"Name": "j", "Role": "r", "Command": map[string]any{"Name": "glueetl"}},
+			)
 			runRec := doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "j"})
 
 			var runOut map[string]any
