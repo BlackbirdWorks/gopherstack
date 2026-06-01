@@ -299,6 +299,7 @@ func isNamespaceOp(op string) bool {
 	case opCreateNamespace, opDescribeNamespace, opDeleteNamespace, opListNamespaces:
 		return true
 	}
+
 	return false
 }
 
@@ -308,6 +309,7 @@ func isGroupOp(op string) bool {
 		opCreateGroupMembership, opDescribeGroupMembership, opDeleteGroupMembership, opListGroupMemberships:
 		return true
 	}
+
 	return false
 }
 
@@ -317,6 +319,7 @@ func isUserOp(op string) bool {
 		opDeleteUserByPrincipalID, opListUsers, opListUserGroups:
 		return true
 	}
+
 	return false
 }
 
@@ -325,6 +328,7 @@ func isDataSourceOp(op string) bool {
 	case opCreateDataSource, opDescribeDataSource, opUpdateDataSource, opDeleteDataSource, opListDataSources:
 		return true
 	}
+
 	return false
 }
 
@@ -334,6 +338,7 @@ func isDataSetOp(op string) bool {
 		opCreateIngestion, opDescribeIngestion, opCancelIngestion, opListIngestions:
 		return true
 	}
+
 	return false
 }
 
@@ -343,6 +348,7 @@ func isDashboardOp(op string) bool {
 		opListDashboards, opListDashboardVersions:
 		return true
 	}
+
 	return false
 }
 
@@ -352,6 +358,7 @@ func isAnalysisOp(op string) bool {
 		opListAnalyses, opRestoreAnalysis:
 		return true
 	}
+
 	return false
 }
 
@@ -360,6 +367,7 @@ func isTagOp(op string) bool {
 	case opTagResource, opUntagResource, opListTagsForResource:
 		return true
 	}
+
 	return false
 }
 
@@ -403,6 +411,7 @@ func (h *Handler) dispatchNamespace(c *echo.Context, op string) error {
 	case opListNamespaces:
 		return h.handleListNamespaces(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -434,6 +443,7 @@ func (h *Handler) dispatchGroup(c *echo.Context, op string) error {
 	case opListGroupMemberships:
 		return h.handleListGroupMemberships(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -459,6 +469,7 @@ func (h *Handler) dispatchUser(c *echo.Context, op string) error {
 	case opListUserGroups:
 		return h.handleListUserGroups(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -480,6 +491,7 @@ func (h *Handler) dispatchDataSource(c *echo.Context, op string) error {
 	case opListDataSources:
 		return h.handleListDataSources(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -509,6 +521,7 @@ func (h *Handler) dispatchDataSet(c *echo.Context, op string) error {
 	case opListIngestions:
 		return h.handleListIngestions(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -532,6 +545,7 @@ func (h *Handler) dispatchDashboard(c *echo.Context, op string) error {
 	case opListDashboardVersions:
 		return h.handleListDashboardVersions(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -555,6 +569,7 @@ func (h *Handler) dispatchAnalysis(c *echo.Context, op string) error {
 	case opRestoreAnalysis:
 		return h.handleRestoreAnalysis(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -572,6 +587,7 @@ func (h *Handler) dispatchTag(c *echo.Context, op string) error {
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
 	}
+
 	return writeError(
 		c,
 		http.StatusNotImplemented,
@@ -687,6 +703,7 @@ func classifyNsRoot(method string) (string, string) {
 	if method == http.MethodGet {
 		return opListNamespaces, ""
 	}
+
 	return opUnknown, ""
 }
 
@@ -698,6 +715,7 @@ func classifyNsWithID(method string, segs []string) (string, string) {
 	case http.MethodDelete:
 		return opDeleteNamespace, ns
 	}
+
 	return opUnknown, ""
 }
 
@@ -724,6 +742,7 @@ func classifyNsWithSubRes(method string, segs []string) (string, string) {
 			return opSearchGroups, ns
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -754,6 +773,7 @@ func classifyNsWithSubResID(method string, segs []string) (string, string) {
 			return opDeleteUserByPrincipalID, seg(segs, segResID)
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -771,6 +791,7 @@ func classifyNsWithSubSubRes(method string, segs []string) (string, string) {
 			return opListUserGroups, id
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -787,6 +808,7 @@ func classifyNsWithSubSubResID(method string, segs []string) (string, string) {
 			return opDeleteGroupMembership, seg(segs, segSubResID)
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -965,7 +987,7 @@ func intField(body map[string]any, key string) int32 {
 	case float64:
 		return int32(v)
 	case int:
-		return int32(v)
+		return int32(v) //nolint:gosec // int from JSON always fits int32
 	}
 
 	return 0
