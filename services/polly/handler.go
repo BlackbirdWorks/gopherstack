@@ -622,6 +622,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "LexiconNotFoundException", err.Error())
 	case errors.Is(err, ErrTaskNotFound):
 		return writeError(c, http.StatusNotFound, "SynthesisTaskNotFoundException", err.Error())
+	case errors.Is(err, ErrResourceNotFound):
+		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	default:

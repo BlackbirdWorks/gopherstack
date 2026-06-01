@@ -29,6 +29,7 @@ const (
 	outputFormatPCM      = "pcm"
 	outputFormatJSON     = "json"
 	textTypeText         = "text"
+	textTypeSSML         = "ssml"
 	genderFemale         = "Female"
 	taskStatusScheduled  = "scheduled"
 	taskStatusProgress   = "inProgress"
@@ -36,6 +37,15 @@ const (
 	taskStatusFailed     = "failed"
 	failedTaskMarker     = "[fail]"
 	maxTaskPageSize      = 100
+
+	maxSpeechTextLen  = 3000
+	maxSpeechSSMLLen  = 6000
+	maxTaskTextLen    = 100000
+	maxLexiconNameLen = 20
+	maxLexiconNames   = 5
+	maxTagCount       = 50
+	maxTagKeyLen      = 128
+	maxTagValueLen    = 256
 )
 
 var (
@@ -45,6 +55,8 @@ var (
 	ErrTaskNotFound = errors.New("SynthesisTaskNotFoundException")
 	// ErrValidation is returned when request parameters do not meet Polly constraints.
 	ErrValidation = errors.New("InvalidParameterValueException")
+	// ErrResourceNotFound is returned when a tagged resource ARN is unknown.
+	ErrResourceNotFound = errors.New("ResourceNotFoundException")
 )
 
 // Tag is a Polly resource tag.
@@ -253,6 +265,14 @@ func (b *InMemoryBackend) DescribeVoices(filter DescribeVoicesFilter) ([]Voice, 
 
 // SynthesizeSpeech validates options and returns deterministic audio or speech-mark output.
 func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*SynthesizedSpeech, error) {
+	limit := maxSpeechTextLen
+	if options.TextType == textTypeSSML {
+		limit = maxSpeechSSMLLen
+	}
+	if len(options.Text) > limit {
+		return nil, fmt.Errorf("%w: text exceeds maximum length of %d characters", ErrValidation, limit)
+	}
+
 	normal, err := b.validateOptions(options)
 	if err != nil {
 		return nil, err
@@ -282,6 +302,9 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 ) (*SpeechSynthesisTask, error) {
 	if outputBucket == "" {
 		return nil, fmt.Errorf("%w: OutputS3BucketName is required", ErrValidation)
+	}
+	if len(options.Text) > maxTaskTextLen {
+		return nil, fmt.Errorf("%w: text exceeds maximum length of %d characters", ErrValidation, maxTaskTextLen)
 	}
 
 	normal, err := b.validateOptions(options)
@@ -376,7 +399,10 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
+		return fmt.Errorf("%w: resource %q not found", ErrResourceNotFound, resourceArn)
+	}
+	if len(current)+len(tags) > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed %d tag limit", ErrValidation, maxTagCount)
 	}
 	for _, tag := range tags {
 		current[tag.Key] = tag.Value
@@ -392,7 +418,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
+		return fmt.Errorf("%w: resource %q not found", ErrResourceNotFound, resourceArn)
 	}
 	for _, key := range keys {
 		delete(current, key)
@@ -408,7 +434,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error)
 
 	current, ok := b.tags[resourceArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: resource %q", ErrValidation, resourceArn)
+		return nil, fmt.Errorf("%w: resource %q not found", ErrResourceNotFound, resourceArn)
 	}
 
 	keys := make([]string, 0, len(current))
@@ -429,6 +455,9 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 	options = defaultOptions(options)
 	if options.Text == "" || options.VoiceID == "" {
 		return options, fmt.Errorf("%w: Text and VoiceId are required", ErrValidation)
+	}
+	if len(options.LexiconNames) > maxLexiconNames {
+		return options, fmt.Errorf("%w: LexiconNames must not exceed %d entries", ErrValidation, maxLexiconNames)
 	}
 	if !slices.Contains(validEngines(), options.Engine) {
 		return options, fmt.Errorf("%w: invalid Engine %q", ErrValidation, options.Engine)
@@ -492,14 +521,27 @@ func (b *InMemoryBackend) taskARN(id string) string {
 func (b *InMemoryBackend) TaskARN(taskID string) string { return b.taskARN(taskID) }
 
 func validateLexicon(name, content string) error {
-	if name == "" || strings.ContainsAny(name, " /") {
-		return fmt.Errorf("%w: invalid lexicon name", ErrValidation)
+	if !validLexiconName(name) {
+		return fmt.Errorf("%w: lexicon name must be 1-%d alphanumeric characters", ErrValidation, maxLexiconNameLen)
 	}
 	if content == "" || !strings.Contains(content, "<lexicon") {
 		return fmt.Errorf("%w: Content must be PLS lexicon XML", ErrValidation)
 	}
 
 	return nil
+}
+
+func validLexiconName(name string) bool {
+	if name == "" || len(name) > maxLexiconNameLen {
+		return false
+	}
+	for _, ch := range name {
+		if (ch < 'A' || ch > 'Z') && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func lexiconAttribute(content, attr, fallback string) string {
@@ -603,8 +645,14 @@ func validateSpeechMarks(options SynthesisOptions) error {
 func validateTags(tags []Tag) error {
 	seen := make(map[string]bool, len(tags))
 	for _, tag := range tags {
-		if tag.Key == "" || seen[tag.Key] {
-			return fmt.Errorf("%w: tag keys must be non-empty and unique", ErrValidation)
+		if tag.Key == "" || len(tag.Key) > maxTagKeyLen || seen[tag.Key] {
+			return fmt.Errorf(
+				"%w: tag keys must be non-empty, unique, and at most %d characters",
+				ErrValidation, maxTagKeyLen,
+			)
+		}
+		if len(tag.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
 		}
 		seen[tag.Key] = true
 	}
