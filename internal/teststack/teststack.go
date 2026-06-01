@@ -27,6 +27,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -204,6 +205,7 @@ type Stack struct {
 	AthenaHandler                  *athenabackend.Handler
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
+	AppRunnerHandler               *apprunnerbackend.Handler
 	BackupHandler                  *backupbackend.Handler
 	CloudTrailHandler              *cloudtrailbackend.Handler
 	BatchHandler                   *batchbackend.Handler
@@ -613,6 +615,7 @@ type handlers struct {
 	dms                 *dmsbackend.Handler
 	codeStarConn        *codestarconnectionsbackend.Handler
 	dynamodbStreams     *dynamodbstreamsbackend.Handler
+	apprunner          *apprunnerbackend.Handler
 	elasticbeanstalk    *elasticbeanstalkbackend.Handler
 	efs                 *efsbackend.Handler
 	eks                 *eksbackend.Handler
@@ -855,6 +858,10 @@ func populateNewestHandlers(h *handlers) {
 	if ddbBk, ok := h.ddb.Backend.(ddbbackend.StreamsBackend); ok {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
 	}
+
+	h.apprunner = apprunnerbackend.NewHandler(
+		apprunnerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 
 	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
 		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1123,6 +1130,7 @@ func New(t *testing.T) *Stack {
 		_ = registry.Register(h.dynamodbStreams)
 	}
 
+	_ = registry.Register(h.apprunner)
 	_ = registry.Register(h.elasticbeanstalk)
 	_ = registry.Register(h.elasticsearch)
 	_ = registry.Register(h.efs)
@@ -1243,6 +1251,7 @@ func buildStack(
 		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
+		AppRunnerHandler:               h.apprunner,
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
 		EKSHandler:                     h.eks,

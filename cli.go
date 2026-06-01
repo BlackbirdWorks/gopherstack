@@ -68,6 +68,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -299,6 +300,7 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	apprunnerHandler              service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
@@ -1552,6 +1554,11 @@ func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
 	return c.dynamodbStreamsHandler
 }
 
+// GetAppRunnerHandler returns the App Runner handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppRunnerHandler() service.Registerable { return c.apprunnerHandler }
+
 // GetElasticbeanstalkHandler returns the Elastic Beanstalk handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2307,6 +2314,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.apprunnerHandler = byName["AppRunner"]
 	cli.elasticbeanstalkHandler = byName["Elasticbeanstalk"]
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
@@ -2634,6 +2642,7 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&cloudtrailbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
+		&apprunnerbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
 		&bedrockbackend.AgentsProvider{},

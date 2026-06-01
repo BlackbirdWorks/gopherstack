@@ -184,6 +184,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 )
 
+require github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2 // indirect
+
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
 	github.com/google/jsonschema-go v0.4.3 // indirect
