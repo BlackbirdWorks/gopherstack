@@ -124,6 +124,8 @@ github.com/aws/aws-sdk-go-v2/service/dax v1.29.18 h1:sZwTAlW7WiDiLBjDk6OvmbOBjXQ
 github.com/aws/aws-sdk-go-v2/service/dax v1.29.18/go.mod h1:zAdYaGSQXmr+LwBX8pp5vHvcToXC5SEOKPlDUhZMMRc=
 github.com/aws/aws-sdk-go-v2/service/detective v1.39.1 h1:1thuyQ62I37RCNck64j6UG5DKde+FHOuMRjnRohA7Lo=
 github.com/aws/aws-sdk-go-v2/service/detective v1.39.1/go.mod h1:SrAt+XLuO5xJtI9W5bM0fyd8Y109jy/8+vWmIjdoA54=
+github.com/aws/aws-sdk-go-v2/service/directoryservice v1.38.20 h1:C7EHMX6Q8rUfRCFbTiO4D777nooyQpprGEktVNue2ao=
+github.com/aws/aws-sdk-go-v2/service/directoryservice v1.38.20/go.mod h1:HjQm7eyVQh/DF7hntDNw9lCsrCKskqLsFJvv4uKLECQ=
 github.com/aws/aws-sdk-go-v2/service/dlm v1.37.2 h1:lAdopCU6El+Ab3MKiGJSQX2jYHL2rxvZMnC5sd+YWvg=
 github.com/aws/aws-sdk-go-v2/service/dlm v1.37.2/go.mod h1:3Y5Nk/qGkfwwdY1UtbElPaeZcfzH9/xXByOgQIHLWwk=
 github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11 h1:7D5G4fCH+ZE14P0sZdSkQQjIWnCZzB05kggmPWW0Gss=
