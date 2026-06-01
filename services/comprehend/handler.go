@@ -183,7 +183,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "InvalidRequestException", http.StatusBadRequest
 	}
 
-	return c.JSON(status, service.JSONErrorResponse{Type: code, Message: err.Error()})
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", comprehendContentType)
+
+	return c.JSONBlob(status, payload)
 }
 
 func (h *Handler) buildOperations() map[string]operation {
