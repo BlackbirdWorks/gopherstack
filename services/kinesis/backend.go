@@ -80,9 +80,17 @@ type purger interface {
 // streamNameRe validates Kinesis stream names: 1–128 alphanumeric, hyphen, underscore, or dot chars.
 var streamNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,128}$`)
 
+// consumerNameRe validates Kinesis consumer names: same charset as stream names.
+var consumerNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,128}$`)
+
 // isValidStreamName reports whether s is a valid Kinesis stream name.
 func isValidStreamName(s string) bool {
 	return streamNameRe.MatchString(s)
+}
+
+// isValidConsumerName reports whether s is a valid Kinesis consumer name.
+func isValidConsumerName(s string) bool {
+	return consumerNameRe.MatchString(s)
 }
 
 // sortedKeys returns the keys of map m in sorted order.
