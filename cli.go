@@ -149,6 +149,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
@@ -2709,6 +2710,7 @@ func getNewestServiceProviders() []service.Provider {
 
 func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
+		&personalizebackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
