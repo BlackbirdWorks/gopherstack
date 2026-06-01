@@ -349,6 +349,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 	masterUser := vals.Get("MasterUsername")
+	masterUserPassword := vals.Get("MasterUserPassword")
 	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
 	subnetGroupName := vals.Get("DBSubnetGroupName")
@@ -375,7 +376,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == stringTrue,
 	}
 	cluster, err := h.Backend.CreateDBCluster(
-		id, engine, engineVersion, masterUser, dbName, paramGroupName, subnetGroupName,
+		id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName,
 		port, storageEncrypted, deletionProtection, backupRetentionPeriod,
 		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags, opts,
 	)
@@ -395,18 +396,30 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBCluster, 0, len(clusters))
+	xmlClusters := make([]xmlDBCluster, 0, len(clusters))
 	for _, c := range clusters {
 		cp := c
-		members = append(members, toXMLCluster(&cp))
+		clusterXML := toXMLCluster(&cp)
+		instMembers := h.Backend.GetClusterMembers(cp.DBClusterIdentifier)
+		xmlMembers := make([]xmlDBClusterMember, 0, len(instMembers))
+		for _, m := range instMembers {
+			xmlMembers = append(xmlMembers, xmlDBClusterMember{
+				DBInstanceIdentifier:          m.DBInstanceIdentifier,
+				DBClusterParameterGroupStatus: "in-sync",
+				PromotionTier:                 m.PromotionTier,
+				IsClusterWriter:               m.IsClusterWriter,
+			})
+		}
+		clusterXML.DBClusterMembers = xmlDBClusterMemberList{Members: xmlMembers}
+		xmlClusters = append(xmlClusters, clusterXML)
 	}
 
-	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+	xmlClusters, nextMarker := applyDocDBMarker(xmlClusters, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeDBClustersResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeDBClustersResult{
-			DBClusters: xmlDBClusterList{Members: members},
+			DBClusters: xmlDBClusterList{Members: xmlClusters},
 			Marker:     nextMarker,
 		},
 	}, nil
@@ -788,12 +801,9 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	tagList := parseTagEntries(vals)
-	for _, tag := range tagList {
-		if tag.Key == "" {
-			return nil, fmt.Errorf("%w: tag key cannot be empty", ErrInvalidParameter)
-		}
+	if err := h.Backend.AddTagsToResource(arn, tagList); err != nil {
+		return nil, err
 	}
-	h.Backend.AddTagsToResource(arn, tagList)
 
 	return &addTagsToResourceResponse{Xmlns: docdbXMLNS}, nil
 }

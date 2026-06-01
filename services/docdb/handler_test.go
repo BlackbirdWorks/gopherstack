@@ -279,6 +279,12 @@ func TestHandler_DBInstances(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+				"Engine":              {"docdb"},
+			})
 			if tt.name != "create_instance" {
 				doRequest(t, h, url.Values{
 					"Action":               {"CreateDBInstance"},
@@ -1691,7 +1697,7 @@ func TestRefinement1_SortedListTags(t *testing.T) {
 			t.Parallel()
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags)
+			require.NoError(t, b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags))
 
 			got := b.ListTagsForResource("arn:aws:rds:us-east-1:000000000000:cluster:test")
 
@@ -4943,7 +4949,7 @@ func TestAudit_ClusterInheritedDefaults(t *testing.T) {
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			cluster, err := b.CreateDBCluster(
-				"defaults-cluster", "", "", "admin", "", "", "",
+				"defaults-cluster", "", "", "admin", "", "", "", "",
 				0, false, false, 0, "", "", nil, nil, nil,
 			)
 			require.NoError(t, err)

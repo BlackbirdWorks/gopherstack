@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -41,6 +42,7 @@ const (
 	defaultDocDBPort           = 27017
 	defaultInstanceClass       = "db.t3.medium"
 	defaultEngineVersion       = "4.0.0"
+	docDBEngineVersion36       = "3.6.0"
 	docDBEngineVersion5        = "5.0.0"
 	docDBEngine                = "docdb"
 	snapshotPercentageComplete = 100
@@ -63,7 +65,81 @@ const (
 	optInTypeImmediate       = "immediate"
 	optInTypeNextMaintenance = "next-maintenance"
 	optInTypeUndoOptIn       = "undo-opt-in"
+
+	maxTagCount    = 50
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+
+	maxPromotionTier         = 15
+	maxBackupRetentionPeriod = 35
 )
+
+var validDocDBVersions = map[string]bool{
+	docDBEngineVersion36: true,
+	defaultEngineVersion: true,
+	docDBEngineVersion5:  true,
+}
+
+// validateEngineVersion returns an error if engineVersion is non-empty and not a valid DocDB version.
+func validateEngineVersion(engineVersion string) error {
+	if engineVersion == "" {
+		return nil
+	}
+	if !validDocDBVersions[engineVersion] {
+		return fmt.Errorf(
+			"%w: EngineVersion %q is not valid for engine %q; valid values: 3.6.0, 4.0.0, 5.0.0",
+			ErrInvalidParameter, engineVersion, docDBEngine,
+		)
+	}
+
+	return nil
+}
+
+// validateMasterUserPassword validates per AWS rules: 8-100 chars, no '/', '"', or '@'.
+func validateMasterUserPassword(pw string) error {
+	if len(pw) < 8 || len(pw) > 100 {
+		return fmt.Errorf("%w: MasterUserPassword must be between 8 and 100 characters", ErrInvalidParameter)
+	}
+	if strings.ContainsAny(pw, "/\"@") {
+		return fmt.Errorf("%w: MasterUserPassword must not contain '/', '\"', or '@'", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+// validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot specify more than %d tags per resource", ErrInvalidParameter, maxTagCount)
+	}
+	for k, v := range tags {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// validateTagList enforces AWS tag limits on a slice of Tag.
+func validateTagList(tags []Tag) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot specify more than %d tags per resource", ErrInvalidParameter, maxTagCount)
+	}
+	for _, t := range tags {
+		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
 
 type DBCluster struct {
 	Tags                             map[string]string `json:"tags"`
@@ -305,7 +381,7 @@ func (b *InMemoryBackend) globalClusterARN(id string) string {
 }
 
 func (b *InMemoryBackend) CreateDBCluster(
-	id, engine, engineVersion, masterUser, dbName, paramGroupName, subnetGroupName string,
+	id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName string,
 	port int,
 	storageEncrypted, deletionProtection bool,
 	backupRetentionPeriod int,
@@ -316,6 +392,23 @@ func (b *InMemoryBackend) CreateDBCluster(
 ) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if err := validateEngineVersion(engineVersion); err != nil {
+		return nil, err
+	}
+	if masterUserPassword != "" {
+		if err := validateMasterUserPassword(masterUserPassword); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+	if backupRetentionPeriod != 0 && (backupRetentionPeriod < 1 || backupRetentionPeriod > maxBackupRetentionPeriod) {
+		return nil, fmt.Errorf(
+			"%w: BackupRetentionPeriod must be between 1 and %d",
+			ErrInvalidParameter, maxBackupRetentionPeriod,
+		)
 	}
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
@@ -629,19 +722,30 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
+	if promotionTier < 0 || promotionTier > maxPromotionTier {
+		return nil, fmt.Errorf(
+			"%w: PromotionTier must be between 0 and %d",
+			ErrInvalidParameter, maxPromotionTier,
+		)
+	}
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateDBInstance")
 	defer b.mu.Unlock()
 	if _, exists := b.instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	}
+	if clusterID != "" {
+		if _, exists := b.clusters[clusterID]; !exists {
+			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+		}
 	}
 	if engine == "" {
 		engine = docDBEngine
 	}
 	if instanceClass == "" {
 		instanceClass = defaultInstanceClass
-	}
-	if promotionTier <= 0 {
-		promotionTier = 1
 	}
 	var clusterEngineVersion string
 	var clusterStorageEncrypted bool
@@ -724,6 +828,37 @@ func (b *InMemoryBackend) DescribeDBInstances(id, clusterID string) ([]DBInstanc
 	return result, nil
 }
 
+// DBClusterMemberEntry represents an instance that is a member of a DB cluster.
+type DBClusterMemberEntry struct {
+	DBInstanceIdentifier string
+	PromotionTier        int
+	IsClusterWriter      bool
+}
+
+// GetClusterMembers returns the instances that belong to a given cluster, ordered by identifier.
+func (b *InMemoryBackend) GetClusterMembers(clusterID string) []DBClusterMemberEntry {
+	b.mu.RLock("GetClusterMembers")
+	defer b.mu.RUnlock()
+	var members []DBClusterMemberEntry
+	for _, inst := range b.instances {
+		if inst.DBClusterIdentifier == clusterID {
+			members = append(members, DBClusterMemberEntry{
+				DBInstanceIdentifier: inst.DBInstanceIdentifier,
+				PromotionTier:        inst.PromotionTier,
+			})
+		}
+	}
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].DBInstanceIdentifier < members[j].DBInstanceIdentifier
+	})
+	// Mark the first member (lowest PromotionTier or alphabetically first) as writer.
+	if len(members) > 0 {
+		members[0].IsClusterWriter = true
+	}
+
+	return members
+}
+
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
@@ -770,6 +905,12 @@ func (b *InMemoryBackend) ModifyDBInstance(
 			inst.CopyTagsToSnapshot = *opts.CopyTagsToSnapshot
 		}
 		if opts.PromotionTier != nil {
+			if *opts.PromotionTier < 0 || *opts.PromotionTier > maxPromotionTier {
+				return nil, fmt.Errorf(
+					"%w: PromotionTier must be between 0 and %d",
+					ErrInvalidParameter, maxPromotionTier,
+				)
+			}
 			inst.PromotionTier = *opts.PromotionTier
 		}
 	}
@@ -1074,7 +1215,10 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
+func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) error {
+	if err := validateTagList(tags); err != nil {
+		return err
+	}
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 	current := b.tags[arn]
@@ -1091,6 +1235,8 @@ func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
 		}
 	}
 	b.tags[arn] = current
+
+	return nil
 }
 
 func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {

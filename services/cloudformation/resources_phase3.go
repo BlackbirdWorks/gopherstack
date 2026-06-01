@@ -786,6 +786,7 @@ func (rc *ResourceCreator) createDocDBCluster(
 		engine,
 		"",
 		masterUser,
+		"",
 		dbName,
 		paramGroupName,
 		"",
