@@ -23,6 +23,12 @@ const (
 
 	maxGraphsPerPage  = 200
 	maxMembersPerPage = 200
+
+	maxTagCount              = 50
+	maxTagKeyLen             = 128
+	maxTagValueLen           = 256
+	maxCreateMembersPerBatch = 50
+	accountIDLen             = 12
 )
 
 var (
@@ -83,6 +89,47 @@ type snapshot struct {
 	Tags    map[string]map[string]string        `json:"tags"`
 }
 
+// validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot specify more than %d tags", ErrValidation, maxTagCount)
+	}
+
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// validateAccountID returns true if id is exactly 12 ASCII digits.
+func validateAccountID(id string) bool {
+	if len(id) != accountIDLen {
+		return false
+	}
+
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateEmail returns true if email contains an @ with chars on both sides.
+func validateEmail(email string) bool {
+	idx := strings.Index(email, "@")
+
+	return idx > 0 && idx < len(email)-1
+}
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
@@ -111,6 +158,10 @@ func (b *InMemoryBackend) graphARN(id string) string {
 
 // CreateGraph creates a new behavior graph. Returns existing one if already created (idempotent).
 func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateGraph")
 	defer b.mu.Unlock()
 
