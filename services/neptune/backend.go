@@ -54,6 +54,7 @@ const (
 	maxTagsPerResource           = 50
 	maxTagKeyLen                 = 128
 	maxTagValueLen               = 256
+	arnPartCount                 = 7
 	endpointTypeReader           = "READER"
 	endpointTypeWriter           = "WRITER"
 	endpointTypeCustom           = "CUSTOM"
@@ -955,8 +956,8 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 // Must be called while holding at least a read lock.
 func (b *InMemoryBackend) validateResourceARN(arnStr string) error {
 	// ARN format: arn:partition:service:region:account:type:id
-	parts := strings.SplitN(arnStr, ":", 7)
-	if len(parts) < 7 {
+	parts := strings.SplitN(arnStr, ":", arnPartCount)
+	if len(parts) < arnPartCount {
 		return fmt.Errorf("%w: invalid ARN format: %s", ErrInvalidParameter, arnStr)
 	}
 	resType, resID := parts[5], parts[6]
