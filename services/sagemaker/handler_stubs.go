@@ -91,16 +91,12 @@ func stubOpsSupported() []string {
 	return []string{
 		"CreateArtifact",
 		"CreateCluster",
-		"CreateClusterSchedulerConfig",
-		"CreateComputeQuota",
 		"CreateContext",
-		"CreateDeviceFleet",
 		"CreateEdgeDeploymentPlan",
 		"CreateEdgeDeploymentStage",
 		"CreateHub",
 		"CreateHubContentPresignedUrls",
 		"CreateHubContentReference",
-		"CreateInferenceComponent",
 		"CreateLabelingJob",
 		"CreateMlflowApp",
 		"CreateModelCardExportJob",
@@ -113,37 +109,27 @@ func stubOpsSupported() []string {
 		"DeleteArtifact",
 		"DeleteAssociation",
 		"DeleteCluster",
-		"DeleteClusterSchedulerConfig",
-		"DeleteComputeQuota",
 		"DeleteContext",
-		"DeleteDeviceFleet",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
 		"DeleteHub",
 		"DeleteHubContent",
 		"DeleteHubContentReference",
-		"DeleteInferenceComponent",
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeleteProcessingJob",
 		"DeleteWorkforce",
-		"DeregisterDevices",
 		"DescribeAction",
 		"DescribeAlgorithm",
 		"DescribeArtifact",
 		"DescribeCluster",
 		"DescribeClusterEvent",
 		"DescribeClusterNode",
-		"DescribeClusterSchedulerConfig",
-		"DescribeComputeQuota",
 		"DescribeContext",
-		"DescribeDevice",
-		"DescribeDeviceFleet",
 		"DescribeEdgeDeploymentPlan",
 		"DescribeFeatureMetadata",
 		"DescribeHub",
 		"DescribeHubContent",
-		"DescribeInferenceComponent",
 		"DescribeLabelingJob",
 		"DescribeLineageGroup",
 		"DescribeMlflowApp",
@@ -172,18 +158,13 @@ func stubOpsSupported() []string {
 		"ListCandidatesForAutoMLJob",
 		"ListClusterEvents",
 		"ListClusterNodes",
-		"ListClusterSchedulerConfigs",
 		"ListClusters",
-		"ListComputeQuotas",
 		"ListContexts",
 		"ListDataQualityJobDefinitions",
-		"ListDeviceFleets",
-		"ListDevices",
 		"ListEdgeDeploymentPlans",
 		"ListHubContentVersions",
 		"ListHubContents",
 		"ListHubs",
-		"ListInferenceComponents",
 		"ListLabelingJobs",
 		"ListLabelingJobsForWorkteam",
 		"ListLineageGroups",
@@ -207,7 +188,6 @@ func stubOpsSupported() []string {
 		"ListWorkforces",
 		"PutModelPackageGroupPolicy",
 		"QueryLineage",
-		"RegisterDevices",
 		"RenderUiTemplate",
 		"Search",
 		"SearchTrainingPlanOfferings",
@@ -219,11 +199,8 @@ func stubOpsSupported() []string {
 		"UpdateAction",
 		"UpdateArtifact",
 		"UpdateCluster",
-		"UpdateClusterSchedulerConfig",
 		"UpdateClusterSoftware",
-		"UpdateComputeQuota",
 		"UpdateContext",
-		"UpdateDeviceFleet",
 		"UpdateDevices",
 		"UpdateFeatureMetadata",
 		"UpdateHub",
@@ -231,8 +208,6 @@ func stubOpsSupported() []string {
 		"UpdateHubContentReference",
 		"UpdateImage",
 		"UpdateImageVersion",
-		"UpdateInferenceComponent",
-		"UpdateInferenceComponentRuntimeConfig",
 		"UpdateInferenceExperiment",
 		"UpdateMlflowApp",
 		"UpdateMonitoringAlert",
@@ -264,17 +239,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "CreateCluster":
 		return mustMarshal(m{keyClusterArn: ""}), true
 
-	case "CreateClusterSchedulerConfig":
-		return mustMarshal(m{keyClusterSchedulerConfigArn: ""}), true
-
-	case "CreateComputeQuota":
-		return mustMarshal(m{keyComputeQuotaArn: ""}), true
-
 	case "CreateContext":
 		return mustMarshal(m{keyContextArn: ""}), true
-
-	case "CreateDeviceFleet":
-		return mustMarshal(m{}), true
 
 	case "CreateDomain":
 		return mustMarshal(m{keyDomainArn: "", "Url": ""}), true
@@ -299,9 +265,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "CreateHubContentReference":
 		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true
-
-	case "CreateInferenceComponent":
-		return mustMarshal(m{keyInferenceComponentArn: ""}), true
 
 	case "CreateLabelingJob":
 		return mustMarshal(m{keyLabelingJobArn: ""}), true
@@ -339,10 +302,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteArtifact",
 		"DeleteAssociation",
 		"DeleteCluster",
-		"DeleteClusterSchedulerConfig",
-		"DeleteComputeQuota",
 		"DeleteContext",
-		"DeleteDeviceFleet",
 		"DeleteDomain",
 		"DeleteEdgeDeploymentPlan",
 		"DeleteEdgeDeploymentStage",
@@ -351,7 +311,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteHub",
 		"DeleteHubContent",
 		"DeleteHubContentReference",
-		"DeleteInferenceComponent",
 		"DeleteMlflowApp",
 		"DeleteModelPackageGroupPolicy",
 		"DeletePipeline",
@@ -360,7 +319,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"DeleteTrial",
 		"DeleteTrialComponent",
 		"DeleteUserProfile",
-		"DeregisterDevices",
 		"DetachClusterNodeVolume",
 		"DisableSagemakerServicecatalogPortfolio",
 		"DisassociateTrialComponent",
@@ -368,14 +326,12 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"ExtendTrainingPlan",
 		"ImportHubContent",
 		"PutModelPackageGroupPolicy",
-		"RegisterDevices",
 		"RenderUiTemplate",
 		"StartEdgeDeploymentStage",
 		"StartSession",
 		"StopEdgeDeploymentStage",
 		"StopLabelingJob",
 		"UpdateClusterSoftware",
-		"UpdateDeviceFleet",
 		"UpdateDevices",
 		"UpdateFeatureMetadata":
 		return mustMarshal(m{}), true
@@ -412,20 +368,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeClusterNode":
 		return mustMarshal(m{"NodeDetails": m{}}), true
 
-	case "DescribeClusterSchedulerConfig":
-		return mustMarshal(m{keyClusterSchedulerConfigArn: "", keyStatus: "Creating"}), true
-
-	case "DescribeComputeQuota":
-		return mustMarshal(m{keyComputeQuotaArn: "", keyStatus: statusCreated}), true
-
 	case "DescribeContext":
 		return mustMarshal(m{keyContextArn: "", "ContextType": ""}), true
-
-	case "DescribeDevice":
-		return mustMarshal(m{"DeviceName": "", keyDeviceFleetName: ""}), true
-
-	case "DescribeDeviceFleet":
-		return mustMarshal(m{keyDeviceFleetName: "", "DeviceFleetArn": ""}), true
 
 	case "DescribeDomain":
 		return mustMarshal(m{keyDomainArn: "", keyDomainID: "", keyStatus: statusInService}), true
@@ -464,11 +408,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "DescribeHubContent":
 		return mustMarshal(m{
 			keyHubContentArn: "", "HubContentName": "", "HubContentStatus": "Available",
-		}), true
-
-	case "DescribeInferenceComponent":
-		return mustMarshal(m{
-			keyInferenceComponentArn: "", "InferenceComponentName": "", "InferenceComponentStatus": statusInService,
 		}), true
 
 	case "DescribeLabelingJob":
@@ -571,14 +510,8 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "ListClusterNodes":
 		return mustMarshal(m{"ClusterNodeSummaries": []any{}}), true
 
-	case "ListClusterSchedulerConfigs":
-		return mustMarshal(m{keyClusterSchedulerConfigSummaries: []any{}}), true
-
 	case "ListClusters":
 		return mustMarshal(m{"ClusterSummaries": []any{}}), true
-
-	case "ListComputeQuotas":
-		return mustMarshal(m{"ComputeQuotaSummaries": []any{}}), true
 
 	case "ListContexts":
 		return mustMarshal(m{"ContextSummaries": []any{}}), true
@@ -588,12 +521,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 		"ListModelExplainabilityJobDefinitions",
 		"ListModelQualityJobDefinitions":
 		return mustMarshal(m{"JobDefinitionSummaries": []any{}}), true
-
-	case "ListDeviceFleets":
-		return mustMarshal(m{"DeviceFleetSummaries": []any{}}), true
-
-	case "ListDevices":
-		return mustMarshal(m{"DeviceSummaries": []any{}}), true
 
 	case "ListDomains":
 		return mustMarshal(m{"Domains": []any{}}), true
@@ -612,9 +539,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "ListHubs":
 		return mustMarshal(m{"HubSummaries": []any{}}), true
-
-	case "ListInferenceComponents":
-		return mustMarshal(m{"InferenceComponents": []any{}}), true
 
 	case "ListLabelingJobs", "ListLabelingJobsForWorkteam":
 		return mustMarshal(m{"LabelingJobSummaryList": []any{}}), true
@@ -703,12 +627,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 	case "UpdateCluster":
 		return mustMarshal(m{keyClusterArn: ""}), true
 
-	case "UpdateClusterSchedulerConfig":
-		return mustMarshal(m{keyClusterSchedulerConfigArn: ""}), true
-
-	case "UpdateComputeQuota":
-		return mustMarshal(m{keyComputeQuotaArn: ""}), true
-
 	case "UpdateContext":
 		return mustMarshal(m{keyContextArn: ""}), true
 
@@ -720,12 +638,6 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "UpdateHubContent", "UpdateHubContentReference":
 		return mustMarshal(m{keyHubArn: "", keyHubContentArn: ""}), true
-
-	case "UpdateInferenceComponent":
-		return mustMarshal(m{keyInferenceComponentArn: ""}), true
-
-	case "UpdateInferenceComponentRuntimeConfig":
-		return mustMarshal(m{keyInferenceComponentArn: ""}), true
 
 	case "UpdateInferenceExperiment":
 		return mustMarshal(m{keyInferenceExperimentArn: ""}), true

@@ -467,6 +467,11 @@ type InMemoryBackend struct {
 	transformJobARNIndex         map[string]string                           // ARN → job name
 	edgePackagingJobs            map[string]*EdgePackagingJob                // key: jobName
 	inferenceRecommendationsJobs map[string]*InferenceRecommendationsJob     // key: jobName
+	deviceFleets                 map[string]*DeviceFleet                     // key: fleetName
+	devices                      map[deviceKey]*Device                       // key: fleetName+deviceName
+	inferenceComponents          map[string]*InferenceComponent              // key: componentName
+	clusterSchedulerConfigs      map[string]*ClusterSchedulerConfig          // key: configName
+	computeQuotas                map[string]*ComputeQuota                    // key: quotaName
 	lifecycleCtx                 context.Context
 	lifecycleCancel              context.CancelFunc
 	mu                           *lockmetrics.RWMutex
@@ -544,6 +549,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		processingJobARNIndex:        make(map[string]string),
 		edgePackagingJobs:            make(map[string]*EdgePackagingJob),
 		inferenceRecommendationsJobs: make(map[string]*InferenceRecommendationsJob),
+		deviceFleets:                 make(map[string]*DeviceFleet),
+		devices:                      make(map[deviceKey]*Device),
+		inferenceComponents:          make(map[string]*InferenceComponent),
+		clusterSchedulerConfigs:      make(map[string]*ClusterSchedulerConfig),
+		computeQuotas:                make(map[string]*ComputeQuota),
 		accountID:                    accountID,
 		region:                       region,
 		mu:                           lockmetrics.New("sagemaker"),
@@ -633,6 +643,11 @@ func (b *InMemoryBackend) Reset() {
 	b.transformJobARNIndex = make(map[string]string)
 	b.edgePackagingJobs = make(map[string]*EdgePackagingJob)
 	b.inferenceRecommendationsJobs = make(map[string]*InferenceRecommendationsJob)
+	b.deviceFleets = make(map[string]*DeviceFleet)
+	b.devices = make(map[deviceKey]*Device)
+	b.inferenceComponents = make(map[string]*InferenceComponent)
+	b.clusterSchedulerConfigs = make(map[string]*ClusterSchedulerConfig)
+	b.computeQuotas = make(map[string]*ComputeQuota)
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
