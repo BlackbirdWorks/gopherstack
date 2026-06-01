@@ -158,6 +158,7 @@ import (
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
+	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -2718,6 +2719,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
+		&rekognitionbackend.Provider{},
 		&sagemakerbackend.Provider{},
 		&sagemakerruntimebackend.Provider{},
 		&servicediscoverybackend.Provider{},
