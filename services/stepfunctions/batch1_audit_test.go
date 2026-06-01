@@ -98,14 +98,15 @@ func TestAudit_CreateStateMachine_CreationDateSet(t *testing.T) {
 	assert.GreaterOrEqual(t, sm.CreationDate, before)
 }
 
-func TestAudit_CreateStateMachine_DuplicateNameReturnsError(t *testing.T) {
+func TestAudit_CreateStateMachine_DuplicateNameDiffDefReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
 	_, err := b.CreateStateMachine("dup-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
-	_, err = b.CreateStateMachine("dup-sm", minimalDefinition, validRoleARN, "STANDARD")
+	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
+	_, err = b.CreateStateMachine("dup-sm", altDef, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
@@ -1411,8 +1412,10 @@ func TestAudit_HTTP_StateMachineAlreadyExists_Returns409(t *testing.T) {
 
 	createSM(ctx, t, h, e, "dupe-http-sm")
 
+	// Different definition triggers StateMachineAlreadyExists (409).
+	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
 	rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
-		makeSMBody("dupe-http-sm", validPassDef, ""))
+		makeSMBody("dupe-http-sm", altDef, ""))
 	assert.Equal(t, http.StatusConflict, rec.Code)
 
 	var out map[string]any

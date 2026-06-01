@@ -34,6 +34,8 @@ var (
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
 	ErrInvalidRoleArn                  = errors.New("InvalidArn")
 	ErrInvalidName                     = errors.New("InvalidName")
+	ErrInvalidRoutingConfiguration     = errors.New("InvalidRoutingConfiguration")
+	ErrTagPolicyViolation              = errors.New("TagPolicyViolation")
 	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
@@ -379,6 +381,11 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 
 	if existingARN, exists := b.nameIndex[name]; exists {
 		if sm := b.stateMachines[existingARN]; sm != nil && sm.Status != statusDeleting {
+			// AWS idempotency: same name+definition+type+roleArn → return existing without error.
+			if sm.Definition == definition && sm.Type == smType && sm.RoleArn == roleArn {
+				cp := *sm
+				return &cp, nil
+			}
 			return nil, fmt.Errorf("%w: %s", ErrStateMachineAlreadyExists, name)
 		}
 	}
@@ -592,7 +599,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
 	}
 
-	startDate := float64(time.Now().Unix())
+	startDate := float64(time.Now().UnixMilli()) / 1000.0
 	execARN := b.execARN(smName, name)
 
 	// Express Workflows must complete within 5 minutes per AWS spec.
@@ -714,7 +721,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
-	now := float64(time.Now().Unix())
+	now := float64(time.Now().UnixMilli()) / 1000.0
 	exec := &Execution{
 		StartDate:       now,
 		ExecutionArn:    execArn,
@@ -1186,7 +1193,7 @@ func (b *InMemoryBackend) ListExecutions(
 		all = append(all, *exec)
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	sort.Slice(all, func(i, j int) bool { return all[i].StartDate > all[j].StartDate })
 
 	execs, token := paginate(all, nextToken, maxResults)
 
@@ -1497,11 +1504,39 @@ func (b *InMemoryBackend) ListStateMachineVersions(
 	return versions, token, nil
 }
 
+// validateRoutingConfig enforces AWS alias routing constraints:
+// 1-2 entries, each weight 0-100, total weight = 100.
+func validateRoutingConfig(routing []AliasRoutingConfig) error {
+	if len(routing) == 0 || len(routing) > 2 {
+		return fmt.Errorf("%w: routing configuration must have 1 or 2 entries", ErrInvalidRoutingConfiguration)
+	}
+
+	total := 0
+
+	for _, r := range routing {
+		if r.Weight < 0 || r.Weight > 100 {
+			return fmt.Errorf("%w: each routing weight must be between 0 and 100", ErrInvalidRoutingConfiguration)
+		}
+
+		total += r.Weight
+	}
+
+	if total != 100 {
+		return fmt.Errorf("%w: routing weights must sum to 100, got %d", ErrInvalidRoutingConfiguration, total)
+	}
+
+	return nil
+}
+
 // CreateStateMachineAlias creates a named routing alias for one or more state machine versions.
 func (b *InMemoryBackend) CreateStateMachineAlias(
 	smARN, name, description string,
 	routing []AliasRoutingConfig,
 ) (*StateMachineAlias, error) {
+	if err := validateRoutingConfig(routing); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateStateMachineAlias")
 	defer b.mu.Unlock()
 
@@ -1551,6 +1586,10 @@ func (b *InMemoryBackend) UpdateStateMachineAlias(
 	}
 
 	if len(routing) > 0 {
+		if err := validateRoutingConfig(routing); err != nil {
+			return nil, err
+		}
+
 		alias.RoutingConfiguration = routing
 	}
 
