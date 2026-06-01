@@ -246,6 +246,8 @@ github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 h1:Ywl4E7YLP9IZbElcwN1toHt2R
 github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18/go.mod h1:X9pSd75A+F35DzA8lbkuRdBzEt/T5hSo5kCfNMSndiM=
 github.com/aws/aws-sdk-go-v2/service/polly v1.57.5 h1:6pvU6R++AiWb3+NNgpoMjYnPNu2hsEEXJLK5V8BQ1G4=
 github.com/aws/aws-sdk-go-v2/service/polly v1.57.5/go.mod h1:PHlrCWacL+SBBUZ/wmgWl+gYOC4kPvRod1c7MHV+RVI=
+github.com/aws/aws-sdk-go-v2/service/quicksight v1.112.0 h1:PAW0DClCeudP+lLN1z9i0TLjoqErUGwNu+DfemX4RIc=
+github.com/aws/aws-sdk-go-v2/service/quicksight v1.112.0/go.mod h1:Cqo3dKj464X8R6TZaYAOCMgPH5wLzBAdYRHT+Ido0gM=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 h1:PuT05zgDY1DLZKqi0Oyk4iY1odmXufLFYqueTlaBE30=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1/go.mod h1:ZY/1Be2qNhoS99aH57qXYUm9QZyNrN93ERDM+r9UTmY=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=

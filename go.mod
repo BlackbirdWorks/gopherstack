@@ -192,6 +192,7 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/personalize v1.47.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/quicksight v1.112.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/rekognition v1.51.26 // indirect
 )
 
