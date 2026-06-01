@@ -134,49 +134,47 @@ func TestHandler_CreateDescribeDeleteDBCluster(t *testing.T) {
 func TestHandler_StopStartFailoverDBCluster(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		vals       url.Values
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "stop_cluster",
-			vals: url.Values{
-				"Action":              {"StopDBCluster"},
-				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"stop-cluster"},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "start_cluster",
-			vals: url.Values{
-				"Action":              {"StartDBCluster"},
-				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"stop-cluster"},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "failover_cluster",
-			vals: url.Values{
-				"Action":              {"FailoverDBCluster"},
-				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"stop-cluster"},
-			},
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-			createCluster(t, h, "stop-cluster")
-			rr := doRequest(t, h, tt.vals)
-			assert.Equal(t, tt.wantStatus, rr.Code)
+	t.Run("stop_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "stop-cluster")
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"StopDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
 		})
-	}
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("start_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "stop-cluster")
+		// Must stop before starting.
+		doRequest(t, h, url.Values{
+			"Action":              {"StopDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"StartDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("failover_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "stop-cluster")
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"FailoverDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
 }
 
 func TestHandler_DBInstances(t *testing.T) {
@@ -502,6 +500,8 @@ func TestHandler_Tags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
+			// Create the cluster so the ARN is valid for tag operations.
+			createCluster(t, h, "tag-cluster")
 			if tt.name == "list_tags" || tt.name == "remove_tags" {
 				doRequest(t, h, url.Values{
 					"Action":           {"AddTagsToResource"},
@@ -1030,6 +1030,7 @@ func TestHandler_ModifyReboot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(h *neptune.Handler)
 		vals     url.Values
 		name     string
 		wantBody string
@@ -1057,6 +1058,13 @@ func TestHandler_ModifyReboot(t *testing.T) {
 		},
 		{
 			name: "start cluster",
+			setup: func(h *neptune.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":              {"StopDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"mod-cluster"},
+				})
+			},
 			vals: url.Values{
 				"Action":              {"StartDBCluster"},
 				"Version":             {"2014-10-31"},
@@ -1105,6 +1113,9 @@ func TestHandler_ModifyReboot(t *testing.T) {
 			h := newTestHandler(t)
 			createCluster(t, h, "mod-cluster")
 			createInstance(t, h, "mod-inst", "mod-cluster")
+			if tt.setup != nil {
+				tt.setup(h)
+			}
 
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantCode, rr.Code)

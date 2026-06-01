@@ -438,13 +438,16 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
 		ServerlessV2ScalingConfig:       sv2,
 	}
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port, opts)
 	if err != nil {
 		return nil, err
 	}
-	tags := parseTagEntries(vals)
 	if len(tags) > 0 {
-		h.Backend.AddTagsToResource(h.clusterARN(cluster.DBClusterIdentifier), tags)
+		_ = h.Backend.AddTagsToResource(h.clusterARN(cluster.DBClusterIdentifier), tags)
 	}
 
 	return &createDBClusterResponse{
@@ -562,12 +565,17 @@ func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
 func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier is required for Neptune instances", ErrInvalidParameter)
+	}
 	instanceClass := vals.Get("DBInstanceClass")
 	promotionTier := 0
 	if pt := vals.Get("PromotionTier"); pt != "" {
-		if v, err := strconv.Atoi(pt); err == nil {
-			promotionTier = v
+		v, err := strconv.Atoi(pt)
+		if err != nil || v < 0 || v > maxPromotionTier {
+			return nil, fmt.Errorf("%w: PromotionTier must be 0-%d", ErrInvalidParameter, maxPromotionTier)
 		}
+		promotionTier = v
 	}
 	opts := DBInstanceCreateOptions{
 		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
@@ -580,13 +588,16 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
 		PromotionTier:                   promotionTier,
 	}
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, opts)
 	if err != nil {
 		return nil, err
 	}
-	tags := parseTagEntries(vals)
 	if len(tags) > 0 {
-		h.Backend.AddTagsToResource(inst.DBInstanceArn, tags)
+		_ = h.Backend.AddTagsToResource(inst.DBInstanceArn, tags)
 	}
 
 	return &createDBInstanceResponse{
@@ -640,10 +651,12 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	promotionTier := 0
 	promotionTierSet := false
 	if pt := vals.Get("PromotionTier"); pt != "" {
-		if v, err := strconv.Atoi(pt); err == nil {
-			promotionTier = v
-			promotionTierSet = true
+		v, err := strconv.Atoi(pt)
+		if err != nil || v < 0 || v > maxPromotionTier {
+			return nil, fmt.Errorf("%w: PromotionTier must be 0-%d", ErrInvalidParameter, maxPromotionTier)
 		}
+		promotionTier = v
+		promotionTierSet = true
 	}
 	opts := DBInstanceModifyOptions{
 		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
@@ -839,8 +852,11 @@ func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
 }
 
 func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
-	arn := vals.Get("ResourceName")
-	tags := h.Backend.ListTagsForResource(arn)
+	arnStr := vals.Get("ResourceName")
+	tags, err := h.Backend.ListTagsForResource(arnStr)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]svcTags.KV, 0, len(tags))
 	for _, t := range tags {
 		members = append(members, svcTags.KV(t))
@@ -853,17 +869,21 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 }
 
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
-	arn := vals.Get("ResourceName")
+	arnStr := vals.Get("ResourceName")
 	tags := parseTagEntries(vals)
-	h.Backend.AddTagsToResource(arn, tags)
+	if err := h.Backend.AddTagsToResource(arnStr, tags); err != nil {
+		return nil, err
+	}
 
 	return &addTagsToResourceResponse{Xmlns: neptuneXMLNS}, nil
 }
 
 func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
-	arn := vals.Get("ResourceName")
+	arnStr := vals.Get("ResourceName")
 	keys := parseTagKeyMembers(vals)
-	h.Backend.RemoveTagsFromResource(arn, keys)
+	if err := h.Backend.RemoveTagsFromResource(arnStr, keys); err != nil {
+		return nil, err
+	}
 
 	return &removeTagsFromResourceResponse{Xmlns: neptuneXMLNS}, nil
 }
@@ -1623,6 +1643,7 @@ func neptuneErrorCode(opErr error) string {
 		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExistsFault"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
+		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
 	}
 	for _, m := range mappings {
 		if errors.Is(opErr, m.sentinel) {
@@ -1710,6 +1731,22 @@ func parseTagEntries(vals url.Values) []Tag {
 		}
 		tags = append(tags, Tag{Key: key, Value: vals.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))})
 	}
+}
+
+func validateTagEntries(tags []Tag) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidParameter, maxTagsPerResource)
+	}
+	for _, t := range tags {
+		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+		if len(t.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
+	return nil
 }
 
 func parseTagKeyMembers(vals url.Values) []string {
