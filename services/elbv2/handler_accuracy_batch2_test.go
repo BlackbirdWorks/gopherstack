@@ -258,7 +258,8 @@ func TestBatch2_DescribeRules_UnknownArnReturnsNotFound(t *testing.T) {
 			t.Parallel()
 
 			h := newBatch2Handler()
-			ghostArn := "arn:aws:elasticloadbalancing:us-east-1:000000000000:listener-rule/app/lb/0123456789abcdef/0000000000000000/ghost"
+			ghostArn := "arn:aws:elasticloadbalancing:us-east-1:000000000000:" +
+				"listener-rule/app/lb/0123456789abcdef/0000000000000000/ghost"
 
 			vals := url.Values{
 				"Action":  {"DescribeRules"},
