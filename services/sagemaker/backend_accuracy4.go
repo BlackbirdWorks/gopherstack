@@ -1,0 +1,831 @@
+package sagemaker
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+const (
+	statusCreating       = "Creating"
+	deviceCompositeparts = 2
+)
+
+// ---------------------------------------------------------------------------
+// DeviceFleet
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrDeviceFleetNotFound is returned when a device fleet does not exist.
+	ErrDeviceFleetNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrDeviceFleetAlreadyExists is returned when a device fleet already exists.
+	ErrDeviceFleetAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// DeviceFleet represents a SageMaker device fleet.
+type DeviceFleet struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DeviceFleetName  string            `json:"DeviceFleetName"`
+	DeviceFleetArn   string            `json:"DeviceFleetArn"`
+	Description      string            `json:"Description,omitempty"`
+	RoleArn          string            `json:"RoleArn,omitempty"`
+}
+
+func cloneDeviceFleet(f *DeviceFleet) *DeviceFleet {
+	cp := *f
+	cp.Tags = maps.Clone(f.Tags)
+
+	return &cp
+}
+
+// CreateDeviceFleetOptions holds input fields for CreateDeviceFleet.
+type CreateDeviceFleetOptions struct {
+	Tags            map[string]string
+	DeviceFleetName string
+	Description     string
+	RoleArn         string
+}
+
+// CreateDeviceFleet creates a SageMaker device fleet.
+func (b *InMemoryBackend) CreateDeviceFleet(opts CreateDeviceFleetOptions) (*DeviceFleet, error) {
+	b.mu.Lock("CreateDeviceFleet")
+	defer b.mu.Unlock()
+
+	if opts.DeviceFleetName == "" {
+		return nil, fmt.Errorf("%w: DeviceFleetName is required", ErrValidation)
+	}
+
+	if _, ok := b.deviceFleets[opts.DeviceFleetName]; ok {
+		return nil, fmt.Errorf("%w: device fleet %q already exists", ErrDeviceFleetAlreadyExists, opts.DeviceFleetName)
+	}
+
+	fleetARN := arn.Build("sagemaker", b.region, b.accountID, "device-fleet/"+opts.DeviceFleetName)
+	now := time.Now()
+
+	f := &DeviceFleet{
+		DeviceFleetName:  opts.DeviceFleetName,
+		DeviceFleetArn:   fleetARN,
+		Description:      opts.Description,
+		RoleArn:          opts.RoleArn,
+		Tags:             mergeTags(nil, opts.Tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
+	}
+	b.deviceFleets[opts.DeviceFleetName] = f
+
+	return cloneDeviceFleet(f), nil
+}
+
+// DescribeDeviceFleet returns a device fleet by name.
+func (b *InMemoryBackend) DescribeDeviceFleet(name string) (*DeviceFleet, error) {
+	b.mu.RLock("DescribeDeviceFleet")
+	defer b.mu.RUnlock()
+
+	f, ok := b.deviceFleets[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
+	}
+
+	return cloneDeviceFleet(f), nil
+}
+
+// ListDeviceFleets returns all device fleets with pagination.
+func (b *InMemoryBackend) ListDeviceFleets(nextToken string) ([]*DeviceFleet, string) {
+	b.mu.RLock("ListDeviceFleets")
+	defer b.mu.RUnlock()
+
+	keys := make([]string, 0, len(b.deviceFleets))
+	for k := range b.deviceFleets {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	start := 0
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(keys))
+
+	out := make([]*DeviceFleet, 0, end-start)
+	for _, k := range keys[start:end] {
+		out = append(out, cloneDeviceFleet(b.deviceFleets[k]))
+	}
+
+	next := ""
+	if end < len(keys) {
+		next = keys[end]
+	}
+
+	return out, next
+}
+
+// UpdateDeviceFleet updates a device fleet's description or role ARN.
+func (b *InMemoryBackend) UpdateDeviceFleet(name, description, roleArn string) error {
+	b.mu.Lock("UpdateDeviceFleet")
+	defer b.mu.Unlock()
+
+	f, ok := b.deviceFleets[name]
+	if !ok {
+		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
+	}
+
+	if description != "" {
+		f.Description = description
+	}
+
+	if roleArn != "" {
+		f.RoleArn = roleArn
+	}
+
+	f.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteDeviceFleet deletes a device fleet by name.
+func (b *InMemoryBackend) DeleteDeviceFleet(name string) error {
+	b.mu.Lock("DeleteDeviceFleet")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deviceFleets[name]; !ok {
+		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
+	}
+
+	delete(b.deviceFleets, name)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Device
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrDeviceNotFound is returned when a device does not exist.
+	ErrDeviceNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+)
+
+// deviceKey uniquely identifies a device within a fleet.
+type deviceKey struct {
+	fleetName  string
+	deviceName string
+}
+
+// Device represents a SageMaker edge device registered in a fleet.
+type Device struct {
+	RegistrationTime time.Time         `json:"RegistrationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DeviceName       string            `json:"DeviceName"`
+	DeviceFleetName  string            `json:"DeviceFleetName"`
+	DeviceArn        string            `json:"DeviceArn"`
+	Description      string            `json:"Description,omitempty"`
+	IotThingName     string            `json:"IotThingName,omitempty"`
+}
+
+func cloneDevice(d *Device) *Device {
+	cp := *d
+	cp.Tags = maps.Clone(d.Tags)
+
+	return &cp
+}
+
+// RegisterDeviceInput is a single device to register.
+type RegisterDeviceInput struct {
+	Tags         map[string]string
+	DeviceName   string
+	Description  string
+	IotThingName string
+}
+
+// RegisterDevices registers devices to a device fleet.
+func (b *InMemoryBackend) RegisterDevices(fleetName string, devices []RegisterDeviceInput) error {
+	b.mu.Lock("RegisterDevices")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deviceFleets[fleetName]; !ok {
+		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, fleetName)
+	}
+
+	now := time.Now()
+	for _, d := range devices {
+		if d.DeviceName == "" {
+			continue
+		}
+
+		k := deviceKey{fleetName: fleetName, deviceName: d.DeviceName}
+		deviceARN := arn.Build("sagemaker", b.region, b.accountID, "device/"+d.DeviceName)
+		b.devices[k] = &Device{
+			DeviceName:       d.DeviceName,
+			DeviceFleetName:  fleetName,
+			DeviceArn:        deviceARN,
+			Description:      d.Description,
+			IotThingName:     d.IotThingName,
+			Tags:             mergeTags(nil, d.Tags),
+			RegistrationTime: now,
+			LastModifiedTime: now,
+		}
+	}
+
+	return nil
+}
+
+// DeregisterDevices removes devices from a device fleet.
+func (b *InMemoryBackend) DeregisterDevices(fleetName string, deviceNames []string) error {
+	b.mu.Lock("DeregisterDevices")
+	defer b.mu.Unlock()
+
+	for _, name := range deviceNames {
+		delete(b.devices, deviceKey{fleetName: fleetName, deviceName: name})
+	}
+
+	return nil
+}
+
+// DescribeDevice returns a device by fleet and device name.
+func (b *InMemoryBackend) DescribeDevice(fleetName, deviceName string) (*Device, error) {
+	b.mu.RLock("DescribeDevice")
+	defer b.mu.RUnlock()
+
+	d, ok := b.devices[deviceKey{fleetName: fleetName, deviceName: deviceName}]
+	if !ok {
+		return nil, fmt.Errorf("%w: device %q in fleet %q", ErrDeviceNotFound, deviceName, fleetName)
+	}
+
+	return cloneDevice(d), nil
+}
+
+// ListDevices returns devices, optionally filtered by fleet name.
+func (b *InMemoryBackend) ListDevices(fleetFilter, nextToken string) ([]*Device, string) {
+	b.mu.RLock("ListDevices")
+	defer b.mu.RUnlock()
+
+	keys := make([]string, 0, len(b.devices))
+	for k := range b.devices {
+		if fleetFilter != "" && k.fleetName != fleetFilter {
+			continue
+		}
+
+		keys = append(keys, k.fleetName+"/"+k.deviceName)
+	}
+
+	sort.Strings(keys)
+
+	start := 0
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(keys))
+
+	out := make([]*Device, 0, end-start)
+	for _, composite := range keys[start:end] {
+		parts := strings.SplitN(composite, "/", deviceCompositeparts)
+		if len(parts) != deviceCompositeparts {
+			continue
+		}
+
+		if d, ok := b.devices[deviceKey{fleetName: parts[0], deviceName: parts[1]}]; ok {
+			out = append(out, cloneDevice(d))
+		}
+	}
+
+	next := ""
+	if end < len(keys) {
+		next = keys[end]
+	}
+
+	return out, next
+}
+
+// ---------------------------------------------------------------------------
+// InferenceComponent
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrInferenceComponentNotFound is returned when an inference component does not exist.
+	ErrInferenceComponentNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrInferenceComponentAlreadyExists is returned when an inference component already exists.
+	ErrInferenceComponentAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// InferenceComponent represents a SageMaker inference component.
+type InferenceComponent struct {
+	CreationTime             time.Time         `json:"CreationTime"`
+	LastModifiedTime         time.Time         `json:"LastModifiedTime"`
+	Tags                     map[string]string `json:"Tags,omitempty"`
+	InferenceComponentName   string            `json:"InferenceComponentName"`
+	InferenceComponentArn    string            `json:"InferenceComponentArn"`
+	EndpointName             string            `json:"EndpointName"`
+	VariantName              string            `json:"VariantName,omitempty"`
+	InferenceComponentStatus string            `json:"InferenceComponentStatus"`
+	CopyCount                int               `json:"CopyCount,omitempty"`
+	CurrentCopyCount         int               `json:"CurrentCopyCount,omitempty"`
+}
+
+func cloneInferenceComponent(c *InferenceComponent) *InferenceComponent {
+	cp := *c
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
+// CreateInferenceComponentOptions holds input fields for CreateInferenceComponent.
+type CreateInferenceComponentOptions struct {
+	Tags                   map[string]string
+	InferenceComponentName string
+	EndpointName           string
+	VariantName            string
+	CopyCount              int
+}
+
+// CreateInferenceComponent creates a SageMaker inference component.
+func (b *InMemoryBackend) CreateInferenceComponent(
+	opts CreateInferenceComponentOptions,
+) (*InferenceComponent, error) {
+	b.mu.Lock("CreateInferenceComponent")
+	defer b.mu.Unlock()
+
+	if opts.InferenceComponentName == "" {
+		return nil, fmt.Errorf("%w: InferenceComponentName is required", ErrValidation)
+	}
+
+	if _, ok := b.inferenceComponents[opts.InferenceComponentName]; ok {
+		return nil, fmt.Errorf(
+			"%w: inference component %q already exists",
+			ErrInferenceComponentAlreadyExists,
+			opts.InferenceComponentName,
+		)
+	}
+
+	compARN := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		"inference-component/"+opts.InferenceComponentName,
+	)
+	now := time.Now()
+
+	c := &InferenceComponent{
+		InferenceComponentName:   opts.InferenceComponentName,
+		InferenceComponentArn:    compARN,
+		EndpointName:             opts.EndpointName,
+		VariantName:              opts.VariantName,
+		InferenceComponentStatus: statusCreating,
+		CopyCount:                opts.CopyCount,
+		CurrentCopyCount:         0,
+		Tags:                     mergeTags(nil, opts.Tags),
+		CreationTime:             now,
+		LastModifiedTime:         now,
+	}
+	b.inferenceComponents[opts.InferenceComponentName] = c
+
+	return cloneInferenceComponent(c), nil
+}
+
+// DescribeInferenceComponent returns an inference component by name.
+func (b *InMemoryBackend) DescribeInferenceComponent(name string) (*InferenceComponent, error) {
+	b.mu.RLock("DescribeInferenceComponent")
+	defer b.mu.RUnlock()
+
+	c, ok := b.inferenceComponents[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
+	}
+
+	return cloneInferenceComponent(c), nil
+}
+
+// ListInferenceComponents returns all inference components with pagination.
+func (b *InMemoryBackend) ListInferenceComponents(
+	endpointFilter, nextToken string,
+) ([]*InferenceComponent, string) {
+	b.mu.RLock("ListInferenceComponents")
+	defer b.mu.RUnlock()
+
+	keys := make([]string, 0, len(b.inferenceComponents))
+	for k, c := range b.inferenceComponents {
+		if endpointFilter != "" && c.EndpointName != endpointFilter {
+			continue
+		}
+
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	start := 0
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(keys))
+
+	out := make([]*InferenceComponent, 0, end-start)
+	for _, k := range keys[start:end] {
+		out = append(out, cloneInferenceComponent(b.inferenceComponents[k]))
+	}
+
+	next := ""
+	if end < len(keys) {
+		next = keys[end]
+	}
+
+	return out, next
+}
+
+// UpdateInferenceComponent updates an inference component's variant or copy count.
+func (b *InMemoryBackend) UpdateInferenceComponent(name, variantName string, copyCount int) error {
+	b.mu.Lock("UpdateInferenceComponent")
+	defer b.mu.Unlock()
+
+	c, ok := b.inferenceComponents[name]
+	if !ok {
+		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
+	}
+
+	if variantName != "" {
+		c.VariantName = variantName
+	}
+
+	if copyCount > 0 {
+		c.CopyCount = copyCount
+	}
+
+	c.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// UpdateInferenceComponentRuntimeConfig updates the copy count for an inference component.
+func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(name string, copyCount int) error {
+	b.mu.Lock("UpdateInferenceComponentRuntimeConfig")
+	defer b.mu.Unlock()
+
+	c, ok := b.inferenceComponents[name]
+	if !ok {
+		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
+	}
+
+	c.CopyCount = copyCount
+	c.CurrentCopyCount = copyCount
+	c.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteInferenceComponent deletes an inference component by name.
+func (b *InMemoryBackend) DeleteInferenceComponent(name string) error {
+	b.mu.Lock("DeleteInferenceComponent")
+	defer b.mu.Unlock()
+
+	if _, ok := b.inferenceComponents[name]; !ok {
+		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
+	}
+
+	delete(b.inferenceComponents, name)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// ClusterSchedulerConfig
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrClusterSchedulerConfigNotFound is returned when a cluster scheduler config does not exist.
+	ErrClusterSchedulerConfigNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrClusterSchedulerConfigAlreadyExists is returned when a cluster scheduler config already exists.
+	ErrClusterSchedulerConfigAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// ClusterSchedulerConfig represents a SageMaker cluster scheduler configuration.
+type ClusterSchedulerConfig struct {
+	CreationTime               time.Time         `json:"CreationTime"`
+	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
+	Tags                       map[string]string `json:"Tags,omitempty"`
+	ClusterSchedulerConfigName string            `json:"ClusterSchedulerConfigName"`
+	ClusterSchedulerConfigArn  string            `json:"ClusterSchedulerConfigArn"`
+	ClusterArn                 string            `json:"ClusterArn,omitempty"`
+	Status                     string            `json:"Status"`
+}
+
+func cloneClusterSchedulerConfig(c *ClusterSchedulerConfig) *ClusterSchedulerConfig {
+	cp := *c
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
+// CreateClusterSchedulerConfigOptions holds input fields for CreateClusterSchedulerConfig.
+type CreateClusterSchedulerConfigOptions struct {
+	Tags                       map[string]string
+	ClusterSchedulerConfigName string
+	ClusterArn                 string
+}
+
+// CreateClusterSchedulerConfig creates a SageMaker cluster scheduler configuration.
+func (b *InMemoryBackend) CreateClusterSchedulerConfig(
+	opts CreateClusterSchedulerConfigOptions,
+) (*ClusterSchedulerConfig, error) {
+	b.mu.Lock("CreateClusterSchedulerConfig")
+	defer b.mu.Unlock()
+
+	if opts.ClusterSchedulerConfigName == "" {
+		return nil, fmt.Errorf("%w: ClusterSchedulerConfigName is required", ErrValidation)
+	}
+
+	if _, ok := b.clusterSchedulerConfigs[opts.ClusterSchedulerConfigName]; ok {
+		return nil, fmt.Errorf(
+			"%w: cluster scheduler config %q already exists",
+			ErrClusterSchedulerConfigAlreadyExists,
+			opts.ClusterSchedulerConfigName,
+		)
+	}
+
+	configARN := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		"cluster-scheduler-config/"+opts.ClusterSchedulerConfigName,
+	)
+	now := time.Now()
+
+	c := &ClusterSchedulerConfig{
+		ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
+		ClusterSchedulerConfigArn:  configARN,
+		ClusterArn:                 opts.ClusterArn,
+		Status:                     statusCreating,
+		Tags:                       mergeTags(nil, opts.Tags),
+		CreationTime:               now,
+		LastModifiedTime:           now,
+	}
+	b.clusterSchedulerConfigs[opts.ClusterSchedulerConfigName] = c
+
+	return cloneClusterSchedulerConfig(c), nil
+}
+
+// DescribeClusterSchedulerConfig returns a cluster scheduler config by name.
+func (b *InMemoryBackend) DescribeClusterSchedulerConfig(name string) (*ClusterSchedulerConfig, error) {
+	b.mu.RLock("DescribeClusterSchedulerConfig")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusterSchedulerConfigs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+	}
+
+	return cloneClusterSchedulerConfig(c), nil
+}
+
+// ListClusterSchedulerConfigs returns all cluster scheduler configs with pagination.
+func (b *InMemoryBackend) ListClusterSchedulerConfigs(nextToken string) ([]*ClusterSchedulerConfig, string) {
+	b.mu.RLock("ListClusterSchedulerConfigs")
+	defer b.mu.RUnlock()
+
+	keys := make([]string, 0, len(b.clusterSchedulerConfigs))
+	for k := range b.clusterSchedulerConfigs {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	start := 0
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(keys))
+
+	out := make([]*ClusterSchedulerConfig, 0, end-start)
+	for _, k := range keys[start:end] {
+		out = append(out, cloneClusterSchedulerConfig(b.clusterSchedulerConfigs[k]))
+	}
+
+	next := ""
+	if end < len(keys) {
+		next = keys[end]
+	}
+
+	return out, next
+}
+
+// UpdateClusterSchedulerConfig updates a cluster scheduler config's cluster ARN.
+func (b *InMemoryBackend) UpdateClusterSchedulerConfig(name, clusterArn string) error {
+	b.mu.Lock("UpdateClusterSchedulerConfig")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusterSchedulerConfigs[name]
+	if !ok {
+		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+	}
+
+	if clusterArn != "" {
+		c.ClusterArn = clusterArn
+	}
+
+	c.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteClusterSchedulerConfig deletes a cluster scheduler config by name.
+func (b *InMemoryBackend) DeleteClusterSchedulerConfig(name string) error {
+	b.mu.Lock("DeleteClusterSchedulerConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusterSchedulerConfigs[name]; !ok {
+		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+	}
+
+	delete(b.clusterSchedulerConfigs, name)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// ComputeQuota
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrComputeQuotaNotFound is returned when a compute quota does not exist.
+	ErrComputeQuotaNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrComputeQuotaAlreadyExists is returned when a compute quota already exists.
+	ErrComputeQuotaAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// ComputeQuota represents a SageMaker compute quota.
+type ComputeQuota struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	ComputeQuotaName string            `json:"ComputeQuotaName"`
+	ComputeQuotaArn  string            `json:"ComputeQuotaArn"`
+	Status           string            `json:"Status"`
+	ClusterArn       string            `json:"ClusterArn,omitempty"`
+}
+
+func cloneComputeQuota(q *ComputeQuota) *ComputeQuota {
+	cp := *q
+	cp.Tags = maps.Clone(q.Tags)
+
+	return &cp
+}
+
+// CreateComputeQuotaOptions holds input fields for CreateComputeQuota.
+type CreateComputeQuotaOptions struct {
+	Tags             map[string]string
+	ComputeQuotaName string
+	ClusterArn       string
+}
+
+// CreateComputeQuota creates a SageMaker compute quota.
+func (b *InMemoryBackend) CreateComputeQuota(opts CreateComputeQuotaOptions) (*ComputeQuota, error) {
+	b.mu.Lock("CreateComputeQuota")
+	defer b.mu.Unlock()
+
+	if opts.ComputeQuotaName == "" {
+		return nil, fmt.Errorf("%w: ComputeQuotaName is required", ErrValidation)
+	}
+
+	if _, ok := b.computeQuotas[opts.ComputeQuotaName]; ok {
+		return nil, fmt.Errorf(
+			"%w: compute quota %q already exists",
+			ErrComputeQuotaAlreadyExists,
+			opts.ComputeQuotaName,
+		)
+	}
+
+	quotaARN := arn.Build("sagemaker", b.region, b.accountID, "compute-quota/"+opts.ComputeQuotaName)
+	now := time.Now()
+
+	q := &ComputeQuota{
+		ComputeQuotaName: opts.ComputeQuotaName,
+		ComputeQuotaArn:  quotaARN,
+		ClusterArn:       opts.ClusterArn,
+		Status:           statusCreated,
+		Tags:             mergeTags(nil, opts.Tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
+	}
+	b.computeQuotas[opts.ComputeQuotaName] = q
+
+	return cloneComputeQuota(q), nil
+}
+
+// DescribeComputeQuota returns a compute quota by name.
+func (b *InMemoryBackend) DescribeComputeQuota(name string) (*ComputeQuota, error) {
+	b.mu.RLock("DescribeComputeQuota")
+	defer b.mu.RUnlock()
+
+	q, ok := b.computeQuotas[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+	}
+
+	return cloneComputeQuota(q), nil
+}
+
+// ListComputeQuotas returns all compute quotas with pagination.
+func (b *InMemoryBackend) ListComputeQuotas(nextToken string) ([]*ComputeQuota, string) {
+	b.mu.RLock("ListComputeQuotas")
+	defer b.mu.RUnlock()
+
+	keys := make([]string, 0, len(b.computeQuotas))
+	for k := range b.computeQuotas {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	start := 0
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(keys))
+
+	out := make([]*ComputeQuota, 0, end-start)
+	for _, k := range keys[start:end] {
+		out = append(out, cloneComputeQuota(b.computeQuotas[k]))
+	}
+
+	next := ""
+	if end < len(keys) {
+		next = keys[end]
+	}
+
+	return out, next
+}
+
+// UpdateComputeQuota updates a compute quota's cluster ARN.
+func (b *InMemoryBackend) UpdateComputeQuota(name, clusterArn string) error {
+	b.mu.Lock("UpdateComputeQuota")
+	defer b.mu.Unlock()
+
+	q, ok := b.computeQuotas[name]
+	if !ok {
+		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+	}
+
+	if clusterArn != "" {
+		q.ClusterArn = clusterArn
+	}
+
+	q.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteComputeQuota deletes a compute quota by name.
+func (b *InMemoryBackend) DeleteComputeQuota(name string) error {
+	b.mu.Lock("DeleteComputeQuota")
+	defer b.mu.Unlock()
+
+	if _, ok := b.computeQuotas[name]; !ok {
+		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+	}
+
+	delete(b.computeQuotas, name)
+
+	return nil
+}
