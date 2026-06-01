@@ -508,25 +508,13 @@ func TestDeleteTargetGroup(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Verify deletion
+	// Verify deletion — AWS returns TargetGroupNotFound for a deleted ARN.
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":                   {"DescribeTargetGroups"},
 		"Version":                  {"2015-12-01"},
 		"TargetGroupArns.member.1": {tgArn},
 	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp struct {
-		Result struct {
-			TargetGroups struct {
-				Members []struct {
-					TargetGroupArn string `xml:"TargetGroupArn"`
-				} `xml:"member"`
-			} `xml:"TargetGroups"`
-		} `xml:"DescribeTargetGroupsResult"`
-	}
-	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.Empty(t, resp.Result.TargetGroups.Members)
+	require.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
 // TestRegisterAndDeregisterTargets tests target registration.

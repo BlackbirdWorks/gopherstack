@@ -724,6 +724,26 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	return &cp, nil
 }
 
+// checkAllTGArnsFound returns ErrTargetGroupNotFound if any queried ARN is absent from result.
+func checkAllTGArnsFound(arns []string, result []TargetGroup) error {
+	for _, a := range arns {
+		found := false
+		for _, tg := range result {
+			if tg.TargetGroupArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrTargetGroupNotFound
+		}
+	}
+
+	return nil
+}
+
 // checkAllArnsFound returns ErrLoadBalancerNotFound if any of the queried ARNs are absent from result.
 func checkAllArnsFound(arns []string, result []LoadBalancer) error {
 	for _, a := range arns {
@@ -1241,6 +1261,10 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 
 		sortTargetGroupsByName(result)
 
+		if err := checkAllTGArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+
 		return result, nil
 	}
 
@@ -1470,6 +1494,9 @@ const (
 	targetTypeLambda  = "lambda"
 	priorityDefault   = "default"
 	maxNameLength     = 32
+	maxTagKeyLen      = 128
+	maxTagValueLen    = 256
+	maxTagsPerRes     = 50
 
 	attrAccessLogsS3Enabled           = "access_logs.s3.enabled"
 	attrDeletionProtectionEnabled     = "deletion_protection.enabled"
@@ -1688,6 +1715,26 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 	return result, nil
 }
 
+// checkAllRuleArnsFound returns ErrRuleNotFound if any queried ARN is absent from result.
+func checkAllRuleArnsFound(arns []string, result []Rule) error {
+	for _, a := range arns {
+		found := false
+		for _, r := range result {
+			if r.RuleArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrRuleNotFound
+		}
+	}
+
+	return nil
+}
+
 // checkAllListenerArnsFound returns ErrListenerNotFound if any queried ARN is absent from result.
 func checkAllListenerArnsFound(arns []string, result []Listener) error {
 	for _, a := range arns {
@@ -1887,6 +1934,10 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 
 		sortRulesByPriority(result)
 
+		if err := checkAllRuleArnsFound(ruleArns, result); err != nil {
+			return nil, err
+		}
+
 		return result, nil
 	}
 
@@ -2010,8 +2061,27 @@ func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
 	return nil
 }
 
+// validateTagKVs returns ErrInvalidParameter when any tag key or value violates AWS limits.
+func validateTagKVs(kvs []tags.KV) error {
+	for _, kv := range kvs {
+		if len(kv.Key) == 0 || len(kv.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+
+		if len(kv.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must not exceed %d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
 // AddTags adds or updates tags on ELBv2 resources.
 func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
+	if err := validateTagKVs(kvs); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
@@ -2019,6 +2089,20 @@ func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 		t := b.findTagsLocked(resArn)
 		if t == nil {
 			continue
+		}
+
+		if t.Len()+len(kvs) > maxTagsPerRes {
+			// Count net-new keys only to avoid over-counting updates to existing keys.
+			netNew := 0
+			for _, kv := range kvs {
+				if !t.HasTag(kv.Key) {
+					netNew++
+				}
+			}
+
+			if t.Len()+netNew > maxTagsPerRes {
+				return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidParameter, maxTagsPerRes)
+			}
 		}
 
 		for _, kv := range kvs {
