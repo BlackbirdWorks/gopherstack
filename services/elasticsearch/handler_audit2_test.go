@@ -239,8 +239,7 @@ func TestAudit2_PackageTypeBackend(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	_, err := b.CreatePackage("my-pkg", "UNKNOWN", "desc")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
+	require.ErrorIs(t, err, elasticsearch.ErrValidation)
 
 	_, err = b.CreatePackage("my-pkg2", "TXT-DICTIONARY", "desc")
 	require.NoError(t, err)
@@ -253,8 +252,7 @@ func TestAudit2_ESVersionBackend(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	_, err := b.CreateDomain("ver-dom", "8.0", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
+	require.ErrorIs(t, err, elasticsearch.ErrValidation)
 
 	_, err = b.CreateDomain("ver-dom2", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
 	require.NoError(t, err)

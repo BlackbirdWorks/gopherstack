@@ -42,7 +42,7 @@ var (
 var domainNameRe = regexp.MustCompile(`^[a-z][a-z0-9\-]{2,27}$`)
 
 // validElasticsearchVersions is the set of versions accepted by AWS Elasticsearch Service.
-var validElasticsearchVersions = map[string]bool{
+var validElasticsearchVersions = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
 	"1.5":  true,
 	"2.3":  true,
 	"5.1":  true,
@@ -68,7 +68,7 @@ var validElasticsearchVersions = map[string]bool{
 }
 
 // validPackageTypes is the set of package types accepted by AWS Elasticsearch Service.
-var validPackageTypes = map[string]bool{
+var validPackageTypes = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
 	"TXT-DICTIONARY": true,
 	"ZIP-PLUGIN":     true,
 }
