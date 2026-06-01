@@ -183,7 +183,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/medialive v1.97.2
 	github.com/aws/aws-sdk-go-v2/service/mediapackage v1.39.25
 	github.com/aws/aws-sdk-go-v2/service/mediatailor v1.59.2
+	github.com/aws/aws-sdk-go-v2/service/personalize v1.47.11
 	github.com/aws/aws-sdk-go-v2/service/polly v1.57.5
+	github.com/aws/aws-sdk-go-v2/service/quicksight v1.112.0
+	github.com/aws/aws-sdk-go-v2/service/rekognition v1.51.26
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.23.0
 	github.com/aws/aws-sdk-go-v2/service/securityhub v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/translate v1.34.2
@@ -191,10 +194,8 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/personalize v1.47.11 // indirect
-	github.com/aws/aws-sdk-go-v2/service/quicksight v1.112.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/rekognition v1.51.26 // indirect
-	github.com/aws/aws-sdk-go-v2/service/workmail v1.37.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0
+	github.com/aws/aws-sdk-go-v2/service/workmail v1.37.2
 )
 
 require (
