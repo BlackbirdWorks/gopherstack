@@ -213,7 +213,7 @@ type snapshot struct {
 
 // InMemoryBackend is an in-memory OpsWorks backend.
 type InMemoryBackend struct {
-	mu          lockmetrics.RWMutex
+	mu          *lockmetrics.RWMutex
 	stacks      map[string]*storedStack
 	layers      map[string]*storedLayer
 	instances   map[string]*storedInstance
@@ -228,7 +228,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory OpsWorks backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.NewRWMutex("opsworks"),
+		mu:          lockmetrics.New("opsworks"),
 		stacks:      make(map[string]*storedStack),
 		layers:      make(map[string]*storedLayer),
 		instances:   make(map[string]*storedInstance),
