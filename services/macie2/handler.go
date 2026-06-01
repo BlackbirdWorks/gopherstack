@@ -417,9 +417,9 @@ func (h *Handler) dispatchSessionOps(op string, body []byte) (any, int, bool, er
 		return nil, code, true, err
 
 	case opUpdateMacieSession:
-		code, err := h.handleUpdateMacieSession(body)
+		result, code, err := h.handleUpdateMacieSession(body)
 
-		return nil, code, true, err
+		return result, code, true, err
 	}
 
 	return nil, 0, false, nil
@@ -606,6 +606,10 @@ func (h *Handler) handleEnableMacie(body []byte) (int, error) {
 		}
 	}
 
+	if req.FindingPublishingFrequency != "" && !validFrequency(req.FindingPublishingFrequency) {
+		return http.StatusBadRequest, ErrValidation
+	}
+
 	if err := h.Backend.EnableMacie(req.ClientToken, req.FindingPublishingFrequency, req.Status); err != nil {
 		if errors.Is(err, awserr.ErrConflict) {
 			return http.StatusConflict, err
@@ -625,7 +629,11 @@ func (h *Handler) handleDisableMacie() (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateMacieSession(body []byte) (int, error) {
+func (h *Handler) handleUpdateMacieSession(body []byte) (any, int, error) {
+	if h.Backend.GetSession() == nil {
+		return errBody(errMacieNotEnabled, "Macie is not currently enabled for this account"), http.StatusForbidden, nil
+	}
+
 	var req struct {
 		FindingPublishingFrequency string `json:"findingPublishingFrequency"`
 		Status                     string `json:"status"`
@@ -633,15 +641,19 @@ func (h *Handler) handleUpdateMacieSession(body []byte) (int, error) {
 
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return http.StatusBadRequest, ErrValidation
+			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
 
-	if err := h.Backend.UpdateMacieSession(req.FindingPublishingFrequency, req.Status); err != nil {
-		return http.StatusInternalServerError, err
+	if req.FindingPublishingFrequency != "" && !validFrequency(req.FindingPublishingFrequency) {
+		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	return http.StatusOK, nil
+	if err := h.Backend.UpdateMacieSession(req.FindingPublishingFrequency, req.Status); err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	return nil, http.StatusOK, nil
 }
 
 // Allow list handlers
@@ -1049,6 +1061,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 // Helper utilities
+
+func validFrequency(f string) bool {
+	return f == "FIFTEEN_MINUTES" || f == "ONE_HOUR" || f == "SIX_HOURS"
+}
 
 func errBody(code, message string) map[string]string {
 	return map[string]string{"__type": code, "message": message}

@@ -607,16 +607,30 @@ func TestMacie2_Findings(t *testing.T) {
 	}
 }
 
+func createTestAllowListARN(t *testing.T, h *macie2.Handler) string {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/allow-lists", map[string]any{
+		"clientToken": "tag-test",
+		"name":        "tag-test-list",
+		"criteria":    map[string]any{"regex": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["arn"]
+}
+
 func TestMacie2_Tags(t *testing.T) {
 	t.Parallel()
 
-	const testARN = "arn:aws:macie2:us-east-1:000000000000:allow-list/test-id"
-
 	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
 		name     string
-		setup    func(h *macie2.Handler)
+		setup    func(h *macie2.Handler) string
 		method   string
-		path     string
+		pathFn   func(arn string) string
 		query    string
 		body     any
 		wantCode int
@@ -624,19 +638,23 @@ func TestMacie2_Tags(t *testing.T) {
 	}{
 		{
 			name:     "TagResource returns 200",
+			setup:    func(h *macie2.Handler) string { return createTestAllowListARN(t, h) },
 			method:   http.MethodPost,
-			path:     "/tags/" + testARN,
+			pathFn:   func(arn string) string { return "/tags/" + arn },
 			body:     map[string]any{"tags": map[string]string{"env": "test"}},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:   "ListTagsForResource returns tags",
-			method: http.MethodGet,
-			path:   "/tags/" + testARN,
-			setup: func(h *macie2.Handler) {
-				doRequest(t, h, http.MethodPost, "/tags/"+testARN,
+			name: "ListTagsForResource returns tags",
+			setup: func(h *macie2.Handler) string {
+				arn := createTestAllowListARN(t, h)
+				doRequest(t, h, http.MethodPost, "/tags/"+arn,
 					map[string]any{"tags": map[string]string{"env": "prod", "team": "security"}})
+
+				return arn
 			},
+			method:   http.MethodGet,
+			pathFn:   func(arn string) string { return "/tags/" + arn },
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -649,13 +667,16 @@ func TestMacie2_Tags(t *testing.T) {
 			},
 		},
 		{
-			name:   "UntagResource removes tags",
-			method: http.MethodDelete,
-			path:   "/tags/" + testARN,
-			setup: func(h *macie2.Handler) {
-				doRequest(t, h, http.MethodPost, "/tags/"+testARN,
+			name: "UntagResource removes tags",
+			setup: func(h *macie2.Handler) string {
+				arn := createTestAllowListARN(t, h)
+				doRequest(t, h, http.MethodPost, "/tags/"+arn,
 					map[string]any{"tags": map[string]string{"env": "prod", "team": "security"}})
+
+				return arn
 			},
+			method:   http.MethodDelete,
+			pathFn:   func(arn string) string { return "/tags/" + arn },
 			wantCode: http.StatusOK,
 		},
 	}
@@ -666,11 +687,13 @@ func TestMacie2_Tags(t *testing.T) {
 
 			h := newTestHandler(t)
 
+			arn := ""
 			if tt.setup != nil {
-				tt.setup(h)
+				arn = tt.setup(h)
 			}
 
-			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			path := tt.pathFn(arn)
+			rec := doRequest(t, h, tt.method, path, tt.body)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 

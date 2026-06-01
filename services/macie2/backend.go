@@ -26,6 +26,12 @@ const (
 	errConflictException = "ConflictException"
 	errValidation        = "ValidationException"
 	errMacieNotEnabled   = "AccessDeniedException"
+
+	maxTagCount    = 50
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+	maxMatchDist   = int32(300)
+	minMatchDist   = int32(1)
 )
 
 var (
@@ -41,6 +47,8 @@ var (
 	ErrFindingsFilterNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrFindingNotFound is returned when a finding does not exist.
 	ErrFindingNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTaggedResourceNotFound is returned when a tag operation targets an unknown resource ARN.
+	ErrTaggedResourceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 )
@@ -310,13 +318,24 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 	maxMatchDistance *int32,
 	tags map[string]string,
 ) (string, error) {
-	b.mu.Lock("CreateCustomDataIdentifier")
-	defer b.mu.Unlock()
+	if _, compileErr := regexp.Compile(regex); compileErr != nil {
+		return "", fmt.Errorf("%w: regex is invalid: %s", ErrValidation, compileErr.Error())
+	}
 
 	dist := defaultMatchDist
 	if maxMatchDistance != nil {
+		if *maxMatchDistance < minMatchDist || *maxMatchDistance > maxMatchDist {
+			return "", fmt.Errorf(
+				"%w: maximumMatchDistance must be between %d and %d",
+				ErrValidation, minMatchDist, maxMatchDist,
+			)
+		}
+
 		dist = *maxMatchDistance
 	}
+
+	b.mu.Lock("CreateCustomDataIdentifier")
+	defer b.mu.Unlock()
 
 	id := uuid.New().String()
 	now := time.Now().UTC()
@@ -347,7 +366,7 @@ func (b *InMemoryBackend) GetCustomDataIdentifier(id string) (*CustomDataIdentif
 	defer b.mu.RUnlock()
 
 	cdi, ok := b.customDataIDs[id]
-	if !ok {
+	if !ok || cdi.Deleted {
 		return nil, ErrCustomDataIDNotFound
 	}
 
@@ -714,10 +733,31 @@ func (b *InMemoryBackend) GetFindingStatistics(groupBy string, _ map[string]any)
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if err := validateTagInput(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if b.tags[resourceARN] == nil {
+	if !b.isKnownARN(resourceARN) {
+		return fmt.Errorf("%w: %s", ErrTaggedResourceNotFound, resourceARN)
+	}
+
+	existing := b.tags[resourceARN]
+	netNew := 0
+
+	for k := range tags {
+		if _, alreadySet := existing[k]; !alreadySet {
+			netNew++
+		}
+	}
+
+	if len(existing)+netNew > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed %d tag limit", ErrValidation, maxTagCount)
+	}
+
+	if existing == nil {
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
@@ -731,8 +771,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if b.tags[resourceARN] == nil {
-		return nil
+	if !b.isKnownARN(resourceARN) {
+		return fmt.Errorf("%w: %s", ErrTaggedResourceNotFound, resourceARN)
 	}
 
 	for _, k := range tagKeys {
@@ -747,11 +787,47 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
+	if !b.isKnownARN(resourceARN) {
+		return nil, fmt.Errorf("%w: %s", ErrTaggedResourceNotFound, resourceARN)
+	}
+
 	if b.tags[resourceARN] == nil {
 		return map[string]string{}, nil
 	}
 
 	return maps.Clone(b.tags[resourceARN]), nil
+}
+
+// isKnownARN reports whether arn refers to a live resource owned by this backend.
+func (b *InMemoryBackend) isKnownARN(arn string) bool {
+	prefix := fmt.Sprintf("arn:aws:macie2:%s:%s:", b.region, b.accountID)
+	if !strings.HasPrefix(arn, prefix) {
+		return false
+	}
+
+	rest := strings.TrimPrefix(arn, prefix)
+
+	resourceType, id, found := strings.Cut(rest, "/")
+	if !found {
+		return false
+	}
+
+	switch resourceType {
+	case "allow-list":
+		_, exists := b.allowLists[id]
+
+		return exists
+	case "custom-data-identifier":
+		cdi, exists := b.customDataIDs[id]
+
+		return exists && !cdi.Deleted
+	case "findings-filter":
+		_, exists := b.findingsFilters[id]
+
+		return exists
+	}
+
+	return false
 }
 
 // AccountID returns the account ID.
@@ -771,6 +847,24 @@ func (b *InMemoryBackend) Reset() {
 	b.findingsFilters = make(map[string]*storedFindingsFilter)
 	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
+}
+
+func validateTagInput(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: tags must not exceed %d entries", ErrValidation, maxTagCount)
+	}
+
+	for k, v := range tags {
+		if len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must not exceed %d characters", ErrValidation, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must not exceed %d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
 }
 
 type snapshot struct {
