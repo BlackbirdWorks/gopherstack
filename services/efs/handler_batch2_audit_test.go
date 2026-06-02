@@ -16,12 +16,12 @@ func TestBatch2_DescribeFileSystems_CreationTokenFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		token         string
-		wantCount     int
-		wantStatus    int
-		setupTokens   []string
-		wantNotFound  bool
+		name         string
+		token        string
+		setupTokens  []string
+		wantCount    int
+		wantStatus   int
+		wantNotFound bool
 	}{
 		{
 			name:        "existing_token_returns_matching_fs",
@@ -132,8 +132,8 @@ func TestBatch2_DescribeFileSystemPolicy_PolicyNotFound(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		wantStatus int
 		wantErr    string
+		wantStatus int
 	}{
 		{
 			name:       "no_policy_returns_policy_not_found",
