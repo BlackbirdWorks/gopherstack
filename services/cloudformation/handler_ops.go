@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/url"
 
 	"github.com/google/uuid"
@@ -265,7 +266,7 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
-	if _, err := h.Backend.UpdateStackSet(name, form.Get("TemplateBody")); err != nil {
+	if _, err := h.Backend.UpdateStackSet(name, form.Get("Description"), form.Get("TemplateBody")); err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type response struct {
@@ -283,6 +284,10 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
 	if err := h.Backend.DeleteStackSet(name); err != nil {
+		if errors.Is(err, ErrStackSetNotEmpty) {
+			return h.xmlError(c, "StackSetNotEmptyException", err.Error())
+		}
+
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type response struct {
@@ -373,16 +378,21 @@ func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) e
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	regions := parseMemberList(form, "Regions.")
-	if err := h.Backend.CreateStackInstances(name, accounts, regions); err != nil {
+	opID, err := h.Backend.CreateStackInstances(name, accounts, regions)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"CreateStackInstancesResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"CreateStackInstancesResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) error {
@@ -392,16 +402,21 @@ func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) e
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	regions := parseMemberList(form, "Regions.")
-	if err := h.Backend.DeleteStackInstances(name, accounts, regions); err != nil {
+	opID, err := h.Backend.DeleteStackInstances(name, accounts, regions)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteStackInstancesResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeleteStackInstancesResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) error {
@@ -411,16 +426,21 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	regions := parseMemberList(form, "Regions.")
-	if err := h.Backend.UpdateStackInstances(name, accounts, regions); err != nil {
+	opID, err := h.Backend.UpdateStackInstances(name, accounts, regions)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateStackInstancesResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"UpdateStackInstancesResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
@@ -543,13 +563,14 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	opID := form.Get("OperationId")
-	status, err := h.Backend.DescribeStackSetOperation(name, opID)
+	op, err := h.Backend.DescribeStackSetOperation(name, opID)
 	if err != nil {
 		return h.xmlError(c, "OperationNotFoundException", err.Error())
 	}
 	type result struct {
 		StackSetOperation struct {
 			OperationID string `xml:"OperationId"`
+			Action      string `xml:"Action"`
 			Status      string `xml:"Status"`
 		} `xml:"StackSetOperation"`
 	}
@@ -560,8 +581,9 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 	r := result{}
-	r.StackSetOperation.OperationID = opID
-	r.StackSetOperation.Status = status
+	r.StackSetOperation.OperationID = op.OperationID
+	r.StackSetOperation.Action = op.Action
+	r.StackSetOperation.Status = op.Status
 
 	return writeXML(c, response{Xmlns: cfnNS, Result: r, RequestID: uuid.New().String()})
 }

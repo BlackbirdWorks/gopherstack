@@ -699,7 +699,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	// Create instances.
 	accounts := []string{"111111111111", "222222222222"}
 	regions := []string{"us-east-1", "us-west-2"}
-	err = b.CreateStackInstances("my-ss", accounts, regions)
+	_, err = b.CreateStackInstances("my-ss", accounts, regions)
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("my-ss", "")
@@ -712,12 +712,12 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "CURRENT", inst.Status)
 
 	// Update set.
-	updated, err := b.UpdateStackSet("my-ss", simpleTemplate)
+	updated, err := b.UpdateStackSet("my-ss", "", simpleTemplate)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", updated.Status)
 
 	// Delete instances.
-	err = b.DeleteStackInstances("my-ss", accounts, regions)
+	_, err = b.DeleteStackInstances("my-ss", accounts, regions)
 	require.NoError(t, err)
 
 	remaining, err := b.ListStackInstances("my-ss", "")

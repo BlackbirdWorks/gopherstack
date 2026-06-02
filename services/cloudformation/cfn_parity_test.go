@@ -579,7 +579,7 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 			_, err := b.CreateStackSet("inst-test-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			err = b.CreateStackInstances("inst-test-ss", tc.accounts, tc.regions)
+			_, err = b.CreateStackInstances("inst-test-ss", tc.accounts, tc.regions)
 			require.NoError(t, err)
 
 			instances, err := b.ListStackInstances("inst-test-ss", "")
@@ -606,11 +606,11 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 	_, err := b.CreateStackSet("dedup-ss", "test", simpleTemplate)
 	require.NoError(t, err)
 
-	err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	// Creating the same instance again should not duplicate it.
-	err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances("dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("dedup-ss", "")
@@ -653,7 +653,7 @@ func TestStackSetOperationResults(t *testing.T) {
 			_, err := b.CreateStackSet("op-results-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			err = b.CreateStackInstances("op-results-ss", tc.accounts, tc.regions)
+			_, err = b.CreateStackInstances("op-results-ss", tc.accounts, tc.regions)
 			require.NoError(t, err)
 
 			// Get the operation ID from ListStackSetOperations.
@@ -1049,7 +1049,7 @@ func TestDescribeStackInstance_Fields(t *testing.T) {
 	b := newBackend()
 	_, err := b.CreateStackSet("field-ss", "test", simpleTemplate)
 	require.NoError(t, err)
-	err = b.CreateStackInstances("field-ss", []string{"123456789012"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances("field-ss", []string{"123456789012"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	inst, err := b.DescribeStackInstance("field-ss", "123456789012", "us-east-1")
@@ -1074,11 +1074,11 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create multiple operations by calling CreateStackInstances multiple times.
-	err = b.CreateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
-	err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
-	_, err = b.UpdateStackSet("sort-ops-ss", simpleTemplate)
+	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate)
 	require.NoError(t, err)
 
 	opIDs, err := b.ListStackSetOperations("sort-ops-ss", "")
@@ -1267,10 +1267,10 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 			_, err := b.CreateStackSet("del-sel-ss", "test", simpleTemplate)
 			require.NoError(t, err)
 
-			err = b.CreateStackInstances("del-sel-ss", tc.createAccounts, tc.createRegions)
+			_, err = b.CreateStackInstances("del-sel-ss", tc.createAccounts, tc.createRegions)
 			require.NoError(t, err)
 
-			err = b.DeleteStackInstances("del-sel-ss", tc.deleteAccounts, tc.deleteRegions)
+			_, err = b.DeleteStackInstances("del-sel-ss", tc.deleteAccounts, tc.deleteRegions)
 			require.NoError(t, err)
 
 			remaining, err := b.ListStackInstances("del-sel-ss", "")

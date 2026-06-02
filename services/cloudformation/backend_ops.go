@@ -42,12 +42,15 @@ func (b *InMemoryBackend) CreateStackSet(name, description, templateBody string)
 	return ss, nil
 }
 
-func (b *InMemoryBackend) UpdateStackSet(name, templateBody string) (*StackSet, error) {
+func (b *InMemoryBackend) UpdateStackSet(name, description, templateBody string) (*StackSet, error) {
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets[name]
 	if !ok {
 		return nil, ErrStackSetNotFound
+	}
+	if description != "" {
+		ss.Description = description
 	}
 	if templateBody != "" {
 		ss.TemplateBody = templateBody
@@ -62,6 +65,9 @@ func (b *InMemoryBackend) DeleteStackSet(name string) error {
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[name]; !ok {
 		return ErrStackSetNotFound
+	}
+	if len(b.stackInstances[name]) > 0 {
+		return ErrStackSetNotEmpty
 	}
 	delete(b.stackSets, name)
 	delete(b.stackInstances, name)
@@ -96,12 +102,12 @@ func (b *InMemoryBackend) ListStackSets(_ string) ([]StackSetSummary, error) {
 	return result, nil
 }
 
-func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, regions []string) error {
+func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, regions []string) (string, error) {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets[stackSetName]
 	if !ok {
-		return ErrStackSetNotFound
+		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
 	for _, acct := range accounts {
@@ -134,14 +140,14 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 	}
 	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 
-	return nil
+	return opID, nil
 }
 
-func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, regions []string) error {
+func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, regions []string) (string, error) {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
-		return ErrStackSetNotFound
+		return "", ErrStackSetNotFound
 	}
 	instances := b.stackInstances[stackSetName]
 	filtered := make([]StackInstance, 0, len(instances))
@@ -162,21 +168,21 @@ func (b *InMemoryBackend) DeleteStackInstances(stackSetName string, accounts, re
 	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
 	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 
-	return nil
+	return opID, nil
 }
 
-func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, accounts, regions []string) error {
+func (b *InMemoryBackend) UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error) {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
 	if _, ok := b.stackSets[stackSetName]; !ok {
-		return ErrStackSetNotFound
+		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
 	if len(accounts) > 0 && len(regions) > 0 {
 		b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 	}
 
-	return nil
+	return opID, nil
 }
 
 func (b *InMemoryBackend) ListStackInstances(stackSetName, _ string) ([]StackInstance, error) {
@@ -270,19 +276,19 @@ func (b *InMemoryBackend) ListStackSetOperations(stackSetName, _ string) ([]stri
 	return ids, nil
 }
 
-func (b *InMemoryBackend) DescribeStackSetOperation(stackSetName, operationID string) (string, error) {
+func (b *InMemoryBackend) DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error) {
 	b.mu.RLock("DescribeStackSetOperation")
 	defer b.mu.RUnlock()
 	ops := b.stackSetOperations[stackSetName]
 	if ops == nil {
-		return "", fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
+		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 	op, ok := ops[operationID]
 	if !ok {
-		return "", fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
+		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 
-	return op.Status, nil
+	return op, nil
 }
 
 func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string) error {

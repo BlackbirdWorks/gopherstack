@@ -509,9 +509,9 @@ func TestStackSetDrift(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, opID)
 
-	status, err := b.DescribeStackSetOperation("drift-ss", opID)
+	op, err := b.DescribeStackSetOperation("drift-ss", opID)
 	require.NoError(t, err)
-	assert.NotEmpty(t, status)
+	assert.NotEmpty(t, op.Status)
 }
 
 func TestStackSetOperationList(t *testing.T) {
@@ -521,7 +521,7 @@ func TestStackSetOperationList(t *testing.T) {
 	_, err := b.CreateStackSet("op-list-ss", "desc", simpleTemplate)
 	require.NoError(t, err)
 
-	err = b.CreateStackInstances("op-list-ss", []string{"111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances("op-list-ss", []string{"111"}, []string{"us-east-1"})
 	require.NoError(t, err)
 
 	ops, err := b.ListStackSetOperations("op-list-ss", "")
@@ -544,9 +544,9 @@ func TestStopStackSetOperation(t *testing.T) {
 	err = b.StopStackSetOperation("stop-ss", opID)
 	require.ErrorIs(t, err, cloudformation.ErrOperationNotRunning)
 
-	status, err := b.DescribeStackSetOperation("stop-ss", opID)
+	op, err := b.DescribeStackSetOperation("stop-ss", opID)
 	require.NoError(t, err)
-	assert.NotEmpty(t, status)
+	assert.NotEmpty(t, op.Status)
 }
 
 // ---- Backend: Generated templates ---------------------------------------------
