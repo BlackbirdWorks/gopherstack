@@ -86,14 +86,15 @@ type EventResultEntry struct {
 
 // PutRuleInput is the input for PutRule.
 type PutRuleInput struct {
-	Name               string `json:"Name"`
-	EventBusName       string `json:"EventBusName,omitempty"`
-	EventPattern       string `json:"EventPattern,omitempty"`
-	State              string `json:"State,omitempty"`
-	Description        string `json:"Description,omitempty"`
-	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
-	RoleArn            string `json:"RoleArn,omitempty"`
-	ManagedBy          string `json:"ManagedBy,omitempty"`
+	Tags               map[string]string `json:"Tags,omitempty"`
+	Name               string            `json:"Name"`
+	EventBusName       string            `json:"EventBusName,omitempty"`
+	EventPattern       string            `json:"EventPattern,omitempty"`
+	State              string            `json:"State,omitempty"`
+	Description        string            `json:"Description,omitempty"`
+	ScheduleExpression string            `json:"ScheduleExpression,omitempty"`
+	RoleArn            string            `json:"RoleArn,omitempty"`
+	ManagedBy          string            `json:"ManagedBy,omitempty"`
 }
 
 // FailedEntry describes a target or event that failed to process.

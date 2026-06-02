@@ -23,8 +23,9 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createEventBusInput struct {
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
+	Tags        map[string]string `json:"Tags,omitempty"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description"`
 }
 
 type deleteEventBusInput struct {
@@ -438,6 +439,9 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+			if len(input.Tags) > 0 {
+				h.setTags(bus.Arn, input.Tags)
+			}
 
 			return &createEventBusOutput{EventBusArn: bus.Arn}, nil
 		},
@@ -489,6 +493,9 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			rule, err := h.Backend.PutRule(input)
 			if err != nil {
 				return nil, err
+			}
+			if len(input.Tags) > 0 {
+				h.setTags(rule.Arn, input.Tags)
 			}
 
 			return &putRuleOutput{RuleArn: rule.Arn}, nil
@@ -1433,13 +1440,13 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 			}
 
 			return &struct {
-				ReplayArn       string    `json:"ReplayArn"`
-				ReplayStartTime time.Time `json:"ReplayStartTime"`
-				State           string    `json:"State"`
-				StateReason     string    `json:"StateReason,omitempty"`
+				ReplayArn       string  `json:"ReplayArn"`
+				State           string  `json:"State"`
+				StateReason     string  `json:"StateReason,omitempty"`
+				ReplayStartTime float64 `json:"ReplayStartTime"`
 			}{
 				ReplayArn:       replay.ReplayArn,
-				ReplayStartTime: replay.ReplayStartTime,
+				ReplayStartTime: timeToEpochSeconds(replay.ReplayStartTime),
 				State:           replay.State,
 				StateReason:     replay.StateReason,
 			}, nil
@@ -1565,13 +1572,13 @@ func (h *Handler) pipesActions() map[string]actionFn {
 			}
 
 			return &struct {
-				Arn          string    `json:"Arn"`
-				CreationTime time.Time `json:"CreationTime"`
-				CurrentState string    `json:"CurrentState"`
-				Name         string    `json:"Name"`
+				Arn          string  `json:"Arn"`
+				CurrentState string  `json:"CurrentState"`
+				Name         string  `json:"Name"`
+				CreationTime float64 `json:"CreationTime"`
 			}{
 				Arn:          pipe.Arn,
-				CreationTime: pipe.CreationTime,
+				CreationTime: timeToEpochSeconds(pipe.CreationTime),
 				CurrentState: pipe.CurrentState,
 				Name:         pipe.Name,
 			}, nil
@@ -1625,14 +1632,14 @@ func (h *Handler) pipesActions() map[string]actionFn {
 			}
 
 			return &struct {
-				Arn              string    `json:"Arn"`
-				CurrentState     string    `json:"CurrentState"`
-				LastModifiedTime time.Time `json:"LastModifiedTime"`
-				Name             string    `json:"Name"`
+				Arn              string  `json:"Arn"`
+				CurrentState     string  `json:"CurrentState"`
+				Name             string  `json:"Name"`
+				LastModifiedTime float64 `json:"LastModifiedTime"`
 			}{
 				Arn:              pipe.Arn,
 				CurrentState:     pipe.CurrentState,
-				LastModifiedTime: pipe.LastModifiedTime,
+				LastModifiedTime: timeToEpochSeconds(pipe.LastModifiedTime),
 				Name:             pipe.Name,
 			}, nil
 		},
