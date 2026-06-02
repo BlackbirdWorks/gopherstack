@@ -71,13 +71,25 @@ func TestBatch2_TagResource_KeyValueConstraints(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "50 tags accepted",
-			tags:       func() []any { ts := make([]any, 50); for i := range ts { ts[i] = tagEntry(strings.Repeat("k", i+1), "v") }; return ts }(),
+			name: "50 tags accepted",
+			tags: func() []any {
+				ts := make([]any, 50)
+				for i := range ts {
+					ts[i] = tagEntry(strings.Repeat("k", i+1), "v")
+				}
+				return ts
+			}(),
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "51 tags rejected",
-			tags:       func() []any { ts := make([]any, 51); for i := range ts { ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v") }; return ts }(),
+			name: "51 tags rejected",
+			tags: func() []any {
+				ts := make([]any, 51)
+				for i := range ts {
+					ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v")
+				}
+				return ts
+			}(),
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -138,8 +150,14 @@ func TestBatch2_CreateCluster_TagValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "51 tags rejected",
-			tags:       func() []any { ts := make([]any, 51); for i := range ts { ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v") }; return ts }(),
+			name: "51 tags rejected",
+			tags: func() []any {
+				ts := make([]any, 51)
+				for i := range ts {
+					ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v")
+				}
+				return ts
+			}(),
 			wantStatus: http.StatusBadRequest,
 		},
 	}

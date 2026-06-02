@@ -1535,34 +1535,32 @@ const (
 	maxTagsPerRes  = 50
 )
 
+var (
+	errTagQuotaExceeded = fmt.Errorf("tag quota exceeded: a resource may have at most %d tags", maxTagsPerRes)
+	errTagKeyLength     = fmt.Errorf("tag key length must be between 1 and %d characters", maxTagKeyLen)
+	errTagKeyPrefix     = errors.New(`tag key must not start with reserved prefix "aws:"`)
+	errTagValueLength   = fmt.Errorf("tag value length must be 0-%d characters", maxTagValueLen)
+)
+
 // validateTagEntries enforces AWS MemoryDB tag constraints:
 // key 1-128 chars, no "aws:" prefix; value 0-256 chars; at most 50 tags.
 func validateTagEntries(tags []tagEntry) error {
 	if len(tags) > maxTagsPerRes {
-		return fmt.Errorf(
-			"tag quota exceeded: a resource may have at most %d tags",
-			maxTagsPerRes,
-		)
+		return errTagQuotaExceeded
 	}
 
 	for _, t := range tags {
 		klen := utf8.RuneCountInString(t.Key)
 		if klen == 0 || klen > maxTagKeyLen {
-			return fmt.Errorf(
-				"tag key length must be between 1 and %d characters",
-				maxTagKeyLen,
-			)
+			return errTagKeyLength
 		}
 
 		if strings.HasPrefix(t.Key, "aws:") {
-			return fmt.Errorf("tag key must not start with reserved prefix \"aws:\"")
+			return errTagKeyPrefix
 		}
 
 		if vlen := utf8.RuneCountInString(t.Value); vlen > maxTagValueLen {
-			return fmt.Errorf(
-				"tag value length must be 0-%d characters",
-				maxTagValueLen,
-			)
+			return errTagValueLength
 		}
 	}
 
