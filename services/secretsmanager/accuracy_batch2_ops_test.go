@@ -22,9 +22,9 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		setup  func(*testing.T, *sm.InMemoryBackend)
 		wantFn func(*testing.T, error)
+		name   string
 	}{
 		{
 			name: "backend_deleted_returns_error",
@@ -72,9 +72,9 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret(t *testing.T) {
 			tt.setup(t, b)
 
 			secretID := map[string]string{
-				"backend_deleted_returns_error":       "grp-del",
+				"backend_deleted_returns_error":          "grp-del",
 				"backend_active_no_policy_returns_empty": "grp-active",
-				"backend_not_found_returns_error":     "nonexistent",
+				"backend_not_found_returns_error":        "nonexistent",
 			}[tt.name]
 
 			_, err := b.GetResourcePolicy(&sm.GetResourcePolicyInput{SecretID: secretID})
@@ -89,11 +89,11 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup          func(*testing.T, *sm.InMemoryBackend)
 		name           string
 		body           string
-		setup          func(*testing.T, *sm.InMemoryBackend)
-		expectedStatus int
 		expectedType   string
+		expectedStatus int
 	}{
 		{
 			name: "deleted_returns_400_InvalidRequestException",
@@ -148,9 +148,9 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(*testing.T, *sm.InMemoryBackend) string
 		checkFn func(*testing.T, *sm.DescribeSecretOutput, string)
+		name    string
 	}{
 		{
 			name: "only_current_version_appears",
@@ -158,6 +158,7 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 				t.Helper()
 				out, err := b.CreateSecret(&sm.CreateSecretInput{Name: "desc-stg-1", SecretString: "v1"})
 				require.NoError(t, err)
+
 				return out.VersionID
 			},
 			checkFn: func(t *testing.T, out *sm.DescribeSecretOutput, versionID string) {
@@ -180,6 +181,7 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 				// v2 becomes AWSPREVIOUS, v3 becomes AWSCURRENT. v1 is now unlabeled.
 				out, err := b.PutSecretValue(&sm.PutSecretValueInput{SecretID: "desc-stg-2", SecretString: "v3"})
 				require.NoError(t, err)
+
 				return out.VersionID
 			},
 			checkFn: func(t *testing.T, out *sm.DescribeSecretOutput, currentVersionID string) {
@@ -207,6 +209,7 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 				if tt.name == "only_current_version_appears" {
 					return "desc-stg-1"
 				}
+
 				return "desc-stg-2"
 			}()})
 			require.NoError(t, err)
@@ -227,9 +230,9 @@ func TestBatch2Ops_ListSecrets_IncludesRotationRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(*testing.T, *sm.InMemoryBackend)
 		checkFn func(*testing.T, *sm.ListSecretsOutput)
+		name    string
 	}{
 		{
 			name: "rotation_rules_returned_in_list",
@@ -322,10 +325,10 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(*testing.T, *sm.InMemoryBackend)
 		inputFn func() *sm.BatchGetSecretValueInput
 		checkFn func(*testing.T, *sm.InMemoryBackend)
+		name    string
 	}{
 		{
 			name: "by_id_list_updates_accessed_date",
@@ -358,7 +361,11 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 				t.Helper()
 				desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "bgv-filt-1"})
 				require.NoError(t, err)
-				assert.NotNil(t, desc.LastAccessedDate, "LastAccessedDate must be set after BatchGetSecretValue by filter")
+				assert.NotNil(
+					t,
+					desc.LastAccessedDate,
+					"LastAccessedDate must be set after BatchGetSecretValue by filter",
+				)
 			},
 		},
 		{
