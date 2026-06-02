@@ -26,10 +26,10 @@ func TestBatch2_CreateEventBus_TagsPersisted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		busName  string
 		tags     map[string]any
 		wantTags map[string]string
+		name     string
+		busName  string
 	}{
 		{
 			name:    "tags supplied at creation are stored",
@@ -101,10 +101,10 @@ func TestBatch2_PutRule_TagsPersisted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		ruleName string
 		tags     map[string]any
 		wantTags map[string]string
+		name     string
+		ruleName string
 	}{
 		{
 			name:     "tags at rule creation are stored",
@@ -221,7 +221,12 @@ func TestBatch2_StartReplay_ReplayStartTimeIsEpochFloat(t *testing.T) {
 
 			var f float64
 			err := json.Unmarshal(replayStartRaw, &f)
-			assert.NoError(t, err, "ReplayStartTime must be a JSON number (epoch seconds), got: %s", string(replayStartRaw))
+			require.NoError(
+				t,
+				err,
+				"ReplayStartTime must be a JSON number (epoch seconds), got: %s",
+				string(replayStartRaw),
+			)
 			assert.Greater(t, f, float64(0), "ReplayStartTime epoch value must be positive")
 		})
 	}
@@ -277,7 +282,7 @@ func TestBatch2_CreatePipe_CreationTimeIsEpochFloat(t *testing.T) {
 
 			var f float64
 			err := json.Unmarshal(ctRaw, &f)
-			assert.NoError(t, err, "CreationTime must be a JSON number (epoch seconds), got: %s", string(ctRaw))
+			require.NoError(t, err, "CreationTime must be a JSON number (epoch seconds), got: %s", string(ctRaw))
 			assert.Greater(t, f, float64(0))
 		})
 	}
@@ -325,7 +330,7 @@ func TestBatch2_UpdatePipe_LastModifiedTimeIsEpochFloat(t *testing.T) {
 
 			var f float64
 			err := json.Unmarshal(lmtRaw, &f)
-			assert.NoError(t, err, "LastModifiedTime must be a JSON number (epoch seconds), got: %s", string(lmtRaw))
+			require.NoError(t, err, "LastModifiedTime must be a JSON number (epoch seconds), got: %s", string(lmtRaw))
 			assert.Greater(t, f, float64(0))
 		})
 	}

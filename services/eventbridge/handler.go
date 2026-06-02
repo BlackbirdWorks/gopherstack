@@ -1441,9 +1441,9 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 
 			return &struct {
 				ReplayArn       string  `json:"ReplayArn"`
-				ReplayStartTime float64 `json:"ReplayStartTime"`
 				State           string  `json:"State"`
 				StateReason     string  `json:"StateReason,omitempty"`
+				ReplayStartTime float64 `json:"ReplayStartTime"`
 			}{
 				ReplayArn:       replay.ReplayArn,
 				ReplayStartTime: timeToEpochSeconds(replay.ReplayStartTime),
@@ -1573,9 +1573,9 @@ func (h *Handler) pipesActions() map[string]actionFn {
 
 			return &struct {
 				Arn          string  `json:"Arn"`
-				CreationTime float64 `json:"CreationTime"`
 				CurrentState string  `json:"CurrentState"`
 				Name         string  `json:"Name"`
+				CreationTime float64 `json:"CreationTime"`
 			}{
 				Arn:          pipe.Arn,
 				CreationTime: timeToEpochSeconds(pipe.CreationTime),
@@ -1634,8 +1634,8 @@ func (h *Handler) pipesActions() map[string]actionFn {
 			return &struct {
 				Arn              string  `json:"Arn"`
 				CurrentState     string  `json:"CurrentState"`
-				LastModifiedTime float64 `json:"LastModifiedTime"`
 				Name             string  `json:"Name"`
+				LastModifiedTime float64 `json:"LastModifiedTime"`
 			}{
 				Arn:              pipe.Arn,
 				CurrentState:     pipe.CurrentState,
