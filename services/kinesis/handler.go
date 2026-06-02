@@ -874,8 +874,9 @@ func (h *Handler) handleListShards(
 	streamName := req.StreamName
 	backendNextToken := ""
 	if req.NextToken != "" {
-		parts := strings.SplitN(req.NextToken, "|", 2)
-		if len(parts) == 2 {
+		const tokenParts = 2
+		parts := strings.SplitN(req.NextToken, "|", tokenParts)
+		if len(parts) == tokenParts {
 			streamName = parts[0]
 			backendNextToken = parts[1]
 		} else {

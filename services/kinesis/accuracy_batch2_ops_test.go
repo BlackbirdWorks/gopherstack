@@ -24,10 +24,10 @@ func TestAccuracyBatch2_CreateStream_OnDemand_ShardCountZero(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
-		wantStatus int
+		name       string
 		wantMode   string
+		wantStatus int
 	}{
 		{
 			name: "on_demand_no_shard_count",
@@ -116,8 +116,8 @@ func TestAccuracyBatch2_DescribeStream_ByARN(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "by_name",
@@ -161,8 +161,8 @@ func TestAccuracyBatch2_DescribeStreamSummary_ByARN(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "by_name",
@@ -223,8 +223,8 @@ func TestAccuracyBatch2_ListShards_NextTokenStreamNameMutuallyExclusive(t *testi
 	require.NotEmpty(t, page1.NextToken, "expected NextToken for pagination")
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "next_token_with_stream_name",
@@ -247,13 +247,13 @@ func TestAccuracyBatch2_ListShards_NextTokenStreamNameMutuallyExclusive(t *testi
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := doRequest(t, h, "ListShards", tt.body)
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			rec2 := doRequest(t, h, "ListShards", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
 			assert.Equal(t, "ValidationException", errResp.Type)
 		})
 	}
@@ -275,7 +275,7 @@ func TestAccuracyBatch2_ListShards_NextTokenAlone_Succeeds(t *testing.T) {
 	var page1 struct {
 		NextToken string `json:"NextToken"`
 		Shards    []struct {
-			ShardId string `json:"ShardId"`
+			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
@@ -290,7 +290,7 @@ func TestAccuracyBatch2_ListShards_NextTokenAlone_Succeeds(t *testing.T) {
 
 	var page2 struct {
 		Shards []struct {
-			ShardId string `json:"ShardId"`
+			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
