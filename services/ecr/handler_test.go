@@ -1009,7 +1009,10 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 		wantFailures   int
 	}{
 		{
-			name:           "image not found returns failure",
+			name: "image not found returns failure",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
+			},
 			repositoryName: "my-repo",
 			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
 			wantStatus:     http.StatusOK,
@@ -1017,7 +1020,10 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 			wantFailures:   1,
 		},
 		{
-			name:           "empty image list returns empty results",
+			name: "empty image list returns empty results",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
+			},
 			repositoryName: "my-repo",
 			imageIDs:       []map[string]any{},
 			wantStatus:     http.StatusOK,
@@ -1027,6 +1033,7 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 		{
 			name: "delete by digest succeeds",
 			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
 					ImageDigest:    "sha256:abc111",
 					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:abc111"},
@@ -1043,6 +1050,7 @@ func TestECR_BatchDeleteImage(t *testing.T) {
 		{
 			name: "delete by tag succeeds",
 			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
 					ImageDigest:    "sha256:tag111",
 					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:tag111", ImageTag: "latest"},
@@ -1096,7 +1104,10 @@ func TestECR_BatchGetImage(t *testing.T) {
 		wantFailures   int
 	}{
 		{
-			name:           "image not found returns failure",
+			name: "image not found returns failure",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
+			},
 			repositoryName: "my-repo",
 			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
 			wantStatus:     http.StatusOK,
@@ -1104,7 +1115,10 @@ func TestECR_BatchGetImage(t *testing.T) {
 			wantFailures:   1,
 		},
 		{
-			name:           "empty image list returns empty results",
+			name: "empty image list returns empty results",
+			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
+			},
 			repositoryName: "my-repo",
 			imageIDs:       []map[string]any{},
 			wantStatus:     http.StatusOK,
@@ -1114,6 +1128,7 @@ func TestECR_BatchGetImage(t *testing.T) {
 		{
 			name: "get image by digest succeeds",
 			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
 					ImageDigest:    "sha256:getdig",
 					ImageManifest:  `{"schemaVersion":2}`,
@@ -1131,6 +1146,7 @@ func TestECR_BatchGetImage(t *testing.T) {
 		{
 			name: "get image by tag succeeds",
 			setup: func(b *ecr.InMemoryBackend) {
+				b.CreateRepoInternal("my-repo")
 				b.AddImageInternal("my-repo", ecr.Image{
 					ImageDigest:    "sha256:gettag",
 					ImageManifest:  `{"schemaVersion":2}`,

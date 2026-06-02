@@ -358,6 +358,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusNotFound,
 			map[string]string{keyTypeField: "RepositoryNotFoundException", keyMessageField: err.Error()},
 		)
+	case errors.Is(err, ErrRepositoryPolicyNotFound):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: "RepositoryPolicyNotFoundException", keyMessageField: err.Error()},
+		)
+	case errors.Is(err, ErrImageNotFound):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyTypeField: "ImageNotFoundException", keyMessageField: err.Error()},
+		)
 	case errors.Is(err, ErrPullThroughCacheRuleNotFound),
 		errors.Is(err, ErrLifecyclePolicyNotFound),
 		errors.Is(err, ErrRepositoryCreationTemplateNotFound),

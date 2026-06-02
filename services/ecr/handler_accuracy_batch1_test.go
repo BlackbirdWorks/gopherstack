@@ -1503,8 +1503,10 @@ func TestBatch1_RepositoryPolicy_Delete(t *testing.T) {
 	getRec := doAccuracy(t, h, "GetRepositoryPolicy", map[string]any{
 		"repositoryName": "repo-pol-del",
 	})
-	assert.Equal(t, http.StatusNotFound, getRec.Code,
-		"GetRepositoryPolicy must 404 after policy deletion")
+	assert.Equal(t, http.StatusBadRequest, getRec.Code,
+		"GetRepositoryPolicy must return RepositoryPolicyNotFoundException after policy deletion")
+	body := parseAccuracy(t, getRec)
+	assert.Equal(t, "RepositoryPolicyNotFoundException", body["__type"])
 }
 
 func TestBatch1_RepositoryPolicy_Get_NonExistentRepo_Returns404(t *testing.T) {

@@ -16,6 +16,8 @@ import (
 const (
 	layerUploadPartSize = 20 * 1024 * 1024
 	scanTypeBasic       = "BASIC"
+	mutabilityMutable   = "MUTABLE"
+	mutabilityImmutable = "IMMUTABLE"
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
 	msgNoScanFindings   = "The scan completed successfully with no findings."
@@ -47,6 +49,10 @@ var (
 	ErrRepositoryCreationTemplateAlreadyExists = awserr.New("TemplateAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrRegistryPolicyNotFound is returned when the registry policy does not exist.
 	ErrRegistryPolicyNotFound = awserr.New("RegistryPolicyNotFoundException", awserr.ErrNotFound)
+	// ErrRepositoryPolicyNotFound is returned when a repository-level IAM policy does not exist.
+	ErrRepositoryPolicyNotFound = awserr.New("RepositoryPolicyNotFoundException", awserr.ErrNotFound)
+	// ErrImageNotFound is returned when a requested image does not exist in a repository.
+	ErrImageNotFound = awserr.New("ImageNotFoundException", awserr.ErrNotFound)
 )
 
 // Repository represents an ECR repository.
@@ -447,7 +453,7 @@ func (b *InMemoryBackend) CreateRepository(
 	}
 
 	if imageTagMutability == "" {
-		imageTagMutability = "MUTABLE"
+		imageTagMutability = mutabilityMutable
 	}
 
 	if encryptionType == "" {
@@ -638,6 +644,10 @@ func (b *InMemoryBackend) BatchDeleteImage(
 	b.mu.Lock("BatchDeleteImage")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	deleted := make([]ImageIdentifier, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
@@ -674,6 +684,10 @@ func (b *InMemoryBackend) BatchGetImage(
 ) ([]Image, []ImageFailure, error) {
 	b.mu.RLock("BatchGetImage")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
 
 	imgs := make([]Image, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
@@ -749,7 +763,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 		for _, id := range imageIDs {
 			img, ok := findImageLocked(repoImages, repoTagIdx, id)
 			if !ok {
-				return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+				return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 			}
 
 			out = append(out, annotate(*img))
@@ -1352,7 +1366,7 @@ func (b *InMemoryBackend) GetRepositoryPolicy(repositoryName string) (*Repositor
 
 	policyText, ok := b.repositoryPolicies[repositoryName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
 	return &RepositoryPolicyResult{
@@ -1391,7 +1405,7 @@ func (b *InMemoryBackend) DeleteRepositoryPolicy(repositoryName string) (*Reposi
 
 	policyText, ok := b.repositoryPolicies[repositoryName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
 	delete(b.repositoryPolicies, repositoryName)
@@ -1602,7 +1616,7 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 
 	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok &&
 		subject.ImageDigest != "" {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	return []ImageReferrer{}, nil
@@ -1677,7 +1691,7 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 	repoTags := b.tagIndex[repositoryName]
 
 	// IMMUTABLE enforcement: reject retagging to a different digest.
-	if repo.ImageTagMutability == "IMMUTABLE" && tag != "" {
+	if repo.ImageTagMutability == mutabilityImmutable && tag != "" {
 		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
 			return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
 				ErrImageTagAlreadyExists, tag, repositoryName)
@@ -1745,7 +1759,7 @@ func (b *InMemoryBackend) PutImageTagMutability(
 	}
 
 	if imageTagMutability == "" {
-		imageTagMutability = "MUTABLE"
+		imageTagMutability = mutabilityMutable
 	}
 
 	repo.ImageTagMutability = imageTagMutability
