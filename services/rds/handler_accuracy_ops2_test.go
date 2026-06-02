@@ -28,6 +28,7 @@ func newAccOps2Handler(t *testing.T) *rds.Handler {
 	t.Helper()
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	t.Cleanup(b.Close)
+
 	return rds.NewHandler(b)
 }
 
@@ -40,6 +41,7 @@ func doAccOps2(t *testing.T, h *rds.Handler, body string) *httptest.ResponseReco
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -126,7 +128,9 @@ func TestAccOps2_DescribeDBSnapshots_FilterByInstance_NoMatch_ReturnsEmpty(t *te
 
 	var resp struct {
 		Result struct {
-			Snapshots []struct{ DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"` } `xml:"DBSnapshots>DBSnapshot"`
+			Snapshots []struct {
+				DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
+			} `xml:"DBSnapshots>DBSnapshot"`
 		} `xml:"DescribeDBSnapshotsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
@@ -154,7 +158,9 @@ func TestAccOps2_DescribeDBSnapshots_NoFilter_ReturnsAll(t *testing.T) {
 
 	var resp struct {
 		Result struct {
-			Snapshots []struct{ DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"` } `xml:"DBSnapshots>DBSnapshot"`
+			Snapshots []struct {
+				DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
+			} `xml:"DBSnapshots>DBSnapshot"`
 		} `xml:"DescribeDBSnapshotsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
@@ -180,7 +186,9 @@ func TestAccOps2_DescribeDBSnapshots_SpecificID_StillWorks(t *testing.T) {
 
 	var resp struct {
 		Result struct {
-			Snapshots []struct{ DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"` } `xml:"DBSnapshots>DBSnapshot"`
+			Snapshots []struct {
+				DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
+			} `xml:"DBSnapshots>DBSnapshot"`
 		} `xml:"DescribeDBSnapshotsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
@@ -270,7 +278,9 @@ func TestAccOps2_DescribeDBClusterSnapshots_FilterByCluster_NoMatch_ReturnsEmpty
 
 	var resp struct {
 		Result struct {
-			Snapshots []struct{ DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"` } `xml:"DBClusterSnapshots>DBClusterSnapshot"`
+			Snapshots []struct {
+				DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
+			} `xml:"DBClusterSnapshots>DBClusterSnapshot"`
 		} `xml:"DescribeDBClusterSnapshotsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
@@ -299,7 +309,9 @@ func TestAccOps2_DescribeDBClusterSnapshots_NoFilter_ReturnsAll(t *testing.T) {
 
 	var resp struct {
 		Result struct {
-			Snapshots []struct{ DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"` } `xml:"DBClusterSnapshots>DBClusterSnapshot"`
+			Snapshots []struct {
+				DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
+			} `xml:"DBClusterSnapshots>DBClusterSnapshot"`
 		} `xml:"DescribeDBClusterSnapshotsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
@@ -370,10 +382,10 @@ func TestAccOps2_DescribeDBParameters_SourceInXMLResponse(t *testing.T) {
 
 	doAccOps2(t, h, url.Values{
 		"Action": {"ModifyDBParameterGroup"}, "Version": {"2014-10-31"},
-		"DBParameterGroupName":                     {"pg-xml"},
-		"Parameters.Parameter.1.ParameterName":     {"work_mem"},
-		"Parameters.Parameter.1.ParameterValue":    {"64MB"},
-		"Parameters.Parameter.1.ApplyMethod":        {"pending-reboot"},
+		"DBParameterGroupName":                  {"pg-xml"},
+		"Parameters.Parameter.1.ParameterName":  {"work_mem"},
+		"Parameters.Parameter.1.ParameterValue": {"64MB"},
+		"Parameters.Parameter.1.ApplyMethod":    {"pending-reboot"},
 	}.Encode())
 
 	rec := doAccOps2(t, h, url.Values{
@@ -439,7 +451,16 @@ func TestAccOps2_RebootDBInstance_TransitionsToAvailableAfterDelay(t *testing.T)
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	t.Cleanup(b.Close)
 
-	_, err := b.CreateDBInstance("reboot-delay", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{})
+	_, err := b.CreateDBInstance(
+		"reboot-delay",
+		"postgres",
+		"db.t3.micro",
+		"",
+		"admin",
+		"",
+		20,
+		rds.DBInstanceOptions{},
+	)
 	require.NoError(t, err)
 
 	inst, err := b.RebootDBInstance("reboot-delay")
