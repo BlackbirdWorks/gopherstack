@@ -41,24 +41,27 @@ const (
 
 // Repeated string literal constants.
 const (
-	statusDeleted              = "DELETED"
-	currencyUSD                = "USD"
-	instanceTypeR6gLarge       = "r6g.large.search"
-	instanceTypeM6gLarge       = "m6g.large.search"
-	instanceTypeR6gXLarge      = "r6g.xlarge.search"
-	instanceTypeOR1Medium      = "or1.medium.search"
-	changeProgressStub         = "no-change"
-	jsonKeySourceVersion       = "SourceVersion"
-	jsonKeyTargetVersions      = "TargetVersions"
-	jsonKeyInstanceType        = "InstanceType"
-	jsonKeyAppLogEnabled       = "AppLogEnabled"
-	jsonKeyCognitoEnabled      = "CognitoEnabled"
-	jsonKeyEncryptEnabled      = "EncryptionEnabled"
-	jsonKeyWarmEnabled         = "WarmEnabled"
-	engineVersionOpenSearch211 = "OpenSearch_2.11"
-	engineVersionOpenSearch29  = "OpenSearch_2.9"
-	engineVersionOpenSearch27  = "OpenSearch_2.7"
-	engineVersionOpenSearch13  = "OpenSearch_1.3"
+	statusDeleted                  = "DELETED"
+	currencyUSD                    = "USD"
+	instanceTypeR6gLarge           = "r6g.large.search"
+	instanceTypeM6gLarge           = "m6g.large.search"
+	instanceTypeR6gXLarge          = "r6g.xlarge.search"
+	instanceTypeOR1Medium          = "or1.medium.search"
+	changeProgressStub             = "no-change"
+	jsonKeySourceVersion           = "SourceVersion"
+	jsonKeyTargetVersions          = "TargetVersions"
+	jsonKeyInstanceType            = "InstanceType"
+	jsonKeyAppLogEnabled           = "AppLogEnabled"
+	jsonKeyCognitoEnabled          = "CognitoEnabled"
+	jsonKeyEncryptEnabled          = "EncryptionEnabled"
+	jsonKeyWarmEnabled             = "WarmEnabled"
+	engineVersionOpenSearch211     = "OpenSearch_2.11"
+	engineVersionOpenSearch29      = "OpenSearch_2.9"
+	engineVersionOpenSearch27      = "OpenSearch_2.7"
+	engineVersionOpenSearch13      = "OpenSearch_1.3"
+	nodeRoleData                   = "Data"
+	jsonKeyAdvancedSecurityEnabled = "AdvancedSecurityEnabled"
+	jsonKeyInstanceRole            = "InstanceRole"
 )
 
 // Reserved instance offering durations (seconds) and prices.
@@ -463,10 +466,11 @@ type AppSetting struct {
 
 // DryRunStatus holds dry-run progress state for a domain.
 type DryRunStatus struct {
-	DryRunID     string `json:"DryRunId"`
-	DryRunStatus string `json:"DryRunStatus"`
-	CreationDate string `json:"CreationDate"`
-	UpdateDate   string `json:"UpdateDate"`
+	DryRunID           string           `json:"DryRunId"`
+	DryRunStatus       string           `json:"DryRunStatus"`
+	CreationDate       string           `json:"CreationDate"`
+	UpdateDate         string           `json:"UpdateDate"`
+	ValidationFailures []map[string]any `json:"ValidationFailures"`
 }
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
@@ -2346,11 +2350,22 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 
 	totalShards := instanceCount * 5 //nolint:mnd // 5 shards per node is a common default
 
+	warmNodes := 0
+	if d.ClusterConfig.WarmEnabled {
+		warmNodes = d.ClusterConfig.WarmCount
+	}
+
+	dedicatedMaster := d.ClusterConfig.DedicatedMasterEnabled
+
 	return map[string]any{
-		"DomainState":  domainStatusActive,
-		"TotalShards":  totalShards,
-		"ActiveShards": totalShards,
-		"WarmNodes":    0,
+		"DomainState":                 domainStatusActive,
+		"TotalShards":                 totalShards,
+		"ActiveShards":                totalShards,
+		"UnAssignedShards":            0,
+		"DataNodeCount":               instanceCount,
+		"WarmNodeCount":               warmNodes,
+		"DedicatedMaster":             dedicatedMaster,
+		"ActiveAvailabilityZoneCount": 1,
 	}, nil
 }
 
@@ -2371,12 +2386,19 @@ func (b *InMemoryBackend) GetDomainNodes(domainName string) ([]map[string]any, e
 
 	nodes := make([]map[string]any, 0, count)
 
+	storageVolumeType := "EBS"
+	if d.EBSOptions != nil && d.EBSOptions.VolumeType != "" {
+		storageVolumeType = d.EBSOptions.VolumeType
+	}
+
 	for i := range count {
 		nodes = append(nodes, map[string]any{
 			"NodeId":            fmt.Sprintf("node-%d", i),
-			"NodeType":          "Data",
+			"NodeType":          nodeRoleData,
 			jsonKeyInstanceType: d.ClusterConfig.InstanceType,
 			"NodeStatus":        domainStatusActive,
+			"StorageVolumeType": storageVolumeType,
+			"AvailabilityZone":  fmt.Sprintf("%sa", b.region),
 		})
 	}
 
@@ -2396,12 +2418,17 @@ func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, e
 	if !exists {
 		now := time.Now().UTC().Format(time.RFC3339)
 		dr = &DryRunStatus{
-			DryRunID:     fmt.Sprintf("dryrun-%s-%d", domainName, time.Now().UnixNano()),
-			DryRunStatus: softwareUpdateCompleted,
-			CreationDate: now,
-			UpdateDate:   now,
+			DryRunID:           fmt.Sprintf("dryrun-%s-%d", domainName, time.Now().UnixNano()),
+			DryRunStatus:       softwareUpdateCompleted,
+			CreationDate:       now,
+			UpdateDate:         now,
+			ValidationFailures: []map[string]any{},
 		}
 		b.dryRuns[domainName] = dr
+	}
+
+	if dr.ValidationFailures == nil {
+		dr.ValidationFailures = []map[string]any{}
 	}
 
 	cp := *dr
@@ -2424,52 +2451,69 @@ func (b *InMemoryBackend) GetChangeProgress(domainName string) (map[string]any, 
 		changeID = changeProgressStub
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	return map[string]any{
 		"ChangeId":            changeID,
 		jsonKeyStatus:         softwareUpdateCompleted,
 		"CompletedProperties": []any{},
 		"PendingProperties":   []any{},
 		"TotalNumberOfStages": 0,
+		"StartTime":           now,
+		"LastUpdatedTime":     now,
 	}, nil
 }
 
 // ListInstanceTypeDetails returns a static list of common OpenSearch instance type details.
 func (b *InMemoryBackend) ListInstanceTypeDetails(_, _ string) []map[string]any {
+	dataRole := []string{nodeRoleData}
+	warmRole := []string{nodeRoleData, "UltraWarm"}
+
 	return []map[string]any{
 		{
-			jsonKeyInstanceType:   instanceTypeT3Small,
-			jsonKeyAppLogEnabled:  true,
-			jsonKeyCognitoEnabled: false,
-			jsonKeyEncryptEnabled: true,
-			jsonKeyWarmEnabled:    false,
+			jsonKeyInstanceType:            instanceTypeT3Small,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          false,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             false,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            dataRole,
 		},
 		{
-			jsonKeyInstanceType:   instanceTypeR6gLarge,
-			jsonKeyAppLogEnabled:  true,
-			jsonKeyCognitoEnabled: true,
-			jsonKeyEncryptEnabled: true,
-			jsonKeyWarmEnabled:    true,
+			jsonKeyInstanceType:            instanceTypeR6gLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
 		},
 		{
-			jsonKeyInstanceType:   instanceTypeM6gLarge,
-			jsonKeyAppLogEnabled:  true,
-			jsonKeyCognitoEnabled: true,
-			jsonKeyEncryptEnabled: true,
-			jsonKeyWarmEnabled:    true,
+			jsonKeyInstanceType:            instanceTypeM6gLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
 		},
 		{
-			jsonKeyInstanceType:   instanceTypeR6gXLarge,
-			jsonKeyAppLogEnabled:  true,
-			jsonKeyCognitoEnabled: true,
-			jsonKeyEncryptEnabled: true,
-			jsonKeyWarmEnabled:    true,
+			jsonKeyInstanceType:            instanceTypeR6gXLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
 		},
 		{
-			jsonKeyInstanceType:   instanceTypeOR1Medium,
-			jsonKeyAppLogEnabled:  true,
-			jsonKeyCognitoEnabled: false,
-			jsonKeyEncryptEnabled: true,
-			jsonKeyWarmEnabled:    false,
+			jsonKeyInstanceType:            instanceTypeOR1Medium,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          false,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             false,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            dataRole,
 		},
 	}
 }

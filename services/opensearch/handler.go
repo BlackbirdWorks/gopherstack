@@ -1273,26 +1273,10 @@ func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	list := make([]map[string]any, 0, len(domains))
+	list := make([]domainStatusJSON, 0, len(domains))
 
 	for _, d := range domains {
-		entry := map[string]any{
-			"DomainName":    d.Name,
-			"ARN":           d.ARN,
-			"Endpoint":      d.Endpoint,
-			"Endpoints":     map[string]any{"vpc": d.Endpoint},
-			"EngineVersion": d.EngineVersion,
-			"ClusterConfig": map[string]any{
-				jsonKeyInstanceType: d.ClusterConfig.InstanceType,
-				"InstanceCount":     d.ClusterConfig.InstanceCount,
-			},
-		}
-
-		if d.EBSOptions != nil {
-			entry["EBSOptions"] = d.EBSOptions
-		}
-
-		list = append(list, entry)
+		list = append(list, toDomainStatusJSON(d))
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainStatusList": list})
@@ -3059,6 +3043,15 @@ func (h *Handler) handleCompatibleVersionsRoutes(w http.ResponseWriter, r *http.
 	}
 
 	domainName := r.URL.Query().Get("domainName")
+	if domainName != "" {
+		if _, err := h.Backend.DescribeDomain(domainName); err != nil {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("domain %s not found", domainName))
+
+			return
+		}
+	}
+
 	versions := h.Backend.GetCompatibleVersions(domainName)
 	h.writeJSON(r, w, map[string]any{"CompatibleVersions": versions})
 }
