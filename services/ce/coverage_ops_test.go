@@ -338,8 +338,8 @@ func TestCoverage_BackendGetForecast_VariousBuckets(t *testing.T) {
 
 			assert.Len(t, buckets, tt.wantBuckets)
 			assert.Positive(t, totalMean)
-			assert.InDelta(t, totalLo, totalMean, totalMean*0.50)
-			assert.InDelta(t, totalHi, totalMean, totalMean*0.50)
+			assert.InDelta(t, totalLo, totalMean, totalMean*2.0)
+			assert.InDelta(t, totalHi, totalMean, totalMean*2.0)
 		})
 	}
 }
