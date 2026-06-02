@@ -189,6 +189,7 @@ type SecretListEntry struct {
 	LastRotatedDate        *float64            `json:"LastRotatedDate,omitempty"`
 	CreatedDate            *float64            `json:"CreatedDate,omitempty"`
 	Tags                   *tags.Tags          `json:"Tags,omitempty"`
+	RotationRules          *RotationRulesType  `json:"RotationRules,omitempty"`
 	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
 	ARN                    string              `json:"ARN"`
 	Name                   string              `json:"Name"`
