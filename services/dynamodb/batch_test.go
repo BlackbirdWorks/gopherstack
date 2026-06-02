@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -337,41 +336,38 @@ func verifyItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string, sho
 	}
 }
 
-// TestBatchWriteItem_UnprocessedItems verifies that items exceeding the 16 MB limit are
-// returned in UnprocessedItems rather than being written.
-func TestBatchWriteItem_UnprocessedItems(t *testing.T) {
+// TestBatchWriteItem_OversizedItem_ReturnedAsValidationError verifies that items
+// exceeding the 400 KB per-item limit are rejected with ValidationException.
+// Note: The 16 MB total-batch limit cannot be reached with valid items because
+// 25 items × 400 KB = 10 MB < 16 MB, so per-item validation fires first.
+func TestBatchWriteItem_OversizedItem_ReturnedAsValidationError(t *testing.T) {
 	t.Parallel()
 
 	db := dynamodb.NewInMemoryDB()
 	createTableHelper(t, db, "BigTable", "pk")
 
-	// Build 20 items each with ~1 MB of data; total > 16 MB triggers the limit.
-	const numItems = 20
-	const valueSizeBytes = 1024 * 1024 // 1 MB per item
+	// A single item exceeding 400 KB is rejected immediately.
+	const valueSizeBytes = 400*1024 + 1
 	bigValue := strings.Repeat("x", valueSizeBytes)
 
-	reqs := make([]models.WriteRequest, numItems)
-	for i := range numItems {
-		reqs[i] = models.WriteRequest{
-			PutRequest: &models.PutRequest{
-				Item: map[string]any{
-					"pk":  map[string]any{"S": fmt.Sprintf("item%d", i)},
-					"big": map[string]any{"S": bigValue},
+	sdkInput, err := models.ToSDKBatchWriteItemInput(&models.BatchWriteItemInput{
+		RequestItems: map[string][]models.WriteRequest{
+			"BigTable": {
+				{
+					PutRequest: &models.PutRequest{
+						Item: map[string]any{
+							"pk":  map[string]any{"S": "item0"},
+							"big": map[string]any{"S": bigValue},
+						},
+					},
 				},
 			},
-		}
-	}
-
-	sdkInput, err := models.ToSDKBatchWriteItemInput(&models.BatchWriteItemInput{
-		RequestItems: map[string][]models.WriteRequest{"BigTable": reqs},
+		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, sdkInput)
 
-	out, err := db.BatchWriteItem(t.Context(), sdkInput)
-	require.NoError(t, err)
-	require.NotNil(t, out)
-
-	assert.NotEmpty(t, out.UnprocessedItems, "expected some items to be returned as UnprocessedItems")
-	assert.NotEmpty(t, out.UnprocessedItems["BigTable"])
+	_, err = db.BatchWriteItem(t.Context(), sdkInput)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ValidationException")
 }

@@ -23,6 +23,25 @@ func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
 ) (*dynamodb.BatchGetItemOutput, error) {
+	// Validate non-empty request (AWS rejects an empty RequestItems map).
+	if len(input.RequestItems) == 0 {
+		return nil, NewValidationException("No operations specified in the request")
+	}
+
+	// Validate per-table keys and projection params (no lock needed — inspects input only).
+	for tableName, keysAndAttrs := range input.RequestItems {
+		if len(keysAndAttrs.Keys) == 0 {
+			return nil, NewValidationException(
+				fmt.Sprintf("No operations specified for table: %s", tableName),
+			)
+		}
+
+		projExpr := aws.ToString(keysAndAttrs.ProjectionExpression)
+		if err := validateProjectionParams(projExpr, keysAndAttrs.AttributesToGet); err != nil {
+			return nil, err
+		}
+	}
+
 	// Validate size limit (no lock needed — only inspects input).
 	const batchSizeLimit = 100
 	totalItems := 0
@@ -109,7 +128,7 @@ func (db *InMemoryDB) batchGetTable(
 	unprocessedKeys map[string]types.KeysAndAttributes,
 ) (bool, []map[string]types.AttributeValue) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	proj := aws.ToString(keysAndAttrs.ProjectionExpression)
+	proj := resolveProjection(aws.ToString(keysAndAttrs.ProjectionExpression), keysAndAttrs.AttributesToGet)
 	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
 
 	var tableResults []map[string]types.AttributeValue
@@ -187,11 +206,16 @@ func batchGetConsumedCapacity(
 	}
 
 	// Capacity is charged per requested key, not per returned item (missing items still consume RCU).
+	// Strongly-consistent reads (ConsistentRead=true) cost 2× the eventually-consistent rate.
 	caps := make([]types.ConsumedCapacity, 0, len(requestItems))
 	for tableName, keysAndAttrs := range requestItems {
-		cu := float64(len(keysAndAttrs.Keys)) * eventuallyConsistentRCU
-		if cu < eventuallyConsistentRCU {
-			cu = eventuallyConsistentRCU
+		rcuPerKey := eventuallyConsistentRCU
+		if aws.ToBool(keysAndAttrs.ConsistentRead) {
+			rcuPerKey = 1.0
+		}
+		cu := float64(len(keysAndAttrs.Keys)) * rcuPerKey
+		if cu < rcuPerKey {
+			cu = rcuPerKey
 		}
 		caps = append(caps, types.ConsumedCapacity{
 			TableName:         aws.String(tableName),
@@ -201,6 +225,51 @@ func batchGetConsumedCapacity(
 	}
 
 	return caps
+}
+
+func validateAllBatchWriteRequests(
+	requestItems map[string][]types.WriteRequest,
+	tables map[string]*Table,
+) error {
+	for tableName, requests := range requestItems {
+		table := tables[tableName]
+		for _, req := range requests {
+			if err := validateBatchWriteRequest(req, table); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (db *InMemoryDB) replicateBatchWrites(
+	tableNames []string,
+	tables map[string]*Table,
+	toProcess map[string][]types.WriteRequest,
+	region string,
+) {
+	for _, tableName := range tableNames {
+		table := tables[tableName]
+		table.mu.RLock("BatchWriteItem.replication")
+		gtName := table.GlobalTableName
+		table.mu.RUnlock()
+
+		if gtName == "" {
+			continue
+		}
+
+		for _, req := range toProcess[tableName] {
+			switch {
+			case req.PutRequest != nil:
+				wireItem := models.FromSDKItem(req.PutRequest.Item)
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
+			case req.DeleteRequest != nil:
+				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
+			}
+		}
+	}
 }
 
 func (db *InMemoryDB) BatchWriteItem(
@@ -231,6 +300,10 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, err
 	}
 
+	if err = validateAllBatchWriteRequests(input.RequestItems, tables); err != nil {
+		return nil, err
+	}
+
 	// Split requests per table by size limit before processing.
 	toProcess := make(map[string][]types.WriteRequest, len(input.RequestItems))
 	unprocessedItems := make(map[string][]types.WriteRequest)
@@ -257,29 +330,7 @@ func (db *InMemoryDB) BatchWriteItem(
 		}
 	}
 
-	// Propagate writes to global table replicas after all table locks have been released.
-	for _, tableName := range tableNames {
-		table := tables[tableName]
-		table.mu.RLock("BatchWriteItem.replication")
-		gtName := table.GlobalTableName
-		table.mu.RUnlock()
-
-		if gtName == "" {
-			continue
-		}
-
-		for _, req := range toProcess[tableName] {
-			switch {
-			case req.PutRequest != nil:
-				wireItem := models.FromSDKItem(req.PutRequest.Item)
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
-			case req.DeleteRequest != nil:
-				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-				// Use a copy of the key to identify and delete from replicas.
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
-			}
-		}
-	}
+	db.replicateBatchWrites(tableNames, tables, toProcess, region)
 
 	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,
@@ -482,6 +533,39 @@ func (db *InMemoryDB) updateItemIndex(
 	} else {
 		table.pkIndex[pkVal] = idx
 	}
+}
+
+// validateBatchWriteRequest checks a single WriteRequest for AWS spec compliance:
+// - exactly one of PutRequest / DeleteRequest must be set
+// - PutRequest items must pass item-size and key-schema validation
+// - DeleteRequest keys must contain all required key attributes
+// KeySchema is immutable after table creation, so no lock is needed to read it.
+func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
+	if req.PutRequest == nil && req.DeleteRequest == nil {
+		return NewValidationException(
+			"Supplied AttributeValue has more than one datatypes set, " +
+				"must contain exactly one of the supported datatypes",
+		)
+	}
+
+	if req.PutRequest != nil {
+		wireItem := models.FromSDKItem(req.PutRequest.Item)
+		if err := ValidateItemSize(wireItem); err != nil {
+			return err
+		}
+		if err := validateKeySchema(wireItem, table.KeySchema); err != nil {
+			return err
+		}
+	}
+
+	if req.DeleteRequest != nil {
+		wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+		if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
