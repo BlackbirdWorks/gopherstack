@@ -9,8 +9,8 @@ func (b *InMemoryBackend) CreateRepoInternal(repositoryName string) {
 
 	if _, ok := b.repos[repositoryName]; !ok {
 		b.repos[repositoryName] = &Repository{
-			RepositoryName: repositoryName,
-			RegistryID:     b.accountID,
+			RepositoryName:     repositoryName,
+			RegistryID:         b.accountID,
 			ImageTagMutability: "MUTABLE",
 		}
 	}

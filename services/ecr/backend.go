@@ -16,6 +16,8 @@ import (
 const (
 	layerUploadPartSize = 20 * 1024 * 1024
 	scanTypeBasic       = "BASIC"
+	mutabilityMutable   = "MUTABLE"
+	mutabilityImmutable = "IMMUTABLE"
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
 	msgNoScanFindings   = "The scan completed successfully with no findings."
@@ -451,7 +453,7 @@ func (b *InMemoryBackend) CreateRepository(
 	}
 
 	if imageTagMutability == "" {
-		imageTagMutability = "MUTABLE"
+		imageTagMutability = mutabilityMutable
 	}
 
 	if encryptionType == "" {
@@ -1689,7 +1691,7 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 	repoTags := b.tagIndex[repositoryName]
 
 	// IMMUTABLE enforcement: reject retagging to a different digest.
-	if repo.ImageTagMutability == "IMMUTABLE" && tag != "" {
+	if repo.ImageTagMutability == mutabilityImmutable && tag != "" {
 		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
 			return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
 				ErrImageTagAlreadyExists, tag, repositoryName)
@@ -1757,7 +1759,7 @@ func (b *InMemoryBackend) PutImageTagMutability(
 	}
 
 	if imageTagMutability == "" {
-		imageTagMutability = "MUTABLE"
+		imageTagMutability = mutabilityMutable
 	}
 
 	repo.ImageTagMutability = imageTagMutability

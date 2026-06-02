@@ -221,7 +221,7 @@ func TestOps2_GetRepositoryPolicy_PolicySet_ReturnsPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	out := parseAccuracy(t, getRec)
-	assert.Equal(t, policy, out["policyText"])
+	assert.JSONEq(t, policy, out["policyText"].(string))
 }
 
 func TestOps2_DeleteRepositoryPolicy_NoPolicy_RepositoryPolicyNotFoundException(t *testing.T) {
@@ -338,8 +338,12 @@ func TestOps2_ListImageReferrers_SubjectNotFound_ImageNotFoundException(t *testi
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	out := parseAccuracy(t, rec)
-	assert.Equal(t, "ImageNotFoundException", out["__type"],
-		"ListImageReferrers with non-existent subject must return ImageNotFoundException, not RepositoryNotFoundException")
+	assert.Equal(
+		t,
+		"ImageNotFoundException",
+		out["__type"],
+		"ListImageReferrers with non-existent subject must return ImageNotFoundException, not RepositoryNotFoundException",
+	)
 }
 
 func TestOps2_ListImageReferrers_SubjectFound_ReturnsEmpty(t *testing.T) {
