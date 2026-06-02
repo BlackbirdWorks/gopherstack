@@ -1804,6 +1804,17 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	out := &ChangeMessageVisibilityBatchOutput{}
 
 	for _, entry := range input.Entries {
+		if entry.VisibilityTimeout < 0 || entry.VisibilityTimeout > maxVisibilityTimeoutSeconds {
+			out.Failed = append(out.Failed, BatchErrorEntry{
+				ID:          entry.ID,
+				Code:        "InvalidParameterValue",
+				Message:     "Value for parameter VisibilityTimeout is invalid. Reason: Must be between 0 and 43200, if provided.",
+				SenderFault: true,
+			})
+
+			continue
+		}
+
 		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
 			out.Failed = append(out.Failed, BatchErrorEntry{
 				ID:          entry.ID,
@@ -1882,6 +1893,16 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		return nil, err
 	}
 
+	// AWS returns QueueDoesNotExist at the batch level (not per-entry) when the
+	// target queue does not exist. Check existence before processing any entries.
+	b.mu.RLock("SendMessageBatch.queueCheck")
+	_, queueExists := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	b.mu.RUnlock()
+
+	if !queueExists {
+		return nil, ErrQueueNotFound
+	}
+
 	// AWS rejects the entire batch with BatchRequestTooLong when the combined
 	// payload size of every entry that is itself within the per-message limit
 	// (bodies plus attribute name + type + value bytes) would still exceed the
@@ -1953,6 +1974,16 @@ func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*D
 
 	if err := validateBatchEnvelope(ids); err != nil {
 		return nil, err
+	}
+
+	// AWS returns QueueDoesNotExist at the batch level (not per-entry) when the
+	// target queue does not exist.
+	b.mu.RLock("DeleteMessageBatch.queueCheck")
+	_, queueExists := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	b.mu.RUnlock()
+
+	if !queueExists {
+		return nil, ErrQueueNotFound
 	}
 
 	out := &DeleteMessageBatchOutput{}

@@ -868,15 +868,11 @@ func TestHandlerActions_SendMessageBatch(t *testing.T) {
 			"QueueUrl": "http://localhost/000000000000/noqueue",
 			"Entries":  []map[string]any{{"Id": "msg1", "MessageBody": "hello"}},
 		})
-		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 
-		var resp struct {
-			Failed []struct {
-				ID string `json:"Id"`
-			} `json:"Failed"`
-		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.Failed, 1)
+		var errResp jsonErr
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 	})
 
 	t.Run("empty entries", func(t *testing.T) {
@@ -976,15 +972,11 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 			"QueueUrl": "http://localhost/000000000000/noqueue",
 			"Entries":  []map[string]any{{"Id": "entry1", "ReceiptHandle": "some-receipt"}},
 		})
-		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 
-		var resp struct {
-			Failed []struct {
-				ID string `json:"Id"`
-			} `json:"Failed"`
-		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.Failed, 1)
+		var errResp jsonErr
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 	})
 
 	t.Run("failed entry", func(t *testing.T) {
