@@ -1777,18 +1777,6 @@ func (h *S3Handler) getObjectLockConfiguration(
 	_, _ = w.Write([]byte(configXML))
 }
 
-// findFirstIndexAfterMarker returns the index of the first object whose key
-// is strictly greater than marker. Returns len(objects) if no such object exists.
-func findFirstIndexAfterMarker(objects []types.Object, marker string) int {
-	for i, obj := range objects {
-		if *obj.Key > marker {
-			return i
-		}
-	}
-
-	return len(objects)
-}
-
 func (h *S3Handler) deleteBucketAnalyticsConfiguration(
 	ctx context.Context,
 	w http.ResponseWriter,

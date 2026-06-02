@@ -430,6 +430,24 @@ func (h *S3Handler) copySourceData(
 	return srcVer, nil
 }
 
+func (h *S3Handler) dispatchCopyNotification(ctx context.Context, bucket, key, etag string, size int64) {
+	if h.notifier == nil {
+		return
+	}
+	notifXML, err := h.Backend.GetBucketNotificationConfiguration(ctx, bucket)
+	if err != nil || notifXML == "" {
+		return
+	}
+	go h.notifier.DispatchObjectCopied(
+		h.notificationDispatchContext(),
+		bucket,
+		key,
+		etag,
+		size,
+		notifXML,
+	)
+}
+
 func (h *S3Handler) copyObject(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -513,23 +531,7 @@ func (h *S3Handler) copyObject(
 		etag = *destVer.ETag
 	}
 
-	// Dispatch S3 notification if configured.
-	if h.notifier != nil {
-		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
-			ctx,
-			destBucket,
-		); ncErr == nil && notifXML != "" {
-			size := aws.ToInt64(destVer.Size)
-			go h.notifier.DispatchObjectCopied(
-				h.notificationDispatchContext(),
-				destBucket,
-				destKey,
-				etag,
-				size,
-				notifXML,
-			)
-		}
-	}
+	h.dispatchCopyNotification(ctx, destBucket, destKey, etag, aws.ToInt64(destVer.Size))
 
 	httputils.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
