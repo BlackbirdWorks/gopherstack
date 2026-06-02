@@ -584,10 +584,13 @@ func (h *S3Handler) listObjects(
 		}
 	}
 
+	// Pass marker and delimiter to backend so it can seek and group correctly.
 	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
-		Bucket:  aws.String(bucketName),
-		Prefix:  aws.String(prefix),
-		MaxKeys: aws.Int32(maxKeys),
+		Bucket:    aws.String(bucketName),
+		Prefix:    aws.String(prefix),
+		MaxKeys:   aws.Int32(maxKeys),
+		Delimiter: aws.String(delimiter),
+		Marker:    aws.String(marker),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		WriteError(ctx, w, r, err)
@@ -601,24 +604,17 @@ func (h *S3Handler) listObjects(
 		return
 	}
 
-	objects := out.Contents
-
-	// Apply marker: skip all keys <= marker
-	if marker != "" {
-		objects = objects[findFirstIndexAfterMarker(objects, marker):]
-	}
-
-	isTruncated := false
-	var nextMarker string
-	if maxKeys > 0 && len(objects) > int(maxKeys) {
-		isTruncated = true
-		objects = objects[:maxKeys]
-		nextMarker = *objects[maxKeys-1].Key
+	// Use the backend's pagination state. AWS only returns NextMarker when a
+	// delimiter is specified; without one, clients use the last key as marker.
+	isTruncated := aws.ToBool(out.IsTruncated)
+	nextMarker := ""
+	if isTruncated && delimiter != "" {
+		nextMarker = aws.ToString(out.NextMarker)
 	}
 
 	logger.Load(ctx).DebugContext(ctx,
 		"S3 listObjects output",
-		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
+		"bucket", bucketName, "objectCount", len(out.Contents), "isTruncated", isTruncated,
 	)
 
 	resp := ListBucketResult{
@@ -632,12 +628,23 @@ func (h *S3Handler) listObjects(
 	}
 
 	seenPrefixes := make(map[string]struct{})
+	// mapObjectsToXML formats regular objects. When delimiter is set, the backend
+	// already grouped CP-objects into out.CommonPrefixes and removed them from
+	// out.Contents, so mapObjectsToXML will not produce duplicate CPs.
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
-		objects,
+		out.Contents,
 		prefix,
 		delimiter,
 		seenPrefixes,
 	)
+	// Merge backend-level common prefixes (populated when delimiter is set).
+	for _, cp := range out.CommonPrefixes {
+		p := aws.ToString(cp.Prefix)
+		if _, seen := seenPrefixes[p]; !seen {
+			seenPrefixes[p] = struct{}{}
+			resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: p})
+		}
+	}
 	resp.KeyCount = len(resp.Contents)
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
@@ -656,6 +663,13 @@ func (h *S3Handler) getBucketLocation(
 		WriteError(ctx, w, r, err)
 
 		return
+	}
+
+	// AWS returns an empty LocationConstraint for us-east-1 buckets (the
+	// "classic" region that predates LocationConstraint). All other regions
+	// echo their constraint string.
+	if region == defaultRegionName {
+		region = ""
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, &LocationConstraintResponse{
@@ -1761,18 +1775,6 @@ func (h *S3Handler) getObjectLockConfiguration(
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(configXML))
-}
-
-// findFirstIndexAfterMarker returns the index of the first object whose key
-// is strictly greater than marker. Returns len(objects) if no such object exists.
-func findFirstIndexAfterMarker(objects []types.Object, marker string) int {
-	for i, obj := range objects {
-		if *obj.Key > marker {
-			return i
-		}
-	}
-
-	return len(objects)
 }
 
 func (h *S3Handler) deleteBucketAnalyticsConfiguration(

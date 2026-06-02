@@ -736,16 +736,19 @@ func TestHandler_GetBucketLocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		bucket string
-		path   string
-		want   string
+		name        string
+		bucket      string
+		path        string
+		wantContain string
+		wantAbsent  string
 	}{
 		{
-			name:   "returns us-east-1",
-			bucket: "bkt",
-			path:   "/bkt?location",
-			want:   "us-east-1",
+			// AWS returns an empty LocationConstraint for us-east-1 buckets.
+			name:        "us-east-1 returns empty LocationConstraint",
+			bucket:      "bkt",
+			path:        "/bkt?location",
+			wantContain: "LocationConstraint",
+			wantAbsent:  "us-east-1",
 		},
 	}
 
@@ -759,7 +762,10 @@ func TestHandler_GetBucketLocation(t *testing.T) {
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.want)
+			assert.Contains(t, rec.Body.String(), tt.wantContain)
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, rec.Body.String(), tt.wantAbsent)
+			}
 		})
 	}
 }
