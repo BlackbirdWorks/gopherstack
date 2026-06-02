@@ -155,6 +155,7 @@ type CreateFunctionInput struct {
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	Code              *FunctionCode           `json:"Code"`
 	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
+	Tags              map[string]string       `json:"Tags,omitempty"`
 	FunctionName      string                  `json:"FunctionName"`
 	Description       string                  `json:"Description"`
 	PackageType       string                  `json:"PackageType"`
@@ -185,6 +186,8 @@ type UpdateFunctionCodeInput struct {
 	S3Bucket      string   `json:"S3Bucket,omitempty"`
 	S3Key         string   `json:"S3Key,omitempty"`
 	ZipFile       []byte   `json:"ZipFile,omitempty"`
+	// Publish, when true, publishes a new numbered version after the code update.
+	Publish bool `json:"Publish,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
@@ -683,10 +686,8 @@ type CheckpointDurableExecutionOutput struct{}
 
 // UpdateFunctionURLConfigInput is the request body for UpdateFunctionUrlConfig.
 type UpdateFunctionURLConfigInput struct {
-	Cors *struct {
-		AllowOrigins []string `json:"AllowOrigins,omitempty"`
-	} `json:"Cors,omitempty"`
-	AuthType string `json:"AuthType,omitempty"`
+	Cors     *FunctionURLCors `json:"Cors,omitempty"`
+	AuthType string           `json:"AuthType,omitempty"`
 }
 
 // RuntimeManagementConfig holds the runtime management configuration for a Lambda function.

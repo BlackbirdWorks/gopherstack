@@ -3875,7 +3875,10 @@ func (b *InMemoryBackend) GetAccountSettings() *AccountSettingsOutput {
 }
 
 // UpdateFunctionURLConfig updates an existing function URL config.
-func (b *InMemoryBackend) UpdateFunctionURLConfig(functionName, authType string) (*FunctionURLConfig, error) {
+func (b *InMemoryBackend) UpdateFunctionURLConfig(
+	functionName, authType string,
+	cors *FunctionURLCors,
+) (*FunctionURLConfig, error) {
 	b.mu.Lock("UpdateFunctionURLConfig")
 	defer b.mu.Unlock()
 
@@ -3886,6 +3889,10 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(functionName, authType string)
 
 	if authType != "" {
 		cfg.AuthType = authType
+	}
+
+	if cors != nil {
+		cfg.Cors = cors
 	}
 
 	cfg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
