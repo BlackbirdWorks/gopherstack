@@ -894,6 +894,10 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 
 // TagResource adds or updates tags on a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
+	if err := validateCFTags(kv); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -905,6 +909,16 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	d := b.distributions[id]
 	if d.Tags == nil {
 		d.Tags = make(map[string]string, len(kv))
+	}
+
+	netNew := 0
+	for k := range kv {
+		if _, exists := d.Tags[k]; !exists {
+			netNew++
+		}
+	}
+	if len(d.Tags)+netNew > maxTagCount {
+		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidTagging, maxTagCount)
 	}
 
 	maps.Copy(d.Tags, kv)

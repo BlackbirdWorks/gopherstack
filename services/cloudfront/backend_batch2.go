@@ -20,6 +20,39 @@ import (
 // ErrDistributionTenantNotFound is returned when a distribution tenant does not exist.
 var ErrDistributionTenantNotFound = awserr.New("NoSuchDistributionTenant", awserr.ErrNotFound)
 
+// ErrInvalidTagging is returned when tag key/value constraints are violated.
+var ErrInvalidTagging = awserr.New("InvalidTagging", awserr.ErrInvalidParameter)
+
+const (
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+	maxTagCount    = 50
+)
+
+// validateCFTags enforces CloudFront tag constraints: key 1-128 chars, value 0-256 chars,
+// no "aws:" prefix on keys, max 50 tags total.
+func validateCFTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot have more than %d tags per resource", ErrInvalidTagging, maxTagCount)
+	}
+
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidTagging, maxTagKeyLen)
+		}
+
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key must not start with \"aws:\"", ErrInvalidTagging)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrInvalidTagging, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // DistributionTenant type
 // ---------------------------------------------------------------------------
@@ -48,6 +81,10 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 ) (*DistributionTenant, error) {
 	b.mu.Lock("CreateDistributionTenant")
 	defer b.mu.Unlock()
+
+	if distributionID == "" {
+		return nil, fmt.Errorf("%w: DistributionId must not be empty", ErrValidation)
+	}
 
 	if domain == "" {
 		return nil, fmt.Errorf("%w: Domain must not be empty", ErrValidation)
