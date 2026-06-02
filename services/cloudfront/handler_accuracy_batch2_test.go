@@ -54,8 +54,8 @@ func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
 	tests := []struct {
 		name     string
 		tagBody  string
-		wantCode int
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name: "empty_key_rejected",
@@ -65,14 +65,20 @@ func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
 			wantErr:  "InvalidTagging",
 		},
 		{
-			name:     "key_too_long_rejected",
-			tagBody:  `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>` + strings.Repeat("k", 129) + `</Key><Value>v</Value></Tag></Items></Tags>`,
+			name: "key_too_long_rejected",
+			tagBody: `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>` + strings.Repeat(
+				"k",
+				129,
+			) + `</Key><Value>v</Value></Tag></Items></Tags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
 		{
-			name:     "value_too_long_rejected",
-			tagBody:  `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>k</Key><Value>` + strings.Repeat("v", 257) + `</Value></Tag></Items></Tags>`,
+			name: "value_too_long_rejected",
+			tagBody: `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>k</Key><Value>` + strings.Repeat(
+				"v",
+				257,
+			) + `</Value></Tag></Items></Tags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
@@ -97,8 +103,13 @@ func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
 
 			h := newCFHandler(t)
 			// Create distribution.
-			rr := cfRequest(t, h, http.MethodPost, prefix+"distribution",
-				`<DistributionConfig><CallerReference>cr-`+tc.name+`</CallerReference><Enabled>true</Enabled></DistributionConfig>`)
+			rr := cfRequest(
+				t,
+				h,
+				http.MethodPost,
+				prefix+"distribution",
+				`<DistributionConfig><CallerReference>cr-`+tc.name+`</CallerReference><Enabled>true</Enabled></DistributionConfig>`,
+			)
 			if rr.Code != http.StatusCreated {
 				t.Fatalf("create distribution got %d: %s", rr.Code, rr.Body.String())
 			}
@@ -123,8 +134,13 @@ func TestBatch2Accuracy_TagResource_MaxTagsPerResource(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	h := newCFHandler(t)
-	rr := cfRequest(t, h, http.MethodPost, prefix+"distribution",
-		`<DistributionConfig><CallerReference>cr-max-tags</CallerReference><Enabled>true</Enabled></DistributionConfig>`)
+	rr := cfRequest(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"distribution",
+		`<DistributionConfig><CallerReference>cr-max-tags</CallerReference><Enabled>true</Enabled></DistributionConfig>`,
+	)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create distribution got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -145,8 +161,13 @@ func TestBatch2Accuracy_TagResource_MaxTagsPerResource(t *testing.T) {
 	}
 
 	// Adding one more (key50) exceeds limit — should fail with InvalidTagging.
-	over := cfRequest(t, h, http.MethodPost, prefix+"tagging?Resource="+arn,
-		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>key50</Key><Value>v</Value></Tag></Items></Tags>`)
+	over := cfRequest(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"tagging?Resource="+arn,
+		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>key50</Key><Value>v</Value></Tag></Items></Tags>`,
+	)
 	if over.Code != http.StatusBadRequest {
 		t.Errorf("adding 51st tag: got %d want 400: %s", over.Code, over.Body.String())
 	}
@@ -165,8 +186,8 @@ func TestBatch2Accuracy_CreateDistributionTenant_RequiresDistributionId(t *testi
 	tests := []struct {
 		name     string
 		body     string
-		wantCode int
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name: "missing_distribution_id",
@@ -221,8 +242,8 @@ func TestBatch2Accuracy_UpdateDistributionTenant_RequiresIfMatch(t *testing.T) {
 	tests := []struct {
 		name     string
 		ifMatch  string
-		wantCode int
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name:     "missing_if_match",
@@ -278,8 +299,8 @@ func TestBatch2Accuracy_DeleteDistributionTenant_RequiresIfMatch(t *testing.T) {
 	tests := []struct {
 		name     string
 		ifMatch  string
-		wantCode int
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name:     "missing_if_match",
@@ -335,8 +356,8 @@ func TestBatch2Accuracy_CreateDistributionWithTags_InvalidTagging(t *testing.T) 
 	tests := []struct {
 		name     string
 		body     string
-		wantCode int
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name: "aws_prefix_key",
@@ -351,8 +372,11 @@ func TestBatch2Accuracy_CreateDistributionWithTags_InvalidTagging(t *testing.T) 
 			wantErr:  "InvalidTagging",
 		},
 		{
-			name:     "key_too_long",
-			body:     `<DistributionConfigWithTags><DistributionConfig><CallerReference>cr-long-key</CallerReference><Enabled>true</Enabled></DistributionConfig><Tags><Tag><Key>` + strings.Repeat("k", 129) + `</Key><Value>v</Value></Tag></Tags></DistributionConfigWithTags>`,
+			name: "key_too_long",
+			body: `<DistributionConfigWithTags><DistributionConfig><CallerReference>cr-long-key</CallerReference><Enabled>true</Enabled></DistributionConfig><Tags><Tag><Key>` + strings.Repeat(
+				"k",
+				129,
+			) + `</Key><Value>v</Value></Tag></Tags></DistributionConfigWithTags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
