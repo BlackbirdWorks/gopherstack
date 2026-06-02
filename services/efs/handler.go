@@ -573,6 +573,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
 
 		return c.JSON(http.StatusConflict, errResp("FileSystemAlreadyExists", err.Error()))
+	case errors.Is(err, ErrPolicyNotFound):
+		c.Response().Header().Set("x-amzn-ErrorType", "PolicyNotFound")
+
+		return c.JSON(http.StatusBadRequest, errResp("PolicyNotFound", err.Error()))
 	default:
 		c.Response().Header().Set("x-amzn-ErrorType", "InternalServerError")
 
@@ -673,10 +677,11 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 		fileSystemID = c.Request().URL.Query().Get(keyFileSystemID)
 	}
 
+	creationToken := c.Request().URL.Query().Get("CreationToken")
 	marker := c.Request().URL.Query().Get("Marker")
 	maxItems := queryInt(c, "MaxItems", defaultMaxItems)
 
-	fsList, nextMarker, err := h.Backend.DescribeFileSystems(fileSystemID, marker, maxItems)
+	fsList, nextMarker, err := h.Backend.DescribeFileSystems(fileSystemID, creationToken, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
