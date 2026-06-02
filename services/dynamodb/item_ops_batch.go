@@ -227,6 +227,51 @@ func batchGetConsumedCapacity(
 	return caps
 }
 
+func validateAllBatchWriteRequests(
+	requestItems map[string][]types.WriteRequest,
+	tables map[string]*Table,
+) error {
+	for tableName, requests := range requestItems {
+		table := tables[tableName]
+		for _, req := range requests {
+			if err := validateBatchWriteRequest(req, table); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (db *InMemoryDB) replicateBatchWrites(
+	tableNames []string,
+	tables map[string]*Table,
+	toProcess map[string][]types.WriteRequest,
+	region string,
+) {
+	for _, tableName := range tableNames {
+		table := tables[tableName]
+		table.mu.RLock("BatchWriteItem.replication")
+		gtName := table.GlobalTableName
+		table.mu.RUnlock()
+
+		if gtName == "" {
+			continue
+		}
+
+		for _, req := range toProcess[tableName] {
+			switch {
+			case req.PutRequest != nil:
+				wireItem := models.FromSDKItem(req.PutRequest.Item)
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
+			case req.DeleteRequest != nil:
+				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
+			}
+		}
+	}
+}
+
 func (db *InMemoryDB) BatchWriteItem(
 	ctx context.Context,
 	input *dynamodb.BatchWriteItemInput,
@@ -255,14 +300,8 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, err
 	}
 
-	// Validate each write request before processing (item size, key schema, null-request guard).
-	for tableName, requests := range input.RequestItems {
-		table := tables[tableName]
-		for _, req := range requests {
-			if err = validateBatchWriteRequest(req, table); err != nil {
-				return nil, err
-			}
-		}
+	if err = validateAllBatchWriteRequests(input.RequestItems, tables); err != nil {
+		return nil, err
 	}
 
 	// Split requests per table by size limit before processing.
@@ -291,29 +330,7 @@ func (db *InMemoryDB) BatchWriteItem(
 		}
 	}
 
-	// Propagate writes to global table replicas after all table locks have been released.
-	for _, tableName := range tableNames {
-		table := tables[tableName]
-		table.mu.RLock("BatchWriteItem.replication")
-		gtName := table.GlobalTableName
-		table.mu.RUnlock()
-
-		if gtName == "" {
-			continue
-		}
-
-		for _, req := range toProcess[tableName] {
-			switch {
-			case req.PutRequest != nil:
-				wireItem := models.FromSDKItem(req.PutRequest.Item)
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
-			case req.DeleteRequest != nil:
-				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-				// Use a copy of the key to identify and delete from replicas.
-				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
-			}
-		}
-	}
+	db.replicateBatchWrites(tableNames, tables, toProcess, region)
 
 	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,

@@ -31,13 +31,16 @@ func b2NewDB(t *testing.T) *ddb.InMemoryDB {
 	t.Helper()
 	d := ddb.NewInMemoryDB()
 	d.SetDefaultRegion("us-east-1")
+
 	return d
 }
 
-func b2CreateTable(t *testing.T, d *ddb.InMemoryDB, name string) {
+const b2TableName = "tbl"
+
+func b2CreateTable(t *testing.T, d *ddb.InMemoryDB) {
 	t.Helper()
 	_, err := d.CreateTable(context.Background(), &dynamodb.CreateTableInput{
-		TableName: aws.String(name),
+		TableName: aws.String(b2TableName),
 		KeySchema: []types.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 		},
@@ -47,14 +50,14 @@ func b2CreateTable(t *testing.T, d *ddb.InMemoryDB, name string) {
 		BillingMode: types.BillingModePayPerRequest,
 	})
 	if err != nil {
-		t.Fatalf("create table %q: %v", name, err)
+		t.Fatalf("create table %q: %v", b2TableName, err)
 	}
 }
 
-func b2PutItem(t *testing.T, d *ddb.InMemoryDB, table string, item map[string]types.AttributeValue) {
+func b2PutItem(t *testing.T, d *ddb.InMemoryDB, item map[string]types.AttributeValue) {
 	t.Helper()
 	_, err := d.PutItem(context.Background(), &dynamodb.PutItemInput{
-		TableName: aws.String(table),
+		TableName: aws.String(b2TableName),
 		Item:      item,
 	})
 	if err != nil {
@@ -77,8 +80,8 @@ func b2AssertValidationErr(t *testing.T, err error) {
 func TestBatchGetItem_EmptyRequestItems_Rejected(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
 		input *dynamodb.BatchGetItemInput
+		name  string
 	}{
 		{
 			name:  "nil RequestItems",
@@ -103,7 +106,7 @@ func TestBatchGetItem_EmptyRequestItems_Rejected(t *testing.T) {
 func TestBatchGetItem_EmptyKeysForTable_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	_, err := d.BatchGetItem(context.Background(), &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]types.KeysAndAttributes{
@@ -118,8 +121,8 @@ func TestBatchGetItem_EmptyKeysForTable_Rejected(t *testing.T) {
 func TestBatchGetItem_AttributesToGet_AppliedWhenNoProjectionExpression(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
-	b2PutItem(t, d, "tbl", map[string]types.AttributeValue{
+	b2CreateTable(t, d)
+	b2PutItem(t, d, map[string]types.AttributeValue{
 		"pk":    &types.AttributeValueMemberS{Value: "k1"},
 		"name":  &types.AttributeValueMemberS{Value: "alice"},
 		"email": &types.AttributeValueMemberS{Value: "a@example.com"},
@@ -155,7 +158,7 @@ func TestBatchGetItem_AttributesToGet_AppliedWhenNoProjectionExpression(t *testi
 func TestBatchGetItem_ProjectionExpression_AndAttributesToGet_BothSet_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	projExpr := "pk"
 	_, err := d.BatchGetItem(context.Background(), &dynamodb.BatchGetItemInput{
@@ -177,14 +180,14 @@ func TestBatchGetItem_ProjectionExpression_AndAttributesToGet_BothSet_Rejected(t
 func TestBatchGetItem_ConsistentRead_DoublesRCU(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
-	b2PutItem(t, d, "tbl", map[string]types.AttributeValue{
+	b2CreateTable(t, d)
+	b2PutItem(t, d, map[string]types.AttributeValue{
 		"pk": &types.AttributeValueMemberS{Value: "k1"},
 	})
 
 	tests := []struct {
-		name           string
 		consistentRead *bool
+		name           string
 		wantMinRCU     float64
 	}{
 		{
@@ -221,7 +224,12 @@ func TestBatchGetItem_ConsistentRead_DoublesRCU(t *testing.T) {
 			}
 			gotRCU := aws.ToFloat64(out.ConsumedCapacity[0].CapacityUnits)
 			if gotRCU < tt.wantMinRCU {
-				t.Errorf("ConsistentRead=%v: want RCU >= %.1f, got %.2f", aws.ToBool(tt.consistentRead), tt.wantMinRCU, gotRCU)
+				t.Errorf(
+					"ConsistentRead=%v: want RCU >= %.1f, got %.2f",
+					aws.ToBool(tt.consistentRead),
+					tt.wantMinRCU,
+					gotRCU,
+				)
 			}
 		})
 	}
@@ -230,9 +238,9 @@ func TestBatchGetItem_ConsistentRead_DoublesRCU(t *testing.T) {
 func TestBatchGetItem_ConsistentRead_RCU_GreaterThan_EventuallyConsistent(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 	for i := range 5 {
-		b2PutItem(t, d, "tbl", map[string]types.AttributeValue{
+		b2PutItem(t, d, map[string]types.AttributeValue{
 			"pk": &types.AttributeValueMemberS{Value: string(rune('a' + i))},
 		})
 	}
@@ -276,7 +284,7 @@ func TestBatchGetItem_ConsistentRead_RCU_GreaterThan_EventuallyConsistent(t *tes
 func TestBatchWriteItem_NullWriteRequest_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	_, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
@@ -291,7 +299,7 @@ func TestBatchWriteItem_NullWriteRequest_Rejected(t *testing.T) {
 func TestBatchWriteItem_OversizedItem_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	// Build a value that pushes the item over 400 KB.
 	bigVal := strings.Repeat("x", 400*1024+1)
@@ -316,7 +324,7 @@ func TestBatchWriteItem_OversizedItem_Rejected(t *testing.T) {
 func TestBatchWriteItem_PutRequest_MissingPK_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	_, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
@@ -337,7 +345,7 @@ func TestBatchWriteItem_PutRequest_MissingPK_Rejected(t *testing.T) {
 func TestBatchWriteItem_DeleteRequest_MissingPK_Rejected(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	_, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
@@ -357,7 +365,7 @@ func TestBatchWriteItem_DeleteRequest_MissingPK_Rejected(t *testing.T) {
 func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
+	b2CreateTable(t, d)
 
 	_, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
@@ -396,8 +404,8 @@ func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 func TestBatchGetItem_NoProjection_ReturnsAllAttributes(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
-	b2CreateTable(t, d, "tbl")
-	b2PutItem(t, d, "tbl", map[string]types.AttributeValue{
+	b2CreateTable(t, d)
+	b2PutItem(t, d, map[string]types.AttributeValue{
 		"pk":    &types.AttributeValueMemberS{Value: "k1"},
 		"name":  &types.AttributeValueMemberS{Value: "bob"},
 		"email": &types.AttributeValueMemberS{Value: "b@example.com"},

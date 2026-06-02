@@ -303,7 +303,7 @@ func TestNewDynamoDBIntegration_NewOps(t *testing.T) {
 					"RequestItems": map[string]any{},
 				})
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "BatchWriteItem_empty_is_error",
