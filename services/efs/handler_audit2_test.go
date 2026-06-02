@@ -118,7 +118,7 @@ func TestAudit2_DescribeFileSystems_NotFound_Backend(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			_, _, err := b.DescribeFileSystems(tt.id, "", 0)
+			_, _, err := b.DescribeFileSystems(tt.id, "", "", 0)
 			require.ErrorIs(t, err, efs.ErrNotFound)
 		})
 	}

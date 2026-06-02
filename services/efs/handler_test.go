@@ -1137,7 +1137,7 @@ func TestFileSystemPolicy(t *testing.T) {
 		name string
 	}{
 		{
-			name: "describe_policy_not_set_returns_404",
+			name: "describe_policy_not_set_returns_policy_not_found",
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
 
@@ -1149,7 +1149,8 @@ func TestFileSystemPolicy(t *testing.T) {
 
 				rec2 := doREST(t, h, http.MethodGet,
 					"/2015-02-01/file-systems/"+fsID+"/policy", nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+				assert.Equal(t, "PolicyNotFound", parseResp(t, rec2)["ErrorCode"])
 			},
 		},
 		{

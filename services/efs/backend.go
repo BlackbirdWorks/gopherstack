@@ -97,6 +97,8 @@ var (
 	ErrMountTargetNotFound = awserr.New("MountTargetNotFound", awserr.ErrNotFound)
 	// ErrAccessPointNotFound is returned when a requested access point does not exist.
 	ErrAccessPointNotFound = awserr.New("AccessPointNotFound", awserr.ErrNotFound)
+	// ErrPolicyNotFound is returned when no resource policy is configured for a file system.
+	ErrPolicyNotFound = awserr.New("PolicyNotFound", awserr.ErrNotFound)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrFileSystemInUse is returned when attempting to delete a file system that has mount targets.
@@ -524,9 +526,9 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 	return &cp, nil
 }
 
-// DescribeFileSystems returns file systems, optionally filtered by ID, with pagination support.
+// DescribeFileSystems returns file systems, optionally filtered by ID or creation token, with pagination support.
 func (b *InMemoryBackend) DescribeFileSystems(
-	fileSystemID, marker string,
+	fileSystemID, creationToken, marker string,
 	maxItems int,
 ) ([]*FileSystem, string, error) {
 	b.mu.RLock("DescribeFileSystems")
@@ -540,6 +542,18 @@ func (b *InMemoryBackend) DescribeFileSystems(
 		cp := *fs
 
 		return []*FileSystem{&cp}, "", nil
+	}
+
+	if creationToken != "" {
+		for _, fs := range b.fileSystems {
+			if fs.CreationToken == creationToken {
+				cp := *fs
+
+				return []*FileSystem{&cp}, "", nil
+			}
+		}
+
+		return []*FileSystem{}, "", nil
 	}
 
 	all := make([]*FileSystem, 0, len(b.fileSystems))
@@ -1195,7 +1209,7 @@ func (b *InMemoryBackend) DescribeFileSystemPolicy(fileSystemID string) (string,
 
 	policy, ok := b.fileSystemPolicies[fileSystemID]
 	if !ok {
-		return "", fmt.Errorf("%w: no policy found for file system %s", ErrNotFound, fileSystemID)
+		return "", fmt.Errorf("%w: no policy found for file system %s", ErrPolicyNotFound, fileSystemID)
 	}
 
 	return policy, nil

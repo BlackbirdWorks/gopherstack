@@ -1333,7 +1333,7 @@ func TestRefinement2_DescribeFileSystems_Pagination(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			list, nextMarker, err := b.DescribeFileSystems("", "", tt.maxItems)
+			list, nextMarker, err := b.DescribeFileSystems("", "", "", tt.maxItems)
 			require.NoError(t, err)
 			assert.Len(t, list, tt.wantFirst)
 
@@ -1341,7 +1341,7 @@ func TestRefinement2_DescribeFileSystems_Pagination(t *testing.T) {
 				assert.NotEmpty(t, nextMarker)
 
 				// Fetch second page.
-				list2, _, err2 := b.DescribeFileSystems("", nextMarker, tt.maxItems)
+				list2, _, err2 := b.DescribeFileSystems("", "", nextMarker, tt.maxItems)
 				require.NoError(t, err2)
 				assert.NotEmpty(t, list2)
 			} else {
@@ -1487,7 +1487,7 @@ func TestRefinement2_DeleteReplication_ProtectionFlip(t *testing.T) {
 			require.NoError(t, err)
 
 			// After create, source should be REPLICATING.
-			list, _, err := b.DescribeFileSystems(fs.FileSystemID, "", 0)
+			list, _, err := b.DescribeFileSystems(fs.FileSystemID, "", "", 0)
 			require.NoError(t, err)
 			require.Len(t, list, 1)
 			assert.Equal(t, "REPLICATING", list[0].ReplicationOverwriteProtection)
@@ -1497,7 +1497,7 @@ func TestRefinement2_DeleteReplication_ProtectionFlip(t *testing.T) {
 			require.NoError(t, err)
 
 			// Source protection should revert.
-			list2, _, err := b.DescribeFileSystems(fs.FileSystemID, "", 0)
+			list2, _, err := b.DescribeFileSystems(fs.FileSystemID, "", "", 0)
 			require.NoError(t, err)
 			require.Len(t, list2, 1)
 			assert.Equal(t, tt.wantProtection, list2[0].ReplicationOverwriteProtection)
