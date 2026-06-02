@@ -3,6 +3,7 @@ package elasticache
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -215,6 +216,12 @@ func (b *InMemoryBackend) DeleteUser(userID string) (*User, error) {
 	u, ok := b.users[userID]
 	if !ok {
 		return nil, ErrUserNotFound
+	}
+
+	for _, ug := range b.userGroups {
+		if slices.Contains(ug.UserIDs, userID) {
+			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
+		}
 	}
 
 	result := *u
