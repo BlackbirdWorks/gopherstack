@@ -501,6 +501,13 @@ func (h *S3Handler) copyObject(
 		w.Header().Set("X-Amz-Version-Id", *destVer.VersionId)
 	}
 
+	// Echo the source version ID when copying from a versioned object, matching
+	// AWS S3 behaviour: x-amz-copy-source-version-id is always returned when the
+	// source has a real (non-null) version ID.
+	if srcVer.VersionId != nil && *srcVer.VersionId != "" && *srcVer.VersionId != NullVersion {
+		w.Header().Set("X-Amz-Copy-Source-Version-Id", *srcVer.VersionId)
+	}
+
 	etag := ""
 	if destVer.ETag != nil {
 		etag = *destVer.ETag

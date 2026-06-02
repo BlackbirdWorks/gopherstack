@@ -613,7 +613,11 @@ func (h *S3Handler) listObjects(
 	if maxKeys > 0 && len(objects) > int(maxKeys) {
 		isTruncated = true
 		objects = objects[:maxKeys]
-		nextMarker = *objects[maxKeys-1].Key
+		// AWS only returns NextMarker when delimiter is specified; without a
+		// delimiter the client uses the last key in the response as marker.
+		if delimiter != "" {
+			nextMarker = *objects[maxKeys-1].Key
+		}
 	}
 
 	logger.Load(ctx).DebugContext(ctx,
@@ -656,6 +660,13 @@ func (h *S3Handler) getBucketLocation(
 		WriteError(ctx, w, r, err)
 
 		return
+	}
+
+	// AWS returns an empty LocationConstraint for us-east-1 buckets (the
+	// "classic" region that predates LocationConstraint). All other regions
+	// echo their constraint string.
+	if region == defaultRegionName {
+		region = ""
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, &LocationConstraintResponse{
