@@ -171,7 +171,14 @@ func TestHandler_UploadMultipartPart(t *testing.T) {
 			uploadID := tt.uploadID
 
 			if tt.setupUpload {
-				rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+				rec = doRequestWithHeaders(
+					t,
+					h,
+					http.MethodPost,
+					"/-/vaults/"+vaultName+"/multipart-uploads",
+					"",
+					map[string]string{"X-Amz-Part-Size": "1048576"},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 				uploadID = rec.Header().Get("X-Amz-Multipart-Upload-Id")
 				require.NotEmpty(t, uploadID)
@@ -232,7 +239,14 @@ func TestHandler_CompleteMultipartUpload(t *testing.T) {
 			uploadID := tt.uploadID
 
 			if tt.setupUpload {
-				rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+				rec = doRequestWithHeaders(
+					t,
+					h,
+					http.MethodPost,
+					"/-/vaults/"+vaultName+"/multipart-uploads",
+					"",
+					map[string]string{"X-Amz-Part-Size": "1048576"},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 				uploadID = rec.Header().Get("X-Amz-Multipart-Upload-Id")
 				require.NotEmpty(t, uploadID)
@@ -298,7 +312,14 @@ func TestHandler_AbortMultipartUpload(t *testing.T) {
 			uploadID := tt.uploadID
 
 			if tt.setupUpload {
-				rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+				rec = doRequestWithHeaders(
+					t,
+					h,
+					http.MethodPost,
+					"/-/vaults/"+vaultName+"/multipart-uploads",
+					"",
+					map[string]string{"X-Amz-Part-Size": "1048576"},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 				uploadID = rec.Header().Get("X-Amz-Multipart-Upload-Id")
 				require.NotEmpty(t, uploadID)
@@ -348,7 +369,14 @@ func TestHandler_ListMultipartUploads(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			for range tt.numUploads {
-				rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+				rec = doRequestWithHeaders(
+					t,
+					h,
+					http.MethodPost,
+					"/-/vaults/"+vaultName+"/multipart-uploads",
+					"",
+					map[string]string{"X-Amz-Part-Size": "1048576"},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 			}
 
@@ -410,7 +438,14 @@ func TestHandler_ListParts(t *testing.T) {
 			uploadID := tt.uploadID
 
 			if tt.wantStatus == http.StatusOK {
-				rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+				rec = doRequestWithHeaders(
+					t,
+					h,
+					http.MethodPost,
+					"/-/vaults/"+vaultName+"/multipart-uploads",
+					"",
+					map[string]string{"X-Amz-Part-Size": "1048576"},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 				uploadID = rec.Header().Get("X-Amz-Multipart-Upload-Id")
 				require.NotEmpty(t, uploadID)
@@ -719,7 +754,14 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 			rec := doRequest(t, h, http.MethodPut, "/-/vaults/persist-vault", "")
 			require.Equal(t, http.StatusCreated, rec.Code)
 
-			rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/persist-vault/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+			rec = doRequestWithHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/-/vaults/persist-vault/multipart-uploads",
+				"",
+				map[string]string{"X-Amz-Part-Size": "1048576"},
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			// Purchase provisioned capacity
@@ -1005,7 +1047,14 @@ func TestHandler_AbortMultipartUpload_ThenListParts(t *testing.T) {
 			rec := doRequest(t, h, http.MethodPut, "/-/vaults/"+tt.vaultName, "")
 			require.Equal(t, http.StatusCreated, rec.Code)
 
-			rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+tt.vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+			rec = doRequestWithHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/-/vaults/"+tt.vaultName+"/multipart-uploads",
+				"",
+				map[string]string{"X-Amz-Part-Size": "1048576"},
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			uploadID := rec.Header().Get("X-Amz-Multipart-Upload-Id")
 			require.NotEmpty(t, uploadID)
@@ -1050,7 +1099,14 @@ func TestHandler_CompleteMultipartUpload_InvalidArchiveSize(t *testing.T) {
 			rec := doRequest(t, h, http.MethodPut, "/-/vaults/"+vaultName, "")
 			require.Equal(t, http.StatusCreated, rec.Code)
 
-			rec = doRequestWithHeaders(t, h, http.MethodPost, "/-/vaults/"+vaultName+"/multipart-uploads", "", map[string]string{"X-Amz-Part-Size": "1048576"})
+			rec = doRequestWithHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/-/vaults/"+vaultName+"/multipart-uploads",
+				"",
+				map[string]string{"X-Amz-Part-Size": "1048576"},
+			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			uploadID := rec.Header().Get("X-Amz-Multipart-Upload-Id")
 			require.NotEmpty(t, uploadID)

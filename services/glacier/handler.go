@@ -1214,8 +1214,17 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
 
 	for _, a := range archives {
-		fmt.Fprintf(&buf, "%s,%s,%s,%d,%s\n",
-			csvField(a.ArchiveID), csvField(a.Description), csvField(a.CreationDate), a.Size, csvField(a.SHA256TreeHash))
+		fmt.Fprintf(
+			&buf,
+			"%s,%s,%s,%d,%s\n",
+			csvField(
+				a.ArchiveID,
+			),
+			csvField(a.Description),
+			csvField(a.CreationDate),
+			a.Size,
+			csvField(a.SHA256TreeHash),
+		)
 	}
 
 	payload := buf.Bytes()

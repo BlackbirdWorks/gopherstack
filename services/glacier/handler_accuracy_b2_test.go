@@ -54,14 +54,15 @@ func TestAccuracyB2_GetJobOutput_RequiresCompletedJob(t *testing.T) {
 			createVault(t, h2, "job-output-vault2")
 
 			bk.AddJobInternal(testAccountID, testRegion, "job-output-vault2", &glacier.Job{
-				JobID:      "test-job-id-output",
-				VaultARN:   "arn:aws:glacier:us-east-1:123456789012:vaults/job-output-vault2",
-				VaultName:  "job-output-vault2",
-				Action:     "InventoryRetrieval",
+				JobID:     "test-job-id-output",
+				VaultARN:  "arn:aws:glacier:us-east-1:123456789012:vaults/job-output-vault2",
+				VaultName: "job-output-vault2",
+				Action:    "InventoryRetrieval",
 				StatusCode: func() string {
 					if tt.completed {
 						return "Succeeded"
 					}
+
 					return "InProgress"
 				}(),
 				Completed: tt.completed,
@@ -640,7 +641,7 @@ func TestAccuracyB2_ListJobs_CompletedParamValidation(t *testing.T) {
 			h := newTestHandler()
 			createVault(t, h, "listjobs-completed-vault")
 
-			path := "/"+testAccountID+"/vaults/listjobs-completed-vault/jobs"
+			path := "/" + testAccountID + "/vaults/listjobs-completed-vault/jobs"
 			if tt.completed != "" {
 				path += "?completed=" + tt.completed
 			}
