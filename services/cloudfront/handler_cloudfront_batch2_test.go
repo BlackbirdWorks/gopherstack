@@ -17,7 +17,11 @@ func TestBatch2_DistributionTenantCRUD(t *testing.T) {
 		<DistributionId>dist-001</DistributionId>
 		<Domain>example.com</Domain>
 	</CreateDistributionTenantRequest>`
-	resp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenant", createBody)
+	createRR := cfRequest(t, h, http.MethodPost, prefix+"distribution-tenant", createBody)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("expected 201 on create, got %d: %s", createRR.Code, createRR.Body.String())
+	}
+	resp := createRR.Body.String()
 	if !strings.Contains(resp, "DistributionTenant") {
 		t.Fatalf("expected DistributionTenant in response, got: %s", resp)
 	}
@@ -25,10 +29,13 @@ func TestBatch2_DistributionTenantCRUD(t *testing.T) {
 		t.Fatalf("expected domain in response, got: %s", resp)
 	}
 
-	// Extract tenant ID
 	tenantID := extractXMLID(t, resp)
 	if tenantID == "" {
 		t.Fatal("expected non-empty tenant ID")
+	}
+	etag := createRR.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("expected ETag header from create")
 	}
 
 	// Get tenant by ID
@@ -49,19 +56,26 @@ func TestBatch2_DistributionTenantCRUD(t *testing.T) {
 		t.Errorf("list missing created tenant: %s", listResp)
 	}
 
-	// Update tenant
-	updateResp := cfOK(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID, "")
-	if !strings.Contains(updateResp, "DistributionTenant") {
-		t.Errorf("update response missing DistributionTenant: %s", updateResp)
+	// Update tenant requires If-Match ETag.
+	updateRR := cfRequestWithHeader(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID,
+		map[string]string{"If-Match": etag})
+	if updateRR.Code != http.StatusOK {
+		t.Errorf("expected 200 on update, got %d: %s", updateRR.Code, updateRR.Body.String())
 	}
+	if !strings.Contains(updateRR.Body.String(), "DistributionTenant") {
+		t.Errorf("update response missing DistributionTenant: %s", updateRR.Body.String())
+	}
+	// Refresh ETag after update.
+	etag = updateRR.Header().Get("ETag")
 
-	// Delete tenant
-	rr := cfRequest(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID, "")
+	// Delete tenant requires If-Match ETag.
+	rr := cfRequestWithHeader(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID,
+		map[string]string{"If-Match": etag})
 	if rr.Code != http.StatusNoContent {
 		t.Errorf("expected 204 on delete, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	// List should be empty after delete
+	// List should be empty after delete.
 	listAfter := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant", "")
 	if strings.Contains(listAfter, tenantID) {
 		t.Errorf("deleted tenant still in list: %s", listAfter)

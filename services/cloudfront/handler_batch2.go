@@ -95,6 +95,17 @@ func (h *Handler) handleGetDistributionTenantByDomain(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetDistributionTenant(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution tenant ETag"))
+	}
+
 	t, updateErr := h.Backend.UpdateDistributionTenant(id, nil)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
@@ -106,6 +117,17 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 }
 
 func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetDistributionTenant(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution tenant ETag"))
+	}
+
 	if err := h.Backend.DeleteDistributionTenant(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -221,7 +243,9 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 		for _, tag := range req.Tags {
 			tags[tag.Key] = tag.Value
 		}
-		_ = h.Backend.TagResource(d.ARN, tags)
+		if tagErr := h.Backend.TagResource(d.ARN, tags); tagErr != nil {
+			return h.handleError(c, tagErr)
+		}
 	}
 
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+d.ID)
