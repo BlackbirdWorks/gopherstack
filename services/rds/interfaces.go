@@ -35,7 +35,7 @@ type StorageBackend interface {
 
 	// DB snapshot operations
 	CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error)
-	DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error)
+	DescribeDBSnapshots(snapshotID, instanceID string) ([]DBSnapshot, error)
 	DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error)
 	CopyDBSnapshot(
 		sourceSnapshotID, targetSnapshotID string,
@@ -100,7 +100,7 @@ type StorageBackend interface {
 
 	// DB cluster snapshot operations
 	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
-	DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
 	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error)
 

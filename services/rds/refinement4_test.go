@@ -109,7 +109,7 @@ func TestDescribeDBSnapshotsSorted(t *testing.T) {
 		_, snapErr := b.CreateDBSnapshot(id, "db-sort")
 		require.NoError(t, snapErr)
 	}
-	got, err := b.DescribeDBSnapshots("")
+	got, err := b.DescribeDBSnapshots("", "")
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	assert.Equal(t, "snap-a", got[0].DBSnapshotIdentifier)
@@ -127,7 +127,7 @@ func TestDescribeDBClusterSnapshotsSorted(t *testing.T) {
 		_, snapErr := b.CreateDBClusterSnapshot(id, "cluster-sort")
 		require.NoError(t, snapErr)
 	}
-	got, err := b.DescribeDBClusterSnapshots("")
+	got, err := b.DescribeDBClusterSnapshots("", "")
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	assert.Equal(t, "csnap-a", got[0].DBClusterSnapshotIdentifier)
