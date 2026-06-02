@@ -77,6 +77,7 @@ func TestBatch2_TagResource_KeyValueConstraints(t *testing.T) {
 				for i := range ts {
 					ts[i] = tagEntry(strings.Repeat("k", i+1), "v")
 				}
+
 				return ts
 			}(),
 			wantStatus: http.StatusOK,
@@ -88,6 +89,7 @@ func TestBatch2_TagResource_KeyValueConstraints(t *testing.T) {
 				for i := range ts {
 					ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v")
 				}
+
 				return ts
 			}(),
 			wantStatus: http.StatusBadRequest,
@@ -156,6 +158,7 @@ func TestBatch2_CreateCluster_TagValidation(t *testing.T) {
 				for i := range ts {
 					ts[i] = tagEntry(strings.Repeat("k", i%128+1), "v")
 				}
+
 				return ts
 			}(),
 			wantStatus: http.StatusBadRequest,
