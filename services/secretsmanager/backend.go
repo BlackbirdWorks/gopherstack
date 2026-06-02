@@ -843,7 +843,9 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 	versionIDsToStages := make(map[string][]string, len(secret.Versions))
 
 	for vID, v := range secret.Versions {
-		versionIDsToStages[vID] = v.StagingLabels
+		if len(v.StagingLabels) > 0 {
+			versionIDsToStages[vID] = append([]string(nil), v.StagingLabels...)
+		}
 	}
 
 	out := &DescribeSecretOutput{
@@ -1054,6 +1056,7 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		Description:            s.Description,
 		KmsKeyID:               s.KmsKeyID,
 		RotationLambdaARN:      s.RotationLambdaARN,
+		RotationRules:          cloneRotationRules(s.RotationRules),
 		RotationEnabled:        s.RotationEnabled,
 		DeletedDate:            s.DeletedDate,
 		LastChangedDate:        s.LastChangedDate,
@@ -1595,8 +1598,8 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 		}
 	}
 
-	b.mu.RLock("BatchGetSecretValue")
-	defer b.mu.RUnlock()
+	b.mu.Lock("BatchGetSecretValue")
+	defer b.mu.Unlock()
 
 	out := &BatchGetSecretValueOutput{
 		SecretValues: []SecretValueEntry{},
@@ -1613,8 +1616,10 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 }
 
 // batchGetByIDList populates out with values and errors for each explicit secret ID.
-// Must be called with read lock held.
+// Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValueOutput) {
+	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+
 	for _, id := range ids {
 		name := resolveSecretID(id)
 
@@ -1650,17 +1655,20 @@ func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValu
 			continue
 		}
 
+		secret.LastAccessedDate = &accessDay
+		ver.LastAccessedDate = &accessDay
 		out.SecretValues = append(out.SecretValues, secretVersionEntry(secret, ver))
 	}
 }
 
 // batchGetByFilter collects and paginates secrets matching filters.
-// Must be called with read lock held.
+// Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByFilter(
 	input *BatchGetSecretValueInput,
 	out *BatchGetSecretValueOutput,
 ) *BatchGetSecretValueOutput {
 	allValues := make([]SecretValueEntry, 0, len(b.secrets))
+	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
 
 	for _, secret := range b.secrets {
 		if secret.DeletedDate != nil || !batchMatchesFilters(secret, input.Filters) {
@@ -1672,6 +1680,8 @@ func (b *InMemoryBackend) batchGetByFilter(
 			continue
 		}
 
+		secret.LastAccessedDate = &accessDay
+		ver.LastAccessedDate = &accessDay
 		allValues = append(allValues, secretVersionEntry(secret, ver))
 	}
 
@@ -1802,6 +1812,10 @@ func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*Get
 	secret, ok := b.secrets[name]
 	if !ok {
 		return nil, ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
 	policy := b.resourcePolicies[name]
