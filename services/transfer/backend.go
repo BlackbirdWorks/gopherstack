@@ -644,6 +644,7 @@ type HostKey struct {
 	HostKeyID   string            `json:"host_key_id"`
 	ServerID    string            `json:"server_id"`
 	Description string            `json:"description"`
+	Fingerprint string            `json:"fingerprint,omitempty"`
 	Type        string            `json:"type"`
 	Value       string            `json:"value"`
 	AccountID   string            `json:"account_id"`
@@ -2607,10 +2608,13 @@ func (b *InMemoryBackend) ImportHostKey(
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
+	fp, _ := computeSSHKeyFingerprintAndType(hostKeyBody)
+
 	hk := &HostKey{
 		HostKeyID:   hostKeyID,
 		ServerID:    serverID,
 		Description: description,
+		Fingerprint: fp,
 		Value:       hostKeyBody,
 		Type:        detectHostKeyType(hostKeyBody),
 		CreatedAt:   time.Now(),

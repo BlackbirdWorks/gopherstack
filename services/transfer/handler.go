@@ -40,6 +40,8 @@ const (
 	keySourceFileLoc    = "SourceFileLocation"
 	keyLocalProfileID   = "LocalProfileId"
 	keyPartnerProfileID = "PartnerProfileId"
+	keyArn              = "Arn"
+	keyTags             = "Tags"
 )
 
 var (
@@ -1579,7 +1581,7 @@ func workflowStepToMap(s WorkflowStep) map[string]any {
 		m["TagStepDetails"] = map[string]any{
 			keyStepName:      s.TagStepDetails.Name,
 			keySourceFileLoc: s.TagStepDetails.SourceFileLocation,
-			"Tags":           s.TagStepDetails.Tags,
+			keyTags:          s.TagStepDetails.Tags,
 		}
 	}
 
@@ -1691,7 +1693,7 @@ func (h *Handler) handleDescribeAccess(
 	}
 
 	if a.Tags != nil {
-		accessMap["Tags"] = tagsToList(a.Tags)
+		accessMap[keyTags] = tagsToList(a.Tags)
 	}
 
 	return &describeAccessOutput{
@@ -1809,6 +1811,8 @@ func (h *Handler) handleDescribeAgreement(
 			keyPartnerProfileID: ag.PartnerProfileID,
 			"BaseDirectory":     ag.BaseDirectory,
 			"AccessRole":        ag.AccessRole,
+			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyTags:             tagsToList(ag.Tags),
 		},
 	}, nil
 }
@@ -1843,7 +1847,7 @@ func (h *Handler) handleListAgreements(
 	for i, ag := range page {
 		out[i] = map[string]any{
 			"AgreementId":       ag.AgreementID,
-			"Arn":               agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
 			keyDescription:      ag.Description,
 			keyStatus:           ag.Status,
 			keyLocalProfileID:   ag.LocalProfileID,
@@ -1900,6 +1904,26 @@ func connectorARN(accountID, region, connectorID string) string {
 	return arn.Build("transfer", region, accountID, "connector/"+connectorID)
 }
 
+// profileARN builds the ARN for a Transfer AS2 profile.
+func profileARN(accountID, region, profileID string) string {
+	return arn.Build("transfer", region, accountID, "profile/"+profileID)
+}
+
+// workflowARN builds the ARN for a Transfer workflow.
+func workflowARN(accountID, region, workflowID string) string {
+	return arn.Build("transfer", region, accountID, "workflow/"+workflowID)
+}
+
+// certificateARN builds the ARN for a Transfer certificate.
+func certificateARN(accountID, region, certificateID string) string {
+	return arn.Build("transfer", region, accountID, "certificate/"+certificateID)
+}
+
+// hostKeyARN builds the ARN for a Transfer host key.
+func hostKeyARN(accountID, region, serverID, hostKeyID string) string {
+	return arn.Build("transfer", region, accountID, "host-key/"+serverID+"/"+hostKeyID)
+}
+
 func (h *Handler) handleDescribeConnector(
 	_ context.Context,
 	in *describeConnectorInput,
@@ -1917,8 +1941,8 @@ func (h *Handler) handleDescribeConnector(
 		keyConnectorID:       c.ConnectorID,
 		keyURL:               c.URL,
 		"AccessRole":         c.AccessRole,
-		"Arn":                connectorARN(c.AccountID, c.Region, c.ConnectorID),
-		"Tags":               tagsToList(c.Tags),
+		keyArn:               connectorARN(c.AccountID, c.Region, c.ConnectorID),
+		keyTags:              tagsToList(c.Tags),
 		"LoggingRole":        c.LoggingRole,
 		"SecurityPolicyName": c.SecurityPolicyName,
 	}
@@ -2057,6 +2081,8 @@ func (h *Handler) handleDescribeProfile(
 			"ProfileId":   p.ProfileID,
 			"ProfileType": p.ProfileType,
 			"As2Id":       p.As2ID,
+			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
+			keyTags:       tagsToList(p.Tags),
 		},
 	}, nil
 }
@@ -2096,6 +2122,7 @@ func (h *Handler) handleListProfiles(
 			"ProfileId":   p.ProfileID,
 			"ProfileType": p.ProfileType,
 			"As2Id":       p.As2ID,
+			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
 		}
 	}
 
@@ -2326,6 +2353,8 @@ func (h *Handler) handleDescribeWorkflow(
 			keyDescription:     wf.Description,
 			"Steps":            stepsToList(wf.Steps),
 			"OnExceptionSteps": stepsToList(wf.OnExceptionSteps),
+			keyArn:             workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
+			keyTags:            tagsToList(wf.Tags),
 		},
 	}, nil
 }
@@ -2352,6 +2381,7 @@ func (h *Handler) handleListWorkflows(
 		out[i] = map[string]any{
 			keyWorkflowID:  wf.WorkflowID,
 			keyDescription: wf.Description,
+			keyArn:         workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
 		}
 	}
 
@@ -2394,6 +2424,17 @@ func (h *Handler) handleImportCertificate(
 ) (*importCertificateOutput, error) {
 	if in.Usage == "" {
 		return nil, fmt.Errorf("%w: Usage is required", errInvalidRequest)
+	}
+
+	switch in.Usage {
+	case "SIGNING", "ENCRYPTION":
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: Usage must be SIGNING or ENCRYPTION, got %q",
+			errInvalidRequest,
+			in.Usage,
+		)
 	}
 
 	tags := tagsFromList(in.Tags)
@@ -2444,6 +2485,7 @@ func (h *Handler) handleDescribeCertificate(
 		"Usage":         c.Usage,
 		keyDescription:  c.Description,
 		keyStatus:       c.Status,
+		keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
 	}
 
 	if !c.NotBeforeDate.IsZero() {
@@ -2482,6 +2524,7 @@ func (h *Handler) handleListCertificates(
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
 			keyStatus:       c.Status,
+			keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
 		}
 	}
 
@@ -2596,13 +2639,22 @@ func (h *Handler) handleDescribeHostKey(
 		return nil, err
 	}
 
+	hkMap := map[string]any{
+		"HostKeyId":    hk.HostKeyID,
+		keyDescription: hk.Description,
+		"Type":         hk.Type,
+		"DateImported": hk.CreatedAt.Format(time.RFC3339),
+		keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
+		keyTags:        tagsToList(hk.Tags),
+	}
+
+	if hk.Fingerprint != "" {
+		hkMap["HostKeyFingerprint"] = hk.Fingerprint
+	}
+
 	return &describeHostKeyOutput{
 		ServerID: hk.ServerID,
-		HostKey: map[string]any{
-			"HostKeyId":    hk.HostKeyID,
-			keyDescription: hk.Description,
-			"Type":         hk.Type,
-		},
+		HostKey:  hkMap,
 	}, nil
 }
 
@@ -2635,11 +2687,17 @@ func (h *Handler) handleListHostKeys(
 	out := make([]map[string]any, len(page))
 
 	for i, hk := range page {
-		out[i] = map[string]any{
+		item := map[string]any{
 			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
 			"Type":         hk.Type,
+			"DateImported": hk.CreatedAt.Format(time.RFC3339),
+			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
+		if hk.Fingerprint != "" {
+			item["HostKeyFingerprint"] = hk.Fingerprint
+		}
+		out[i] = item
 	}
 
 	return &listHostKeysOutput{HostKeys: out, NextToken: next, ServerID: in.ServerID}, nil
