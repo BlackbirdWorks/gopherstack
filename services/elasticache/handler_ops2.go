@@ -196,6 +196,10 @@ func (h *Handler) deleteUser(c *echo.Context, form url.Values) error {
 			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
 		}
 
+		if errors.Is(err, ErrUserNotInGroup) {
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -291,10 +295,14 @@ func (h *Handler) createUserGroup(c *echo.Context, form url.Values) error {
 	engine := form.Get("Engine")
 	userIDs := parseRepeatedField(form, "UserIds.member")
 
-	ug, err := h.Backend.CreateUserGroup(groupID, description, engine, userIDs)
+	ug, err := h.Backend.CreateUserGroupValidated(groupID, description, engine, userIDs)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupAlreadyExistsFault", "User group already exists")
+		}
+
+		if errors.Is(err, ErrGroupUserNotFound) {
+			return xmlError(c, http.StatusBadRequest, "UserNotFound", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
