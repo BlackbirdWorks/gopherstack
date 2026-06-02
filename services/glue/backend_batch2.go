@@ -91,6 +91,10 @@ var (
 
 // CreateBlueprint stores a new blueprint.
 func (b *InMemoryBackend) CreateBlueprint(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: blueprint Name is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateBlueprint")
 	defer b.mu.Unlock()
 
@@ -108,6 +112,10 @@ func (b *InMemoryBackend) DeleteBlueprint(name string) error {
 	b.mu.Lock("DeleteBlueprint")
 	defer b.mu.Unlock()
 
+	if _, ok := b.blueprints[name]; !ok {
+		return fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
+	}
+
 	delete(b.blueprints, name)
 
 	return nil
@@ -120,8 +128,7 @@ func (b *InMemoryBackend) UpdateBlueprint(name string) (*Blueprint, error) {
 
 	bp, ok := b.blueprints[name]
 	if !ok {
-		bp = &Blueprint{Name: name, Status: "ACTIVE"}
-		b.blueprints[name] = bp
+		return nil, fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
 	}
 
 	cp := *bp
@@ -150,6 +157,10 @@ func (b *InMemoryBackend) ListBlueprints() []string {
 func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun, error) {
 	b.mu.Lock("StartBlueprintRun")
 	defer b.mu.Unlock()
+
+	if _, ok := b.blueprints[blueprintName]; !ok {
+		return nil, fmt.Errorf("blueprint %q not found: %w", blueprintName, ErrNotFound)
+	}
 
 	runID := "bp-run-" + uuid.NewString()[:8]
 	run := &BlueprintRun{
@@ -205,6 +216,10 @@ func (b *InMemoryBackend) GetBlueprintRuns(blueprintName string) []*BlueprintRun
 
 // CreateUsageProfile creates a new usage profile.
 func (b *InMemoryBackend) CreateUsageProfile(name, description string, tags map[string]string) (*UsageProfile, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: UsageProfile Name is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateUsageProfile")
 	defer b.mu.Unlock()
 
@@ -294,6 +309,13 @@ func (b *InMemoryBackend) CreateCustomEntityType(
 	name, regexString string,
 	contextWords []string,
 ) (*CustomEntityType, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: CustomEntityType Name is required", ErrValidation)
+	}
+	if regexString == "" {
+		return nil, fmt.Errorf("%w: CustomEntityType RegexString is required", ErrValidation)
+	}
+
 	b.mu.Lock("CreateCustomEntityType")
 	defer b.mu.Unlock()
 
