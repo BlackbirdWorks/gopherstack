@@ -41,6 +41,13 @@ const (
 
 	// maxEventsPerBuffer is the maximum number of events retained in the ring buffer.
 	maxEventsPerBuffer = 1000
+
+	// maxTagsPerResource is the maximum number of tags allowed per DAX resource.
+	maxTagsPerResource = 50
+	// maxTagKeyLength is the maximum allowed length of a tag key.
+	maxTagKeyLength = 128
+	// maxTagValueLength is the maximum allowed length of a tag value.
+	maxTagValueLength = 256
 )
 
 // validNodeTypes is the set of valid DAX node type identifiers.

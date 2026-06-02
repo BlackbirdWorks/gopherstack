@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,6 +24,7 @@ const (
 	daxMatchPriority   = service.PriorityHeaderExact
 	clusterResponseKey = "Cluster"
 	parameterGroupKey  = "ParameterGroup"
+	tagsResponseKey    = "Tags"
 )
 
 var (
@@ -196,19 +198,19 @@ func (h *Handler) dispatch(
 // ---- request/response types ----
 
 type createClusterRequest struct {
-	Tags                          map[string]string `json:"Tags"`
-	NodeType                      string            `json:"NodeType"`
-	ClusterName                   string            `json:"ClusterName"`
-	Description                   string            `json:"Description"`
-	IamRoleArn                    string            `json:"IamRoleArn"`
-	SubnetGroupName               string            `json:"SubnetGroupName"`
-	PreferredMaintenanceWindow    string            `json:"PreferredMaintenanceWindow"`
-	ParameterGroupName            string            `json:"ParameterGroupName"`
-	NotificationTopicArn          string            `json:"NotificationTopicArn"`
-	ClusterEndpointEncryptionType string            `json:"ClusterEndpointEncryptionType"`
-	AvailabilityZones             []string          `json:"AvailabilityZones"`
-	SecurityGroupIDs              []string          `json:"SecurityGroupIds"`
-	ReplicationFactor             int               `json:"ReplicationFactor"`
+	Tags                          []tagItem `json:"Tags"`
+	NodeType                      string    `json:"NodeType"`
+	ClusterName                   string    `json:"ClusterName"`
+	Description                   string    `json:"Description"`
+	IamRoleArn                    string    `json:"IamRoleArn"`
+	SubnetGroupName               string    `json:"SubnetGroupName"`
+	PreferredMaintenanceWindow    string    `json:"PreferredMaintenanceWindow"`
+	ParameterGroupName            string    `json:"ParameterGroupName"`
+	NotificationTopicArn          string    `json:"NotificationTopicArn"`
+	ClusterEndpointEncryptionType string    `json:"ClusterEndpointEncryptionType"`
+	AvailabilityZones             []string  `json:"AvailabilityZones"`
+	SecurityGroupIDs              []string  `json:"SecurityGroupIds"`
+	ReplicationFactor             int       `json:"ReplicationFactor"`
 	SSESpecification              struct {
 		Enabled bool `json:"Enabled"`
 	} `json:"SSESpecification"`
@@ -549,6 +551,15 @@ func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateTagItems(req.Tags); err != nil {
+		return nil, err
+	}
+
+	tags := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tags[t.Key] = t.Value
+	}
+
 	cluster, err := h.Backend.CreateCluster(CreateClusterInput{
 		ClusterName:                   req.ClusterName,
 		NodeType:                      req.NodeType,
@@ -562,7 +573,7 @@ func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 		ParameterGroupName:            req.ParameterGroupName,
 		NotificationTopicArn:          req.NotificationTopicArn,
 		ClusterEndpointEncryptionType: req.ClusterEndpointEncryptionType,
-		Tags:                          req.Tags,
+		Tags:                          tags,
 		SSESpecificationEnabled:       req.SSESpecification.Enabled,
 	})
 	if err != nil {
@@ -693,17 +704,27 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateTagItems(req.Tags); err != nil {
+		return nil, err
+	}
+
 	tags := make(map[string]string, len(req.Tags))
 	for _, t := range req.Tags {
 		tags[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagResource(req.ResourceName, tags); err != nil {
+	allTags, err := h.Backend.TagResource(req.ResourceName, tags)
+	if err != nil {
 		return nil, err
 	}
 
+	items := make([]tagItem, 0, len(allTags))
+	for k, v := range allTags {
+		items = append(items, tagItem{Key: k, Value: v})
+	}
+
 	return map[string]any{
-		"Tags": req.Tags,
+		tagsResponseKey: items,
 	}, nil
 }
 
@@ -713,11 +734,19 @@ func (h *Handler) handleUntagResource(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UntagResource(req.ResourceName, req.TagKeys); err != nil {
+	remaining, err := h.Backend.UntagResource(req.ResourceName, req.TagKeys)
+	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	items := make([]tagItem, 0, len(remaining))
+	for k, v := range remaining {
+		items = append(items, tagItem{Key: k, Value: v})
+	}
+
+	return map[string]any{
+		"Tags": items,
+	}, nil
 }
 
 func (h *Handler) handleListTags(body []byte) (any, error) {
@@ -737,7 +766,7 @@ func (h *Handler) handleListTags(body []byte) (any, error) {
 	}
 
 	result := map[string]any{
-		"Tags": items,
+		tagsResponseKey: items,
 	}
 
 	if nextToken != "" {
@@ -1065,6 +1094,11 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 //
 //nolint:cyclop // exhaustive error mapping requires many cases
 func (h *Handler) mapError(err error) (int, map[string]any) {
+	// Tag quota exceeded — specific case before the generic invalid-parameter fallback.
+	if errors.Is(err, ErrTagQuotaExceeded) {
+		return http.StatusBadRequest, daxError("TagQuotaPerResourceExceeded", err.Error())
+	}
+
 	// Specific not-found variants.
 	switch {
 	case errors.Is(err, ErrClusterNotFound):
@@ -1110,6 +1144,36 @@ func (h *Handler) mapError(err error) (int, map[string]any) {
 	default:
 		return http.StatusInternalServerError, daxError("InternalFailure", err.Error())
 	}
+}
+
+// validateTagItems enforces AWS tag key/value constraints.
+// Keys must be 1–128 chars and must not start with "aws:". Values must be 0–256 chars.
+func validateTagItems(tags []tagItem) error {
+	for _, t := range tags {
+		klen := utf8.RuneCountInString(t.Key)
+		if klen == 0 || klen > maxTagKeyLength {
+			return fmt.Errorf(
+				"%w: tag key length must be 1–%d characters, got %d",
+				ErrInvalidParameterValue, maxTagKeyLength, klen,
+			)
+		}
+
+		if strings.HasPrefix(t.Key, "aws:") {
+			return fmt.Errorf(
+				"%w: tag key must not start with reserved prefix \"aws:\"",
+				ErrInvalidParameterValue,
+			)
+		}
+
+		if vlen := utf8.RuneCountInString(t.Value); vlen > maxTagValueLength {
+			return fmt.Errorf(
+				"%w: tag value length must be 0–%d characters, got %d",
+				ErrInvalidParameterValue, maxTagValueLength, vlen,
+			)
+		}
+	}
+
+	return nil
 }
 
 // daxError builds a standard DAX JSON error body.
