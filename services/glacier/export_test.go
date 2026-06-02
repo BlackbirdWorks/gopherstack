@@ -14,6 +14,21 @@ func ValidateDescription(s string) error {
 	return validateDescription(s)
 }
 
+// ValidateVaultName exposes vault name validation for testing.
+func ValidateVaultName(name string) error {
+	return validateVaultName(name)
+}
+
+// CsvField exposes the CSV field encoder for testing.
+func CsvField(s string) string {
+	return csvField(s)
+}
+
+// IsValidMultipartRange exposes the multipart Content-Range validator for testing.
+func IsValidMultipartRange(rangeHeader string) bool {
+	return isValidMultipartRange(rangeHeader)
+}
+
 // GetVaultLastInventoryDate returns the LastInventoryDate for the named vault.
 func GetVaultLastInventoryDate(b *InMemoryBackend, accountID, region, vaultName string) string {
 	b.mu.RLock()
