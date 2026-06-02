@@ -1632,9 +1632,9 @@ func TestBatch2_PublishBatchTopicNotFoundTopLevelError(t *testing.T) {
 	h, _ := newB2Handler(t)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":                                      {"PublishBatch"},
-		"TopicArn":                                    {"arn:aws:sns:us-east-1:000000000000:no-such-topic"},
-		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:no-such-topic"},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message": {"hello"},
 		"Version": {"2010-03-31"},
 	})
@@ -1653,9 +1653,9 @@ func TestBatch2_PublishBatchExistingTopicStillWorks(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":                                      {"PublishBatch"},
-		"TopicArn":                                    {tp.TopicArn},
-		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"Action":                                 {"PublishBatch"},
+		"TopicArn":                               {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id": {"e1"},
 		"PublishBatchRequestEntries.member.1.Message": {"hello"},
 		"Version": {"2010-03-31"},
 	})
@@ -1698,13 +1698,13 @@ func TestBatch2_SubscribeFirehoseWithRoleArnSucceeds(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := doB2Request(t, h, url.Values{
-		"Action":                     {"Subscribe"},
-		"TopicArn":                   {tp.TopicArn},
-		"Protocol":                   {"firehose"},
-		"Endpoint":                   {"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
-		"Attributes.entry.1.key":     {"SubscriptionRoleArn"},
-		"Attributes.entry.1.value":   {"arn:aws:iam::000000000000:role/firehose-role"},
-		"Version":                    {"2010-03-31"},
+		"Action":                   {"Subscribe"},
+		"TopicArn":                 {tp.TopicArn},
+		"Protocol":                 {"firehose"},
+		"Endpoint":                 {"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
+		"Attributes.entry.1.key":   {"SubscriptionRoleArn"},
+		"Attributes.entry.1.value": {"arn:aws:iam::000000000000:role/firehose-role"},
+		"Version":                  {"2010-03-31"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code,
 		"firehose Subscribe with SubscriptionRoleArn must return 200")
