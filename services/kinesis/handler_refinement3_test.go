@@ -596,9 +596,8 @@ func TestRefinement3_ListShards_MaxResults_ViaHandler(t *testing.T) {
 	assert.Len(t, resp.Shards, 2)
 	assert.NotEmpty(t, resp.NextToken)
 
-	// Second page.
+	// Second page — NextToken encodes stream context; StreamName must be omitted (AWS contract).
 	rec = doRequest(t, h, "ListShards", map[string]any{
-		"StreamName": "list-shards-handler-paged",
 		"MaxResults": 2,
 		"NextToken":  resp.NextToken,
 	})

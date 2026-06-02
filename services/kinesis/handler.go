@@ -322,6 +322,7 @@ type jsonDeleteStreamReq struct {
 }
 
 type jsonDescribeStreamReq struct {
+	StreamARN  string `json:"StreamARN"`
 	StreamName string `json:"StreamName"`
 }
 
@@ -515,14 +516,16 @@ func (h *Handler) handleCreateStream(
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	shardCount := req.ShardCount
-	if shardCount <= 0 || shardCount > maxShardCount {
-		return nil, ErrInvalidArgument
-	}
-
 	var streamMode string
 	if req.StreamModeDetails != nil {
 		streamMode = req.StreamModeDetails.StreamMode
+	}
+
+	shardCount := req.ShardCount
+	// ON_DEMAND streams do not require a ShardCount — AWS ignores it and manages
+	// capacity automatically. PROVISIONED streams require ShardCount >= 1.
+	if streamMode != streamModeOnDemand && (shardCount <= 0 || shardCount > maxShardCount) {
+		return nil, ErrInvalidArgument
 	}
 
 	err := h.Backend.CreateStream(&CreateStreamInput{
@@ -593,7 +596,12 @@ func (h *Handler) handleDescribeStream(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName})
+	streamName := req.StreamName
+	if streamName == "" && req.StreamARN != "" {
+		streamName = streamNameFromARN(req.StreamARN)
+	}
+
+	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +650,12 @@ func (h *Handler) handleDescribeStreamSummary(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName})
+	summaryStreamName := req.StreamName
+	if summaryStreamName == "" && req.StreamARN != "" {
+		summaryStreamName = streamNameFromARN(req.StreamARN)
+	}
+
+	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: summaryStreamName})
 	if err != nil {
 		return nil, err
 	}
@@ -849,6 +862,29 @@ func (h *Handler) handleListShards(
 		return nil, ErrInvalidArgument
 	}
 
+	// AWS rejects requests where NextToken is combined with StreamName,
+	// ExclusiveStartShardID, or ShardFilter — the token already encodes stream context.
+	if req.NextToken != "" && (req.StreamName != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil) {
+		return nil, ErrValidation
+	}
+
+	// Decode the opaque NextToken to extract embedded stream name and shard cursor.
+	// Our token format is "streamName|shardId", base64-free since neither component
+	// contains "|".  When StreamName is present (first page), no decoding is needed.
+	streamName := req.StreamName
+	backendNextToken := ""
+	if req.NextToken != "" {
+		parts := strings.SplitN(req.NextToken, "|", 2)
+		if len(parts) == 2 {
+			streamName = parts[0]
+			backendNextToken = parts[1]
+		} else {
+			// Legacy token: plain shard ID (pre-encoding).  Callers on first page
+			// always provide StreamName, so this path only fires for stale tokens.
+			backendNextToken = req.NextToken
+		}
+	}
+
 	var shardFilterType, shardFilterShardID, shardFilterStr string
 	if req.ShardFilter != nil {
 		shardFilterType = req.ShardFilter.Type
@@ -858,8 +894,8 @@ func (h *Handler) handleListShards(
 		}
 	}
 	out, err := h.Backend.ListShards(&ListShardsInput{
-		StreamName:            req.StreamName,
-		NextToken:             req.NextToken,
+		StreamName:            streamName,
+		NextToken:             backendNextToken,
 		MaxResults:            req.MaxResults,
 		ExclusiveStartShardID: req.ExclusiveStartShardID,
 		ShardFilter:           shardFilterStr,
@@ -888,7 +924,13 @@ func (h *Handler) handleListShards(
 		})
 	}
 
-	return jsonListShardsResp{Shards: shards, NextToken: out.NextToken}, nil
+	// Encode stream name into the NextToken so callers can paginate without re-specifying StreamName.
+	encodedNextToken := ""
+	if out.NextToken != "" {
+		encodedNextToken = streamName + "|" + out.NextToken
+	}
+
+	return jsonListShardsResp{Shards: shards, NextToken: encodedNextToken}, nil
 }
 
 // errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
