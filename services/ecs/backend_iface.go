@@ -8,7 +8,7 @@ type Backend interface {
 
 	CreateCluster(input CreateClusterInput) (*Cluster, error)
 	ListClusters() ([]Cluster, error)
-	DescribeClusters(clusterNames []string) ([]Cluster, error)
+	DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error)
 	DeleteCluster(clusterName string) (*Cluster, error)
 
 	// Task definitions
@@ -23,7 +23,7 @@ type Backend interface {
 	// Services
 
 	CreateService(input CreateServiceInput) (*Service, error)
-	DescribeServices(cluster string, serviceNames []string) ([]Service, error)
+	DescribeServices(cluster string, serviceNames []string) ([]Service, []Failure, error)
 	UpdateService(input UpdateServiceInput) (*Service, error)
 	DeleteService(cluster, serviceName string) (*Service, error)
 	ListServices(cluster, launchType, schedulingStrategy string) ([]string, error)
@@ -31,7 +31,7 @@ type Backend interface {
 	// Tasks
 
 	RunTask(input RunTaskInput) ([]Task, error)
-	DescribeTasks(cluster string, taskArns []string) ([]Task, error)
+	DescribeTasks(cluster string, taskArns []string) ([]Task, []Failure, error)
 	StopTask(cluster, taskArn, reason string) (*Task, error)
 	ListTasks(cluster string) ([]string, error)
 	ListTasksFiltered(input ListTasksInput) ([]string, error)
@@ -40,7 +40,7 @@ type Backend interface {
 
 	RegisterContainerInstance(cluster, ec2InstanceID string) (*ContainerInstance, error)
 	DeregisterContainerInstance(cluster, containerInstance string, force bool) (*ContainerInstance, error)
-	DescribeContainerInstances(cluster string, containerInstances []string) ([]ContainerInstance, error)
+	DescribeContainerInstances(cluster string, containerInstances []string) ([]ContainerInstance, []Failure, error)
 	ListContainerInstances(cluster string) ([]string, error)
 	UpdateContainerInstancesState(
 		cluster string,

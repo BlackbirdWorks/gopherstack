@@ -169,7 +169,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 func (b *InMemoryBackend) DescribeContainerInstances(
 	cluster string,
 	containerInstances []string,
-) ([]ContainerInstance, error) {
+) ([]ContainerInstance, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeContainerInstances")
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 
 	instances, ok := b.containerInstances[clusterName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(containerInstances) == 0 {
@@ -186,21 +186,28 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 			out = append(out, b.enrichContainerInstance(ci, clusterName))
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]ContainerInstance, 0, len(containerInstances))
+	failures := make([]Failure, 0, len(containerInstances))
 
 	for _, ref := range containerInstances {
 		ci, found := instances[ref]
 		if !found {
-			return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, ref)
+			failures = append(failures, Failure{
+				Arn:    ref,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("container instance %s not found", ref),
+			})
+
+			continue
 		}
 
 		out = append(out, b.enrichContainerInstance(ci, clusterName))
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // enrichContainerInstance fills in running/pending task counts.

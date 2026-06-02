@@ -463,13 +463,14 @@ type describeClustersInput struct {
 
 type describeClustersOutput struct {
 	Clusters []clusterView `json:"clusters"`
+	Failures []failureView `json:"failures"`
 }
 
 func (h *Handler) handleDescribeClusters(
 	_ context.Context,
 	in *describeClustersInput,
 ) (*describeClustersOutput, error) {
-	clusters, err := h.Backend.DescribeClusters(in.Clusters)
+	clusters, failures, err := h.Backend.DescribeClusters(in.Clusters)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +480,12 @@ func (h *Handler) handleDescribeClusters(
 		views = append(views, toClusterView(c))
 	}
 
-	return &describeClustersOutput{Clusters: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &describeClustersOutput{Clusters: views, Failures: failViews}, nil
 }
 
 type deleteClusterInput struct {
@@ -777,13 +783,14 @@ type describeServicesInput struct {
 
 type describeServicesOutput struct {
 	Services []serviceView `json:"services"`
+	Failures []failureView `json:"failures"`
 }
 
 func (h *Handler) handleDescribeServices(
 	_ context.Context,
 	in *describeServicesInput,
 ) (*describeServicesOutput, error) {
-	svcs, err := h.Backend.DescribeServices(in.Cluster, in.Services)
+	svcs, failures, err := h.Backend.DescribeServices(in.Cluster, in.Services)
 	if err != nil {
 		return nil, err
 	}
@@ -793,7 +800,12 @@ func (h *Handler) handleDescribeServices(
 		views = append(views, toServiceView(s))
 	}
 
-	return &describeServicesOutput{Services: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &describeServicesOutput{Services: views, Failures: failViews}, nil
 }
 
 type updateServiceInput struct {
@@ -953,11 +965,12 @@ type describeTasksInput struct {
 }
 
 type describeTasksOutput struct {
-	Tasks []taskView `json:"tasks"`
+	Tasks    []taskView    `json:"tasks"`
+	Failures []failureView `json:"failures"`
 }
 
 func (h *Handler) handleDescribeTasks(_ context.Context, in *describeTasksInput) (*describeTasksOutput, error) {
-	tasks, err := h.Backend.DescribeTasks(in.Cluster, in.Tasks)
+	tasks, failures, err := h.Backend.DescribeTasks(in.Cluster, in.Tasks)
 	if err != nil {
 		return nil, err
 	}
@@ -967,7 +980,12 @@ func (h *Handler) handleDescribeTasks(_ context.Context, in *describeTasksInput)
 		views = append(views, toTaskView(t))
 	}
 
-	return &describeTasksOutput{Tasks: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &describeTasksOutput{Tasks: views, Failures: failViews}, nil
 }
 
 type stopTaskInput struct {
