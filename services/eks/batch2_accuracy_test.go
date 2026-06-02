@@ -496,6 +496,7 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-uc-upd-" + tt.name})
 			doREST(t, h, http.MethodPost, "/clusters/ng-uc-upd-"+tt.name+"/node-groups", map[string]any{
 				"nodegroupName": "ng1",
+				"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 				"subnets":       []string{"subnet-x"},
 			})
 
@@ -537,6 +538,7 @@ func TestBatch2_UpdateNodegroupConfig_Labels(t *testing.T) {
 			name: "add_label",
 			setup: map[string]any{
 				"nodegroupName": "ng1",
+				"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 				"subnets":       []string{"subnet-x"},
 				"labels":        map[string]any{"existing": "value"},
 			},
@@ -552,6 +554,7 @@ func TestBatch2_UpdateNodegroupConfig_Labels(t *testing.T) {
 			name: "remove_label",
 			setup: map[string]any{
 				"nodegroupName": "ng1",
+				"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 				"subnets":       []string{"subnet-x"},
 				"labels":        map[string]any{"to-remove": "bye"},
 			},
@@ -605,6 +608,7 @@ func TestBatch2_UpdateNodegroupConfig_Taints(t *testing.T) {
 			name: "add_taint",
 			setup: map[string]any{
 				"nodegroupName": "ng1",
+				"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 				"subnets":       []string{"subnet-x"},
 			},
 			update: map[string]any{
@@ -620,6 +624,7 @@ func TestBatch2_UpdateNodegroupConfig_Taints(t *testing.T) {
 			name: "remove_taint",
 			setup: map[string]any{
 				"nodegroupName": "ng1",
+				"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 				"subnets":       []string{"subnet-x"},
 				"taints": []any{
 					map[string]any{"key": "spot", "effect": "NO_SCHEDULE"},
@@ -960,6 +965,7 @@ func TestBatch2_Nodegroup_UpdateConfig_AbsentWhenNotSet(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-no-uc-cluster"})
 	doREST(t, h, http.MethodPost, "/clusters/ng-no-uc-cluster/node-groups", map[string]any{
 		"nodegroupName": "ng1",
+		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
 		"subnets":       []string{"subnet-x"},
 	})
 

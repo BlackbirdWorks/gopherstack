@@ -178,6 +178,7 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				rec := doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 					"nodegroupName": "my-ng",
 					"nodeRole":      "arn:aws:iam::123456789012:role/ng-role",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{"desiredSize": 2, "minSize": 1, "maxSize": 5},
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -195,6 +196,8 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 					"nodegroupName": "my-ng",
+					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
 				rec := doREST(t, h, http.MethodGet, "/clusters/my-cluster/node-groups/my-ng", nil)
@@ -212,10 +215,14 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 					"nodegroupName": "ng-1",
+					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
 				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 					"nodegroupName": "ng-2",
+					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
 				rec := doREST(t, h, http.MethodGet, "/clusters/my-cluster/node-groups", nil)
@@ -233,6 +240,8 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 					"nodegroupName": "to-delete",
+					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
 				rec := doREST(t, h, http.MethodDelete, "/clusters/my-cluster/node-groups/to-delete", nil)
@@ -247,6 +256,8 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodPost, "/clusters/nonexistent/node-groups", map[string]any{
 					"nodegroupName": "ng",
+					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+					"subnets":       []string{"subnet-abc"},
 					"scalingConfig": map[string]any{},
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -456,6 +467,8 @@ func TestEKSTagNodegroup(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 	ngRec := doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 		"nodegroupName": "my-ng",
+		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"scalingConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, ngRec.Code)

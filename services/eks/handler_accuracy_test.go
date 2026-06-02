@@ -263,6 +263,7 @@ func TestAccuracy_NodegroupLabels_RoundTrip(t *testing.T) {
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-labeled",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"labels":        map[string]string{"app": "backend", "tier": "compute"},
 		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 3},
 	})
@@ -284,6 +285,7 @@ func TestAccuracy_NodegroupTaints_RoundTrip(t *testing.T) {
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-tainted",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"taints": []map[string]any{
 			{"key": "dedicated", "value": "gpu", "effect": "NoSchedule"},
 		},
@@ -332,6 +334,7 @@ func TestAccuracy_NodegroupRemoteAccess_RoundTrip(t *testing.T) {
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-ssh",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"remoteAccess": map[string]any{
 			"ec2SshKey":            "my-keypair",
 			"sourceSecurityGroups": []string{"sg-bastion"},
@@ -407,6 +410,7 @@ func TestAccuracy_NodegroupLaunchTemplate_AbsentWhenNotSet(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-nolt",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 3},
 	})
 
@@ -427,6 +431,7 @@ func TestAccuracy_NodegroupDiskSize_RoundTrip(t *testing.T) {
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-disk",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"diskSize":      100,
 		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 3},
 	})
@@ -496,6 +501,7 @@ func TestAccuracy_NodegroupDiskSize_Zero_Omitted(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-nodisk",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 3},
 	})
 
@@ -703,6 +709,7 @@ func TestAccuracy_NodegroupASG_PresentOnDescribe(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-asg",
 		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-abc"},
 		"scalingConfig": map[string]any{"desiredSize": 2, "minSize": 1, "maxSize": 5},
 	})
 

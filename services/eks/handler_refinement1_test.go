@@ -140,7 +140,11 @@ func TestRefinement1_SortedListNodegroups(t *testing.T) {
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	for _, ng := range []string{"zzz", "aaa", "mmm"} {
-		doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{"nodegroupName": ng})
+		doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
+			"nodegroupName": ng,
+			"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+			"subnets":       []string{"subnet-abc"},
+		})
 	}
 
 	rec := doREST(t, h, http.MethodGet, "/clusters/c1/node-groups", nil)
