@@ -21,6 +21,7 @@ import (
 
 const (
 	keyPosition = "position"
+	litTrue     = "true"
 )
 
 const (
@@ -2346,34 +2347,43 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 	return m
 }
 
+// createDeploymentAction handles CreateDeployment incl. inline stage update.
+func (h *Handler) createDeploymentAction(b []byte) (int, any, error) {
+	var input createDeploymentInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	depl, err := h.Backend.CreateDeployment(input.RestAPIID, input.StageName, input.Description)
+	if err != nil {
+		return 0, nil, err
+	}
+	h.applyInlineStageUpdate(input)
+
+	return http.StatusCreated, depl, nil
+}
+
+func (h *Handler) applyInlineStageUpdate(input createDeploymentInput) {
+	if input.StageName == "" {
+		return
+	}
+	if input.StageDescription == "" && len(input.Variables) == 0 && !input.TracingEnabled {
+		return
+	}
+	stageUpd := UpdateStageInput{
+		Description: input.StageDescription,
+		Variables:   input.Variables,
+	}
+	if input.TracingEnabled {
+		t := true
+		stageUpd.TracingEnabled = &t
+	}
+	_, _ = h.Backend.UpdateStage(input.RestAPIID, input.StageName, stageUpd)
+}
+
 // deploymentCRUDActions returns actions for deployment CRUD operations.
 func (h *Handler) deploymentCRUDActions() map[string]actionFn {
 	return map[string]actionFn{
-		opCreateDeployment: func(b []byte) (int, any, error) {
-			var input createDeploymentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			depl, err := h.Backend.CreateDeployment(input.RestAPIID, input.StageName, input.Description)
-			if err != nil {
-				return 0, nil, err
-			}
-			// AWS CreateDeployment accepts stageDescription, variables, and
-			// tracingEnabled when a stageName is given. Apply them via UpdateStage.
-			if input.StageName != "" && (input.StageDescription != "" || len(input.Variables) > 0 || input.TracingEnabled) {
-				stageUpd := UpdateStageInput{
-					Description: input.StageDescription,
-					Variables:   input.Variables,
-				}
-				if input.TracingEnabled {
-					t := true
-					stageUpd.TracingEnabled = &t
-				}
-				_, _ = h.Backend.UpdateStage(input.RestAPIID, input.StageName, stageUpd)
-			}
-
-			return http.StatusCreated, depl, nil
-		},
+		opCreateDeployment: h.createDeploymentAction,
 		opGetDeployment: func(b []byte) (int, any, error) {
 			var input getDeploymentInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2760,63 +2770,70 @@ func (h *Handler) getDeleteUpdateActionsCore1() map[string]actionFn {
 	return m
 }
 
+func (h *Handler) getAPIKeyAction(b []byte) (int, any, error) {
+	var input getAPIKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	key, err := h.Backend.GetAPIKey(input.APIKeyID)
+	if err != nil {
+		return 0, nil, err
+	}
+	if input.IncludeValue != litTrue {
+		key.Value = ""
+	}
+
+	return http.StatusOK, key, nil
+}
+
+func (h *Handler) getAPIKeysAction(b []byte) (int, any, error) {
+	var input getAPIKeysPageInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	keys, position, err := h.fetchAPIKeys(input)
+	if err != nil {
+		return 0, nil, err
+	}
+	if input.IncludeValue != litTrue {
+		for i := range keys {
+			keys[i].Value = ""
+		}
+	}
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: keys, keyPosition: position}, nil
+	}
+
+	return http.StatusOK, map[string]any{keyItem: keys}, nil
+}
+
+func (h *Handler) fetchAPIKeys(input getAPIKeysPageInput) ([]APIKey, string, error) {
+	if input.Limit == 0 && input.Position == "" {
+		keys, err := h.Backend.GetAPIKeys()
+
+		return keys, "", err
+	}
+
+	return h.Backend.GetAPIKeysPage(input.Limit, input.Position)
+}
+
+func (h *Handler) deleteAPIKeyAction(b []byte) (int, any, error) {
+	var input deleteAPIKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
+		return 0, nil, err
+	}
+
+	return http.StatusAccepted, map[string]any{}, nil
+}
+
 func (h *Handler) getDeleteUpdateActionsCore1a() map[string]actionFn {
 	return map[string]actionFn{
-		opGetAPIKey: func(b []byte) (int, any, error) {
-			var input getAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			key, err := h.Backend.GetAPIKey(input.APIKeyID)
-			if err != nil {
-				return 0, nil, err
-			}
-			if input.IncludeValue != "true" {
-				key.Value = ""
-			}
-
-			return http.StatusOK, key, nil
-		},
-		opGetAPIKeys: func(b []byte) (int, any, error) {
-			var input getAPIKeysPageInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			var (
-				keys     []APIKey
-				position string
-				err      error
-			)
-			if input.Limit == 0 && input.Position == "" {
-				keys, err = h.Backend.GetAPIKeys()
-			} else {
-				keys, position, err = h.Backend.GetAPIKeysPage(input.Limit, input.Position)
-			}
-			if err != nil {
-				return 0, nil, err
-			}
-			if input.IncludeValue != "true" {
-				for i := range keys {
-					keys[i].Value = ""
-				}
-			}
-			if position != "" {
-				return http.StatusOK, map[string]any{keyItem: keys, keyPosition: position}, nil
-			}
-
-			return http.StatusOK, map[string]any{keyItem: keys}, nil
-		},
-		opDeleteAPIKey: func(b []byte) (int, any, error) {
-			var input deleteAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
-				return 0, nil, err
-			}
-
-			return http.StatusAccepted, map[string]any{}, nil
-		},
+		opGetAPIKey:    h.getAPIKeyAction,
+		opGetAPIKeys:   h.getAPIKeysAction,
+		opDeleteAPIKey: h.deleteAPIKeyAction,
 	}
 }
 

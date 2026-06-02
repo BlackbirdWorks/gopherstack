@@ -27,9 +27,9 @@ func TestBatch2Ops_GetApiKey_ValueHiddenByDefault(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		queryString  string
-		wantValue    bool
+		name        string
+		queryString string
+		wantValue   bool
 	}{
 		{
 			name:        "no_include_value_hides_value",
@@ -200,11 +200,11 @@ func TestBatch2Ops_CreateDeployment_StageVariables(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		variables    map[string]string
-		wantVarsLen  int
+		name         string
 		wantVarKey   string
 		wantVarValue string
+		wantVarsLen  int
 	}{
 		{
 			name:         "variables_propagated_to_stage",
