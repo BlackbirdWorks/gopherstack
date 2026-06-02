@@ -160,7 +160,7 @@ func TestBatch2_SnapshotLocking(t *testing.T) {
 	t.Run("lock snapshot", func(t *testing.T) {
 		lock, err := b.LockSnapshot(snap.SnapshotID, "compliance", 90)
 		require.NoError(t, err)
-		assert.Equal(t, "locked", lock.LockState)
+		assert.Equal(t, "compliance", lock.LockState)
 		assert.Equal(t, 90, lock.LockDurationDays)
 	})
 
@@ -268,7 +268,7 @@ func TestBatch2_ImageLifecycle(t *testing.T) {
 	})
 
 	t.Run("enable/disable image block public access", func(t *testing.T) {
-		assert.Equal(t, "block-new-sharing", b.GetImageBlockPublicAccessState())
+		assert.Equal(t, "unblocked", b.GetImageBlockPublicAccessState())
 		require.NoError(t, b.EnableImageBlockPublicAccess("block-new-sharing"))
 		assert.Equal(t, "block-new-sharing", b.GetImageBlockPublicAccessState())
 		b.DisableImageBlockPublicAccess()

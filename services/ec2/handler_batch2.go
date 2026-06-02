@@ -209,6 +209,12 @@ type ebsDefaultKmsKeyResponse struct {
 	KmsKeyID  string   `xml:"kmsKeyId"`
 }
 
+type modifyEbsDefaultKmsKeyResponse struct {
+	XMLName   xml.Name `xml:"ModifyEbsDefaultKmsKeyIdResponse"`
+	RequestID string   `xml:"requestId"`
+	KmsKeyID  string   `xml:"kmsKeyId"`
+}
+
 type snapshotLockItem struct {
 	SnapshotID       string `xml:"snapshotId"`
 	LockState        string `xml:"lockState"`
@@ -609,7 +615,7 @@ func (h *Handler) handleModifyEbsDefaultKmsKeyID(vals url.Values, reqID string) 
 		return nil, err
 	}
 
-	return &ebsDefaultKmsKeyResponse{RequestID: reqID, KmsKeyID: kmsKeyID}, nil
+	return &modifyEbsDefaultKmsKeyResponse{RequestID: reqID, KmsKeyID: kmsKeyID}, nil
 }
 
 func (h *Handler) handleEnableVolumeIO(vals url.Values, reqID string) (any, error) {
@@ -969,10 +975,14 @@ func (h *Handler) handleDisableVgwRoutePropagation(vals url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleGetDefaultCreditSpecification(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleGetDefaultCreditSpecification(vals url.Values, reqID string) (any, error) {
+	family := vals.Get("InstanceFamily")
+	if family == "" {
+		family = "t3"
+	}
 	resp := &defaultCreditSpecificationResponse{RequestID: reqID}
 	resp.InstanceFamilyCreditSpecification.CPUCredits = h.Backend.GetDefaultCreditSpecification()
-	resp.InstanceFamilyCreditSpecification.InstanceFamily = "t3"
+	resp.InstanceFamilyCreditSpecification.InstanceFamily = family
 
 	return resp, nil
 }
@@ -982,13 +992,17 @@ func (h *Handler) handleModifyDefaultCreditSpecification(
 	reqID string,
 ) (any, error) {
 	cpuCredits := vals.Get("CpuCredits")
+	family := vals.Get("InstanceFamily")
+	if family == "" {
+		family = "t3"
+	}
 	if err := h.Backend.ModifyDefaultCreditSpecification(cpuCredits); err != nil {
 		return nil, err
 	}
 
 	resp := &defaultCreditSpecificationResponse{RequestID: reqID}
 	resp.InstanceFamilyCreditSpecification.CPUCredits = cpuCredits
-	resp.InstanceFamilyCreditSpecification.InstanceFamily = "t3"
+	resp.InstanceFamilyCreditSpecification.InstanceFamily = family
 
 	return resp, nil
 }

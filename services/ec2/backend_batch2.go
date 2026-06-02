@@ -399,7 +399,7 @@ func (b *InMemoryBackend) EnableVolumeIO(volumeID string) error {
 
 // LockSnapshot locks a snapshot to prevent deletion.
 func (b *InMemoryBackend) LockSnapshot(
-	snapshotID, _ string,
+	snapshotID, lockMode string,
 	durationDays int,
 ) (*SnapshotLock, error) {
 	if snapshotID == "" {
@@ -419,7 +419,7 @@ func (b *InMemoryBackend) LockSnapshot(
 	now := time.Now().UTC()
 	lock := &SnapshotLock{
 		SnapshotID:       snapshotID,
-		LockState:        "locked",
+		LockState:        lockMode,
 		LockCreatedOn:    now,
 		LockDurationDays: durationDays,
 	}
@@ -647,7 +647,7 @@ func (b *InMemoryBackend) GetImageBlockPublicAccessState() string {
 	defer b.mu.RUnlock()
 
 	if b.imageBlockPublicAccess == "" {
-		return stateImageBlockNew
+		return stateImageUnblocked
 	}
 
 	return b.imageBlockPublicAccess
