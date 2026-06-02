@@ -1538,12 +1538,12 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 		in.Tags = make(map[string]string)
 	}
 
-	existing, err := h.Backend.ListTagsForResource(resourceARN)
-	if err != nil {
-		return h.handleError(c, err)
+	existing, existErr := h.Backend.ListTagsForResource(resourceARN)
+	if existErr != nil {
+		return h.handleError(c, existErr)
 	}
 
-	if err := validateTagMap(in.Tags, len(existing)); err != nil {
+	if validateErr := validateTagMap(in.Tags, len(existing)); validateErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException",
 			"tag key must be 1-128 chars, value 0-256 chars, max 50 tags per resource"))
 	}
