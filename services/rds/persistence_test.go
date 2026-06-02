@@ -148,7 +148,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *rds.InMemoryBackend, id string) {
 				t.Helper()
-				snaps, err := b.DescribeDBClusterSnapshots(id)
+				snaps, err := b.DescribeDBClusterSnapshots(id, "")
 				require.NoError(t, err)
 				require.Len(t, snaps, 1)
 				assert.Equal(t, id, snaps[0].DBClusterSnapshotIdentifier)

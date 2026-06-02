@@ -110,6 +110,7 @@ const (
 	instanceStatusDeleting  = "deleting"
 	instanceStatusAvailable = "available"
 	instanceStatusStopped   = "stopped"
+	instanceStatusRebooting = "rebooting"
 
 	subscriptionStatusActive           = "active"
 	backtrackStatusApplying            = "applying"
@@ -251,6 +252,8 @@ type DBParameter struct {
 	Description    string `json:"description"`
 	ApplyType      string `json:"applyType"`
 	DataType       string `json:"dataType"`
+	Source         string `json:"source"`
+	ApplyMethod    string `json:"applyMethod"`
 	IsModifiable   bool   `json:"isModifiable"`
 }
 
@@ -1354,7 +1357,8 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 }
 
 // DescribeDBSnapshots returns snapshots. If snapshotID is non-empty, returns only that snapshot.
-func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error) {
+// If instanceID is non-empty, returns all snapshots for that instance.
+func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]DBSnapshot, error) {
 	b.mu.RLock("DescribeDBSnapshots")
 	defer b.mu.RUnlock()
 
@@ -1369,6 +1373,9 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, 
 
 	snaps := make([]DBSnapshot, 0, len(b.snapshots))
 	for _, snap := range b.snapshots {
+		if instanceID != "" && snap.DBInstanceIdentifier != instanceID {
+			continue
+		}
 		snaps = append(snaps, *snap)
 	}
 	slices.SortFunc(snaps, func(a, b DBSnapshot) int {
@@ -1859,6 +1866,12 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParamet
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 	for _, p := range params {
+		if p.Source == "" {
+			p.Source = "user"
+		}
+		if p.ApplyMethod == "" {
+			p.ApplyMethod = "pending-reboot"
+		}
 		pg.Parameters[p.ParameterName] = p
 	}
 	cp := copyDBParameterGroup(pg)
@@ -2316,7 +2329,8 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 }
 
 // DescribeDBClusterSnapshots returns cluster snapshots.
-func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error) {
+// If clusterID is non-empty, only snapshots whose DBClusterIdentifier matches are returned.
+func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error) {
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
 	if snapshotID != "" {
@@ -2330,6 +2344,9 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 	}
 	result := make([]DBClusterSnapshot, 0, len(b.clusterSnapshots))
 	for _, snap := range b.clusterSnapshots {
+		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
+			continue
+		}
 		result = append(result, *snap)
 	}
 	slices.SortFunc(result, func(a, b DBClusterSnapshot) int {
@@ -2461,6 +2478,7 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 }
 
 // RebootDBInstance reboots the given instance.
+// AWS returns the instance in "rebooting" state; it transitions to "available" after the delay.
 func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("RebootDBInstance")
 	b.reconcileInstancesLocked()
@@ -2469,9 +2487,9 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	inst.DBInstanceStatus = instanceStatusAvailable
-	delete(b.instanceReadyAt, id)
-	b.publishInstanceEventLocked(id, "DB instance reboot completed")
+	inst.DBInstanceStatus = instanceStatusRebooting
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.publishInstanceEventLocked(id, "DB instance reboot initiated")
 	cp := *inst
 
 	return &cp, nil

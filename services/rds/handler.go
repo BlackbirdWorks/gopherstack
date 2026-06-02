@@ -808,8 +808,9 @@ func (h *Handler) handleCreateDBSnapshot(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
+	instanceID := vals.Get("DBInstanceIdentifier")
 
-	snaps, err := h.Backend.DescribeDBSnapshots(snapshotID)
+	snaps, err := h.Backend.DescribeDBSnapshots(snapshotID, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1903,7 +1904,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID)
+	clusterID := vals.Get("DBClusterIdentifier")
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -2429,6 +2431,8 @@ type xmlDBParameter struct {
 	Description    string `xml:"Description,omitempty"`
 	ApplyType      string `xml:"ApplyType,omitempty"`
 	DataType       string `xml:"DataType,omitempty"`
+	Source         string `xml:"Source,omitempty"`
+	ApplyMethod    string `xml:"ApplyMethod,omitempty"`
 	IsModifiable   bool   `xml:"IsModifiable"`
 }
 

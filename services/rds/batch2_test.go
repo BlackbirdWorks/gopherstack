@@ -676,14 +676,14 @@ func TestBatch2_ClusterSnapshot_CRUD(t *testing.T) {
 	assert.Equal(t, "snap-a", snap.DBClusterSnapshotIdentifier)
 	assert.Equal(t, "aurora-postgresql", snap.Engine)
 
-	snaps, err := b.DescribeDBClusterSnapshots("snap-a")
+	snaps, err := b.DescribeDBClusterSnapshots("snap-a", "")
 	require.NoError(t, err)
 	require.Len(t, snaps, 1)
 
 	_, err = b.DeleteDBClusterSnapshot("snap-a")
 	require.NoError(t, err)
 
-	_, err = b.DescribeDBClusterSnapshots("snap-a")
+	_, err = b.DescribeDBClusterSnapshots("snap-a", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotNotFound)
 }
@@ -711,7 +711,7 @@ func TestBatch2_ClusterSnapshot_Copy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "dst-snap", dst.DBClusterSnapshotIdentifier)
 
-	snaps, err := b.DescribeDBClusterSnapshots("")
+	snaps, err := b.DescribeDBClusterSnapshots("", "")
 	require.NoError(t, err)
 	assert.Len(t, snaps, 2)
 }
@@ -1947,12 +1947,12 @@ func TestBatch2_Concurrent_ClusterSnapshot(t *testing.T) {
 			defer wg.Done()
 			snapID := fmt.Sprintf("conc-snap-%d", n)
 			_, _ = b.CreateDBClusterSnapshot(snapID, "conc-cluster")
-			_, _ = b.DescribeDBClusterSnapshots(snapID)
+			_, _ = b.DescribeDBClusterSnapshots(snapID, "")
 		}(i)
 	}
 	wg.Wait()
 
-	snaps, err := b.DescribeDBClusterSnapshots("")
+	snaps, err := b.DescribeDBClusterSnapshots("", "")
 	require.NoError(t, err)
 	assert.Len(t, snaps, 10)
 }
