@@ -47,6 +47,10 @@ var (
 	ErrRepositoryCreationTemplateAlreadyExists = awserr.New("TemplateAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrRegistryPolicyNotFound is returned when the registry policy does not exist.
 	ErrRegistryPolicyNotFound = awserr.New("RegistryPolicyNotFoundException", awserr.ErrNotFound)
+	// ErrRepositoryPolicyNotFound is returned when a repository-level IAM policy does not exist.
+	ErrRepositoryPolicyNotFound = awserr.New("RepositoryPolicyNotFoundException", awserr.ErrNotFound)
+	// ErrImageNotFound is returned when a requested image does not exist in a repository.
+	ErrImageNotFound = awserr.New("ImageNotFoundException", awserr.ErrNotFound)
 )
 
 // Repository represents an ECR repository.
@@ -638,6 +642,10 @@ func (b *InMemoryBackend) BatchDeleteImage(
 	b.mu.Lock("BatchDeleteImage")
 	defer b.mu.Unlock()
 
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
 	deleted := make([]ImageIdentifier, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
@@ -674,6 +682,10 @@ func (b *InMemoryBackend) BatchGetImage(
 ) ([]Image, []ImageFailure, error) {
 	b.mu.RLock("BatchGetImage")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
 
 	imgs := make([]Image, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
@@ -749,7 +761,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 		for _, id := range imageIDs {
 			img, ok := findImageLocked(repoImages, repoTagIdx, id)
 			if !ok {
-				return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+				return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 			}
 
 			out = append(out, annotate(*img))
@@ -1352,7 +1364,7 @@ func (b *InMemoryBackend) GetRepositoryPolicy(repositoryName string) (*Repositor
 
 	policyText, ok := b.repositoryPolicies[repositoryName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
 	return &RepositoryPolicyResult{
@@ -1391,7 +1403,7 @@ func (b *InMemoryBackend) DeleteRepositoryPolicy(repositoryName string) (*Reposi
 
 	policyText, ok := b.repositoryPolicies[repositoryName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
 	delete(b.repositoryPolicies, repositoryName)
@@ -1602,7 +1614,7 @@ func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject Imag
 
 	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok &&
 		subject.ImageDigest != "" {
-		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
 	return []ImageReferrer{}, nil

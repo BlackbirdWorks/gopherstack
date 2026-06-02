@@ -1,5 +1,21 @@
 package ecr
 
+// CreateRepoInternal creates a minimal repository entry directly for testing.
+// Use this alongside AddImageInternal when a test needs images in a repo that
+// also satisfies the repo-existence check.
+func (b *InMemoryBackend) CreateRepoInternal(repositoryName string) {
+	b.mu.Lock("CreateRepoInternal")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		b.repos[repositoryName] = &Repository{
+			RepositoryName: repositoryName,
+			RegistryID:     b.accountID,
+			ImageTagMutability: "MUTABLE",
+		}
+	}
+}
+
 // ImageCount returns the total number of images stored across all repositories.
 // Used only in tests to verify backend state without going through the HTTP handler.
 func (b *InMemoryBackend) ImageCount() int {
