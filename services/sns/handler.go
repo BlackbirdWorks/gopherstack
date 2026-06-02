@@ -578,6 +578,15 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 			fmt.Sprintf("Invalid parameter: Protocol Reason: %s is not a valid protocol", protocol))
 	}
 
+	// AWS requires SubscriptionRoleArn for Firehose delivery stream subscriptions.
+	if protocol == "firehose" {
+		attrs := extractFormAttributes(c)
+		if attrs[attrSubscriptionRoleArn] == "" {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+				"SubscriptionRoleArn is required for Firehose subscriptions")
+		}
+	}
+
 	filterPolicy := extractFilterPolicy(c.Request().Form)
 
 	sub, err := h.Backend.Subscribe(topicArn, protocol, endpoint, filterPolicy)
@@ -875,6 +884,12 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		}
 
 		seen[entry.id] = true
+	}
+
+	// AWS SNS PublishBatch returns a top-level NotFoundException when the topic
+	// does not exist, rather than per-entry failures. Pre-check topic existence.
+	if _, err := h.Backend.GetTopicAttributes(topicArn); err != nil {
+		return h.handleBackendError(c, err)
 	}
 
 	// AWS rejects PublishBatch when the combined message bodies exceed the

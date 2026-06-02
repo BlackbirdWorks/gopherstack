@@ -120,7 +120,8 @@ func TestInMemoryBackend_CreateTopic(t *testing.T) {
 				b.CreateTopic("dup-topic", nil)
 			},
 			topicName: "dup-topic",
-			wantErr:   sns.ErrTopicAlreadyExists,
+			// AWS CreateTopic is idempotent: no error, returns existing ARN.
+			wantArn: "arn:aws:sns:us-east-1:000000000000:dup-topic",
 		},
 	}
 
@@ -728,8 +729,9 @@ func TestSNSHandler_CreateTopic(t *testing.T) {
 				"Version": {"2010-03-31"},
 				"Name":    {"dup"},
 			},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: []string{"TopicAlreadyExists"},
+			// AWS CreateTopic is idempotent: duplicate name returns existing ARN (200 OK).
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"dup"},
 		},
 		{
 			name: "with attributes",
@@ -1464,19 +1466,17 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 			wantBodyContains: []string{"Successful"},
 		},
 		{
-			name: "partial failure topic not found",
-			setup: func(b *sns.InMemoryBackend) {
-				tp, _ := b.CreateTopic("pfail-topic", nil)
-				b.DeleteTopic(tp.TopicArn)
-			},
+			name: "topic not found",
 			form: url.Values{
 				"Action":                                 {"PublishBatch"},
 				"Version":                                {"2010-03-31"},
-				"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:pfail-topic"},
+				"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:nonexistent-topic"},
 				"PublishBatchRequestEntries.member.1.Id": {"fail1"},
 				"PublishBatchRequestEntries.member.1.Message": {"msg"},
 			},
-			wantStatus:       http.StatusOK,
+			// AWS SNS returns a top-level NotFoundException for non-existent topics,
+			// not per-entry failures.
+			wantStatus:       http.StatusBadRequest,
 			wantBodyContains: []string{"NotFound"},
 		},
 	}
@@ -2422,9 +2422,10 @@ func TestCreateTopicInRegion_Backend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:sns:eu-west-1:000000000000:my-topic", topic.TopicArn)
 
-	// Duplicate should fail.
-	_, err = b.CreateTopicInRegion("my-topic", "eu-west-1", nil)
-	require.ErrorIs(t, err, sns.ErrTopicAlreadyExists)
+	// Duplicate returns existing topic (idempotent), no error.
+	tp2, err := b.CreateTopicInRegion("my-topic", "eu-west-1", nil)
+	require.NoError(t, err)
+	assert.Equal(t, topic.TopicArn, tp2.TopicArn, "idempotent CreateTopicInRegion must return same ARN")
 
 	// Empty region falls back to backend default.
 	topic2, err := b.CreateTopicInRegion("default-topic", "", nil)
@@ -4843,8 +4844,9 @@ func TestSNS_SubscribeProtocols(t *testing.T) {
 		},
 		{
 			name: "firehose", protocol: "firehose",
-			endpoint:   "arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream",
-			wantStatus: http.StatusOK,
+			endpoint: "arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream",
+			// firehose requires SubscriptionRoleArn — tested without it here to verify 400.
+			wantStatus: http.StatusBadRequest,
 		},
 		{name: "invalid", protocol: "ftp", endpoint: "ftp://example.com", wantStatus: http.StatusBadRequest},
 		{name: "empty", protocol: "", endpoint: "", wantStatus: http.StatusBadRequest},
