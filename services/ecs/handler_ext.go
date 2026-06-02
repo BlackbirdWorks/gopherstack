@@ -54,7 +54,7 @@ type describeContainerInstancesInput struct {
 
 type describeContainerInstancesOutput struct {
 	ContainerInstances []containerInstanceView `json:"containerInstances"`
-	Failures           []failureView          `json:"failures"`
+	Failures           []failureView           `json:"failures"`
 }
 
 func (h *Handler) handleDescribeContainerInstances(

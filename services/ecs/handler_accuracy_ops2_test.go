@@ -113,8 +113,10 @@ func TestAccOps2_DescribeServices_UnknownReturnsFailure(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "acc-ops2-svc-notfound"})
 
 	rec := doECSRequest(t, h, "DescribeServices", map[string]any{
+		"cluster":  "acc-ops2-svc-notfound",
 		"services": []string{"ghost-service"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -192,7 +194,9 @@ func TestAccOps2_DescribeServices_EmptyListReturnsAll(t *testing.T) {
 		"desiredCount":   0,
 	})
 
-	rec := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{}})
+	rec := doECSRequest(t, h, "DescribeServices", map[string]any{
+		"services": []string{},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
