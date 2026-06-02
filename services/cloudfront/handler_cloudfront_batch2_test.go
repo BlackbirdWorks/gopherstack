@@ -57,7 +57,7 @@ func TestBatch2_DistributionTenantCRUD(t *testing.T) {
 	}
 
 	// Update tenant requires If-Match ETag.
-	updateRR := cfRequestWithHeader(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID, "",
+	updateRR := cfRequestWithHeader(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID,
 		map[string]string{"If-Match": etag})
 	if updateRR.Code != http.StatusOK {
 		t.Errorf("expected 200 on update, got %d: %s", updateRR.Code, updateRR.Body.String())
@@ -69,7 +69,7 @@ func TestBatch2_DistributionTenantCRUD(t *testing.T) {
 	etag = updateRR.Header().Get("ETag")
 
 	// Delete tenant requires If-Match ETag.
-	rr := cfRequestWithHeader(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID, "",
+	rr := cfRequestWithHeader(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID,
 		map[string]string{"If-Match": etag})
 	if rr.Code != http.StatusNoContent {
 		t.Errorf("expected 204 on delete, got %d: %s", rr.Code, rr.Body.String())

@@ -1,7 +1,6 @@
 package cloudfront_test
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,20 +14,13 @@ import (
 func cfRequestWithHeader(
 	t *testing.T,
 	h interface{ Handler() echo.HandlerFunc },
-	method, path, body string,
+	method, path string,
 	headers map[string]string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	var bodyReader *bytes.Reader
-	if body != "" {
-		bodyReader = bytes.NewReader([]byte(body))
-	} else {
-		bodyReader = bytes.NewReader(nil)
-	}
-
 	e := echo.New()
-	req := httptest.NewRequest(method, path, bodyReader)
+	req := httptest.NewRequest(method, path, nil)
 	req.Header.Set("Content-Type", "application/xml")
 
 	for k, v := range headers {
@@ -75,10 +67,9 @@ func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
 		},
 		{
 			name: "value_too_long_rejected",
-			tagBody: `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>k</Key><Value>` + strings.Repeat(
-				"v",
-				257,
-			) + `</Value></Tag></Items></Tags>`,
+			tagBody: `<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">` +
+				`<Items><Tag><Key>k</Key><Value>` + strings.Repeat("v", 257) +
+				`</Value></Tag></Items></Tags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
@@ -166,7 +157,8 @@ func TestBatch2Accuracy_TagResource_MaxTagsPerResource(t *testing.T) {
 		h,
 		http.MethodPost,
 		prefix+"tagging?Resource="+arn,
-		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"><Items><Tag><Key>key50</Key><Value>v</Value></Tag></Items></Tags>`,
+		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">` +
+			`<Items><Tag><Key>key50</Key><Value>v</Value></Tag></Items></Tags>`,
 	)
 	if over.Code != http.StatusBadRequest {
 		t.Errorf("adding 51st tag: got %d want 400: %s", over.Code, over.Body.String())
@@ -278,7 +270,7 @@ func TestBatch2Accuracy_UpdateDistributionTenant_RequiresIfMatch(t *testing.T) {
 			if tc.ifMatch != "" {
 				headers = map[string]string{"If-Match": tc.ifMatch}
 			}
-			rr := cfRequestWithHeader(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID, "", headers)
+			rr := cfRequestWithHeader(t, h, http.MethodPut, prefix+"distribution-tenant/"+tenantID, headers)
 			if rr.Code != tc.wantCode {
 				t.Errorf("got %d want %d: %s", rr.Code, tc.wantCode, rr.Body.String())
 			}
@@ -335,7 +327,7 @@ func TestBatch2Accuracy_DeleteDistributionTenant_RequiresIfMatch(t *testing.T) {
 			if tc.ifMatch != "" {
 				headers = map[string]string{"If-Match": tc.ifMatch}
 			}
-			rr := cfRequestWithHeader(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID, "", headers)
+			rr := cfRequestWithHeader(t, h, http.MethodDelete, prefix+"distribution-tenant/"+tenantID, headers)
 			if rr.Code != tc.wantCode {
 				t.Errorf("got %d want %d: %s", rr.Code, tc.wantCode, rr.Body.String())
 			}
@@ -373,10 +365,11 @@ func TestBatch2Accuracy_CreateDistributionWithTags_InvalidTagging(t *testing.T) 
 		},
 		{
 			name: "key_too_long",
-			body: `<DistributionConfigWithTags><DistributionConfig><CallerReference>cr-long-key</CallerReference><Enabled>true</Enabled></DistributionConfig><Tags><Tag><Key>` + strings.Repeat(
-				"k",
-				129,
-			) + `</Key><Value>v</Value></Tag></Tags></DistributionConfigWithTags>`,
+			body: `<DistributionConfigWithTags>` +
+				`<DistributionConfig><CallerReference>cr-long-key</CallerReference>` +
+				`<Enabled>true</Enabled></DistributionConfig>` +
+				`<Tags><Tag><Key>` + strings.Repeat("k", 129) +
+				`</Key><Value>v</Value></Tag></Tags></DistributionConfigWithTags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
