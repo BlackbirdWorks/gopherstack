@@ -15,6 +15,9 @@ package sns_test
 //   - EndpointActive / EndpointDisabled counts in GetPlatformApplicationAttributes
 //   - Kinesis Firehose subscription auto-confirm and delivery
 //   - FilterPolicyScope round-trip via handler
+//   - CreateTopic idempotency (duplicate name returns existing ARN)
+//   - PublishBatch top-level NotFoundException for non-existent topics
+//   - Subscribe Firehose requires SubscriptionRoleArn
 
 import (
 	"encoding/xml"
@@ -1573,4 +1576,137 @@ func TestBatch2_DeduplicatedFIFOAlsoReturnsSequenceNumber(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 	seq2 := publishResponseSequenceNumber(t, rec2.Body.String())
 	assert.NotEmpty(t, seq2, "deduplicated publish must still return a SequenceNumber")
+}
+
+// ---------------------------------------------------------------------------
+// CreateTopic idempotency
+// ---------------------------------------------------------------------------
+
+// TestBatch2_CreateTopicIdempotentReturnsSameARN verifies that CreateTopic with
+// an already-existing name returns the existing topic ARN (AWS idempotency).
+func TestBatch2_CreateTopicIdempotentReturnsSameARN(t *testing.T) {
+	t.Parallel()
+
+	b := newB2Backend(t)
+	tp1, err := b.CreateTopic("idem-topic", nil)
+	require.NoError(t, err)
+
+	tp2, err := b.CreateTopic("idem-topic", nil)
+	require.NoError(t, err, "CreateTopic must be idempotent, not return an error on duplicate name")
+	assert.Equal(t, tp1.TopicArn, tp2.TopicArn, "idempotent CreateTopic must return the same ARN")
+}
+
+// TestBatch2_CreateTopicIdempotentViaHandler verifies the handler returns 200 with
+// the existing ARN when CreateTopic is called twice with the same name.
+func TestBatch2_CreateTopicIdempotentViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newB2Handler(t)
+
+	rec1 := doB2Request(t, h, url.Values{
+		"Action":  {"CreateTopic"},
+		"Name":    {"idem-handler-topic"},
+		"Version": {"2010-03-31"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doB2Request(t, h, url.Values{
+		"Action":  {"CreateTopic"},
+		"Name":    {"idem-handler-topic"},
+		"Version": {"2010-03-31"},
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code, "duplicate CreateTopic must return 200")
+	assert.Contains(t, rec2.Body.String(), "idem-handler-topic")
+}
+
+// ---------------------------------------------------------------------------
+// PublishBatch top-level error for non-existent topic
+// ---------------------------------------------------------------------------
+
+// TestBatch2_PublishBatchTopicNotFoundTopLevelError verifies that PublishBatch
+// returns a top-level 400 NotFoundException when the topic does not exist,
+// rather than per-entry failures.
+func TestBatch2_PublishBatchTopicNotFoundTopLevelError(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newB2Handler(t)
+
+	rec := doB2Request(t, h, url.Values{
+		"Action":                                      {"PublishBatch"},
+		"TopicArn":                                    {"arn:aws:sns:us-east-1:000000000000:no-such-topic"},
+		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"PublishBatchRequestEntries.member.1.Message": {"hello"},
+		"Version": {"2010-03-31"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"PublishBatch to non-existent topic must return 400 top-level error")
+	assert.Contains(t, rec.Body.String(), "NotFound")
+}
+
+// TestBatch2_PublishBatchExistingTopicStillWorks verifies that after the
+// topic existence pre-check, PublishBatch still works correctly for valid topics.
+func TestBatch2_PublishBatchExistingTopicStillWorks(t *testing.T) {
+	t.Parallel()
+
+	h, b := newB2Handler(t)
+	tp, err := b.CreateTopic("batch-precheck-topic", nil)
+	require.NoError(t, err)
+
+	rec := doB2Request(t, h, url.Values{
+		"Action":                                      {"PublishBatch"},
+		"TopicArn":                                    {tp.TopicArn},
+		"PublishBatchRequestEntries.member.1.Id":      {"e1"},
+		"PublishBatchRequestEntries.member.1.Message": {"hello"},
+		"Version": {"2010-03-31"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "e1")
+}
+
+// ---------------------------------------------------------------------------
+// Subscribe Firehose requires SubscriptionRoleArn
+// ---------------------------------------------------------------------------
+
+// TestBatch2_SubscribeFirehoseMissingRoleArnRejected verifies that subscribing
+// with the firehose protocol without SubscriptionRoleArn returns 400.
+func TestBatch2_SubscribeFirehoseMissingRoleArnRejected(t *testing.T) {
+	t.Parallel()
+
+	h, b := newB2Handler(t)
+	tp, err := b.CreateTopic("firehose-role-topic", nil)
+	require.NoError(t, err)
+
+	rec := doB2Request(t, h, url.Values{
+		"Action":   {"Subscribe"},
+		"TopicArn": {tp.TopicArn},
+		"Protocol": {"firehose"},
+		"Endpoint": {"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
+		"Version":  {"2010-03-31"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"firehose Subscribe without SubscriptionRoleArn must return 400")
+	assert.Contains(t, rec.Body.String(), "SubscriptionRoleArn")
+}
+
+// TestBatch2_SubscribeFirehoseWithRoleArnSucceeds verifies that subscribing
+// with the firehose protocol and SubscriptionRoleArn succeeds.
+func TestBatch2_SubscribeFirehoseWithRoleArnSucceeds(t *testing.T) {
+	t.Parallel()
+
+	h, b := newB2Handler(t)
+	tp, err := b.CreateTopic("firehose-role-ok-topic", nil)
+	require.NoError(t, err)
+
+	rec := doB2Request(t, h, url.Values{
+		"Action":                     {"Subscribe"},
+		"TopicArn":                   {tp.TopicArn},
+		"Protocol":                   {"firehose"},
+		"Endpoint":                   {"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
+		"Attributes.entry.1.key":     {"SubscriptionRoleArn"},
+		"Attributes.entry.1.value":   {"arn:aws:iam::000000000000:role/firehose-role"},
+		"Version":                    {"2010-03-31"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code,
+		"firehose Subscribe with SubscriptionRoleArn must return 200")
+	assert.Contains(t, rec.Body.String(), "SubscriptionArn")
 }

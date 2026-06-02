@@ -511,8 +511,10 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	}
 
 	topicArn := arn.Build("sns", region, b.accountID, name)
-	if _, exists := b.topics[topicArn]; exists {
-		return nil, ErrTopicAlreadyExists
+	if existing, exists := b.topics[topicArn]; exists {
+		// AWS SNS CreateTopic is idempotent: calling it with an existing name
+		// returns the existing topic ARN rather than an error.
+		return existing, nil
 	}
 
 	attrs := make(map[string]string, len(attributes)+1)
