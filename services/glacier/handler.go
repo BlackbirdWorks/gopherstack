@@ -963,8 +963,8 @@ func validateVaultName(name string) error {
 
 	for i := range len(name) {
 		c := name[i]
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-			c == '.' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') &&
+			c != '.' && c != '_' && c != '-' {
 			return fmt.Errorf("%w: invalid character 0x%02x at position %d", ErrInvalidVaultName, c, i)
 		}
 	}
