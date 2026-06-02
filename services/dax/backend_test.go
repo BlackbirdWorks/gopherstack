@@ -775,7 +775,7 @@ func TestTagResource(t *testing.T) {
 			b := newTestBackend()
 			arn := tt.setup(b)
 
-			err := b.TagResource(arn, tt.tags)
+			_, err := b.TagResource(arn, tt.tags)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -798,10 +798,10 @@ func TestUntagResource(t *testing.T) {
 	cluster, err := b.CreateCluster(validCreateInput("untag-test"))
 	require.NoError(t, err)
 
-	err = b.TagResource(cluster.ClusterArn, map[string]string{"k1": "v1", "k2": "v2"})
+	_, err = b.TagResource(cluster.ClusterArn, map[string]string{"k1": "v1", "k2": "v2"})
 	require.NoError(t, err)
 
-	err = b.UntagResource(cluster.ClusterArn, []string{"k1"})
+	_, err = b.UntagResource(cluster.ClusterArn, []string{"k1"})
 	require.NoError(t, err)
 
 	tags, _, err := b.ListTags(cluster.ClusterArn, "")

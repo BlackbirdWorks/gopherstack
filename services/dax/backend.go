@@ -43,6 +43,8 @@ var (
 	ErrInvalidParameterCombination = awserr.New("InvalidParameterCombinationException", awserr.ErrInvalidParameter)
 	// ErrNodeNotFound is returned when a node does not exist.
 	ErrNodeNotFound = awserr.New("NodeNotFoundFault", awserr.ErrNotFound)
+	// ErrTagQuotaExceeded is returned when adding tags would exceed the per-resource limit.
+	ErrTagQuotaExceeded = awserr.New("TagQuotaPerResourceExceeded", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -741,17 +743,31 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 	return b.clusterCopy(cluster), nil
 }
 
-// TagResource adds tags to a DAX resource.
-func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+// TagResource adds tags to a DAX resource and returns the complete tag set.
+func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) (map[string]string, error) {
 	if resourceArn == "" {
-		return fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
 	}
 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceArn) {
-		return fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
+		return nil, fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
+	}
+
+	existing := b.tags[resourceArn]
+	merged := len(existing)
+
+	for k := range tags {
+		if _, alreadyExists := existing[k]; !alreadyExists {
+			merged++
+		}
+	}
+
+	if merged > maxTagsPerResource {
+		return nil, fmt.Errorf("%w: resource would have %d tags (max %d)",
+			ErrTagQuotaExceeded, merged, maxTagsPerResource)
 	}
 
 	if b.tags[resourceArn] == nil {
@@ -765,20 +781,23 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 		maps.Copy(cluster.Tags, tags)
 	}
 
-	return nil
+	result := make(map[string]string, len(b.tags[resourceArn]))
+	maps.Copy(result, b.tags[resourceArn])
+
+	return result, nil
 }
 
-// UntagResource removes tags from a DAX resource.
-func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+// UntagResource removes tags from a DAX resource and returns the remaining tags.
+func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) (map[string]string, error) {
 	if resourceArn == "" {
-		return fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
 	}
 
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceArn) {
-		return fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
+		return nil, fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
 	}
 
 	if b.tags[resourceArn] != nil {
@@ -793,7 +812,12 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		}
 	}
 
-	return nil
+	result := make(map[string]string)
+	if b.tags[resourceArn] != nil {
+		maps.Copy(result, b.tags[resourceArn])
+	}
+
+	return result, nil
 }
 
 // ListTags returns tags for a DAX resource with optional pagination.

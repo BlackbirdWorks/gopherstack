@@ -18,8 +18,8 @@ type StorageBackend interface {
 	RebootNode(clusterName, nodeID string) (*Cluster, error)
 
 	// Tag operations.
-	TagResource(resourceArn string, tags map[string]string) error
-	UntagResource(resourceArn string, tagKeys []string) error
+	TagResource(resourceArn string, tags map[string]string) (map[string]string, error)
+	UntagResource(resourceArn string, tagKeys []string) (map[string]string, error)
 	ListTags(resourceArn string, nextToken string) (map[string]string, string, error)
 
 	// Parameter group operations.
