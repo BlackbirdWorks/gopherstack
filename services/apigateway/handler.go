@@ -2358,6 +2358,19 @@ func (h *Handler) deploymentCRUDActions() map[string]actionFn {
 			if err != nil {
 				return 0, nil, err
 			}
+			// AWS CreateDeployment accepts stageDescription, variables, and
+			// tracingEnabled when a stageName is given. Apply them via UpdateStage.
+			if input.StageName != "" && (input.StageDescription != "" || len(input.Variables) > 0 || input.TracingEnabled) {
+				stageUpd := UpdateStageInput{
+					Description: input.StageDescription,
+					Variables:   input.Variables,
+				}
+				if input.TracingEnabled {
+					t := true
+					stageUpd.TracingEnabled = &t
+				}
+				_, _ = h.Backend.UpdateStage(input.RestAPIID, input.StageName, stageUpd)
+			}
 
 			return http.StatusCreated, depl, nil
 		},
