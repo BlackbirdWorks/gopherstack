@@ -119,7 +119,7 @@ func TestECS_ExecuteFISAction_StopTask(t *testing.T) {
 			// Verify task is stopped.
 			if tt.createTask && len(targets) > 0 {
 				taskArn := targets[0]
-				describedTasks, descErr := h.Backend.DescribeTasks("default", []string{taskArn})
+				describedTasks, _, descErr := h.Backend.DescribeTasks("default", []string{taskArn})
 				require.NoError(t, descErr)
 				require.Len(t, describedTasks, 1)
 				assert.Equal(t, "STOPPED", describedTasks[0].LastStatus,

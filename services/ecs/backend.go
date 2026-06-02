@@ -447,11 +447,14 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 // ListClusters returns all clusters.
 func (b *InMemoryBackend) ListClusters() ([]Cluster, error) {
-	return b.DescribeClusters(nil)
+	clusters, _, err := b.DescribeClusters(nil)
+
+	return clusters, err
 }
 
 // DescribeClusters returns cluster metadata.
-func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, error) {
+// Unknown cluster names are returned as failures, not errors, matching AWS behaviour.
+func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []Failure, error) {
 	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
@@ -461,23 +464,30 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, er
 			out = append(out, b.enrichCluster(c))
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]Cluster, 0, len(clusterNames))
+	failures := make([]Failure, 0, len(clusterNames))
 
 	for _, name := range clusterNames {
 		key := clusterKey(name)
 
 		c, ok := b.clusters[key]
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, name)
+			failures = append(failures, Failure{
+				Arn:    name,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("cluster %s not found", name),
+			})
+
+			continue
 		}
 
 		out = append(out, b.enrichCluster(c))
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // enrichCluster fills in runtime-computed counts for a cluster.
@@ -895,7 +905,8 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 }
 
 // DescribeServices returns services for the given cluster, optionally filtered by name.
-func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string) ([]Service, error) {
+// Unknown service names are returned as failures, not errors, matching AWS behaviour.
+func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string) ([]Service, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeServices")
@@ -903,7 +914,7 @@ func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string
 
 	svcs, ok := b.services[clusterName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(serviceNames) == 0 {
@@ -912,10 +923,11 @@ func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string
 			out = append(out, b.enrichService(s, clusterName))
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]Service, 0, len(serviceNames))
+	failures := make([]Failure, 0, len(serviceNames))
 
 	for _, name := range serviceNames {
 		// Support ARN lookup by extracting the service name.
@@ -923,13 +935,19 @@ func (b *InMemoryBackend) DescribeServices(cluster string, serviceNames []string
 
 		s, found := svcs[key]
 		if !found {
-			return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, name)
+			failures = append(failures, Failure{
+				Arn:    name,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("service %s not found", name),
+			})
+
+			continue
 		}
 
 		out = append(out, b.enrichService(s, clusterName))
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // serviceKey extracts service name from an ARN or returns name as-is.
@@ -1283,7 +1301,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 }
 
 // DescribeTasks returns tasks on a given cluster, optionally filtered by ARN.
-func (b *InMemoryBackend) DescribeTasks(cluster string, taskArns []string) ([]Task, error) {
+// Unknown task ARNs are returned as failures, not errors, matching AWS behaviour.
+func (b *InMemoryBackend) DescribeTasks(cluster string, taskArns []string) ([]Task, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeTasks")
@@ -1291,7 +1310,7 @@ func (b *InMemoryBackend) DescribeTasks(cluster string, taskArns []string) ([]Ta
 
 	clusterTasks, ok := b.tasks[clusterName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(taskArns) == 0 {
@@ -1300,21 +1319,28 @@ func (b *InMemoryBackend) DescribeTasks(cluster string, taskArns []string) ([]Ta
 			out = append(out, *t)
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]Task, 0, len(taskArns))
+	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
 		t, found := clusterTasks[arn]
 		if !found {
-			return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, arn)
+			failures = append(failures, Failure{
+				Arn:    arn,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("task %s not found", arn),
+			})
+
+			continue
 		}
 
 		out = append(out, *t)
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // StopTask stops a running task.

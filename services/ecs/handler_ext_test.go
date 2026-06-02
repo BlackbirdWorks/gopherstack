@@ -218,8 +218,16 @@ func TestECS_DescribeContainerInstances_NotFound(t *testing.T) {
 			"arn:aws:ecs:us-east-1:000000000000:container-instance/desc-ci-notfound/nonexistent",
 		},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ContainerInstanceNotFoundException")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	instances, _ := resp["containerInstances"].([]any)
+	assert.Empty(t, instances)
+
+	failures, _ := resp["failures"].([]any)
+	assert.Len(t, failures, 1)
 }
 
 func TestECS_DeregisterContainerInstance(t *testing.T) {

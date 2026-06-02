@@ -54,13 +54,14 @@ type describeContainerInstancesInput struct {
 
 type describeContainerInstancesOutput struct {
 	ContainerInstances []containerInstanceView `json:"containerInstances"`
+	Failures           []failureView          `json:"failures"`
 }
 
 func (h *Handler) handleDescribeContainerInstances(
 	_ context.Context,
 	in *describeContainerInstancesInput,
 ) (*describeContainerInstancesOutput, error) {
-	cis, err := h.Backend.DescribeContainerInstances(in.Cluster, in.ContainerInstances)
+	cis, failures, err := h.Backend.DescribeContainerInstances(in.Cluster, in.ContainerInstances)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +71,12 @@ func (h *Handler) handleDescribeContainerInstances(
 		views = append(views, toContainerInstanceView(ci))
 	}
 
-	return &describeContainerInstancesOutput{ContainerInstances: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &describeContainerInstancesOutput{ContainerInstances: views, Failures: failViews}, nil
 }
 
 type listContainerInstancesInput struct {

@@ -310,11 +310,12 @@ func TestECS_DescribeClusters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		clusters  []string
-		filter    []string
-		wantCode  int
-		wantCount int
+		name         string
+		clusters     []string
+		filter       []string
+		wantCode     int
+		wantCount    int
+		wantFailures int
 	}{
 		{
 			name:      "list all",
@@ -331,10 +332,11 @@ func TestECS_DescribeClusters(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name:     "not found",
-			clusters: []string{},
-			filter:   []string{"nonexistent"},
-			wantCode: http.StatusBadRequest,
+			name:         "not found returns failure not error",
+			clusters:     []string{},
+			filter:       []string{"nonexistent"},
+			wantCode:     http.StatusOK,
+			wantFailures: 1,
 		},
 	}
 
@@ -357,13 +359,18 @@ func TestECS_DescribeClusters(t *testing.T) {
 			rec := doECSRequest(t, h, "DescribeClusters", input)
 			require.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.wantCount > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
+			if tt.wantCount > 0 {
 				clusters, ok := resp["clusters"].([]any)
 				require.True(t, ok)
 				assert.Len(t, clusters, tt.wantCount)
+			}
+
+			if tt.wantFailures > 0 {
+				failures, _ := resp["failures"].([]any)
+				assert.Len(t, failures, tt.wantFailures)
 			}
 		})
 	}
@@ -801,9 +808,18 @@ func TestECS_DeleteService(t *testing.T) {
 	svc := resp["service"].(map[string]any)
 	assert.Equal(t, "del-svc", svc["serviceName"])
 
-	// Confirm deletion.
+	// Confirm deletion: AWS returns 200 with failures list, not 404.
 	rec3 := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{"del-svc"}})
-	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var resp3 map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+
+	svcs3, _ := resp3["services"].([]any)
+	assert.Empty(t, svcs3)
+
+	failures3, _ := resp3["failures"].([]any)
+	assert.Len(t, failures3, 1)
 }
 
 // ----- Task tests -----
@@ -1151,7 +1167,7 @@ func TestECS_Backend_ClusterKey_ARN(t *testing.T) {
 	c, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "arn-test"})
 	require.NoError(t, err)
 
-	clusters, err := backend.DescribeClusters([]string{c.ClusterArn})
+	clusters, _, err := backend.DescribeClusters([]string{c.ClusterArn})
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	assert.Equal(t, "arn-test", clusters[0].ClusterName)
@@ -1162,7 +1178,7 @@ func TestECS_Backend_DescribeServices_ClusterNotFound(t *testing.T) {
 
 	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
 
-	_, err := backend.DescribeServices("nonexistent-cluster", nil)
+	_, _, err := backend.DescribeServices("nonexistent-cluster", nil)
 	require.Error(t, err)
 }
 
@@ -1212,7 +1228,7 @@ func TestECS_Backend_DescribeTasks_ClusterNotFound(t *testing.T) {
 
 	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
 
-	_, err := backend.DescribeTasks("nonexistent-cluster", []string{"task-arn"})
+	_, _, err := backend.DescribeTasks("nonexistent-cluster", []string{"task-arn"})
 	require.Error(t, err)
 }
 
@@ -1335,7 +1351,7 @@ func TestECS_Backend_ServiceKey_ARN(t *testing.T) {
 	require.NoError(t, err)
 
 	// Describe using the full service ARN.
-	svcs, err := backend.DescribeServices("arn-svc-cluster", []string{svc.ServiceArn})
+	svcs, _, err := backend.DescribeServices("arn-svc-cluster", []string{svc.ServiceArn})
 	require.NoError(t, err)
 	require.Len(t, svcs, 1)
 	assert.Equal(t, "arn-svc", svcs[0].ServiceName)
@@ -1400,7 +1416,7 @@ func TestECS_Backend_EnrichCluster_PendingTasks(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	clusters, err := backend.DescribeClusters([]string{"enrich-cluster"})
+	clusters, _, err := backend.DescribeClusters([]string{"enrich-cluster"})
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	assert.Equal(t, 2, clusters[0].RunningTasksCount)
@@ -1437,7 +1453,7 @@ func TestECS_Backend_EnrichService_PendingTasks(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	svcs, err := backend.DescribeServices("enrich-svc-cluster", []string{"enrich-svc"})
+	svcs, _, err := backend.DescribeServices("enrich-svc-cluster", []string{"enrich-svc"})
 	require.NoError(t, err)
 	require.Len(t, svcs, 1)
 	assert.Equal(t, 2, svcs[0].RunningCount)
@@ -1583,10 +1599,21 @@ func TestECS_Handler_DescribeTasks_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	// First ensure the default cluster exists.
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "default"})
 	rec := doECSRequest(t, h, "DescribeTasks", map[string]any{
 		"tasks": []string{"arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent"},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tasks, _ := resp["tasks"].([]any)
+	assert.Empty(t, tasks)
+
+	failures, _ := resp["failures"].([]any)
+	assert.Len(t, failures, 1)
 }
 
 func TestECS_Handler_StopTask_NotFound(t *testing.T) {
