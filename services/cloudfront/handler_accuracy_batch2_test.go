@@ -157,7 +157,7 @@ func TestBatch2Accuracy_TagResource_MaxTagsPerResource(t *testing.T) {
 		h,
 		http.MethodPost,
 		prefix+"tagging?Resource="+arn,
-		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">` +
+		`<Tags xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">`+
 			`<Items><Tag><Key>key50</Key><Value>v</Value></Tag></Items></Tags>`,
 	)
 	if over.Code != http.StatusBadRequest {
