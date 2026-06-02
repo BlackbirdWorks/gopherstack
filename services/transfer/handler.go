@@ -1581,7 +1581,7 @@ func workflowStepToMap(s WorkflowStep) map[string]any {
 		m["TagStepDetails"] = map[string]any{
 			keyStepName:      s.TagStepDetails.Name,
 			keySourceFileLoc: s.TagStepDetails.SourceFileLocation,
-			keyTags:           s.TagStepDetails.Tags,
+			keyTags:          s.TagStepDetails.Tags,
 		}
 	}
 
@@ -1811,8 +1811,8 @@ func (h *Handler) handleDescribeAgreement(
 			keyPartnerProfileID: ag.PartnerProfileID,
 			"BaseDirectory":     ag.BaseDirectory,
 			"AccessRole":        ag.AccessRole,
-			keyArn:               agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
-			keyTags:              tagsToList(ag.Tags),
+			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyTags:             tagsToList(ag.Tags),
 		},
 	}, nil
 }
@@ -1847,7 +1847,7 @@ func (h *Handler) handleListAgreements(
 	for i, ag := range page {
 		out[i] = map[string]any{
 			"AgreementId":       ag.AgreementID,
-			keyArn:               agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
 			keyDescription:      ag.Description,
 			keyStatus:           ag.Status,
 			keyLocalProfileID:   ag.LocalProfileID,
@@ -1941,8 +1941,8 @@ func (h *Handler) handleDescribeConnector(
 		keyConnectorID:       c.ConnectorID,
 		keyURL:               c.URL,
 		"AccessRole":         c.AccessRole,
-		keyArn:                connectorARN(c.AccountID, c.Region, c.ConnectorID),
-		keyTags:               tagsToList(c.Tags),
+		keyArn:               connectorARN(c.AccountID, c.Region, c.ConnectorID),
+		keyTags:              tagsToList(c.Tags),
 		"LoggingRole":        c.LoggingRole,
 		"SecurityPolicyName": c.SecurityPolicyName,
 	}
@@ -2081,8 +2081,8 @@ func (h *Handler) handleDescribeProfile(
 			"ProfileId":   p.ProfileID,
 			"ProfileType": p.ProfileType,
 			"As2Id":       p.As2ID,
-			keyArn:         profileARN(p.AccountID, p.Region, p.ProfileID),
-			keyTags:        tagsToList(p.Tags),
+			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
+			keyTags:       tagsToList(p.Tags),
 		},
 	}, nil
 }
@@ -2122,7 +2122,7 @@ func (h *Handler) handleListProfiles(
 			"ProfileId":   p.ProfileID,
 			"ProfileType": p.ProfileType,
 			"As2Id":       p.As2ID,
-			keyArn:         profileARN(p.AccountID, p.Region, p.ProfileID),
+			keyArn:        profileARN(p.AccountID, p.Region, p.ProfileID),
 		}
 	}
 
@@ -2353,8 +2353,8 @@ func (h *Handler) handleDescribeWorkflow(
 			keyDescription:     wf.Description,
 			"Steps":            stepsToList(wf.Steps),
 			"OnExceptionSteps": stepsToList(wf.OnExceptionSteps),
-			keyArn:              workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
-			keyTags:             tagsToList(wf.Tags),
+			keyArn:             workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
+			keyTags:            tagsToList(wf.Tags),
 		},
 	}, nil
 }
@@ -2381,7 +2381,7 @@ func (h *Handler) handleListWorkflows(
 		out[i] = map[string]any{
 			keyWorkflowID:  wf.WorkflowID,
 			keyDescription: wf.Description,
-			keyArn:          workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
+			keyArn:         workflowARN(wf.AccountID, wf.Region, wf.WorkflowID),
 		}
 	}
 
@@ -2485,7 +2485,7 @@ func (h *Handler) handleDescribeCertificate(
 		"Usage":         c.Usage,
 		keyDescription:  c.Description,
 		keyStatus:       c.Status,
-		keyArn:           certificateARN(c.AccountID, c.Region, c.CertificateID),
+		keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
 	}
 
 	if !c.NotBeforeDate.IsZero() {
@@ -2524,7 +2524,7 @@ func (h *Handler) handleListCertificates(
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
 			keyStatus:       c.Status,
-			keyArn:           certificateARN(c.AccountID, c.Region, c.CertificateID),
+			keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
 		}
 	}
 
@@ -2644,8 +2644,8 @@ func (h *Handler) handleDescribeHostKey(
 		keyDescription: hk.Description,
 		"Type":         hk.Type,
 		"DateImported": hk.CreatedAt.Format(time.RFC3339),
-		keyArn:          hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
-		keyTags:         tagsToList(hk.Tags),
+		keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
+		keyTags:        tagsToList(hk.Tags),
 	}
 
 	if hk.Fingerprint != "" {
@@ -2692,7 +2692,7 @@ func (h *Handler) handleListHostKeys(
 			keyDescription: hk.Description,
 			"Type":         hk.Type,
 			"DateImported": hk.CreatedAt.Format(time.RFC3339),
-			keyArn:          hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
+			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
 		if hk.Fingerprint != "" {
 			item["HostKeyFingerprint"] = hk.Fingerprint

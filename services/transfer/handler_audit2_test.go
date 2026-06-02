@@ -14,7 +14,6 @@ package transfer_test
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,8 +51,8 @@ func TestAudit2_DescribeProfile_IncludesArnAndTags(t *testing.T) {
 
 	arn, hasArn := profile["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeProfile response")
-	assert.True(t, strings.Contains(arn, profileID), "Arn must contain ProfileId")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, profileID, "Arn must contain ProfileId")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 
 	tags, hasTags := profile["Tags"].([]any)
 	assert.True(t, hasTags, "Tags must be present in DescribeProfile response")
@@ -81,7 +80,7 @@ func TestAudit2_ListProfiles_IncludesArn(t *testing.T) {
 	item := profiles[0].(map[string]any)
 	arn, hasArn := item["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in ListProfiles items")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +113,8 @@ func TestAudit2_DescribeWorkflow_IncludesArnAndTags(t *testing.T) {
 
 	arn, hasArn := wf["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeWorkflow response")
-	assert.True(t, strings.Contains(arn, workflowID), "Arn must contain WorkflowId")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, workflowID, "Arn must contain WorkflowId")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 
 	tags, hasTags := wf["Tags"].([]any)
 	assert.True(t, hasTags, "Tags must be present in DescribeWorkflow response")
@@ -142,7 +141,7 @@ func TestAudit2_ListWorkflows_IncludesArn(t *testing.T) {
 	item := workflows[0].(map[string]any)
 	arn, hasArn := item["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in ListWorkflows items")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 }
 
 // ---------------------------------------------------------------------------
@@ -174,8 +173,8 @@ func TestAudit2_DescribeCertificate_IncludesArn(t *testing.T) {
 
 	arn, hasArn := cert["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeCertificate response")
-	assert.True(t, strings.Contains(arn, certID), "Arn must contain CertificateId")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, certID, "Arn must contain CertificateId")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 }
 
 func TestAudit2_ListCertificates_IncludesArn(t *testing.T) {
@@ -198,7 +197,7 @@ func TestAudit2_ListCertificates_IncludesArn(t *testing.T) {
 	item := certs[0].(map[string]any)
 	arn, hasArn := item["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in ListCertificates items")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 }
 
 // ---------------------------------------------------------------------------
@@ -292,8 +291,8 @@ func TestAudit2_DescribeAgreement_IncludesArnAndTags(t *testing.T) {
 
 	arn, hasArn := ag["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeAgreement response")
-	assert.True(t, strings.Contains(arn, agreementID), "Arn must contain AgreementId")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, agreementID, "Arn must contain AgreementId")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 
 	tags, hasTags := ag["Tags"].([]any)
 	assert.True(t, hasTags, "Tags must be present in DescribeAgreement response")
@@ -340,7 +339,7 @@ func TestAudit2_DescribeHostKey_IncludesFingerprint(t *testing.T) {
 
 	fp, hasFp := hk["HostKeyFingerprint"].(string)
 	assert.True(t, hasFp, "HostKeyFingerprint must be present in DescribeHostKey response")
-	assert.True(t, strings.HasPrefix(fp, "SHA256:"), "HostKeyFingerprint must start with SHA256:")
+	assert.Contains(t, fp, "SHA256:", "HostKeyFingerprint must start with SHA256:")
 
 	dateImported, hasDate := hk["DateImported"].(string)
 	assert.True(t, hasDate, "DateImported must be present in DescribeHostKey response")
@@ -348,8 +347,8 @@ func TestAudit2_DescribeHostKey_IncludesFingerprint(t *testing.T) {
 
 	arn, hasArn := hk["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeHostKey response")
-	assert.True(t, strings.Contains(arn, hostKeyID), "Arn must contain HostKeyId")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, hostKeyID, "Arn must contain HostKeyId")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 
 	tags, hasTags := hk["Tags"].([]any)
 	assert.True(t, hasTags, "Tags must be present in DescribeHostKey response")
@@ -387,7 +386,7 @@ func TestAudit2_ListHostKeys_IncludesFingerprintAndArn(t *testing.T) {
 
 	fp, hasFp := item["HostKeyFingerprint"].(string)
 	assert.True(t, hasFp, "HostKeyFingerprint must be present in ListHostKeys items")
-	assert.True(t, strings.HasPrefix(fp, "SHA256:"), "HostKeyFingerprint must start with SHA256:")
+	assert.Contains(t, fp, "SHA256:", "HostKeyFingerprint must start with SHA256:")
 
 	dateImported, hasDate := item["DateImported"].(string)
 	assert.True(t, hasDate, "DateImported must be present in ListHostKeys items")
@@ -395,7 +394,7 @@ func TestAudit2_ListHostKeys_IncludesFingerprintAndArn(t *testing.T) {
 
 	arn, hasArn := item["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in ListHostKeys items")
-	assert.True(t, strings.HasPrefix(arn, "arn:aws:transfer:"), "Arn must start with arn:aws:transfer:")
+	assert.Contains(t, arn, "arn:aws:transfer:", "Arn must start with arn:aws:transfer:")
 }
 
 func TestAudit2_HostKeyFingerprint_ComputedOnImport(t *testing.T) {
@@ -407,7 +406,7 @@ func TestAudit2_HostKeyFingerprint_ComputedOnImport(t *testing.T) {
 
 	hk, err := b.ImportHostKey(s.ServerID, testHostKeyEd25519, "fp test", nil)
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(hk.Fingerprint, "SHA256:"), "Fingerprint must be SHA256:")
+	assert.Contains(t, hk.Fingerprint, "SHA256:", "Fingerprint must be SHA256:")
 }
 
 // ---------------------------------------------------------------------------
