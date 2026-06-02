@@ -110,4 +110,12 @@ func TestIntegration_XRay_GroupAndSamplingRuleLifecycle(t *testing.T) {
 	getEncOut, err := client.GetEncryptionConfig(ctx, &xraysdk.GetEncryptionConfigInput{})
 	require.NoError(t, err)
 	require.NotNil(t, getEncOut.EncryptionConfig)
+
+	// PutEncryptionConfig - exercises the POST /PutEncryptionConfig wire path,
+	// which is distinct from GetEncryptionConfig's POST /EncryptionConfig path.
+	putEncOut, err := client.PutEncryptionConfig(ctx, &xraysdk.PutEncryptionConfigInput{
+		Type: xraytypes.EncryptionType("NONE"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, putEncOut.EncryptionConfig)
 }

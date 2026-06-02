@@ -459,7 +459,7 @@ func TestAccuracy_Encryption_KeyIdFormatValidation(t *testing.T) {
 				body["KeyId"] = tt.keyID
 			}
 
-			rec := doXrayRequest(t, h, "/EncryptionConfig", body)
+			rec := doXrayRequest(t, h, "/PutEncryptionConfig", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -472,7 +472,7 @@ func TestAccuracy_Encryption_UpdatingStatusAfterPut(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	putRec := doXrayRequest(t, h, "/EncryptionConfig", map[string]any{
+	putRec := doXrayRequest(t, h, "/PutEncryptionConfig", map[string]any{
 		"Type":  "KMS",
 		"KeyId": "alias/my-key",
 	})

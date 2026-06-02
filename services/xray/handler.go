@@ -31,7 +31,10 @@ const (
 	keyServices                = "Services"
 )
 
-const pathEncryptionConfig = "/EncryptionConfig"
+const (
+	pathEncryptionConfig    = "/EncryptionConfig"
+	pathPutEncryptionConfig = "/PutEncryptionConfig"
+)
 const (
 	pathTraceSegments                  = "/TraceSegments"
 	pathTelemetryRecords               = "/TelemetryRecords"
@@ -92,6 +95,7 @@ var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level rout
 	pathUpdateSamplingRule:             true,
 	pathDeleteSamplingRule:             true,
 	pathEncryptionConfig:               true,
+	pathPutEncryptionConfig:            true,
 	pathCancelTraceRetrieval:           true,
 	pathDeleteResourcePolicy:           true,
 	pathListResourcePolicies:           true,
@@ -132,7 +136,8 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 	pathGetSamplingRules:               "GetSamplingRules",
 	pathUpdateSamplingRule:             "UpdateSamplingRule",
 	pathDeleteSamplingRule:             "DeleteSamplingRule",
-	pathEncryptionConfig:               opGetEncryptionConfig, // default; overridden by method
+	pathEncryptionConfig:               opGetEncryptionConfig,
+	pathPutEncryptionConfig:            "PutEncryptionConfig",
 	pathCancelTraceRetrieval:           "CancelTraceRetrieval",
 	pathDeleteResourcePolicy:           "DeleteResourcePolicy",
 	pathListResourcePolicies:           "ListResourcePolicies",
@@ -277,12 +282,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
+	// POST /EncryptionConfig and GET /EncryptionConfig both map to
+	// GetEncryptionConfig; PutEncryptionConfig uses POST /PutEncryptionConfig.
 	if path == pathEncryptionConfig {
-		if c.Request().Method == http.MethodGet {
-			return opGetEncryptionConfig
-		}
-
-		return "PutEncryptionConfig"
+		return opGetEncryptionConfig
 	}
 
 	op, ok := pathToOperation[path]
@@ -326,11 +329,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusNotFound, "not found")
 		}
 
-		// /EncryptionConfig is special: GET → GetEncryptionConfig (no body), POST → PutEncryptionConfig
-		if path == pathEncryptionConfig {
-			if c.Request().Method == http.MethodGet {
-				return h.handleGetEncryptionConfig(c)
-			}
+		// GET /EncryptionConfig → GetEncryptionConfig (no body). POST /EncryptionConfig
+		// also maps to GetEncryptionConfig via the dispatch table; PutEncryptionConfig
+		// is served from the distinct /PutEncryptionConfig path.
+		if path == pathEncryptionConfig && c.Request().Method == http.MethodGet {
+			return h.handleGetEncryptionConfig(c)
 		}
 
 		body, err := httputils.ReadBody(c.Request())
@@ -373,7 +376,8 @@ var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // packa
 	pathGetSamplingRules:               (*Handler).handleGetSamplingRules,
 	pathUpdateSamplingRule:             (*Handler).handleUpdateSamplingRule,
 	pathDeleteSamplingRule:             (*Handler).handleDeleteSamplingRule,
-	pathEncryptionConfig:               (*Handler).handlePutEncryptionConfig,
+	pathEncryptionConfig:               (*Handler).handleGetEncryptionConfigBody,
+	pathPutEncryptionConfig:            (*Handler).handlePutEncryptionConfig,
 	pathCancelTraceRetrieval:           (*Handler).handleCancelTraceRetrieval,
 	pathDeleteResourcePolicy:           (*Handler).handleDeleteResourcePolicy,
 	pathListResourcePolicies:           (*Handler).handleListResourcePolicies,
@@ -1130,6 +1134,17 @@ func (h *Handler) handleGetEncryptionConfig(c *echo.Context) error {
 	cfg := h.Backend.GetEncryptionConfig()
 
 	return c.JSON(http.StatusOK, map[string]any{
+		"EncryptionConfig": cfg,
+	})
+}
+
+// handleGetEncryptionConfigBody serves GetEncryptionConfig via the table-driven
+// dispatch path. The AWS SDK sends GetEncryptionConfig as POST /EncryptionConfig
+// (PutEncryptionConfig uses the distinct POST /PutEncryptionConfig path).
+func (h *Handler) handleGetEncryptionConfigBody(_ context.Context, _ []byte) ([]byte, error) {
+	cfg := h.Backend.GetEncryptionConfig()
+
+	return json.Marshal(map[string]any{
 		"EncryptionConfig": cfg,
 	})
 }

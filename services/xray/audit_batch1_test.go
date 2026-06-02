@@ -1715,7 +1715,7 @@ func TestAudit_EncryptionConfig_KMSKeyIdFormats(t *testing.T) {
 				body["KeyId"] = tt.keyID
 			}
 
-			rec := doXrayRequest(t, h, "/EncryptionConfig", body)
+			rec := doXrayRequest(t, h, "/PutEncryptionConfig", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -1726,7 +1726,7 @@ func TestAudit_EncryptionConfig_UpdatingThenActiveStatus(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	putRec := doXrayRequest(t, h, "/EncryptionConfig", map[string]any{
+	putRec := doXrayRequest(t, h, "/PutEncryptionConfig", map[string]any{
 		"Type":  "KMS",
 		"KeyId": "alias/my-key",
 	})
@@ -1755,7 +1755,7 @@ func TestAudit_EncryptionConfig_NoneTypeAccepted(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/EncryptionConfig", map[string]any{"Type": "NONE"})
+	rec := doXrayRequest(t, h, "/PutEncryptionConfig", map[string]any{"Type": "NONE"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1772,7 +1772,7 @@ func TestAudit_EncryptionConfig_InvalidTypeRejected(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/EncryptionConfig", map[string]any{"Type": "BOGUS"})
+	rec := doXrayRequest(t, h, "/PutEncryptionConfig", map[string]any{"Type": "BOGUS"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

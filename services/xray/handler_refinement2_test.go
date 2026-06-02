@@ -235,7 +235,7 @@ func TestRefinement2_PutEncryptionConfig_InvalidType(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/EncryptionConfig", map[string]any{
+	rec := doXrayRequest(t, h, "/PutEncryptionConfig", map[string]any{
 		"Type": "INVALID_TYPE",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "invalid Type must return 400")

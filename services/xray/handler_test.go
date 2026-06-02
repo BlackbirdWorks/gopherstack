@@ -882,7 +882,7 @@ func TestHandler_PutEncryptionConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/EncryptionConfig", tt.body)
+			rec := doXrayRequest(t, h, "/PutEncryptionConfig", tt.body)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContain)
