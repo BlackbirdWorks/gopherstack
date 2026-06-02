@@ -21,6 +21,7 @@ import (
 
 const (
 	keyPosition = "position"
+	litTrue     = "true"
 )
 
 const (
@@ -279,9 +280,12 @@ type deleteIntegrationInput struct {
 }
 
 type createDeploymentInput struct {
-	RestAPIID   string `json:"restApiId"`
-	StageName   string `json:"stageName"`
-	Description string `json:"description"`
+	Variables        map[string]string `json:"variables,omitempty"`
+	RestAPIID        string            `json:"restApiId"`
+	StageName        string            `json:"stageName"`
+	Description      string            `json:"description"`
+	StageDescription string            `json:"stageDescription,omitempty"`
+	TracingEnabled   bool              `json:"tracingEnabled,omitempty"`
 }
 
 type getDeploymentInput struct {
@@ -426,12 +430,14 @@ type deleteRequestValidatorInput struct {
 }
 
 type getAPIKeyInput struct {
-	APIKeyID string `json:"apiKeyId"`
+	APIKeyID     string `json:"apiKeyId"`
+	IncludeValue string `json:"includeValue"`
 }
 
 type getAPIKeysPageInput struct {
-	Position string `json:"position"`
-	Limit    int    `json:"limit"`
+	Position     string `json:"position"`
+	IncludeValue string `json:"includeValue"`
+	Limit        int    `json:"limit"`
 }
 
 type getDomainNamesPageInput struct {
@@ -963,6 +969,11 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		body = []byte("{}")
 	}
 
+	// Convert RFC 6902 patch arrays to flat JSON objects so PATCH handlers can
+	// read fields directly (e.g. [{"op":"replace","path":"/name","value":"x"}]
+	// becomes {"name":"x"}).
+	body = normalizePatchBody(body)
+
 	// Merge path parameters into the JSON body so existing handlers can read them.
 	for k, v := range pathParams {
 		body = injectJSONFieldAPIGW(body, k, v)
@@ -986,6 +997,54 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	}
 
 	return c.JSONBlob(statusCode, response)
+}
+
+// normalizePatchBody converts a JSON patch array (RFC 6902) to a flat JSON object.
+// AWS API Gateway REST PATCH endpoints accept patch operations like
+// [{"op":"replace","path":"/description","value":"foo"}].
+// This converts them to {"description":"foo"} so existing handlers can read them.
+// Bodies that are not JSON arrays are returned unchanged.
+func normalizePatchBody(body []byte) []byte {
+	if len(body) == 0 || body[0] != '[' {
+		return body
+	}
+
+	var ops []struct {
+		Op    string          `json:"op"`
+		Path  string          `json:"path"`
+		Value json.RawMessage `json:"value"`
+	}
+
+	if err := json.Unmarshal(body, &ops); err != nil || len(ops) == 0 {
+		return body
+	}
+
+	// Verify at least one entry looks like a patch op (has an "op" field).
+	if ops[0].Op == "" {
+		return body
+	}
+
+	m := make(map[string]json.RawMessage)
+
+	for _, op := range ops {
+		if op.Op != "replace" && op.Op != "add" {
+			continue
+		}
+
+		field := strings.TrimPrefix(op.Path, "/")
+		if field == "" {
+			continue
+		}
+
+		m[field] = op.Value
+	}
+
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+
+	return out
 }
 
 // injectJSONFieldAPIGW merges a key/value string pair into a JSON object body.
@@ -2288,21 +2347,43 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 	return m
 }
 
+// createDeploymentAction handles CreateDeployment incl. inline stage update.
+func (h *Handler) createDeploymentAction(b []byte) (int, any, error) {
+	var input createDeploymentInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	depl, err := h.Backend.CreateDeployment(input.RestAPIID, input.StageName, input.Description)
+	if err != nil {
+		return 0, nil, err
+	}
+	h.applyInlineStageUpdate(input)
+
+	return http.StatusCreated, depl, nil
+}
+
+func (h *Handler) applyInlineStageUpdate(input createDeploymentInput) {
+	if input.StageName == "" {
+		return
+	}
+	if input.StageDescription == "" && len(input.Variables) == 0 && !input.TracingEnabled {
+		return
+	}
+	stageUpd := UpdateStageInput{
+		Description: input.StageDescription,
+		Variables:   input.Variables,
+	}
+	if input.TracingEnabled {
+		t := true
+		stageUpd.TracingEnabled = &t
+	}
+	_, _ = h.Backend.UpdateStage(input.RestAPIID, input.StageName, stageUpd)
+}
+
 // deploymentCRUDActions returns actions for deployment CRUD operations.
 func (h *Handler) deploymentCRUDActions() map[string]actionFn {
 	return map[string]actionFn{
-		opCreateDeployment: func(b []byte) (int, any, error) {
-			var input createDeploymentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			depl, err := h.Backend.CreateDeployment(input.RestAPIID, input.StageName, input.Description)
-			if err != nil {
-				return 0, nil, err
-			}
-
-			return http.StatusCreated, depl, nil
-		},
+		opCreateDeployment: h.createDeploymentAction,
 		opGetDeployment: func(b []byte) (int, any, error) {
 			var input getDeploymentInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2689,51 +2770,70 @@ func (h *Handler) getDeleteUpdateActionsCore1() map[string]actionFn {
 	return m
 }
 
+func (h *Handler) getAPIKeyAction(b []byte) (int, any, error) {
+	var input getAPIKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	key, err := h.Backend.GetAPIKey(input.APIKeyID)
+	if err != nil {
+		return 0, nil, err
+	}
+	if input.IncludeValue != litTrue {
+		key.Value = ""
+	}
+
+	return http.StatusOK, key, nil
+}
+
+func (h *Handler) getAPIKeysAction(b []byte) (int, any, error) {
+	var input getAPIKeysPageInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	keys, position, err := h.fetchAPIKeys(input)
+	if err != nil {
+		return 0, nil, err
+	}
+	if input.IncludeValue != litTrue {
+		for i := range keys {
+			keys[i].Value = ""
+		}
+	}
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: keys, keyPosition: position}, nil
+	}
+
+	return http.StatusOK, map[string]any{keyItem: keys}, nil
+}
+
+func (h *Handler) fetchAPIKeys(input getAPIKeysPageInput) ([]APIKey, string, error) {
+	if input.Limit == 0 && input.Position == "" {
+		keys, err := h.Backend.GetAPIKeys()
+
+		return keys, "", err
+	}
+
+	return h.Backend.GetAPIKeysPage(input.Limit, input.Position)
+}
+
+func (h *Handler) deleteAPIKeyAction(b []byte) (int, any, error) {
+	var input deleteAPIKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return 0, nil, err
+	}
+	if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
+		return 0, nil, err
+	}
+
+	return http.StatusAccepted, map[string]any{}, nil
+}
+
 func (h *Handler) getDeleteUpdateActionsCore1a() map[string]actionFn {
 	return map[string]actionFn{
-		opGetAPIKey: func(b []byte) (int, any, error) {
-			var input getAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			key, err := h.Backend.GetAPIKey(input.APIKeyID)
-			if err != nil {
-				return 0, nil, err
-			}
-
-			return http.StatusOK, key, nil
-		},
-		opGetAPIKeys: func(b []byte) (int, any, error) {
-			var input getAPIKeysPageInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			if input.Limit == 0 && input.Position == "" {
-				keys, err := h.Backend.GetAPIKeys()
-				if err != nil {
-					return 0, nil, err
-				}
-
-				return http.StatusOK, map[string]any{keyItem: keys}, nil
-			}
-			keys, position, err := h.Backend.GetAPIKeysPage(input.Limit, input.Position)
-			if err != nil {
-				return 0, nil, err
-			}
-
-			return http.StatusOK, map[string]any{keyItem: keys, keyPosition: position}, nil
-		},
-		opDeleteAPIKey: func(b []byte) (int, any, error) {
-			var input deleteAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return 0, nil, err
-			}
-			if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
-				return 0, nil, err
-			}
-
-			return http.StatusAccepted, map[string]any{}, nil
-		},
+		opGetAPIKey:    h.getAPIKeyAction,
+		opGetAPIKeys:   h.getAPIKeysAction,
+		opDeleteAPIKey: h.deleteAPIKeyAction,
 	}
 }
 
