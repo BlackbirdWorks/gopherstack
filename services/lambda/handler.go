@@ -1478,6 +1478,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		DeadLetterConfig:  input.DeadLetterConfig,
 		EphemeralStorage:  input.EphemeralStorage,
 		Layers:            layerARNsToFunctionLayers(input.Layers),
+		Tags:              input.Tags,
 		State:             FunctionStateActive,
 		LastUpdateStatus:  LastUpdateStatusSuccessful,
 		CreatedAt:         now,
@@ -1501,22 +1502,17 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException", createErr.Error())
 		}
 
+		if errors.Is(createErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", createErr.Error())
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
 	}
 
 	// When Publish: true, immediately publish version 1 so that the caller can
 	// reference aws_lambda_function.this.version (used by provisioned concurrency etc.).
 	if input.Publish {
-		if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
-			if v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, ""); pubErr == nil {
-				fn.Version = v.Version
-			} else {
-				logger.Load(c.Request().Context()).Warn(
-					"lambda: Publish=true but PublishVersion failed; version not set in response",
-					"function", fn.FunctionName, "error", pubErr,
-				)
-			}
-		}
+		h.maybePublishVersion(c.Request().Context(), fn, "CreateFunction")
 	}
 
 	return c.JSON(http.StatusCreated, fn)
@@ -1600,6 +1596,50 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
+	if applyErr := h.applyFunctionCodeUpdate(c, fn, &input); applyErr != nil {
+		return applyErr
+	}
+
+	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
+	fn.RevisionID = uuid.New().String()
+	fn.LastUpdateStatus = LastUpdateStatusSuccessful
+
+	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	if input.Publish {
+		h.maybePublishVersion(c.Request().Context(), fn, "UpdateFunctionCode")
+	}
+
+	return c.JSON(http.StatusOK, fn)
+}
+
+// maybePublishVersion publishes a new numbered version for fn when the InMemoryBackend is
+// active. On failure it logs a warning; the caller is responsible for already having
+// updated/saved fn before calling this.
+func (h *Handler) maybePublishVersion(ctx context.Context, fn *FunctionConfiguration, op string) {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, ""); pubErr == nil {
+		fn.Version = v.Version
+	} else {
+		logger.Load(ctx).WarnContext(ctx,
+			"lambda: Publish=true but PublishVersion failed",
+			"op", op, "function", fn.FunctionName, "error", pubErr,
+		)
+	}
+}
+
+// applyFunctionCodeUpdate applies the code fields from input onto fn, validating package type constraints.
+func (h *Handler) applyFunctionCodeUpdate(
+	c *echo.Context,
+	fn *FunctionConfiguration,
+	input *UpdateFunctionCodeInput,
+) error {
 	if fn.PackageType == PackageTypeImage || fn.PackageType == "" {
 		if input.ImageURI == "" {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
@@ -1608,7 +1648,6 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 
 		fn.ImageURI = input.ImageURI
 	} else {
-		// Zip package type: update zip data or S3 reference
 		if input.ZipFile == nil && (input.S3Bucket == "" || input.S3Key == "") {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"ZipFile or S3Bucket+S3Key is required for Zip package type")
@@ -1625,22 +1664,13 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		}
 	}
 
-	// Apply Architectures if provided; default to x86_64.
 	if len(input.Architectures) > 0 {
 		fn.Architectures = input.Architectures
 	} else if len(fn.Architectures) == 0 {
 		fn.Architectures = []string{"x86_64"}
 	}
 
-	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
-	fn.RevisionID = uuid.New().String()
-	fn.LastUpdateStatus = LastUpdateStatusSuccessful
-
-	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
-	}
-
-	return c.JSON(http.StatusOK, fn)
+	return nil
 }
 
 func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string) error {
@@ -2043,8 +2073,6 @@ func extractNameAndAlias(rest string) (string, string) {
 }
 
 // handlePublishVersion handles POST /2015-03-31/functions/{name}/versions.
-//
-//nolint:dupl // similar JSON-body-parse-and-call pattern shared with handleUpdateFunctionURLConfig by design
 func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
@@ -3583,8 +3611,6 @@ func (h *Handler) handleListFunctionURLConfigs(c *echo.Context, name string) err
 }
 
 // handleUpdateFunctionURLConfig handles PUT /2021-10-31/functions/{name}/url.
-//
-//nolint:dupl // similar JSON-body-parse-and-call pattern shared with handlePublishVersion by design
 func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
@@ -3603,7 +3629,7 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 		}
 	}
 
-	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType)
+	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType, input.Cors)
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
