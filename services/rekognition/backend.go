@@ -29,6 +29,12 @@ const (
 
 	defaultFaceConfidence = 99.9
 	defaultFaceSimilarity = 90.0
+
+	maxTagCount        = 200
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+	maxCollectionIDLen = 255
+	maxNameLen         = 128
 )
 
 var (
@@ -47,6 +53,43 @@ var (
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
 	ErrUnknownOperation = errors.New("unknown operation")
 )
+
+// validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 200 tags.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot specify more than %d tags", ErrValidation, maxTagCount)
+	}
+
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// validateCollectionID checks that a collection ID is non-empty and within AWS length limits.
+func validateCollectionID(id string) error {
+	if id == "" || len(id) > maxCollectionIDLen {
+		return fmt.Errorf("%w: CollectionId must be between 1 and %d characters", ErrValidation, maxCollectionIDLen)
+	}
+
+	return nil
+}
+
+// validateStreamProcessorName checks that a stream processor name is within AWS length limits.
+func validateStreamProcessorName(name string) error {
+	if name == "" || len(name) > maxNameLen {
+		return fmt.Errorf("%w: Name must be between 1 and %d characters", ErrValidation, maxNameLen)
+	}
+
+	return nil
+}
 
 // storedCollection holds a face collection with all fields.
 // CreationTimestamp is first: time.Time's non-pointer prefix reduces GC pointer bytes.
@@ -165,6 +208,14 @@ func (b *InMemoryBackend) streamProcessorARN(name string) string {
 
 // CreateCollection creates a new face collection.
 func (b *InMemoryBackend) CreateCollection(collectionID string, tags map[string]string) (*Collection, error) {
+	if err := validateCollectionID(collectionID); err != nil {
+		return nil, err
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateCollection")
 	defer b.mu.Unlock()
 
@@ -457,6 +508,14 @@ func (b *InMemoryBackend) CreateStreamProcessor(
 	name, roleARN string,
 	tags map[string]string,
 ) (*StreamProcessor, error) {
+	if err := validateStreamProcessorName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateStreamProcessor")
 	defer b.mu.Unlock()
 
@@ -571,6 +630,10 @@ func (b *InMemoryBackend) UpdateStreamProcessor(name string) error {
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -578,11 +641,24 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return ErrCollectionNotFound
 	}
 
-	if b.tags[resourceARN] == nil {
-		b.tags[resourceARN] = make(map[string]string)
+	existing := b.tags[resourceARN]
+	if existing == nil {
+		existing = make(map[string]string)
+		b.tags[resourceARN] = existing
 	}
 
-	maps.Copy(b.tags[resourceARN], tags)
+	newCount := len(existing)
+	for k := range tags {
+		if _, alreadyExists := existing[k]; !alreadyExists {
+			newCount++
+		}
+	}
+
+	if newCount > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed the %d tag limit", ErrValidation, maxTagCount)
+	}
+
+	maps.Copy(existing, tags)
 
 	return nil
 }
