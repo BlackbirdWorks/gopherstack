@@ -919,7 +919,10 @@ func parseLegalHoldRoute(method, suffix string) backupRoute {
 func parseCopyJobRoute(method, suffix string) backupRoute {
 	id := strings.TrimPrefix(suffix, "/")
 	if id == "" {
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: opStartCopyJob}
+		case http.MethodGet:
 			return backupRoute{operation: opListCopyJobs}
 		}
 	} else if !strings.Contains(id, "/") {
@@ -1881,11 +1884,16 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyBackupPlanArn: p.BackupPlanArn,
 		keyBackupPlanID:  p.BackupPlanID,
 		keyVersionID:     p.VersionID,
-	})
+	}
+	if p.UpdateTime != nil {
+		resp["UpdateDate"] = epochSeconds(*p.UpdateTime)
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
@@ -3556,7 +3564,7 @@ func (h *Handler) dispatchStubSettingsOps(
 
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"GlobalSettings": settings,
-			"LastUpdateTime": lastUpdate.Format(time.RFC3339),
+			"LastUpdateTime": epochSeconds(lastUpdate),
 		})
 	case opUpdateGlobalSettings:
 		var reqGSBody struct {
@@ -3602,14 +3610,14 @@ func (h *Handler) dispatchStubSettingsOps(
 			return true, c.JSON(http.StatusOK, map[string]any{
 				keyResourceArn:   route.resource,
 				keyResourceType:  "EBS",
-				"LastBackupTime": time.Now().UTC().Format(time.RFC3339),
+				"LastBackupTime": epochSeconds(time.Now().UTC()),
 			})
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{
 			keyResourceArn:   pr.ResourceArn,
 			keyResourceType:  pr.ResourceType,
-			"LastBackupTime": pr.LastBackupTime.Format(time.RFC3339),
+			"LastBackupTime": epochSeconds(pr.LastBackupTime),
 		})
 	case opListProtectedResources:
 		prs := h.Backend.ListProtectedResources()
@@ -4009,7 +4017,8 @@ func (h *Handler) dispatchStubPlanTemplateOps(
 		)
 
 		return true, c.JSON(http.StatusOK, map[string]any{
-			keyCopyJobID: job.CopyJobID, "CreationDate": job.CreationDate.Format(time.RFC3339),
+			keyCopyJobID:    job.CopyJobID,
+			keyCreationDate: epochSeconds(job.CreationDate),
 		})
 	}
 
