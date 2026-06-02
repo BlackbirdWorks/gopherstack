@@ -53,19 +53,17 @@ func b3createFIFOQueue(t *testing.T, b *sqs.InMemoryBackend, name string) string
 	return out.QueueURL
 }
 
-func b3send(t *testing.T, b *sqs.InMemoryBackend, qURL, body string) string {
+func b3send(t *testing.T, b *sqs.InMemoryBackend, qURL, body string) {
 	t.Helper()
-	out, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: body})
+	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: body})
 	require.NoError(t, err)
-
-	return out.MessageID
 }
 
-func b3recv(t *testing.T, b *sqs.InMemoryBackend, qURL string, max int) []*sqs.Message {
+func b3recv(t *testing.T, b *sqs.InMemoryBackend, qURL string, maxItems int) []*sqs.Message {
 	t.Helper()
 	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:            qURL,
-		MaxNumberOfMessages: max,
+		MaxNumberOfMessages: maxItems,
 		VisibilityTimeout:   30,
 	})
 	require.NoError(t, err)
@@ -212,10 +210,10 @@ func TestB3_ChangeMessageVisibilityBatch_VTOutOfRange_PerEntryFailure(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		badVisibility     int
-		goodVisibility    int
-		wantBadCode       string
+		name               string
+		wantBadCode        string
+		badVisibility      int
+		goodVisibility     int
 		wantBadSenderFault bool
 	}{
 		{
@@ -297,7 +295,7 @@ func TestB3_ChangeMessageVisibilityBatch_NegativeVT_PerEntryFailure(t *testing.T
 func TestB3_ChangeMessageVisibilityBatch_MaxValidVT_Accepted(t *testing.T) {
 	t.Parallel()
 	b := b3newBackend()
-	qURL := b3createQueue(t, b, "max-vt-batch")
+	qURL := b3createQueue(t, b, "maxItems-vt-batch")
 
 	b3send(t, b, qURL, "msg")
 	msgs := b3recv(t, b, qURL, 1)
@@ -508,8 +506,8 @@ func TestB3_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		status          sqs.MoveTaskStatus
-		wantTaskHandle  bool
+		status         sqs.MoveTaskStatus
+		wantTaskHandle bool
 	}{
 		{sqs.MoveTaskStatusRunning, true},
 		{sqs.MoveTaskStatusCompleted, false},
