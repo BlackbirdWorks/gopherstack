@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -365,6 +366,10 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "NodeType is required")
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	cluster, err := h.Backend.CreateCluster(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -481,6 +486,10 @@ func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	acl, err := h.Backend.CreateACL(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -570,6 +579,10 @@ func (h *Handler) handleCreateSubnetGroup(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	sg, err := h.Backend.CreateSubnetGroup(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -650,6 +663,10 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 
 	if req.UserName == "" {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
+	}
+
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	user, err := h.Backend.CreateUser(h.DefaultRegion, h.AccountID, &req)
@@ -735,6 +752,10 @@ func (h *Handler) handleCreateParameterGroup(c *echo.Context, body []byte) error
 
 	if req.ParameterGroupName == "" {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
+	}
+
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	pg, err := h.Backend.CreateParameterGroup(h.DefaultRegion, h.AccountID, &req)
@@ -843,6 +864,10 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	tags := tagsFromSlice(req.Tags)
 
 	if err := h.Backend.TagResource(req.ResourceArn, tags); err != nil {
@@ -899,6 +924,10 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	s, err := h.Backend.CreateSnapshot(h.DefaultRegion, h.AccountID, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -925,6 +954,10 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 			"InvalidParameterValueException",
 			"TargetSnapshotName or TargetBucket is required",
 		)
+	}
+
+	if err := validateTagEntries(req.Tags); err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
@@ -1494,6 +1527,44 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
+}
+
+const (
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+	maxTagsPerRes  = 50
+)
+
+var (
+	errTagQuotaExceeded = fmt.Errorf("tag quota exceeded: a resource may have at most %d tags", maxTagsPerRes)
+	errTagKeyLength     = fmt.Errorf("tag key length must be between 1 and %d characters", maxTagKeyLen)
+	errTagKeyPrefix     = errors.New(`tag key must not start with reserved prefix "aws:"`)
+	errTagValueLength   = fmt.Errorf("tag value length must be 0-%d characters", maxTagValueLen)
+)
+
+// validateTagEntries enforces AWS MemoryDB tag constraints:
+// key 1-128 chars, no "aws:" prefix; value 0-256 chars; at most 50 tags.
+func validateTagEntries(tags []tagEntry) error {
+	if len(tags) > maxTagsPerRes {
+		return errTagQuotaExceeded
+	}
+
+	for _, t := range tags {
+		klen := utf8.RuneCountInString(t.Key)
+		if klen == 0 || klen > maxTagKeyLen {
+			return errTagKeyLength
+		}
+
+		if strings.HasPrefix(t.Key, "aws:") {
+			return errTagKeyPrefix
+		}
+
+		if vlen := utf8.RuneCountInString(t.Value); vlen > maxTagValueLen {
+			return errTagValueLength
+		}
+	}
+
+	return nil
 }
 
 // writeError writes a JSON error response using the standard AWS JSON 1.1 envelope.
