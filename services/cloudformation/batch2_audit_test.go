@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -17,10 +18,10 @@ func TestBatch2Audit_StackInstances_OperationId(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		extraFields url.Values
 		name        string
 		action      string
 		resultTag   string
-		extraFields url.Values
 	}{
 		{
 			name:      "create_instances_returns_operation_id",
@@ -80,9 +81,7 @@ func TestBatch2Audit_StackInstances_OperationId(t *testing.T) {
 				"Action":       {tt.action},
 				"StackSetName": {"opid-test-set"},
 			}
-			for k, v := range tt.extraFields {
-				fields[k] = v
-			}
+			maps.Copy(fields, tt.extraFields)
 
 			rec = postForm(t, h, fields.Encode())
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -106,9 +105,9 @@ func TestBatch2Audit_DeleteStackSet_NotEmpty(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		wantErrorCode string
 		createInst    bool
 		wantOK        bool
-		wantErrorCode string
 	}{
 		{
 			name:       "delete_empty_set_succeeds",
@@ -172,10 +171,10 @@ func TestBatch2Audit_DescribeStackSetOperation_Action(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		triggerAction  string
-		triggerFields  url.Values
-		wantAction     string
+		name          string
+		triggerAction string
+		triggerFields url.Values
+		wantAction    string
 	}{
 		{
 			name:          "detect_drift_action_present",
@@ -211,9 +210,7 @@ func TestBatch2Audit_DescribeStackSetOperation_Action(t *testing.T) {
 				"Action":       {tt.triggerAction},
 				"StackSetName": {"action-test-set"},
 			}
-			for k, v := range tt.triggerFields {
-				fields[k] = v
-			}
+			maps.Copy(fields, tt.triggerFields)
 			triggerRec := postForm(t, h, fields.Encode())
 			require.Equal(t, http.StatusOK, triggerRec.Code)
 
