@@ -19,17 +19,20 @@ import (
 )
 
 var (
-	ErrStackNotFound              = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists         = errors.New("stack already exists")
-	ErrChangeSetNotFound          = errors.New("change set not found")
-	ErrChangeSetExists            = errors.New("change set already exists")
-	ErrChangeSetAlreadyExecuted   = errors.New("change set has already been executed")
-	ErrResourceNotFound           = errors.New("resource not found in stack")
-	ErrExportNotFound             = errors.New("export with given name not found")
-	ErrDuplicateExport            = errors.New("export already exists and is owned by another stack")
-	ErrDriftDetectionNotFound     = errors.New("drift detection not found")
-	ErrStackSetNotFound           = errors.New("stack set not found")
-	ErrStackSetAlreadyExists      = errors.New("stack set already exists")
+	ErrStackNotFound            = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists       = errors.New("stack already exists")
+	ErrChangeSetNotFound        = errors.New("change set not found")
+	ErrChangeSetExists          = errors.New("change set already exists")
+	ErrChangeSetAlreadyExecuted = errors.New("change set has already been executed")
+	ErrResourceNotFound         = errors.New("resource not found in stack")
+	ErrExportNotFound           = errors.New("export with given name not found")
+	ErrDuplicateExport          = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound   = errors.New("drift detection not found")
+	ErrStackSetNotFound         = errors.New("stack set not found")
+	ErrStackSetAlreadyExists    = errors.New("stack set already exists")
+	ErrStackSetNotEmpty         = errors.New(
+		"stack set is not empty: delete all stack instances before deleting the stack set",
+	)
 	ErrStackInstanceNotFound      = errors.New("stack instance not found")
 	ErrStackInstanceAlreadyExists = errors.New("stack instance already exists in this account/region")
 	ErrGeneratedTemplateNotFound  = errors.New("generated template not found")
@@ -103,18 +106,18 @@ type StorageBackend interface {
 	DescribeAccountLimits() []AccountLimit
 	// Stack Sets
 	CreateStackSet(name, description, templateBody string) (*StackSet, error)
-	UpdateStackSet(name, templateBody string) (*StackSet, error)
+	UpdateStackSet(name, description, templateBody string) (*StackSet, error)
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	ListStackSets(nextToken string) ([]StackSetSummary, error)
-	CreateStackInstances(stackSetName string, accounts, regions []string) error
-	DeleteStackInstances(stackSetName string, accounts, regions []string) error
-	UpdateStackInstances(stackSetName string, accounts, regions []string) error
+	CreateStackInstances(stackSetName string, accounts, regions []string) (string, error)
+	DeleteStackInstances(stackSetName string, accounts, regions []string) (string, error)
+	UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error)
 	ListStackInstances(stackSetName, nextToken string) ([]StackInstance, error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
 	ListStackSetOperations(stackSetName, nextToken string) ([]string, error)
-	DescribeStackSetOperation(stackSetName, operationID string) (string, error)
+	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(stackSetName, operationID, nextToken string) ([]StackSetOperationResult, error)
 	ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error)
