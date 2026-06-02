@@ -122,6 +122,12 @@ const (
 )
 
 const (
+	maxTagKeyLen  = 128
+	maxTagValLen  = 256
+	maxTagsPerRes = 50
+)
+
+const (
 	eksMatchPriority = service.PriorityPathVersioned
 
 	pathClusters           = "/clusters"
@@ -1225,6 +1231,11 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
 	}
 
+	if err := validateTagMap(in.Tags, 0); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException",
+			"tag key must be 1-128 chars, value 0-256 chars, max 50 tags per resource"))
+	}
+
 	var vpcCfg *VpcConfig
 	if in.ResourcesVpcConfig != nil {
 		vpcCfg = &VpcConfig{
@@ -1390,6 +1401,19 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "nodegroupName is required"))
 	}
 
+	if in.NodeRole == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "nodeRole is required"))
+	}
+
+	if len(in.Subnets) == 0 && in.LaunchTemplate == nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "subnets is required"))
+	}
+
+	if err := validateTagMap(in.Tags, 0); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException",
+			"tag key must be 1-128 chars, value 0-256 chars, max 50 tags per resource"))
+	}
+
 	taints := make([]NodegroupTaint, len(in.Taints))
 	for i, t := range in.Taints {
 		taints[i] = NodegroupTaint(t)
@@ -1478,6 +1502,26 @@ func (h *Handler) handleDeleteNodegroup(c *echo.Context, clusterName, nodegroupN
 	})
 }
 
+// validateTagMap checks AWS EKS tag constraints: key 1-128 chars, value 0-256 chars,
+// max 50 tags per resource. existingCount is the number of tags already on the resource.
+func validateTagMap(kv map[string]string, existingCount int) error {
+	if existingCount+len(kv) > maxTagsPerRes {
+		return ErrValidation
+	}
+
+	for k, v := range kv {
+		if len(k) == 0 || len(k) > maxTagKeyLen {
+			return ErrValidation
+		}
+
+		if len(v) > maxTagValLen {
+			return ErrValidation
+		}
+	}
+
+	return nil
+}
+
 // --- Tag handlers ---
 
 type tagResourceBody struct {
@@ -1492,6 +1536,16 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 
 	if in.Tags == nil {
 		in.Tags = make(map[string]string)
+	}
+
+	existing, existErr := h.Backend.ListTagsForResource(resourceARN)
+	if existErr != nil {
+		return h.handleError(c, existErr)
+	}
+
+	if validateErr := validateTagMap(in.Tags, len(existing)); validateErr != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException",
+			"tag key must be 1-128 chars, value 0-256 chars, max 50 tags per resource"))
 	}
 
 	if err := h.Backend.TagResource(resourceARN, in.Tags); err != nil {
