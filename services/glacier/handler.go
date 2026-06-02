@@ -84,6 +84,8 @@ const (
 	maxListJobsLimit = 1000
 	// maxListUploadsLimit is the maximum allowed ?limit for ListMultipartUploads / ListParts.
 	maxListUploadsLimit = 1000
+	// maxVaultNameLen is the maximum length of a vault name.
+	maxVaultNameLen = 255
 )
 
 // Handler-level sentinel errors used as wrapping targets to satisfy err113.
@@ -100,6 +102,10 @@ var (
 	ErrBytesPerHourRequired = errors.New(
 		"BytesPerHour strategy requires a positive BytesPerHour value",
 	)
+	// ErrInvalidVaultName is returned when a vault name contains invalid characters.
+	ErrInvalidVaultName = errors.New("invalid vault name")
+	// ErrJobNotComplete is returned when GetJobOutput is called on an incomplete job.
+	ErrJobNotComplete = errors.New("job output is not yet available")
 )
 
 const (
@@ -701,6 +707,10 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 // ----------------------------------------
 
 func (h *Handler) handleCreateVault(c *echo.Context, vaultName string) error {
+	if err := validateVaultName(vaultName); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	v, err := h.Backend.CreateVault(h.AccountID, h.DefaultRegion, vaultName)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -944,6 +954,35 @@ func validateDescription(s string) error {
 	return nil
 }
 
+// validateVaultName returns an error if the vault name is empty, too long, or contains
+// characters outside the set allowed by AWS Glacier: [a-zA-Z0-9._-].
+func validateVaultName(name string) error {
+	if len(name) == 0 || len(name) > maxVaultNameLen {
+		return fmt.Errorf("%w: length must be 1-%d", ErrInvalidVaultName, maxVaultNameLen)
+	}
+
+	for i := range len(name) {
+		c := name[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') &&
+			c != '.' && c != '_' && c != '-' {
+			return fmt.Errorf("%w: invalid character 0x%02x at position %d", ErrInvalidVaultName, c, i)
+		}
+	}
+
+	return nil
+}
+
+// csvField returns s encoded as an RFC 4180 CSV field: quotes are added only when s
+// contains a comma, double-quote, or newline; internal double-quotes are doubled.
+func csvField(s string) string {
+	needsQuote := strings.ContainsAny(s, ",\"\n\r")
+	if !needsQuote {
+		return s
+	}
+
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
 func (h *Handler) handleDeleteArchive(c *echo.Context, vaultName, archiveID string) error {
 	if err := h.Backend.DeleteArchive(h.AccountID, h.DefaultRegion, vaultName, archiveID); err != nil {
 		return h.writeBackendError(c, err)
@@ -1005,6 +1044,11 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 
 	// Optional query filters: ?completed=true|false and ?statuscode=InProgress|Succeeded|Failed
 	completedFilter := c.QueryParam("completed")
+	if completedFilter != "" && completedFilter != "true" && completedFilter != "false" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"completed must be \"true\" or \"false\"")
+	}
+
 	statuscodeFilter := c.QueryParam("statuscode")
 
 	items := make([]describeJobResponse, 0, len(jobs))
@@ -1089,6 +1133,11 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 		return h.writeBackendError(c, err)
 	}
 
+	if !j.Completed {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			ErrJobNotComplete.Error())
+	}
+
 	if j.SHA256TreeHash != "" {
 		c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", j.SHA256TreeHash)
 	}
@@ -1165,8 +1214,17 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
 
 	for _, a := range archives {
-		fmt.Fprintf(&buf, "%s,%q,%s,%d,%s\n",
-			a.ArchiveID, a.Description, a.CreationDate, a.Size, a.SHA256TreeHash)
+		fmt.Fprintf(
+			&buf,
+			"%s,%s,%s,%d,%s\n",
+			csvField(
+				a.ArchiveID,
+			),
+			csvField(a.Description),
+			csvField(a.CreationDate),
+			a.Size,
+			csvField(a.SHA256TreeHash),
+		)
 	}
 
 	payload := buf.Bytes()
@@ -1312,6 +1370,16 @@ func (h *Handler) handleSetVaultNotifications(
 			"InvalidParameterValueException",
 			"invalid request body: "+err.Error(),
 		)
+	}
+
+	if req.SNSTopic == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"SNSTopic is required for SetVaultNotifications")
+	}
+
+	if len(req.Events) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Events must not be empty for SetVaultNotifications")
 	}
 
 	if err := h.Backend.SetVaultNotifications(
@@ -1610,21 +1678,19 @@ func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName strin
 	}
 
 	partSizeStr := c.Request().Header.Get("X-Amz-Part-Size")
+	if partSizeStr == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"X-Amz-Part-Size header is required for InitiateMultipartUpload")
+	}
 
-	var partSize int64
-
-	if partSizeStr != "" {
-		n, err := parseInt64Header(partSizeStr)
-		if err != nil {
-			return h.writeError(
-				c,
-				http.StatusBadRequest,
-				"InvalidParameterValueException",
-				"invalid X-Amz-Part-Size header",
-			)
-		}
-
-		partSize = n
+	partSize, err := parseInt64Header(partSizeStr)
+	if err != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"invalid X-Amz-Part-Size header",
+		)
 	}
 
 	up, err := h.Backend.InitiateMultipartUpload(
@@ -1659,6 +1725,17 @@ func (h *Handler) handleUploadMultipartPart(
 	_ []byte,
 ) error {
 	rangeHeader := c.Request().Header.Get("Content-Range")
+	if rangeHeader == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Content-Range header is required for UploadMultipartPart")
+	}
+
+	// AWS requires format "bytes START-END/*"
+	if !isValidMultipartRange(rangeHeader) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Content-Range must be in the form \"bytes START-END/*\"")
+	}
+
 	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
 
 	if err := h.Backend.UploadMultipartPart(
@@ -1678,22 +1755,25 @@ func (h *Handler) handleCompleteMultipartUpload(
 	_ []byte,
 ) error {
 	archiveSizeStr := c.Request().Header.Get("X-Amz-Archive-Size")
+	if archiveSizeStr == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"X-Amz-Archive-Size header is required for CompleteMultipartUpload")
+	}
+
 	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
+	if checksum == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"X-Amz-Sha256-Tree-Hash header is required for CompleteMultipartUpload")
+	}
 
-	var archiveSize int64
-
-	if archiveSizeStr != "" {
-		n, err := parseInt64Header(archiveSizeStr)
-		if err != nil {
-			return h.writeError(
-				c,
-				http.StatusBadRequest,
-				"InvalidParameterValueException",
-				"invalid X-Amz-Archive-Size header",
-			)
-		}
-
-		archiveSize = n
+	archiveSize, err := parseInt64Header(archiveSizeStr)
+	if err != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"invalid X-Amz-Archive-Size header",
+		)
 	}
 
 	a, err := h.Backend.CompleteMultipartUpload(
@@ -1887,6 +1967,37 @@ func (h *Handler) handlePurchaseProvisionedCapacity(c *echo.Context, accountID s
 // parseInt64Header parses an integer value from a header string.
 func parseInt64Header(s string) (int64, error) {
 	return strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+}
+
+// isValidMultipartRange reports whether rangeHeader is in the AWS multipart upload
+// Content-Range format: "bytes START-END/*" where START and END are non-negative integers.
+func isValidMultipartRange(rangeHeader string) bool {
+	const prefix = "bytes "
+	if !strings.HasPrefix(rangeHeader, prefix) {
+		return false
+	}
+
+	rest := rangeHeader[len(prefix):]
+
+	const suffix = "/*"
+	if !strings.HasSuffix(rest, suffix) {
+		return false
+	}
+
+	rangePart := rest[:len(rest)-len(suffix)]
+	dashIdx := strings.IndexByte(rangePart, '-')
+
+	if dashIdx <= 0 || dashIdx == len(rangePart)-1 {
+		return false
+	}
+
+	startStr := rangePart[:dashIdx]
+	endStr := rangePart[dashIdx+1:]
+
+	start, err1 := strconv.ParseInt(startStr, 10, 64)
+	end, err2 := strconv.ParseInt(endStr, 10, 64)
+
+	return err1 == nil && err2 == nil && start >= 0 && end >= start
 }
 
 // ----------------------------------------
