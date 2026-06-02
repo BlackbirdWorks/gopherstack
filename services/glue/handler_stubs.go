@@ -834,7 +834,9 @@ func (h *Handler) handleDeleteBlueprint(
 	_ context.Context,
 	in *deleteBlueprintInput,
 ) (*deleteBlueprintOutput, error) {
-	_ = h.Backend.DeleteBlueprint(in.Name)
+	if err := h.Backend.DeleteBlueprint(in.Name); err != nil {
+		return nil, err
+	}
 
 	return &deleteBlueprintOutput{Name: in.Name}, nil
 }
@@ -1375,12 +1377,12 @@ func (h *Handler) handleGetBlueprint(
 	_ context.Context,
 	in *getBlueprintInput,
 ) (*getBlueprintOutput, error) {
-	found, _ := h.Backend.BatchGetBlueprints([]string{in.Name})
-	if len(found) > 0 {
-		return &getBlueprintOutput{Blueprint: found[0]}, nil
+	found, missing := h.Backend.BatchGetBlueprints([]string{in.Name})
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("blueprint %q not found: %w", in.Name, ErrNotFound)
 	}
 
-	return &getBlueprintOutput{}, nil
+	return &getBlueprintOutput{Blueprint: found[0]}, nil
 }
 
 // getBlueprintRunInput holds input for GetBlueprintRun.
