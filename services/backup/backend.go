@@ -149,6 +149,7 @@ type Rule struct {
 // read-only; mutate tags only via TagResource / CreateBackupPlan.
 type Plan struct {
 	CreationTime           time.Time               `json:"creationTime"`
+	UpdateTime             *time.Time              `json:"updateTime,omitempty"`
 	Tags                   *tags.Tags              `json:"tags,omitempty"`
 	BackupPlanName         string                  `json:"backupPlanName"`
 	BackupPlanArn          string                  `json:"backupPlanArn"`
@@ -632,6 +633,8 @@ func (b *InMemoryBackend) UpdateBackupPlan(
 		found.AdvancedBackupSettings = advancedSettings
 	}
 	found.VersionID = uuid.NewString()
+	now := time.Now().UTC()
+	found.UpdateTime = &now
 	cp := *found
 	cp.Rules = make([]Rule, len(found.Rules))
 	copy(cp.Rules, found.Rules)
