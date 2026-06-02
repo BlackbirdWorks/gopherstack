@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -18,18 +20,27 @@ const (
 	errValidation         = "ValidationError"
 
 	lifecycleAvailable      = "AVAILABLE"
+	lifecycleDeleting       = "DELETING"
+	lifecycleDeleted        = "DELETED"
 	backupTypeUserInitiated = "USER_INITIATED"
 
-	maxResultsDefault = 2147483647
+	maxResultsDefault  = 2147483647
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+	maxTagsPerResource = 50
 )
 
 var (
 	// ErrFileSystemNotFound is returned when a file system does not exist.
 	ErrFileSystemNotFound = awserr.New(errFileSystemNotFound, awserr.ErrNotFound)
 	// ErrBackupNotFound is returned when a backup does not exist.
-	ErrBackupNotFound = awserr.New(errBackupNotFound, awserr.ErrNotFound)
+	ErrBackupNotFound = awserr.New(errBackupNotFound, awserr.ErrConflict)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrTagInvalid is returned when a tag key or value fails validation.
+	ErrTagInvalid = awserr.New("BadRequest", awserr.ErrInvalidParameter)
+	// ErrTagLimitExceeded is returned when the 50-tag-per-resource limit is exceeded.
+	ErrTagLimitExceeded = awserr.New("ServiceLimitExceeded", awserr.ErrInvalidParameter)
 )
 
 // storedFileSystem is the persisted form of a FileSystem.
@@ -181,6 +192,10 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		return nil, ErrValidation
 	}
 
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
 	id := "fs-" + uuid.New().String()[:17]
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
@@ -315,6 +330,10 @@ type createBackupInput struct {
 
 // CreateBackup creates a backup of the specified file system.
 func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error) {
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
 
@@ -437,6 +456,10 @@ type createFileSystemFromBackupInput struct {
 
 // CreateFileSystemFromBackup creates a new file system from an existing backup.
 func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFromBackupInput) (*FileSystem, error) {
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFileSystemFromBackup")
 	defer b.mu.Unlock()
 
@@ -489,6 +512,10 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -500,8 +527,21 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
+	existing := b.tags[resourceARN]
+	newKeys := 0
 	for _, t := range tags {
-		b.tags[resourceARN][t.Key] = t.Value
+		if _, ok := existing[t.Key]; !ok {
+			newKeys++
+		}
+	}
+
+	if len(existing)+newKeys > maxTagsPerResource {
+		return fmt.Errorf("%w: adding %d tag(s) would exceed the %d-tag limit",
+			ErrTagLimitExceeded, newKeys, maxTagsPerResource)
+	}
+
+	for _, t := range tags {
+		existing[t.Key] = t.Value
 	}
 
 	return nil
@@ -550,6 +590,27 @@ func (b *InMemoryBackend) arnExists(resourceARN string) bool {
 	}
 
 	return false
+}
+
+// validateTags returns ErrTagInvalid if any tag key or value violates FSx constraints:
+// key must be 1–128 chars and must not start with "aws:"; value must be 0–256 chars.
+func validateTags(tags []Tag) error {
+	for _, t := range tags {
+		klen := utf8.RuneCountInString(t.Key)
+		if klen == 0 || klen > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be 1–%d chars, got %d", ErrTagInvalid, maxTagKeyLen, klen)
+		}
+
+		if strings.HasPrefix(strings.ToLower(t.Key), "aws:") {
+			return fmt.Errorf("%w: tag key must not start with reserved prefix \"aws:\"", ErrTagInvalid)
+		}
+
+		if vlen := utf8.RuneCountInString(t.Value); vlen > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be 0–%d chars, got %d", ErrTagInvalid, maxTagValueLen, vlen)
+		}
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) fsARN(id string) string {

@@ -165,6 +165,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
+	case errors.Is(err, ErrTagLimitExceeded):
+		return c.JSON(http.StatusBadRequest, errorResponse("ServiceLimitExceeded", err.Error()))
+	case errors.Is(err, ErrTagInvalid):
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequest", err.Error()))
+	case errors.Is(err, ErrBackupNotFound):
+		return c.JSON(http.StatusBadRequest, errorResponse("BackupNotFound", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errorResponse("FileSystemNotFound", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
@@ -247,7 +253,10 @@ type deleteFileSystemInput struct {
 	FileSystemID string `json:"FileSystemId"`
 }
 
-type deleteFileSystemOutput struct{}
+type deleteFileSystemOutput struct {
+	FileSystemID string `json:"FileSystemId"`
+	Lifecycle    string `json:"Lifecycle"`
+}
 
 func (h *Handler) handleDeleteFileSystem(
 	_ context.Context,
@@ -257,7 +266,7 @@ func (h *Handler) handleDeleteFileSystem(
 		return nil, err
 	}
 
-	return &deleteFileSystemOutput{}, nil
+	return &deleteFileSystemOutput{FileSystemID: in.FileSystemID, Lifecycle: lifecycleDeleting}, nil
 }
 
 // --- UpdateFileSystem ---
@@ -321,14 +330,17 @@ type deleteBackupInput struct {
 	BackupID string `json:"BackupId"`
 }
 
-type deleteBackupOutput struct{}
+type deleteBackupOutput struct {
+	BackupID  string `json:"BackupId"`
+	Lifecycle string `json:"Lifecycle"`
+}
 
 func (h *Handler) handleDeleteBackup(_ context.Context, in *deleteBackupInput) (*deleteBackupOutput, error) {
 	if err := h.Backend.DeleteBackup(in.BackupID); err != nil {
 		return nil, err
 	}
 
-	return &deleteBackupOutput{}, nil
+	return &deleteBackupOutput{BackupID: in.BackupID, Lifecycle: lifecycleDeleted}, nil
 }
 
 // --- TagResource ---
