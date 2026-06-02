@@ -212,6 +212,8 @@ func TestAccuracyB2_InventoryCSV_DescriptionWithDoubleQuote(t *testing.T) {
 func TestAccuracyB2_VaultName_Validation(t *testing.T) {
 	t.Parallel()
 
+	// Only include vault names that are safe to embed in a URL path.
+	// Characters like space and slash are tested at the unit level via ValidateVaultName.
 	tests := []struct {
 		name       string
 		vaultName  string
@@ -238,18 +240,8 @@ func TestAccuracyB2_VaultName_Validation(t *testing.T) {
 			wantStatus: http.StatusCreated,
 		},
 		{
-			name:       "space_rejected",
-			vaultName:  "my vault",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "slash_rejected",
-			vaultName:  "my/vault",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "exclamation_rejected",
-			vaultName:  "my!vault",
+			name:       "plus_char_rejected",
+			vaultName:  "my+vault", // '+' is not in allowed set [a-zA-Z0-9._-]
 			wantStatus: http.StatusBadRequest,
 		},
 		{

@@ -1129,7 +1129,7 @@ func TestAccuracy_ListParts_Pagination(t *testing.T) {
 	for i := range 3 {
 		start := i * partSize
 		end := start + partSize - 1
-		rangeHeader := fmt.Sprintf("%d-%d/*", start, end)
+		rangeHeader := fmt.Sprintf("bytes %d-%d/*", start, end)
 		rec = doRequestWithBody(t, h, http.MethodPut,
 			"/"+testAccountID+"/vaults/lp-vault/multipart-uploads/"+uploadID,
 			strings.Repeat("x", partSize),
