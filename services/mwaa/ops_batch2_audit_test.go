@@ -25,9 +25,9 @@ func TestOpsB2_CreateCliToken_RequiresAvailable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		status    string
-		wantErr   bool
+		name    string
+		status  string
+		wantErr bool
 	}{
 		{name: "creating_rejected", status: "CREATING", wantErr: true},
 		{name: "updating_rejected", status: "UPDATING", wantErr: true},
