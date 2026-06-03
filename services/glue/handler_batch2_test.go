@@ -1,6 +1,7 @@
 package glue_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -129,12 +130,17 @@ func TestBatch2_DataQualityRecommendationRun(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Start
-	rec := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "RunId")
+	startRec := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{})
+	require.Equal(t, http.StatusOK, startRec.Code)
+	assert.Contains(t, startRec.Body.String(), "RunId")
+	var startOut struct {
+		RunID string `json:"RunId"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NotEmpty(t, startOut.RunID)
 
 	// List
-	rec = doGlueRequest(t, h, "ListDataQualityRuleRecommendationRuns", map[string]any{})
+	rec := doGlueRequest(t, h, "ListDataQualityRuleRecommendationRuns", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Runs")
 
@@ -142,8 +148,10 @@ func TestBatch2_DataQualityRecommendationRun(t *testing.T) {
 	rec = doGlueRequest(t, h, "GetDataQualityRuleRecommendationRun", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Cancel (no-op on empty RunId)
-	rec = doGlueRequest(t, h, "CancelDataQualityRuleRecommendationRun", map[string]any{})
+	// Cancel using the run ID obtained from Start.
+	rec = doGlueRequest(t, h, "CancelDataQualityRuleRecommendationRun", map[string]any{
+		"RunId": startOut.RunID,
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 

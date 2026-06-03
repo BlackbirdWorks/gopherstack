@@ -215,9 +215,7 @@ func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 	_ context.Context,
 	in *cancelDataQualityRuleRecommendationRunInput,
 ) (*emptyOutput, error) {
-	_ = h.Backend.CancelDataQualityRuleRecommendationRun(in.RunID)
-
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CancelDataQualityRuleRecommendationRun(in.RunID)
 }
 
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.

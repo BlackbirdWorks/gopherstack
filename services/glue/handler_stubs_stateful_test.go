@@ -442,10 +442,10 @@ func TestUsageProfile_ErrorPropagation(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "delete_ok",
+			name:     "delete_not_found",
 			action:   "DeleteUsageProfile",
 			input:    map[string]any{"Name": "any-profile"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
