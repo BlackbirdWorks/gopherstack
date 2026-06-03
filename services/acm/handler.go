@@ -970,7 +970,9 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	case errors.Is(opErr, ErrInvalidParameter):
 		code = "ValidationException"
 	case errors.Is(opErr, ErrNotEligible):
-		code = "RequestError"
+		code = "RequestInProgressException"
+	case errors.Is(opErr, ErrRequestInProgress):
+		code = "RequestInProgressException"
 	case errors.Is(opErr, ErrInvalidState):
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrResourceInUse):

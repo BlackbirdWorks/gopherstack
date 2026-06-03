@@ -23,14 +23,15 @@ import (
 )
 
 var (
-	ErrCertNotFound     = errors.New("ResourceNotFoundException")
-	ErrInvalidParameter = errors.New("ValidationException")
-	ErrNotEligible      = errors.New("RequestError")
-	ErrAlreadyRevoked   = errors.New("InvalidStateException")
-	ErrInvalidState     = errors.New("InvalidStateException")
-	ErrResourceInUse    = errors.New("ResourceInUseException")
-	ErrConflict         = errors.New("ConflictException")
-	errInvalidPEM       = errors.New("failed to decode PEM block")
+	ErrCertNotFound      = errors.New("ResourceNotFoundException")
+	ErrInvalidParameter  = errors.New("ValidationException")
+	ErrNotEligible       = errors.New("RequestInProgressException")
+	ErrRequestInProgress = errors.New("RequestInProgressException")
+	ErrAlreadyRevoked    = errors.New("InvalidStateException")
+	ErrInvalidState      = errors.New("InvalidStateException")
+	ErrResourceInUse     = errors.New("ResourceInUseException")
+	ErrConflict          = errors.New("ConflictException")
+	errInvalidPEM        = errors.New("failed to decode PEM block")
 )
 
 const (
@@ -754,7 +755,7 @@ func (b *InMemoryBackend) GetCertificate(certARN string) (string, string, error)
 
 	if cert.Status == statusPendingValidation || cert.Status == statusValidationTimedOut ||
 		cert.Status == statusFailed {
-		return "", "", fmt.Errorf("%w: certificate %s is in state %s", ErrInvalidState, certARN, cert.Status)
+		return "", "", fmt.Errorf("%w: certificate %s is in state %s", ErrRequestInProgress, certARN, cert.Status)
 	}
 
 	return cert.CertificateBody, cert.CertificateChain, nil
@@ -1426,7 +1427,7 @@ func (b *InMemoryBackend) RevokeCertificate(certARN, revocationReason string) er
 	if cert.Status == statusPendingValidation {
 		return fmt.Errorf(
 			"%w: certificate %s is in PENDING_VALIDATION and cannot be revoked",
-			ErrInvalidParameter, certARN,
+			ErrInvalidState, certARN,
 		)
 	}
 
@@ -1477,7 +1478,7 @@ func (b *InMemoryBackend) UpdateCertificateOptions(certARN, transparencyLoggingP
 	}
 
 	if cert.Status != statusIssued {
-		return fmt.Errorf("%w: only ISSUED certificates may have options updated", ErrInvalidParameter)
+		return fmt.Errorf("%w: only ISSUED certificates may have options updated", ErrInvalidState)
 	}
 
 	cert.CertificateTransparencyLoggingPref = transparencyLoggingPref
