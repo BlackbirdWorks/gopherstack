@@ -145,6 +145,20 @@ const (
 	grantTokenTTL = 5 * time.Minute
 )
 
+// isValidAliasName reports whether an alias name uses only the characters allowed by AWS KMS.
+// AWS permits letters, digits, colons, forward slashes, underscores, and hyphens.
+// The caller is responsible for ensuring the name starts with "alias/" before calling this.
+func isValidAliasName(name string) bool {
+	for _, ch := range name {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+			(ch < '0' || ch > '9') && ch != ':' && ch != '/' && ch != '_' && ch != '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
 func isValidGrantOperation(op string) bool {
 	switch op {
@@ -844,6 +858,10 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		return nil, err
 	}
 
+	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
 	blob, encErr := encryptData(plaintextKey, key.KeyID, input.EncryptionContext, km)
 	if encErr != nil {
 		return nil, encErr
@@ -1121,8 +1139,12 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 		)
 	}
 
-	if strings.ContainsAny(input.AliasName, " \t\n\r") {
-		return fmt.Errorf("%w: alias name must not contain whitespace characters", ErrValidation)
+	if !isValidAliasName(input.AliasName) {
+		return fmt.Errorf(
+			"%w: alias name %q contains invalid characters; "+
+				"allowed: letters, numbers, colons, forward slashes, underscores, and hyphens",
+			ErrValidation, input.AliasName,
+		)
 	}
 
 	b.mu.Lock("CreateAlias")
@@ -1918,8 +1940,13 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		return nil, err
 	}
 
-	if _, ok := b.keys[keyID]; !ok {
+	key, ok := b.keys[keyID]
+	if !ok {
 		return nil, ErrKeyNotFound
+	}
+
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return nil, keyStateError(key)
 	}
 
 	grantCount := 0
@@ -2193,6 +2220,7 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 		KeySpec:           input.KeySpec,
 		NumberOfBytes:     input.NumberOfBytes,
 		EncryptionContext: input.EncryptionContext,
+		GrantTokens:       input.GrantTokens,
 	})
 	if err != nil {
 		return nil, err
