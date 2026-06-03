@@ -1062,10 +1062,8 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 
 	// Evaluate state based on AlarmRule and current child alarm states.
 	newState := b.evalCompositeRule(alarm.AlarmRule)
-	prevState := ""
 	if existing, ok := b.compositeAlarms[alarm.AlarmName]; ok {
-		prevState = existing.StateValue
-		if existing.StateTransitionedTimestamp.IsZero() || newState != prevState {
+		if existing.StateTransitionedTimestamp.IsZero() || newState != existing.StateValue {
 			alarm.StateTransitionedTimestamp = time.Now().UTC()
 		} else {
 			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
@@ -1370,7 +1368,10 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 }
 
 // SetAlarmState manually sets the state of an alarm and fires the corresponding actions.
-func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason, stateReasonData string) error {
+func (b *InMemoryBackend) SetAlarmState(
+	ctx context.Context,
+	alarmName, stateValue, stateReason, stateReasonData string,
+) error {
 	b.mu.Lock("SetAlarmState")
 
 	metricAlarm, hasMetric := b.alarms[alarmName]

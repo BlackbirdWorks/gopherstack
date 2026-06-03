@@ -40,7 +40,13 @@ func TestDescribeAlarms_MetricAlarm_StateReasonData_Returned(t *testing.T) {
 			t.Parallel()
 
 			h := newCWHandler()
-			postForm(t, h, "Action=PutMetricAlarm&AlarmName=srd-alarm&Namespace=NS&MetricName=M&ComparisonOperator=GreaterThanThreshold&EvaluationPeriods=1&Period=60&Threshold=10&Statistic=Average")
+			postForm(
+				t,
+				h,
+				"Action=PutMetricAlarm&AlarmName=srd-alarm&Namespace=NS&MetricName=M"+
+					"&ComparisonOperator=GreaterThanThreshold&EvaluationPeriods=1"+
+					"&Period=60&Threshold=10&Statistic=Average",
+			)
 
 			postForm(t, h, url.Values{
 				"Action":          []string{"SetAlarmState"},
