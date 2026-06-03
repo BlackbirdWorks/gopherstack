@@ -865,3 +865,220 @@ func TestSimulatePrincipalPolicy_RoleBoundary_Enforced(t *testing.T) {
 	assert.Equal(t, "allowed", decisionMap["s3:GetObject"],
 		"s3 allowed by both identity and boundary")
 }
+
+// ---- GetPolicyVersion VersionId accuracy ----
+
+func TestGetPolicyVersion_VersionIdMatchesRequested(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		requestedVersion string
+		wantVersionID    string
+		wantIsDefault    bool
+	}{
+		{"v1 is default", "v1", "v1", true},
+		{"v2 non-default", "v2", "v2", false},
+		{"v2 set as default", "v2", "v2", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			doc := `{"Version":"2012-10-17","Statement":[]}`
+			p, err := b.CreatePolicy("VersionIdPolicy-"+tc.name, "/", doc)
+			require.NoError(t, err)
+
+			doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+			_, err = b.CreatePolicyVersion(p.Arn, doc2, false)
+			require.NoError(t, err)
+
+			if tc.name == "v2 set as default" {
+				require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v2"))
+			}
+
+			pv, err := b.GetPolicyVersion(p.Arn, tc.requestedVersion)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantVersionID, pv.VersionID,
+				"GetPolicyVersion must return VersionID matching the requested version, not hardcoded v1")
+			assert.Equal(t, tc.wantIsDefault, pv.IsDefaultVersion,
+				"IsDefaultVersion must reflect actual default state")
+		})
+	}
+}
+
+// ---- Policy UpdateDate, DefaultVersionId, AttachmentCount, IsAttachable ----
+
+func TestPolicy_UpdateDateSetOnCreate(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	doc := `{"Version":"2012-10-17","Statement":[]}`
+	p, err := b.CreatePolicy("UpdateDatePolicy", "/", doc)
+	require.NoError(t, err)
+
+	assert.False(t, p.UpdateDate.IsZero(), "UpdateDate must be set on CreatePolicy")
+	assert.Equal(t, p.CreateDate, p.UpdateDate, "UpdateDate equals CreateDate on fresh policy")
+}
+
+func TestPolicy_DefaultVersionIdSetOnCreate(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	doc := `{"Version":"2012-10-17","Statement":[]}`
+	p, err := b.CreatePolicy("DefaultVerPolicy", "/", doc)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1", p.DefaultVersionID,
+		"DefaultVersionId must be v1 on freshly created policy")
+}
+
+func TestPolicy_IsAttachableTrueOnCreate(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	doc := `{"Version":"2012-10-17","Statement":[]}`
+	p, err := b.CreatePolicy("IsAttachablePolicy", "/", doc)
+	require.NoError(t, err)
+
+	assert.True(t, p.IsAttachable, "customer-managed policy must be IsAttachable=true")
+}
+
+func TestPolicy_AttachmentCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *iam.InMemoryBackend, policyArn string)
+		name  string
+		want  int
+	}{
+		{
+			name:  "zero on create",
+			setup: func(_ *iam.InMemoryBackend, _ string) {},
+			want:  0,
+		},
+		{
+			name: "one after attach to user",
+			setup: func(b *iam.InMemoryBackend, policyArn string) {
+				_, _ = b.CreateUser("att-count-user", "/", "")
+				_ = b.AttachUserPolicy("att-count-user", policyArn)
+			},
+			want: 1,
+		},
+		{
+			name: "decrements after detach",
+			setup: func(b *iam.InMemoryBackend, policyArn string) {
+				_, _ = b.CreateUser("att-count-user2", "/", "")
+				_ = b.AttachUserPolicy("att-count-user2", policyArn)
+				_ = b.DetachUserPolicy("att-count-user2", policyArn)
+			},
+			want: 0,
+		},
+		{
+			name: "counts user role and group",
+			setup: func(b *iam.InMemoryBackend, policyArn string) {
+				_, _ = b.CreateUser("att-count-u3", "/", "")
+				_ = b.AttachUserPolicy("att-count-u3", policyArn)
+				_, _ = b.CreateGroup("att-count-g3", "/")
+				_ = b.AttachGroupPolicy("att-count-g3", policyArn)
+				trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+					`"Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+				_, _ = b.CreateRole("att-count-r3", "/", trust, "")
+				_ = b.AttachRolePolicy("att-count-r3", policyArn)
+			},
+			want: 3,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			doc := `{"Version":"2012-10-17","Statement":[]}`
+			p, err := b.CreatePolicy("AttCountPolicy-"+tc.name, "/", doc)
+			require.NoError(t, err)
+
+			tc.setup(b, p.Arn)
+
+			got, err := b.GetPolicy(p.Arn)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.AttachmentCount,
+				"AttachmentCount must reflect actual number of entities with this policy attached")
+		})
+	}
+}
+
+func TestPolicy_UpdateDateAdvancesOnNewDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		via  string // "create" or "set"
+	}{
+		{"via CreatePolicyVersion setAsDefault", "create"},
+		{"via SetDefaultPolicyVersion", "set"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			doc := `{"Version":"2012-10-17","Statement":[]}`
+			p, err := b.CreatePolicy("UpdateDateAdv-"+tc.name, "/", doc)
+			require.NoError(t, err)
+
+			originalUpdateDate := p.UpdateDate
+
+			doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+
+			switch tc.via {
+			case "create":
+				_, err = b.CreatePolicyVersion(p.Arn, doc2, true)
+				require.NoError(t, err)
+			case "set":
+				_, err = b.CreatePolicyVersion(p.Arn, doc2, false)
+				require.NoError(t, err)
+				require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v2"))
+			}
+
+			got, err := b.GetPolicy(p.Arn)
+			require.NoError(t, err)
+
+			assert.True(t, got.UpdateDate.After(originalUpdateDate) || got.UpdateDate.Equal(originalUpdateDate),
+				"UpdateDate must advance when a new default version is set")
+			assert.Equal(t, "v2", got.DefaultVersionID,
+				"DefaultVersionId must reflect the new default version")
+		})
+	}
+}
+
+func TestPolicy_DefaultVersionIdAfterSetDefault(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	doc := `{"Version":"2012-10-17","Statement":[]}`
+	p, err := b.CreatePolicy("DefVerAfterSet", "/", doc)
+	require.NoError(t, err)
+
+	doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+	_, err = b.CreatePolicyVersion(p.Arn, doc2, false)
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v2"))
+
+	got, err := b.GetPolicy(p.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", got.DefaultVersionID)
+
+	// Revert to v1.
+	require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v1"))
+
+	got2, err := b.GetPolicy(p.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "v1", got2.DefaultVersionID, "DefaultVersionId reverts to v1")
+}

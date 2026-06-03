@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -162,6 +163,9 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	pol := b.policies[polName]
+	now := time.Now().UTC()
+
 	if versionID == "v1" {
 		// v1 is default when no stored version overrides it.
 		versions := b.policyVersions[policyArn]
@@ -169,6 +173,10 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 			versions[i].IsDefaultVersion = false
 		}
 		b.policyVersions[policyArn] = versions
+
+		pol.DefaultVersionID = "v1"
+		pol.UpdateDate = now
+		b.policies[polName] = pol
 
 		return nil
 	}
@@ -181,9 +189,10 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 			found = true
 			versions[i].IsDefaultVersion = true
 
-			// Update the policy's document to the new default.
-			pol := b.policies[polName]
+			// Update the policy's document, default version, and update timestamp.
 			pol.PolicyDocument = versions[i].PolicyDocument
+			pol.DefaultVersionID = versionID
+			pol.UpdateDate = now
 			b.policies[polName] = pol
 		} else {
 			versions[i].IsDefaultVersion = false

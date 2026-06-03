@@ -612,7 +612,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"GetPolicyVersion": func(vals url.Values, reqID string) (any, error) {
-			pol, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
+			pv, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
 			if err != nil {
 				return nil, err
 			}
@@ -620,10 +620,10 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 			return &GetPolicyVersionResponse{
 				Xmlns: iamXMLNS,
 				GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
-					Document:         pol.PolicyDocument,
-					VersionID:        "v1",
-					IsDefaultVersion: true,
-					CreateDate:       isoTime(pol.CreateDate),
+					Document:         pv.PolicyDocument,
+					VersionID:        pv.VersionID,
+					IsDefaultVersion: pv.IsDefaultVersion,
+					CreateDate:       isoTime(pv.CreateDate),
 				}},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -1669,12 +1669,26 @@ func toRoleXML(r *Role) RoleXML {
 }
 
 func toPolicyXML(p *Policy) PolicyXML {
+	defaultVersionID := p.DefaultVersionID
+	if defaultVersionID == "" {
+		defaultVersionID = "v1"
+	}
+
+	updateDate := p.UpdateDate
+	if updateDate.IsZero() {
+		updateDate = p.CreateDate
+	}
+
 	return PolicyXML{
-		PolicyName: p.PolicyName,
-		PolicyID:   p.PolicyID,
-		Arn:        p.Arn,
-		Path:       p.Path,
-		CreateDate: isoTime(p.CreateDate),
+		PolicyName:       p.PolicyName,
+		PolicyID:         p.PolicyID,
+		Arn:              p.Arn,
+		Path:             p.Path,
+		CreateDate:       isoTime(p.CreateDate),
+		UpdateDate:       isoTime(updateDate),
+		DefaultVersionID: defaultVersionID,
+		AttachmentCount:  p.AttachmentCount,
+		IsAttachable:     p.IsAttachable,
 	}
 }
 

@@ -106,7 +106,7 @@ type StorageBackend interface {
 	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
 	GetPolicy(policyArn string) (*Policy, error)
 	ListPolicyVersions(policyArn string) ([]StoredPolicyVersion, error)
-	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
+	GetPolicyVersion(policyArn, versionID string) (*StoredPolicyVersion, error)
 
 	// Inline Policies - Users
 	PutUserPolicy(userName, policyName, policyDocument string) error
@@ -444,6 +444,12 @@ func (b *InMemoryBackend) addPolicyAttachmentLocked(policyArn, entityName, entit
 	}
 
 	b.policyAttachments[policyArn] = refs
+
+	if polName, ok := b.policyByARN[policyArn]; ok {
+		pol := b.policies[polName]
+		pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
+		b.policies[polName] = pol
+	}
 }
 
 func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, entityType string) {
@@ -464,10 +470,22 @@ func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, en
 	if len(refs.users) == 0 && len(refs.roles) == 0 && len(refs.groups) == 0 {
 		delete(b.policyAttachments, policyArn)
 
+		if polName, ok := b.policyByARN[policyArn]; ok {
+			pol := b.policies[polName]
+			pol.AttachmentCount = 0
+			b.policies[polName] = pol
+		}
+
 		return
 	}
 
 	b.policyAttachments[policyArn] = refs
+
+	if polName, ok := b.policyByARN[policyArn]; ok {
+		pol := b.policies[polName]
+		pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
+		b.policies[polName] = pol
+	}
 }
 
 // firstKey returns an arbitrary key from a set-like map, or an empty string if the map is empty.
@@ -753,13 +771,17 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	}
 
 	p := normPath(path)
+	now := time.Now().UTC()
 	pol := Policy{
-		PolicyName:     policyName,
-		PolicyID:       newID("ANPA"),
-		Arn:            arn.Build("iam", "", b.accountID, "policy"+p+policyName),
-		Path:           p,
-		PolicyDocument: policyDocument,
-		CreateDate:     time.Now().UTC(),
+		PolicyName:       policyName,
+		PolicyID:         newID("ANPA"),
+		Arn:              arn.Build("iam", "", b.accountID, "policy"+p+policyName),
+		Path:             p,
+		PolicyDocument:   policyDocument,
+		CreateDate:       now,
+		UpdateDate:       now,
+		DefaultVersionID: "v1",
+		IsAttachable:     true,
 	}
 	b.policies[policyName] = pol
 	b.policyByARN[pol.Arn] = policyName
@@ -1487,8 +1509,9 @@ func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
 	return &pol, nil
 }
 
-// GetPolicyVersion returns a policy document for the requested version.
-func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*Policy, error) {
+// GetPolicyVersion returns the requested version of a managed policy.
+// If versionID is empty or "v1", the v1 (original) version info is returned.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*StoredPolicyVersion, error) {
 	b.mu.RLock("GetPolicyVersion")
 	defer b.mu.RUnlock()
 
@@ -1502,13 +1525,21 @@ func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*Policy
 			continue
 		}
 
-		policy.PolicyDocument = version.PolicyDocument
+		v := version
+		v.IsDefaultVersion = (policy.DefaultVersionID == versionID)
 
-		return &policy, nil
+		return &v, nil
 	}
 
 	if versionID == "" || versionID == "v1" {
-		return &policy, nil
+		isDefault := policy.DefaultVersionID == "v1" || policy.DefaultVersionID == ""
+
+		return &StoredPolicyVersion{
+			VersionID:        "v1",
+			PolicyDocument:   policy.PolicyDocument,
+			IsDefaultVersion: isDefault,
+			CreateDate:       policy.CreateDate,
+		}, nil
 	}
 
 	return nil, fmt.Errorf("%w: policy version %q not found", ErrPolicyNotFound, versionID)
