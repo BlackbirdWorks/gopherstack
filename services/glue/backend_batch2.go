@@ -261,6 +261,10 @@ func (b *InMemoryBackend) DeleteUsageProfile(name string) error {
 	b.mu.Lock("DeleteUsageProfile")
 	defer b.mu.Unlock()
 
+	if _, ok := b.usageProfiles[name]; !ok {
+		return ErrUsageProfileNotFound
+	}
+
 	delete(b.usageProfiles, name)
 
 	return nil
@@ -417,9 +421,12 @@ func (b *InMemoryBackend) CancelDataQualityRuleRecommendationRun(runID string) e
 	b.mu.Lock("CancelDataQualityRuleRecommendationRun")
 	defer b.mu.Unlock()
 
-	if run, ok := b.dqRecommendationRuns[runID]; ok {
-		run.Status = "CANCELLED"
+	run, ok := b.dqRecommendationRuns[runID]
+	if !ok {
+		return ErrDQRecommendationRunNotFound
 	}
+
+	run.Status = "CANCELLED"
 
 	return nil
 }
@@ -538,9 +545,12 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRun(runID string) error {
 	b.mu.Lock("StopColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
-	if r, ok := b.columnStatTaskRuns[runID]; ok {
-		r.Status = stateStopped
+	r, ok := b.columnStatTaskRuns[runID]
+	if !ok {
+		return ErrColumnStatTaskRunNotFound
 	}
+
+	r.Status = stateStopped
 
 	return nil
 }
@@ -611,9 +621,12 @@ func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(taskRunID string) e
 	b.mu.Lock("StopMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 
-	if r, ok := b.materializedViewRuns[taskRunID]; ok {
-		r.Status = stateStopped
+	r, ok := b.materializedViewRuns[taskRunID]
+	if !ok {
+		return ErrMaterializedViewRunNotFound
 	}
+
+	r.Status = stateStopped
 
 	return nil
 }
