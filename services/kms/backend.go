@@ -150,8 +150,8 @@ const (
 // The caller is responsible for ensuring the name starts with "alias/" before calling this.
 func isValidAliasName(name string) bool {
 	for _, ch := range name {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-			(ch >= '0' && ch <= '9') || ch == ':' || ch == '/' || ch == '_' || ch == '-') {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+			(ch < '0' || ch > '9') && ch != ':' && ch != '/' && ch != '_' && ch != '-' {
 			return false
 		}
 	}

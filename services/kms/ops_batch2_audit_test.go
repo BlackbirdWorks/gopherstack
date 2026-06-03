@@ -11,7 +11,6 @@ package kms_test
 //     colons, forward slashes, underscores, and hyphens in alias names.
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,10 +38,12 @@ func ops2MustCreateSymKey(t *testing.T, b *kms.InMemoryBackend) string {
 // ── 1. CreateGrant key-state guard ───────────────────────────────────────────
 
 func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
+		setup func(t *testing.T, b *kms.InMemoryBackend, keyID string)
 		name  string
 		state string
-		setup func(t *testing.T, b *kms.InMemoryBackend, keyID string)
 	}{
 		{
 			name:  "PendingDeletion",
@@ -59,7 +60,7 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 		{
 			name:  "PendingImport",
 			state: kms.KeyStatePendingImport,
-			setup: func(t *testing.T, b *kms.InMemoryBackend, keyID string) {
+			setup: func(t *testing.T, _ *kms.InMemoryBackend, _ string) {
 				t.Helper()
 				// EXTERNAL-origin keys start in PendingImport — use that key.
 			},
@@ -68,6 +69,7 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			b := ops2NewBackend(t)
 
 			var keyID string
@@ -86,13 +88,14 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 				Operations:       []string{"Decrypt"},
 			})
 			require.Error(t, err)
-			assert.True(t, errors.Is(err, kms.ErrKeyInvalidState),
-				"expected KMSInvalidStateException for key in %s, got: %v", tc.state, err)
+			assert.ErrorIs(t, err, kms.ErrKeyInvalidState,
+				"expected KMSInvalidStateException for key in %s", tc.state)
 		})
 	}
 }
 
 func TestOps2_CreateGrant_Disabled_Allowed(t *testing.T) {
+	t.Parallel()
 	// AWS allows CreateGrant on Disabled keys (only PendingDeletion/PendingImport are blocked).
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
@@ -110,6 +113,7 @@ func TestOps2_CreateGrant_Disabled_Allowed(t *testing.T) {
 // ── 2. GenerateDataKey GrantTokens ────────────────────────────────────────────
 
 func TestOps2_GenerateDataKey_GrantTokens_Accepted(t *testing.T) {
+	t.Parallel()
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
@@ -131,6 +135,7 @@ func TestOps2_GenerateDataKey_GrantTokens_Accepted(t *testing.T) {
 }
 
 func TestOps2_GenerateDataKey_ExpiredGrantToken_Rejected(t *testing.T) {
+	t.Parallel()
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
@@ -140,13 +145,13 @@ func TestOps2_GenerateDataKey_ExpiredGrantToken_Rejected(t *testing.T) {
 		GrantTokens: []string{"not-a-real-grant-token"},
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrInvalidGrantToken),
-		"expected InvalidGrantTokenException for bogus token, got: %v", err)
+	assert.ErrorIs(t, err, kms.ErrInvalidGrantToken)
 }
 
 // ── 3. GenerateDataKeyWithoutPlaintext GrantTokens ───────────────────────────
 
 func TestOps2_GenerateDataKeyWithoutPlaintext_GrantTokens_Accepted(t *testing.T) {
+	t.Parallel()
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
@@ -168,6 +173,7 @@ func TestOps2_GenerateDataKeyWithoutPlaintext_GrantTokens_Accepted(t *testing.T)
 }
 
 func TestOps2_GenerateDataKeyWithoutPlaintext_ExpiredGrantToken_Rejected(t *testing.T) {
+	t.Parallel()
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
@@ -177,13 +183,14 @@ func TestOps2_GenerateDataKeyWithoutPlaintext_ExpiredGrantToken_Rejected(t *test
 		GrantTokens: []string{"not-a-real-grant-token"},
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, kms.ErrInvalidGrantToken),
-		"expected InvalidGrantTokenException for bogus token, got: %v", err)
+	assert.ErrorIs(t, err, kms.ErrInvalidGrantToken)
 }
 
 // ── 4. CreateAlias character validation ──────────────────────────────────────
 
 func TestOps2_CreateAlias_InvalidCharacters_Rejected(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		aliasName string
@@ -202,6 +209,7 @@ func TestOps2_CreateAlias_InvalidCharacters_Rejected(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			b := ops2NewBackend(t)
 			keyID := ops2MustCreateSymKey(t, b)
 
@@ -210,13 +218,15 @@ func TestOps2_CreateAlias_InvalidCharacters_Rejected(t *testing.T) {
 				TargetKeyID: keyID,
 			})
 			require.Error(t, err, "alias name %q should be rejected", tc.aliasName)
-			assert.True(t, errors.Is(err, kms.ErrValidation),
-				"expected ValidationException for %q, got: %v", tc.aliasName, err)
+			assert.ErrorIs(t, err, kms.ErrValidation,
+				"expected ValidationException for %q", tc.aliasName)
 		})
 	}
 }
 
 func TestOps2_CreateAlias_ValidCharacters_Accepted(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		aliasName string
@@ -232,6 +242,7 @@ func TestOps2_CreateAlias_ValidCharacters_Accepted(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			b := ops2NewBackend(t)
 			keyID := ops2MustCreateSymKey(t, b)
 
