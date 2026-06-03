@@ -1159,7 +1159,7 @@ func (h *Handler) handleUpdateEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	e, backendErr := h.Backend.UpdateEndpoint(appID, endpointID, req)
+	_, backendErr := h.Backend.UpdateEndpoint(appID, endpointID, req)
 	if backendErr != nil {
 		if errors.Is(backendErr, awserr.ErrInvalidParameter) {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", backendErr.Error())
@@ -1168,7 +1168,10 @@ func (h *Handler) handleUpdateEndpoint(c *echo.Context, appID, endpointID string
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusAccepted, toEndpointResponse(e))
+	httputils.WriteJSON(
+		c.Request().Context(), c.Response(),
+		http.StatusAccepted, messageBodyResponse{Message: acceptedMessage},
+	)
 
 	return nil
 }

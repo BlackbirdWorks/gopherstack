@@ -47,6 +47,7 @@ type storedAppSettings struct {
 	CampaignHook        map[string]any `json:"CampaignHook"`
 	Limits              map[string]any `json:"Limits"`
 	QuietTime           map[string]any `json:"QuietTime"`
+	LastModifiedDate    string         `json:"LastModifiedDate"`
 	CloudWatchMetrics   bool           `json:"CloudWatchMetrics"`
 	EventTaggingEnabled bool           `json:"EventTaggingEnabled"`
 }
@@ -663,6 +664,8 @@ func (b *InMemoryBackend) CreateImportJob(
 
 	versionKey := appID + "/" + segID
 	b.segmentVersions[versionKey] = []*Segment{cloneSegment(seg)}
+
+	j.SegmentID = segID
 
 	cp := *j
 

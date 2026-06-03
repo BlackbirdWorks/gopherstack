@@ -1150,7 +1150,7 @@ func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) er
 
 	resp := appSettingsResponse{
 		ApplicationID:            appID,
-		LastModifiedDate:         nowRFC3339(),
+		LastModifiedDate:         settings.LastModifiedDate,
 		CampaignHook:             settings.CampaignHook,
 		Limits:                   settings.Limits,
 		QuietTime:                settings.QuietTime,
@@ -1215,7 +1215,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 
 	resp := appSettingsResponse{
 		ApplicationID:            appID,
-		LastModifiedDate:         nowRFC3339(),
+		LastModifiedDate:         settings.LastModifiedDate,
 		CampaignHook:             settings.CampaignHook,
 		Limits:                   settings.Limits,
 		QuietTime:                settings.QuietTime,

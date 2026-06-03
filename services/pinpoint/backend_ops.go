@@ -1660,9 +1660,21 @@ func (b *InMemoryBackend) GetSegmentExportJobs(appID, _ string) ([]*ExportJob, e
 	return b.GetExportJobs(appID)
 }
 
-// GetSegmentImportJobs returns all import jobs for a segment.
-func (b *InMemoryBackend) GetSegmentImportJobs(appID, _ string) ([]*ImportJob, error) {
-	return b.GetImportJobs(appID)
+// GetSegmentImportJobs returns import jobs associated with a specific segment.
+func (b *InMemoryBackend) GetSegmentImportJobs(appID, segmentID string) ([]*ImportJob, error) {
+	b.mu.RLock("GetSegmentImportJobs")
+	defer b.mu.RUnlock()
+
+	var jobs []*ImportJob
+
+	for _, j := range b.importJobs {
+		if j.ApplicationID == appID && j.SegmentID == segmentID {
+			cp := *j
+			jobs = append(jobs, &cp)
+		}
+	}
+
+	return jobs, nil
 }
 
 // ──────────────────────────────────────────────────
@@ -2334,6 +2346,7 @@ func (b *InMemoryBackend) UpdateApplicationSettings(
 		QuietTime:           cloneAnyMap(settings.QuietTime),
 		CloudWatchMetrics:   settings.CloudWatchMetrics,
 		EventTaggingEnabled: settings.EventTaggingEnabled,
+		LastModifiedDate:    nowRFC3339(),
 	}
 
 	b.appSettings[appID] = stored
