@@ -146,7 +146,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[AlarmHistoryItem], error)
 	DeleteAlarms(alarmNames []string) error
-	SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason string) error
+	SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason, stateReasonData string) error
 	EnableAlarmActions(alarmNames []string) error
 	DisableAlarmActions(alarmNames []string) error
 	PutDashboard(name, body string) error
@@ -1062,6 +1062,17 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 
 	// Evaluate state based on AlarmRule and current child alarm states.
 	newState := b.evalCompositeRule(alarm.AlarmRule)
+	prevState := ""
+	if existing, ok := b.compositeAlarms[alarm.AlarmName]; ok {
+		prevState = existing.StateValue
+		if existing.StateTransitionedTimestamp.IsZero() || newState != prevState {
+			alarm.StateTransitionedTimestamp = time.Now().UTC()
+		} else {
+			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
+		}
+	} else {
+		alarm.StateTransitionedTimestamp = time.Now().UTC()
+	}
 	alarm.StateValue = newState
 	if alarm.StateReason == "" {
 		alarm.StateReason = "Rule evaluated to " + newState
@@ -1359,7 +1370,7 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 }
 
 // SetAlarmState manually sets the state of an alarm and fires the corresponding actions.
-func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason string) error {
+func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason, stateReasonData string) error {
 	b.mu.Lock("SetAlarmState")
 
 	metricAlarm, hasMetric := b.alarms[alarmName]
@@ -1388,6 +1399,7 @@ func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateVal
 
 		metricAlarm.StateValue = stateValue
 		metricAlarm.StateReason = stateReason
+		metricAlarm.StateReasonData = stateReasonData
 		if oldState != stateValue {
 			metricAlarm.StateTransitionedTimestamp = time.Now().UTC()
 		}
@@ -1402,6 +1414,9 @@ func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateVal
 
 		compositeAlarm.StateValue = stateValue
 		compositeAlarm.StateReason = stateReason
+		if oldState != stateValue {
+			compositeAlarm.StateTransitionedTimestamp = time.Now().UTC()
+		}
 	}
 
 	summary := fmt.Sprintf("Alarm %q changed from %s to %s", alarmName, oldState, stateValue)
@@ -1591,6 +1606,7 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 		reason := "Rule evaluated to " + newState
 		ca.StateValue = newState
 		ca.StateReason = reason
+		ca.StateTransitionedTimestamp = time.Now().UTC()
 		summary := fmt.Sprintf("Composite alarm %q changed from %s to %s", ca.AlarmName, oldState, newState)
 		histData := b.stateChangeHistoryData(ca.AlarmName, oldState, newState, reason)
 		b.appendHistory(ca.AlarmName, "CompositeAlarm", historyTypeStateUpdate, summary, histData)

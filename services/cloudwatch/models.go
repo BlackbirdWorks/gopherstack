@@ -88,17 +88,18 @@ type MetricAlarm struct {
 
 // CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.
 type CompositeAlarm struct {
-	CreatedAt               time.Time `json:"AlarmCreatedAt"`
-	StateValue              string    `json:"StateValue"`
-	AlarmName               string    `json:"AlarmName"`
-	AlarmRule               string    `json:"AlarmRule"`
-	AlarmDescription        string    `json:"AlarmDescription,omitempty"`
-	AlarmArn                string    `json:"AlarmArn"`
-	StateReason             string    `json:"StateReason,omitempty"`
-	AlarmActions            []string  `json:"AlarmActions,omitempty"`
-	OKActions               []string  `json:"OKActions,omitempty"`
-	InsufficientDataActions []string  `json:"InsufficientDataActions,omitempty"`
-	ActionsEnabled          bool      `json:"ActionsEnabled"`
+	CreatedAt                  time.Time `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp time.Time `json:"StateTransitionedTimestamp"`
+	StateValue                 string    `json:"StateValue"`
+	AlarmName                  string    `json:"AlarmName"`
+	AlarmRule                  string    `json:"AlarmRule"`
+	AlarmDescription           string    `json:"AlarmDescription,omitempty"`
+	AlarmArn                   string    `json:"AlarmArn"`
+	StateReason                string    `json:"StateReason,omitempty"`
+	AlarmActions               []string  `json:"AlarmActions,omitempty"`
+	OKActions                  []string  `json:"OKActions,omitempty"`
+	InsufficientDataActions    []string  `json:"InsufficientDataActions,omitempty"`
+	ActionsEnabled             bool      `json:"ActionsEnabled"`
 }
 
 // AlarmHistoryItem represents a single history entry for an alarm.
