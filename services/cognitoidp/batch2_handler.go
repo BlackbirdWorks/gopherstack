@@ -553,7 +553,14 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 		return nil, err
 	}
 
-	return &createUserPoolDomainFullOutput{CloudFrontDomain: d.CloudFrontDistribution}, nil
+	// AWS only returns CloudFrontDomain for custom domains (with a certificate).
+	// Managed Cognito domains return an empty response.
+	cfDomain := ""
+	if certArn != "" {
+		cfDomain = d.CloudFrontDistribution
+	}
+
+	return &createUserPoolDomainFullOutput{CloudFrontDomain: cfDomain}, nil
 }
 
 type updateUserPoolDomainFullInput struct {
@@ -710,6 +717,17 @@ func (h *Handler) handleSetRiskConfigurationFull(
 		cfg.AccountTakeoverRiskConfig = at
 	}
 
+	if in.RiskExceptionConfiguration != nil {
+		exc := make([]string, len(in.RiskExceptionConfiguration.BlockedIPRangeList))
+		copy(exc, in.RiskExceptionConfiguration.BlockedIPRangeList)
+		skp := make([]string, len(in.RiskExceptionConfiguration.SkippedIPRangeList))
+		copy(skp, in.RiskExceptionConfiguration.SkippedIPRangeList)
+		cfg.RiskExceptionConfiguration = &RiskExceptionConfig{
+			BlockedIPRangeList: exc,
+			SkippedIPRangeList: skp,
+		}
+	}
+
 	if err := h.Backend.SetTypedRiskConfiguration(cfg); err != nil {
 		return nil, err
 	}
@@ -754,6 +772,13 @@ func toRiskConfigJSON(cfg *TypedRiskConfiguration) *riskConfigurationJSON {
 		}
 
 		out.AccountTakeoverRiskConfiguration = at
+	}
+
+	if cfg.RiskExceptionConfiguration != nil {
+		out.RiskExceptionConfiguration = &riskExceptionConfigJSON{
+			BlockedIPRangeList: cfg.RiskExceptionConfiguration.BlockedIPRangeList,
+			SkippedIPRangeList: cfg.RiskExceptionConfiguration.SkippedIPRangeList,
+		}
 	}
 
 	return out
@@ -972,12 +997,13 @@ type createGroupFullInput struct {
 }
 
 type groupFullSummary struct {
-	GroupName    string  `json:"GroupName"`
-	UserPoolID   string  `json:"UserPoolId"`
-	Description  string  `json:"Description,omitempty"`
-	RoleArn      string  `json:"RoleArn,omitempty"`
-	Precedence   int32   `json:"Precedence"`
-	CreationDate float64 `json:"CreationDate,omitempty"`
+	GroupName        string  `json:"GroupName"`
+	UserPoolID       string  `json:"UserPoolId"`
+	Description      string  `json:"Description,omitempty"`
+	RoleArn          string  `json:"RoleArn,omitempty"`
+	Precedence       int32   `json:"Precedence"`
+	CreationDate     float64 `json:"CreationDate,omitempty"`
+	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 }
 
 type createGroupFullOutput struct {
@@ -1101,12 +1127,21 @@ func (h *Handler) handleListUsersInGroupFull(
 }
 
 func toGroupFullSummary(g *Group) *groupFullSummary {
-	return &groupFullSummary{
-		GroupName:    g.GroupName,
-		UserPoolID:   g.UserPoolID,
-		Description:  g.Description,
-		RoleArn:      g.RoleArn,
-		Precedence:   g.Precedence,
-		CreationDate: float64(g.CreatedAt.Unix()),
+	out := &groupFullSummary{
+		GroupName:   g.GroupName,
+		UserPoolID:  g.UserPoolID,
+		Description: g.Description,
+		RoleArn:     g.RoleArn,
+		Precedence:  g.Precedence,
 	}
+
+	if !g.CreatedAt.IsZero() {
+		out.CreationDate = float64(g.CreatedAt.Unix())
+	}
+
+	if !g.LastModifiedAt.IsZero() {
+		out.LastModifiedDate = float64(g.LastModifiedAt.Unix())
+	}
+
+	return out
 }

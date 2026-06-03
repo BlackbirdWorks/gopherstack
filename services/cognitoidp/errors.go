@@ -58,4 +58,7 @@ var (
 
 	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
 	ErrAlreadyExists = awserr.New("GroupExistsException", awserr.ErrAlreadyExists)
+
+	// ErrDuplicateProvider is returned when an identity provider with the same name already exists.
+	ErrDuplicateProvider = awserr.New("DuplicateProviderException", awserr.ErrAlreadyExists)
 )
