@@ -1053,6 +1053,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
+		StateReasonData:         a.StateReasonData,
 		AlarmDescription:        a.AlarmDescription,
 		AlarmActions:            a.AlarmActions,
 		OKActions:               a.OKActions,
@@ -1078,7 +1079,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 
 // compositeAlarmToXML converts a CompositeAlarm to its XML representation.
 func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
-	return compositeAlarmXMLType{
+	x := compositeAlarmXMLType{
 		AlarmName:               a.AlarmName,
 		AlarmArn:                a.AlarmArn,
 		AlarmRule:               a.AlarmRule,
@@ -1090,6 +1091,11 @@ func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
 		InsufficientDataActions: a.InsufficientDataActions,
 		ActionsEnabled:          a.ActionsEnabled,
 	}
+	if !a.StateTransitionedTimestamp.IsZero() {
+		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
+	}
+
+	return x
 }
 
 // metricAlarmXML is the XML representation of a MetricAlarm.
@@ -1107,6 +1113,7 @@ type metricAlarmXML struct {
 	StateValue                         string   `xml:"StateValue"`
 	AlarmName                          string   `xml:"AlarmName"`
 	StateReason                        string   `xml:"StateReason,omitempty"`
+	StateReasonData                    string   `xml:"StateReasonData,omitempty"`
 	AlarmActions                       []string `xml:"AlarmActions>member,omitempty"`
 	InsufficientDataActions            []string `xml:"InsufficientDataActions>member,omitempty"`
 	OKActions                          []string `xml:"OKActions>member,omitempty"`
@@ -1123,16 +1130,17 @@ type metricAlarmXML struct {
 
 // compositeAlarmXMLType is the XML representation of a CompositeAlarm.
 type compositeAlarmXMLType struct {
-	AlarmName               string   `xml:"AlarmName"`
-	AlarmArn                string   `xml:"AlarmArn"`
-	AlarmRule               string   `xml:"AlarmRule"`
-	StateValue              string   `xml:"StateValue"`
-	StateReason             string   `xml:"StateReason,omitempty"`
-	AlarmDescription        string   `xml:"AlarmDescription,omitempty"`
-	AlarmActions            []string `xml:"AlarmActions>member,omitempty"`
-	OKActions               []string `xml:"OKActions>member,omitempty"`
-	InsufficientDataActions []string `xml:"InsufficientDataActions>member,omitempty"`
-	ActionsEnabled          bool     `xml:"ActionsEnabled"`
+	StateTransitionedTimestamp string   `xml:"StateTransitionedTimestamp,omitempty"`
+	AlarmName                  string   `xml:"AlarmName"`
+	AlarmArn                   string   `xml:"AlarmArn"`
+	AlarmRule                  string   `xml:"AlarmRule"`
+	StateValue                 string   `xml:"StateValue"`
+	StateReason                string   `xml:"StateReason,omitempty"`
+	AlarmDescription           string   `xml:"AlarmDescription,omitempty"`
+	AlarmActions               []string `xml:"AlarmActions>member,omitempty"`
+	OKActions                  []string `xml:"OKActions>member,omitempty"`
+	InsufficientDataActions    []string `xml:"InsufficientDataActions>member,omitempty"`
+	ActionsEnabled             bool     `xml:"ActionsEnabled"`
 }
 
 func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
@@ -1442,8 +1450,15 @@ func (h *Handler) handleSetAlarmState(form url.Values, c *echo.Context) error {
 	}
 	stateValue := form.Get("StateValue")
 	stateReason := form.Get("StateReason")
+	stateReasonData := form.Get("StateReasonData")
 
-	if err := h.Backend.SetAlarmState(c.Request().Context(), alarmName, stateValue, stateReason); err != nil {
+	if err := h.Backend.SetAlarmState(
+		c.Request().Context(),
+		alarmName,
+		stateValue,
+		stateReason,
+		stateReasonData,
+	); err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 

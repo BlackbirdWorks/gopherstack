@@ -730,7 +730,7 @@ func TestBackend_SetAlarmState_ToAlarm_RecordsHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.SetAlarmState(t.Context(), "cpu-alarm", "ALARM", "CPU exceeded 80%")
+	err = b.SetAlarmState(t.Context(), "cpu-alarm", "ALARM", "CPU exceeded 80%", "")
 	require.NoError(t, err)
 
 	hist, err := b.DescribeAlarmHistory("cpu-alarm", "", "", "", time.Time{}, time.Time{}, 0)
@@ -756,7 +756,7 @@ func TestBackend_SetAlarmState_Reason_Stored(t *testing.T) {
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 50, EvaluationPeriods: 1,
 	}))
 
-	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "Threshold breach detected"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "Threshold breach detected", ""))
 
 	alarms, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
@@ -780,13 +780,13 @@ func TestBackend_SetAlarmState_StateTransitions(t *testing.T) {
 	assert.Equal(t, "INSUFFICIENT_DATA", alarms.Data[0].StateValue)
 
 	// Transition to ALARM.
-	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach", ""))
 	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "ALARM", alarms.Data[0].StateValue)
 
 	// Transition to OK.
-	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "OK", "resolved"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "OK", "resolved", ""))
 	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", alarms.Data[0].StateValue)
@@ -796,7 +796,7 @@ func TestBackend_SetAlarmState_NotFound_Error(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
-	err := b.SetAlarmState(t.Context(), "nonexistent", "ALARM", "reason")
+	err := b.SetAlarmState(t.Context(), "nonexistent", "ALARM", "reason", "")
 	assert.Error(t, err)
 }
 
@@ -1310,7 +1310,7 @@ func TestBackend_CompositeAlarm_EvaluatesOnCreate(t *testing.T) {
 		AlarmName: "child", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 50, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "test"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "test", ""))
 
 	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 		AlarmName: "composite",
@@ -1343,7 +1343,7 @@ func TestBackend_CompositeAlarm_UpdatesOnChildChange(t *testing.T) {
 	initialState := compPages.Data[0].StateValue
 
 	// Trigger child alarm.
-	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "trigger"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "trigger", ""))
 
 	_, compPages, _ = b.DescribeAlarms([]string{"composite"}, nil, "", "", "", 0)
 	require.Len(t, compPages.Data, 1)
@@ -1388,7 +1388,7 @@ func TestBackend_DescribeAlarms_ByState(t *testing.T) {
 		AlarmName: "a2", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 80, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "test"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "test", ""))
 
 	p, _, err := b.DescribeAlarms(nil, nil, "", "ALARM", "", 0)
 	require.NoError(t, err)
@@ -1425,7 +1425,7 @@ func TestBackend_DescribeAlarmHistory_FilterByType(t *testing.T) {
 		AlarmName: "a1", Namespace: "NS", MetricName: "M",
 		ComparisonOperator: "GreaterThanThreshold", Threshold: 80, EvaluationPeriods: 1,
 	}))
-	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach", ""))
 
 	hist, err := b.DescribeAlarmHistory("a1", "", "StateUpdate", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)

@@ -122,7 +122,7 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 					t,
 					b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-persist", StateValue: "OK"}),
 				)
-				require.NoError(t, b.SetAlarmState(t.Context(), "hist-persist", "ALARM", "test reason"))
+				require.NoError(t, b.SetAlarmState(t.Context(), "hist-persist", "ALARM", "test reason", ""))
 			},
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()

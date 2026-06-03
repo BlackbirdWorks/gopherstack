@@ -1159,6 +1159,7 @@ func (h *Handler) cborSetAlarmState(input cbor.Map, c *echo.Context) error {
 		alarmName,
 		cborStr(input, keyStateValue),
 		cborStr(input, "StateReason"),
+		cborStr(input, "StateReasonData"),
 	); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
