@@ -1527,6 +1527,16 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 			continue
 		}
 
+		if job.Status == statusInProgress {
+			errs = append(errs, BatchDeleteEvaluationJobError{
+				JobARN:  jobARN,
+				Code:    "ValidationException",
+				Message: fmt.Sprintf("evaluation job %s cannot be deleted while in status %s", jobARN, job.Status),
+			})
+
+			continue
+		}
+
 		delete(b.evaluationJobsByName, job.JobName)
 		delete(b.evaluationJobs, jobARN)
 		deleted = append(deleted, BatchDeleteEvaluationJobItem{

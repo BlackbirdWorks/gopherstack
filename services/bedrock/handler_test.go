@@ -1172,6 +1172,8 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 
 				job, err := h.Backend.CreateEvaluationJob("job-1", nil)
 				require.NoError(t, err)
+				// AWS only allows batch-delete on terminal-state jobs; stop first.
+				require.NoError(t, h.Backend.StopEvaluationJob(job.JobArn))
 
 				return []string{job.JobArn}
 			},
@@ -1195,6 +1197,8 @@ func TestHandler_BatchDeleteEvaluationJob(t *testing.T) {
 
 				job, err := h.Backend.CreateEvaluationJob("job-mixed", nil)
 				require.NoError(t, err)
+				// Stop the job so it's in a terminal state before batch-delete.
+				require.NoError(t, h.Backend.StopEvaluationJob(job.JobArn))
 
 				return []string{
 					job.JobArn,
