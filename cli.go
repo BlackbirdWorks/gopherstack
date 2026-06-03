@@ -117,6 +117,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
+	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -144,7 +145,6 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
-	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -2727,7 +2727,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&macie2backend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
-		&opsworksbackend.Provider{},
+		&fsxbackend.Provider{},
 	}
 }
 
