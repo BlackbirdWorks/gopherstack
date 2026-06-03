@@ -462,6 +462,28 @@ func TestDeleteHostedZone_DeregistersDNS(t *testing.T) {
 			send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", addRecordXML)
 			require.True(t, reg.registered[tt.hostname])
 
+			// Delete the record first — AWS rejects deletion of non-empty zones.
+			const deleteRecordXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>DELETE</Action>
+        <ResourceRecordSet>
+          <Name>www.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+			delRRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", deleteRecordXML)
+			require.Equal(t, http.StatusOK, delRRec.Code)
+
 			delRec := send(t, h, http.MethodDelete, "/2013-04-01/hostedzone/"+zoneID, "")
 			require.Equal(t, http.StatusOK, delRec.Code)
 			assert.False(t, reg.registered[tt.hostname])

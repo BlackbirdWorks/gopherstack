@@ -1643,6 +1643,10 @@ func handleBackendError(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusBadRequest, "KeySigningKeyNotInactive", err.Error())
 	case errors.Is(err, ErrTrafficPolicyAlreadyExists):
 		return xmlError(c, http.StatusBadRequest, "TrafficPolicyAlreadyExists", err.Error())
+	case errors.Is(err, ErrHostedZoneNotEmpty):
+		return xmlError(c, http.StatusBadRequest, "HostedZoneNotEmpty", err.Error())
+	case errors.Is(err, ErrLastVPCAssociation):
+		return xmlError(c, http.StatusBadRequest, "LastVPCAssociation", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}

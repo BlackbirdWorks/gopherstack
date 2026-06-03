@@ -588,6 +588,11 @@ type disassociateVPCResponse struct {
 	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 }
 
+type xmlDisassociateVPCRequest struct {
+	XMLName xml.Name `xml:"DisassociateVPCFromHostedZoneRequest"`
+	VPC     xmlVPC   `xml:"VPC"`
+}
+
 func (h *Handler) disassociateVPCFromHostedZone(c *echo.Context, path string) error {
 	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DisassociateVPCSuffix)
 
@@ -596,7 +601,7 @@ func (h *Handler) disassociateVPCFromHostedZone(c *echo.Context, path string) er
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
 	}
 
-	var req xmlAssociateVPCRequest
+	var req xmlDisassociateVPCRequest
 	if err = xml.Unmarshal(body, &req); err != nil {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
 	}

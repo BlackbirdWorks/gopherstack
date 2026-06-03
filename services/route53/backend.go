@@ -47,6 +47,8 @@ var (
 	ErrTrafficPolicyInUse              = errors.New("TrafficPolicyInUse")
 	ErrKeySigningKeyNotInactive        = errors.New("KeySigningKeyNotInactive")
 	ErrTrafficPolicyAlreadyExists      = errors.New("TrafficPolicyAlreadyExists")
+	ErrHostedZoneNotEmpty              = errors.New("HostedZoneNotEmpty")
+	ErrLastVPCAssociation              = errors.New("LastVPCAssociation")
 )
 
 const (
@@ -450,6 +452,17 @@ func (b *InMemoryBackend) CreateHostedZone(
 	b.mu.Lock("CreateHostedZone")
 	defer b.mu.Unlock()
 
+	// CallerReference idempotency: AWS returns the existing zone when the same
+	// CallerReference is reused, rather than creating a duplicate.
+	for _, zd := range b.zones {
+		if zd.zone.CallerReference == callerRef {
+			cp := zd.zone
+			cp.ResourceRecordSetCount = len(zd.records)
+
+			return &cp, nil
+		}
+	}
+
 	id := "Z" + randomZoneID()
 	hz := HostedZone{
 		ID:              id,
@@ -487,6 +500,16 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	zd, ok := b.zones[zoneID]
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	// AWS rejects deletion of zones that still contain resource record sets.
+	// The zone is considered non-empty if it has any user-managed records.
+	if len(zd.records) > 0 {
+		return fmt.Errorf(
+			"%w: hosted zone %s contains resource record sets that must be deleted first",
+			ErrHostedZoneNotEmpty,
+			zoneID,
+		)
 	}
 
 	// Deregister all DNS records before deletion.
@@ -1088,6 +1111,16 @@ func (b *InMemoryBackend) CreateHealthCheck(
 	b.mu.Lock("CreateHealthCheck")
 	defer b.mu.Unlock()
 
+	// CallerReference idempotency: AWS returns the existing health check when the
+	// same CallerReference is reused, rather than creating a duplicate.
+	for _, existing := range b.healthChecks {
+		if existing.CallerReference == callerRef {
+			cp := *existing
+
+			return &cp, nil
+		}
+	}
+
 	hc := &HealthCheck{
 		ID:              randomHealthCheckID(),
 		CallerReference: callerRef,
@@ -1522,11 +1555,16 @@ func (b *InMemoryBackend) DisassociateVPCFromHostedZone(zoneID, vpcID string) er
 		)
 	}
 
+	// AWS rejects removal of the last VPC from a private hosted zone.
 	if len(newAssocs) == 0 {
-		delete(b.vpcAssociations, zoneID)
-	} else {
-		b.vpcAssociations[zoneID] = newAssocs
+		return fmt.Errorf(
+			"%w: cannot disassociate the last VPC from private hosted zone %s",
+			ErrLastVPCAssociation,
+			zoneID,
+		)
 	}
+
+	b.vpcAssociations[zoneID] = newAssocs
 
 	return nil
 }
