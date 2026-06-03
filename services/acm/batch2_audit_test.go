@@ -157,9 +157,13 @@ func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressExceptio
 				Type string `json:"__type"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "RequestInProgressException", errResp.Type,
+			assert.Equal(
+				t,
+				"RequestInProgressException",
+				errResp.Type,
 				"GetCertificate on non-issued cert (%s) must return RequestInProgressException, not InvalidStateException",
-				tt.name)
+				tt.name,
+			)
 		})
 	}
 }
@@ -229,8 +233,12 @@ func TestBatch2_RevokeCertificate_PendingValidation_Returns_InvalidStateExceptio
 				Type string `json:"__type"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "InvalidStateException", errResp.Type,
-				"RevokeCertificate on PENDING_VALIDATION cert must return InvalidStateException, not ValidationException")
+			assert.Equal(
+				t,
+				"InvalidStateException",
+				errResp.Type,
+				"RevokeCertificate on PENDING_VALIDATION cert must return InvalidStateException, not ValidationException",
+			)
 		})
 	}
 }
@@ -296,9 +304,13 @@ func TestBatch2_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException
 				Type string `json:"__type"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "InvalidStateException", errResp.Type,
+			assert.Equal(
+				t,
+				"InvalidStateException",
+				errResp.Type,
 				"UpdateCertificateOptions on non-ISSUED cert (%s) must return InvalidStateException, not ValidationException",
-				tt.name)
+				tt.name,
+			)
 		})
 	}
 }
@@ -331,7 +343,9 @@ func TestBatch2_GetCertificate_Issued_Succeeds(t *testing.T) {
 				rec := postACMJSON(t, h, "DescribeCertificate",
 					`{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
 				var out struct {
-					Certificate struct{ Status string } `json:"Certificate"`
+					Certificate struct {
+						Status string `json:"Status"`
+					} `json:"Certificate"`
 				}
 				_ = json.Unmarshal(rec.Body.Bytes(), &out)
 
