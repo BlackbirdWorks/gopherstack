@@ -277,6 +277,100 @@ type GeoMatchSetSummary struct {
 	Name          string `json:"Name"`
 }
 
+// RateBasedRule is a WAF Classic rate-based rule.
+type RateBasedRule struct {
+	RuleId          string      `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name            string      `json:"Name"`
+	MetricName      string      `json:"MetricName"`
+	RateKey         string      `json:"RateKey"`
+	MatchPredicates []Predicate `json:"MatchPredicates"`
+	RateLimit       int64       `json:"RateLimit"`
+}
+
+// RateBasedRuleSummary is a summary of a RateBasedRule.
+type RateBasedRuleSummary struct {
+	RuleId string `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name   string `json:"Name"`
+}
+
+// RegexPatternSet is a WAF Classic regex pattern set.
+type RegexPatternSet struct {
+	RegexPatternSetId   string   `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name                string   `json:"Name"`
+	RegexPatternStrings []string `json:"RegexPatternStrings"`
+}
+
+// RegexPatternSetSummary is a summary of a RegexPatternSet.
+type RegexPatternSetSummary struct {
+	RegexPatternSetId string `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name              string `json:"Name"`
+}
+
+// RegexPatternSetUpdate specifies a pattern string to insert or delete.
+type RegexPatternSetUpdate struct {
+	Action             string `json:"Action"`
+	RegexPatternString string `json:"RegexPatternString"`
+}
+
+// RegexMatchTuple specifies a regex match tuple.
+type RegexMatchTuple struct {
+	FieldToMatch       FieldToMatch `json:"FieldToMatch"`
+	TextTransformation string       `json:"TextTransformation"`
+	RegexPatternSetId  string       `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+}
+
+// RegexMatchSetUpdate specifies a tuple to insert or delete.
+type RegexMatchSetUpdate struct {
+	Action          string          `json:"Action"`
+	RegexMatchTuple RegexMatchTuple `json:"RegexMatchTuple"`
+}
+
+// RegexMatchSet is a WAF Classic regex match set.
+type RegexMatchSet struct {
+	RegexMatchSetId  string            `json:"RegexMatchSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name             string            `json:"Name"`
+	RegexMatchTuples []RegexMatchTuple `json:"RegexMatchTuples"`
+}
+
+// RegexMatchSetSummary is a summary of a RegexMatchSet.
+type RegexMatchSetSummary struct {
+	RegexMatchSetId string `json:"RegexMatchSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name            string `json:"Name"`
+}
+
+// RuleGroup is a WAF Classic rule group.
+type RuleGroup struct {
+	RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name        string `json:"Name"`
+	MetricName  string `json:"MetricName"`
+}
+
+// RuleGroupSummary is a summary of a RuleGroup.
+type RuleGroupSummary struct {
+	RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name        string `json:"Name"`
+}
+
+// ActivatedRuleUpdate specifies a rule to insert into or delete from a RuleGroup.
+type ActivatedRuleUpdate struct {
+	Action        string        `json:"Action"`
+	ActivatedRule ActivatedRule `json:"ActivatedRule"`
+}
+
+// SubscribedRuleGroupSummary is a summary of a subscribed rule group.
+type SubscribedRuleGroupSummary struct {
+	RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+	Name        string `json:"Name"`
+	MetricName  string `json:"MetricName"`
+}
+
+// LoggingConfiguration is a WAF Classic logging configuration.
+type LoggingConfiguration struct {
+	ResourceArn           string         `json:"ResourceArn"`
+	LogDestinationConfigs []string       `json:"LogDestinationConfigs"`
+	RedactedFields        []FieldToMatch `json:"RedactedFields,omitempty"`
+}
+
 // Tag is a key-value tag.
 type Tag struct {
 	Key   string `json:"Key"`
@@ -296,13 +390,20 @@ type InMemoryBackend struct {
 	changeTokens          map[string]string // token → status
 	webACLs               map[string]*WebACL
 	rules                 map[string]*Rule
+	rateBasedRules        map[string]*RateBasedRule
 	ipSets                map[string]*IPSet
 	byteMatchSets         map[string]*ByteMatchSet
 	sizeConstraintSets    map[string]*SizeConstraintSet
 	sqlInjectionMatchSets map[string]*SqlInjectionMatchSet
 	xssMatchSets          map[string]*XssMatchSet
 	geoMatchSets          map[string]*GeoMatchSet
-	tags                  map[string]map[string]string // arn → tags
+	regexPatternSets      map[string]*RegexPatternSet
+	regexMatchSets        map[string]*RegexMatchSet
+	ruleGroups            map[string]*RuleGroup
+	ruleGroupRules        map[string][]ActivatedRule       // ruleGroupId → activated rules
+	loggingConfigs        map[string]*LoggingConfiguration // resourceArn → config
+	permissionPolicies    map[string]string                // resourceArn → policy JSON
+	tags                  map[string]map[string]string     // arn → tags
 	accountID             string
 	region                string
 }
@@ -314,12 +415,19 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		changeTokens:          make(map[string]string),
 		webACLs:               make(map[string]*WebACL),
 		rules:                 make(map[string]*Rule),
+		rateBasedRules:        make(map[string]*RateBasedRule),
 		ipSets:                make(map[string]*IPSet),
 		byteMatchSets:         make(map[string]*ByteMatchSet),
 		sizeConstraintSets:    make(map[string]*SizeConstraintSet),
 		sqlInjectionMatchSets: make(map[string]*SqlInjectionMatchSet),
 		xssMatchSets:          make(map[string]*XssMatchSet),
 		geoMatchSets:          make(map[string]*GeoMatchSet),
+		regexPatternSets:      make(map[string]*RegexPatternSet),
+		regexMatchSets:        make(map[string]*RegexMatchSet),
+		ruleGroups:            make(map[string]*RuleGroup),
+		ruleGroupRules:        make(map[string][]ActivatedRule),
+		loggingConfigs:        make(map[string]*LoggingConfiguration),
+		permissionPolicies:    make(map[string]string),
 		tags:                  make(map[string]map[string]string),
 		accountID:             accountID,
 		region:                region,
@@ -336,6 +444,14 @@ func (b *InMemoryBackend) ruleARN(id string) string {
 
 func (b *InMemoryBackend) ipSetARN(id string) string {
 	return fmt.Sprintf("arn:aws:waf::%s:ipset/%s", b.accountID, id)
+}
+
+func (b *InMemoryBackend) rateBasedRuleARN(id string) string {
+	return fmt.Sprintf("arn:aws:waf::%s:ratebasedrule/%s", b.accountID, id)
+}
+
+func (b *InMemoryBackend) ruleGroupARN(id string) string {
+	return fmt.Sprintf("arn:aws:waf::%s:rulegroup/%s", b.accountID, id)
 }
 
 // GetChangeToken returns a new change token in PROVISIONED state.
@@ -1138,6 +1254,510 @@ func (b *InMemoryBackend) ListGeoMatchSets() []GeoMatchSetSummary {
 	return result
 }
 
+// CreateRateBasedRule creates a new RateBasedRule.
+func (b *InMemoryBackend) CreateRateBasedRule(
+	name, metricName, rateKey string,
+	rateLimit int64,
+	_ string,
+	tags map[string]string,
+) (*RateBasedRule, error) {
+	b.mu.Lock("CreateRateBasedRule")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	rule := &RateBasedRule{
+		RuleId:          id,
+		Name:            name,
+		MetricName:      metricName,
+		RateKey:         rateKey,
+		RateLimit:       rateLimit,
+		MatchPredicates: []Predicate{},
+	}
+	b.rateBasedRules[id] = rule
+
+	if len(tags) > 0 {
+		b.tags[b.rateBasedRuleARN(id)] = maps.Clone(tags)
+	}
+
+	return rule, nil
+}
+
+// GetRateBasedRule retrieves a RateBasedRule by ID.
+func (b *InMemoryBackend) GetRateBasedRule(id string) (*RateBasedRule, error) {
+	b.mu.RLock("GetRateBasedRule")
+	defer b.mu.RUnlock()
+
+	rule, ok := b.rateBasedRules[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return rule, nil
+}
+
+// UpdateRateBasedRule updates a RateBasedRule's predicates and rate limit.
+func (b *InMemoryBackend) UpdateRateBasedRule(
+	id, _ string,
+	rateLimit int64,
+	updates []RuleUpdate,
+) error {
+	b.mu.Lock("UpdateRateBasedRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.rateBasedRules[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if rateLimit > 0 {
+		rule.RateLimit = rateLimit
+	}
+
+	for _, u := range updates {
+		switch u.Action {
+		case updateInsert:
+			rule.MatchPredicates = append(rule.MatchPredicates, u.Predicate)
+		case updateDelete:
+			filtered := rule.MatchPredicates[:0]
+			for _, p := range rule.MatchPredicates {
+				if p.DataId != u.Predicate.DataId || p.Type != u.Predicate.Type {
+					filtered = append(filtered, p)
+				}
+			}
+			rule.MatchPredicates = filtered
+		}
+	}
+
+	return nil
+}
+
+// DeleteRateBasedRule deletes a RateBasedRule.
+func (b *InMemoryBackend) DeleteRateBasedRule(id, _ string) error {
+	b.mu.Lock("DeleteRateBasedRule")
+	defer b.mu.Unlock()
+
+	if _, ok := b.rateBasedRules[id]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.rateBasedRules, id)
+
+	return nil
+}
+
+// ListRateBasedRules returns summaries of all RateBasedRules.
+func (b *InMemoryBackend) ListRateBasedRules() []RateBasedRuleSummary {
+	b.mu.RLock("ListRateBasedRules")
+	defer b.mu.RUnlock()
+
+	result := make([]RateBasedRuleSummary, 0, len(b.rateBasedRules))
+	for _, r := range b.rateBasedRules {
+		result = append(result, RateBasedRuleSummary{RuleId: r.RuleId, Name: r.Name})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].RuleId < result[j].RuleId })
+
+	return result
+}
+
+// GetRateBasedRuleManagedKeys returns the IP addresses currently blocked by a rate-based rule (stub).
+func (b *InMemoryBackend) GetRateBasedRuleManagedKeys(id string) ([]string, error) {
+	b.mu.RLock("GetRateBasedRuleManagedKeys")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.rateBasedRules[id]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return []string{}, nil
+}
+
+// CreateRegexPatternSet creates a new RegexPatternSet.
+func (b *InMemoryBackend) CreateRegexPatternSet(name, _ string) (*RegexPatternSet, error) {
+	b.mu.Lock("CreateRegexPatternSet")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	rps := &RegexPatternSet{
+		RegexPatternSetId:   id,
+		Name:                name,
+		RegexPatternStrings: []string{},
+	}
+	b.regexPatternSets[id] = rps
+
+	return rps, nil
+}
+
+// GetRegexPatternSet retrieves a RegexPatternSet by ID.
+func (b *InMemoryBackend) GetRegexPatternSet(id string) (*RegexPatternSet, error) {
+	b.mu.RLock("GetRegexPatternSet")
+	defer b.mu.RUnlock()
+
+	rps, ok := b.regexPatternSets[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return rps, nil
+}
+
+// UpdateRegexPatternSet updates a RegexPatternSet's pattern strings.
+func (b *InMemoryBackend) UpdateRegexPatternSet(id, _ string, updates []RegexPatternSetUpdate) error {
+	b.mu.Lock("UpdateRegexPatternSet")
+	defer b.mu.Unlock()
+
+	rps, ok := b.regexPatternSets[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	for _, u := range updates {
+		switch u.Action {
+		case updateInsert:
+			rps.RegexPatternStrings = append(rps.RegexPatternStrings, u.RegexPatternString)
+		case updateDelete:
+			filtered := rps.RegexPatternStrings[:0]
+			for _, p := range rps.RegexPatternStrings {
+				if p != u.RegexPatternString {
+					filtered = append(filtered, p)
+				}
+			}
+			rps.RegexPatternStrings = filtered
+		}
+	}
+
+	return nil
+}
+
+// DeleteRegexPatternSet deletes a RegexPatternSet.
+func (b *InMemoryBackend) DeleteRegexPatternSet(id, _ string) error {
+	b.mu.Lock("DeleteRegexPatternSet")
+	defer b.mu.Unlock()
+
+	if _, ok := b.regexPatternSets[id]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.regexPatternSets, id)
+
+	return nil
+}
+
+// ListRegexPatternSets returns summaries of all RegexPatternSets.
+func (b *InMemoryBackend) ListRegexPatternSets() []RegexPatternSetSummary {
+	b.mu.RLock("ListRegexPatternSets")
+	defer b.mu.RUnlock()
+
+	result := make([]RegexPatternSetSummary, 0, len(b.regexPatternSets))
+	for _, s := range b.regexPatternSets {
+		result = append(result, RegexPatternSetSummary{RegexPatternSetId: s.RegexPatternSetId, Name: s.Name})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RegexPatternSetId < result[j].RegexPatternSetId
+	})
+
+	return result
+}
+
+// CreateRegexMatchSet creates a new RegexMatchSet.
+func (b *InMemoryBackend) CreateRegexMatchSet(name, _ string) (*RegexMatchSet, error) {
+	b.mu.Lock("CreateRegexMatchSet")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	rms := &RegexMatchSet{
+		RegexMatchSetId:  id,
+		Name:             name,
+		RegexMatchTuples: []RegexMatchTuple{},
+	}
+	b.regexMatchSets[id] = rms
+
+	return rms, nil
+}
+
+// GetRegexMatchSet retrieves a RegexMatchSet by ID.
+func (b *InMemoryBackend) GetRegexMatchSet(id string) (*RegexMatchSet, error) {
+	b.mu.RLock("GetRegexMatchSet")
+	defer b.mu.RUnlock()
+
+	rms, ok := b.regexMatchSets[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return rms, nil
+}
+
+// UpdateRegexMatchSet updates a RegexMatchSet's tuples.
+func (b *InMemoryBackend) UpdateRegexMatchSet(id, _ string, updates []RegexMatchSetUpdate) error {
+	b.mu.Lock("UpdateRegexMatchSet")
+	defer b.mu.Unlock()
+
+	rms, ok := b.regexMatchSets[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	for _, u := range updates {
+		switch u.Action {
+		case updateInsert:
+			rms.RegexMatchTuples = append(rms.RegexMatchTuples, u.RegexMatchTuple)
+		case updateDelete:
+			filtered := rms.RegexMatchTuples[:0]
+			for _, t := range rms.RegexMatchTuples {
+				if t.RegexPatternSetId != u.RegexMatchTuple.RegexPatternSetId ||
+					t.FieldToMatch.Type != u.RegexMatchTuple.FieldToMatch.Type {
+					filtered = append(filtered, t)
+				}
+			}
+			rms.RegexMatchTuples = filtered
+		}
+	}
+
+	return nil
+}
+
+// DeleteRegexMatchSet deletes a RegexMatchSet.
+func (b *InMemoryBackend) DeleteRegexMatchSet(id, _ string) error {
+	b.mu.Lock("DeleteRegexMatchSet")
+	defer b.mu.Unlock()
+
+	if _, ok := b.regexMatchSets[id]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.regexMatchSets, id)
+
+	return nil
+}
+
+// ListRegexMatchSets returns summaries of all RegexMatchSets.
+func (b *InMemoryBackend) ListRegexMatchSets() []RegexMatchSetSummary {
+	b.mu.RLock("ListRegexMatchSets")
+	defer b.mu.RUnlock()
+
+	result := make([]RegexMatchSetSummary, 0, len(b.regexMatchSets))
+	for _, s := range b.regexMatchSets {
+		result = append(result, RegexMatchSetSummary{RegexMatchSetId: s.RegexMatchSetId, Name: s.Name})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RegexMatchSetId < result[j].RegexMatchSetId
+	})
+
+	return result
+}
+
+// CreateRuleGroup creates a new RuleGroup.
+func (b *InMemoryBackend) CreateRuleGroup(
+	name, metricName, _ string,
+	tags map[string]string,
+) (*RuleGroup, error) {
+	b.mu.Lock("CreateRuleGroup")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	rg := &RuleGroup{
+		RuleGroupId: id,
+		Name:        name,
+		MetricName:  metricName,
+	}
+	b.ruleGroups[id] = rg
+	b.ruleGroupRules[id] = []ActivatedRule{}
+
+	if len(tags) > 0 {
+		b.tags[b.ruleGroupARN(id)] = maps.Clone(tags)
+	}
+
+	return rg, nil
+}
+
+// GetRuleGroup retrieves a RuleGroup by ID.
+func (b *InMemoryBackend) GetRuleGroup(id string) (*RuleGroup, error) {
+	b.mu.RLock("GetRuleGroup")
+	defer b.mu.RUnlock()
+
+	rg, ok := b.ruleGroups[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return rg, nil
+}
+
+// UpdateRuleGroup updates a RuleGroup's activated rules.
+func (b *InMemoryBackend) UpdateRuleGroup(id, _ string, updates []ActivatedRuleUpdate) error {
+	b.mu.Lock("UpdateRuleGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.ruleGroups[id]; !ok {
+		return ErrNotFound
+	}
+
+	rules := b.ruleGroupRules[id]
+	for _, u := range updates {
+		switch u.Action {
+		case updateInsert:
+			rules = append(rules, u.ActivatedRule)
+		case updateDelete:
+			filtered := rules[:0]
+			for _, r := range rules {
+				if r.RuleId != u.ActivatedRule.RuleId {
+					filtered = append(filtered, r)
+				}
+			}
+			rules = filtered
+		}
+	}
+
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Priority < rules[j].Priority })
+	b.ruleGroupRules[id] = rules
+
+	return nil
+}
+
+// DeleteRuleGroup deletes a RuleGroup.
+func (b *InMemoryBackend) DeleteRuleGroup(id, _ string) error {
+	b.mu.Lock("DeleteRuleGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.ruleGroups[id]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.ruleGroups, id)
+	delete(b.ruleGroupRules, id)
+
+	return nil
+}
+
+// ListRuleGroups returns summaries of all RuleGroups.
+func (b *InMemoryBackend) ListRuleGroups() []RuleGroupSummary {
+	b.mu.RLock("ListRuleGroups")
+	defer b.mu.RUnlock()
+
+	result := make([]RuleGroupSummary, 0, len(b.ruleGroups))
+	for _, rg := range b.ruleGroups {
+		result = append(result, RuleGroupSummary{RuleGroupId: rg.RuleGroupId, Name: rg.Name})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].RuleGroupId < result[j].RuleGroupId })
+
+	return result
+}
+
+// ListActivatedRulesInRuleGroup returns the activated rules for a RuleGroup.
+func (b *InMemoryBackend) ListActivatedRulesInRuleGroup(id string) ([]ActivatedRule, error) {
+	b.mu.RLock("ListActivatedRulesInRuleGroup")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.ruleGroups[id]; !ok {
+		return nil, ErrNotFound
+	}
+
+	rules := b.ruleGroupRules[id]
+	result := make([]ActivatedRule, len(rules))
+	copy(result, rules)
+
+	return result, nil
+}
+
+// ListSubscribedRuleGroups returns subscribed rule groups (always empty in mock).
+func (b *InMemoryBackend) ListSubscribedRuleGroups() []SubscribedRuleGroupSummary {
+	return []SubscribedRuleGroupSummary{}
+}
+
+// PutLoggingConfiguration stores a logging configuration for a WebACL.
+func (b *InMemoryBackend) PutLoggingConfiguration(config LoggingConfiguration) (*LoggingConfiguration, error) {
+	b.mu.Lock("PutLoggingConfiguration")
+	defer b.mu.Unlock()
+
+	stored := config
+	b.loggingConfigs[config.ResourceArn] = &stored
+
+	return &stored, nil
+}
+
+// GetLoggingConfiguration retrieves the logging configuration for a WebACL ARN.
+func (b *InMemoryBackend) GetLoggingConfiguration(resourceArn string) (*LoggingConfiguration, error) {
+	b.mu.RLock("GetLoggingConfiguration")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.loggingConfigs[resourceArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return cfg, nil
+}
+
+// DeleteLoggingConfiguration removes the logging configuration for a WebACL ARN.
+func (b *InMemoryBackend) DeleteLoggingConfiguration(resourceArn string) error {
+	b.mu.Lock("DeleteLoggingConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.loggingConfigs[resourceArn]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.loggingConfigs, resourceArn)
+
+	return nil
+}
+
+// ListLoggingConfigurations returns all logging configurations.
+func (b *InMemoryBackend) ListLoggingConfigurations() []LoggingConfiguration {
+	b.mu.RLock("ListLoggingConfigurations")
+	defer b.mu.RUnlock()
+
+	result := make([]LoggingConfiguration, 0, len(b.loggingConfigs))
+	for _, cfg := range b.loggingConfigs {
+		result = append(result, *cfg)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ResourceArn < result[j].ResourceArn })
+
+	return result
+}
+
+// PutPermissionPolicy stores a permission policy for a resource ARN.
+func (b *InMemoryBackend) PutPermissionPolicy(resourceArn, policy string) error {
+	b.mu.Lock("PutPermissionPolicy")
+	defer b.mu.Unlock()
+
+	b.permissionPolicies[resourceArn] = policy
+
+	return nil
+}
+
+// GetPermissionPolicy retrieves the permission policy for a resource ARN.
+func (b *InMemoryBackend) GetPermissionPolicy(resourceArn string) (string, error) {
+	b.mu.RLock("GetPermissionPolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.permissionPolicies[resourceArn]
+	if !ok {
+		return "", ErrNotFound
+	}
+
+	return policy, nil
+}
+
+// DeletePermissionPolicy removes the permission policy for a resource ARN.
+func (b *InMemoryBackend) DeletePermissionPolicy(resourceArn string) error {
+	b.mu.Lock("DeletePermissionPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.permissionPolicies[resourceArn]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.permissionPolicies, resourceArn)
+
+	return nil
+}
+
 // TagResource adds tags to a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
@@ -1200,12 +1820,19 @@ func (b *InMemoryBackend) Reset() {
 	b.changeTokens = make(map[string]string)
 	b.webACLs = make(map[string]*WebACL)
 	b.rules = make(map[string]*Rule)
+	b.rateBasedRules = make(map[string]*RateBasedRule)
 	b.ipSets = make(map[string]*IPSet)
 	b.byteMatchSets = make(map[string]*ByteMatchSet)
 	b.sizeConstraintSets = make(map[string]*SizeConstraintSet)
 	b.sqlInjectionMatchSets = make(map[string]*SqlInjectionMatchSet)
 	b.xssMatchSets = make(map[string]*XssMatchSet)
 	b.geoMatchSets = make(map[string]*GeoMatchSet)
+	b.regexPatternSets = make(map[string]*RegexPatternSet)
+	b.regexMatchSets = make(map[string]*RegexMatchSet)
+	b.ruleGroups = make(map[string]*RuleGroup)
+	b.ruleGroupRules = make(map[string][]ActivatedRule)
+	b.loggingConfigs = make(map[string]*LoggingConfiguration)
+	b.permissionPolicies = make(map[string]string)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -1213,15 +1840,22 @@ type backendSnapshot struct {
 	ChangeTokens       map[string]string             `json:"changeTokens"`
 	WebACLs            map[string]*WebACL            `json:"webACLs"`
 	Rules              map[string]*Rule              `json:"rules"`
+	RateBasedRules     map[string]*RateBasedRule     `json:"rateBasedRules"`
 	IPSets             map[string]*IPSet             `json:"ipSets"`
 	ByteMatchSets      map[string]*ByteMatchSet      `json:"byteMatchSets"`
 	SizeConstraintSets map[string]*SizeConstraintSet `json:"sizeConstraintSets"`
 	//nolint:revive,staticcheck // AWS SDK naming
 	SqlInjectionMatchSets map[string]*SqlInjectionMatchSet `json:"sqlInjectionMatchSets"`
 	//nolint:revive,staticcheck // AWS SDK naming
-	XssMatchSets map[string]*XssMatchSet      `json:"xssMatchSets"`
-	GeoMatchSets map[string]*GeoMatchSet      `json:"geoMatchSets"`
-	Tags         map[string]map[string]string `json:"tags"`
+	XssMatchSets       map[string]*XssMatchSet          `json:"xssMatchSets"`
+	GeoMatchSets       map[string]*GeoMatchSet          `json:"geoMatchSets"`
+	RegexPatternSets   map[string]*RegexPatternSet      `json:"regexPatternSets"`
+	RegexMatchSets     map[string]*RegexMatchSet        `json:"regexMatchSets"`
+	RuleGroups         map[string]*RuleGroup            `json:"ruleGroups"`
+	RuleGroupRules     map[string][]ActivatedRule       `json:"ruleGroupRules"`
+	LoggingConfigs     map[string]*LoggingConfiguration `json:"loggingConfigs"`
+	PermissionPolicies map[string]string                `json:"permissionPolicies"`
+	Tags               map[string]map[string]string     `json:"tags"`
 }
 
 // Snapshot serializes backend state to JSON.
@@ -1233,12 +1867,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ChangeTokens:          b.changeTokens,
 		WebACLs:               b.webACLs,
 		Rules:                 b.rules,
+		RateBasedRules:        b.rateBasedRules,
 		IPSets:                b.ipSets,
 		ByteMatchSets:         b.byteMatchSets,
 		SizeConstraintSets:    b.sizeConstraintSets,
 		SqlInjectionMatchSets: b.sqlInjectionMatchSets,
 		XssMatchSets:          b.xssMatchSets,
 		GeoMatchSets:          b.geoMatchSets,
+		RegexPatternSets:      b.regexPatternSets,
+		RegexMatchSets:        b.regexMatchSets,
+		RuleGroups:            b.ruleGroups,
+		RuleGroupRules:        b.ruleGroupRules,
+		LoggingConfigs:        b.loggingConfigs,
+		PermissionPolicies:    b.permissionPolicies,
 		Tags:                  b.tags,
 	})
 
@@ -1258,12 +1899,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.changeTokens = s.ChangeTokens
 	b.webACLs = s.WebACLs
 	b.rules = s.Rules
+	b.rateBasedRules = s.RateBasedRules
 	b.ipSets = s.IPSets
 	b.byteMatchSets = s.ByteMatchSets
 	b.sizeConstraintSets = s.SizeConstraintSets
 	b.sqlInjectionMatchSets = s.SqlInjectionMatchSets
 	b.xssMatchSets = s.XssMatchSets
 	b.geoMatchSets = s.GeoMatchSets
+	b.regexPatternSets = s.RegexPatternSets
+	b.regexMatchSets = s.RegexMatchSets
+	b.ruleGroups = s.RuleGroups
+	b.ruleGroupRules = s.RuleGroupRules
+	b.loggingConfigs = s.LoggingConfigs
+	b.permissionPolicies = s.PermissionPolicies
 	b.tags = s.Tags
 
 	return nil

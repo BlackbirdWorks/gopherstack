@@ -66,6 +66,50 @@ type StorageBackend interface {
 	DeleteGeoMatchSet(id, changeToken string) error
 	ListGeoMatchSets() []GeoMatchSetSummary
 
+	// RateBasedRule
+	CreateRateBasedRule(
+		name, metricName, rateKey string, rateLimit int64, changeToken string, tags map[string]string,
+	) (*RateBasedRule, error)
+	GetRateBasedRule(id string) (*RateBasedRule, error)
+	UpdateRateBasedRule(id, changeToken string, rateLimit int64, updates []RuleUpdate) error
+	DeleteRateBasedRule(id, changeToken string) error
+	ListRateBasedRules() []RateBasedRuleSummary
+	GetRateBasedRuleManagedKeys(id string) ([]string, error)
+
+	// RegexPatternSet
+	CreateRegexPatternSet(name, changeToken string) (*RegexPatternSet, error)
+	GetRegexPatternSet(id string) (*RegexPatternSet, error)
+	UpdateRegexPatternSet(id, changeToken string, updates []RegexPatternSetUpdate) error
+	DeleteRegexPatternSet(id, changeToken string) error
+	ListRegexPatternSets() []RegexPatternSetSummary
+
+	// RegexMatchSet
+	CreateRegexMatchSet(name, changeToken string) (*RegexMatchSet, error)
+	GetRegexMatchSet(id string) (*RegexMatchSet, error)
+	UpdateRegexMatchSet(id, changeToken string, updates []RegexMatchSetUpdate) error
+	DeleteRegexMatchSet(id, changeToken string) error
+	ListRegexMatchSets() []RegexMatchSetSummary
+
+	// RuleGroup
+	CreateRuleGroup(name, metricName, changeToken string, tags map[string]string) (*RuleGroup, error)
+	GetRuleGroup(id string) (*RuleGroup, error)
+	UpdateRuleGroup(id, changeToken string, updates []ActivatedRuleUpdate) error
+	DeleteRuleGroup(id, changeToken string) error
+	ListRuleGroups() []RuleGroupSummary
+	ListActivatedRulesInRuleGroup(id string) ([]ActivatedRule, error)
+	ListSubscribedRuleGroups() []SubscribedRuleGroupSummary
+
+	// Logging
+	PutLoggingConfiguration(config LoggingConfiguration) (*LoggingConfiguration, error)
+	GetLoggingConfiguration(resourceArn string) (*LoggingConfiguration, error)
+	DeleteLoggingConfiguration(resourceArn string) error
+	ListLoggingConfigurations() []LoggingConfiguration
+
+	// Permission policy
+	PutPermissionPolicy(resourceArn, policy string) error
+	GetPermissionPolicy(resourceArn string) (string, error)
+	DeletePermissionPolicy(resourceArn string) error
+
 	// Tags
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, keys []string) error

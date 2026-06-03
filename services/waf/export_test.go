@@ -68,6 +68,38 @@ func GeoMatchSetCount(b *InMemoryBackend) int {
 	return len(b.geoMatchSets)
 }
 
+// RateBasedRuleCount returns the number of stored RateBasedRules.
+func RateBasedRuleCount(b *InMemoryBackend) int {
+	b.mu.RLock("RateBasedRuleCount")
+	defer b.mu.RUnlock()
+
+	return len(b.rateBasedRules)
+}
+
+// RegexPatternSetCount returns the number of stored RegexPatternSets.
+func RegexPatternSetCount(b *InMemoryBackend) int {
+	b.mu.RLock("RegexPatternSetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.regexPatternSets)
+}
+
+// RegexMatchSetCount returns the number of stored RegexMatchSets.
+func RegexMatchSetCount(b *InMemoryBackend) int {
+	b.mu.RLock("RegexMatchSetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.regexMatchSets)
+}
+
+// RuleGroupCount returns the number of stored RuleGroups.
+func RuleGroupCount(b *InMemoryBackend) int {
+	b.mu.RLock("RuleGroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.ruleGroups)
+}
+
 // HandlerOpsLen returns the count of GetSupportedOperations.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
