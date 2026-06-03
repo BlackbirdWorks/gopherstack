@@ -1331,7 +1331,7 @@ func TestACMHandler_RevokeCertificate_PendingValidationRejected(t *testing.T) {
 	})
 	revokeRec := postACMJSON(t, h, "RevokeCertificate", string(revokeBody))
 	assert.Equal(t, http.StatusBadRequest, revokeRec.Code)
-	assert.Contains(t, revokeRec.Body.String(), "ValidationException")
+	assert.Contains(t, revokeRec.Body.String(), "InvalidStateException")
 }
 
 // TestACMHandler_RequestCertificate_Tags verifies that tags passed at request time are stored.
