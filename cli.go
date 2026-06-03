@@ -2728,14 +2728,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&macie2backend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
-<<<<<<< HEAD
-		&opsworksbackend.Provider{},
-=======
-		&medialivebackend.Provider{},
-		&mediapackagebackend.Provider{},
-		&translatebackend.Provider{},
 		&fsxbackend.Provider{},
->>>>>>> dbe74c95 (feat(fsx): batch-1 AWS-accuracy audit (go-ubuk))
 	}
 }
 
