@@ -67,6 +67,10 @@ func (b *InMemoryBackend) DeleteResourceDataSync(input *DeleteResourceDataSyncIn
 		return &StubOutput{}, nil
 	}
 
+	if _, exists := b.resourceDataSyncs[input.SyncName]; !exists {
+		return nil, fmt.Errorf("%w: %q", ErrResourceDataSyncNotFound, input.SyncName)
+	}
+
 	delete(b.resourceDataSyncs, input.SyncName)
 
 	return &StubOutput{}, nil
@@ -337,11 +341,14 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		}, nil
 	}
 
+	param, exists := b.parameters[input.Name]
+	if !exists {
+		return nil, fmt.Errorf("%w: %q", ErrParameterNotFound, input.Name)
+	}
+
 	version := input.ParameterVersion
 	if version == 0 {
-		if param, exists := b.parameters[input.Name]; exists {
-			version = param.Version
-		}
+		version = param.Version
 	}
 
 	if b.parameterLabels[input.Name] == nil {
@@ -458,7 +465,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 
 	exec, exists := b.automationExecutions[input.AutomationExecutionID]
 	if !exists {
-		return &GetAutomationExecutionOutputFull{}, nil
+		return nil, fmt.Errorf("%w: %q", ErrAutomationExecutionNotFound, input.AutomationExecutionID)
 	}
 
 	cp := *exec
@@ -681,7 +688,7 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 		}
 	}
 
-	return &UpdateAssociationStatusOutputFull{}, nil
+	return nil, fmt.Errorf("%w: instance %q / name %q", ErrAssociationNotFound, input.InstanceID, input.Name)
 }
 
 // StartAssociationsOnce triggers a one-time run of the given associations.

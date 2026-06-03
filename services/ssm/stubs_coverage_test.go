@@ -53,7 +53,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"DescribeSessions",
 		"DisassociateOpsItemRelatedItem",
 		"GetAccessToken",
-		"GetAutomationExecution",
 		"GetCalendarState",
 		"GetConnectionStatus",
 		"GetDeployablePatchSnapshotForInstance",
@@ -98,7 +97,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"StopAutomationExecution",
 		"TerminateSession",
 		"UnlabelParameterVersion",
-		"UpdateAssociationStatus",
 		"UpdateDocumentDefaultVersion",
 		"UpdateDocumentMetadata",
 		"UpdateManagedInstanceRole",
@@ -232,7 +230,11 @@ func TestStubOps_DeletePatchBaseline(t *testing.T) {
 func TestStubOps_DeleteResourceDataSync(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newTestHandler(t)
+	h, b := newTestHandler(t)
+
+	_, err := b.CreateResourceDataSync(&ssm.CreateResourceDataSyncInput{SyncName: "test-sync"})
+	require.NoError(t, err)
+
 	rec := doRequest(t, h, "DeleteResourceDataSync", `{"SyncName":"test-sync"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
