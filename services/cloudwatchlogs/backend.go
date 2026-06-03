@@ -618,7 +618,7 @@ func (b *InMemoryBackend) DeleteLogGroup(name string) error {
 // SetRetentionPolicy sets or clears the retention policy for a log group.
 // A nil days value removes any existing retention policy.
 func (b *InMemoryBackend) SetRetentionPolicy(groupName string, days *int32) error {
-	if days != nil && *days != 0 {
+	if days != nil {
 		if _, ok := validRetentionDays()[*days]; !ok {
 			return fmt.Errorf("%w: invalid retentionInDays %d, must be one of the allowed values", ErrValidation, *days)
 		}
