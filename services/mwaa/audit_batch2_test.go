@@ -241,6 +241,7 @@ func TestAuditB2_Schedulers_Update_V2Boundaries(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-upd-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("sched-upd-env")
 
 			_, err = b.UpdateEnvironment("sched-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				Schedulers:     tt.schedulers,
@@ -261,6 +262,7 @@ func TestAuditB2_Schedulers_Update_Persisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-persist-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("sched-persist-env")
 
 	_, err = b.UpdateEnvironment("sched-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		Schedulers:     4,
@@ -297,6 +299,7 @@ func TestAuditB2_Webservers_Update_ValidRange(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-upd-ok-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("ws-upd-ok-env")
 
 	_, err = b.UpdateEnvironment("ws-upd-ok-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWebservers: 1,

@@ -53,6 +53,7 @@ func seedEnv(t *testing.T, b *mwaa.InMemoryBackend, name string) {
 		SourceBucketArn:  "arn:aws:s3:::bucket",
 	})
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment(name)
 }
 
 // ----------------------------------------
@@ -429,11 +430,13 @@ func TestRefinement1_Handler_CliToken_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
-	doMWAARequest(t, h, http.MethodPut, "/environments/cli-happy", map[string]any{
+	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/cli-happy", map[string]any{
 		"DagS3Path":        "dags/",
 		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
 		"SourceBucketArn":  "arn:aws:s3:::bucket",
 	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	doMWAARequest(t, h, http.MethodGet, "/environments/cli-happy", nil)
 
 	rec := doMWAARequest(t, h, http.MethodPost, "/clitoken/cli-happy", nil)
 
@@ -448,11 +451,13 @@ func TestRefinement1_Handler_WebToken_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
-	doMWAARequest(t, h, http.MethodPut, "/environments/web-happy", map[string]any{
+	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/web-happy", map[string]any{
 		"DagS3Path":        "dags/",
 		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
 		"SourceBucketArn":  "arn:aws:s3:::bucket",
 	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	doMWAARequest(t, h, http.MethodGet, "/environments/web-happy", nil)
 
 	rec := doMWAARequest(t, h, http.MethodPost, "/webtoken/web-happy", nil)
 

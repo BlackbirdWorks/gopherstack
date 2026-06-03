@@ -767,6 +767,13 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 		return nil, ErrEnvironmentNotFound
 	}
 
+	if env.Status != envStatusAvailable {
+		return nil, fmt.Errorf(
+			"%w: cannot update environment %q in state %s",
+			ErrInvalidParameter, name, env.Status,
+		)
+	}
+
 	applyUpdateScalars(env, req)
 	applyUpdateS3Paths(env, req)
 
@@ -1155,24 +1162,38 @@ func (b *InMemoryBackend) GetMetrics(envName string) ([]MetricDatum, error) {
 	return result, nil
 }
 
-// CreateCliToken validates that the environment exists and returns a JWT-shaped CLI token.
+// CreateCliToken validates that the environment exists and is AVAILABLE, then
+// returns a JWT-shaped CLI token. AWS returns ResourceNotFoundException when
+// the environment is in any non-AVAILABLE state.
 func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
 	b.mu.RLock("CreateCliToken")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.environments[envName]; !ok {
+	env, ok := b.environments[envName]
+	if !ok {
+		return "", ErrEnvironmentNotFound
+	}
+
+	if env.Status != envStatusAvailable {
 		return "", ErrEnvironmentNotFound
 	}
 
 	return generateMWAAToken(envName, "cli"), nil
 }
 
-// CreateWebLoginToken validates that the environment exists and returns a JWT-shaped web login token.
+// CreateWebLoginToken validates that the environment exists and is AVAILABLE,
+// then returns a JWT-shaped web login token. AWS returns ResourceNotFoundException
+// when the environment is in any non-AVAILABLE state.
 func (b *InMemoryBackend) CreateWebLoginToken(envName string) (string, error) {
 	b.mu.RLock("CreateWebLoginToken")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.environments[envName]; !ok {
+	env, ok := b.environments[envName]
+	if !ok {
+		return "", ErrEnvironmentNotFound
+	}
+
+	if env.Status != envStatusAvailable {
 		return "", ErrEnvironmentNotFound
 	}
 

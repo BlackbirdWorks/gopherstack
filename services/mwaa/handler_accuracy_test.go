@@ -246,6 +246,7 @@ func TestAccuracy_AirflowVersion_Update_InvalidVersion(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("update-ver-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("update-ver-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowVersion: "99.0.0",
@@ -259,6 +260,7 @@ func TestAccuracy_AirflowVersion_Update_ValidVersion(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-ok", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("update-ver-ok") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("update-ver-ok", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowVersion: "2.9.2",
@@ -272,6 +274,7 @@ func TestAccuracy_AirflowVersion_Update_EmptyVersionAllowed(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-empty", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("update-ver-empty") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("update-ver-empty", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new-dags/",
@@ -351,6 +354,7 @@ func TestAccuracy_MaxWorkers_UpperBound_Update(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-upd-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("workers-upd-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("workers-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				MaxWorkers: tt.maxWorkers,
@@ -437,6 +441,7 @@ func TestAccuracy_WorkerReplacementStrategy_ValidValues(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "strategy-env-"+tt.name, newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("strategy-env-" + tt.name) // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("strategy-env-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
 				WorkerReplacementStrategy: tt.strategy,
@@ -496,6 +501,7 @@ func TestAccuracy_WorkerReplacementStrategy_HTTP(t *testing.T) {
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
+			doMWAARequest(t, h, http.MethodGet, "/environments/ws-"+tt.name, nil) // promote CREATING → AVAILABLE
 
 			rec2 := doMWAARequest(t, h, http.MethodPatch, "/environments/ws-"+tt.name, map[string]any{
 				"WorkerReplacementStrategy": tt.strategy,
@@ -511,6 +517,7 @@ func TestAccuracy_WorkerReplacementStrategy_StoredInLastUpdate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("lu-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("lu-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WorkerReplacementStrategy: "FORCED",
@@ -679,6 +686,7 @@ func TestAccuracy_UpdateWebserverAccessMode_ValidValues(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "wam-env-"+tt.name, newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("wam-env-" + tt.name) // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("wam-env-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
 				WebserverAccessMode: tt.mode,
@@ -723,6 +731,7 @@ func TestAccuracy_UpdateWebserverAccessMode_HTTP(t *testing.T) {
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
+			doMWAARequest(t, h, http.MethodGet, "/environments/wam-http-"+tt.name, nil) // promote CREATING → AVAILABLE
 
 			rec2 := doMWAARequest(t, h, http.MethodPatch, "/environments/wam-http-"+tt.name, map[string]any{
 				"WebserverAccessMode": tt.mode,
@@ -738,6 +747,7 @@ func TestAccuracy_UpdateWebserverAccessMode_Persisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wam-persist", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wam-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("wam-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		WebserverAccessMode: "PRIVATE_ONLY",
@@ -767,6 +777,7 @@ func TestAccuracy_UpdateEnvironmentClass_ValidClasses(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "class-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("class-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("class-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				EnvironmentClass: cls,
@@ -805,6 +816,7 @@ func TestAccuracy_UpdateEnvironmentClass_EmptyAllowed(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "class-empty-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("class-empty-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("class-empty-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "",
@@ -833,6 +845,7 @@ func TestAccuracy_UpdateEnvironmentClass_HTTP(t *testing.T) {
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
+			doMWAARequest(t, h, http.MethodGet, "/environments/cls-http-"+tt.name, nil) // promote CREATING → AVAILABLE
 
 			rec2 := doMWAARequest(t, h, http.MethodPatch, "/environments/cls-http-"+tt.name, map[string]any{
 				"EnvironmentClass": tt.class,
@@ -848,6 +861,7 @@ func TestAccuracy_UpdateEnvironmentClass_Persisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "class-persist", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("class-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("class-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "mw1.large",
@@ -869,6 +883,7 @@ func TestAccuracy_CliToken_JWTShaped(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "jwt-cli-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("jwt-cli-env") // promote CREATING → AVAILABLE
 
 	token, err := b.CreateCliToken("jwt-cli-env")
 	require.NoError(t, err)
@@ -886,6 +901,7 @@ func TestAccuracy_WebLoginToken_JWTShaped(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "jwt-web-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("jwt-web-env") // promote CREATING → AVAILABLE
 
 	token, err := b.CreateWebLoginToken("jwt-web-env")
 	require.NoError(t, err)
@@ -903,6 +919,7 @@ func TestAccuracy_CliToken_DifferentFromWebToken(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "token-diff-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("token-diff-env") // promote CREATING → AVAILABLE
 
 	cli, err := b.CreateCliToken("token-diff-env")
 	require.NoError(t, err)
@@ -919,8 +936,10 @@ func TestAccuracy_Token_DifferentPerEnvironment(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "env-token-a", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("env-token-a") // promote CREATING → AVAILABLE
 	_, err = b.CreateEnvironment(testRegion, testAccountID, "env-token-b", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("env-token-b") // promote CREATING → AVAILABLE
 
 	tokenA, err := b.CreateCliToken("env-token-a")
 	require.NoError(t, err)
@@ -938,6 +957,7 @@ func TestAccuracy_CliToken_HTTP_ResponseStructure(t *testing.T) {
 	doMWAARequest(t, h, http.MethodPut, "/environments/jwt-http-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 	})
+	doMWAARequest(t, h, http.MethodGet, "/environments/jwt-http-env", nil) // promote CREATING → AVAILABLE
 
 	rec := doMWAARequest(t, h, http.MethodPost, "/clitoken/jwt-http-env", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -959,6 +979,7 @@ func TestAccuracy_WebLoginToken_HTTP_ResponseStructure(t *testing.T) {
 	doMWAARequest(t, h, http.MethodPut, "/environments/jwt-web-http-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 	})
+	doMWAARequest(t, h, http.MethodGet, "/environments/jwt-web-http-env", nil) // promote CREATING → AVAILABLE
 
 	rec := doMWAARequest(t, h, http.MethodPost, "/webtoken/jwt-web-http-env", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -993,6 +1014,7 @@ func TestAccuracy_FullLifecycle_AllValidations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2.8.1", env.AirflowVersion)
 	assert.Equal(t, "mw1.medium", env.EnvironmentClass)
+	_, _ = b.GetEnvironment("full-lifecycle-env") // promote CREATING → AVAILABLE
 
 	// Update with valid strategy and access mode.
 	_, err = b.UpdateEnvironment("full-lifecycle-env", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1095,6 +1117,7 @@ func TestAccuracy_MaxWorkers_Update_ZeroNoCheck(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-zero-upd", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("workers-zero-upd") // promote CREATING → AVAILABLE
 
 	// MaxWorkers=0 in update means "don't change" — no validation should fire.
 	_, err = b.UpdateEnvironment("workers-zero-upd", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1139,6 +1162,7 @@ func TestAccuracy_UpdateWorkerReplacementStrategy_Persisted(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "persist-strat-"+tt.name, newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("persist-strat-" + tt.name) // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("persist-strat-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
 				WorkerReplacementStrategy: tt.strategy,

@@ -55,6 +55,7 @@ func TestHandler_UpdateEnvironment(t *testing.T) {
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
+				doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
 			}
 
 			rec := doMWAARequest(t, h, http.MethodPatch, "/environments/"+tt.envName, tt.updateBody)
@@ -162,6 +163,7 @@ func TestHandler_CreateCliToken(t *testing.T) {
 				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
 				"SourceBucketArn":  "arn:aws:s3:::bucket",
 			})
+			doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
 			rec := doMWAARequest(t, h, http.MethodPost, "/clitoken/"+tt.envName, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -200,6 +202,7 @@ func TestHandler_CreateWebLoginToken(t *testing.T) {
 				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
 				"SourceBucketArn":  "arn:aws:s3:::bucket",
 			})
+			doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
 			rec := doMWAARequest(t, h, http.MethodPost, "/webtoken/"+tt.envName, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -550,6 +553,7 @@ func TestBackend_UpdateEnvironment_MinMaxValidation(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("env-update")
 
 			_, err = b.UpdateEnvironment("env-update", tt.updateReq)
 			if tt.wantErr {
