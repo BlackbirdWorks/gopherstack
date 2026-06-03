@@ -1014,6 +1014,7 @@ type clusterInfoV1 struct {
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	StateInfo                 *StateInfo            `json:"stateInfo,omitempty"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	ClusterArn                string                `json:"clusterArn"`
 	ClusterName               string                `json:"clusterName"`
 	KafkaVersion              string                `json:"kafkaVersion"`
@@ -1040,6 +1041,7 @@ type provisionedClusterInfo struct {
 	EncryptionInfo            *EncryptionInfo       `json:"encryptionInfo,omitempty"`
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
 	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
@@ -1442,6 +1444,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn),
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+		ConfigurationInfo:         cl.ConfigurationInfo,
 	}
 }
 
@@ -1521,6 +1524,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			EnhancedMonitoring:        cl.EnhancedMonitoring,
 			StorageMode:               cl.StorageMode,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+			ConfigurationInfo:         cl.ConfigurationInfo,
 		}
 	}
 
