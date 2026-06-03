@@ -82,8 +82,8 @@ func TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
