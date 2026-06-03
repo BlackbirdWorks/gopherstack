@@ -150,6 +150,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyType:    "ServiceQuotaExceededException",
 			keyMessage: err.Error(),
 		})
+	case errors.Is(err, awserr.ErrConflict):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyType:    "InvalidStateException",
+			keyMessage: err.Error(),
+		})
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),

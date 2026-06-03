@@ -46,6 +46,8 @@ var (
 	ErrAlreadyExists = awserr.New(conflictType, awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned for invalid input.
 	ErrInvalidParameter = awserr.New(invalidRequestType, awserr.ErrInvalidParameter)
+	// ErrInvalidState is returned when a service is in an invalid state for the operation.
+	ErrInvalidState = awserr.New("InvalidStateException", awserr.ErrConflict)
 )
 
 // storedService holds a service with all fields.
@@ -249,6 +251,13 @@ func (b *InMemoryBackend) UpdateService(serviceArn, cpu, memory, imageURI string
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
+	if svc.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"service %s cannot be updated in status %s: %w",
+			serviceArn, svc.Status, ErrInvalidState,
+		)
+	}
+
 	if cpu != "" {
 		svc.CPU = cpu
 	}
@@ -325,6 +334,13 @@ func (b *InMemoryBackend) PauseService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
+	if svc.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"service %s cannot be paused in status %s: %w",
+			serviceArn, svc.Status, ErrInvalidState,
+		)
+	}
+
 	svc.Status = statusPaused
 	svc.UpdatedAt = time.Now().UTC()
 	b.addOperation(svc, opTypePause)
@@ -344,6 +360,13 @@ func (b *InMemoryBackend) ResumeService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
+	if svc.Status != statusPaused {
+		return nil, fmt.Errorf(
+			"service %s cannot be resumed in status %s: %w",
+			serviceArn, svc.Status, ErrInvalidState,
+		)
+	}
+
 	svc.Status = statusRunning
 	svc.UpdatedAt = time.Now().UTC()
 	b.addOperation(svc, opTypeResume)
@@ -361,6 +384,13 @@ func (b *InMemoryBackend) StartDeployment(serviceArn string) (string, error) {
 	svc, ok := b.services[serviceArn]
 	if !ok {
 		return "", fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
+	}
+
+	if svc.Status != statusRunning {
+		return "", fmt.Errorf(
+			"service %s cannot start deployment in status %s: %w",
+			serviceArn, svc.Status, ErrInvalidState,
+		)
 	}
 
 	b.addOperation(svc, opTypeDeploy)
