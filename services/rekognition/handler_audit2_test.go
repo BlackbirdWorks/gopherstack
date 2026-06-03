@@ -543,6 +543,7 @@ func TestAudit2_StreamProcessor_StatusTransitions(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 		return resp["Status"].(string)
 	}
 
