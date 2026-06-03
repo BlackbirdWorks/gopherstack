@@ -427,6 +427,28 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	return b.issueCredentials(input, duration)
 }
 
+// getEffectiveMaxDuration returns the effective maximum session duration for a role.
+// When no RoleLookup is configured, or the role is not found, MaxDurationSeconds is returned.
+// This is used by AssumeRoleWithWebIdentity and AssumeRoleWithSAML which do not validate ExternalId.
+func (b *InMemoryBackend) getEffectiveMaxDuration(roleArn string) int32 {
+	effectiveMax := int32(MaxDurationSeconds)
+
+	b.mu.Lock()
+	rl := b.roleLookup
+	b.mu.Unlock()
+
+	if rl == nil {
+		return effectiveMax
+	}
+
+	meta, _ := rl.GetRoleByArn(roleArn)
+	if meta != nil && meta.MaxSessionDuration > 0 {
+		effectiveMax = meta.MaxSessionDuration
+	}
+
+	return effectiveMax
+}
+
 // validateAndGetMaxDuration validates ExternalId against the trust policy (when a RoleLookup
 // is configured) and returns the effective maximum session duration for the role.
 func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int32, error) {
@@ -811,15 +833,17 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		return nil, err
 	}
 
+	effectiveMax := b.getEffectiveMaxDuration(input.RoleArn)
+
 	duration := input.DurationSeconds
 	if duration == 0 {
-		duration = DefaultDurationSeconds
+		duration = min(DefaultDurationSeconds, effectiveMax)
 	}
 
-	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
+	if duration < MinDurationSeconds || duration > effectiveMax {
 		return nil, fmt.Errorf(
-			"%w: DurationSeconds must be between %d and %d",
-			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
+			"%w: DurationSeconds must be between %d and %d for this role",
+			ErrInvalidDuration, MinDurationSeconds, effectiveMax,
 		)
 	}
 
@@ -986,15 +1010,17 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 		return nil, err
 	}
 
+	effectiveMax := b.getEffectiveMaxDuration(input.RoleArn)
+
 	duration := input.DurationSeconds
 	if duration == 0 {
-		duration = DefaultDurationSeconds
+		duration = min(DefaultDurationSeconds, effectiveMax)
 	}
 
-	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
+	if duration < MinDurationSeconds || duration > effectiveMax {
 		return nil, fmt.Errorf(
-			"%w: DurationSeconds must be between %d and %d for AssumeRoleWithSAML",
-			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
+			"%w: DurationSeconds must be between %d and %d for this role",
+			ErrInvalidDuration, MinDurationSeconds, effectiveMax,
 		)
 	}
 
