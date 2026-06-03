@@ -25,6 +25,7 @@ const (
 	opGetEncryptionConfig      = "GetEncryptionConfig"
 	errInvalidRequestException = "InvalidRequestException"
 	keyMessageField            = "message"
+	keyEncryptionConfig        = "EncryptionConfig"
 	keyGroup                   = "Group"
 	keyNextToken               = "NextToken"
 	keySamplingRuleRecord      = "SamplingRuleRecord"
