@@ -18,6 +18,7 @@ const (
 	idLength = 10
 
 	defaultWorkGroup = "primary"
+	awsDataCatalog   = "AwsDataCatalog"
 	arnRegion        = "us-east-1"
 	arnAccount       = "000000000000"
 	millisToSeconds  = 1000.0
@@ -214,6 +215,20 @@ type UnprocessedPreparedStatementName struct {
 	ErrorMessage  string `json:"ErrorMessage"`
 }
 
+// UnprocessedNamedQueryID describes a named query that could not be retrieved.
+type UnprocessedNamedQueryID struct {
+	NamedQueryID string `json:"NamedQueryId"`
+	ErrorCode    string `json:"ErrorCode,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
+// UnprocessedQueryExecutionID describes a query execution that could not be retrieved.
+type UnprocessedQueryExecutionID struct {
+	QueryExecutionID string `json:"QueryExecutionId"`
+	ErrorCode        string `json:"ErrorCode,omitempty"`
+	ErrorMessage     string `json:"ErrorMessage,omitempty"`
+}
+
 // CapacityAllocation describes a single capacity allocation attempt.
 type CapacityAllocation struct {
 	Status                string  `json:"Status,omitempty"`
@@ -268,7 +283,7 @@ type StorageBackend interface {
 	CreateNamedQuery(name, description, database, queryString, workGroup string) (string, error)
 	GetNamedQuery(id string) (*NamedQuery, error)
 	ListNamedQueries(workGroup string) ([]string, error)
-	BatchGetNamedQuery(ids []string) ([]NamedQuery, []string)
+	BatchGetNamedQuery(ids []string) ([]NamedQuery, []UnprocessedNamedQueryID)
 	DeleteNamedQuery(id string) error
 
 	// Data Catalogs
@@ -288,7 +303,7 @@ type StorageBackend interface {
 	GetQueryExecution(id string) (*QueryExecution, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
-	BatchGetQueryExecution(ids []string) ([]QueryExecution, []string)
+	BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID)
 
 	// Tags
 	TagResource(arn string, tags map[string]string) error
@@ -416,22 +431,25 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return b
 }
 
-// seedDefaultMetadata seeds an example database and table for the AwsDataCatalog
-// so that the metadata operations (GetDatabase, ListTableMetadata, etc.) return
-// useful sample data without requiring an explicit catalog setup.
+// seedDefaultMetadata seeds AwsDataCatalog and example database/table metadata
+// so that metadata operations return useful sample data without explicit setup.
 func (b *InMemoryBackend) seedDefaultMetadata() {
-	const catalog = "AwsDataCatalog"
-
 	const database = "default"
 
-	b.databases[catalog] = map[string]*Database{
+	b.dataCatalogs[awsDataCatalog] = &DataCatalog{
+		Name:   awsDataCatalog,
+		Type:   "GLUE",
+		Status: "CREATE_COMPLETE",
+	}
+
+	b.databases[awsDataCatalog] = map[string]*Database{
 		database: {
 			Name:        database,
 			Description: "Default Athena database",
 		},
 	}
 
-	b.tables[catalog+"/"+database] = map[string]*TableMetadata{
+	b.tables[awsDataCatalog+"/"+database] = map[string]*TableMetadata{
 		"sample_table": {
 			Name:      "sample_table",
 			TableType: "EXTERNAL_TABLE",
@@ -637,8 +655,16 @@ func (b *InMemoryBackend) CreateNamedQuery(
 		return "", fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
+	if workGroup == "" {
+		workGroup = defaultWorkGroup
+	}
+
 	b.mu.Lock("CreateNamedQuery")
 	defer b.mu.Unlock()
+
+	if _, ok := b.workGroups[workGroup]; !ok {
+		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+	}
 
 	id := randomID()
 	b.namedQueries[id] = &NamedQuery{
@@ -686,19 +712,23 @@ func (b *InMemoryBackend) ListNamedQueries(workGroup string) ([]string, error) {
 }
 
 // BatchGetNamedQuery retrieves multiple named queries by ID.
-func (b *InMemoryBackend) BatchGetNamedQuery(ids []string) ([]NamedQuery, []string) {
+func (b *InMemoryBackend) BatchGetNamedQuery(ids []string) ([]NamedQuery, []UnprocessedNamedQueryID) {
 	b.mu.RLock("BatchGetNamedQuery")
 	defer b.mu.RUnlock()
 
 	found := make([]NamedQuery, 0, len(ids))
-	unprocessed := make([]string, 0, len(ids))
+	unprocessed := make([]UnprocessedNamedQueryID, 0, len(ids))
 
 	for _, id := range ids {
 		q, ok := b.namedQueries[id]
 		if ok {
 			found = append(found, *q)
 		} else {
-			unprocessed = append(unprocessed, id)
+			unprocessed = append(unprocessed, UnprocessedNamedQueryID{
+				NamedQueryID: id,
+				ErrorCode:    "InvalidRequestException",
+				ErrorMessage: fmt.Sprintf("named query %q not found", id),
+			})
 		}
 	}
 
@@ -844,7 +874,12 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 }
 
 // DeleteDataCatalog removes a data catalog by name.
+// The built-in AwsDataCatalog cannot be deleted.
 func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
+	if name == awsDataCatalog {
+		return fmt.Errorf("%w: cannot delete the built-in data catalog %s", ErrProtected, awsDataCatalog)
+	}
+
 	b.mu.Lock("DeleteDataCatalog")
 	defer b.mu.Unlock()
 
@@ -867,8 +902,16 @@ func (b *InMemoryBackend) StartQueryExecution(
 	rc ResultConfiguration,
 	execParams []string,
 ) (string, error) {
+	if workGroup == "" {
+		workGroup = defaultWorkGroup
+	}
+
 	b.mu.Lock("StartQueryExecution")
 	defer b.mu.Unlock()
+
+	if _, ok := b.workGroups[workGroup]; !ok {
+		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+	}
 
 	id := randomID()
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
@@ -986,19 +1029,23 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 }
 
 // BatchGetQueryExecution retrieves multiple query executions by ID.
-func (b *InMemoryBackend) BatchGetQueryExecution(ids []string) ([]QueryExecution, []string) {
+func (b *InMemoryBackend) BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID) {
 	b.mu.RLock("BatchGetQueryExecution")
 	defer b.mu.RUnlock()
 
 	found := make([]QueryExecution, 0, len(ids))
-	unprocessed := make([]string, 0, len(ids))
+	unprocessed := make([]UnprocessedQueryExecutionID, 0, len(ids))
 
 	for _, id := range ids {
 		qe, ok := b.queryExecutions[id]
 		if ok {
 			found = append(found, *qe)
 		} else {
-			unprocessed = append(unprocessed, id)
+			unprocessed = append(unprocessed, UnprocessedQueryExecutionID{
+				QueryExecutionID: id,
+				ErrorCode:        "InvalidRequestException",
+				ErrorMessage:     fmt.Sprintf("query execution %q not found", id),
+			})
 		}
 	}
 
