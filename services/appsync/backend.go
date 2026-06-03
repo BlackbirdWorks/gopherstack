@@ -910,6 +910,10 @@ func (b *InMemoryBackend) GetResolver(apiID, typeName, fieldName string) (*Resol
 	b.mu.RLock("GetResolver")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
 	res, ok := b.resolvers[apiID]
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver %s.%s not found", ErrNotFound, typeName, fieldName)
@@ -956,6 +960,10 @@ func (b *InMemoryBackend) ListResolvers(apiID, typeName string) ([]*Resolver, er
 func (b *InMemoryBackend) DeleteResolver(apiID, typeName, fieldName string) error {
 	b.mu.Lock("DeleteResolver")
 	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
 
 	res, ok := b.resolvers[apiID]
 	if !ok {
@@ -1545,6 +1553,10 @@ func (b *InMemoryBackend) GetFunction(apiID, functionID string) (*Function, erro
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
 	fns := b.functions[apiID]
 	if fns == nil {
 		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
@@ -1589,6 +1601,10 @@ func (b *InMemoryBackend) ListFunctions(apiID string) ([]*Function, error) {
 func (b *InMemoryBackend) DeleteFunction(apiID, functionID string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
 
 	fns := b.functions[apiID]
 	if fns == nil || fns[functionID] == nil {
