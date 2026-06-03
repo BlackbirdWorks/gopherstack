@@ -120,12 +120,13 @@ type User struct {
 
 // Group represents a Cognito User Pool group.
 type Group struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	GroupName   string    `json:"groupName"`
-	UserPoolID  string    `json:"userPoolId"`
-	Description string    `json:"description,omitempty"`
-	RoleArn     string    `json:"roleArn,omitempty"`
-	Precedence  int32     `json:"precedence"`
+	CreatedAt      time.Time `json:"createdAt"`
+	LastModifiedAt time.Time `json:"lastModifiedAt"`
+	GroupName      string    `json:"groupName"`
+	UserPoolID     string    `json:"userPoolId"`
+	Description    string    `json:"description,omitempty"`
+	RoleArn        string    `json:"roleArn,omitempty"`
+	Precedence     int32     `json:"precedence"`
 }
 
 // InMemoryBackend is the in-memory store for Cognito IDP resources.

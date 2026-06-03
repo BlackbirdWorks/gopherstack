@@ -128,7 +128,8 @@ func TestCompleteness_Domain_CRUD(t *testing.T) {
 		CloudFrontDomain string `json:"CloudFrontDomain"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	assert.Contains(t, createResp.CloudFrontDomain, "myapp")
+	// Managed domains: AWS returns empty CloudFrontDomain in the create response.
+	assert.Empty(t, createResp.CloudFrontDomain)
 
 	// Describe
 	rec = doCognitoRequest(t, h, "DescribeUserPoolDomain", map[string]any{

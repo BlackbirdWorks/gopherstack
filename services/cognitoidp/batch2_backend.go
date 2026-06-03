@@ -137,11 +137,17 @@ type AccountTakeoverRiskConfig struct {
 	NotifyConfiguration *NotifyConfigurationType `json:"NotifyConfiguration,omitempty"`
 }
 
+// RiskExceptionConfig holds IP range exception configuration for adaptive authentication.
+type RiskExceptionConfig struct {
+	BlockedIPRangeList []string
+	SkippedIPRangeList []string
+}
+
 // TypedRiskConfiguration holds fully typed risk config fields.
 type TypedRiskConfiguration struct {
 	CompromisedCredentialsRiskConfig *CompromisedCredentialsRiskConfig
 	AccountTakeoverRiskConfig        *AccountTakeoverRiskConfig
-	RiskExceptionConfiguration       map[string]any
+	RiskExceptionConfiguration       *RiskExceptionConfig
 	UserPoolID                       string
 	ClientID                         string
 }
@@ -448,7 +454,7 @@ func (b *InMemoryBackend) CreateIdentityProviderFull(
 
 	if _, exists := b.identityProviders[userPoolID][providerName]; exists {
 		return nil, fmt.Errorf("%w: identity provider %q already exists in pool %q",
-			ErrAlreadyExists, providerName, userPoolID)
+			ErrDuplicateProvider, providerName, userPoolID)
 	}
 
 	now := time.Now()
@@ -501,15 +507,11 @@ func (b *InMemoryBackend) UpdateIdentityProviderFull(
 	}
 
 	if providerDetails != nil {
-		maps.Copy(idp.ProviderDetails, providerDetails)
+		idp.ProviderDetails = maps.Clone(providerDetails)
 	}
 
 	if attributeMapping != nil {
-		if idp.AttributeMapping == nil {
-			idp.AttributeMapping = make(map[string]string)
-		}
-
-		maps.Copy(idp.AttributeMapping, attributeMapping)
+		idp.AttributeMapping = maps.Clone(attributeMapping)
 	}
 
 	if idpIdentifiers != nil {
@@ -542,9 +544,9 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(userPoolID, domain, certifica
 		return nil, fmt.Errorf("%w: domain %q already exists", ErrAlreadyExists, domain)
 	}
 
+	// Custom domains get a CloudFront distribution domain; managed domains use the Cognito URL.
 	cfDomain := domain + ".auth." + b.region + ".amazoncognito.com"
 	if certificateArn != "" {
-		// Custom domain: generate a CloudFront distribution domain.
 		cfDomain = "d" + randomAlphanumeric(cloudFrontDistIDLen) + ".cloudfront.net"
 	}
 
@@ -608,13 +610,15 @@ func (b *InMemoryBackend) CreateGroupFull(
 		return nil, fmt.Errorf("%w: group %q already exists in pool %q", ErrAlreadyExists, groupName, userPoolID)
 	}
 
+	now := time.Now()
 	g := &Group{
-		GroupName:   groupName,
-		UserPoolID:  userPoolID,
-		Description: description,
-		RoleArn:     roleArn,
-		Precedence:  precedence,
-		CreatedAt:   time.Now(),
+		GroupName:      groupName,
+		UserPoolID:     userPoolID,
+		Description:    description,
+		RoleArn:        roleArn,
+		Precedence:     precedence,
+		CreatedAt:      now,
+		LastModifiedAt: now,
 	}
 
 	b.groups[userPoolID][groupName] = g
@@ -656,6 +660,7 @@ func (b *InMemoryBackend) UpdateGroupFull(
 	}
 
 	g.Precedence = precedence
+	g.LastModifiedAt = time.Now()
 
 	cp := *g
 

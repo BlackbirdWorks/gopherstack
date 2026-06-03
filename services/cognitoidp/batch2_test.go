@@ -654,7 +654,8 @@ func TestBatch2_UserPoolDomain_Managed(t *testing.T) {
 		CloudFrontDomain string `json:"CloudFrontDomain"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Contains(t, out.CloudFrontDomain, "amazoncognito.com")
+	// Managed domains: AWS returns empty CloudFrontDomain (no CloudFront distribution).
+	assert.Empty(t, out.CloudFrontDomain)
 }
 
 func TestBatch2_UserPoolDomain_Custom_WithCertArn(t *testing.T) {
