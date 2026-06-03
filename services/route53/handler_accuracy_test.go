@@ -660,16 +660,17 @@ func TestDisassociateVPCFromHostedZone(t *testing.T) {
 	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true)
 	require.NoError(t, err)
 
-	// Associate a VPC.
+	// Associate two VPCs so we can remove one without hitting the last-VPC guard.
 	require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-xyz", "us-east-1"))
+	require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-abc", "us-east-1"))
 
-	// Disassociate it.
+	// Disassociate one.
 	require.NoError(t, b.DisassociateVPCFromHostedZone(hz.ID, "vpc-xyz"))
 
-	// VPC should be gone.
+	// Only the remaining VPC should be present.
 	assocs, err := b.ListVPCAssociations(hz.ID)
 	require.NoError(t, err)
-	assert.Empty(t, assocs)
+	require.Len(t, assocs, 1)
 }
 
 // ----------------------------------------
