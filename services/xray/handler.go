@@ -1135,7 +1135,7 @@ func (h *Handler) handleGetEncryptionConfig(c *echo.Context) error {
 	cfg := h.Backend.GetEncryptionConfig()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"EncryptionConfig": cfg,
+		keyEncryptionConfig: cfg,
 	})
 }
 
@@ -1146,7 +1146,7 @@ func (h *Handler) handleGetEncryptionConfigBody(_ context.Context, _ []byte) ([]
 	cfg := h.Backend.GetEncryptionConfig()
 
 	return json.Marshal(map[string]any{
-		"EncryptionConfig": cfg,
+		keyEncryptionConfig: cfg,
 	})
 }
 
@@ -1168,7 +1168,7 @@ func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]b
 	}
 
 	return json.Marshal(map[string]any{
-		"EncryptionConfig": cfg,
+		keyEncryptionConfig: cfg,
 	})
 }
 
