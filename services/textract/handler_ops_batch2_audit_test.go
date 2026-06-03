@@ -248,7 +248,7 @@ func TestBatch2_AnalyzeID_DocumentMetadataPages_MatchesInputCount(t *testing.T) 
 			resp := b2TextractUnmarshal(t, rec.Body.Bytes())
 			meta, _ := resp["DocumentMetadata"].(map[string]any)
 			gotPages, _ := meta["Pages"].(float64)
-			assert.Equal(t, float64(tc.pageCount), gotPages,
+			assert.InDelta(t, float64(tc.pageCount), gotPages, 0,
 				"DocumentMetadata.Pages must match the number of DocumentPages in the request")
 		})
 	}
