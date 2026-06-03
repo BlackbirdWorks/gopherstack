@@ -176,6 +176,44 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"DeleteGeoMatchSet": h.opDeleteGeoMatchSet,
 		"ListGeoMatchSets":  h.opListGeoMatchSets,
 
+		"CreateRateBasedRule":          h.opCreateRateBasedRule,
+		"GetRateBasedRule":             h.opGetRateBasedRule,
+		"UpdateRateBasedRule":          h.opUpdateRateBasedRule,
+		"DeleteRateBasedRule":          h.opDeleteRateBasedRule,
+		"ListRateBasedRules":           h.opListRateBasedRules,
+		"GetRateBasedRuleManagedKeys":  h.opGetRateBasedRuleManagedKeys,
+
+		"CreateRegexPatternSet": h.opCreateRegexPatternSet,
+		"GetRegexPatternSet":    h.opGetRegexPatternSet,
+		"UpdateRegexPatternSet": h.opUpdateRegexPatternSet,
+		"DeleteRegexPatternSet": h.opDeleteRegexPatternSet,
+		"ListRegexPatternSets":  h.opListRegexPatternSets,
+
+		"CreateRegexMatchSet": h.opCreateRegexMatchSet,
+		"GetRegexMatchSet":    h.opGetRegexMatchSet,
+		"UpdateRegexMatchSet": h.opUpdateRegexMatchSet,
+		"DeleteRegexMatchSet": h.opDeleteRegexMatchSet,
+		"ListRegexMatchSets":  h.opListRegexMatchSets,
+
+		"CreateRuleGroup":               h.opCreateRuleGroup,
+		"GetRuleGroup":                  h.opGetRuleGroup,
+		"UpdateRuleGroup":               h.opUpdateRuleGroup,
+		"DeleteRuleGroup":               h.opDeleteRuleGroup,
+		"ListRuleGroups":                h.opListRuleGroups,
+		"ListActivatedRulesInRuleGroup": h.opListActivatedRulesInRuleGroup,
+		"ListSubscribedRuleGroups":      h.opListSubscribedRuleGroups,
+
+		"PutLoggingConfiguration":    h.opPutLoggingConfiguration,
+		"GetLoggingConfiguration":    h.opGetLoggingConfiguration,
+		"DeleteLoggingConfiguration": h.opDeleteLoggingConfiguration,
+		"ListLoggingConfigurations":  h.opListLoggingConfigurations,
+
+		"PutPermissionPolicy":    h.opPutPermissionPolicy,
+		"GetPermissionPolicy":    h.opGetPermissionPolicy,
+		"DeletePermissionPolicy": h.opDeletePermissionPolicy,
+
+		"CreateWebACLMigrationStack": h.opCreateWebACLMigrationStack,
+
 		"TagResource":         h.opTagResource,
 		"UntagResource":       h.opUntagResource,
 		"ListTagsForResource": h.opListTagsForResource,
@@ -991,6 +1029,533 @@ func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 		"SampledRequests": samples,
 		"PopulationSize":  int64(len(samples)),
 	}, nil
+}
+
+// --- RateBasedRule ---
+
+func (h *Handler) opCreateRateBasedRule(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		Name        string `json:"Name"`
+		MetricName  string `json:"MetricName"`
+		RateKey     string `json:"RateKey"`
+		RateLimit   int64  `json:"RateLimit"`
+		Tags        []Tag  `json:"Tags"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rule, err := h.Backend.CreateRateBasedRule(
+		in.Name, in.MetricName, in.RateKey, in.RateLimit, in.ChangeToken, tagsToMap(in.Tags),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"Rule":         rule,
+		keyChangeToken: in.ChangeToken,
+	}, nil
+}
+
+func (h *Handler) opGetRateBasedRule(body []byte) (any, error) {
+	var in struct {
+		RuleId string `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rule, err := h.Backend.GetRateBasedRule(in.RuleId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Rule": rule}, nil
+}
+
+func (h *Handler) opUpdateRateBasedRule(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string       `json:"ChangeToken"`
+		RuleId      string       `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+		RateLimit   int64        `json:"RateLimit"`
+		Updates     []RuleUpdate `json:"Updates"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.UpdateRateBasedRule(in.RuleId, in.ChangeToken, in.RateLimit, in.Updates); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opDeleteRateBasedRule(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		RuleId      string `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteRateBasedRule(in.RuleId, in.ChangeToken); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opListRateBasedRules(body []byte) (any, error) {
+	var in struct {
+		NextMarker string `json:"NextMarker"`
+		Limit      int    `json:"Limit"`
+	}
+
+	_ = unmarshal(body, &in)
+
+	return map[string]any{"Rules": h.Backend.ListRateBasedRules()}, nil
+}
+
+func (h *Handler) opGetRateBasedRuleManagedKeys(body []byte) (any, error) {
+	var in struct {
+		RuleId     string `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
+		NextMarker string `json:"NextMarker"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	keys, err := h.Backend.GetRateBasedRuleManagedKeys(in.RuleId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"ManagedKeys": keys}, nil
+}
+
+// --- RegexPatternSet ---
+
+func (h *Handler) opCreateRegexPatternSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		Name        string `json:"Name"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rps, err := h.Backend.CreateRegexPatternSet(in.Name, in.ChangeToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"RegexPatternSet": rps,
+		keyChangeToken:    in.ChangeToken,
+	}, nil
+}
+
+func (h *Handler) opGetRegexPatternSet(body []byte) (any, error) {
+	var in struct {
+		RegexPatternSetId string `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rps, err := h.Backend.GetRegexPatternSet(in.RegexPatternSetId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"RegexPatternSet": rps}, nil
+}
+
+func (h *Handler) opUpdateRegexPatternSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken       string                  `json:"ChangeToken"`
+		RegexPatternSetId string                  `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+		Updates           []RegexPatternSetUpdate `json:"Updates"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.UpdateRegexPatternSet(in.RegexPatternSetId, in.ChangeToken, in.Updates); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opDeleteRegexPatternSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken       string `json:"ChangeToken"`
+		RegexPatternSetId string `json:"RegexPatternSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteRegexPatternSet(in.RegexPatternSetId, in.ChangeToken); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opListRegexPatternSets(body []byte) (any, error) {
+	var in struct {
+		NextMarker string `json:"NextMarker"`
+		Limit      int    `json:"Limit"`
+	}
+
+	_ = unmarshal(body, &in)
+
+	return map[string]any{"RegexPatternSets": h.Backend.ListRegexPatternSets()}, nil
+}
+
+// --- RegexMatchSet ---
+
+func (h *Handler) opCreateRegexMatchSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		Name        string `json:"Name"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rms, err := h.Backend.CreateRegexMatchSet(in.Name, in.ChangeToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"RegexMatchSet": rms,
+		keyChangeToken:  in.ChangeToken,
+	}, nil
+}
+
+func (h *Handler) opGetRegexMatchSet(body []byte) (any, error) {
+	var in struct {
+		RegexMatchSetId string `json:"RegexMatchSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rms, err := h.Backend.GetRegexMatchSet(in.RegexMatchSetId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"RegexMatchSet": rms}, nil
+}
+
+func (h *Handler) opUpdateRegexMatchSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken     string                `json:"ChangeToken"`
+		RegexMatchSetId string                `json:"RegexMatchSetId"` //nolint:revive,staticcheck // AWS SDK field name
+		Updates         []RegexMatchSetUpdate `json:"Updates"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.UpdateRegexMatchSet(in.RegexMatchSetId, in.ChangeToken, in.Updates); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opDeleteRegexMatchSet(body []byte) (any, error) {
+	var in struct {
+		ChangeToken     string `json:"ChangeToken"`
+		RegexMatchSetId string `json:"RegexMatchSetId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteRegexMatchSet(in.RegexMatchSetId, in.ChangeToken); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opListRegexMatchSets(body []byte) (any, error) {
+	var in struct {
+		NextMarker string `json:"NextMarker"`
+		Limit      int    `json:"Limit"`
+	}
+
+	_ = unmarshal(body, &in)
+
+	return map[string]any{"RegexMatchSets": h.Backend.ListRegexMatchSets()}, nil
+}
+
+// --- RuleGroup ---
+
+func (h *Handler) opCreateRuleGroup(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		Name        string `json:"Name"`
+		MetricName  string `json:"MetricName"`
+		Tags        []Tag  `json:"Tags"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rg, err := h.Backend.CreateRuleGroup(in.Name, in.MetricName, in.ChangeToken, tagsToMap(in.Tags))
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"RuleGroup":    rg,
+		keyChangeToken: in.ChangeToken,
+	}, nil
+}
+
+func (h *Handler) opGetRuleGroup(body []byte) (any, error) {
+	var in struct {
+		RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rg, err := h.Backend.GetRuleGroup(in.RuleGroupId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"RuleGroup": rg}, nil
+}
+
+func (h *Handler) opUpdateRuleGroup(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string                `json:"ChangeToken"`
+		RuleGroupId string                `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+		Updates     []ActivatedRuleUpdate `json:"Updates"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.UpdateRuleGroup(in.RuleGroupId, in.ChangeToken, in.Updates); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opDeleteRuleGroup(body []byte) (any, error) {
+	var in struct {
+		ChangeToken string `json:"ChangeToken"`
+		RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteRuleGroup(in.RuleGroupId, in.ChangeToken); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keyChangeToken: in.ChangeToken}, nil
+}
+
+func (h *Handler) opListRuleGroups(body []byte) (any, error) {
+	var in struct {
+		NextMarker string `json:"NextMarker"`
+		Limit      int    `json:"Limit"`
+	}
+
+	_ = unmarshal(body, &in)
+
+	return map[string]any{"RuleGroups": h.Backend.ListRuleGroups()}, nil
+}
+
+func (h *Handler) opListActivatedRulesInRuleGroup(body []byte) (any, error) {
+	var in struct {
+		RuleGroupId string `json:"RuleGroupId"` //nolint:revive,staticcheck // AWS SDK field name
+		NextMarker  string `json:"NextMarker"`
+		Limit       int    `json:"Limit"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	rules, err := h.Backend.ListActivatedRulesInRuleGroup(in.RuleGroupId)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"ActivatedRules": rules}, nil
+}
+
+func (h *Handler) opListSubscribedRuleGroups(_ []byte) (any, error) {
+	return map[string]any{"RuleGroups": h.Backend.ListSubscribedRuleGroups()}, nil
+}
+
+// --- Logging ---
+
+func (h *Handler) opPutLoggingConfiguration(body []byte) (any, error) {
+	var in struct {
+		LoggingConfiguration LoggingConfiguration `json:"LoggingConfiguration"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	cfg, err := h.Backend.PutLoggingConfiguration(in.LoggingConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"LoggingConfiguration": cfg}, nil
+}
+
+func (h *Handler) opGetLoggingConfiguration(body []byte) (any, error) {
+	var in struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	cfg, err := h.Backend.GetLoggingConfiguration(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"LoggingConfiguration": cfg}, nil
+}
+
+func (h *Handler) opDeleteLoggingConfiguration(body []byte) (any, error) {
+	var in struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteLoggingConfiguration(in.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) opListLoggingConfigurations(body []byte) (any, error) {
+	var in struct {
+		NextMarker string `json:"NextMarker"`
+		Limit      int    `json:"Limit"`
+	}
+
+	_ = unmarshal(body, &in)
+
+	return map[string]any{"LoggingConfigurations": h.Backend.ListLoggingConfigurations()}, nil
+}
+
+// --- PermissionPolicy ---
+
+func (h *Handler) opPutPermissionPolicy(body []byte) (any, error) {
+	var in struct {
+		ResourceArn string `json:"ResourceArn"`
+		Policy      string `json:"Policy"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.PutPermissionPolicy(in.ResourceArn, in.Policy); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) opGetPermissionPolicy(body []byte) (any, error) {
+	var in struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	policy, err := h.Backend.GetPermissionPolicy(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"Policy": policy}, nil
+}
+
+func (h *Handler) opDeletePermissionPolicy(body []byte) (any, error) {
+	var in struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeletePermissionPolicy(in.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+// --- Migration ---
+
+func (h *Handler) opCreateWebACLMigrationStack(body []byte) (any, error) {
+	var in struct {
+		WebACLId              string `json:"WebACLId"` //nolint:revive,staticcheck // AWS SDK field name
+		S3BucketName          string `json:"S3BucketName"`
+		IgnoreUnsupportedType bool   `json:"IgnoreUnsupportedType"`
+	}
+
+	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	s3URL := "https://" + in.S3BucketName + ".s3.amazonaws.com/webacl/" + in.WebACLId + "/template.json"
+
+	return map[string]any{"S3ObjectUrl": s3URL}, nil
 }
 
 // --- helpers ---
