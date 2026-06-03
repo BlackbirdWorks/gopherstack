@@ -311,4 +311,3 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
 	})
 }
-
