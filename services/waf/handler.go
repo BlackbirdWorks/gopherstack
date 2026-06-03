@@ -18,6 +18,7 @@ const (
 	wafContentType  = "application/x-amz-json-1.1"
 
 	keyChangeToken = "ChangeToken"
+	keyRule        = "Rule"
 )
 
 // Handler serves WAF Classic JSON operations.
@@ -176,12 +177,12 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"DeleteGeoMatchSet": h.opDeleteGeoMatchSet,
 		"ListGeoMatchSets":  h.opListGeoMatchSets,
 
-		"CreateRateBasedRule":          h.opCreateRateBasedRule,
-		"GetRateBasedRule":             h.opGetRateBasedRule,
-		"UpdateRateBasedRule":          h.opUpdateRateBasedRule,
-		"DeleteRateBasedRule":          h.opDeleteRateBasedRule,
-		"ListRateBasedRules":           h.opListRateBasedRules,
-		"GetRateBasedRuleManagedKeys":  h.opGetRateBasedRuleManagedKeys,
+		"CreateRateBasedRule":         h.opCreateRateBasedRule,
+		"GetRateBasedRule":            h.opGetRateBasedRule,
+		"UpdateRateBasedRule":         h.opUpdateRateBasedRule,
+		"DeleteRateBasedRule":         h.opDeleteRateBasedRule,
+		"ListRateBasedRules":          h.opListRateBasedRules,
+		"GetRateBasedRuleManagedKeys": h.opGetRateBasedRuleManagedKeys,
 
 		"CreateRegexPatternSet": h.opCreateRegexPatternSet,
 		"GetRegexPatternSet":    h.opGetRegexPatternSet,
@@ -354,7 +355,7 @@ func (h *Handler) opCreateRule(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"Rule":         rule,
+		keyRule:        rule,
 		keyChangeToken: in.ChangeToken,
 	}, nil
 }
@@ -373,7 +374,7 @@ func (h *Handler) opGetRule(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"Rule": rule}, nil
+	return map[string]any{keyRule: rule}, nil
 }
 
 func (h *Handler) opUpdateRule(body []byte) (any, error) {
@@ -1039,8 +1040,8 @@ func (h *Handler) opCreateRateBasedRule(body []byte) (any, error) {
 		Name        string `json:"Name"`
 		MetricName  string `json:"MetricName"`
 		RateKey     string `json:"RateKey"`
-		RateLimit   int64  `json:"RateLimit"`
 		Tags        []Tag  `json:"Tags"`
+		RateLimit   int64  `json:"RateLimit"`
 	}
 
 	if err := unmarshal(body, &in); err != nil {
@@ -1055,7 +1056,7 @@ func (h *Handler) opCreateRateBasedRule(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"Rule":         rule,
+		keyRule:        rule,
 		keyChangeToken: in.ChangeToken,
 	}, nil
 }
@@ -1074,15 +1075,15 @@ func (h *Handler) opGetRateBasedRule(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"Rule": rule}, nil
+	return map[string]any{keyRule: rule}, nil
 }
 
 func (h *Handler) opUpdateRateBasedRule(body []byte) (any, error) {
 	var in struct {
 		ChangeToken string       `json:"ChangeToken"`
 		RuleId      string       `json:"RuleId"` //nolint:revive,staticcheck // AWS SDK field name
-		RateLimit   int64        `json:"RateLimit"`
 		Updates     []RuleUpdate `json:"Updates"`
+		RateLimit   int64        `json:"RateLimit"`
 	}
 
 	if err := unmarshal(body, &in); err != nil {
@@ -1544,7 +1545,7 @@ func (h *Handler) opDeletePermissionPolicy(body []byte) (any, error) {
 
 func (h *Handler) opCreateWebACLMigrationStack(body []byte) (any, error) {
 	var in struct {
-		WebACLId              string `json:"WebACLId"` //nolint:revive,staticcheck // AWS SDK field name
+		WebACLId              string `json:"WebACLId"`
 		S3BucketName          string `json:"S3BucketName"`
 		IgnoreUnsupportedType bool   `json:"IgnoreUnsupportedType"`
 	}

@@ -144,7 +144,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			ruleMap := getResp["Rule"].(map[string]any)
 			assert.Equal(t, "BlockBots", ruleMap["Name"])
 			assert.Equal(t, "IP", ruleMap["RateKey"])
-			assert.Equal(t, float64(2000), ruleMap["RateLimit"])
+			assert.InEpsilon(t, float64(2000), ruleMap["RateLimit"], 0.001)
 
 			// Update: add predicate
 			token := wafGetToken(t, h)
@@ -170,7 +170,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 			ruleMap = getResp["Rule"].(map[string]any)
-			assert.Equal(t, float64(3000), ruleMap["RateLimit"])
+			assert.InEpsilon(t, float64(3000), ruleMap["RateLimit"], 0.001)
 			preds := ruleMap["MatchPredicates"].([]any)
 			assert.Len(t, preds, 1)
 
@@ -224,13 +224,21 @@ func TestRateBasedRuleNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetRateBasedRule not-found", "GetRateBasedRule", map[string]any{"RuleId": "no-such-id"}},
-		{"GetRateBasedRuleManagedKeys not-found", "GetRateBasedRuleManagedKeys", map[string]any{"RuleId": "no-such-id"}},
-		{"DeleteRateBasedRule not-found", "DeleteRateBasedRule", map[string]any{"ChangeToken": "t", "RuleId": "no-such-id"}},
+		{name: "GetRateBasedRule not-found", action: "GetRateBasedRule", body: map[string]any{"RuleId": "no-such-id"}},
+		{
+			name:   "GetRateBasedRuleManagedKeys not-found",
+			action: "GetRateBasedRuleManagedKeys",
+			body:   map[string]any{"RuleId": "no-such-id"},
+		},
+		{
+			name:   "DeleteRateBasedRule not-found",
+			action: "DeleteRateBasedRule",
+			body:   map[string]any{"ChangeToken": "t", "RuleId": "no-such-id"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -331,12 +339,20 @@ func TestRegexPatternSetNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetRegexPatternSet not-found", "GetRegexPatternSet", map[string]any{"RegexPatternSetId": "no-such-id"}},
-		{"DeleteRegexPatternSet not-found", "DeleteRegexPatternSet", map[string]any{"ChangeToken": "t", "RegexPatternSetId": "no-such-id"}},
+		{
+			name:   "GetRegexPatternSet not-found",
+			action: "GetRegexPatternSet",
+			body:   map[string]any{"RegexPatternSetId": "no-such-id"},
+		},
+		{
+			name:   "DeleteRegexPatternSet not-found",
+			action: "DeleteRegexPatternSet",
+			body:   map[string]any{"ChangeToken": "t", "RegexPatternSetId": "no-such-id"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -447,12 +463,20 @@ func TestRegexMatchSetNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetRegexMatchSet not-found", "GetRegexMatchSet", map[string]any{"RegexMatchSetId": "no-such-id"}},
-		{"DeleteRegexMatchSet not-found", "DeleteRegexMatchSet", map[string]any{"ChangeToken": "t", "RegexMatchSetId": "no-such-id"}},
+		{
+			name:   "GetRegexMatchSet not-found",
+			action: "GetRegexMatchSet",
+			body:   map[string]any{"RegexMatchSetId": "no-such-id"},
+		},
+		{
+			name:   "DeleteRegexMatchSet not-found",
+			action: "DeleteRegexMatchSet",
+			body:   map[string]any{"ChangeToken": "t", "RegexMatchSetId": "no-such-id"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -570,13 +594,21 @@ func TestRuleGroupNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetRuleGroup not-found", "GetRuleGroup", map[string]any{"RuleGroupId": "no-such-id"}},
-		{"DeleteRuleGroup not-found", "DeleteRuleGroup", map[string]any{"ChangeToken": "t", "RuleGroupId": "no-such-id"}},
-		{"ListActivatedRulesInRuleGroup not-found", "ListActivatedRulesInRuleGroup", map[string]any{"RuleGroupId": "no-such-id"}},
+		{name: "GetRuleGroup not-found", action: "GetRuleGroup", body: map[string]any{"RuleGroupId": "no-such-id"}},
+		{
+			name:   "DeleteRuleGroup not-found",
+			action: "DeleteRuleGroup",
+			body:   map[string]any{"ChangeToken": "t", "RuleGroupId": "no-such-id"},
+		},
+		{
+			name:   "ListActivatedRulesInRuleGroup not-found",
+			action: "ListActivatedRulesInRuleGroup",
+			body:   map[string]any{"RuleGroupId": "no-such-id"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -628,10 +660,11 @@ func TestLoggingConfigurationLifecycle(t *testing.T) {
 			aclARN := "arn:aws:waf::123456789012:webacl/" + aclID
 
 			// Put
+			firehoseARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/waf-logs"
 			rec := wafDo(t, h, "PutLoggingConfiguration", map[string]any{
 				"LoggingConfiguration": map[string]any{
 					"ResourceArn":           aclARN,
-					"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:123456789012:deliverystream/waf-logs"},
+					"LogDestinationConfigs": []string{firehoseARN},
 					"RedactedFields": []map[string]any{
 						{"Type": "HEADER", "Data": "cookie"},
 					},
@@ -680,12 +713,20 @@ func TestLoggingConfigurationNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetLoggingConfiguration not-found", "GetLoggingConfiguration", map[string]any{"ResourceArn": "arn:aws:waf::123:webacl/no-such"}},
-		{"DeleteLoggingConfiguration not-found", "DeleteLoggingConfiguration", map[string]any{"ResourceArn": "arn:aws:waf::123:webacl/no-such"}},
+		{
+			name:   "GetLoggingConfiguration not-found",
+			action: "GetLoggingConfiguration",
+			body:   map[string]any{"ResourceArn": "arn:aws:waf::123:webacl/no-such"},
+		},
+		{
+			name:   "DeleteLoggingConfiguration not-found",
+			action: "DeleteLoggingConfiguration",
+			body:   map[string]any{"ResourceArn": "arn:aws:waf::123:webacl/no-such"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -718,7 +759,8 @@ func TestPermissionPolicyLifecycle(t *testing.T) {
 
 			rgID := wafCreateRuleGroup(t, h, "SharedGroup")
 			rgARN := "arn:aws:waf::123456789012:rulegroup/" + rgID
-			policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"waf:GetRuleGroup"}]}`
+			policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"waf:GetRuleGroup"}]}`
 
 			// Put
 			rec := wafDo(t, h, "PutPermissionPolicy", map[string]any{
@@ -749,12 +791,20 @@ func TestPermissionPolicyNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
-		{"GetPermissionPolicy not-found", "GetPermissionPolicy", map[string]any{"ResourceArn": "arn:aws:waf::123:rulegroup/no-such"}},
-		{"DeletePermissionPolicy not-found", "DeletePermissionPolicy", map[string]any{"ResourceArn": "arn:aws:waf::123:rulegroup/no-such"}},
+		{
+			name:   "GetPermissionPolicy not-found",
+			action: "GetPermissionPolicy",
+			body:   map[string]any{"ResourceArn": "arn:aws:waf::123:rulegroup/no-such"},
+		},
+		{
+			name:   "DeletePermissionPolicy not-found",
+			action: "DeletePermissionPolicy",
+			body:   map[string]any{"ResourceArn": "arn:aws:waf::123:rulegroup/no-such"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -850,4 +900,3 @@ func TestSnapshotRestoreBatch2(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	})
 }
-

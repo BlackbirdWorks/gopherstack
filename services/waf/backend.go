@@ -283,8 +283,8 @@ type RateBasedRule struct {
 	Name            string      `json:"Name"`
 	MetricName      string      `json:"MetricName"`
 	RateKey         string      `json:"RateKey"`
-	RateLimit       int64       `json:"RateLimit"`
 	MatchPredicates []Predicate `json:"MatchPredicates"`
+	RateLimit       int64       `json:"RateLimit"`
 }
 
 // RateBasedRuleSummary is a summary of a RateBasedRule.
@@ -400,10 +400,10 @@ type InMemoryBackend struct {
 	regexPatternSets      map[string]*RegexPatternSet
 	regexMatchSets        map[string]*RegexMatchSet
 	ruleGroups            map[string]*RuleGroup
-	ruleGroupRules        map[string][]ActivatedRule // ruleGroupId → activated rules
+	ruleGroupRules        map[string][]ActivatedRule       // ruleGroupId → activated rules
 	loggingConfigs        map[string]*LoggingConfiguration // resourceArn → config
-	permissionPolicies    map[string]string // resourceArn → policy JSON
-	tags                  map[string]map[string]string // arn → tags
+	permissionPolicies    map[string]string                // resourceArn → policy JSON
+	tags                  map[string]map[string]string     // arn → tags
 	accountID             string
 	region                string
 }

@@ -67,7 +67,9 @@ type StorageBackend interface {
 	ListGeoMatchSets() []GeoMatchSetSummary
 
 	// RateBasedRule
-	CreateRateBasedRule(name, metricName, rateKey string, rateLimit int64, changeToken string, tags map[string]string) (*RateBasedRule, error)
+	CreateRateBasedRule(
+		name, metricName, rateKey string, rateLimit int64, changeToken string, tags map[string]string,
+	) (*RateBasedRule, error)
 	GetRateBasedRule(id string) (*RateBasedRule, error)
 	UpdateRateBasedRule(id, changeToken string, rateLimit int64, updates []RuleUpdate) error
 	DeleteRateBasedRule(id, changeToken string) error
