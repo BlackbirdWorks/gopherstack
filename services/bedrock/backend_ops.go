@@ -100,6 +100,15 @@ func (b *InMemoryBackend) StopEvaluationJob(jobARN string) error {
 		return fmt.Errorf("%w: evaluation job %s not found", ErrNotFound, jobARN)
 	}
 
+	if job.Status != statusInProgress {
+		return fmt.Errorf(
+			"%w: evaluation job %s cannot be stopped in status %s",
+			ErrValidation,
+			jobARN,
+			job.Status,
+		)
+	}
+
 	job.Status = statusStopped
 	job.LastModifiedTime = time.Now().UTC()
 
@@ -564,6 +573,15 @@ func (b *InMemoryBackend) StopModelInvocationJob(jobARN string) error {
 	job, ok := b.modelInvocationJobs[jobARN]
 	if !ok {
 		return fmt.Errorf("%w: model invocation job %s not found", ErrNotFound, jobARN)
+	}
+
+	if job.Status != statusInProgress {
+		return fmt.Errorf(
+			"%w: model invocation job %s cannot be stopped in status %s",
+			ErrValidation,
+			jobARN,
+			job.Status,
+		)
 	}
 
 	job.Status = statusStopped
