@@ -211,6 +211,7 @@ func TestAudit_LoggingConfig_ValidLevel_OnUpdate(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "log-upd-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("log-upd-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("log-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				LoggingConfiguration: &mwaa.LoggingConfiguration{
@@ -304,6 +305,7 @@ func TestAudit_LoggingConfig_Persisted_AfterUpdate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "log-upd-persist", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("log-upd-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("log-upd-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		LoggingConfiguration: &mwaa.LoggingConfiguration{
@@ -632,6 +634,7 @@ func TestAudit_S3Paths_AllThreePairs_UpdateValidation(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "s3-upd-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("s3-upd-env") // promote CREATING → AVAILABLE
 
 			req := new(mwaa.ExportedUpdateEnvironmentRequest)
 			tt.mutate(req)
@@ -652,6 +655,7 @@ func TestAudit_S3Paths_Update_PluginsPathVersionPairPersisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "s3-persist-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("s3-persist-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("s3-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		PluginsS3Path:          "plugins.zip",
@@ -672,6 +676,7 @@ func TestAudit_S3Paths_Update_RequirementsPathVersionPairPersisted(t *testing.T)
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "req-s3-persist", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("req-s3-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("req-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		RequirementsS3Path:          "requirements.txt",
@@ -692,6 +697,7 @@ func TestAudit_S3Paths_Update_StartupScriptPathVersionPairPersisted(t *testing.T
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "startup-s3-persist", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("startup-s3-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("startup-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		StartupScriptS3Path:          "startup.sh",
@@ -768,6 +774,7 @@ func TestAudit_NetworkConfig_UpdateValidNetworkConfig(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-upd-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("nc-upd-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("nc-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
@@ -784,6 +791,7 @@ func TestAudit_NetworkConfig_UpdateEmptySubnetsRejected(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-empty-sn", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("nc-empty-sn") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("nc-empty-sn", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
@@ -800,6 +808,7 @@ func TestAudit_NetworkConfig_UpdateEmptySecurityGroupsRejected(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-empty-sg", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("nc-empty-sg") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("nc-empty-sg", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
@@ -816,6 +825,7 @@ func TestAudit_NetworkConfig_UpdatePersisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-persist-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("nc-persist-env") // promote CREATING → AVAILABLE
 
 	newNC := &mwaa.NetworkConfig{
 		SubnetIDs:        []string{"subnet-x1", "subnet-x2"},
@@ -887,6 +897,7 @@ func TestAudit_AirflowConfig_UpdateReplaces_NotMerges(t *testing.T) {
 	}
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-replace-env", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("acfg-replace-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("acfg-replace-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowConfigurationOptions: map[string]string{
@@ -913,6 +924,7 @@ func TestAudit_AirflowConfig_UpdateNilOptions_DoesNotClear(t *testing.T) {
 	}
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-nil-upd", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("acfg-nil-upd") // promote CREATING → AVAILABLE
 
 	// Update with nil AirflowConfigurationOptions — should not touch existing config.
 	_, err = b.UpdateEnvironment("acfg-nil-upd", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -936,6 +948,7 @@ func TestAudit_AirflowConfig_EmptyMapClears(t *testing.T) {
 	}
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-clear-env", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("acfg-clear-env") // promote CREATING → AVAILABLE
 
 	// Update with empty map should replace existing config with empty.
 	_, err = b.UpdateEnvironment("acfg-clear-env", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1170,6 +1183,7 @@ func TestAudit_WeeklyMaintenance_UpdateValidation(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-upd-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("wmw-upd-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("wmw-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				WeeklyMaintenanceWindowStart: tt.window,
@@ -1190,6 +1204,7 @@ func TestAudit_WeeklyMaintenance_UpdatePersisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-persist-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wmw-persist-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("wmw-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WeeklyMaintenanceWindowStart: "WED:02:00",
@@ -1229,6 +1244,7 @@ func TestAudit_WeeklyMaintenance_AllDays_Valid(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-day-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("wmw-day-env") // promote CREATING → AVAILABLE
 
 			window := day + ":12:00"
 			_, err = b.UpdateEnvironment("wmw-day-env", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1252,6 +1268,7 @@ func TestAudit_Workers_Update_OnlyMinSet_KeepsExistingMax(t *testing.T) {
 	req.MinWorkers = 1
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-only-min-env", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wk-only-min-env") // promote CREATING → AVAILABLE
 
 	// Update: set MinWorkers=2, leave MaxWorkers=0 (no change).
 	// MinWorkers=2 < existing MaxWorkers=10: should succeed.
@@ -1270,6 +1287,7 @@ func TestAudit_Workers_Update_OnlyMaxSet_KeepsExistingMin(t *testing.T) {
 	req.MinWorkers = 3
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-only-max-env", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wk-only-max-env") // promote CREATING → AVAILABLE
 
 	// Update: set MaxWorkers=15, leave MinWorkers=0 (no change).
 	_, err = b.UpdateEnvironment("wk-only-max-env", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1293,6 +1311,7 @@ func TestAudit_Workers_Update_NewMinExceedsExistingMax(t *testing.T) {
 	req.MinWorkers = 1
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-min-exceeds-max", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wk-min-exceeds-max") // promote CREATING → AVAILABLE
 
 	// Set MinWorkers=10 > existing MaxWorkers=5: should fail.
 	_, err = b.UpdateEnvironment("wk-min-exceeds-max", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1311,6 +1330,7 @@ func TestAudit_Workers_Update_NewMaxBelowExistingMin(t *testing.T) {
 	req.MinWorkers = 5
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-max-below-min", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("wk-max-below-min") // promote CREATING → AVAILABLE
 
 	// Set MaxWorkers=2 < existing MinWorkers=5: should fail.
 	_, err = b.UpdateEnvironment("wk-max-below-min", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1342,6 +1362,7 @@ func TestAudit_Workers_Update_BothSetValidRange(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-both-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment("wk-both-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment("wk-both-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				MinWorkers: tt.min,
@@ -1785,6 +1806,7 @@ func TestAudit_Tags_Update_DoesNotTouchExistingTags(t *testing.T) {
 
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "tags-upd-env", req)
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("tags-upd-env") // promote CREATING → AVAILABLE
 
 	// Update the environment without touching tags.
 	_, err = b.UpdateEnvironment("tags-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
@@ -1980,6 +2002,7 @@ func TestAudit_DagS3Path_Update_Persisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-upd-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("dag-upd-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("dag-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new/dags/path/",
@@ -2042,6 +2065,7 @@ func TestAudit_Update_ExecutionRoleArnAndSourceBucketArn(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "role-upd-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("role-upd-env") // promote CREATING → AVAILABLE
 
 	newRole := "arn:aws:iam::123456789012:role/new-mwaa-role"
 	newBucket := "arn:aws:s3:::new-bucket"
@@ -2068,6 +2092,7 @@ func TestAudit_LastUpdate_PopulatedAfterUpdate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-check-env", newCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("lu-check-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("lu-check-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "updated-dags/",
@@ -2416,6 +2441,7 @@ func TestAudit_HTTP_TokensIncludeWebServerHostname(t *testing.T) {
 	doMWAARequest(t, h, http.MethodPut, "/environments/http-token-hostname", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 	})
+	doMWAARequest(t, h, http.MethodGet, "/environments/http-token-hostname", nil) // promote CREATING → AVAILABLE
 
 	tests := []struct {
 		name    string

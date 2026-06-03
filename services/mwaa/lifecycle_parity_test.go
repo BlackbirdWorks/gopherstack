@@ -34,6 +34,7 @@ func TestUpdateEnvironment_StatusTransitionsToUpdatingThenAvailable(t *testing.T
 
 	_, err := b.CreateEnvironment("us-east-1", "123456789012", "lc-env", newLifecycleCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("lc-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("lc-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "mw1.medium",
@@ -56,6 +57,7 @@ func TestUpdateEnvironment_RejectsEmptyNetworkConfig(t *testing.T) {
 
 	_, err := b.CreateEnvironment("us-east-1", "123456789012", "nc-env", newLifecycleCreateReq())
 	require.NoError(t, err)
+	_, _ = b.GetEnvironment("nc-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment("nc-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{},

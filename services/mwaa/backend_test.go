@@ -266,6 +266,7 @@ func TestBackend_UpdateEnvironment(t *testing.T) {
 			if tt.seed {
 				_, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
 				require.NoError(t, err)
+				_, _ = b.GetEnvironment(tt.envName)
 			}
 
 			env, err := b.UpdateEnvironment(tt.envName, tt.update)
