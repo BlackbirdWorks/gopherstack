@@ -68,7 +68,6 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
-	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -97,7 +96,6 @@ import (
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
-	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -139,8 +137,6 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
-	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
-	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
@@ -148,18 +144,16 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
-	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
-	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
-	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -190,7 +184,6 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
-	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
@@ -308,7 +301,6 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
-	apprunnerHandler              service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
@@ -1562,11 +1554,6 @@ func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
 	return c.dynamodbStreamsHandler
 }
 
-// GetAppRunnerHandler returns the App Runner handler (dashboard.AWSSDKProvider).
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetAppRunnerHandler() service.Registerable { return c.apprunnerHandler }
-
 // GetElasticbeanstalkHandler returns the Elastic Beanstalk handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2322,7 +2309,6 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
-	cli.apprunnerHandler = byName["AppRunner"]
 	cli.elasticbeanstalkHandler = byName["Elasticbeanstalk"]
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
@@ -2650,7 +2636,6 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&cloudtrailbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
-		&apprunnerbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
 		&bedrockbackend.AgentsProvider{},
@@ -2690,6 +2675,7 @@ func getServiceProviders() []service.Provider {
 		&mediaconvertbackend.Provider{},
 		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
+		&mediastoredatabackend.Provider{},
 	}, getLatestServiceProviders()...)
 }
 
@@ -2697,7 +2683,6 @@ func getServiceProviders() []service.Provider {
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getLatestServiceProviders() []service.Provider {
 	return append([]service.Provider{
-		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 	}, getNewestServiceProviders()...)
 }
@@ -2713,7 +2698,6 @@ func getNewestServiceProviders() []service.Provider {
 
 func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
-		&personalizebackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
@@ -2721,8 +2705,6 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
-		&quicksightbackend.Provider{},
-		&rekognitionbackend.Provider{},
 		&sagemakerbackend.Provider{},
 		&sagemakerruntimebackend.Provider{},
 		&servicediscoverybackend.Provider{},
@@ -2744,11 +2726,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
 		&detectivebackend.Provider{},
-		&directoryservicebackend.Provider{},
 		&datasyncbackend.Provider{},
-		&medialivebackend.Provider{},
-		&mediapackagebackend.Provider{},
-		&translatebackend.Provider{},
+		&opsworksbackend.Provider{},
 	}
 }
 
