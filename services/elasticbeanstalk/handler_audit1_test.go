@@ -333,3 +333,95 @@ func TestAudit1_PersistenceRoundTrip_Events(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Successfully launched environment: env1.")
 }
+
+// TestAudit1_DescribeEvents_SeverityFilter verifies that Severity=ERROR filters out INFO events.
+// The Terraform provider sends Severity=ERROR when polling for errors after environment creation;
+// returning INFO events (like "Successfully launched environment") as if they were errors was
+// the root cause of the chronic terraform EB test flake on PRs #2106 and #2122.
+func TestAudit1_DescribeEvents_SeverityFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filter   string
+		contains []string
+		absent   []string
+	}{
+		{
+			name:   "Severity=ERROR excludes INFO launch event",
+			filter: "&Severity=ERROR",
+			absent: []string{"Successfully launched environment"},
+		},
+		{
+			name:     "Severity=INFO returns INFO launch event",
+			filter:   "&Severity=INFO",
+			contains: []string{"Successfully launched environment: env1."},
+		},
+		{
+			name:     "no Severity filter returns all events",
+			filter:   "",
+			contains: []string{"Successfully launched environment: env1."},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
+
+			rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents"+tt.filter)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			for _, s := range tt.contains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+
+			for _, s := range tt.absent {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// TestAudit1_DescribeEvents_StartTimeFilter verifies that StartTime filters out older events.
+func TestAudit1_DescribeEvents_StartTimeFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
+
+	// StartTime after the fixed event date (2026-01-01) should exclude the event.
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2026-06-01T00:00:00Z")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "Successfully launched environment")
+
+	// StartTime before the fixed event date should include the event.
+	rec = postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&StartTime=2025-01-01T00:00:00Z")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Successfully launched environment: env1.")
+}
+
+// TestAudit1_DescribeEvents_EnvironmentIdFilter verifies that EnvironmentId filters events
+// to the correct environment, matching how the Terraform provider queries for errors by ID.
+func TestAudit1_DescribeEvents_EnvironmentIdFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env2")
+
+	// env1 gets e-00000001, env2 gets e-00000002.
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&EnvironmentId=e-00000001")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "Successfully launched environment: env1.")
+	assert.NotContains(t, body, "env2")
+
+	rec = postEBForm(t, h, "Version=2010-12-01&Action=DescribeEvents&EnvironmentId=e-00000002")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	assert.Contains(t, body, "Successfully launched environment: env2.")
+	assert.NotContains(t, body, "env1.")
+}

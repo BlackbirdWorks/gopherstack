@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -1002,16 +1003,47 @@ type describeEventsResponse struct {
 	DescribeEventsResult describeEventsResult `xml:"DescribeEventsResult"`
 }
 
-// handleDescribeEvents returns stored events, filtered by ApplicationName and EnvironmentName.
-// The Terraform provider calls DescribeEvents to poll environment creation and termination status.
+// handleDescribeEvents returns stored events, filtered by ApplicationName, EnvironmentName,
+// EnvironmentId, Severity, and StartTime. The Terraform provider calls DescribeEvents with
+// Severity=ERROR and StartTime to poll for errors after environment creation/update.
 func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
+
+	// EnvironmentId filter: resolve to app/env name for backend lookup.
+	if envID := vals.Get("EnvironmentId"); envID != "" {
+		envs := h.Backend.DescribeEnvironments("", nil, []string{envID})
+		if len(envs) > 0 {
+			appName = envs[0].ApplicationName
+			envName = envs[0].EnvironmentName
+		}
+	}
+
+	// Severity filter: only return events matching the requested severity.
+	severityFilter := vals.Get("Severity")
+
+	// StartTime filter: only return events with EventDate >= StartTime.
+	var startTime time.Time
+	if s := vals.Get("StartTime"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			startTime = t
+		}
+	}
 
 	records := h.Backend.DescribeEvents(appName, envName)
 	members := make([]eventDescType, 0, len(records))
 
 	for _, r := range records {
+		if severityFilter != "" && r.Severity != severityFilter {
+			continue
+		}
+
+		if !startTime.IsZero() {
+			if t, err := time.Parse(time.RFC3339, r.EventDate); err == nil && t.Before(startTime) {
+				continue
+			}
+		}
+
 		members = append(members, eventDescType{
 			ApplicationName: r.ApplicationName,
 			EnvironmentName: r.EnvironmentName,
