@@ -73,6 +73,7 @@ type ImportJob struct {
 	S3Url         string `json:"S3Url,omitempty"`
 	Format        string `json:"Format,omitempty"`
 	JobStatus     string `json:"JobStatus"`
+	SegmentID     string `json:"SegmentId,omitempty"`
 	CreationDate  string `json:"CreationDate,omitempty"`
 }
 
