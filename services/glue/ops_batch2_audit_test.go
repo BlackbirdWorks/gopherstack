@@ -33,8 +33,8 @@ func TestBatch2Audit_DeleteUsageProfile_NotFound(t *testing.T) {
 	tests := []struct {
 		name      string
 		profName  string
-		wantCode  int
 		wantError string
+		wantCode  int
 		create    bool
 	}{
 		{
@@ -80,8 +80,8 @@ func TestBatch2Audit_CancelDQRecommendationRun_NotFound(t *testing.T) {
 	tests := []struct {
 		name      string
 		runID     string
-		wantCode  int
 		wantError string
+		wantCode  int
 		create    bool
 	}{
 		{
@@ -139,8 +139,8 @@ func TestBatch2Audit_StopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 	tests := []struct {
 		name      string
 		runID     string
-		wantCode  int
 		wantError string
+		wantCode  int
 		create    bool
 	}{
 		{
@@ -197,8 +197,8 @@ func TestBatch2Audit_StopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
 	tests := []struct {
 		name      string
 		runID     string
-		wantCode  int
 		wantError string
+		wantCode  int
 		create    bool
 	}{
 		{
