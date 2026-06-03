@@ -146,10 +146,10 @@ func TestAccuracyBatch2_ScheduledActions_ListWithDomainFilter(t *testing.T) {
 				map[string]any{
 					"DomainName": tt.domain,
 					"ScheduledAction": map[string]any{
-						"Id":             "action-1",
-						"Type":           "JVM_HEAP_SIZE_TUNING",
-						"ScheduledTime":  "2026-07-01T00:00:00Z",
-						"ScheduleAt":     "TIMESTAMP",
+						"Id":            "action-1",
+						"Type":          "JVM_HEAP_SIZE_TUNING",
+						"ScheduledTime": "2026-07-01T00:00:00Z",
+						"ScheduleAt":    "TIMESTAMP",
 					},
 				})
 			sr.Body.Close()
