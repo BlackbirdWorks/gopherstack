@@ -560,7 +560,7 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 		// Try URL-safe base64 as fallback
 		decoded, err = base64.URLEncoding.DecodeString(encoded)
 		if err != nil {
-			return nil, fmt.Errorf("invalid encoded message: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidAuthorizationMessage, err)
 		}
 	}
 

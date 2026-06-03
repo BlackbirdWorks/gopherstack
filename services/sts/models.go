@@ -158,8 +158,8 @@ type ResponseMetadata struct {
 type AssumeRoleResponse struct {
 	XMLName          xml.Name         `xml:"AssumeRoleResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 	AssumeRoleResult AssumeRoleResult `xml:"AssumeRoleResult"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // GetCallerIdentityResult carries the caller's account, ARN, and user-ID.
@@ -304,8 +304,8 @@ type GetFederationTokenResult struct {
 type GetFederationTokenResponse struct {
 	XMLName                  xml.Name                 `xml:"GetFederationTokenResponse"`
 	Xmlns                    string                   `xml:"xmlns,attr"`
-	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
 	GetFederationTokenResult GetFederationTokenResult `xml:"GetFederationTokenResult"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
 }
 
 // AssumeRoleWithWebIdentityInput holds the parameters for an AssumeRoleWithWebIdentity call.
@@ -351,8 +351,8 @@ type AssumeRoleWithSAMLResult struct {
 type AssumeRoleWithSAMLResponse struct {
 	XMLName                  xml.Name                 `xml:"AssumeRoleWithSAMLResponse"`
 	Xmlns                    string                   `xml:"xmlns,attr"`
-	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
 	AssumeRoleWithSAMLResult AssumeRoleWithSAMLResult `xml:"AssumeRoleWithSAMLResult"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
 }
 
 // AssumeRootInput holds the parameters for an AssumeRoot call.
@@ -372,8 +372,8 @@ type AssumeRootResult struct {
 type AssumeRootResponse struct {
 	XMLName          xml.Name         `xml:"AssumeRootResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 	AssumeRootResult AssumeRootResult `xml:"AssumeRootResult"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // GetDelegatedAccessTokenInput holds the parameters for a GetDelegatedAccessToken call.
@@ -393,8 +393,8 @@ type GetDelegatedAccessTokenResult struct {
 type GetDelegatedAccessTokenResponse struct {
 	XMLName                       xml.Name                      `xml:"GetDelegatedAccessTokenResponse"`
 	Xmlns                         string                        `xml:"xmlns,attr"`
-	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
 	GetDelegatedAccessTokenResult GetDelegatedAccessTokenResult `xml:"GetDelegatedAccessTokenResult"`
+	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
 }
 
 // GetWebIdentityTokenInput holds the parameters for a GetWebIdentityToken call.
@@ -415,8 +415,8 @@ type GetWebIdentityTokenResult struct {
 type GetWebIdentityTokenResponse struct {
 	XMLName                   xml.Name                  `xml:"GetWebIdentityTokenResponse"`
 	Xmlns                     string                    `xml:"xmlns,attr"`
-	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
 	GetWebIdentityTokenResult GetWebIdentityTokenResult `xml:"GetWebIdentityTokenResult"`
+	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
 }
 
 // AssumeRoleWithWebIdentityResult wraps the assumed-role user, credentials, and OIDC provider details.
@@ -434,6 +434,6 @@ type AssumeRoleWithWebIdentityResult struct {
 type AssumeRoleWithWebIdentityResponse struct {
 	XMLName                         xml.Name                        `xml:"AssumeRoleWithWebIdentityResponse"`
 	Xmlns                           string                          `xml:"xmlns,attr"`
-	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
 	AssumeRoleWithWebIdentityResult AssumeRoleWithWebIdentityResult `xml:"AssumeRoleWithWebIdentityResult"`
+	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
 }
