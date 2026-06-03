@@ -1024,6 +1024,7 @@ type clusterInfoV1 struct {
 	ZookeeperConnectString    string                `json:"zookeeperConnectString,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 }
 
 type describeClusterOutput struct {
@@ -1046,6 +1047,7 @@ type provisionedClusterInfo struct {
 	StorageMode               string                `json:"storageMode,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 }
 
 type clusterInfoV2 struct {
@@ -1442,6 +1444,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn),
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+		ConfigurationInfo:         cl.ConfigurationInfo,
 	}
 }
 
@@ -1521,6 +1524,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			EnhancedMonitoring:        cl.EnhancedMonitoring,
 			StorageMode:               cl.StorageMode,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+			ConfigurationInfo:         cl.ConfigurationInfo,
 		}
 	}
 
