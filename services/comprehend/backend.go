@@ -192,7 +192,8 @@ func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
 	return cloneJob(job), nil
 }
 
-// StopJob starts cancellation of an active job.
+// StopJob starts cancellation of an active job. AWS returns InvalidRequestException
+// when the job is already in a terminal state (COMPLETED, FAILED, STOPPED, STOP_REQUESTED).
 func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -202,9 +203,12 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 		return nil, fmt.Errorf("%w: job %q", ErrNotFound, id)
 	}
 
-	if job.JobStatus == statusSubmitted || job.JobStatus == statusInProgress {
+	switch job.JobStatus {
+	case statusSubmitted, statusInProgress:
 		job.JobStatus = statusStopRequested
 		job.stopRequested = true
+	default:
+		return nil, fmt.Errorf("%w: job %q cannot be stopped in status %s", ErrValidation, id, job.JobStatus)
 	}
 
 	return cloneJob(job), nil
@@ -288,15 +292,19 @@ func (b *InMemoryBackend) CreateResource(
 	return cloneResource(resource), nil
 }
 
-// GetResource finds resource by ARN.
+// GetResource finds resource by ARN. For classifier and recognizer types, each
+// Describe call advances training lifecycle: SUBMITTED → IN_PROGRESS → TRAINED
+// (or FAILED when the name contains "[fail]"). This mirrors AWS async training.
 func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resource, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	resource, ok := b.resources[resourceArn]
 	if !ok || resource.Type != resourceType {
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
+
+	advanceTrainingResource(resource)
 
 	return cloneResource(resource), nil
 }
@@ -333,7 +341,9 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, resourceType string, value
 	return cloneResource(resource), nil
 }
 
-// DeleteResource removes a stored resource and its tags.
+// DeleteResource removes a stored resource and its tags. AWS returns
+// ResourceInUseException when deleting a classifier or recognizer that is
+// still training (status SUBMITTED or IN_PROGRESS).
 func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -342,6 +352,15 @@ func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error
 	if !ok || resource.Type != resourceType {
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
+
+	if isTrainingResourceType(resource.Type) &&
+		(resource.Status == statusSubmitted || resource.Status == statusInProgress) {
+		return fmt.Errorf(
+			"%w: resource %q cannot be deleted in status %s",
+			ErrConflict, resourceArn, resource.Status,
+		)
+	}
+
 	delete(b.resources, resourceArn)
 	delete(b.tags, resourceArn)
 
@@ -540,7 +559,39 @@ func initialResourceStatus(resourceType string) string {
 	case resourceTypeFlywheel, resourceTypeDataset:
 		return statusReady
 	default:
-		return statusTrained
+		// Classifiers and recognizers start training asynchronously.
+		return statusSubmitted
+	}
+}
+
+// isTrainingResourceType reports whether rType goes through async training.
+func isTrainingResourceType(rType string) bool {
+	switch rType {
+	case "document-classifier", "document-classifier-version",
+		"entity-recognizer", "entity-recognizer-version":
+		return true
+	}
+
+	return false
+}
+
+// advanceTrainingResource steps a classifier/recognizer one lifecycle state
+// forward on each Describe call: SUBMITTED → IN_PROGRESS → TRAINED (or FAILED).
+func advanceTrainingResource(resource *Resource) {
+	if !isTrainingResourceType(resource.Type) {
+		return
+	}
+	switch resource.Status {
+	case statusSubmitted:
+		resource.Status = statusInProgress
+		resource.UpdatedAt = time.Now().UTC()
+	case statusInProgress:
+		if strings.Contains(strings.ToLower(resource.Name), failedMarker) {
+			resource.Status = statusFailed
+		} else {
+			resource.Status = statusTrained
+		}
+		resource.UpdatedAt = time.Now().UTC()
 	}
 }
 

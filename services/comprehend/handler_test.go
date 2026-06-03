@@ -234,32 +234,35 @@ func TestResourceCRUDAndTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		prefix      string
-		nameField   string
-		nameValue   string
-		arnField    string
-		objectField string
-		listField   string
-		update      bool
+		name         string
+		prefix       string
+		nameField    string
+		nameValue    string
+		arnField     string
+		objectField  string
+		listField    string
+		update       bool
+		trainingType bool // must advance lifecycle to TRAINED before Delete
 	}{
 		{
-			name:        "classifier",
-			prefix:      "DocumentClassifier",
-			nameField:   "DocumentClassifierName",
-			nameValue:   "news",
-			arnField:    "DocumentClassifierArn",
-			objectField: "DocumentClassifierProperties",
-			listField:   "DocumentClassifierPropertiesList",
+			name:         "classifier",
+			prefix:       "DocumentClassifier",
+			nameField:    "DocumentClassifierName",
+			nameValue:    "news",
+			arnField:     "DocumentClassifierArn",
+			objectField:  "DocumentClassifierProperties",
+			listField:    "DocumentClassifierPropertiesList",
+			trainingType: true,
 		},
 		{
-			name:        "recognizer",
-			prefix:      "EntityRecognizer",
-			nameField:   "RecognizerName",
-			nameValue:   "names",
-			arnField:    "EntityRecognizerArn",
-			objectField: "EntityRecognizerProperties",
-			listField:   "EntityRecognizerPropertiesList",
+			name:         "recognizer",
+			prefix:       "EntityRecognizer",
+			nameField:    "RecognizerName",
+			nameValue:    "names",
+			arnField:     "EntityRecognizerArn",
+			objectField:  "EntityRecognizerProperties",
+			listField:    "EntityRecognizerPropertiesList",
+			trainingType: true,
 		},
 		{
 			name:        "endpoint",
@@ -325,6 +328,11 @@ func TestResourceCRUDAndTags(t *testing.T) {
 					"Update"+test.prefix,
 					map[string]any{test.arnField: resourceARN, "DesiredInferenceUnits": 2},
 				)
+			}
+			if test.trainingType {
+				// Advance training lifecycle to TRAINED before delete.
+				// 1st Describe (above) moved SUBMITTED→IN_PROGRESS; this call moves IN_PROGRESS→TRAINED.
+				request(t, handler, "Describe"+test.prefix, map[string]any{test.arnField: resourceARN})
 			}
 			request(t, handler, "Delete"+test.prefix, map[string]any{test.arnField: resourceARN})
 			listed = request(t, handler, "List"+test.prefix+"s", nil)
