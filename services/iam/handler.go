@@ -612,7 +612,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"GetPolicyVersion": func(vals url.Values, reqID string) (any, error) {
-			pol, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
+			pv, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
 			if err != nil {
 				return nil, err
 			}
@@ -620,10 +620,10 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 			return &GetPolicyVersionResponse{
 				Xmlns: iamXMLNS,
 				GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
-					Document:         pol.PolicyDocument,
-					VersionID:        "v1",
-					IsDefaultVersion: true,
-					CreateDate:       isoTime(pol.CreateDate),
+					Document:         pv.PolicyDocument,
+					VersionID:        pv.VersionID,
+					IsDefaultVersion: pv.IsDefaultVersion,
+					CreateDate:       isoTime(pv.CreateDate),
 				}},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

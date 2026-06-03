@@ -15,6 +15,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
 // ---- SimulatePrincipalPolicy handler response ----
@@ -647,4 +649,144 @@ func TestHandler_SimulatePrincipalPolicy_MultipleResources(t *testing.T) {
 	// bucket-a should be allowed, bucket-b implicitly denied.
 	assert.Contains(t, body, "allowed")
 	assert.Contains(t, body, "implicitDeny")
+}
+
+// ---- GetPolicyVersion VersionId accuracy (handler) ----
+
+func TestHandler_GetPolicyVersion_VersionIdNotHardcoded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		requestedVersion string
+		wantVersionID    string
+		setAsDefault     bool
+	}{
+		{"v1", "v1", "v1", false},
+		{"v2 non-default", "v2", "v2", false},
+		{"v2 set as default", "v2", "v2", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+
+			doc := `{"Version":"2012-10-17","Statement":[]}`
+			p, err := b.CreatePolicy("GPVPolicy-"+tc.name, "/", doc)
+			require.NoError(t, err)
+
+			doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+			_, err = b.CreatePolicyVersion(p.Arn, doc2, false)
+			require.NoError(t, err)
+
+			if tc.setAsDefault {
+				require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v2"))
+			}
+
+			req := iamRequest("GetPolicyVersion", map[string]string{
+				"PolicyArn": p.Arn,
+				"VersionId": tc.requestedVersion,
+			})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			body := rec.Body.String()
+			assert.Contains(t, body, "<VersionId>"+tc.wantVersionID+"</VersionId>",
+				"GetPolicyVersion response VersionId must match requested version, not hardcoded v1")
+		})
+	}
+}
+
+// ---- GetPolicy / ListPolicies AWS fields ----
+
+func TestHandler_GetPolicy_ReturnsAWSFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		setup           func(b *iam.InMemoryBackend, policyArn string)
+		wantDefaultVer  string
+		wantAttachCount string
+		wantIsAttachable string
+	}{
+		{
+			name:             "fresh policy",
+			setup:            func(_ *iam.InMemoryBackend, _ string) {},
+			wantDefaultVer:   "v1",
+			wantAttachCount:  "0",
+			wantIsAttachable: "true",
+		},
+		{
+			name: "after attach to user",
+			setup: func(b *iam.InMemoryBackend, policyArn string) {
+				_, _ = b.CreateUser("gp-fields-user", "/", "")
+				_ = b.AttachUserPolicy("gp-fields-user", policyArn)
+			},
+			wantDefaultVer:   "v1",
+			wantAttachCount:  "1",
+			wantIsAttachable: "true",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+
+			doc := `{"Version":"2012-10-17","Statement":[]}`
+			p, err := b.CreatePolicy("GPFieldsPolicy-"+tc.name, "/", doc)
+			require.NoError(t, err)
+
+			tc.setup(b, p.Arn)
+
+			req := iamRequest("GetPolicy", map[string]string{"PolicyArn": p.Arn})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			body := rec.Body.String()
+			assert.Contains(t, body, "<DefaultVersionId>"+tc.wantDefaultVer+"</DefaultVersionId>",
+				"GetPolicy must include DefaultVersionId")
+			assert.Contains(t, body, "<AttachmentCount>"+tc.wantAttachCount+"</AttachmentCount>",
+				"GetPolicy must include AttachmentCount")
+			assert.Contains(t, body, "<IsAttachable>"+tc.wantIsAttachable+"</IsAttachable>",
+				"GetPolicy must include IsAttachable")
+			assert.Contains(t, body, "<UpdateDate>",
+				"GetPolicy must include UpdateDate")
+		})
+	}
+}
+
+func TestHandler_GetPolicy_DefaultVersionIdUpdatesAfterNewDefault(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h, b := newTestHandler(t)
+
+	doc := `{"Version":"2012-10-17","Statement":[]}`
+	p, err := b.CreatePolicy("GPDefVer", "/", doc)
+	require.NoError(t, err)
+
+	doc2 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+	_, err = b.CreatePolicyVersion(p.Arn, doc2, false)
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v2"))
+
+	req := iamRequest("GetPolicy", map[string]string{"PolicyArn": p.Arn})
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "<DefaultVersionId>v2</DefaultVersionId>",
+		"DefaultVersionId must reflect v2 after SetDefaultPolicyVersion")
+	assert.NotContains(t, body, "<DefaultVersionId>v1</DefaultVersionId>",
+		"DefaultVersionId must not still say v1 after v2 was set as default")
 }
