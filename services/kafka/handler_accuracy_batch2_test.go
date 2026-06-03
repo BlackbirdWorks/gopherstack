@@ -140,7 +140,7 @@ func TestBatch2_UpdateBrokerCount_Persists(t *testing.T) {
 			require.True(t, ok)
 			provisioned, ok := clusterInfo["provisioned"].(map[string]any)
 			require.True(t, ok)
-			assert.Equal(t, float64(tt.targetBrokers), provisioned["numberOfBrokerNodes"],
+			assert.InDelta(t, float64(tt.targetBrokers), provisioned["numberOfBrokerNodes"], 0,
 				"numberOfBrokerNodes should reflect the update")
 		})
 	}
@@ -188,7 +188,7 @@ func TestBatch2_UpdateBrokerStorage_Persists(t *testing.T) {
 	bng, _ := provisioned["brokerNodeGroupInfo"].(map[string]any)
 	storageInfo, _ := bng["storageInfo"].(map[string]any)
 	ebsInfo, _ := storageInfo["ebsStorageInfo"].(map[string]any)
-	assert.Equal(t, float64(200), ebsInfo["volumeSize"], "storage should reflect the update")
+	assert.InDelta(t, float64(200), ebsInfo["volumeSize"], 0, "storage should reflect the update")
 }
 
 func TestBatch2_UpdateBrokerStorage_NotFound(t *testing.T) {
@@ -426,7 +426,7 @@ func TestBatch2_ClusterOperationTracking_V1(t *testing.T) {
 	opArns := make([]string, 0, len(opList))
 	for _, o := range opList {
 		om, _ := o.(map[string]any)
-		if arn, ok := om["clusterOperationArn"].(string); ok {
+		if arn, arnOK := om["clusterOperationArn"].(string); arnOK {
 			opArns = append(opArns, arn)
 		}
 	}
@@ -440,8 +440,8 @@ func TestBatch2_ClusterOperationTracking_V1(t *testing.T) {
 
 		var descResp map[string]any
 		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-		opInfo, ok := descResp["clusterOperationInfo"].(map[string]any)
-		require.True(t, ok)
+		opInfo, infoOK := descResp["clusterOperationInfo"].(map[string]any)
+		require.True(t, infoOK)
 		assert.Equal(t, opArn, opInfo["clusterOperationArn"])
 		assert.Equal(t, clusterArn, opInfo["clusterArn"])
 		assert.NotEmpty(t, opInfo["operationType"])
@@ -723,7 +723,7 @@ func TestBatch2_ConfigRevision_DescribeAndList(t *testing.T) {
 
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-	assert.Equal(t, float64(1), descResp["revision"])
+	assert.InDelta(t, float64(1), descResp["revision"], 0)
 
 	// ListConfigurationRevisions.
 	listRec := doKafkaRequest(t, h, http.MethodGet,
@@ -913,5 +913,5 @@ func TestBatch2_UpdateClusterConfiguration_V2Path(t *testing.T) {
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
 	cfgInfo, _ := provisioned["configurationInfo"].(map[string]any)
 	assert.Equal(t, configArn, cfgInfo["arn"])
-	assert.Equal(t, float64(1), cfgInfo["revision"])
+	assert.InDelta(t, float64(1), cfgInfo["revision"], 0)
 }

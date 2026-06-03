@@ -1014,6 +1014,7 @@ type clusterInfoV1 struct {
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	StateInfo                 *StateInfo            `json:"stateInfo,omitempty"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	ClusterArn                string                `json:"clusterArn"`
 	ClusterName               string                `json:"clusterName"`
 	KafkaVersion              string                `json:"kafkaVersion"`
@@ -1024,7 +1025,6 @@ type clusterInfoV1 struct {
 	ZookeeperConnectString    string                `json:"zookeeperConnectString,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
-	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 }
 
 type describeClusterOutput struct {
@@ -1041,13 +1041,13 @@ type provisionedClusterInfo struct {
 	EncryptionInfo            *EncryptionInfo       `json:"encryptionInfo,omitempty"`
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
+	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
 	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
 	StorageMode               string                `json:"storageMode,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
-	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 }
 
 type clusterInfoV2 struct {
