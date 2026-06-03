@@ -42,13 +42,17 @@ type Role struct {
 
 // Policy represents an IAM managed policy resource.
 type Policy struct {
-	Tags           map[string]string `json:"Tags,omitempty"`
-	CreateDate     time.Time         `json:"CreateDate"`
-	PolicyName     string            `json:"PolicyName"`
-	PolicyID       string            `json:"PolicyId"`
-	Arn            string            `json:"Arn"`
-	Path           string            `json:"Path"`
-	PolicyDocument string            `json:"PolicyDocument"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	CreateDate       time.Time         `json:"CreateDate"`
+	UpdateDate       time.Time         `json:"UpdateDate"`
+	PolicyName       string            `json:"PolicyName"`
+	PolicyID         string            `json:"PolicyId"`
+	Arn              string            `json:"Arn"`
+	Path             string            `json:"Path"`
+	PolicyDocument   string            `json:"PolicyDocument"`
+	DefaultVersionId string            `json:"DefaultVersionId"`
+	AttachmentCount  int               `json:"AttachmentCount"`
+	IsAttachable     bool              `json:"IsAttachable"`
 }
 
 // Group represents an IAM group resource.
@@ -294,11 +298,15 @@ type ListRolesResult struct {
 
 // PolicyXML is the XML representation of an IAM Policy.
 type PolicyXML struct {
-	PolicyName string `xml:"PolicyName"`
-	PolicyID   string `xml:"PolicyId"`
-	Arn        string `xml:"Arn"`
-	Path       string `xml:"Path"`
-	CreateDate string `xml:"CreateDate"`
+	PolicyName       string `xml:"PolicyName"`
+	PolicyID         string `xml:"PolicyId"`
+	Arn              string `xml:"Arn"`
+	Path             string `xml:"Path"`
+	CreateDate       string `xml:"CreateDate"`
+	UpdateDate       string `xml:"UpdateDate"`
+	DefaultVersionId string `xml:"DefaultVersionId"`
+	AttachmentCount  int    `xml:"AttachmentCount"`
+	IsAttachable     bool   `xml:"IsAttachable"`
 }
 
 // CreatePolicyResponse is the XML response for CreatePolicy.
