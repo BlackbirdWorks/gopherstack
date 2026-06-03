@@ -932,7 +932,7 @@ func TestPolicy_DefaultVersionIdSetOnCreate(t *testing.T) {
 	p, err := b.CreatePolicy("DefaultVerPolicy", "/", doc)
 	require.NoError(t, err)
 
-	assert.Equal(t, "v1", p.DefaultVersionId,
+	assert.Equal(t, "v1", p.DefaultVersionID,
 		"DefaultVersionId must be v1 on freshly created policy")
 }
 
@@ -951,8 +951,8 @@ func TestPolicy_AttachmentCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(b *iam.InMemoryBackend, policyArn string)
+		name  string
 		want  int
 	}{
 		{
@@ -984,7 +984,8 @@ func TestPolicy_AttachmentCount(t *testing.T) {
 				_ = b.AttachUserPolicy("att-count-u3", policyArn)
 				_, _ = b.CreateGroup("att-count-g3", "/")
 				_ = b.AttachGroupPolicy("att-count-g3", policyArn)
-				trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+				trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+					`"Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 				_, _ = b.CreateRole("att-count-r3", "/", trust, "")
 				_ = b.AttachRolePolicy("att-count-r3", policyArn)
 			},
@@ -1050,7 +1051,7 @@ func TestPolicy_UpdateDateAdvancesOnNewDefault(t *testing.T) {
 
 			assert.True(t, got.UpdateDate.After(originalUpdateDate) || got.UpdateDate.Equal(originalUpdateDate),
 				"UpdateDate must advance when a new default version is set")
-			assert.Equal(t, "v2", got.DefaultVersionId,
+			assert.Equal(t, "v2", got.DefaultVersionID,
 				"DefaultVersionId must reflect the new default version")
 		})
 	}
@@ -1072,12 +1073,12 @@ func TestPolicy_DefaultVersionIdAfterSetDefault(t *testing.T) {
 
 	got, err := b.GetPolicy(p.Arn)
 	require.NoError(t, err)
-	assert.Equal(t, "v2", got.DefaultVersionId)
+	assert.Equal(t, "v2", got.DefaultVersionID)
 
 	// Revert to v1.
 	require.NoError(t, b.SetDefaultPolicyVersion(p.Arn, "v1"))
 
 	got2, err := b.GetPolicy(p.Arn)
 	require.NoError(t, err)
-	assert.Equal(t, "v1", got2.DefaultVersionId, "DefaultVersionId reverts to v1")
+	assert.Equal(t, "v1", got2.DefaultVersionID, "DefaultVersionId reverts to v1")
 }

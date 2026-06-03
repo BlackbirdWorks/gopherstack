@@ -468,6 +468,8 @@ linters:
         linters: [ ireturn ]
       - path: 'sts/models.go'
         linters: [ govet ]
+      - path: 'iam/models.go'
+        linters: [ govet ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

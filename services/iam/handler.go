@@ -1669,9 +1669,9 @@ func toRoleXML(r *Role) RoleXML {
 }
 
 func toPolicyXML(p *Policy) PolicyXML {
-	defaultVersionId := p.DefaultVersionId
-	if defaultVersionId == "" {
-		defaultVersionId = "v1"
+	defaultVersionID := p.DefaultVersionID
+	if defaultVersionID == "" {
+		defaultVersionID = "v1"
 	}
 
 	updateDate := p.UpdateDate
@@ -1686,7 +1686,7 @@ func toPolicyXML(p *Policy) PolicyXML {
 		Path:             p.Path,
 		CreateDate:       isoTime(p.CreateDate),
 		UpdateDate:       isoTime(updateDate),
-		DefaultVersionId: defaultVersionId,
+		DefaultVersionID: defaultVersionID,
 		AttachmentCount:  p.AttachmentCount,
 		IsAttachable:     p.IsAttachable,
 	}

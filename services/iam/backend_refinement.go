@@ -174,7 +174,7 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 		}
 		b.policyVersions[policyArn] = versions
 
-		pol.DefaultVersionId = "v1"
+		pol.DefaultVersionID = "v1"
 		pol.UpdateDate = now
 		b.policies[polName] = pol
 
@@ -191,7 +191,7 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 
 			// Update the policy's document, default version, and update timestamp.
 			pol.PolicyDocument = versions[i].PolicyDocument
-			pol.DefaultVersionId = versionID
+			pol.DefaultVersionID = versionID
 			pol.UpdateDate = now
 			b.policies[polName] = pol
 		} else {

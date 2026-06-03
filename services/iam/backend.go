@@ -780,7 +780,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		PolicyDocument:   policyDocument,
 		CreateDate:       now,
 		UpdateDate:       now,
-		DefaultVersionId: "v1",
+		DefaultVersionID: "v1",
 		IsAttachable:     true,
 	}
 	b.policies[policyName] = pol
@@ -1526,13 +1526,13 @@ func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*Stored
 		}
 
 		v := version
-		v.IsDefaultVersion = (policy.DefaultVersionId == versionID)
+		v.IsDefaultVersion = (policy.DefaultVersionID == versionID)
 
 		return &v, nil
 	}
 
 	if versionID == "" || versionID == "v1" {
-		isDefault := policy.DefaultVersionId == "v1" || policy.DefaultVersionId == ""
+		isDefault := policy.DefaultVersionID == "v1" || policy.DefaultVersionID == ""
 
 		return &StoredPolicyVersion{
 			VersionID:        "v1",

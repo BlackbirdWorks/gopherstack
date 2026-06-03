@@ -91,7 +91,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 
 		// Update the policy document, default version ID, and update timestamp.
 		pol.PolicyDocument = policyDocument
-		pol.DefaultVersionId = versionID
+		pol.DefaultVersionID = versionID
 		pol.UpdateDate = newVersion.CreateDate
 		b.policies[polName] = pol
 	}
