@@ -18,10 +18,10 @@ func TestBatch2_PauseService_StateGuard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "pause RUNNING service succeeds",
@@ -65,10 +65,10 @@ func TestBatch2_ResumeService_StateGuard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name: "resume PAUSED service succeeds",
@@ -112,10 +112,10 @@ func TestBatch2_UpdateService_StateGuard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "update RUNNING service succeeds",
@@ -162,10 +162,10 @@ func TestBatch2_StartDeployment_StateGuard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "deploy RUNNING service succeeds",
