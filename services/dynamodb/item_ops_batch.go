@@ -19,6 +19,9 @@ const batchWriteResponseLimit = 16 * 1024 * 1024
 // eventuallyConsistentRCU is the RCU cost per read for eventually-consistent reads (0.5 per 4KB).
 const eventuallyConsistentRCU = 0.5
 
+// wcuBytesPerUnit is the number of bytes per write capacity unit (1 KB).
+const wcuBytesPerUnit = 1024
+
 func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
@@ -374,12 +377,13 @@ func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
 			if err != nil || itemSize <= 0 {
 				cu += 1.0
 			} else {
-				cu += float64((itemSize + 1023) / 1024)
+				cu += float64((itemSize + wcuBytesPerUnit - 1) / wcuBytesPerUnit)
 			}
 		} else {
 			cu += 1.0
 		}
 	}
+
 	return cu
 }
 
