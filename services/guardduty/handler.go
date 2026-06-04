@@ -636,7 +636,7 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 		"findingPublishingFrequency": d.FindingPublishingFrequency,
 		"createdAt":                  d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		"updatedAt":                  d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyTags:                      d.Tags,
+		keyTags:                      tagsOrEmpty(d.Tags),
 		"features":                   d.Features,
 	}, http.StatusOK, nil
 }
@@ -727,7 +727,7 @@ func (h *Handler) handleGetFilter(detectorID, filterName string) (any, int, erro
 		"action":          f.Action,
 		"rank":            f.Rank,
 		"findingCriteria": f.FindingCriteria,
-		keyTags:           f.Tags,
+		keyTags:           tagsOrEmpty(f.Tags),
 	}, http.StatusOK, nil
 }
 
@@ -919,7 +919,7 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 		"format":   s.Format,
 		"location": s.Location,
 		keyStatus:  s.Status,
-		keyTags:    s.Tags,
+		keyTags:    tagsOrEmpty(s.Tags),
 	}, http.StatusOK, nil
 }
 
@@ -1004,7 +1004,7 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 		"format":   s.Format,
 		"location": s.Location,
 		keyStatus:  s.Status,
-		keyTags:    s.Tags,
+		keyTags:    tagsOrEmpty(s.Tags),
 	}, http.StatusOK, nil
 }
 
@@ -1100,6 +1100,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 // --- helpers ---
+
+func tagsOrEmpty(m map[string]string) map[string]string {
+	if m != nil {
+		return m
+	}
+
+	return map[string]string{}
+}
 
 func errBody(code, message string) map[string]string {
 	return map[string]string{
