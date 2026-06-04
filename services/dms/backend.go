@@ -126,6 +126,7 @@ type ReplicationInstance struct {
 	EngineVersion                 string     `json:"engineVersion"`
 	AvailabilityZone              string     `json:"availabilityZone"`
 	ReplicationInstanceStatus     string     `json:"replicationInstanceStatus"`
+	PrivateIPAddress              string     `json:"privateIpAddress"`
 	AccountID                     string     `json:"accountId"`
 	Region                        string     `json:"region"`
 	AllocatedStorage              int32      `json:"allocatedStorage"`
@@ -359,6 +360,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		AutoMinorVersionUpgrade:       autoMinorVersionUpgrade,
 		PubliclyAccessible:            publiclyAccessible,
 		ReplicationInstanceStatus:     statusAvailable,
+		PrivateIPAddress:              "10.0.0.1",
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 		CreationTime:                  time.Now().UTC(),
@@ -1144,6 +1146,7 @@ func (b *InMemoryBackend) AddReplicationInstanceInternal(identifier, class strin
 		ReplicationInstanceClass:      class,
 		EngineVersion:                 defaultEngineVersion,
 		ReplicationInstanceStatus:     statusAvailable,
+		PrivateIPAddress:              "10.0.0.1",
 		AllocatedStorage:              defaultAllocatedStorage,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
