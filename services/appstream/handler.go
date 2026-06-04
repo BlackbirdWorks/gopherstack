@@ -108,6 +108,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	status := http.StatusInternalServerError
 
 	switch {
+	// ErrFleetNotStopped and ErrAlreadyExists must precede their wrapped sentinels.
+	case errors.Is(err, ErrFleetNotStopped):
+		code, status = errFleetNotStopped, http.StatusBadRequest
+	case errors.Is(err, ErrAlreadyExists):
+		code, status = errResourceExists, http.StatusBadRequest
+	case errors.Is(err, awserr.ErrConflict):
+		code, status = errResourceInUse, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrNotFound):
 		code, status = errResourceNotFound, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrInvalidParameter):

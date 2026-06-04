@@ -15,6 +15,7 @@ const (
 	errInvalidParameter = "InvalidParameterCombinationException"
 	errResourceExists   = "ResourceAlreadyExistsException"
 	errFleetNotStopped  = "InvalidAccountStatusException"
+	errResourceInUse    = "ResourceInUseException"
 
 	fleetStateRunning = "RUNNING"
 	fleetStateStopped = "STOPPED"
@@ -28,9 +29,12 @@ var (
 	// ErrNotFound is returned when a resource does not exist.
 	ErrNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
-	ErrAlreadyExists = awserr.New(errResourceExists, awserr.ErrInvalidParameter)
-	// ErrFleetNotStopped is returned when trying to delete a running fleet.
-	ErrFleetNotStopped = awserr.New(errFleetNotStopped, awserr.ErrInvalidParameter)
+	ErrAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrFleetNotStopped is returned when a fleet state transition is invalid
+	// (e.g. starting a running fleet, stopping a stopped fleet, deleting a running fleet).
+	ErrFleetNotStopped = awserr.New(errFleetNotStopped, awserr.ErrConflict)
+	// ErrResourceInUse is returned when a resource cannot be deleted because it is in use.
+	ErrResourceInUse = awserr.New(errResourceInUse, awserr.ErrConflict)
 )
 
 type storedStack struct {
@@ -210,7 +214,7 @@ func (b *InMemoryBackend) UpdateStack(name, displayName, description string) (*S
 	return s.toStack(), nil
 }
 
-// DeleteStack removes a stack.
+// DeleteStack removes a stack. Returns ErrResourceInUse if any fleet is associated with the stack.
 func (b *InMemoryBackend) DeleteStack(name string) error {
 	b.mu.Lock("DeleteStack")
 	defer b.mu.Unlock()
@@ -220,10 +224,26 @@ func (b *InMemoryBackend) DeleteStack(name string) error {
 		return ErrNotFound
 	}
 
+	for _, stacks := range b.associations {
+		if stacks[name] {
+			return ErrResourceInUse
+		}
+	}
+
 	delete(b.tags, s.Arn)
 	delete(b.stacks, name)
 
 	return nil
+}
+
+// isValidFleetType reports whether ft is an accepted AWS fleet type.
+func isValidFleetType(ft string) bool {
+	switch ft {
+	case "ALWAYS_ON", "ON_DEMAND", "ELASTIC":
+		return true
+	}
+
+	return false
 }
 
 // CreateFleet creates a new fleet.
@@ -232,6 +252,18 @@ func (b *InMemoryBackend) CreateFleet(
 	maxUserDuration, disconnectTimeout int,
 	tags map[string]string,
 ) (*Fleet, error) {
+	if instanceType == "" {
+		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
+	}
+
+	if fleetType != "" && !isValidFleetType(fleetType) {
+		return nil, fmt.Errorf(
+			"%w: FleetType %q is not valid; must be ALWAYS_ON, ON_DEMAND, or ELASTIC",
+			awserr.ErrInvalidParameter,
+			fleetType,
+		)
+	}
+
 	b.mu.Lock("CreateFleet")
 	defer b.mu.Unlock()
 
@@ -374,6 +406,10 @@ func (b *InMemoryBackend) StartFleet(name string) error {
 		return ErrNotFound
 	}
 
+	if f.State == fleetStateRunning {
+		return ErrFleetNotStopped
+	}
+
 	f.State = fleetStateRunning
 
 	return nil
@@ -387,6 +423,10 @@ func (b *InMemoryBackend) StopFleet(name string) error {
 	f, ok := b.fleets[name]
 	if !ok {
 		return ErrNotFound
+	}
+
+	if f.State == fleetStateStopped {
+		return ErrFleetNotStopped
 	}
 
 	f.State = fleetStateStopped
