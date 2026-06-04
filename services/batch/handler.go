@@ -357,6 +357,14 @@ func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
 }
 
+func tagsOrEmpty(tags map[string]string) map[string]string {
+	if tags == nil {
+		return map[string]string{}
+	}
+
+	return tags
+}
+
 func pathToOperation(path string) string {
 	ops := map[string]string{
 		"/v1/createcomputeenvironment":     "CreateComputeEnvironment",
@@ -1255,7 +1263,7 @@ type describeJobsInput struct {
 type jobDetail struct {
 	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
 	StartedAt     *int64            `json:"startedAt,omitempty"`
-	Tags          map[string]string `json:"tags,omitempty"`
+	Tags          map[string]string `json:"tags"`
 	JobID         string            `json:"jobId"`
 	JobARN        string            `json:"jobArn,omitempty"`
 	JobName       string            `json:"jobName"`
@@ -1286,7 +1294,7 @@ func (h *Handler) handleDescribeJobs(_ context.Context, in *describeJobsInput) (
 			CreatedAt:     j.CreatedAt,
 			StartedAt:     j.StartedAt,
 			StoppedAt:     j.StoppedAt,
-			Tags:          j.Tags,
+			Tags:          tagsOrEmpty(j.Tags),
 		})
 	}
 
@@ -1489,7 +1497,7 @@ type describeConsumableResourceInput struct {
 }
 
 type describeConsumableResourceOutput struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags"`
 	ConsumableResourceArn  string            `json:"consumableResourceArn"`
 	ConsumableResourceName string            `json:"consumableResourceName"`
 	ResourceType           string            `json:"resourceType,omitempty"`
@@ -1516,7 +1524,7 @@ func (h *Handler) handleDescribeConsumableResource(
 		ConsumableResourceArn:  cr.ConsumableResourceArn,
 		ConsumableResourceName: cr.ConsumableResourceName,
 		ResourceType:           cr.ResourceType,
-		Tags:                   cr.Tags,
+		Tags:                   tagsOrEmpty(cr.Tags),
 		CreatedAt:              cr.CreatedAt,
 		TotalQuantity:          cr.TotalQuantity,
 		AvailableQuantity:      cr.AvailableQuantity,
@@ -1644,7 +1652,7 @@ type updateConsumableResourceInput struct {
 }
 
 type updateConsumableResourceOutput struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags"`
 	ConsumableResourceArn  string            `json:"consumableResourceArn"`
 	ConsumableResourceName string            `json:"consumableResourceName"`
 	ResourceType           string            `json:"resourceType,omitempty"`
@@ -1671,7 +1679,7 @@ func (h *Handler) handleUpdateConsumableResource(
 		ConsumableResourceArn:  cr.ConsumableResourceArn,
 		ConsumableResourceName: cr.ConsumableResourceName,
 		ResourceType:           cr.ResourceType,
-		Tags:                   cr.Tags,
+		Tags:                   tagsOrEmpty(cr.Tags),
 		CreatedAt:              cr.CreatedAt,
 		TotalQuantity:          cr.TotalQuantity,
 		AvailableQuantity:      cr.AvailableQuantity,
@@ -1836,7 +1844,7 @@ type describeServiceJobInput struct {
 }
 
 type describeServiceJobOutput struct {
-	Tags               map[string]string `json:"tags,omitempty"`
+	Tags               map[string]string `json:"tags"`
 	StartedAt          *int64            `json:"startedAt,omitempty"`
 	StoppedAt          *int64            `json:"stoppedAt,omitempty"`
 	ServiceJobID       string            `json:"serviceJobId"`
@@ -1871,7 +1879,7 @@ func (h *Handler) handleDescribeServiceJob(
 		CreatedAt:          sj.CreatedAt,
 		StartedAt:          sj.StartedAt,
 		StoppedAt:          sj.StoppedAt,
-		Tags:               sj.Tags,
+		Tags:               tagsOrEmpty(sj.Tags),
 	}, nil
 }
 

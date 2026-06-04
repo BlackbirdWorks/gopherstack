@@ -89,6 +89,16 @@ func isValidAllocationStrategy(s string) bool {
 	return false
 }
 
+// tagsCloneOrEmpty clones a tag map, returning an empty map for nil input.
+// Use when building response copies so that JSON serialises as {} not null/absent.
+func tagsCloneOrEmpty(tags map[string]string) map[string]string {
+	if len(tags) == 0 {
+		return map[string]string{}
+	}
+
+	return maps.Clone(tags)
+}
+
 // validateTags checks tag count and key/value length constraints.
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagCount {
@@ -218,7 +228,7 @@ type UpdatePolicy struct {
 
 // ComputeEnvironment represents a Batch compute environment.
 type ComputeEnvironment struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags"`
 	ComputeResources       *ComputeResources `json:"computeResources,omitempty"`
 	EksConfiguration       *EksConfiguration `json:"eksConfiguration,omitempty"`
 	UpdatePolicy           *UpdatePolicy     `json:"updatePolicy,omitempty"`
@@ -247,7 +257,7 @@ type JobStateTimeLimitAction struct {
 
 // JobQueue represents a Batch job queue.
 type JobQueue struct {
-	Tags                     map[string]string         `json:"tags,omitempty"`
+	Tags                     map[string]string         `json:"tags"`
 	JobQueueName             string                    `json:"jobQueueName"`
 	JobQueueArn              string                    `json:"jobQueueArn"`
 	State                    string                    `json:"state"`
@@ -499,7 +509,7 @@ type ConsumableResourceProperty struct {
 // JobDefinition represents a Batch job definition.
 type JobDefinition struct {
 	DeregisteredAt               *time.Time                   `json:"deregisteredAt,omitempty"`
-	Tags                         map[string]string            `json:"tags,omitempty"`
+	Tags                         map[string]string            `json:"tags"`
 	Parameters                   map[string]string            `json:"parameters,omitempty"`
 	ContainerProperties          *ContainerProperties         `json:"containerProperties,omitempty"`
 	NodeProperties               *NodeProperties              `json:"nodeProperties,omitempty"`
@@ -577,7 +587,7 @@ type JobAttempt struct {
 // Job represents a submitted Batch job.
 type Job struct {
 	ContainerOverrides           *ContainerOverrides          `json:"containerOverrides,omitempty"`
-	Tags                         map[string]string            `json:"tags,omitempty"`
+	Tags                         map[string]string            `json:"tags"`
 	Parameters                   map[string]string            `json:"parameters,omitempty"`
 	StartedAt                    *int64                       `json:"startedAt,omitempty"`
 	StoppedAt                    *int64                       `json:"stoppedAt,omitempty"`
@@ -602,7 +612,7 @@ type Job struct {
 
 // ConsumableResource represents a Batch consumable resource.
 type ConsumableResource struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags"`
 	ConsumableResourceName string            `json:"consumableResourceName"`
 	ConsumableResourceArn  string            `json:"consumableResourceArn"`
 	ResourceType           string            `json:"resourceType,omitempty"`
@@ -627,7 +637,7 @@ type FairsharePolicy struct {
 
 // SchedulingPolicy represents a Batch scheduling policy.
 type SchedulingPolicy struct {
-	Tags            map[string]string `json:"tags,omitempty"`
+	Tags            map[string]string `json:"tags"`
 	FairsharePolicy *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
 	Arn             string            `json:"arn"`
 	Name            string            `json:"name"`
@@ -635,7 +645,7 @@ type SchedulingPolicy struct {
 
 // ServiceEnvironment represents a Batch service environment.
 type ServiceEnvironment struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
+	Tags                   map[string]string `json:"tags"`
 	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
 	ServiceEnvironmentArn  string            `json:"serviceEnvironmentArn"`
 	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
@@ -645,7 +655,7 @@ type ServiceEnvironment struct {
 
 // ServiceJob represents a Batch service job.
 type ServiceJob struct {
-	Tags               map[string]string `json:"tags,omitempty"`
+	Tags               map[string]string `json:"tags"`
 	StartedAt          *int64            `json:"startedAt,omitempty"`
 	StoppedAt          *int64            `json:"stoppedAt,omitempty"`
 	ServiceJobID       string            `json:"serviceJobId"`
@@ -935,6 +945,7 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 		for _, nameOrARN := range names {
 			if ce, ok := b.lookupCEByNameOrARN(nameOrARN); ok {
 				cp := *ce
+				cp.Tags = tagsCloneOrEmpty(ce.Tags)
 				list = append(list, &cp)
 			}
 		}
@@ -945,6 +956,7 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 	all := make([]*ComputeEnvironment, 0, len(b.computeEnvironments))
 	for _, ce := range b.computeEnvironments {
 		cp := *ce
+		cp.Tags = tagsCloneOrEmpty(ce.Tags)
 		all = append(all, &cp)
 	}
 
@@ -1104,6 +1116,7 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, ne
 		for _, nameOrARN := range names {
 			if jq, ok := b.lookupJQByNameOrARN(nameOrARN); ok {
 				cp := *jq
+				cp.Tags = tagsCloneOrEmpty(jq.Tags)
 				list = append(list, &cp)
 			}
 		}
@@ -1114,6 +1127,7 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, ne
 	all := make([]*JobQueue, 0, len(b.jobQueues))
 	for _, jq := range b.jobQueues {
 		cp := *jq
+		cp.Tags = tagsCloneOrEmpty(jq.Tags)
 		all = append(all, &cp)
 	}
 
@@ -1302,6 +1316,7 @@ func (b *InMemoryBackend) describeAllJobDefinitions(
 		}
 
 		cp := *jd
+		cp.Tags = tagsCloneOrEmpty(jd.Tags)
 		all = append(all, &cp)
 	}
 
@@ -1340,6 +1355,7 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status s
 			if !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
+				cp.Tags = tagsCloneOrEmpty(jd.Tags)
 				list = append(list, &cp)
 			}
 
@@ -1352,6 +1368,7 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status s
 			if jd.JobDefinitionName == baseName && !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
+				cp.Tags = tagsCloneOrEmpty(jd.Tags)
 				list = append(list, &cp)
 			}
 		}
@@ -1718,7 +1735,7 @@ func (b *InMemoryBackend) SubmitJob(
 	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
 
 	cp := *j
-	cp.Tags = maps.Clone(j.Tags)
+	cp.Tags = tagsCloneOrEmpty(j.Tags)
 
 	return &cp, nil
 }
@@ -1733,7 +1750,7 @@ func (b *InMemoryBackend) listAllJobs(status string) []*Job {
 		}
 
 		cp := *j
-		cp.Tags = maps.Clone(j.Tags)
+		cp.Tags = tagsCloneOrEmpty(j.Tags)
 		all = append(all, &cp)
 	}
 
@@ -1763,7 +1780,7 @@ func (b *InMemoryBackend) listQueueJobs(queue, status string) ([]*Job, error) {
 		}
 
 		cp := *j
-		cp.Tags = maps.Clone(j.Tags)
+		cp.Tags = tagsCloneOrEmpty(j.Tags)
 		all = append(all, &cp)
 	}
 
@@ -1826,7 +1843,7 @@ func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 		}
 
 		cp := *j
-		cp.Tags = maps.Clone(j.Tags)
+		cp.Tags = tagsCloneOrEmpty(j.Tags)
 		out = append(out, &cp)
 	}
 
@@ -1915,7 +1932,7 @@ func (b *InMemoryBackend) CreateConsumableResource(
 		AvailableQuantity:      totalQuantity,
 		InUseQuantity:          0,
 		CreatedAt:              time.Now().UnixMilli(),
-		Tags:                   maps.Clone(tags),
+		Tags:                   tagsCloneOrEmpty(tags),
 	}
 	b.consumableResources[name] = cr
 	cp := *cr
@@ -1949,7 +1966,7 @@ func (b *InMemoryBackend) DescribeConsumableResource(nameOrARN string) (*Consuma
 	}
 
 	cp := *cr
-	cp.Tags = maps.Clone(cr.Tags)
+	cp.Tags = tagsCloneOrEmpty(cr.Tags)
 
 	return &cp, nil
 }
@@ -1996,7 +2013,7 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(
 	sp := &SchedulingPolicy{
 		Arn:             policyARN,
 		Name:            name,
-		Tags:            maps.Clone(tags),
+		Tags:            tagsCloneOrEmpty(tags),
 		FairsharePolicy: cloneFairsharePolicy(fairsharePolicy),
 	}
 	b.schedulingPolicies[policyARN] = sp
@@ -2062,7 +2079,7 @@ func (b *InMemoryBackend) CreateServiceEnvironment(
 		ServiceEnvironmentType: envType,
 		State:                  state,
 		Status:                 statusValid,
-		Tags:                   maps.Clone(tags),
+		Tags:                   tagsCloneOrEmpty(tags),
 	}
 	b.serviceEnvironments[name] = se
 	cp := *se
@@ -2155,7 +2172,7 @@ func (b *InMemoryBackend) UpdateConsumableResource(
 	}
 
 	cp := *cr
-	cp.Tags = maps.Clone(cr.Tags)
+	cp.Tags = tagsCloneOrEmpty(cr.Tags)
 
 	return &cp, nil
 }
@@ -2169,7 +2186,7 @@ func (b *InMemoryBackend) ListConsumableResources() []*ConsumableResource {
 
 	for _, cr := range b.consumableResources {
 		cp := *cr
-		cp.Tags = maps.Clone(cr.Tags)
+		cp.Tags = tagsCloneOrEmpty(cr.Tags)
 		list = append(list, &cp)
 	}
 
@@ -2189,7 +2206,7 @@ func (b *InMemoryBackend) ListSchedulingPolicies() []*SchedulingPolicy {
 
 	for _, sp := range b.schedulingPolicies {
 		cp := *sp
-		cp.Tags = maps.Clone(sp.Tags)
+		cp.Tags = tagsCloneOrEmpty(sp.Tags)
 		list = append(list, &cp)
 	}
 
@@ -2207,7 +2224,7 @@ func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*Schedulin
 		list := make([]*SchedulingPolicy, 0, len(b.schedulingPolicies))
 		for _, sp := range b.schedulingPolicies {
 			cp := *sp
-			cp.Tags = maps.Clone(sp.Tags)
+			cp.Tags = tagsCloneOrEmpty(sp.Tags)
 			list = append(list, &cp)
 		}
 
@@ -2221,7 +2238,7 @@ func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*Schedulin
 	for _, a := range arns {
 		if sp, ok := b.schedulingPolicies[a]; ok {
 			cp := *sp
-			cp.Tags = maps.Clone(sp.Tags)
+			cp.Tags = tagsCloneOrEmpty(sp.Tags)
 			list = append(list, &cp)
 		}
 	}
@@ -2238,7 +2255,7 @@ func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*Service
 		list := make([]*ServiceEnvironment, 0, len(b.serviceEnvironments))
 		for _, se := range b.serviceEnvironments {
 			cp := *se
-			cp.Tags = maps.Clone(se.Tags)
+			cp.Tags = tagsCloneOrEmpty(se.Tags)
 			list = append(list, &cp)
 		}
 
@@ -2254,7 +2271,7 @@ func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*Service
 	for _, nameOrARN := range names {
 		if se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN); ok {
 			cp := *se
-			cp.Tags = maps.Clone(se.Tags)
+			cp.Tags = tagsCloneOrEmpty(se.Tags)
 			list = append(list, &cp)
 		}
 	}
@@ -2294,7 +2311,7 @@ func (b *InMemoryBackend) UpdateServiceEnvironment(nameOrARN, state string) (*Se
 	}
 
 	cp := *se
-	cp.Tags = maps.Clone(se.Tags)
+	cp.Tags = tagsCloneOrEmpty(se.Tags)
 
 	return &cp, nil
 }
@@ -2304,7 +2321,7 @@ func (b *InMemoryBackend) SubmitServiceJob(name, serviceEnv string, tags map[str
 	b.mu.Lock("SubmitServiceJob")
 	defer b.mu.Unlock()
 
-	tagsCopy := maps.Clone(tags)
+	tagsCopy := tagsCloneOrEmpty(tags)
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
 	jobARN := arn.Build("batch", b.region, b.accountID, "service-job/"+jobID)
@@ -2335,7 +2352,7 @@ func (b *InMemoryBackend) DescribeServiceJob(serviceJobID string) (*ServiceJob, 
 	}
 
 	cp := *sj
-	cp.Tags = maps.Clone(sj.Tags)
+	cp.Tags = tagsCloneOrEmpty(sj.Tags)
 
 	return &cp, nil
 }
@@ -2352,7 +2369,7 @@ func (b *InMemoryBackend) ListServiceJobs(serviceEnv string) ([]*ServiceJob, err
 			continue
 		}
 		cp := *sj
-		cp.Tags = maps.Clone(sj.Tags)
+		cp.Tags = tagsCloneOrEmpty(sj.Tags)
 		list = append(list, &cp)
 	}
 
@@ -2438,7 +2455,7 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(consumableResource string
 	for _, j := range b.jobs {
 		if jobReferencesConsumableResource(j, consumableResource) {
 			cp := *j
-			cp.Tags = maps.Clone(j.Tags)
+			cp.Tags = tagsCloneOrEmpty(j.Tags)
 			list = append(list, &cp)
 		}
 	}
