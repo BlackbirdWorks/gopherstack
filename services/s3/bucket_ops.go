@@ -645,7 +645,6 @@ func (h *S3Handler) listObjects(
 			resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: p})
 		}
 	}
-	resp.KeyCount = len(resp.Contents)
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
