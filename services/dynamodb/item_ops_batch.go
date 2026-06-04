@@ -19,6 +19,9 @@ const batchWriteResponseLimit = 16 * 1024 * 1024
 // eventuallyConsistentRCU is the RCU cost per read for eventually-consistent reads (0.5 per 4KB).
 const eventuallyConsistentRCU = 0.5
 
+// wcuBytesPerUnit is the number of bytes per write capacity unit (1 KB).
+const wcuBytesPerUnit = 1024
+
 func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
@@ -94,9 +97,12 @@ func (db *InMemoryDB) batchGetResponses(
 			responseSizeLimit,
 			unprocessedKeys,
 		)
-		if len(tableResults) > 0 {
-			responses[tableName] = tableResults
+		// Always include the table in Responses even when all keys miss — AWS returns
+		// an empty list for zero-hit tables rather than omitting the key entirely.
+		if tableResults == nil {
+			tableResults = []map[string]types.AttributeValue{}
 		}
+		responses[tableName] = tableResults
 
 		if truncated {
 			for j := sort.SearchStrings(tableNames, tableName) + 1; j < len(tableNames); j++ {
@@ -348,7 +354,7 @@ func batchWriteConsumedCapacity(
 
 	caps := make([]types.ConsumedCapacity, 0, len(processed))
 	for tableName, reqs := range processed {
-		cu := float64(len(reqs))
+		cu := computeBatchWriteWCU(reqs)
 		caps = append(caps, types.ConsumedCapacity{
 			TableName:          aws.String(tableName),
 			CapacityUnits:      aws.Float64(cu),
@@ -357,6 +363,28 @@ func batchWriteConsumedCapacity(
 	}
 
 	return caps
+}
+
+// computeBatchWriteWCU sums the write capacity consumed by a slice of WriteRequests.
+// PutRequests charge ceil(itemSize/1KB) WCU; DeleteRequests charge 1 WCU minimum
+// (the exact cost depends on the stored item size, which the mock does not track).
+func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
+	cu := 0.0
+	for _, req := range reqs {
+		if req.PutRequest != nil {
+			wireItem := models.FromSDKItem(req.PutRequest.Item)
+			itemSize, err := CalculateItemSize(wireItem)
+			if err != nil || itemSize <= 0 {
+				cu += 1.0
+			} else {
+				cu += float64((itemSize + wcuBytesPerUnit - 1) / wcuBytesPerUnit)
+			}
+		} else {
+			cu += 1.0
+		}
+	}
+
+	return cu
 }
 
 // splitWriteRequestsBySize splits write requests into those whose cumulative estimated size
