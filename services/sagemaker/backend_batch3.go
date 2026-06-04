@@ -969,7 +969,7 @@ func (b *InMemoryBackend) StopOptimizationJob(name string) error {
 		return fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
 
-	j.OptimizationJobStatus = "STOPPED"
+	j.OptimizationJobStatus = jobStatusStopped
 	j.LastModifiedTime = time.Now()
 
 	return nil

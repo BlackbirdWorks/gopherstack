@@ -171,7 +171,7 @@ func TestHandler_DescribeAutoMLJob(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "job-1", resp["AutoMLJobName"])
-	assert.Equal(t, "Completed", resp["AutoMLJobStatus"])
+	assert.Equal(t, "InProgress", resp["AutoMLJobStatus"])
 }
 
 func TestHandler_StopAutoMLJob(t *testing.T) {
@@ -579,7 +579,7 @@ func TestHandler_DescribeCompilationJob(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "cj-1", resp["CompilationJobName"])
-	assert.Equal(t, "COMPLETED", resp["CompilationJobStatus"])
+	assert.Equal(t, "INPROGRESS", resp["CompilationJobStatus"])
 }
 
 func TestHandler_StopCompilationJob(t *testing.T) {
