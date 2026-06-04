@@ -18,8 +18,12 @@ import (
 var (
 	// ErrModelPackageGroupNotFound is returned when a model package group does not exist.
 	ErrModelPackageGroupNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrModelPackageGroupHasPackages is returned when deleting a group that still has packages.
+	ErrModelPackageGroupHasPackages = awserr.New("ConflictException", awserr.ErrConflict)
 	// ErrAutoMLJobNotFound is returned when an AutoML job does not exist.
 	ErrAutoMLJobNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrAutoMLJobNotStoppable is returned when stopping an already-terminal AutoML job.
+	ErrAutoMLJobNotStoppable = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrCodeRepositoryNotFound is returned when a code repository does not exist.
 	ErrCodeRepositoryNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrProjectNotFound is returned when a project does not exist.
@@ -28,12 +32,20 @@ var (
 	ErrSpaceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrSMImageNotFound is returned when a SageMaker image does not exist.
 	ErrSMImageNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrImageHasVersions is returned when deleting an image that still has versions.
+	ErrImageHasVersions = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrImageVersionNotFound is returned when an image version does not exist.
 	ErrImageVersionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrCompilationJobNotFound is returned when a compilation job does not exist.
 	ErrCompilationJobNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrCompilationJobNotStoppable is returned when stopping an already-terminal compilation job.
+	ErrCompilationJobNotStoppable = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrMonitoringScheduleNotFound is returned when a monitoring schedule does not exist.
 	ErrMonitoringScheduleNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrMonitoringScheduleAlreadyStopped is returned when stopping an already-stopped schedule.
+	ErrMonitoringScheduleAlreadyStopped = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrMonitoringScheduleNotStopped is returned when starting a non-stopped schedule.
+	ErrMonitoringScheduleNotStopped = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrWorkteamNotFound is returned when a workteam does not exist.
 	ErrWorkteamNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
@@ -110,6 +122,13 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(name string) error {
 
 	if _, ok := b.modelPackageGroups[name]; !ok {
 		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
+	}
+
+	// AWS rejects deletion when model packages still exist in the group.
+	for _, mp := range b.modelPackages {
+		if mp.ModelPackageGroupName == name {
+			return fmt.Errorf("%w: model package group %q has model packages and cannot be deleted", ErrModelPackageGroupHasPackages, name)
+		}
 	}
 
 	delete(b.modelPackageGroups, name)
@@ -316,7 +335,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 	j := &AutoMLJob{
 		AutoMLJobName:   name,
 		AutoMLJobArn:    jobARN,
-		AutoMLJobStatus: algorithmStatusCompleted,
+		AutoMLJobStatus: "InProgress",
 		RoleArn:         roleArn,
 		Tags:            mergeTags(nil, tags),
 		CreationTime:    time.Now(),
@@ -347,6 +366,11 @@ func (b *InMemoryBackend) StopAutoMLJob(name string) error {
 	j, ok := b.autoMLJobs[name]
 	if !ok {
 		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
+	}
+
+	// AWS rejects stopping a job that is already in a terminal state.
+	if j.AutoMLJobStatus == algorithmStatusCompleted || j.AutoMLJobStatus == pipelineStatusStopped {
+		return fmt.Errorf("%w: AutoML job %q cannot be stopped (status: %s)", ErrAutoMLJobNotStoppable, name, j.AutoMLJobStatus)
 	}
 
 	j.AutoMLJobStatus = pipelineStatusStopped
@@ -860,6 +884,11 @@ func (b *InMemoryBackend) DeleteImage(name string) error {
 		return fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
 
+	// AWS rejects deletion when image versions still exist.
+	if versions, ok := b.imageVersions[name]; ok && len(versions) > 0 {
+		return fmt.Errorf("%w: image %q has versions and cannot be deleted", ErrImageHasVersions, name)
+	}
+
 	delete(b.smImages, name)
 
 	return nil
@@ -1085,7 +1114,7 @@ func (b *InMemoryBackend) CreateCompilationJob(
 	j := &CompilationJob{
 		CompilationJobName:   name,
 		CompilationJobArn:    jobARN,
-		CompilationJobStatus: "COMPLETED",
+		CompilationJobStatus: "INPROGRESS",
 		RoleArn:              roleArn,
 		Tags:                 mergeTags(nil, tags),
 		CreationTime:         now,
@@ -1131,6 +1160,11 @@ func (b *InMemoryBackend) StopCompilationJob(name string) error {
 	j, ok := b.compilationJobs[name]
 	if !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
+	}
+
+	// AWS rejects stopping a job that is already in a terminal state.
+	if j.CompilationJobStatus == "COMPLETED" || j.CompilationJobStatus == "STOPPED" {
+		return fmt.Errorf("%w: compilation job %q is not running (status: %s)", ErrCompilationJobNotStoppable, name, j.CompilationJobStatus)
 	}
 
 	j.CompilationJobStatus = "STOPPED"
@@ -1267,6 +1301,11 @@ func (b *InMemoryBackend) StopMonitoringSchedule(name string) error {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
 
+	// AWS rejects stopping an already-stopped schedule.
+	if ms.MonitoringScheduleStatus == pipelineStatusStopped {
+		return fmt.Errorf("%w: monitoring schedule %q is already stopped", ErrMonitoringScheduleAlreadyStopped, name)
+	}
+
 	ms.MonitoringScheduleStatus = pipelineStatusStopped
 	ms.LastModifiedTime = time.Now()
 
@@ -1281,6 +1320,11 @@ func (b *InMemoryBackend) StartMonitoringSchedule(name string) error {
 	ms, ok := b.monitoringSchedules[name]
 	if !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
+	}
+
+	// AWS rejects starting a schedule that is not in Stopped state.
+	if ms.MonitoringScheduleStatus != pipelineStatusStopped {
+		return fmt.Errorf("%w: monitoring schedule %q is not stopped (status: %s)", ErrMonitoringScheduleNotStopped, name, ms.MonitoringScheduleStatus)
 	}
 
 	ms.MonitoringScheduleStatus = "Scheduled"
