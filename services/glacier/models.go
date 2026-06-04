@@ -124,13 +124,15 @@ type describeJobResponse struct {
 	InventoryFormat      string `json:"Format,omitempty"`
 	Tier                 string `json:"Tier,omitempty"`
 	SHA256TreeHash       string `json:"SHA256TreeHash,omitempty"`
+	SNSTopic             string `json:"SNSTopic,omitempty"`
+	RetrievalByteRange   string `json:"RetrievalByteRange,omitempty"`
 	Completed            bool   `json:"Completed"`
 }
 
 // listJobsResponse is the response body for ListJobs.
 type listJobsResponse struct {
 	Marker  *string               `json:"Marker,omitempty"`
-	JobList []describeJobResponse `json:"JobList,omitempty"`
+	JobList []describeJobResponse `json:"JobList"`
 }
 
 // addTagsRequest is the request body for AddTagsToVault.
