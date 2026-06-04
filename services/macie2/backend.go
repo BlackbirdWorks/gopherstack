@@ -61,6 +61,7 @@ type storedAllowList struct {
 // storedCustomDataID holds the custom data identifier with internal fields.
 type storedCustomDataID struct {
 	CustomDataIdentifier
+	Deleted bool `json:"deleted"`
 }
 
 // storedFindingsFilter holds the findings filter with all fields.
@@ -213,6 +214,9 @@ func (b *InMemoryBackend) CreateAllowList(
 	}
 
 	b.allowLists[id] = al
+	if len(tags) > 0 {
+		b.tags[al.Arn] = maps.Clone(tags)
+	}
 
 	return &AllowListSummary{
 		Arn:         al.Arn,
@@ -356,6 +360,9 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 	}
 
 	b.customDataIDs[id] = cdi
+	if len(tags) > 0 {
+		b.tags[cdi.Arn] = maps.Clone(tags)
+	}
 
 	return id, nil
 }
@@ -515,6 +522,9 @@ func (b *InMemoryBackend) CreateFindingsFilter(
 	}
 
 	b.findingsFilters[id] = ff
+	if len(tags) > 0 {
+		b.tags[ff.Arn] = maps.Clone(tags)
+	}
 
 	return &FindingsFilterSummary{
 		Action:      ff.Action,
