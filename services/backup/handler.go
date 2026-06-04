@@ -1546,6 +1546,7 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 		keyBackupVaultArn:        v.BackupVaultArn,
 		keyCreationDate:          epochSeconds(v.CreationTime),
 		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
+		keyVaultState:            "AVAILABLE",
 	}
 	if v.EncryptionKeyArn != "" {
 		resp["EncryptionKeyArn"] = v.EncryptionKeyArn
@@ -1554,6 +1555,19 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 		if t := v.Tags.Clone(); len(t) > 0 {
 			resp["Tags"] = t
 		}
+	}
+
+	// Include vault lock fields. AWS always returns Locked; when a lock config
+	// exists the retention bounds and optional LockDate are also included.
+	if cfg, cfgErr := h.Backend.GetBackupVaultLockConfig(name); cfgErr == nil {
+		resp["Locked"] = true
+		resp["MinRetentionDays"] = cfg.MinRetentionDays
+		resp["MaxRetentionDays"] = cfg.MaxRetentionDays
+		if cfg.LockDate != nil {
+			resp["LockDate"] = epochSeconds(*cfg.LockDate)
+		}
+	} else {
+		resp["Locked"] = false
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1569,6 +1583,7 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 			keyBackupVaultArn:        v.BackupVaultArn,
 			keyCreationDate:          epochSeconds(v.CreationTime),
 			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
+			keyVaultState:            "AVAILABLE",
 		}
 		if v.EncryptionKeyArn != "" {
 			item["EncryptionKeyArn"] = v.EncryptionKeyArn
@@ -1809,12 +1824,17 @@ func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	createResp := map[string]any{
 		keyBackupPlanArn: p.BackupPlanArn,
 		keyBackupPlanID:  p.BackupPlanID,
 		keyVersionID:     p.VersionID,
 		keyCreationDate:  epochSeconds(p.CreationTime),
-	})
+	}
+	if len(p.AdvancedBackupSettings) > 0 {
+		createResp["AdvancedBackupSettings"] = advancedSettingsToJSON(p.AdvancedBackupSettings)
+	}
+
+	return c.JSON(http.StatusOK, createResp)
 }
 
 func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
