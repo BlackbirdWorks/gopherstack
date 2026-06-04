@@ -20,22 +20,19 @@ func TestBatch2Audit_UpdateFunctionCode_Publish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		wantVersion   string
-		publish       bool
-		wantVersionIn bool
+		name        string
+		wantVersion string
+		publish     bool
 	}{
 		{
-			name:          "publish_true_returns_version_number",
-			publish:       true,
-			wantVersion:   "1",
-			wantVersionIn: true,
+			name:        "publish_true_returns_version_number",
+			publish:     true,
+			wantVersion: "1",
 		},
 		{
-			name:          "publish_false_no_version",
-			publish:       false,
-			wantVersion:   "",
-			wantVersionIn: false,
+			name:        "publish_false_returns_latest",
+			publish:     false,
+			wantVersion: "$LATEST",
 		},
 	}
 
@@ -62,13 +59,8 @@ func TestBatch2Audit_UpdateFunctionCode_Publish(t *testing.T) {
 			var fn lambda.FunctionConfiguration
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
 
-			if tt.wantVersionIn {
-				assert.Equal(t, tt.wantVersion, fn.Version,
-					"Version must be set when Publish=true")
-			} else {
-				assert.Empty(t, fn.Version,
-					"Version must be empty when Publish=false")
-			}
+			assert.Equal(t, tt.wantVersion, fn.Version,
+				"UpdateFunctionCode Publish=%v: Version must be %q", tt.publish, tt.wantVersion)
 		})
 	}
 }
