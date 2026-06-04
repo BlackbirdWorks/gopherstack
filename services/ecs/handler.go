@@ -1055,9 +1055,9 @@ type clusterView struct {
 	ClusterArn                        string                `json:"clusterArn"`
 	ClusterName                       string                `json:"clusterName"`
 	Status                            string                `json:"status"`
-	DefaultCapacityProviderStrategy   []cpStrategyItemInput `json:"defaultCapacityProviderStrategy,omitempty"`
+	DefaultCapacityProviderStrategy   []cpStrategyItemInput `json:"defaultCapacityProviderStrategy"`
 	Settings                          []clusterSettingView  `json:"settings,omitempty"`
-	CapacityProviders                 []string              `json:"capacityProviders,omitempty"`
+	CapacityProviders                 []string              `json:"capacityProviders"`
 	CreatedAt                         float64               `json:"createdAt"`
 	ActiveServicesCount               int                   `json:"activeServicesCount"`
 	PendingTasksCount                 int                   `json:"pendingTasksCount"`
@@ -1075,7 +1075,13 @@ func toClusterView(c Cluster) clusterView {
 		PendingTasksCount:                 c.PendingTasksCount,
 		RegisteredContainerInstancesCount: c.RegisteredContainerInstancesCount,
 		RunningTasksCount:                 c.RunningTasksCount,
-		CapacityProviders:                 c.CapacityProviders,
+		DefaultCapacityProviderStrategy:   []cpStrategyItemInput{},
+	}
+
+	if c.CapacityProviders != nil {
+		v.CapacityProviders = c.CapacityProviders
+	} else {
+		v.CapacityProviders = []string{}
 	}
 
 	for _, item := range c.DefaultCapacityProviderStrategy {
@@ -1152,7 +1158,7 @@ type taskDefinitionView struct {
 	Memory                  string                    `json:"memory,omitempty"`
 	PlatformFamily          string                    `json:"platformFamily,omitempty"`
 	ContainerDefinitions    []ContainerDefinition     `json:"containerDefinitions"`
-	Volumes                 []Volume                  `json:"volumes,omitempty"`
+	Volumes                 []Volume                  `json:"volumes"`
 	PlacementConstraints    []placementConstraintView `json:"placementConstraints,omitempty"`
 	RequiresCompatibilities []string                  `json:"requiresCompatibilities,omitempty"`
 	InferenceAccelerators   []InferenceAccelerator    `json:"inferenceAccelerators,omitempty"`
@@ -1161,6 +1167,11 @@ type taskDefinitionView struct {
 }
 
 func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
+	volumes := td.Volumes
+	if volumes == nil {
+		volumes = []Volume{}
+	}
+
 	v := taskDefinitionView{
 		TaskDefinitionArn:       td.TaskDefinitionArn,
 		Family:                  td.Family,
@@ -1172,7 +1183,7 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		Memory:                  td.Memory,
 		PlatformFamily:          td.PlatformFamily,
 		ContainerDefinitions:    td.ContainerDefinitions,
-		Volumes:                 td.Volumes,
+		Volumes:                 volumes,
 		RequiresCompatibilities: td.RequiresCompatibilities,
 		RegisteredAt:            float64(td.RegisteredAt.Unix()),
 		Revision:                td.Revision,
@@ -1238,8 +1249,8 @@ type serviceView struct {
 	PropagateTags               string                           `json:"propagateTags,omitempty"`
 	ServiceArn                  string                           `json:"serviceArn"`
 	ServiceName                 string                           `json:"serviceName"`
-	LoadBalancers               []loadBalancerView               `json:"loadBalancers,omitempty"`
-	ServiceRegistries           []serviceRegistryView            `json:"serviceRegistries,omitempty"`
+	LoadBalancers               []loadBalancerView               `json:"loadBalancers"`
+	ServiceRegistries           []serviceRegistryView            `json:"serviceRegistries"`
 	CapacityProviderStrategy    []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints        []placementConstraintView        `json:"placementConstraints,omitempty"`
 	PlacementStrategy           []placementStrategyView          `json:"placementStrategy,omitempty"`
@@ -1277,10 +1288,12 @@ func toServiceView(s Service) serviceView {
 		v.DeploymentController = &deploymentControllerView{Type: s.DeploymentController.Type}
 	}
 
+	v.LoadBalancers = []loadBalancerView{}
 	for _, lb := range s.LoadBalancers {
 		v.LoadBalancers = append(v.LoadBalancers, loadBalancerView(lb))
 	}
 
+	v.ServiceRegistries = []serviceRegistryView{}
 	for _, sr := range s.ServiceRegistries {
 		v.ServiceRegistries = append(v.ServiceRegistries, serviceRegistryView(sr))
 	}
