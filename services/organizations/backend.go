@@ -147,6 +147,26 @@ var (
 		"ConstraintViolationException: service principal not enabled for service access",
 		awserr.ErrConflict,
 	)
+	// ErrPolicyInUse is returned when attempting to delete a policy still attached to targets.
+	ErrPolicyInUse = awserr.New(
+		"PolicyInUseException: policy is still attached to one or more targets",
+		awserr.ErrConflict,
+	)
+	// ErrOrganizationNotEmpty is returned when attempting to delete an org that still has member accounts.
+	ErrOrganizationNotEmpty = awserr.New(
+		"OrganizationNotEmptyException: organization still contains member accounts",
+		awserr.ErrConflict,
+	)
+	// ErrDuplicateHandshake is returned when an open handshake already exists for the same target.
+	ErrDuplicateHandshake = awserr.New(
+		"DuplicateHandshakeException: a handshake already exists for the specified account",
+		awserr.ErrAlreadyExists,
+	)
+	// ErrPolicyTypeAttached is returned when disabling a policy type that still has attached policies.
+	ErrPolicyTypeAttached = awserr.New(
+		"ConstraintViolationException: cannot disable policy type while policies of that type are attached",
+		awserr.ErrConflict,
+	)
 )
 
 const (
@@ -512,6 +532,13 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 
 	if b.org == nil {
 		return ErrOrgNotFound
+	}
+
+	// AWS rejects deletion when member accounts (other than the management account) still exist.
+	for acctID := range b.accounts {
+		if acctID != b.org.MasterAccountID {
+			return ErrOrganizationNotEmpty
+		}
 	}
 
 	b.org = nil
@@ -1220,9 +1247,9 @@ func (b *InMemoryBackend) DeletePolicy(policyID string) error {
 		return ErrPolicyNotFound
 	}
 
-	// Detach from all targets.
-	for _, targetID := range b.policyTargets[policyID] {
-		b.targetPolicies[targetID] = removeString(b.targetPolicies[targetID], policyID)
+	// AWS rejects deletion of policies that are still attached to targets.
+	if len(b.policyTargets[policyID]) > 0 {
+		return ErrPolicyInUse
 	}
 
 	delete(b.policyTargets, policyID)
@@ -1465,6 +1492,15 @@ func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, e
 
 	if !found {
 		return nil, ErrPolicyTypeNotEnabled
+	}
+
+	// AWS rejects disabling a policy type when policies of that type are still attached to any target.
+	for policyID, targets := range b.policyTargets {
+		if len(targets) > 0 {
+			if p, ok := b.policies[policyID]; ok && p.PolicySummary.Type == policyType {
+				return nil, ErrPolicyTypeAttached
+			}
+		}
 	}
 
 	b.root.PolicyTypes = newTypes
@@ -2262,6 +2298,18 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	default:
 		if target.Type != "" {
 			return nil, ErrInvalidInput
+		}
+	}
+
+	// AWS rejects duplicate open invitations to the same target.
+	for _, existing := range b.handshakes {
+		if existing.State != handshakeStateOpen || existing.Action != handshakeActionInvite {
+			continue
+		}
+		for _, r := range existing.Resources {
+			if r.Type == targetTypeAccount && r.Value == target.ID {
+				return nil, ErrDuplicateHandshake
+			}
 		}
 	}
 
