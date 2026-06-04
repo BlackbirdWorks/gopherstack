@@ -1602,7 +1602,9 @@ func (db *InMemoryDB) resolveReplicaMatchIndex(
 	if skAttr != "" {
 		skVal := BuildKeyString(keyItem, skAttr)
 		if skMap, ok := replica.pkskIndex[pkVal]; ok {
-			return skMap[skVal]
+			if idx, found := skMap[skVal]; found {
+				return idx
+			}
 		}
 
 		return -1

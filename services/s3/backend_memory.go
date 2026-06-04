@@ -990,12 +990,42 @@ func deleteLatestVersion(
 		}
 	}
 
-	// Suspended or null: Delete object entirely (no version-map mutation needed,
-	// just remove the reference from the bucket map under bucket.mu).
-	delete(bucket.Objects, key)
-	obj.mu.Close()
+	// Suspended versioning: an unversioned DELETE removes only the existing
+	// "null" version and inserts a "null" delete marker. Any non-null versions
+	// created while versioning was enabled must remain retrievable by versionId.
+	obj.mu.Lock("deleteLatestVersion")
 
-	return &s3.DeleteObjectOutput{}
+	delete(obj.Versions, NullVersion)
+
+	// If no prior (non-null) versions remain, the object disappears entirely —
+	// matching the behaviour of a bucket that was never versioned.
+	if len(obj.Versions) == 0 {
+		obj.mu.Unlock()
+		delete(bucket.Objects, key)
+		obj.mu.Close()
+
+		return &s3.DeleteObjectOutput{}
+	}
+
+	for _, v := range obj.Versions {
+		v.IsLatest = false
+	}
+	deleteMarker := &StoredObjectVersion{
+		VersionID:    NullVersion,
+		Key:          key,
+		Deleted:      true,
+		IsLatest:     true,
+		LastModified: time.Now().UTC(),
+	}
+	obj.Versions[NullVersion] = deleteMarker
+	obj.LatestVersionID = NullVersion
+
+	obj.mu.Unlock()
+
+	return &s3.DeleteObjectOutput{
+		DeleteMarker: aws.Bool(true),
+		VersionId:    aws.String(NullVersion),
+	}
 }
 
 func (b *InMemoryBackend) DeleteObjects(
@@ -3927,13 +3957,12 @@ func (b *InMemoryBackend) storePart(
 ) error {
 	b.mu.RLock("storePart")
 	bucketUploads, ok := b.uploads[bucketName]
+	var upload *StoredMultipartUpload
+	if ok {
+		upload, ok = bucketUploads[uploadID]
+	}
 	b.mu.RUnlock()
 
-	if !ok {
-		return ErrNoSuchUpload
-	}
-
-	upload, ok := bucketUploads[uploadID]
 	if !ok {
 		return ErrNoSuchUpload
 	}
@@ -4094,9 +4123,18 @@ func (b *InMemoryBackend) truncateListResults(
 		cpList = nil
 	} else {
 		remaining := int64(maxKeys) - int64(len(contents))
-		if remaining > 0 && int64(len(cpList)) > remaining {
+		if remaining > 0 {
+			// Some CommonPrefixes fit on this page; the marker is the last prefix
+			// we return so the next page resumes after it.
 			nextMarker = aws.ToString(cpList[remaining-1].Prefix)
 			cpList = cpList[:remaining]
+		} else {
+			// The page is filled exactly by object keys with CommonPrefixes still
+			// pending. Resume from the last returned key and defer the prefixes to
+			// the next page, otherwise IsTruncated=true would carry an empty marker
+			// and the client could never fetch the remaining prefixes.
+			nextMarker = aws.ToString(contents[len(contents)-1].Key)
+			cpList = nil
 		}
 	}
 

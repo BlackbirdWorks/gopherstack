@@ -128,6 +128,7 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	j.sweepTxnPending(ctx)
 	j.sweepStreamRecords(ctx)
 	j.Backend.exprCache.Sweep()
+	j.Backend.iteratorStore.Sweep()
 	j.snapshotPITRTables(ctx)
 	j.runTableCleaner(ctx)
 }

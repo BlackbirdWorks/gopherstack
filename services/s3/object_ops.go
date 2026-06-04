@@ -1398,7 +1398,9 @@ func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Tim
 	normalizedETag := stripQ(etag)
 
 	if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
-		if stripQ(ifNoneMatch) == normalizedETag {
+		// "*" matches any existing representation; this is only reached when the
+		// object exists, so it always yields 304.
+		if ifNoneMatch == "*" || stripQ(ifNoneMatch) == normalizedETag {
 			return http.StatusNotModified, false
 		}
 	}

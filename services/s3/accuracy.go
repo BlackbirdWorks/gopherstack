@@ -167,8 +167,10 @@ func evaluatePreconditions(
 	stripQ := func(s string) string { return strings.Trim(s, "\"") }
 	normalizedETag := stripQ(etag)
 
-	// if-match: fail 412 when ETag does NOT match.
-	if v := h.Get(params.ifMatch); v != "" {
+	// if-match: fail 412 when ETag does NOT match. "*" matches any existing
+	// representation, so it always passes here (callers only evaluate this for
+	// objects that exist).
+	if v := h.Get(params.ifMatch); v != "" && v != "*" {
 		if stripQ(v) != normalizedETag {
 			return http.StatusPreconditionFailed, false
 		}
@@ -200,8 +202,9 @@ func evaluateCopySourceConditionals(
 	normalizedETag := stripQ(etag)
 
 	// if-none-match: fail 412 when ETag matches (copy variant → 412 not 304).
+	// "*" matches any existing representation.
 	if v := h.Get(params.ifNoneMatch); v != "" {
-		if stripQ(v) == normalizedETag {
+		if v == "*" || stripQ(v) == normalizedETag {
 			return http.StatusPreconditionFailed, false
 		}
 	}

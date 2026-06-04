@@ -17,7 +17,12 @@ import (
 
 // consumedCapacityForQuery returns a populated ConsumedCapacity when the caller
 // has requested capacity reporting. Returns nil when reporting is disabled.
-func consumedCapacityForQuery(tableName string, req types.ReturnConsumedCapacity, scanned int) *types.ConsumedCapacity {
+func consumedCapacityForQuery(
+	tableName string,
+	req types.ReturnConsumedCapacity,
+	scanned int,
+	consistentRead bool,
+) *types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
@@ -26,6 +31,8 @@ func consumedCapacityForQuery(tableName string, req types.ReturnConsumedCapacity
 	if cu < halfRCU {
 		cu = halfRCU
 	}
+	// Strongly-consistent reads cost twice as much as eventually-consistent ones.
+	cu = applyConsistentReadMultiplier(cu, consistentRead)
 
 	return &types.ConsumedCapacity{
 		TableName:         aws.String(tableName),
@@ -415,6 +422,7 @@ func (db *InMemoryDB) processQueryResults(
 		ScannedCount: int32(scannedCount), // #nosec G115
 		ConsumedCapacity: consumedCapacityForQuery(
 			aws.ToString(input.TableName), input.ReturnConsumedCapacity, scannedCount,
+			aws.ToBool(input.ConsistentRead),
 		),
 	}
 

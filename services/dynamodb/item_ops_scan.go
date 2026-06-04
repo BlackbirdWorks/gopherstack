@@ -16,7 +16,12 @@ import (
 
 // consumedCapacityForScan returns a populated ConsumedCapacity when the caller
 // has requested capacity reporting. Returns nil when reporting is disabled.
-func consumedCapacityForScan(tableName string, req types.ReturnConsumedCapacity, n int) *types.ConsumedCapacity {
+func consumedCapacityForScan(
+	tableName string,
+	req types.ReturnConsumedCapacity,
+	n int,
+	consistentRead bool,
+) *types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
@@ -25,6 +30,8 @@ func consumedCapacityForScan(tableName string, req types.ReturnConsumedCapacity,
 	if cu < halfRCU {
 		cu = halfRCU
 	}
+	// Strongly-consistent reads cost twice as much as eventually-consistent ones.
+	cu = applyConsistentReadMultiplier(cu, consistentRead)
 
 	return &types.ConsumedCapacity{
 		TableName:         aws.String(tableName),
@@ -125,10 +132,12 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	out := &dynamodb.ScanOutput{
-		Items:            outItems,
-		Count:            int32(len(items)), // #nosec G115
-		ScannedCount:     scannedCount,
-		ConsumedCapacity: consumedCapacityForScan(tableName, input.ReturnConsumedCapacity, int(scannedCount)),
+		Items:        outItems,
+		Count:        int32(len(items)), // #nosec G115
+		ScannedCount: scannedCount,
+		ConsumedCapacity: consumedCapacityForScan(
+			tableName, input.ReturnConsumedCapacity, int(scannedCount), aws.ToBool(input.ConsistentRead),
+		),
 	}
 
 	if lastKey != nil {

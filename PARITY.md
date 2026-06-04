@@ -67,6 +67,23 @@ For each of the following services, only specific named fields are persisted, so
 - `test/integration/cloudcontrol_test.go` — CloudControl resource lifecycle.
 - `test/integration/support_test.go` — Support case lifecycle.
 
+## DynamoDB & S3 accuracy / parity / leak fixes (this PR)
+
+DynamoDB:
+- **Global-table replica DELETE data corruption** — `extra_ops.go` `resolveReplicaMatchIndex` used `skMap[skVal]`, returning index `0` (a valid slot) for a missing sort key, so a replicated delete of a non-existent key destroyed whatever item sat at index 0. Now uses the comma-ok form and returns `-1`.
+- **`ShardIteratorStore` memory leak** — every `GetRecords`/`GetShardIterator` minted an opaque token but the janitor never swept the store; it grew unbounded under streaming load. `runOnce` now calls `iteratorStore.Sweep()` alongside `exprCache.Sweep()`.
+- **Streams parity: missing records** — `BatchWriteItem` PutRequests and all `TransactWriteItems` mutations emitted no stream records (deletes via batch did). AWS emits INSERT/MODIFY/REMOVE for both; now emitted (covered by `streams_ops_test.go`).
+
+DynamoDB (capacity accuracy, second pass):
+- **Query/Scan `ConsumedCapacity` ignored `ConsistentRead`** — the throttler already doubled RCU for strongly-consistent reads, but the *reported* `ConsumedCapacity` always used the eventually-consistent (0.5×) rate, so it was half of actual. `consumedCapacityForQuery`/`consumedCapacityForScan` now apply `applyConsistentReadMultiplier` (covered by `TestQuery_ConsumedCapacity`).
+- **DeleteItem/UpdateItem throttled a flat 1 WCU** — both reported size-proportional `ConsumedCapacity` but only ever deducted `1.0` from the token bucket, so large-item writes under-consumed throughput. The lookup now runs before the throttle and charges `WriteCapacityUnits(oldItem)` (Delete) / `WriteCapacityUnits(existing)` (Update).
+
+S3:
+- **Suspended-versioning DELETE data loss** — `backend_memory.go` `deleteLatestVersion` deleted the entire object (all versions) on an unversioned delete against a Suspended bucket. AWS removes only the `null` version, inserts a `null` delete marker, and preserves non-null versions. Fixed and covered by `TestSuspendedVersioningDeletePreservesVersions`.
+- **Data race in `storePart`** — the per-bucket uploads inner map was indexed after releasing `b.mu`, racing with `CreateMultipartUpload`. The lookup now happens while the read lock is held.
+- **List pagination dead-end** — `truncateListResults` could return `IsTruncated=true` with an empty marker when a page filled exactly with object keys while CommonPrefixes remained, stranding the client. The marker now falls back to the last returned key.
+- **Conditional `*` wildcard on GET/HEAD** — `If-Match: *` / `If-None-Match: *` were compared literally against the ETag. They now correctly match any existing representation (412/304 semantics).
+
 ## Correction from earlier draft
 
 A previous version of this document listed WAFv2, S3 Tables and SES handlers (~50 ops) as "empty stubs" based on a grep for `return nil, nil`. That detection was a false positive: those handlers DO call their `h.Backend.X(...)` first and then return the empty AWS Query envelope, which is the correct response shape for void-result operations. They are NOT parity gaps. This document has been corrected.
