@@ -81,9 +81,9 @@ func TestSES_Batch2_SendEmail_MessageIdNonEmpty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		extra  url.Values
 		name   string
 		action string
-		extra  url.Values
 	}{
 		{
 			name:   "SendEmail",
@@ -110,9 +110,9 @@ func TestSES_Batch2_SendEmail_MessageIdNonEmpty(t *testing.T) {
 			require.NoError(t, h.Backend.VerifyEmailIdentity("s@example.com"))
 
 			vals := url.Values{
-				"Action":  {tt.action},
-				"Version": {"2010-12-01"},
-				"Source":  {"s@example.com"},
+				"Action":                           {tt.action},
+				"Version":                          {"2010-12-01"},
+				"Source":                           {"s@example.com"},
 				"Destination.ToAddresses.member.1": {"t@example.com"},
 			}
 			for k, v := range tt.extra {
@@ -187,8 +187,8 @@ func TestSES_Batch2_GetSendQuota_SentLast24HoursTracked(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		numSend int
 		want    string
+		numSend int
 	}{
 		{name: "zero_sends", numSend: 0, want: "<SentLast24Hours>0</SentLast24Hours>"},
 		{name: "one_send", numSend: 1, want: "<SentLast24Hours>1</SentLast24Hours>"},
@@ -351,8 +351,8 @@ func TestSES_Batch2_ListConfigurationSets_EmptyAndNextTokenAbsent(t *testing.T) 
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		numSets  int
+		name    string
+		numSets int
 	}{
 		{name: "empty_state", numSets: 0},
 		{name: "two_sets", numSets: 2},
@@ -390,9 +390,9 @@ func TestSES_Batch2_GetIdentityNotificationAttributes_ForwardingEnabledDefaultTr
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(b *ses.InMemoryBackend) error
 		name     string
 		identity string
-		setup    func(b *ses.InMemoryBackend) error
 	}{
 		{
 			name:     "email_identity_defaults_forwarding_true",
@@ -417,9 +417,9 @@ func TestSES_Batch2_GetIdentityNotificationAttributes_ForwardingEnabledDefaultTr
 			require.NoError(t, tt.setup(h.Backend.(*ses.InMemoryBackend)))
 
 			rec := postForm(t, h, url.Values{
-				"Action":                    {"GetIdentityNotificationAttributes"},
-				"Version":                   {"2010-12-01"},
-				"Identities.member.1":       {tt.identity},
+				"Action":              {"GetIdentityNotificationAttributes"},
+				"Version":             {"2010-12-01"},
+				"Identities.member.1": {tt.identity},
 			}.Encode())
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -501,11 +501,11 @@ func TestSES_Batch2_DescribeConfigurationSet_ReputationOptionsPresent(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		sendingEnabled   bool
-		metricsEnabled   bool
-		wantSending      string
-		wantMetrics      string
+		name           string
+		wantSending    string
+		wantMetrics    string
+		sendingEnabled bool
+		metricsEnabled bool
 	}{
 		{
 			name:           "defaults",
@@ -650,10 +650,10 @@ func TestSES_Batch2_CloneReceiptRuleSet_IsDeepCopy(t *testing.T) {
 
 	// clone
 	rec := postForm(t, h, url.Values{
-		"Action":               {"CloneReceiptRuleSet"},
-		"Version":              {"2010-12-01"},
-		"RuleSetName":          {"clone"},
-		"OriginalRuleSetName":  {"original"},
+		"Action":              {"CloneReceiptRuleSet"},
+		"Version":             {"2010-12-01"},
+		"RuleSetName":         {"clone"},
+		"OriginalRuleSetName": {"original"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
