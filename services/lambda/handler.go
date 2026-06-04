@@ -1511,8 +1511,13 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	// When Publish: true, immediately publish version 1 so that the caller can
 	// reference aws_lambda_function.this.version (used by provisioned concurrency etc.).
+	// Return a response copy with the numbered version; the stored live fn keeps "$LATEST".
 	if input.Publish {
-		h.maybePublishVersion(c.Request().Context(), fn, "CreateFunction")
+		if publishedVersion := h.maybePublishVersion(c.Request().Context(), fn, "CreateFunction"); publishedVersion != "" {
+			resp := *fn
+			resp.Version = publishedVersion
+			return c.JSON(http.StatusCreated, &resp)
+		}
 	}
 
 	return c.JSON(http.StatusCreated, fn)
@@ -1608,30 +1613,40 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
 	}
 
+	// Return a response copy with the numbered version when Publish=true;
+	// the stored live fn keeps Version="$LATEST".
 	if input.Publish {
-		h.maybePublishVersion(c.Request().Context(), fn, "UpdateFunctionCode")
+		if publishedVersion := h.maybePublishVersion(c.Request().Context(), fn, "UpdateFunctionCode"); publishedVersion != "" {
+			resp := *fn
+			resp.Version = publishedVersion
+			return c.JSON(http.StatusOK, &resp)
+		}
 	}
 
 	return c.JSON(http.StatusOK, fn)
 }
 
 // maybePublishVersion publishes a new numbered version for fn when the InMemoryBackend is
-// active. On failure it logs a warning; the caller is responsible for already having
-// updated/saved fn before calling this.
-func (h *Handler) maybePublishVersion(ctx context.Context, fn *FunctionConfiguration, op string) {
+// active and returns the published version string (e.g. "1"). Returns "" on failure or when
+// the backend does not support versioning. The caller must NOT store the returned version on
+// the live fn — the live function always keeps Version="$LATEST".
+func (h *Handler) maybePublishVersion(ctx context.Context, fn *FunctionConfiguration, op string) string {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
-		return
+		return ""
 	}
 
-	if v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, ""); pubErr == nil {
-		fn.Version = v.Version
-	} else {
+	v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, "")
+	if pubErr != nil {
 		logger.Load(ctx).WarnContext(ctx,
 			"lambda: Publish=true but PublishVersion failed",
 			"op", op, "function", fn.FunctionName, "error", pubErr,
 		)
+
+		return ""
 	}
+
+	return v.Version
 }
 
 // applyFunctionCodeUpdate applies the code fields from input onto fn, validating package type constraints.

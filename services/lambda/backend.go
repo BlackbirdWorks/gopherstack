@@ -973,6 +973,10 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		}
 	}
 
+	// AWS Lambda always sets Version to "$LATEST" for the live (mutable) code.
+	// Published versions have numbered versions (1, 2, …) in separate records.
+	fn.Version = versionLatest
+
 	b.functions[fn.FunctionName] = fn
 
 	return nil
