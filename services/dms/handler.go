@@ -774,10 +774,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			Type:    "ResourceAlreadyExistsFault",
 			Message: err.Error(),
 		})
-	case errors.Is(err, ErrInvalidState), errors.Is(err, ErrValidation):
+	case errors.Is(err, ErrInvalidState):
 
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "InvalidResourceStateFault",
+			Message: err.Error(),
+		})
+	case errors.Is(err, ErrValidation):
+
+		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
+			Type:    "ValidationException",
 			Message: err.Error(),
 		})
 	case errors.Is(err, errUnknownAction):
@@ -1282,21 +1288,27 @@ type replicationSubnetGroupJSON struct {
 }
 
 type replicationInstanceJSON struct {
-	ReplicationSubnetGroup        replicationSubnetGroupJSON `json:"ReplicationSubnetGroup"`
-	ReplicationInstanceIdentifier string                     `json:"ReplicationInstanceIdentifier"`
-	ReplicationInstanceArn        string                     `json:"ReplicationInstanceArn"`
-	ReplicationInstanceClass      string                     `json:"ReplicationInstanceClass"`
-	EngineVersion                 string                     `json:"EngineVersion"`
-	AvailabilityZone              string                     `json:"AvailabilityZone"`
-	ReplicationInstanceStatus     string                     `json:"ReplicationInstanceStatus"`
-	AllocatedStorage              int32                      `json:"AllocatedStorage"`
-	MultiAZ                       bool                       `json:"MultiAZ"`
-	AutoMinorVersionUpgrade       bool                       `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible            bool                       `json:"PubliclyAccessible"`
+	ReplicationSubnetGroup                replicationSubnetGroupJSON `json:"ReplicationSubnetGroup"`
+	ReplicationInstanceIdentifier         string                     `json:"ReplicationInstanceIdentifier"`
+	ReplicationInstanceArn                string                     `json:"ReplicationInstanceArn"`
+	ReplicationInstanceClass              string                     `json:"ReplicationInstanceClass"`
+	EngineVersion                         string                     `json:"EngineVersion"`
+	AvailabilityZone                      string                     `json:"AvailabilityZone"`
+	ReplicationInstanceStatus             string                     `json:"ReplicationInstanceStatus"`
+	ReplicationInstancePrivateIpAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
+	ReplicationInstancePublicIpAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
+	VpcSecurityGroups                     []any                      `json:"VpcSecurityGroups"`
+	AllocatedStorage                      int32                      `json:"AllocatedStorage"`
+	MultiAZ                               bool                       `json:"MultiAZ"`
+	AutoMinorVersionUpgrade               bool                       `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible                    bool                       `json:"PubliclyAccessible"`
 }
 
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 	emptyID := ""
+
+	privateIPs := []string{ri.PrivateIPAddress}
+	publicIPs := []string{}
 
 	return replicationInstanceJSON{
 		// ReplicationSubnetGroup must always be present with a non-nil Identifier.
@@ -1305,16 +1317,19 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		ReplicationSubnetGroup: replicationSubnetGroupJSON{
 			ReplicationSubnetGroupIdentifier: &emptyID,
 		},
-		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
-		ReplicationInstanceArn:        ri.ReplicationInstanceArn,
-		ReplicationInstanceClass:      ri.ReplicationInstanceClass,
-		EngineVersion:                 ri.EngineVersion,
-		AvailabilityZone:              ri.AvailabilityZone,
-		ReplicationInstanceStatus:     ri.ReplicationInstanceStatus,
-		AllocatedStorage:              ri.AllocatedStorage,
-		MultiAZ:                       ri.MultiAZ,
-		AutoMinorVersionUpgrade:       ri.AutoMinorVersionUpgrade,
-		PubliclyAccessible:            ri.PubliclyAccessible,
+		ReplicationInstanceIdentifier:         ri.ReplicationInstanceIdentifier,
+		ReplicationInstanceArn:                ri.ReplicationInstanceArn,
+		ReplicationInstanceClass:              ri.ReplicationInstanceClass,
+		EngineVersion:                         ri.EngineVersion,
+		AvailabilityZone:                      ri.AvailabilityZone,
+		ReplicationInstanceStatus:             ri.ReplicationInstanceStatus,
+		ReplicationInstancePrivateIpAddresses: privateIPs,
+		ReplicationInstancePublicIpAddresses:  publicIPs,
+		VpcSecurityGroups:                     []any{},
+		AllocatedStorage:                      ri.AllocatedStorage,
+		MultiAZ:                               ri.MultiAZ,
+		AutoMinorVersionUpgrade:               ri.AutoMinorVersionUpgrade,
+		PubliclyAccessible:                    ri.PubliclyAccessible,
 	}
 }
 
