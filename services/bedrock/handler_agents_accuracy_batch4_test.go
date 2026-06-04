@@ -348,10 +348,21 @@ func TestAccuracy_IngestionJob_ListContainsStartedJob(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 	kbID, dsID := createKBAndDS(t, h)
 
-	doAgentRequest(t, h, http.MethodPost,
+	// AWS only allows one running job per data source; stop the first before starting the second.
+	rec1 := doAgentRequest(t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "first job"},
 	)
+	require.Equal(t, http.StatusAccepted, rec1.Code)
+
+	var body1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &body1))
+	job1ID := body1["ingestionJob"].(map[string]any)["ingestionJobId"].(string)
+
+	stopRec := doAgentRequest(t, h, http.MethodPost,
+		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs/%s/stop", kbID, dsID, job1ID), nil)
+	require.Equal(t, http.StatusOK, stopRec.Code)
+
 	doAgentRequest(t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "second job"},

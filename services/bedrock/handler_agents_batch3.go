@@ -1049,6 +1049,10 @@ func (h *AgentsHandler) handleStopIngestionJob(
 ) error {
 	job, err := h.Backend.StopIngestionJob(kbID, dsID, jobID)
 	if err != nil {
+		if errors.Is(err, ErrValidation) {
+			return c.JSON(http.StatusBadRequest, agentErrResp("ValidationException", err.Error()))
+		}
+
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 

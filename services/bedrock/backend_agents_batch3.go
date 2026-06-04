@@ -1065,6 +1065,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBaseDocuments(
 // ---------------------------------------------------------------------------
 
 // StopIngestionJob stops a running ingestion job.
+// AWS only allows stopping jobs in STARTING state; other states return ValidationException.
 func (b *InMemoryBackend) StopIngestionJob(kbID, dsID, jobID string) (*IngestionJob, error) {
 	b.mu.Lock("StopIngestionJob")
 	defer b.mu.Unlock()
@@ -1072,6 +1073,15 @@ func (b *InMemoryBackend) StopIngestionJob(kbID, dsID, jobID string) (*Ingestion
 	job, ok := b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)]
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
+	}
+
+	if job.Status != jobStatusStarting {
+		return nil, fmt.Errorf(
+			"%w: ingestion job %q cannot be stopped in status %s",
+			ErrValidation,
+			jobID,
+			job.Status,
+		)
 	}
 
 	job.Status = jobStatusStopped
