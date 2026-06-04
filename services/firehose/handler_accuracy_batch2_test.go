@@ -97,8 +97,8 @@ func TestAccuracy_PutRecordBatch_Success_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		FailedPutCount   int           `json:"FailedPutCount"`
-		RequestResponses []interface{} `json:"RequestResponses"`
+		RequestResponses []any `json:"RequestResponses"`
+		FailedPutCount   int   `json:"FailedPutCount"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, 0, out.FailedPutCount)
@@ -170,14 +170,14 @@ func TestAccuracy_UpdateDestination_Success_VersionIncrements(t *testing.T) {
 
 	var descOut struct {
 		DeliveryStreamDescription struct {
-			VersionId               string `json:"VersionId"`
+			VersionID                 string `json:"VersionId"`
 			S3DestinationDescriptions []struct {
-				DestinationId string `json:"DestinationId"`
+				DestinationID string `json:"DestinationId"`
 			} `json:"S3DestinationDescriptions"`
 		} `json:"DeliveryStreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut))
-	versionBefore := descOut.DeliveryStreamDescription.VersionId
+	versionBefore := descOut.DeliveryStreamDescription.VersionID
 
 	rec := doFirehoseRequest(t, h, "UpdateDestination", map[string]any{
 		"DeliveryStreamName":             "upd-stream",
@@ -195,14 +195,14 @@ func TestAccuracy_UpdateDestination_Success_VersionIncrements(t *testing.T) {
 
 	var descOut2 struct {
 		DeliveryStreamDescription struct {
-			VersionId                 string `json:"VersionId"`
+			VersionID                 string `json:"VersionId"`
 			S3DestinationDescriptions []struct {
 				BucketARN string `json:"BucketARN"`
 			} `json:"S3DestinationDescriptions"`
 		} `json:"DeliveryStreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(desc2.Body.Bytes(), &descOut2))
-	assert.NotEqual(t, versionBefore, descOut2.DeliveryStreamDescription.VersionId)
+	assert.NotEqual(t, versionBefore, descOut2.DeliveryStreamDescription.VersionID)
 	require.Len(t, descOut2.DeliveryStreamDescription.S3DestinationDescriptions, 1)
 	assert.Equal(t, "arn:aws:s3:::updated-bucket",
 		descOut2.DeliveryStreamDescription.S3DestinationDescriptions[0].BucketARN)
