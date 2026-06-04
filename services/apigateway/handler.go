@@ -1917,8 +1917,11 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			if err != nil {
 				return 0, nil, err
 			}
+			if position != "" {
+				return http.StatusOK, map[string]any{keyItem: apis, keyPosition: position}, nil
+			}
 
-			return http.StatusOK, map[string]any{keyItem: apis, keyPosition: position}, nil
+			return http.StatusOK, map[string]any{keyItem: apis}, nil
 		},
 	}
 }
@@ -1934,8 +1937,11 @@ func (h *Handler) resourceActions() map[string]actionFn {
 			if err != nil {
 				return 0, nil, err
 			}
+			if position != "" {
+				return http.StatusOK, map[string]any{keyItem: resources, keyPosition: position}, nil
+			}
 
-			return http.StatusOK, map[string]any{keyItem: resources, keyPosition: position}, nil
+			return http.StatusOK, map[string]any{keyItem: resources}, nil
 		},
 		opGetResource: func(b []byte) (int, any, error) {
 			var input getResourceInput
