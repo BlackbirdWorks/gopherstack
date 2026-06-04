@@ -28,8 +28,9 @@ func TestAudit2_Version_AlwaysLatestInCreateFunction(t *testing.T) {
 			wantVersion: "$LATEST",
 		},
 		{
-			name:        "with_publish_returns_numbered_version",
-			body:        `{"FunctionName":"audit2-create-pub-fn","PackageType":"Image","Code":{"ImageUri":"x"},"Role":"arn","Publish":true}`,
+			name: "with_publish_returns_numbered_version",
+			body: `{"FunctionName":"audit2-create-pub-fn","PackageType":"Image",` +
+				`"Code":{"ImageUri":"x"},"Role":"arn","Publish":true}`,
 			wantVersion: "1",
 		},
 	}
@@ -98,8 +99,8 @@ func TestAudit2_Version_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		publish func(t *testing.T, h *lambda.Handler)
+		name    string
 	}{
 		{
 			name: "after_explicit_publish_version",

@@ -1513,9 +1513,12 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	// reference aws_lambda_function.this.version (used by provisioned concurrency etc.).
 	// Return a response copy with the numbered version; the stored live fn keeps "$LATEST".
 	if input.Publish {
-		if publishedVersion := h.maybePublishVersion(c.Request().Context(), fn, "CreateFunction"); publishedVersion != "" {
+		if publishedVersion := h.maybePublishVersion(
+			c.Request().Context(), fn, "CreateFunction",
+		); publishedVersion != "" {
 			resp := *fn
 			resp.Version = publishedVersion
+
 			return c.JSON(http.StatusCreated, &resp)
 		}
 	}
@@ -1616,9 +1619,12 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 	// Return a response copy with the numbered version when Publish=true;
 	// the stored live fn keeps Version="$LATEST".
 	if input.Publish {
-		if publishedVersion := h.maybePublishVersion(c.Request().Context(), fn, "UpdateFunctionCode"); publishedVersion != "" {
+		if publishedVersion := h.maybePublishVersion(
+			c.Request().Context(), fn, "UpdateFunctionCode",
+		); publishedVersion != "" {
 			resp := *fn
 			resp.Version = publishedVersion
+
 			return c.JSON(http.StatusOK, &resp)
 		}
 	}
