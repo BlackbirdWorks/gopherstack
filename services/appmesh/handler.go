@@ -36,23 +36,36 @@ const (
 
 	defaultMaxResults = 100
 
-	keyMesh           = "mesh"
-	keyVirtualNode    = "virtualNode"
-	keyVirtualRouter  = "virtualRouter"
-	keyRoute          = "route"
-	keyVirtualService = "virtualService"
-	keyVirtualGateway = "virtualGateway"
-	keyGatewayRoute   = "gatewayRoute"
-	keyArn            = "arn"
-	keyCreatedAt      = "createdAt"
-	keyLastUpdatedAt  = "lastUpdatedAt"
-	keyMeshOwner      = "meshOwner"
-	keyResourceOwner  = "resourceOwner"
-	keyVersion        = "version"
-	keyMeshName       = "meshName"
-	keyMetadata       = "metadata"
-	keySpec           = "spec"
-	keyStatus         = "status"
+	keyMesh               = "mesh"
+	keyVirtualNode        = "virtualNode"
+	keyRoute              = "route"
+	keyVirtualService     = "virtualService"
+	keyGatewayRoute       = "gatewayRoute"
+	keyArn                = "arn"
+	keyCreatedAt          = "createdAt"
+	keyLastUpdatedAt      = "lastUpdatedAt"
+	keyMeshOwner          = "meshOwner"
+	keyResourceOwner      = "resourceOwner"
+	keyVersion            = "version"
+	keyMeshName           = "meshName"
+	keyMetadata           = "metadata"
+	keySpec               = "spec"
+	keyStatus             = "status"
+	keyVirtualRouterName  = "virtualRouterName"
+	keyVirtualGatewayName = "virtualGatewayName"
+	keyVirtualNodeName    = "virtualNodeName"
+	keyVirtualServiceName = "virtualServiceName"
+	keyRouteName          = "routeName"
+	keyGatewayRouteName   = "gatewayRouteName"
+	opUnknown             = "Unknown"
+
+	// Path segment counts for URL depth matching.
+	segsCollection       = 1 // /meshes
+	segsSingle           = 2 // /meshes/{name}
+	segsSubCollection    = 3 // /meshes/{name}/virtualNodes
+	segsSubSingle        = 4 // /meshes/{name}/virtualNodes/{id} or min for nested
+	segsNestedCollection = 5 // /meshes/{name}/virtualRouter/{id}/routes
+	segsNestedSingle     = 6 // /meshes/{name}/virtualRouter/{id}/routes/{id}
 )
 
 // Handler handles App Mesh HTTP requests.
@@ -133,9 +146,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource returns the primary resource identifier.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	segs := splitPath(c.Request().URL.Path)
-	if len(segs) >= 2 && segs[0] == pathSegMeshes {
+	if len(segs) >= segsSingle && segs[0] == pathSegMeshes {
 		return segs[1]
 	}
+
 	return ""
 }
 
@@ -154,14 +168,19 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		switch segs[0] {
 		case pathSegTags:
+
 			return h.handleListTags(c)
 		case pathSegTag:
+
 			return h.handleTagResource(c)
 		case pathSegUntag:
+
 			return h.handleUntagResource(c)
 		case pathSegMeshes:
+
 			return h.handleMeshes(c, segs)
 		}
+
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 	}
 }
@@ -170,45 +189,59 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) handleMeshes(c *echo.Context, segs []string) error {
 	// /meshes
-	if len(segs) == 1 {
+	if len(segs) == segsCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateMesh(c)
 		case http.MethodGet:
+
 			return h.handleListMeshes(c)
 		}
+
 		return methodNotAllowed(c)
 	}
 	meshName := segs[1]
 
 	// /meshes/{meshName}
-	if len(segs) == 2 {
+	if len(segs) == segsSingle {
 		switch c.Request().Method {
 		case http.MethodGet:
+
 			return h.handleDescribeMesh(c, meshName)
 		case http.MethodPut:
+
 			return h.handleUpdateMesh(c, meshName)
 		case http.MethodDelete:
+
 			return h.handleDeleteMesh(c, meshName)
 		}
+
 		return methodNotAllowed(c)
 	}
 
 	resource := segs[2]
 	switch resource {
 	case pathSegVirtualNodes:
+
 		return h.handleVirtualNodes(c, segs, meshName)
 	case pathSegVirtualRouters:
+
 		return h.handleVirtualRouters(c, segs, meshName)
 	case pathSegVirtualRouter:
+
 		return h.handleRoutes(c, segs, meshName)
 	case pathSegVirtualSvcs:
+
 		return h.handleVirtualServices(c, segs, meshName)
 	case pathSegVirtualGWs:
+
 		return h.handleVirtualGateways(c, segs, meshName)
 	case pathSegVirtualGW:
+
 		return h.handleGatewayRoutes(c, segs, meshName)
 	}
+
 	return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 }
 
@@ -216,25 +249,32 @@ func (h *Handler) handleMeshes(c *echo.Context, segs []string) error {
 
 func (h *Handler) handleVirtualNodes(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualNodes
-	if len(segs) == 3 {
+	if len(segs) == segsSubCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateVirtualNode(c, meshName)
 		case http.MethodGet:
+
 			return h.handleListVirtualNodes(c, meshName)
 		}
+
 		return methodNotAllowed(c)
 	}
 	name := segs[3]
 	// /meshes/{meshName}/virtualNodes/{name}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeVirtualNode(c, meshName, name)
 	case http.MethodPut:
+
 		return h.handleUpdateVirtualNode(c, meshName, name)
 	case http.MethodDelete:
+
 		return h.handleDeleteVirtualNode(c, meshName, name)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -242,25 +282,32 @@ func (h *Handler) handleVirtualNodes(c *echo.Context, segs []string, meshName st
 
 func (h *Handler) handleVirtualRouters(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualRouters
-	if len(segs) == 3 {
+	if len(segs) == segsSubCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateVirtualRouter(c, meshName)
 		case http.MethodGet:
+
 			return h.handleListVirtualRouters(c, meshName)
 		}
+
 		return methodNotAllowed(c)
 	}
 	name := segs[3]
 	// /meshes/{meshName}/virtualRouters/{name}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeVirtualRouter(c, meshName, name)
 	case http.MethodPut:
+
 		return h.handleUpdateVirtualRouter(c, meshName, name)
 	case http.MethodDelete:
+
 		return h.handleDeleteVirtualRouter(c, meshName, name)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -269,33 +316,40 @@ func (h *Handler) handleVirtualRouters(c *echo.Context, segs []string, meshName 
 //nolint:dupl // handler pattern is structurally identical across resource types
 func (h *Handler) handleRoutes(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualRouter/{vrName}/routes
-	if len(segs) < 4 {
+	if len(segs) < segsSubSingle {
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 	}
 	vrName := segs[3]
-	if len(segs) == 4 || segs[4] != pathSegRoutes {
+	if len(segs) == segsSubSingle || segs[4] != pathSegRoutes {
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 	}
 	// /meshes/{meshName}/virtualRouter/{vrName}/routes
-	if len(segs) == 5 {
+	if len(segs) == segsNestedCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateRoute(c, meshName, vrName)
 		case http.MethodGet:
+
 			return h.handleListRoutes(c, meshName, vrName)
 		}
+
 		return methodNotAllowed(c)
 	}
-	routeName := segs[5]
+	routeName := segs[segsNestedSingle-1]
 	// /meshes/{meshName}/virtualRouter/{vrName}/routes/{routeName}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeRoute(c, meshName, vrName, routeName)
 	case http.MethodPut:
+
 		return h.handleUpdateRoute(c, meshName, vrName, routeName)
 	case http.MethodDelete:
+
 		return h.handleDeleteRoute(c, meshName, vrName, routeName)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -303,25 +357,32 @@ func (h *Handler) handleRoutes(c *echo.Context, segs []string, meshName string) 
 
 func (h *Handler) handleVirtualServices(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualServices
-	if len(segs) == 3 {
+	if len(segs) == segsSubCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateVirtualService(c, meshName)
 		case http.MethodGet:
+
 			return h.handleListVirtualServices(c, meshName)
 		}
+
 		return methodNotAllowed(c)
 	}
 	name := segs[3]
 	// /meshes/{meshName}/virtualServices/{name}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeVirtualService(c, meshName, name)
 	case http.MethodPut:
+
 		return h.handleUpdateVirtualService(c, meshName, name)
 	case http.MethodDelete:
+
 		return h.handleDeleteVirtualService(c, meshName, name)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -329,25 +390,32 @@ func (h *Handler) handleVirtualServices(c *echo.Context, segs []string, meshName
 
 func (h *Handler) handleVirtualGateways(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualGateways
-	if len(segs) == 3 {
+	if len(segs) == segsSubCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateVirtualGateway(c, meshName)
 		case http.MethodGet:
+
 			return h.handleListVirtualGateways(c, meshName)
 		}
+
 		return methodNotAllowed(c)
 	}
 	name := segs[3]
 	// /meshes/{meshName}/virtualGateways/{name}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeVirtualGateway(c, meshName, name)
 	case http.MethodPut:
+
 		return h.handleUpdateVirtualGateway(c, meshName, name)
 	case http.MethodDelete:
+
 		return h.handleDeleteVirtualGateway(c, meshName, name)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -356,33 +424,40 @@ func (h *Handler) handleVirtualGateways(c *echo.Context, segs []string, meshName
 //nolint:dupl // handler pattern is structurally identical across resource types
 func (h *Handler) handleGatewayRoutes(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualGateway/{vgName}/gatewayRoutes[/{routeName}]
-	if len(segs) < 4 {
+	if len(segs) < segsSubSingle {
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 	}
 	vgName := segs[3]
-	if len(segs) == 4 || segs[4] != pathSegGatewayRoutes {
+	if len(segs) == segsSubSingle || segs[4] != pathSegGatewayRoutes {
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", "not found"))
 	}
 	// /meshes/{meshName}/virtualGateway/{vgName}/gatewayRoutes
-	if len(segs) == 5 {
+	if len(segs) == segsNestedCollection {
 		switch c.Request().Method {
 		case http.MethodPut:
+
 			return h.handleCreateGatewayRoute(c, meshName, vgName)
 		case http.MethodGet:
+
 			return h.handleListGatewayRoutes(c, meshName, vgName)
 		}
+
 		return methodNotAllowed(c)
 	}
-	routeName := segs[5]
+	routeName := segs[segsNestedSingle-1]
 	// /meshes/{meshName}/virtualGateway/{vgName}/gatewayRoutes/{routeName}
 	switch c.Request().Method {
 	case http.MethodGet:
+
 		return h.handleDescribeGatewayRoute(c, meshName, vgName, routeName)
 	case http.MethodPut:
+
 		return h.handleUpdateGatewayRoute(c, meshName, vgName, routeName)
 	case http.MethodDelete:
+
 		return h.handleDeleteGatewayRoute(c, meshName, vgName, routeName)
 	}
+
 	return methodNotAllowed(c)
 }
 
@@ -391,8 +466,8 @@ func (h *Handler) handleGatewayRoutes(c *echo.Context, segs []string, meshName s
 func (h *Handler) handleCreateMesh(c *echo.Context) error {
 	var body struct {
 		MeshName    string          `json:"meshName"`
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 		Tags        []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.MeshName == "" {
@@ -402,7 +477,8 @@ func (h *Handler) handleCreateMesh(c *echo.Context) error {
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"mesh": meshToWire(m)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
@@ -410,13 +486,14 @@ func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"mesh": meshToWire(m)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -425,7 +502,8 @@ func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"mesh": meshToWire(m)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
@@ -433,7 +511,8 @@ func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"mesh": meshToWire(m)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
 }
 
 func (h *Handler) handleListMeshes(c *echo.Context) error {
@@ -446,6 +525,7 @@ func (h *Handler) handleListMeshes(c *echo.Context) error {
 	for _, ms := range items {
 		refs = append(refs, meshSummaryToWire(ms))
 	}
+
 	return c.JSON(http.StatusOK, listResp("meshes", refs, next))
 }
 
@@ -454,8 +534,8 @@ func (h *Handler) handleListMeshes(c *echo.Context) error {
 func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) error {
 	var body struct {
 		VirtualNodeName string          `json:"virtualNodeName"`
-		Spec            json.RawMessage `json:"spec"`
 		ClientToken     string          `json:"clientToken"`
+		Spec            json.RawMessage `json:"spec"`
 		Tags            []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.VirtualNodeName == "" {
@@ -465,7 +545,8 @@ func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) erro
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualNode": vnToWire(vn)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleDescribeVirtualNode(c *echo.Context, meshName, name string) error {
@@ -473,13 +554,14 @@ func (h *Handler) handleDescribeVirtualNode(c *echo.Context, meshName, name stri
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualNode": vnToWire(vn)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleUpdateVirtualNode(c *echo.Context, meshName, name string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -488,7 +570,8 @@ func (h *Handler) handleUpdateVirtualNode(c *echo.Context, meshName, name string
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualNode": vnToWire(vn)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleDeleteVirtualNode(c *echo.Context, meshName, name string) error {
@@ -496,7 +579,8 @@ func (h *Handler) handleDeleteVirtualNode(c *echo.Context, meshName, name string
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualNode": vnToWire(vn)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualNode: vnToWire(vn)})
 }
 
 func (h *Handler) handleListVirtualNodes(c *echo.Context, meshName string) error {
@@ -509,6 +593,7 @@ func (h *Handler) handleListVirtualNodes(c *echo.Context, meshName string) error
 	for _, vn := range items {
 		refs = append(refs, vnSummaryToWire(vn))
 	}
+
 	return c.JSON(http.StatusOK, listResp("virtualNodes", refs, next))
 }
 
@@ -517,8 +602,8 @@ func (h *Handler) handleListVirtualNodes(c *echo.Context, meshName string) error
 func (h *Handler) handleCreateVirtualRouter(c *echo.Context, meshName string) error {
 	var body struct {
 		VirtualRouterName string          `json:"virtualRouterName"`
-		Spec              json.RawMessage `json:"spec"`
 		ClientToken       string          `json:"clientToken"`
+		Spec              json.RawMessage `json:"spec"`
 		Tags              []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.VirtualRouterName == "" {
@@ -528,7 +613,8 @@ func (h *Handler) handleCreateVirtualRouter(c *echo.Context, meshName string) er
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualRouter": vrToWire(vr)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleDescribeVirtualRouter(c *echo.Context, meshName, name string) error {
@@ -536,13 +622,14 @@ func (h *Handler) handleDescribeVirtualRouter(c *echo.Context, meshName, name st
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualRouter": vrToWire(vr)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleUpdateVirtualRouter(c *echo.Context, meshName, name string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -551,7 +638,8 @@ func (h *Handler) handleUpdateVirtualRouter(c *echo.Context, meshName, name stri
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualRouter": vrToWire(vr)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleDeleteVirtualRouter(c *echo.Context, meshName, name string) error {
@@ -559,7 +647,8 @@ func (h *Handler) handleDeleteVirtualRouter(c *echo.Context, meshName, name stri
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualRouter": vrToWire(vr)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualRouter: vrToWire(vr)})
 }
 
 func (h *Handler) handleListVirtualRouters(c *echo.Context, meshName string) error {
@@ -572,6 +661,7 @@ func (h *Handler) handleListVirtualRouters(c *echo.Context, meshName string) err
 	for _, vr := range items {
 		refs = append(refs, vrSummaryToWire(vr))
 	}
+
 	return c.JSON(http.StatusOK, listResp("virtualRouters", refs, next))
 }
 
@@ -580,8 +670,8 @@ func (h *Handler) handleListVirtualRouters(c *echo.Context, meshName string) err
 func (h *Handler) handleCreateRoute(c *echo.Context, meshName, vrName string) error {
 	var body struct {
 		RouteName   string          `json:"routeName"`
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 		Tags        []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.RouteName == "" {
@@ -591,7 +681,8 @@ func (h *Handler) handleCreateRoute(c *echo.Context, meshName, vrName string) er
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"route": routeToWire(r)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleDescribeRoute(c *echo.Context, meshName, vrName, routeName string) error {
@@ -599,13 +690,14 @@ func (h *Handler) handleDescribeRoute(c *echo.Context, meshName, vrName, routeNa
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"route": routeToWire(r)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleUpdateRoute(c *echo.Context, meshName, vrName, routeName string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -614,7 +706,8 @@ func (h *Handler) handleUpdateRoute(c *echo.Context, meshName, vrName, routeName
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"route": routeToWire(r)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleDeleteRoute(c *echo.Context, meshName, vrName, routeName string) error {
@@ -622,7 +715,8 @@ func (h *Handler) handleDeleteRoute(c *echo.Context, meshName, vrName, routeName
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"route": routeToWire(r)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyRoute: routeToWire(r)})
 }
 
 func (h *Handler) handleListRoutes(c *echo.Context, meshName, vrName string) error {
@@ -635,6 +729,7 @@ func (h *Handler) handleListRoutes(c *echo.Context, meshName, vrName string) err
 	for _, r := range items {
 		refs = append(refs, routeSummaryToWire(r))
 	}
+
 	return c.JSON(http.StatusOK, listResp("routes", refs, next))
 }
 
@@ -643,8 +738,8 @@ func (h *Handler) handleListRoutes(c *echo.Context, meshName, vrName string) err
 func (h *Handler) handleCreateVirtualService(c *echo.Context, meshName string) error {
 	var body struct {
 		VirtualServiceName string          `json:"virtualServiceName"`
-		Spec               json.RawMessage `json:"spec"`
 		ClientToken        string          `json:"clientToken"`
+		Spec               json.RawMessage `json:"spec"`
 		Tags               []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.VirtualServiceName == "" {
@@ -654,7 +749,8 @@ func (h *Handler) handleCreateVirtualService(c *echo.Context, meshName string) e
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualService": vsToWire(vs)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleDescribeVirtualService(c *echo.Context, meshName, name string) error {
@@ -662,13 +758,14 @@ func (h *Handler) handleDescribeVirtualService(c *echo.Context, meshName, name s
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualService": vsToWire(vs)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleUpdateVirtualService(c *echo.Context, meshName, name string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -677,7 +774,8 @@ func (h *Handler) handleUpdateVirtualService(c *echo.Context, meshName, name str
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualService": vsToWire(vs)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleDeleteVirtualService(c *echo.Context, meshName, name string) error {
@@ -685,7 +783,8 @@ func (h *Handler) handleDeleteVirtualService(c *echo.Context, meshName, name str
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualService": vsToWire(vs)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyVirtualService: vsToWire(vs)})
 }
 
 func (h *Handler) handleListVirtualServices(c *echo.Context, meshName string) error {
@@ -698,6 +797,7 @@ func (h *Handler) handleListVirtualServices(c *echo.Context, meshName string) er
 	for _, vs := range items {
 		refs = append(refs, vsSummaryToWire(vs))
 	}
+
 	return c.JSON(http.StatusOK, listResp("virtualServices", refs, next))
 }
 
@@ -706,8 +806,8 @@ func (h *Handler) handleListVirtualServices(c *echo.Context, meshName string) er
 func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) error {
 	var body struct {
 		VirtualGatewayName string          `json:"virtualGatewayName"`
-		Spec               json.RawMessage `json:"spec"`
 		ClientToken        string          `json:"clientToken"`
+		Spec               json.RawMessage `json:"spec"`
 		Tags               []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.VirtualGatewayName == "" {
@@ -717,7 +817,8 @@ func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) e
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualGateway": vgToWire(vg)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleDescribeVirtualGateway(c *echo.Context, meshName, name string) error {
@@ -725,13 +826,14 @@ func (h *Handler) handleDescribeVirtualGateway(c *echo.Context, meshName, name s
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualGateway": vgToWire(vg)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleUpdateVirtualGateway(c *echo.Context, meshName, name string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -740,7 +842,8 @@ func (h *Handler) handleUpdateVirtualGateway(c *echo.Context, meshName, name str
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualGateway": vgToWire(vg)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleDeleteVirtualGateway(c *echo.Context, meshName, name string) error {
@@ -748,7 +851,8 @@ func (h *Handler) handleDeleteVirtualGateway(c *echo.Context, meshName, name str
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"virtualGateway": vgToWire(vg)})
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegVirtualGW: vgToWire(vg)})
 }
 
 func (h *Handler) handleListVirtualGateways(c *echo.Context, meshName string) error {
@@ -761,6 +865,7 @@ func (h *Handler) handleListVirtualGateways(c *echo.Context, meshName string) er
 	for _, vg := range items {
 		refs = append(refs, vgSummaryToWire(vg))
 	}
+
 	return c.JSON(http.StatusOK, listResp("virtualGateways", refs, next))
 }
 
@@ -769,8 +874,8 @@ func (h *Handler) handleListVirtualGateways(c *echo.Context, meshName string) er
 func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName string) error {
 	var body struct {
 		GatewayRouteName string          `json:"gatewayRouteName"`
-		Spec             json.RawMessage `json:"spec"`
 		ClientToken      string          `json:"clientToken"`
+		Spec             json.RawMessage `json:"spec"`
 		Tags             []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || body.GatewayRouteName == "" {
@@ -780,7 +885,8 @@ func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName str
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"gatewayRoute": grToWire(gr)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleDescribeGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
@@ -788,13 +894,14 @@ func (h *Handler) handleDescribeGatewayRoute(c *echo.Context, meshName, vgName, 
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"gatewayRoute": grToWire(gr)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleUpdateGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
 	var body struct {
-		Spec        json.RawMessage `json:"spec"`
 		ClientToken string          `json:"clientToken"`
+		Spec        json.RawMessage `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -803,7 +910,8 @@ func (h *Handler) handleUpdateGatewayRoute(c *echo.Context, meshName, vgName, ro
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"gatewayRoute": grToWire(gr)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleDeleteGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
@@ -811,7 +919,8 @@ func (h *Handler) handleDeleteGatewayRoute(c *echo.Context, meshName, vgName, ro
 	if err != nil {
 		return h.mapErr(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"gatewayRoute": grToWire(gr)})
+
+	return c.JSON(http.StatusOK, map[string]any{keyGatewayRoute: grToWire(gr)})
 }
 
 func (h *Handler) handleListGatewayRoutes(c *echo.Context, meshName, vgName string) error {
@@ -824,6 +933,7 @@ func (h *Handler) handleListGatewayRoutes(c *echo.Context, meshName, vgName stri
 	for _, gr := range items {
 		refs = append(refs, grSummaryToWire(gr))
 	}
+
 	return c.JSON(http.StatusOK, listResp("gatewayRoutes", refs, next))
 }
 
@@ -850,6 +960,7 @@ func (h *Handler) handleListTags(c *echo.Context) error {
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -867,6 +978,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	if err := h.Backend.TagResource(body.ResourceArn, tagsToMap(body.Tags)); err != nil {
 		return h.mapErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -884,6 +996,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	if err := h.Backend.UntagResource(body.ResourceArn, body.TagKeys); err != nil {
 		return h.mapErr(c, err)
 	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -924,143 +1037,143 @@ func meshSummaryToWire(ms *MeshSummary) map[string]any {
 
 func vnToWire(vn *VirtualNode) map[string]any {
 	return map[string]any{
-		keyMeshName:         vn.MeshName,
-		"virtualNodeName":   vn.VirtualNodeName,
-		keyMetadata:         metaToWire(vn.Meta),
-		keySpec:             specOrEmpty(vn.Spec),
-		keyStatus:           map[string]any{keyStatus: vn.Status},
+		keyMeshName:        vn.MeshName,
+		keyVirtualNodeName: vn.VirtualNodeName,
+		keyMetadata:        metaToWire(vn.Meta),
+		keySpec:            specOrEmpty(vn.Spec),
+		keyStatus:          map[string]any{keyStatus: vn.Status},
 	}
 }
 
 func vnSummaryToWire(vn *VirtualNodeSummary) map[string]any {
 	return map[string]any{
-		keyArn:            vn.Arn,
-		keyCreatedAt:      vn.CreatedAt.Unix(),
-		keyLastUpdatedAt:  vn.UpdatedAt.Unix(),
-		keyMeshName:       vn.MeshName,
-		"virtualNodeName": vn.VirtualNodeName,
-		keyMeshOwner:      vn.MeshOwner,
-		keyResourceOwner:  vn.ResourceOwner,
-		keyVersion:        vn.Version,
+		keyArn:             vn.Arn,
+		keyCreatedAt:       vn.CreatedAt.Unix(),
+		keyLastUpdatedAt:   vn.UpdatedAt.Unix(),
+		keyMeshName:        vn.MeshName,
+		keyVirtualNodeName: vn.VirtualNodeName,
+		keyMeshOwner:       vn.MeshOwner,
+		keyResourceOwner:   vn.ResourceOwner,
+		keyVersion:         vn.Version,
 	}
 }
 
 func vrToWire(vr *VirtualRouter) map[string]any {
 	return map[string]any{
-		"meshName":          vr.MeshName,
-		"virtualRouterName": vr.VirtualRouterName,
-		"metadata":          metaToWire(vr.Meta),
-		"spec":              specOrEmpty(vr.Spec),
-		"status":            map[string]any{"status": vr.Status},
+		keyMeshName:          vr.MeshName,
+		keyVirtualRouterName: vr.VirtualRouterName,
+		keyMetadata:          metaToWire(vr.Meta),
+		keySpec:              specOrEmpty(vr.Spec),
+		keyStatus:            map[string]any{keyStatus: vr.Status},
 	}
 }
 
 func vrSummaryToWire(vr *VirtualRouterSummary) map[string]any {
 	return map[string]any{
-		"arn":               vr.Arn,
-		"createdAt":         vr.CreatedAt.Unix(),
-		"lastUpdatedAt":     vr.UpdatedAt.Unix(),
-		"meshName":          vr.MeshName,
-		"virtualRouterName": vr.VirtualRouterName,
-		"meshOwner":         vr.MeshOwner,
-		"resourceOwner":     vr.ResourceOwner,
-		"version":           vr.Version,
+		keyArn:               vr.Arn,
+		keyCreatedAt:         vr.CreatedAt.Unix(),
+		keyLastUpdatedAt:     vr.UpdatedAt.Unix(),
+		keyMeshName:          vr.MeshName,
+		keyVirtualRouterName: vr.VirtualRouterName,
+		keyMeshOwner:         vr.MeshOwner,
+		keyResourceOwner:     vr.ResourceOwner,
+		keyVersion:           vr.Version,
 	}
 }
 
 func routeToWire(r *Route) map[string]any {
 	return map[string]any{
-		"meshName":          r.MeshName,
-		"virtualRouterName": r.VirtualRouterName,
-		"routeName":         r.RouteName,
-		"metadata":          metaToWire(r.Meta),
-		"spec":              specOrEmpty(r.Spec),
-		"status":            map[string]any{"status": r.Status},
+		keyMeshName:          r.MeshName,
+		keyVirtualRouterName: r.VirtualRouterName,
+		keyRouteName:         r.RouteName,
+		keyMetadata:          metaToWire(r.Meta),
+		keySpec:              specOrEmpty(r.Spec),
+		keyStatus:            map[string]any{keyStatus: r.Status},
 	}
 }
 
 func routeSummaryToWire(r *RouteSummary) map[string]any {
 	return map[string]any{
-		"arn":               r.Arn,
-		"createdAt":         r.CreatedAt.Unix(),
-		"lastUpdatedAt":     r.UpdatedAt.Unix(),
-		"meshName":          r.MeshName,
-		"virtualRouterName": r.VirtualRouterName,
-		"routeName":         r.RouteName,
-		"meshOwner":         r.MeshOwner,
-		"resourceOwner":     r.ResourceOwner,
-		"version":           r.Version,
+		keyArn:               r.Arn,
+		keyCreatedAt:         r.CreatedAt.Unix(),
+		keyLastUpdatedAt:     r.UpdatedAt.Unix(),
+		keyMeshName:          r.MeshName,
+		keyVirtualRouterName: r.VirtualRouterName,
+		keyRouteName:         r.RouteName,
+		keyMeshOwner:         r.MeshOwner,
+		keyResourceOwner:     r.ResourceOwner,
+		keyVersion:           r.Version,
 	}
 }
 
 func vsToWire(vs *VirtualService) map[string]any {
 	return map[string]any{
-		"meshName":           vs.MeshName,
-		"virtualServiceName": vs.VirtualServiceName,
-		"metadata":           metaToWire(vs.Meta),
-		"spec":               specOrEmpty(vs.Spec),
-		"status":             map[string]any{"status": vs.Status},
+		keyMeshName:           vs.MeshName,
+		keyVirtualServiceName: vs.VirtualServiceName,
+		keyMetadata:           metaToWire(vs.Meta),
+		keySpec:               specOrEmpty(vs.Spec),
+		keyStatus:             map[string]any{keyStatus: vs.Status},
 	}
 }
 
 func vsSummaryToWire(vs *VirtualServiceSummary) map[string]any {
 	return map[string]any{
-		"arn":                vs.Arn,
-		"createdAt":          vs.CreatedAt.Unix(),
-		"lastUpdatedAt":      vs.UpdatedAt.Unix(),
-		"meshName":           vs.MeshName,
-		"virtualServiceName": vs.VirtualServiceName,
-		"meshOwner":          vs.MeshOwner,
-		"resourceOwner":      vs.ResourceOwner,
-		"version":            vs.Version,
+		keyArn:                vs.Arn,
+		keyCreatedAt:          vs.CreatedAt.Unix(),
+		keyLastUpdatedAt:      vs.UpdatedAt.Unix(),
+		keyMeshName:           vs.MeshName,
+		keyVirtualServiceName: vs.VirtualServiceName,
+		keyMeshOwner:          vs.MeshOwner,
+		keyResourceOwner:      vs.ResourceOwner,
+		keyVersion:            vs.Version,
 	}
 }
 
 func vgToWire(vg *VirtualGateway) map[string]any {
 	return map[string]any{
-		"meshName":           vg.MeshName,
-		"virtualGatewayName": vg.VirtualGatewayName,
-		"metadata":           metaToWire(vg.Meta),
-		"spec":               specOrEmpty(vg.Spec),
-		"status":             map[string]any{"status": vg.Status},
+		keyMeshName:           vg.MeshName,
+		keyVirtualGatewayName: vg.VirtualGatewayName,
+		keyMetadata:           metaToWire(vg.Meta),
+		keySpec:               specOrEmpty(vg.Spec),
+		keyStatus:             map[string]any{keyStatus: vg.Status},
 	}
 }
 
 func vgSummaryToWire(vg *VirtualGatewaySummary) map[string]any {
 	return map[string]any{
-		"arn":                vg.Arn,
-		"createdAt":          vg.CreatedAt.Unix(),
-		"lastUpdatedAt":      vg.UpdatedAt.Unix(),
-		"meshName":           vg.MeshName,
-		"virtualGatewayName": vg.VirtualGatewayName,
-		"meshOwner":          vg.MeshOwner,
-		"resourceOwner":      vg.ResourceOwner,
-		"version":            vg.Version,
+		keyArn:                vg.Arn,
+		keyCreatedAt:          vg.CreatedAt.Unix(),
+		keyLastUpdatedAt:      vg.UpdatedAt.Unix(),
+		keyMeshName:           vg.MeshName,
+		keyVirtualGatewayName: vg.VirtualGatewayName,
+		keyMeshOwner:          vg.MeshOwner,
+		keyResourceOwner:      vg.ResourceOwner,
+		keyVersion:            vg.Version,
 	}
 }
 
 func grToWire(gr *GatewayRoute) map[string]any {
 	return map[string]any{
-		"meshName":           gr.MeshName,
-		"virtualGatewayName": gr.VirtualGatewayName,
-		"gatewayRouteName":   gr.GatewayRouteName,
-		"metadata":           metaToWire(gr.Meta),
-		"spec":               specOrEmpty(gr.Spec),
-		"status":             map[string]any{"status": gr.Status},
+		keyMeshName:           gr.MeshName,
+		keyVirtualGatewayName: gr.VirtualGatewayName,
+		keyGatewayRouteName:   gr.GatewayRouteName,
+		keyMetadata:           metaToWire(gr.Meta),
+		keySpec:               specOrEmpty(gr.Spec),
+		keyStatus:             map[string]any{keyStatus: gr.Status},
 	}
 }
 
 func grSummaryToWire(gr *GatewayRouteSummary) map[string]any {
 	return map[string]any{
-		"arn":                gr.Arn,
-		"createdAt":          gr.CreatedAt.Unix(),
-		"lastUpdatedAt":      gr.UpdatedAt.Unix(),
-		"meshName":           gr.MeshName,
-		"virtualGatewayName": gr.VirtualGatewayName,
-		"gatewayRouteName":   gr.GatewayRouteName,
-		"meshOwner":          gr.MeshOwner,
-		"resourceOwner":      gr.ResourceOwner,
-		"version":            gr.Version,
+		keyArn:                gr.Arn,
+		keyCreatedAt:          gr.CreatedAt.Unix(),
+		keyLastUpdatedAt:      gr.UpdatedAt.Unix(),
+		keyMeshName:           gr.MeshName,
+		keyVirtualGatewayName: gr.VirtualGatewayName,
+		keyGatewayRouteName:   gr.GatewayRouteName,
+		keyMeshOwner:          gr.MeshOwner,
+		keyResourceOwner:      gr.ResourceOwner,
+		keyVersion:            gr.Version,
 	}
 }
 
@@ -1073,6 +1186,7 @@ func specOrEmpty(spec json.RawMessage) any {
 	if err := json.Unmarshal(spec, &v); err != nil {
 		return map[string]any{}
 	}
+
 	return v
 }
 
@@ -1091,12 +1205,14 @@ func tagsToMap(tags []tagInput) map[string]string {
 	for _, t := range tags {
 		m[t.Key] = t.Value
 	}
+
 	return m
 }
 
 func listParams(c *echo.Context) (int32, string) {
 	nextToken := c.QueryParam("nextToken")
 	maxResults := int32(defaultMaxResults)
+
 	return maxResults, nextToken
 }
 
@@ -1105,6 +1221,7 @@ func listResp(key string, items []any, nextToken string) map[string]any {
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
+
 	return resp
 }
 
@@ -1120,14 +1237,19 @@ func methodNotAllowed(c *echo.Context) error {
 func (h *Handler) mapErr(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+
 		return c.JSON(http.StatusNotFound, errResp("NotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
+
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
 	case errors.Is(err, awserr.ErrConflict):
+
 		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
+
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", err.Error()))
 	default:
+
 		return c.JSON(http.StatusInternalServerError, errResp("InternalServerErrorException", err.Error()))
 	}
 }
@@ -1146,6 +1268,7 @@ func splitPath(path string) []string {
 			segs = append(segs, p)
 		}
 	}
+
 	return segs
 }
 
@@ -1153,52 +1276,64 @@ func splitPath(path string) []string {
 func parseOperation(method, path string) string {
 	segs := splitPath(path)
 	if len(segs) == 0 {
-		return "Unknown"
+		return opUnknown
 	}
 
 	switch segs[0] {
 	case pathSegTags:
+
 		return "ListTagsForResource"
 	case pathSegTag:
+
 		return "TagResource"
 	case pathSegUntag:
+
 		return "UntagResource"
 	case pathSegMeshes:
+
 		return parseMeshOp(method, segs)
 	}
-	return "Unknown"
+
+	return opUnknown
 }
 
 func parseMeshOp(method string, segs []string) string {
 	if op := parseMeshTopLevel(method, segs); op != "" {
 		return op
 	}
-	if len(segs) < 3 {
-		return "Unknown"
+	if len(segs) < segsSubCollection {
+		return opUnknown
 	}
+
 	return parseMeshSubResource(method, segs)
 }
 
 // parseMeshTopLevel handles /meshes and /meshes/{name}.
 func parseMeshTopLevel(method string, segs []string) string {
 	switch len(segs) {
-	case 1:
+	case segsCollection:
 		switch method {
 		case http.MethodPut:
+
 			return "CreateMesh"
 		case http.MethodGet:
+
 			return "ListMeshes"
 		}
-	case 2:
+	case segsSingle:
 		switch method {
 		case http.MethodGet:
+
 			return "DescribeMesh"
 		case http.MethodPut:
+
 			return "UpdateMesh"
 		case http.MethodDelete:
+
 			return "DeleteMesh"
 		}
 	}
+
 	return ""
 }
 
@@ -1206,23 +1341,28 @@ func parseMeshTopLevel(method string, segs []string) string {
 func parseMeshSubResource(method string, segs []string) string {
 	switch segs[2] {
 	case pathSegVirtualNodes:
-		return parseSubOp(method, segs, 3, "VirtualNode", "VirtualNodes")
+
+		return parseSubOp(method, segs, segsSubCollection, "VirtualNode", "VirtualNodes")
 	case pathSegVirtualRouters:
-		return parseSubOp(method, segs, 3, "VirtualRouter", "VirtualRouters")
+
+		return parseSubOp(method, segs, segsSubCollection, "VirtualRouter", "VirtualRouters")
 	case pathSegVirtualRouter:
-		if len(segs) >= 5 && segs[4] == pathSegRoutes {
-			return parseSubOp(method, segs, 5, "Route", "Routes")
+		if len(segs) >= segsNestedCollection && segs[4] == pathSegRoutes {
+			return parseSubOp(method, segs, segsNestedCollection, "Route", "Routes")
 		}
 	case pathSegVirtualSvcs:
-		return parseSubOp(method, segs, 3, "VirtualService", "VirtualServices")
+
+		return parseSubOp(method, segs, segsSubCollection, "VirtualService", "VirtualServices")
 	case pathSegVirtualGWs:
-		return parseSubOp(method, segs, 3, "VirtualGateway", "VirtualGateways")
+
+		return parseSubOp(method, segs, segsSubCollection, "VirtualGateway", "VirtualGateways")
 	case pathSegVirtualGW:
-		if len(segs) >= 5 && segs[4] == pathSegGatewayRoutes {
-			return parseSubOp(method, segs, 5, "GatewayRoute", "GatewayRoutes")
+		if len(segs) >= segsNestedCollection && segs[4] == pathSegGatewayRoutes {
+			return parseSubOp(method, segs, segsNestedCollection, "GatewayRoute", "GatewayRoutes")
 		}
 	}
-	return "Unknown"
+
+	return opUnknown
 }
 
 // parseSubOp returns an operation name for a sub-resource segment starting at idx.
@@ -1230,19 +1370,25 @@ func parseSubOp(method string, segs []string, idx int, singular, plural string) 
 	if len(segs) == idx {
 		switch method {
 		case http.MethodPut:
+
 			return "Create" + singular
 		case http.MethodGet:
+
 			return "List" + plural
 		}
 	} else {
 		switch method {
 		case http.MethodGet:
+
 			return "Describe" + singular
 		case http.MethodPut:
+
 			return "Update" + singular
 		case http.MethodDelete:
+
 			return "Delete" + singular
 		}
 	}
-	return "Unknown"
+
+	return opUnknown
 }

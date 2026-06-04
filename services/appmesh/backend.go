@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -67,17 +68,17 @@ type gatewayRouteKey struct {
 
 // InMemoryBackend is a thread-safe in-memory App Mesh backend.
 type InMemoryBackend struct {
-	mu             sync.RWMutex
-	accountID      string
-	region         string
 	meshes         map[string]*Mesh
-	virtualNodes   map[string]map[string]*VirtualNode // meshName → vnName → vn
+	virtualNodes   map[string]map[string]*VirtualNode
 	virtualRouters map[string]map[string]*VirtualRouter
 	routes         map[routeKey]*Route
 	virtualSvcs    map[string]map[string]*VirtualService
 	virtualGWs     map[string]map[string]*VirtualGateway
 	gatewayRoutes  map[gatewayRouteKey]*GatewayRoute
-	tags           map[string]map[string]string // arn → tags
+	tags           map[string]map[string]string
+	accountID      string
+	region         string
+	mu             sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -152,6 +153,7 @@ func newUID() string {
 
 func newMeta(arn, accountID string) ResourceMeta {
 	now := time.Now().UTC()
+
 	return ResourceMeta{
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -170,6 +172,7 @@ func normalizeSpec(spec json.RawMessage) json.RawMessage {
 	if len(spec) == 0 {
 		return json.RawMessage(`{}`)
 	}
+
 	return spec
 }
 
@@ -192,6 +195,7 @@ func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return m, nil
 }
 
@@ -202,6 +206,7 @@ func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
 	if !ok {
 		return nil, ErrMeshNotFound
 	}
+
 	return m, nil
 }
 
@@ -215,6 +220,7 @@ func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, 
 	m.Spec = normalizeSpec(spec)
 	m.Meta.UpdatedAt = time.Now().UTC()
 	m.Meta.Version++
+
 	return m, nil
 }
 
@@ -231,6 +237,7 @@ func (b *InMemoryBackend) DeleteMesh(name string) (*Mesh, error) {
 	}
 	delete(b.meshes, name)
 	delete(b.tags, m.Meta.Arn)
+
 	return m, nil
 }
 
@@ -252,6 +259,7 @@ func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*Mes
 			Version:       m.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -284,6 +292,7 @@ func (b *InMemoryBackend) CreateVirtualNode(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return vn, nil
 }
 
@@ -297,6 +306,7 @@ func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNo
 	if !ok {
 		return nil, ErrVirtualNodeNotFound
 	}
+
 	return vn, nil
 }
 
@@ -313,6 +323,7 @@ func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.Raw
 	vn.Spec = normalizeSpec(spec)
 	vn.Meta.UpdatedAt = time.Now().UTC()
 	vn.Meta.Version++
+
 	return vn, nil
 }
 
@@ -328,6 +339,7 @@ func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode
 	}
 	delete(b.virtualNodes[meshName], name)
 	delete(b.tags, vn.Meta.Arn)
+
 	return vn, nil
 }
 
@@ -357,6 +369,7 @@ func (b *InMemoryBackend) ListVirtualNodes(
 			Version:         vn.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -389,6 +402,7 @@ func (b *InMemoryBackend) CreateVirtualRouter(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return vr, nil
 }
 
@@ -402,6 +416,7 @@ func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*Virtual
 	if !ok {
 		return nil, ErrVirtualRouterNotFound
 	}
+
 	return vr, nil
 }
 
@@ -418,6 +433,7 @@ func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.R
 	vr.Spec = normalizeSpec(spec)
 	vr.Meta.UpdatedAt = time.Now().UTC()
 	vr.Meta.Version++
+
 	return vr, nil
 }
 
@@ -438,6 +454,7 @@ func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRo
 	}
 	delete(b.virtualRouters[meshName], name)
 	delete(b.tags, vr.Meta.Arn)
+
 	return vr, nil
 }
 
@@ -467,6 +484,7 @@ func (b *InMemoryBackend) ListVirtualRouters(
 			Version:           vr.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -500,6 +518,7 @@ func (b *InMemoryBackend) CreateRoute(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return r, nil
 }
 
@@ -516,6 +535,7 @@ func (b *InMemoryBackend) DescribeRoute(meshName, virtualRouterName, routeName s
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
+
 	return r, nil
 }
 
@@ -539,6 +559,7 @@ func (b *InMemoryBackend) UpdateRoute(
 	r.Spec = normalizeSpec(spec)
 	r.Meta.UpdatedAt = time.Now().UTC()
 	r.Meta.Version++
+
 	return r, nil
 }
 
@@ -558,6 +579,7 @@ func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName str
 	}
 	delete(b.routes, k)
 	delete(b.tags, r.Meta.Arn)
+
 	return r, nil
 }
 
@@ -596,6 +618,7 @@ func (b *InMemoryBackend) ListRoutes(
 			Version:           r.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -628,6 +651,7 @@ func (b *InMemoryBackend) CreateVirtualService(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return vs, nil
 }
 
@@ -641,6 +665,7 @@ func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*Virtua
 	if !ok {
 		return nil, ErrVirtualServiceNotFound
 	}
+
 	return vs, nil
 }
 
@@ -657,6 +682,7 @@ func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.
 	vs.Spec = normalizeSpec(spec)
 	vs.Meta.UpdatedAt = time.Now().UTC()
 	vs.Meta.Version++
+
 	return vs, nil
 }
 
@@ -672,6 +698,7 @@ func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualS
 	}
 	delete(b.virtualSvcs[meshName], name)
 	delete(b.tags, vs.Meta.Arn)
+
 	return vs, nil
 }
 
@@ -701,6 +728,7 @@ func (b *InMemoryBackend) ListVirtualServices(
 			Version:            vs.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -733,6 +761,7 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return vg, nil
 }
 
@@ -746,6 +775,7 @@ func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*Virtua
 	if !ok {
 		return nil, ErrVirtualGatewayNotFound
 	}
+
 	return vg, nil
 }
 
@@ -762,6 +792,7 @@ func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.
 	vg.Spec = normalizeSpec(spec)
 	vg.Meta.UpdatedAt = time.Now().UTC()
 	vg.Meta.Version++
+
 	return vg, nil
 }
 
@@ -782,6 +813,7 @@ func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualG
 	}
 	delete(b.virtualGWs[meshName], name)
 	delete(b.tags, vg.Meta.Arn)
+
 	return vg, nil
 }
 
@@ -811,6 +843,7 @@ func (b *InMemoryBackend) ListVirtualGateways(
 			Version:            vg.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -844,6 +877,7 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
+
 	return gr, nil
 }
 
@@ -860,6 +894,7 @@ func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, rou
 	if !ok {
 		return nil, ErrGatewayRouteNotFound
 	}
+
 	return gr, nil
 }
 
@@ -882,6 +917,7 @@ func (b *InMemoryBackend) UpdateGatewayRoute(
 	gr.Spec = normalizeSpec(spec)
 	gr.Meta.UpdatedAt = time.Now().UTC()
 	gr.Meta.Version++
+
 	return gr, nil
 }
 
@@ -901,6 +937,7 @@ func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, route
 	}
 	delete(b.gatewayRoutes, k)
 	delete(b.tags, gr.Meta.Arn)
+
 	return gr, nil
 }
 
@@ -939,6 +976,7 @@ func (b *InMemoryBackend) ListGatewayRoutes(
 			Version:            gr.Meta.Version,
 		})
 	}
+
 	return summaries, next, nil
 }
 
@@ -953,9 +991,8 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	if b.tags[arn] == nil {
 		b.tags[arn] = make(map[string]string)
 	}
-	for k, v := range tags {
-		b.tags[arn][k] = v
-	}
+	maps.Copy(b.tags[arn], tags)
+
 	return nil
 }
 
@@ -968,6 +1005,7 @@ func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {
 	for _, k := range keys {
 		delete(b.tags[arn], k)
 	}
+
 	return nil
 }
 
@@ -992,6 +1030,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 	for _, k := range items {
 		refs = append(refs, TagRef{Key: k, Value: tagMap[k]})
 	}
+
 	return refs, next, nil
 }
 
@@ -1013,6 +1052,7 @@ func (b *InMemoryBackend) arnInMeshes(arn string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1024,6 +1064,7 @@ func (b *InMemoryBackend) arnInVirtualNodes(arn string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -1035,6 +1076,7 @@ func (b *InMemoryBackend) arnInVirtualRouters(arn string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -1044,6 +1086,7 @@ func (b *InMemoryBackend) arnInRoutes(arn string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1055,6 +1098,7 @@ func (b *InMemoryBackend) arnInVirtualServices(arn string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -1066,6 +1110,7 @@ func (b *InMemoryBackend) arnInVirtualGateways(arn string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -1075,6 +1120,7 @@ func (b *InMemoryBackend) arnInGatewayRoutes(arn string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1082,9 +1128,8 @@ func (b *InMemoryBackend) arnInGatewayRoutes(arn string) bool {
 
 func cloneTags(src map[string]string) map[string]string {
 	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
+
 	return dst
 }
 
@@ -1095,6 +1140,7 @@ func sortedKeys[V any](m map[string]V) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+
 	return keys
 }
 
@@ -1105,6 +1151,7 @@ func paginateStrings(sorted []string, nextToken string, maxResults int32) ([]str
 		for i, s := range sorted {
 			if strings.Compare(s, nextToken) > 0 {
 				start = i
+
 				break
 			}
 		}
@@ -1117,6 +1164,7 @@ func paginateStrings(sorted []string, nextToken string, maxResults int32) ([]str
 		return items, ""
 	}
 	page := items[:maxResults]
+
 	return page, page[len(page)-1]
 }
 

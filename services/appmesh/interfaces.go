@@ -92,10 +92,10 @@ type ResourceMeta struct {
 
 // Mesh is an App Mesh service mesh.
 type Mesh struct {
-	Meta   ResourceMeta
 	Name   string
-	Spec   json.RawMessage
 	Status string
+	Meta   ResourceMeta
+	Spec   json.RawMessage
 }
 
 // MeshSummary is a mesh entry in a list response.
@@ -111,11 +111,11 @@ type MeshSummary struct {
 
 // VirtualNode is an App Mesh virtual node.
 type VirtualNode struct {
-	Meta            ResourceMeta
 	MeshName        string
 	VirtualNodeName string
-	Spec            json.RawMessage
 	Status          string
+	Meta            ResourceMeta
+	Spec            json.RawMessage
 }
 
 // VirtualNodeSummary is a virtual node entry in a list response.
@@ -132,11 +132,11 @@ type VirtualNodeSummary struct {
 
 // VirtualRouter is an App Mesh virtual router.
 type VirtualRouter struct {
-	Meta              ResourceMeta
 	MeshName          string
 	VirtualRouterName string
-	Spec              json.RawMessage
 	Status            string
+	Meta              ResourceMeta
+	Spec              json.RawMessage
 }
 
 // VirtualRouterSummary is a virtual router entry in a list response.
@@ -153,12 +153,12 @@ type VirtualRouterSummary struct {
 
 // Route is an App Mesh route under a virtual router.
 type Route struct {
-	Meta              ResourceMeta
 	MeshName          string
 	VirtualRouterName string
 	RouteName         string
-	Spec              json.RawMessage
 	Status            string
+	Meta              ResourceMeta
+	Spec              json.RawMessage
 }
 
 // RouteSummary is a route entry in a list response.
@@ -176,11 +176,11 @@ type RouteSummary struct {
 
 // VirtualService is an App Mesh virtual service.
 type VirtualService struct {
-	Meta               ResourceMeta
 	MeshName           string
 	VirtualServiceName string
-	Spec               json.RawMessage
 	Status             string
+	Meta               ResourceMeta
+	Spec               json.RawMessage
 }
 
 // VirtualServiceSummary is a virtual service entry in a list response.
@@ -197,11 +197,11 @@ type VirtualServiceSummary struct {
 
 // VirtualGateway is an App Mesh virtual gateway.
 type VirtualGateway struct {
-	Meta               ResourceMeta
 	MeshName           string
 	VirtualGatewayName string
-	Spec               json.RawMessage
 	Status             string
+	Meta               ResourceMeta
+	Spec               json.RawMessage
 }
 
 // VirtualGatewaySummary is a virtual gateway entry in a list response.
@@ -218,12 +218,12 @@ type VirtualGatewaySummary struct {
 
 // GatewayRoute is an App Mesh gateway route under a virtual gateway.
 type GatewayRoute struct {
-	Meta               ResourceMeta
 	MeshName           string
 	VirtualGatewayName string
 	GatewayRouteName   string
-	Spec               json.RawMessage
 	Status             string
+	Meta               ResourceMeta
+	Spec               json.RawMessage
 }
 
 // GatewayRouteSummary is a gateway route entry in a list response.

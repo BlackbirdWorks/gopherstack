@@ -18,6 +18,7 @@ import (
 // newTestHandler returns a handler backed by a fresh in-memory backend.
 func newTestHandler() *appmesh.Handler {
 	b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
+
 	return appmesh.NewHandler(b)
 }
 
@@ -37,6 +38,7 @@ func doRequest(t *testing.T, h *appmesh.Handler, method, path string, body any) 
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -45,6 +47,7 @@ func getBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+
 	return m
 }
 
@@ -394,15 +397,15 @@ func TestAppMesh_MissingName_BadRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body map[string]any
 		name string
 		path string
-		body map[string]any
 	}{
-		{"CreateMesh no name", "/meshes", map[string]any{}},
-		{"CreateVirtualNode no name", "/meshes/m/virtualNodes", map[string]any{}},
-		{"CreateVirtualRouter no name", "/meshes/m/virtualRouters", map[string]any{}},
-		{"CreateVirtualService no name", "/meshes/m/virtualServices", map[string]any{}},
-		{"CreateVirtualGateway no name", "/meshes/m/virtualGateways", map[string]any{}},
+		{name: "CreateMesh no name", path: "/meshes", body: map[string]any{}},
+		{name: "CreateVirtualNode no name", path: "/meshes/m/virtualNodes", body: map[string]any{}},
+		{name: "CreateVirtualRouter no name", path: "/meshes/m/virtualRouters", body: map[string]any{}},
+		{name: "CreateVirtualService no name", path: "/meshes/m/virtualServices", body: map[string]any{}},
+		{name: "CreateVirtualGateway no name", path: "/meshes/m/virtualGateways", body: map[string]any{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

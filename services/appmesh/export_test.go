@@ -1,4 +1,6 @@
 package appmesh
 
 // NewInMemoryBackendForTest exposes NewInMemoryBackend for test packages.
-var NewInMemoryBackendForTest = NewInMemoryBackend
+func NewInMemoryBackendForTest(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackend(accountID, region)
+}
