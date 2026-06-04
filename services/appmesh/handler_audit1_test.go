@@ -68,7 +68,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	meta := mesh["metadata"].(map[string]any)
 	assert.NotEmpty(t, meta["arn"])
 	assert.NotEmpty(t, meta["uid"])
-	assert.Equal(t, float64(1), meta["version"])
+	assert.Equal(t, int64(1), int64(meta["version"].(float64)))
 	assert.Contains(t, meta["arn"].(string), "arn:aws:appmesh:us-east-1:000000000000:mesh/my-mesh")
 
 	// DescribeMesh
@@ -90,7 +90,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body = getBody(t, rec)
 	mesh = body["mesh"].(map[string]any)
-	assert.Equal(t, float64(2), mesh["metadata"].(map[string]any)["version"])
+	assert.Equal(t, int64(2), int64(mesh["metadata"].(map[string]any)["version"].(float64)))
 
 	// DeleteMesh
 	rec = doRequest(t, h, http.MethodDelete, "/meshes/my-mesh", nil)

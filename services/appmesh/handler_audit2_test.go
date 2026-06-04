@@ -97,10 +97,10 @@ func TestAppMesh_Batch2Timestamps(t *testing.T) {
 	require.True(t, ok, "lastUpdatedAt must be JSON number (epoch seconds)")
 
 	// On creation, createdAt == lastUpdatedAt.
-	assert.Equal(t, createdAt1, lastUpdated1, "createdAt and lastUpdatedAt must be equal on creation")
+	assert.InDelta(t, createdAt1, lastUpdated1, 1e-9, "createdAt and lastUpdatedAt must be equal on creation")
 
 	// Version starts at 1.
-	assert.Equal(t, float64(1), meta["version"], "version must start at 1")
+	assert.Equal(t, int64(1), int64(meta["version"].(float64)), "version must start at 1")
 
 	time.Sleep(10 * time.Millisecond)
 
@@ -112,9 +112,9 @@ func TestAppMesh_Batch2Timestamps(t *testing.T) {
 	createdAt2 := meta["createdAt"].(float64)
 	lastUpdated2 := meta["lastUpdatedAt"].(float64)
 
-	assert.Equal(t, createdAt1, createdAt2, "createdAt must not change after update")
+	assert.InDelta(t, createdAt1, createdAt2, 1e-9, "createdAt must not change after update")
 	assert.GreaterOrEqual(t, lastUpdated2, lastUpdated1, "lastUpdatedAt must advance after update")
-	assert.Equal(t, float64(2), meta["version"], "version must increment on update")
+	assert.Equal(t, int64(2), int64(meta["version"].(float64)), "version must increment on update")
 }
 
 // TestAppMesh_Batch2SpecNotNull verifies spec is {} not null for all resource types.
