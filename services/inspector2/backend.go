@@ -26,6 +26,10 @@ const (
 	errValidation       = "ValidationException"
 
 	inspector2Service = "inspector2"
+
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+	maxTagCount    = 50
 )
 
 var (
@@ -38,6 +42,38 @@ var (
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 )
+
+// validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
+func validateTags(tags map[string]string) error {
+	if len(tags) > maxTagCount {
+		return fmt.Errorf("%w: cannot specify more than %d tags", ErrValidation, maxTagCount)
+	}
+
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// validateFilterAction returns an error if action is not a valid Inspector2 filter action.
+func validateFilterAction(action string) error {
+	validActions := map[string]bool{
+		"NONE":     true,
+		"SUPPRESS": true,
+	}
+	if action == "" || validActions[action] {
+		return nil
+	}
+
+	return fmt.Errorf("%w: filter action must be NONE or SUPPRESS, got %q", ErrValidation, action)
+}
 
 // Filter represents an Inspector2 findings filter.
 type Filter struct { //nolint:govet // fieldalignment: map fields after scalars for readability
@@ -178,6 +214,14 @@ func (b *InMemoryBackend) CreateFilter(
 		return nil, ErrValidation
 	}
 
+	if err := validateFilterAction(action); err != nil {
+		return nil, err
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	for _, f := range b.filters {
 		if f.Name == name {
 			return nil, ErrFilterAlreadyExists
@@ -216,6 +260,10 @@ func (b *InMemoryBackend) UpdateFilter(
 ) (*Filter, error) {
 	b.mu.Lock("UpdateFilter")
 	defer b.mu.Unlock()
+
+	if err := validateFilterAction(action); err != nil {
+		return nil, err
+	}
 
 	f, ok := b.filters[filterARN]
 	if !ok {
@@ -330,11 +378,20 @@ func (b *InMemoryBackend) UpdateConfiguration(ec2ScanMode, ecrRescanDuration str
 
 // TagResource adds or replaces tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if err := validateTags(tags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if !b.resourceExists(resourceARN) {
 		return ErrTagsResourceNotFound
+	}
+
+	existing := b.tags[resourceARN]
+	if len(existing)+len(tags) > maxTagCount {
+		return fmt.Errorf("%w: resource would exceed maximum of %d tags", ErrValidation, maxTagCount)
 	}
 
 	if b.tags[resourceARN] == nil {
