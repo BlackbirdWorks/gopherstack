@@ -2288,6 +2288,7 @@ func validateHandshakeTarget(target HandshakeParty) error {
 			return ErrInvalidInput
 		}
 	}
+
 	return nil
 }
 
