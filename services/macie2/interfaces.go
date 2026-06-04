@@ -137,7 +137,6 @@ type CustomDataIdentifier struct { //nolint:govet // fieldalignment: readability
 	Name                 string            `json:"name"`
 	Regex                string            `json:"regex"`
 	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
-	Deleted              bool              `json:"deleted"`
 }
 
 // CustomDataIdentifierSummary is the summary view of a custom data identifier.
