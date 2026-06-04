@@ -1,7 +1,7 @@
 package ses_test
 
 import (
-	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,23 +18,8 @@ import (
 
 func newBatch2Handler(t *testing.T) *ses.Handler {
 	t.Helper()
+
 	return ses.NewHandler(ses.NewInMemoryBackend())
-}
-
-func doBatch2(t *testing.T, h *ses.Handler, vals url.Values) *xmlDoc {
-	t.Helper()
-	rec := postForm(t, h, vals.Encode())
-	require.Equal(t, http.StatusOK, rec.Code)
-	var doc xmlDoc
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &doc))
-	return &doc
-}
-
-// xmlDoc is a flexible XML unmarshaller for response inspection.
-type xmlDoc struct {
-	XMLName xml.Name
-	Attrs   []xml.Attr `xml:",any,attr"`
-	Content []byte     `xml:",innerxml"`
 }
 
 // text extracts all character data from a simple nested XML path.
@@ -54,11 +39,8 @@ func xmlText(data []byte, path ...string) string {
 		}
 		data = []byte(string(data)[si : si+ei])
 	}
-	return string(data)
-}
 
-func xmlContains(data []byte, tag string) bool {
-	return strings.Contains(string(data), "<"+tag) || strings.Contains(string(data), "<"+tag+"/>")
+	return string(data)
 }
 
 func sesVerifyAndSend(t *testing.T, h *ses.Handler, from, to string) {
@@ -115,9 +97,7 @@ func TestSES_Batch2_SendEmail_MessageIdNonEmpty(t *testing.T) {
 				"Source":                           {"s@example.com"},
 				"Destination.ToAddresses.member.1": {"t@example.com"},
 			}
-			for k, v := range tt.extra {
-				vals[k] = v
-			}
+			maps.Copy(vals, tt.extra)
 
 			rec := postForm(t, h, vals.Encode())
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -404,6 +384,7 @@ func TestSES_Batch2_GetIdentityNotificationAttributes_ForwardingEnabledDefaultTr
 			identity: "example.com",
 			setup: func(b *ses.InMemoryBackend) error {
 				_, err := b.VerifyDomainIdentity("example.com")
+
 				return err
 			},
 		},
@@ -807,6 +788,6 @@ func TestSES_Batch2_GetSendStatistics_AggregatesIntoHourlyBuckets(t *testing.T) 
 
 	stats := b.GetSendStatistics()
 	require.Len(t, stats, 1, "3 emails in same hour must produce exactly 1 hourly bucket")
-	assert.Equal(t, float64(3), stats[0].DeliveryAttempts,
+	assert.InDelta(t, float64(3), stats[0].DeliveryAttempts, 0,
 		"hourly bucket DeliveryAttempts must equal number of emails sent")
 }
