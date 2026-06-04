@@ -49,7 +49,7 @@ func TestBatch2Audit_EnableEbsEncryptionByDefault_ResponseField(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, resp, tt.wantField,
 				"response must contain %s", tt.wantField)
-			assert.False(t, strings.Contains(resp, tt.wantMissing),
+			assert.NotContains(t, resp, tt.wantMissing,
 				"response must not contain %s", tt.wantMissing)
 		})
 	}
@@ -143,7 +143,7 @@ func TestBatch2Audit_ImageBlockPublicAccess_ResponseState(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, resp, "<state>"+tt.wantState+"</state>",
 				"response must contain <state>%s</state>", tt.wantState)
-			assert.False(t, strings.Contains(resp, tt.wantMissing),
+			assert.NotContains(t, resp, tt.wantMissing,
 				"response must not contain %s", tt.wantMissing)
 		})
 	}
