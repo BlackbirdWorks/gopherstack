@@ -166,6 +166,10 @@ const (
 	// maxBatchEntryIDLen is the maximum character length of a PublishBatch entry ID.
 	maxBatchEntryIDLen = 80
 
+	// maxSubjectLen is the maximum character length of a Publish Subject.
+	// AWS SNS rejects subjects longer than 100 characters.
+	maxSubjectLen = 100
+
 	// computedTopicAttrCount is the number of computed attributes added to GetTopicAttributes
 	// output beyond stored attributes: Owner, TopicArn, EffectiveDeliveryPolicy,
 	// SubscriptionsConfirmed, SubscriptionsPending, SubscriptionsDeleted.
@@ -643,6 +647,12 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	// AWS always returns TopicArn as an attribute in GetTopicAttributes.
 	if attrs[topicArnKey] == "" {
 		attrs[topicArnKey] = topicArn
+	}
+
+	// AWS always returns FifoTopic in GetTopicAttributes: "true" for FIFO topics,
+	// "false" for standard topics. Non-FIFO topics have no stored value — default to "false".
+	if attrs["FifoTopic"] == "" {
+		attrs["FifoTopic"] = boolFalseStr
 	}
 
 	// EffectiveDeliveryPolicy is the resolved delivery policy (defaults to
@@ -1577,6 +1587,27 @@ func (b *InMemoryBackend) Publish(
 			ErrInvalidParameter,
 			maxMessageSizeBytes,
 		)
+	}
+
+	// AWS SNS rejects subjects longer than 100 characters or containing non-ASCII
+	// printable characters (control characters, high-byte runes).
+	if subject != "" {
+		if len(subject) > maxSubjectLen {
+			return "", fmt.Errorf(
+				"%w: Subject must be no longer than %d characters",
+				ErrInvalidParameter,
+				maxSubjectLen,
+			)
+		}
+
+		for _, r := range subject {
+			if r < 0x20 || r > 0x7E {
+				return "", fmt.Errorf(
+					"%w: Subject contains invalid characters; must be printable ASCII",
+					ErrInvalidParameter,
+				)
+			}
+		}
 	}
 
 	if err := validateStructuredMessage(message, messageStructure); err != nil {

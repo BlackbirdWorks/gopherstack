@@ -137,7 +137,7 @@ type DeleteTopicResponse struct {
 
 // ListTopicsResult holds the result of a ListTopics operation.
 type ListTopicsResult struct {
-	NextToken string     `xml:"NextToken"`
+	NextToken string     `xml:"NextToken,omitempty"`
 	Topics    []XMLTopic `xml:"Topics>member"`
 }
 
@@ -186,7 +186,7 @@ type UnsubscribeResponse struct {
 
 // ListSubscriptionsResult holds the result of a ListSubscriptions operation.
 type ListSubscriptionsResult struct {
-	NextToken     string            `xml:"NextToken"`
+	NextToken     string            `xml:"NextToken,omitempty"`
 	Subscriptions []XMLSubscription `xml:"Subscriptions>member"`
 }
 
@@ -199,7 +199,7 @@ type ListSubscriptionsResponse struct {
 
 // ListSubscriptionsByTopicResult holds the result of a ListSubscriptionsByTopic operation.
 type ListSubscriptionsByTopicResult struct {
-	NextToken     string            `xml:"NextToken"`
+	NextToken     string            `xml:"NextToken,omitempty"`
 	Subscriptions []XMLSubscription `xml:"Subscriptions>member"`
 }
 
@@ -327,7 +327,7 @@ type SetPlatformApplicationAttributesResponse struct {
 
 // ListPlatformApplicationsResult holds the result of ListPlatformApplications.
 type ListPlatformApplicationsResult struct {
-	NextToken            string                   `xml:"NextToken"`
+	NextToken            string                   `xml:"NextToken,omitempty"`
 	PlatformApplications []XMLPlatformApplication `xml:"PlatformApplications>member"`
 }
 
@@ -376,7 +376,7 @@ type SetEndpointAttributesResponse struct {
 
 // ListEndpointsByPlatformApplicationResult holds the result of ListEndpointsByPlatformApplication.
 type ListEndpointsByPlatformApplicationResult struct {
-	NextToken string                `xml:"NextToken"`
+	NextToken string                `xml:"NextToken,omitempty"`
 	Endpoints []XMLPlatformEndpoint `xml:"Endpoints>member"`
 }
 
@@ -469,7 +469,7 @@ type XMLOriginationPhone struct {
 
 // ListOriginationNumbersResult holds the result of ListOriginationNumbers.
 type ListOriginationNumbersResult struct {
-	NextToken    string                `xml:"NextToken"`
+	NextToken    string                `xml:"NextToken,omitempty"`
 	PhoneNumbers []XMLOriginationPhone `xml:"PhoneNumbers>member"`
 }
 
@@ -482,7 +482,7 @@ type ListOriginationNumbersResponse struct {
 
 // ListPhoneNumbersOptedOutResult holds the result of ListPhoneNumbersOptedOut.
 type ListPhoneNumbersOptedOutResult struct {
-	NextToken    string   `xml:"nextToken"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	PhoneNumbers []string `xml:"phoneNumbers>member"`
 }
 
@@ -502,7 +502,7 @@ type XMLSandboxPhoneNumber struct {
 
 // ListSMSSandboxPhoneNumbersResult holds the result of ListSMSSandboxPhoneNumbers.
 type ListSMSSandboxPhoneNumbersResult struct {
-	NextToken    string                  `xml:"NextToken"`
+	NextToken    string                  `xml:"NextToken,omitempty"`
 	PhoneNumbers []XMLSandboxPhoneNumber `xml:"PhoneNumbers>member"`
 }
 
