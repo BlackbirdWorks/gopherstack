@@ -2270,6 +2270,27 @@ func (b *InMemoryBackend) Reset() {
 // -- New operations --
 
 // InviteAccountToOrganization creates an OPEN invitation handshake targeting an account.
+func validateHandshakeTarget(target HandshakeParty) error {
+	if target.ID == "" {
+		return ErrInvalidInput
+	}
+	switch target.Type {
+	case targetTypeAccount:
+		if len(target.ID) != accountIDLength {
+			return ErrInvalidInput
+		}
+	case "EMAIL":
+		if !strings.Contains(target.ID, "@") {
+			return ErrInvalidInput
+		}
+	default:
+		if target.Type != "" {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
 func (b *InMemoryBackend) InviteAccountToOrganization(
 	target HandshakeParty,
 	notes string,
@@ -2281,24 +2302,8 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 		return nil, ErrOrgNotFound
 	}
 
-	if target.ID == "" {
-		return nil, ErrInvalidInput
-	}
-
-	// Validate target party.
-	switch target.Type {
-	case targetTypeAccount:
-		if len(target.ID) != accountIDLength {
-			return nil, ErrInvalidInput
-		}
-	case "EMAIL":
-		if !strings.Contains(target.ID, "@") {
-			return nil, ErrInvalidInput
-		}
-	default:
-		if target.Type != "" {
-			return nil, ErrInvalidInput
-		}
+	if err := validateHandshakeTarget(target); err != nil {
+		return nil, err
 	}
 
 	// AWS rejects duplicate open invitations to the same target.

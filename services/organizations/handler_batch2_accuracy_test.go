@@ -51,9 +51,9 @@ func TestBatch2Accuracy_DeletePolicy_Attached_ViaHandler(t *testing.T) {
 	doRequest(t, h, "EnablePolicyType", map[string]any{"RootId": rootID, "PolicyType": "SERVICE_CONTROL_POLICY"})
 
 	cp := doRequest(t, h, "CreatePolicy", map[string]any{
-		"Name":       "deny-all",
-		"Content":    `{"Version":"2012-10-17"}`,
-		"Type":       "SERVICE_CONTROL_POLICY",
+		"Name":        "deny-all",
+		"Content":     `{"Version":"2012-10-17"}`,
+		"Type":        "SERVICE_CONTROL_POLICY",
 		"Description": "",
 	})
 	require.Equal(t, http.StatusOK, cp.Code)
