@@ -225,7 +225,9 @@ func TestAccuracy_Batch2_Experiment_EndTime_AbsentBeforeComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tplResp struct {
-		ExperimentTemplate struct{ ID string `json:"id"` } `json:"experimentTemplate"`
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
 	}
 
 	mustJSON(t, rec, &tplResp)
@@ -268,7 +270,9 @@ func TestAccuracy_Batch2_Experiment_EndTime_PresentAfterComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tplResp struct {
-		ExperimentTemplate struct{ ID string `json:"id"` } `json:"experimentTemplate"`
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
 	}
 
 	mustJSON(t, rec, &tplResp)
@@ -279,7 +283,9 @@ func TestAccuracy_Batch2_Experiment_EndTime_PresentAfterComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var expResp struct {
-		Experiment struct{ ID string `json:"id"` } `json:"experiment"`
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
 	}
 
 	mustJSON(t, rec2, &expResp)
@@ -294,7 +300,9 @@ func TestAccuracy_Batch2_Experiment_EndTime_PresentAfterComplete(t *testing.T) {
 
 		var gr struct {
 			Experiment struct {
-				Status struct{ Status string `json:"status"` } `json:"status"`
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
 			} `json:"experiment"`
 		}
 
@@ -345,7 +353,9 @@ func TestAccuracy_Batch2_StopExperiment_AlreadyStopped_Returns409(t *testing.T) 
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tplResp struct {
-		ExperimentTemplate struct{ ID string `json:"id"` } `json:"experimentTemplate"`
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
 	}
 
 	mustJSON(t, rec, &tplResp)
@@ -356,7 +366,9 @@ func TestAccuracy_Batch2_StopExperiment_AlreadyStopped_Returns409(t *testing.T) 
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var expResp struct {
-		Experiment struct{ ID string `json:"id"` } `json:"experiment"`
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
 	}
 
 	mustJSON(t, rec2, &expResp)
@@ -371,7 +383,9 @@ func TestAccuracy_Batch2_StopExperiment_AlreadyStopped_Returns409(t *testing.T) 
 
 		var gr struct {
 			Experiment struct {
-				Status struct{ Status string `json:"status"` } `json:"status"`
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
 			} `json:"experiment"`
 		}
 
@@ -481,10 +495,10 @@ func TestAccuracy_Batch2_LogConfiguration_CloudWatch_RoundTrip(t *testing.T) {
 		ExperimentTemplate struct {
 			ID               string `json:"id"`
 			LogConfiguration struct {
-				LogSchemaVersion            int `json:"logSchemaVersion"`
 				CloudWatchLogsConfiguration struct {
 					LogGroupArn string `json:"logGroupArn"`
 				} `json:"cloudWatchLogsConfiguration"`
+				LogSchemaVersion int `json:"logSchemaVersion"`
 			} `json:"logConfiguration"`
 		} `json:"experimentTemplate"`
 	}
@@ -542,11 +556,11 @@ func TestAccuracy_Batch2_Target_ResourceArns_RoundTrip(t *testing.T) {
 
 	var resp struct {
 		ExperimentTemplate struct {
-			ID      string `json:"id"`
 			Targets map[string]struct {
-				ResourceArns []string `json:"resourceArns"`
 				ResourceType string   `json:"resourceType"`
+				ResourceArns []string `json:"resourceArns"`
 			} `json:"targets"`
+			ID string `json:"id"`
 		} `json:"experimentTemplate"`
 	}
 
@@ -667,7 +681,9 @@ func TestAccuracy_Batch2_Experiment_ActionStatus_AfterComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tplResp struct {
-		ExperimentTemplate struct{ ID string `json:"id"` } `json:"experimentTemplate"`
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
 	}
 
 	mustJSON(t, rec, &tplResp)
@@ -678,7 +694,9 @@ func TestAccuracy_Batch2_Experiment_ActionStatus_AfterComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var expResp struct {
-		Experiment struct{ ID string `json:"id"` } `json:"experiment"`
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
 	}
 
 	mustJSON(t, rec2, &expResp)
@@ -693,7 +711,9 @@ func TestAccuracy_Batch2_Experiment_ActionStatus_AfterComplete(t *testing.T) {
 
 		var gr struct {
 			Experiment struct {
-				Status struct{ Status string `json:"status"` } `json:"status"`
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
 			} `json:"experiment"`
 		}
 
@@ -710,13 +730,13 @@ func TestAccuracy_Batch2_Experiment_ActionStatus_AfterComplete(t *testing.T) {
 	var resp struct {
 		Experiment struct {
 			Actions map[string]struct {
-				ActionID string `json:"actionId"`
-				Status   *struct {
+				Status *struct {
 					Status string `json:"status"`
 				} `json:"status"`
 				State *struct {
 					Status string `json:"status"`
 				} `json:"state"`
+				ActionID string `json:"actionId"`
 			} `json:"actions"`
 		} `json:"experiment"`
 	}
@@ -777,8 +797,8 @@ func TestAccuracy_Batch2_Template_Tags_InCreateResponse(t *testing.T) {
 
 	var resp struct {
 		ExperimentTemplate struct {
-			ID   string            `json:"id"`
 			Tags map[string]string `json:"tags"`
+			ID   string            `json:"id"`
 		} `json:"experimentTemplate"`
 	}
 
@@ -966,13 +986,13 @@ func TestAccuracy_Batch2_GetAction_ResponseShape(t *testing.T) {
 
 	var resp struct {
 		Action struct {
-			ID          string            `json:"id"`
-			Arn         string            `json:"arn"`
-			Description string            `json:"description"`
-			Parameters  map[string]struct {
+			Parameters map[string]struct {
 				Description string `json:"description"`
 				Required    bool   `json:"required"`
 			} `json:"parameters"`
+			ID          string `json:"id"`
+			Arn         string `json:"arn"`
+			Description string `json:"description"`
 		} `json:"action"`
 	}
 
@@ -1016,10 +1036,10 @@ func TestAccuracy_Batch2_GetTargetResourceType_ResponseShape(t *testing.T) {
 
 	var actionResp struct {
 		Action struct {
-			ID         string `json:"id"`
 			Parameters map[string]struct {
 				Required bool `json:"required"`
 			} `json:"parameters"`
+			ID string `json:"id"`
 		} `json:"action"`
 	}
 
@@ -1130,7 +1150,9 @@ func TestAccuracy_Batch2_Experiment_RoleArn_FromTemplate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tplResp struct {
-		ExperimentTemplate struct{ ID string `json:"id"` } `json:"experimentTemplate"`
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
 	}
 
 	mustJSON(t, rec, &tplResp)
