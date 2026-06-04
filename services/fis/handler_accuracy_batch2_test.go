@@ -394,6 +394,7 @@ func TestAccuracy_Batch2_StopExperiment_AlreadyStopped_Returns409(t *testing.T) 
 		}
 
 		s := gr.Experiment.Status.Status
+
 		return s == "completed" || s == "failed" || s == "stopped"
 	}, 5*time.Second, 20*time.Millisecond)
 
