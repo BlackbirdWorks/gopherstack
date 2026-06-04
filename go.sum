@@ -66,6 +66,8 @@ github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20 h1:28H3ASZzvR5hY7FMu
 github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20/go.mod h1:GsRz8ACYFQ+UD7TPyQKbQV+8ukxQhOcx8n10htQ4P14=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12 h1:l8nLdmOlFJzl0wGpZ0hlaFyuYz9anE5nWn165EFfXzE=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12/go.mod h1:57t2hFtz4rmQin/p8xRQlUJXwO/EcKUwZEfK1YruIco=
+github.com/aws/aws-sdk-go-v2/service/appmesh v1.36.2 h1:YOoSFxsnRyj7Tz48AEnm3cl2vGa8gQhyFZdUwT8ZlnI=
+github.com/aws/aws-sdk-go-v2/service/appmesh v1.36.2/go.mod h1:zSo7xH8Ksxab6pPeWc1fJWoYDxFxGus7scMwmlZIhtc=
 github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2 h1:2plkrtfEi/F45UbZ+VKObztK4rJ/Pk6peXkyREuvuhs=
 github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2/go.mod h1:s7fC1MDh0uwEV0iPEeHmEr1ScG7fhH+YyAtQ+clrugQ=
 github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3 h1:GwnhiEAYlKBPvruTneFNoXhL7cd3GHd6yZwhjOH+zWs=
