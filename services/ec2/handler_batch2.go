@@ -203,6 +203,18 @@ type ebsEncryptionByDefaultResponse struct {
 	EbsEncryptionByDefault bool     `xml:"ebsEncryptionByDefault"`
 }
 
+type enableEbsEncryptionByDefaultResponse struct {
+	XMLName                xml.Name `xml:"EnableEbsEncryptionByDefaultResponse"`
+	RequestID              string   `xml:"requestId"`
+	EbsEncryptionByDefault bool     `xml:"ebsEncryptionByDefault"`
+}
+
+type disableEbsEncryptionByDefaultResponse struct {
+	XMLName                xml.Name `xml:"DisableEbsEncryptionByDefaultResponse"`
+	RequestID              string   `xml:"requestId"`
+	EbsEncryptionByDefault bool     `xml:"ebsEncryptionByDefault"`
+}
+
 type ebsDefaultKmsKeyResponse struct {
 	XMLName   xml.Name `xml:"GetEbsDefaultKmsKeyIdResponse"`
 	RequestID string   `xml:"requestId"`
@@ -253,6 +265,22 @@ type copyVolumesResponse struct {
 
 type imageBlockPublicAccessStateResponse struct {
 	XMLName                     xml.Name `xml:"GetImageBlockPublicAccessStateResponse"`
+	RequestID                   string   `xml:"requestId"`
+	ImageBlockPublicAccessState struct {
+		State string `xml:"state"`
+	} `xml:"imageBlockPublicAccessState"`
+}
+
+type enableImageBlockPublicAccessResponse struct {
+	XMLName                     xml.Name `xml:"EnableImageBlockPublicAccessResponse"`
+	RequestID                   string   `xml:"requestId"`
+	ImageBlockPublicAccessState struct {
+		State string `xml:"state"`
+	} `xml:"imageBlockPublicAccessState"`
+}
+
+type disableImageBlockPublicAccessResponse struct {
+	XMLName                     xml.Name `xml:"DisableImageBlockPublicAccessResponse"`
 	RequestID                   string   `xml:"requestId"`
 	ImageBlockPublicAccessState struct {
 		State string `xml:"state"`
@@ -577,20 +605,18 @@ func (h *Handler) handleModifyVpcEndpointServiceConfigurationB2(
 func (h *Handler) handleEnableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
 	h.Backend.EnableEbsEncryptionByDefault()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableEbsEncryptionByDefaultResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &enableEbsEncryptionByDefaultResponse{
+		RequestID:              reqID,
+		EbsEncryptionByDefault: true,
 	}, nil
 }
 
 func (h *Handler) handleDisableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableEbsEncryptionByDefault()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableEbsEncryptionByDefaultResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &disableEbsEncryptionByDefaultResponse{
+		RequestID:              reqID,
+		EbsEncryptionByDefault: false,
 	}, nil
 }
 
@@ -793,21 +819,19 @@ func (h *Handler) handleEnableImageBlockPublicAccess(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableImageBlockPublicAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &enableImageBlockPublicAccessResponse{RequestID: reqID}
+	resp.ImageBlockPublicAccessState.State = state
+
+	return resp, nil
 }
 
 func (h *Handler) handleDisableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableImageBlockPublicAccess()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableImageBlockPublicAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &disableImageBlockPublicAccessResponse{RequestID: reqID}
+	resp.ImageBlockPublicAccessState.State = stateImageUnblocked
+
+	return resp, nil
 }
 
 func (h *Handler) handleGetImageBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
