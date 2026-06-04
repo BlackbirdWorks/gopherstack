@@ -286,9 +286,13 @@ func (b *InMemoryBackend) UpdateApprovalRuleTemplateName(oldName, newName string
 // --- Group 3: Template-Repository association edges ---
 
 // ListAssociatedApprovalRuleTemplatesForRepository returns template names associated with a repository.
-func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoName string) []string {
+func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoName string) ([]string, error) {
 	b.mu.RLock("ListAssociatedApprovalRuleTemplatesForRepository")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repoName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
 
 	assoc := b.repoTemplateAssoc[repoName]
 	names := make([]string, 0, len(assoc))
@@ -297,13 +301,21 @@ func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoN
 	}
 	sort.Strings(names)
 
-	return names
+	return names, nil
 }
 
 // ListRepositoriesForApprovalRuleTemplate returns repository names that have a given template associated.
-func (b *InMemoryBackend) ListRepositoriesForApprovalRuleTemplate(templateName string) []string {
+func (b *InMemoryBackend) ListRepositoriesForApprovalRuleTemplate(templateName string) ([]string, error) {
 	b.mu.RLock("ListRepositoriesForApprovalRuleTemplate")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+		return nil, fmt.Errorf(
+			"%w: approval rule template %s not found",
+			ErrApprovalRuleTemplateNotFound,
+			templateName,
+		)
+	}
 
 	var repos []string
 	for repoName, assoc := range b.repoTemplateAssoc {
@@ -313,7 +325,7 @@ func (b *InMemoryBackend) ListRepositoriesForApprovalRuleTemplate(templateName s
 	}
 	sort.Strings(repos)
 
-	return repos
+	return repos, nil
 }
 
 // --- Group 4: PullRequest operations ---

@@ -216,7 +216,10 @@ func (h *Handler) handleListAssociatedApprovalRuleTemplatesForRepository(body []
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	names := h.Backend.ListAssociatedApprovalRuleTemplatesForRepository(req.RepositoryName)
+	names, err := h.Backend.ListAssociatedApprovalRuleTemplatesForRepository(req.RepositoryName)
+	if err != nil {
+		return nil, err
+	}
 
 	return map[string]any{
 		"approvalRuleTemplateNames": names,
@@ -234,7 +237,10 @@ func (h *Handler) handleListRepositoriesForApprovalRuleTemplate(body []byte) (an
 		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
 	}
 
-	repos := h.Backend.ListRepositoriesForApprovalRuleTemplate(req.ApprovalRuleTemplateName)
+	repos, err := h.Backend.ListRepositoriesForApprovalRuleTemplate(req.ApprovalRuleTemplateName)
+	if err != nil {
+		return nil, err
+	}
 	if repos == nil {
 		repos = []string{}
 	}
@@ -849,9 +855,12 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"commitId":   req.CommitSpecifier,
-		"folderPath": req.FolderPath,
-		"files":      files,
+		"commitId":      req.CommitSpecifier,
+		"folderPath":    req.FolderPath,
+		"files":         files,
+		"subFolders":    []any{},
+		"subModules":    []any{},
+		"symbolicLinks": []any{},
 	}, nil
 }
 
