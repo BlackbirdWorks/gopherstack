@@ -246,6 +246,10 @@ const (
 	// clientCertValidityDays is the number of days a generated client certificate is valid.
 	// AWS issues certificates with a 2-year validity period.
 	clientCertValidityDays = 730
+
+	// defaultIntegrationTimeoutMs is the AWS default integration timeout in milliseconds.
+	// AWS API Gateway applies this when timeoutInMillis is not specified on PutIntegration.
+	defaultIntegrationTimeoutMs = 29000
 )
 
 // contentTypeJSON is the standard JSON content type used in integration templates and responses.
@@ -688,6 +692,11 @@ func (b *InMemoryBackend) PutIntegration(
 		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, httpMethod)
 	}
 
+	timeout := input.TimeoutInMillis
+	if timeout == 0 {
+		timeout = defaultIntegrationTimeoutMs
+	}
+
 	integ := &Integration{
 		Type:                 input.Type,
 		HTTPMethod:           input.HTTPMethod,
@@ -701,7 +710,7 @@ func (b *InMemoryBackend) PutIntegration(
 		ContentHandling:      input.ContentHandling,
 		Credentials:          input.Credentials,
 		CacheNamespace:       input.CacheNamespace,
-		TimeoutInMillis:      input.TimeoutInMillis,
+		TimeoutInMillis:      timeout,
 		IntegrationResponses: make(map[string]*IntegrationResponse),
 	}
 	m.MethodIntegration = integ
