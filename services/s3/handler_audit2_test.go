@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,14 +27,17 @@ func TestBatch2_ListObjectsV1_NoKeyCount(t *testing.T) {
 
 	tests := []struct {
 		name    string
+		bucket  string
 		objects []string
 	}{
 		{
 			name:    "empty bucket: no KeyCount",
+			bucket:  "b2kc-empty",
 			objects: nil,
 		},
 		{
 			name:    "non-empty bucket: no KeyCount",
+			bucket:  "b2kc-full",
 			objects: []string{"a/obj1", "b/obj2", "c/obj3"},
 		},
 	}
@@ -43,13 +47,13 @@ func TestBatch2_ListObjectsV1_NoKeyCount(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			mustCreateBucket(t, backend, "b2kc-bkt")
+			mustCreateBucket(t, backend, tt.bucket)
 
 			for _, key := range tt.objects {
-				mustPutObject(t, backend, "b2kc-bkt", key, []byte("data"))
+				mustPutObject(t, backend, tt.bucket, key, []byte("data"))
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/b2kc-bkt", nil)
+			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket, nil)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
@@ -82,8 +86,8 @@ func TestBatch2_ListObjectsV2_HasKeyCount(t *testing.T) {
 // GetBucketVersioning — Status element omitted for new buckets
 // ---------------------------------------------------------------------------
 
-// versioningConfigurationXML is a minimal XML struct for parsing GetBucketVersioning responses.
-type versioningConfigurationXML struct {
+// versioningConfigXML is a minimal XML struct for parsing GetBucketVersioning responses.
+type versioningConfigXML struct {
 	XMLName xml.Name `xml:"VersioningConfiguration"`
 	Status  string   `xml:"Status"`
 }
@@ -94,58 +98,43 @@ type versioningConfigurationXML struct {
 func TestBatch2_GetBucketVersioning_NewBucket_NoStatus(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		setupExtra func(t *testing.T, handler interface{}, bucket string)
-		wantStatus string
-	}{
-		{
-			name:       "new bucket: Status element absent",
-			setupExtra: nil,
-			wantStatus: "",
-		},
-	}
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "b2ver-new")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/b2ver-new?versioning", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
 
-			handler, backend := newTestHandler(t)
-			mustCreateBucket(t, backend, "b2ver-new")
+	require.Equal(t, http.StatusOK, rec.Code)
 
-			req := httptest.NewRequest(http.MethodGet, "/b2ver-new?versioning", nil)
-			rec := httptest.NewRecorder()
-			serveS3Handler(handler, rec, req)
-
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var cfg versioningConfigurationXML
-			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &cfg))
-			assert.Equal(t, tt.wantStatus, cfg.Status,
-				"new bucket VersioningConfiguration must have empty Status")
-			assert.NotContains(t, rec.Body.String(), "<Status>",
-				"new bucket VersioningConfiguration must not contain Status element")
-		})
-	}
+	var cfg versioningConfigXML
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &cfg))
+	assert.Empty(t, cfg.Status,
+		"new bucket VersioningConfiguration must have empty Status")
+	assert.NotContains(t, rec.Body.String(), "<Status>",
+		"new bucket VersioningConfiguration must not contain Status element")
 }
 
-// TestBatch2_GetBucketVersioning_Enabled_HasStatus verifies that GetBucketVersioning
-// returns Status=Enabled after versioning is enabled.
-func TestBatch2_GetBucketVersioning_Enabled_HasStatus(t *testing.T) {
+// TestBatch2_GetBucketVersioning_Configured_HasStatus verifies that GetBucketVersioning
+// returns the correct Status after versioning has been explicitly configured.
+func TestBatch2_GetBucketVersioning_Configured_HasStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
+		bucket     string
 		xmlBody    string
 		wantStatus string
 	}{
 		{
 			name:       "enabled versioning: Status=Enabled",
+			bucket:     "b2ver-enabled",
 			xmlBody:    `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`,
 			wantStatus: "Enabled",
 		},
 		{
 			name:       "suspended versioning: Status=Suspended",
+			bucket:     "b2ver-suspended",
 			xmlBody:    `<VersioningConfiguration><Status>Suspended</Status></VersioningConfiguration>`,
 			wantStatus: "Suspended",
 		},
@@ -156,25 +145,23 @@ func TestBatch2_GetBucketVersioning_Enabled_HasStatus(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			bucket := "b2ver-cfg-" + tt.wantStatus
-			mustCreateBucket(t, backend, bucket)
+			mustCreateBucket(t, backend, tt.bucket)
 
-			// Set versioning status via the handler.
 			putReq := httptest.NewRequest(
-				http.MethodPut, "/"+bucket+"?versioning",
-				stringReader(tt.xmlBody),
+				http.MethodPut, "/"+tt.bucket+"?versioning",
+				strings.NewReader(tt.xmlBody),
 			)
 			putRec := httptest.NewRecorder()
 			serveS3Handler(handler, putRec, putReq)
 			require.Equal(t, http.StatusOK, putRec.Code)
 
-			getReq := httptest.NewRequest(http.MethodGet, "/"+bucket+"?versioning", nil)
+			getReq := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"?versioning", nil)
 			getRec := httptest.NewRecorder()
 			serveS3Handler(handler, getRec, getReq)
 
 			require.Equal(t, http.StatusOK, getRec.Code)
 
-			var cfg versioningConfigurationXML
+			var cfg versioningConfigXML
 			require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &cfg))
 			assert.Equal(t, tt.wantStatus, cfg.Status)
 		})
@@ -185,8 +172,8 @@ func TestBatch2_GetBucketVersioning_Enabled_HasStatus(t *testing.T) {
 // ListMultipartUploads — Delimiter echoed in response
 // ---------------------------------------------------------------------------
 
-// listMultipartUploadsResultXML is a minimal struct for parsing ListMultipartUploads responses.
-type listMultipartUploadsResultXML struct {
+// listMPUResultXML is a minimal struct for parsing ListMultipartUploads responses.
+type listMPUResultXML struct {
 	XMLName   xml.Name `xml:"ListMultipartUploadsResult"`
 	Delimiter string   `xml:"Delimiter"`
 }
@@ -198,21 +185,25 @@ func TestBatch2_ListMultipartUploads_DelimiterEchoed(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		bucket        string
 		delimiter     string
 		wantDelimiter string
 	}{
 		{
 			name:          "no delimiter: Delimiter element absent",
+			bucket:        "b2mu-nodlm",
 			delimiter:     "",
 			wantDelimiter: "",
 		},
 		{
 			name:          "slash delimiter: echoed in response",
+			bucket:        "b2mu-slash",
 			delimiter:     "/",
 			wantDelimiter: "/",
 		},
 		{
 			name:          "dash delimiter: echoed in response",
+			bucket:        "b2mu-dash",
 			delimiter:     "-",
 			wantDelimiter: "-",
 		},
@@ -223,9 +214,9 @@ func TestBatch2_ListMultipartUploads_DelimiterEchoed(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			mustCreateBucket(t, backend, "b2mu-bkt")
+			mustCreateBucket(t, backend, tt.bucket)
 
-			url := "/b2mu-bkt?uploads"
+			url := "/" + tt.bucket + "?uploads"
 			if tt.delimiter != "" {
 				url += "&delimiter=" + tt.delimiter
 			}
@@ -236,30 +227,10 @@ func TestBatch2_ListMultipartUploads_DelimiterEchoed(t *testing.T) {
 
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var result listMultipartUploadsResultXML
+			var result listMPUResultXML
 			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
 			assert.Equal(t, tt.wantDelimiter, result.Delimiter,
 				"ListMultipartUploads must echo the delimiter request parameter")
 		})
 	}
-}
-
-// stringReader is a helper for creating an io.Reader from a string inline.
-func stringReader(s string) *stringReaderImpl {
-	return &stringReaderImpl{s: s}
-}
-
-type stringReaderImpl struct {
-	s   string
-	pos int
-}
-
-func (r *stringReaderImpl) Read(p []byte) (int, error) {
-	if r.pos >= len(r.s) {
-		return 0, nil
-	}
-	n := copy(p, r.s[r.pos:])
-	r.pos += n
-
-	return n, nil
 }
