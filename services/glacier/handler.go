@@ -1319,17 +1319,19 @@ func (h *Handler) serveWithRange(c *echo.Context, payload []byte) error {
 // toDescribeJobResponse converts a job to a describe job response.
 func toDescribeJobResponse(j *Job) describeJobResponse {
 	resp := describeJobResponse{
-		JobID:           j.JobID,
-		JobDescription:  j.JobDescription,
-		Action:          j.Action,
-		ArchiveID:       j.ArchiveID,
-		InventoryFormat: j.InventoryFormat,
-		VaultARN:        j.VaultARN,
-		CreationDate:    j.CreationDate,
-		Completed:       j.Completed,
-		StatusCode:      j.StatusCode,
-		StatusMessage:   j.StatusMessage,
-		Tier:            j.Tier,
+		JobID:              j.JobID,
+		JobDescription:     j.JobDescription,
+		Action:             j.Action,
+		ArchiveID:          j.ArchiveID,
+		InventoryFormat:    j.InventoryFormat,
+		VaultARN:           j.VaultARN,
+		CreationDate:       j.CreationDate,
+		Completed:          j.Completed,
+		StatusCode:         j.StatusCode,
+		StatusMessage:      j.StatusMessage,
+		Tier:               j.Tier,
+		SNSTopic:           j.SNSTopic,
+		RetrievalByteRange: j.RetrievalByteRange,
 	}
 
 	if j.ArchiveSizeInBytes > 0 {

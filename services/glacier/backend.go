@@ -1018,7 +1018,9 @@ func (b *InMemoryBackend) ListParts(
 	}
 
 	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
-	parts := append([]MultipartPart(nil), b.multipartParts[uKey]...)
+	stored := b.multipartParts[uKey]
+	parts := make([]MultipartPart, len(stored))
+	copy(parts, stored)
 
 	// Sort parts by their byte-range start value for deterministic output.
 	sort.Slice(parts, func(i, j int) bool {
