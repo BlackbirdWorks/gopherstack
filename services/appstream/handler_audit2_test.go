@@ -24,12 +24,11 @@ func TestAppStream_Batch2Accuracy(t *testing.T) {
 
 	tests := []struct {
 		setup    func(h *appstream.Handler)
-		check    func(t *testing.T, body []byte)
 		body     any
 		name     string
 		action   string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		// Gap 1: CreateStack duplicate → ResourceAlreadyExistsException
 		{
