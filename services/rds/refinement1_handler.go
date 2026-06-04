@@ -397,7 +397,7 @@ func (h *Handler) handleModifyDBSubnetGroup(vals url.Values) (any, error) {
 	description := vals.Get("DBSubnetGroupDescription")
 	var subnetIDs []string
 	for i := 1; ; i++ {
-		id := vals.Get("SubnetIds.member." + strconv.Itoa(i))
+		id := vals.Get("SubnetIds.SubnetIdentifier." + strconv.Itoa(i))
 		if id == "" {
 			break
 		}
