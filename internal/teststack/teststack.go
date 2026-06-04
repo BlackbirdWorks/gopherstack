@@ -884,6 +884,20 @@ func populateNewestHandlers(h *handlers) {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
 	}
 
+	h.eks = eksbackend.NewHandler(
+		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.elb = elbbackend.NewHandler(
+		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	populateLatestHandlers(h)
+}
+
+// populateLatestHandlers fills in the most recently added service handlers that would push
+// populateNewestHandlers past the funlen limit.
+func populateLatestHandlers(h *handlers) {
 	h.appmesh = appmeshbackend.NewHandler(
 		appmeshbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -900,20 +914,6 @@ func populateNewestHandlers(h *handlers) {
 		efsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
-	h.eks = eksbackend.NewHandler(
-		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-
-	h.elb = elbbackend.NewHandler(
-		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-
-	populateLatestHandlers(h)
-}
-
-// populateLatestHandlers fills in the most recently added service handlers that would push
-// populateNewestHandlers past the funlen limit.
-func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
