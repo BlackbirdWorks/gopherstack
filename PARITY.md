@@ -5,7 +5,7 @@ Audit performed against gopherstack `services/*` handlers vs the AWS SDK v2 surf
 ## Critical (wrong wire protocol — clients hard-fail)
 
 1. **DAX** — `services/dax/handler.go:71` routes on `X-Amz-Target: AmazonDAXV3.*`, but the AWS DAX SDK speaks a bespoke TLS/framed binary protocol on a non-HTTP listener. Real SDK never reaches this handler. (Surfaced via failing integration test.)
-2. **XRay** — `services/xray/handler.go:265` accepts `POST /EncryptionConfig` for `PutEncryptionConfig`, but the AWS SDK targets the operation-named path (`POST /PutEncryptionConfig`). Same handler returns HTML 400 to real SDK callers. (Surfaced via failing integration test.)
+2. **XRay** — the handler mapped `POST /EncryptionConfig` to `PutEncryptionConfig`, but the AWS SDK v2 sends `PutEncryptionConfig` to the operation-named path `POST /PutEncryptionConfig` and `GetEncryptionConfig` to `POST /EncryptionConfig`. Real SDK `PutEncryptionConfig` calls reached the wrong handler. (Fixed: `services/xray/handler.go` now serves `GetEncryptionConfig` on `POST /EncryptionConfig` and adds the `POST /PutEncryptionConfig` route; covered by `test/integration/xray_test.go`.)
 3. **ELBv2** — `AddTags`, `RemoveTags`, `RegisterTargets`, `DeregisterTargets` originally omitted the `*Result` XML wrapper required by AWS Query protocol. SDK deserialiser raised `… node not found`. (Fixed in this PR.)
 4. **Classic ELB** — `AddTags`, `RemoveTags` had the same missing `*Result` wrappers. (Fixed in this PR.)
 5. **Classic ELB `CreateLoadBalancer`** — ignored the `Tags.member.N` form parameters that AWS accepts at create time. Initial tags were silently dropped. (Fixed in this PR; subsequent `DescribeTags` now returns them.)

@@ -165,7 +165,7 @@ func TestRefinement1_PutEncryptionConfigHandler(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/EncryptionConfig", tt.body)
+			rec := doXrayRequest(t, h, "/PutEncryptionConfig", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
