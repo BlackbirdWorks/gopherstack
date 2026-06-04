@@ -579,6 +579,10 @@ func (h *AgentsHandler) handleUpdateAgent(c *echo.Context, agentID string, body 
 
 func (h *AgentsHandler) handleDeleteAgent(c *echo.Context, agentID string) error {
 	if err := h.Backend.DeleteAgent(agentID); err != nil {
+		if errors.Is(err, ErrAlreadyExists) {
+			return c.JSON(http.StatusConflict, agentErrResp("ConflictException", err.Error()))
+		}
+
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
@@ -1295,6 +1299,10 @@ func (h *AgentsHandler) handleStartIngestionJob(
 
 	job, err := h.Backend.StartIngestionJob(kbID, dsID, req.Description)
 	if err != nil {
+		if errors.Is(err, ErrAlreadyExists) {
+			return c.JSON(http.StatusConflict, agentErrResp("ConflictException", err.Error()))
+		}
+
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 

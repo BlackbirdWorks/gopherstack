@@ -330,6 +330,7 @@ func (b *InMemoryBackend) UpdateAgentWithConfiguration(agentID string, config Ag
 }
 
 // DeleteAgent deletes a Bedrock Agent.
+// AWS rejects deletion when the agent has active aliases (ConflictException).
 func (b *InMemoryBackend) DeleteAgent(agentID string) error {
 	b.mu.Lock("DeleteAgent")
 	defer b.mu.Unlock()
@@ -337,6 +338,13 @@ func (b *InMemoryBackend) DeleteAgent(agentID string) error {
 	ag, ok := b.agents[agentID]
 	if !ok {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
+	}
+
+	prefix := agentID + "/"
+	for k := range b.agentAliases {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			return fmt.Errorf("%w: agent %q has active aliases and cannot be deleted", ErrAlreadyExists, agentID)
+		}
 	}
 
 	delete(b.agentsByName, ag.AgentName)
@@ -1068,6 +1076,7 @@ func (b *InMemoryBackend) DeleteDataSource(kbID, dsID string) error {
 // ---------------------------------------------------------------------------
 
 // StartIngestionJob starts an ingestion job for a data source.
+// AWS rejects starting a new job if one is already in STARTING state for the same data source (ConflictException).
 func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*IngestionJob, error) {
 	b.mu.Lock("StartIngestionJob")
 	defer b.mu.Unlock()
@@ -1078,6 +1087,13 @@ func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*In
 
 	if _, ok := b.dataSources[kbID+"/"+dsID]; !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
+	}
+
+	prefix := kbID + "/" + dsID + "/"
+	for k, job := range b.ingestionJobs {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix && job.Status == jobStatusStarting {
+			return nil, fmt.Errorf("%w: data source %q already has a running ingestion job", ErrAlreadyExists, dsID)
+		}
 	}
 
 	b.ingestionJobCounter++
