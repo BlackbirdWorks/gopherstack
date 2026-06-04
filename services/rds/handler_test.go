@@ -348,7 +348,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			body: "Action=CreateDBSubnetGroup&Version=2014-10-31" +
 				"&DBSubnetGroupName=my-subnet-group&DBSubnetGroupDescription=My+group" +
 				"&VpcId=vpc-12345" +
-				"&SubnetIds.member.1=subnet-1&SubnetIds.member.2=subnet-2",
+				"&SubnetIds.SubnetIdentifier.1=subnet-1&SubnetIds.SubnetIdentifier.2=subnet-2",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"CreateDBSubnetGroupResponse", "my-subnet-group", "subnet-1"},
 		},

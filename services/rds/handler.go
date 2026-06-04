@@ -1381,11 +1381,11 @@ type removeTagsFromResourceResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-// parseSubnetIDMembers parses SubnetIds.member.N form values.
+// parseSubnetIDMembers parses SubnetIds.SubnetIdentifier.N form values (AWS query protocol encoding).
 func parseSubnetIDMembers(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
-		sid := vals.Get(fmt.Sprintf("SubnetIds.member.%d", i))
+		sid := vals.Get(fmt.Sprintf("SubnetIds.SubnetIdentifier.%d", i))
 		if sid == "" {
 			return ids
 		}
@@ -1864,7 +1864,7 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 
 	return &createDBClusterParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
-		DBParameterGroup: toXMLParameterGroup(pg),
+		DBParameterGroup: toXMLClusterParameterGroup(pg),
 	}, nil
 }
 
@@ -1874,16 +1874,16 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBParameterGroup, 0, len(groups))
+	members := make([]xmlDBClusterParameterGroup, 0, len(groups))
 	for _, pg := range groups {
 		cp := pg
-		members = append(members, toXMLParameterGroup(&cp))
+		members = append(members, toXMLClusterParameterGroup(&cp))
 	}
 
 	return &describeDBClusterParameterGroupsResponse{
 		Xmlns: rdsXMLNS,
 		Result: describeDBClusterParameterGroupsResult{
-			DBClusterParameterGroups: xmlDBParameterGroupList{Members: members},
+			DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
 		},
 	}, nil
 }
@@ -2278,6 +2278,14 @@ func toXMLParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 	}
 }
 
+func toXMLClusterParameterGroup(pg *DBParameterGroup) xmlDBClusterParameterGroup {
+	return xmlDBClusterParameterGroup{
+		DBClusterParameterGroupName: pg.DBParameterGroupName,
+		DBParameterGroupFamily:      pg.DBParameterGroupFamily,
+		Description:                 pg.Description,
+	}
+}
+
 func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 	opts := make([]xmlOptionGroupOption, 0, len(og.Options))
 	for _, o := range og.Options {
@@ -2423,6 +2431,16 @@ type xmlDBParameterGroup struct {
 
 type xmlDBParameterGroupList struct {
 	Members []xmlDBParameterGroup `xml:"DBParameterGroup"`
+}
+
+type xmlDBClusterParameterGroup struct {
+	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName"`
+	DBParameterGroupFamily      string `xml:"DBParameterGroupFamily"`
+	Description                 string `xml:"Description"`
+}
+
+type xmlDBClusterParameterGroupList struct {
+	Members []xmlDBClusterParameterGroup `xml:"DBClusterParameterGroup"`
 }
 
 type xmlDBParameter struct {
@@ -2617,13 +2635,13 @@ type modifyDBClusterResponse struct {
 }
 
 type createDBClusterParameterGroupResponse struct {
-	XMLName          xml.Name            `xml:"CreateDBClusterParameterGroupResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	DBParameterGroup xmlDBParameterGroup `xml:"CreateDBClusterParameterGroupResult>DBClusterParameterGroup"`
+	XMLName          xml.Name                   `xml:"CreateDBClusterParameterGroupResponse"`
+	Xmlns            string                     `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBClusterParameterGroup `xml:"CreateDBClusterParameterGroupResult>DBClusterParameterGroup"`
 }
 
 type describeDBClusterParameterGroupsResult struct {
-	DBClusterParameterGroups xmlDBParameterGroupList `xml:"DBClusterParameterGroups"`
+	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DBClusterParameterGroups"`
 }
 
 type describeDBClusterParameterGroupsResponse struct {
@@ -3250,7 +3268,7 @@ func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error
 
 	return &copyDBClusterParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
-		DBParameterGroup: toXMLParameterGroup(pg),
+		DBParameterGroup: toXMLClusterParameterGroup(pg),
 	}, nil
 }
 
@@ -3447,9 +3465,9 @@ type backtrackDBClusterResponse struct {
 }
 
 type copyDBClusterParameterGroupResponse struct {
-	XMLName          xml.Name            `xml:"CopyDBClusterParameterGroupResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	DBParameterGroup xmlDBParameterGroup `xml:"CopyDBClusterParameterGroupResult>DBClusterParameterGroup"`
+	XMLName          xml.Name                   `xml:"CopyDBClusterParameterGroupResponse"`
+	Xmlns            string                     `xml:"xmlns,attr"`
+	DBParameterGroup xmlDBClusterParameterGroup `xml:"CopyDBClusterParameterGroupResult>DBClusterParameterGroup"`
 }
 
 type copyDBParameterGroupResponse struct {
