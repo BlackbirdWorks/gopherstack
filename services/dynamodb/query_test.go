@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -312,4 +313,15 @@ func TestQuery_ConsumedCapacity(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
 	assert.Greater(t, *out.ConsumedCapacity.CapacityUnits, 0.0)
+
+	// A strongly-consistent query reports twice the capacity of an
+	// eventually-consistent one, matching real DynamoDB.
+	eventual := *out.ConsumedCapacity.CapacityUnits
+
+	sdkQuery.ConsistentRead = aws.Bool(true)
+	outConsistent, err := db.Query(t.Context(), sdkQuery)
+	require.NoError(t, err)
+	require.NotNil(t, outConsistent.ConsumedCapacity)
+	assert.InDelta(t, eventual*2, *outConsistent.ConsumedCapacity.CapacityUnits, 1e-9,
+		"strongly-consistent query should report 2x the capacity")
 }

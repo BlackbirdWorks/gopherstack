@@ -74,6 +74,10 @@ DynamoDB:
 - **`ShardIteratorStore` memory leak** — every `GetRecords`/`GetShardIterator` minted an opaque token but the janitor never swept the store; it grew unbounded under streaming load. `runOnce` now calls `iteratorStore.Sweep()` alongside `exprCache.Sweep()`.
 - **Streams parity: missing records** — `BatchWriteItem` PutRequests and all `TransactWriteItems` mutations emitted no stream records (deletes via batch did). AWS emits INSERT/MODIFY/REMOVE for both; now emitted (covered by `streams_ops_test.go`).
 
+DynamoDB (capacity accuracy, second pass):
+- **Query/Scan `ConsumedCapacity` ignored `ConsistentRead`** — the throttler already doubled RCU for strongly-consistent reads, but the *reported* `ConsumedCapacity` always used the eventually-consistent (0.5×) rate, so it was half of actual. `consumedCapacityForQuery`/`consumedCapacityForScan` now apply `applyConsistentReadMultiplier` (covered by `TestQuery_ConsumedCapacity`).
+- **DeleteItem/UpdateItem throttled a flat 1 WCU** — both reported size-proportional `ConsumedCapacity` but only ever deducted `1.0` from the token bucket, so large-item writes under-consumed throughput. The lookup now runs before the throttle and charges `WriteCapacityUnits(oldItem)` (Delete) / `WriteCapacityUnits(existing)` (Update).
+
 S3:
 - **Suspended-versioning DELETE data loss** — `backend_memory.go` `deleteLatestVersion` deleted the entire object (all versions) on an unversioned delete against a Suspended bucket. AWS removes only the `null` version, inserts a `null` delete marker, and preserves non-null versions. Fixed and covered by `TestSuspendedVersioningDeletePreservesVersions`.
 - **Data race in `storePart`** — the per-bucket uploads inner map was indexed after releasing `b.mu`, racing with `CreateMultipartUpload`. The lookup now happens while the read lock is held.

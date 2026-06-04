@@ -335,17 +335,7 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
-	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens. PAY_PER_REQUEST tables bypass throttling.
 	region := getRegionFromContext(ctx, db)
-
-	if !isOnDemandTable(table.BillingMode) {
-		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
-			table.mu.Unlock()
-
-			return nil, throttleErr
-		}
-	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 
@@ -356,6 +346,19 @@ func (db *InMemoryDB) DeleteItem(
 		pkDef.AttributeName,
 		skDef.AttributeName,
 	)
+
+	// Enforce throughput after key validation so that invalid requests do not
+	// consume tokens. PAY_PER_REQUEST tables bypass throttling. DeleteItem
+	// consumes WCUs proportional to the size of the deleted item (min 1).
+	if !isOnDemandTable(table.BillingMode) {
+		if throttleErr := db.throttler.ConsumeWrite(
+			throttleKey(region, tableName), WriteCapacityUnits(oldItem),
+		); throttleErr != nil {
+			table.mu.Unlock()
+
+			return nil, throttleErr
+		}
+	}
 
 	if err = db.checkDeleteCondition(ctx, input, oldItem); err != nil {
 		table.mu.Unlock()
@@ -496,19 +499,22 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
-	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens. PAY_PER_REQUEST tables bypass throttling.
 	region := getRegionFromContext(ctx, db)
 
+	existing, matchIndex := db.findMatchForPut(table, wireKey)
+
+	// Enforce throughput after key validation so that invalid requests do not
+	// consume tokens. PAY_PER_REQUEST tables bypass throttling. UpdateItem
+	// consumes WCUs proportional to the (pre-update) item size, min 1.
 	if !isOnDemandTable(table.BillingMode) {
-		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+		if throttleErr := db.throttler.ConsumeWrite(
+			throttleKey(region, tableName), WriteCapacityUnits(existing),
+		); throttleErr != nil {
 			table.mu.Unlock()
 
 			return nil, throttleErr
 		}
 	}
-
-	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
 	err = db.checkUpdateCondition(ctx, input, existing)
 	if err != nil {
