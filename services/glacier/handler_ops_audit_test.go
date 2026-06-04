@@ -148,8 +148,8 @@ func TestOpsAudit_DescribeJob_SNSTopicPresent(t *testing.T) {
 	tests := []struct {
 		name         string
 		snsTopic     string
-		wantPresent  bool
 		wantSNSTopic string
+		wantPresent  bool
 	}{
 		{
 			name:         "job_with_sns_topic_returns_it",
@@ -200,12 +200,10 @@ func TestOpsAudit_DescribeJob_SNSTopicPresent(t *testing.T) {
 				var got string
 				require.NoError(t, json.Unmarshal(snsRaw, &got))
 				assert.Equal(t, tt.wantSNSTopic, got)
-			} else {
-				if present {
-					var got string
-					require.NoError(t, json.Unmarshal(snsRaw, &got))
-					assert.Empty(t, got, "SNSTopic should be empty or absent when not set")
-				}
+			} else if present {
+				var got string
+				require.NoError(t, json.Unmarshal(snsRaw, &got))
+				assert.Empty(t, got, "SNSTopic should be empty or absent when not set")
 			}
 		})
 	}
@@ -287,12 +285,10 @@ func TestOpsAudit_DescribeJob_RetrievalByteRange(t *testing.T) {
 				var got string
 				require.NoError(t, json.Unmarshal(rangeRaw, &got))
 				assert.Equal(t, tt.byteRange, got)
-			} else {
-				if present {
-					var got string
-					require.NoError(t, json.Unmarshal(rangeRaw, &got))
-					assert.Empty(t, got, "RetrievalByteRange should be empty or absent when not set")
-				}
+			} else if present {
+				var got string
+				require.NoError(t, json.Unmarshal(rangeRaw, &got))
+				assert.Empty(t, got, "RetrievalByteRange should be empty or absent when not set")
 			}
 		})
 	}
