@@ -669,7 +669,7 @@ func TestHandler_ErrorEnvelopes(t *testing.T) {
 			wantType:   "PipelineNotFoundException",
 		},
 		{
-			name: "duplicate create returns InvalidStructureException",
+			name: "duplicate create returns PipelineNameInUseException",
 			setup: func(h *codepipeline.Handler) {
 				_, err := h.Backend.CreatePipeline(samplePipeline("duplicate-pipeline"), nil)
 				require.NoError(t, err)
@@ -677,7 +677,7 @@ func TestHandler_ErrorEnvelopes(t *testing.T) {
 			action:     "CreatePipeline",
 			input:      map[string]any{"pipeline": samplePipeline("duplicate-pipeline")},
 			wantStatus: http.StatusBadRequest,
-			wantType:   "InvalidStructureException",
+			wantType:   "PipelineNameInUseException",
 		},
 		{
 			name:       "unknown action returns InvalidActionException",
