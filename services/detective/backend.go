@@ -337,8 +337,8 @@ func (b *InMemoryBackend) DeleteMembers(
 
 	memberMap := b.members[graphARN]
 
-	var deleted []string
-	var unprocessed []UnprocessedAccount
+	deleted := make([]string, 0, len(accountIDs))
+	unprocessed := make([]UnprocessedAccount, 0)
 
 	for _, id := range accountIDs {
 		if _, ok := memberMap[id]; !ok {

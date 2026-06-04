@@ -490,6 +490,7 @@ func memberDetailsToJSON(members []*MemberDetail) []map[string]any {
 			"EmailAddress":    m.EmailAddress,
 			"GraphArn":        m.GraphARN,
 			"InvitedTime":     m.InvitedTime.Format("2006-01-02T15:04:05.000Z"),
+			"MasterId":        m.AdministratorID,
 			"Status":          m.Status,
 			"UpdatedTime":     m.UpdatedTime.Format("2006-01-02T15:04:05.000Z"),
 		})
