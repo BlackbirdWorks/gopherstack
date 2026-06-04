@@ -43,11 +43,6 @@ var (
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 )
 
-var validFilterActions = map[string]bool{
-	"NONE":     true,
-	"SUPPRESS": true,
-}
-
 // validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagCount {
@@ -69,7 +64,11 @@ func validateTags(tags map[string]string) error {
 
 // validateFilterAction returns an error if action is not a valid Inspector2 filter action.
 func validateFilterAction(action string) error {
-	if action == "" || validFilterActions[action] {
+	validActions := map[string]bool{
+		"NONE":     true,
+		"SUPPRESS": true,
+	}
+	if action == "" || validActions[action] {
 		return nil
 	}
 
