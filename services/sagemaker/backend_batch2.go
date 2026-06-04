@@ -50,6 +50,10 @@ var (
 	ErrWorkteamNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
 
+const (
+	jobStatusStopped = "STOPPED"
+)
+
 // ---------------------------------------------------------------------------
 // ModelPackageGroup
 // ---------------------------------------------------------------------------
@@ -127,7 +131,8 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(name string) error {
 	// AWS rejects deletion when model packages still exist in the group.
 	for _, mp := range b.modelPackages {
 		if mp.ModelPackageGroupName == name {
-			return fmt.Errorf("%w: model package group %q has model packages and cannot be deleted", ErrModelPackageGroupHasPackages, name)
+			return fmt.Errorf("%w: model package group %q has model packages and cannot be deleted",
+				ErrModelPackageGroupHasPackages, name)
 		}
 	}
 
@@ -335,7 +340,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 	j := &AutoMLJob{
 		AutoMLJobName:   name,
 		AutoMLJobArn:    jobARN,
-		AutoMLJobStatus: "InProgress",
+		AutoMLJobStatus: trainingJobStatusInProgress,
 		RoleArn:         roleArn,
 		Tags:            mergeTags(nil, tags),
 		CreationTime:    time.Now(),
@@ -370,7 +375,8 @@ func (b *InMemoryBackend) StopAutoMLJob(name string) error {
 
 	// AWS rejects stopping a job that is already in a terminal state.
 	if j.AutoMLJobStatus == algorithmStatusCompleted || j.AutoMLJobStatus == pipelineStatusStopped {
-		return fmt.Errorf("%w: AutoML job %q cannot be stopped (status: %s)", ErrAutoMLJobNotStoppable, name, j.AutoMLJobStatus)
+		return fmt.Errorf("%w: AutoML job %q cannot be stopped (status: %s)",
+			ErrAutoMLJobNotStoppable, name, j.AutoMLJobStatus)
 	}
 
 	j.AutoMLJobStatus = pipelineStatusStopped
@@ -1163,11 +1169,12 @@ func (b *InMemoryBackend) StopCompilationJob(name string) error {
 	}
 
 	// AWS rejects stopping a job that is already in a terminal state.
-	if j.CompilationJobStatus == "COMPLETED" || j.CompilationJobStatus == "STOPPED" {
-		return fmt.Errorf("%w: compilation job %q is not running (status: %s)", ErrCompilationJobNotStoppable, name, j.CompilationJobStatus)
+	if j.CompilationJobStatus == "COMPLETED" || j.CompilationJobStatus == jobStatusStopped {
+		return fmt.Errorf("%w: compilation job %q is not running (status: %s)",
+			ErrCompilationJobNotStoppable, name, j.CompilationJobStatus)
 	}
 
-	j.CompilationJobStatus = "STOPPED"
+	j.CompilationJobStatus = jobStatusStopped
 	j.LastModifiedTime = time.Now()
 
 	return nil
@@ -1324,7 +1331,8 @@ func (b *InMemoryBackend) StartMonitoringSchedule(name string) error {
 
 	// AWS rejects starting a schedule that is not in Stopped state.
 	if ms.MonitoringScheduleStatus != pipelineStatusStopped {
-		return fmt.Errorf("%w: monitoring schedule %q is not stopped (status: %s)", ErrMonitoringScheduleNotStopped, name, ms.MonitoringScheduleStatus)
+		return fmt.Errorf("%w: monitoring schedule %q is not stopped (status: %s)",
+			ErrMonitoringScheduleNotStopped, name, ms.MonitoringScheduleStatus)
 	}
 
 	ms.MonitoringScheduleStatus = "Scheduled"

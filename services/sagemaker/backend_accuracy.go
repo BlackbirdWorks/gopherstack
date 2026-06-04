@@ -954,7 +954,7 @@ func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJo
 	pj := &ProcessingJob{
 		ProcessingJobName:      opts.ProcessingJobName,
 		ProcessingJobArn:       pjARN,
-		ProcessingJobStatus:    "InProgress",
+		ProcessingJobStatus:    trainingJobStatusInProgress,
 		RoleArn:                opts.RoleArn,
 		AppSpecification:       opts.AppSpecification,
 		ProcessingInputs:       opts.ProcessingInputs,
