@@ -1295,8 +1295,8 @@ type replicationInstanceJSON struct {
 	EngineVersion                         string                     `json:"EngineVersion"`
 	AvailabilityZone                      string                     `json:"AvailabilityZone"`
 	ReplicationInstanceStatus             string                     `json:"ReplicationInstanceStatus"`
-	ReplicationInstancePrivateIpAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
-	ReplicationInstancePublicIpAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
+	ReplicationInstancePrivateIPAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
+	ReplicationInstancePublicIPAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
 	VpcSecurityGroups                     []any                      `json:"VpcSecurityGroups"`
 	AllocatedStorage                      int32                      `json:"AllocatedStorage"`
 	MultiAZ                               bool                       `json:"MultiAZ"`
@@ -1323,8 +1323,8 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		EngineVersion:                         ri.EngineVersion,
 		AvailabilityZone:                      ri.AvailabilityZone,
 		ReplicationInstanceStatus:             ri.ReplicationInstanceStatus,
-		ReplicationInstancePrivateIpAddresses: privateIPs,
-		ReplicationInstancePublicIpAddresses:  publicIPs,
+		ReplicationInstancePrivateIPAddresses: privateIPs,
+		ReplicationInstancePublicIPAddresses:  publicIPs,
 		VpcSecurityGroups:                     []any{},
 		AllocatedStorage:                      ri.AllocatedStorage,
 		MultiAZ:                               ri.MultiAZ,
