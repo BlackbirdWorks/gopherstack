@@ -1070,12 +1070,7 @@ func (h *Handler) handleGetCommit(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"commit": map[string]any{
-			keyCommitID: c.CommitID,
-			keyTreeID:   c.TreeID,
-			keyMessage:  c.Message,
-			"parents":   c.Parents,
-		},
+		"commit": commitToMap(c),
 	}, nil
 }
 
