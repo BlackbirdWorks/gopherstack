@@ -331,6 +331,7 @@ func (h *S3Handler) listMultipartUploads(
 	result := ListMultipartUploadsResult{
 		Xmlns:              xmlNamespaceS3,
 		Bucket:             bucketName,
+		Delimiter:          q.Get("delimiter"),
 		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
 		IsTruncated:        aws.ToBool(out.IsTruncated),
 		NextKeyMarker:      aws.ToString(out.NextKeyMarker),

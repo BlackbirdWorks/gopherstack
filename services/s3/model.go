@@ -30,7 +30,6 @@ type ListBucketResult struct {
 	NextMarker     string            `xml:"NextMarker,omitempty"`
 	Contents       []ObjectXML       `xml:"Contents"`
 	CommonPrefixes []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
-	KeyCount       int               `xml:"KeyCount"`
 	MaxKeys        int               `xml:"MaxKeys"`
 	IsTruncated    bool              `xml:"IsTruncated"`
 }
@@ -74,7 +73,7 @@ type ObjectXML struct {
 
 type VersioningConfiguration struct {
 	XMLName xml.Name `xml:"VersioningConfiguration"`
-	Status  string   `xml:"Status"` // "Enabled" or "Suspended"
+	Status  string   `xml:"Status,omitempty"` // "Enabled" or "Suspended"; omitted when versioning is not yet configured
 }
 
 type Tagging struct {
@@ -302,6 +301,7 @@ type ListMultipartUploadsResult struct {
 	XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
 	Xmlns              string            `xml:"xmlns,attr,omitempty"`
 	Bucket             string            `xml:"Bucket"`
+	Delimiter          string            `xml:"Delimiter,omitempty"`
 	Prefix             string            `xml:"Prefix,omitempty"`
 	KeyMarker          string            `xml:"KeyMarker,omitempty"`
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`

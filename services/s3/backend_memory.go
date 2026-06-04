@@ -217,10 +217,11 @@ func (b *InMemoryBackend) CreateBucket(
 	}
 
 	b.buckets[region][bucketName] = &StoredBucket{
-		Name:                      bucketName,
-		CreationDate:              time.Now().UTC(),
-		Objects:                   make(map[string]*StoredObject),
-		Versioning:                types.BucketVersioningStatusSuspended,
+		Name:         bucketName,
+		CreationDate: time.Now().UTC(),
+		Objects:      make(map[string]*StoredObject),
+		// Versioning is intentionally not set: new buckets have never had versioning
+		// configured, which AWS represents as an empty VersioningConfiguration element.
 		mu:                        lockmetrics.New("s3.bucket." + bucketName),
 		AnalyticsConfigs:          make(map[string]string),
 		IntelligentTieringConfigs: make(map[string]string),
