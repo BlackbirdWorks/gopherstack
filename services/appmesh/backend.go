@@ -71,7 +71,7 @@ type InMemoryBackend struct {
 	accountID      string
 	region         string
 	meshes         map[string]*Mesh
-	virtualNodes   map[string]map[string]*VirtualNode  // meshName → vnName → vn
+	virtualNodes   map[string]map[string]*VirtualNode // meshName → vnName → vn
 	virtualRouters map[string]map[string]*VirtualRouter
 	routes         map[routeKey]*Route
 	virtualSvcs    map[string]map[string]*VirtualService
@@ -163,6 +163,8 @@ func newMeta(arn, accountID string) ResourceMeta {
 	}
 }
 
+const statusActive = "ACTIVE"
+
 // normalizeSpec returns a non-nil JSON object if spec is nil or empty.
 func normalizeSpec(spec json.RawMessage) json.RawMessage {
 	if len(spec) == 0 {
@@ -184,7 +186,7 @@ func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map
 		Meta:   newMeta(arn, b.accountID),
 		Name:   name,
 		Spec:   normalizeSpec(spec),
-		Status: "ACTIVE",
+		Status: statusActive,
 	}
 	b.meshes[name] = m
 	if len(tags) > 0 {
@@ -255,6 +257,7 @@ func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*Mes
 
 // ─── VirtualNode ─────────────────────────────────────────────────────────────
 
+//nolint:dupl // create pattern is structurally identical to CreateVirtualRouter but operates on different types
 func (b *InMemoryBackend) CreateVirtualNode(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualNode, error) {
@@ -275,7 +278,7 @@ func (b *InMemoryBackend) CreateVirtualNode(
 		MeshName:        meshName,
 		VirtualNodeName: name,
 		Spec:            normalizeSpec(spec),
-		Status:          "ACTIVE",
+		Status:          statusActive,
 	}
 	b.virtualNodes[meshName][name] = vn
 	if len(tags) > 0 {
@@ -328,6 +331,7 @@ func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode
 	return vn, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListVirtualNodes(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualNodeSummary, string, error) {
@@ -358,6 +362,7 @@ func (b *InMemoryBackend) ListVirtualNodes(
 
 // ─── VirtualRouter ───────────────────────────────────────────────────────────
 
+//nolint:dupl // create pattern is structurally identical to CreateVirtualNode but operates on different types
 func (b *InMemoryBackend) CreateVirtualRouter(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualRouter, error) {
@@ -378,7 +383,7 @@ func (b *InMemoryBackend) CreateVirtualRouter(
 		MeshName:          meshName,
 		VirtualRouterName: name,
 		Spec:              normalizeSpec(spec),
-		Status:            "ACTIVE",
+		Status:            statusActive,
 	}
 	b.virtualRouters[meshName][name] = vr
 	if len(tags) > 0 {
@@ -436,6 +441,7 @@ func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRo
 	return vr, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListVirtualRouters(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualRouterSummary, string, error) {
@@ -488,7 +494,7 @@ func (b *InMemoryBackend) CreateRoute(
 		VirtualRouterName: virtualRouterName,
 		RouteName:         routeName,
 		Spec:              normalizeSpec(spec),
-		Status:            "ACTIVE",
+		Status:            statusActive,
 	}
 	b.routes[k] = r
 	if len(tags) > 0 {
@@ -513,7 +519,10 @@ func (b *InMemoryBackend) DescribeRoute(meshName, virtualRouterName, routeName s
 	return r, nil
 }
 
-func (b *InMemoryBackend) UpdateRoute(meshName, virtualRouterName, routeName string, spec json.RawMessage) (*Route, error) {
+func (b *InMemoryBackend) UpdateRoute(
+	meshName, virtualRouterName, routeName string,
+	spec json.RawMessage,
+) (*Route, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.meshes[meshName]; !ok {
@@ -552,6 +561,7 @@ func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName str
 	return r, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListRoutes(
 	meshName, virtualRouterName string, maxResults int32, nextToken string,
 ) ([]*RouteSummary, string, error) {
@@ -591,6 +601,7 @@ func (b *InMemoryBackend) ListRoutes(
 
 // ─── VirtualService ──────────────────────────────────────────────────────────
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualService(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualService, error) {
@@ -611,7 +622,7 @@ func (b *InMemoryBackend) CreateVirtualService(
 		MeshName:           meshName,
 		VirtualServiceName: name,
 		Spec:               normalizeSpec(spec),
-		Status:             "ACTIVE",
+		Status:             statusActive,
 	}
 	b.virtualSvcs[meshName][name] = vs
 	if len(tags) > 0 {
@@ -664,6 +675,7 @@ func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualS
 	return vs, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListVirtualServices(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualServiceSummary, string, error) {
@@ -694,6 +706,7 @@ func (b *InMemoryBackend) ListVirtualServices(
 
 // ─── VirtualGateway ──────────────────────────────────────────────────────────
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualGateway(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualGateway, error) {
@@ -714,7 +727,7 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 		MeshName:           meshName,
 		VirtualGatewayName: name,
 		Spec:               normalizeSpec(spec),
-		Status:             "ACTIVE",
+		Status:             statusActive,
 	}
 	b.virtualGWs[meshName][name] = vg
 	if len(tags) > 0 {
@@ -772,6 +785,7 @@ func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualG
 	return vg, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListVirtualGateways(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualGatewaySummary, string, error) {
@@ -824,7 +838,7 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 		VirtualGatewayName: virtualGatewayName,
 		GatewayRouteName:   routeName,
 		Spec:               normalizeSpec(spec),
-		Status:             "ACTIVE",
+		Status:             statusActive,
 	}
 	b.gatewayRoutes[k] = gr
 	if len(tags) > 0 {
@@ -890,6 +904,7 @@ func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, route
 	return gr, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListGatewayRoutes(
 	meshName, virtualGatewayName string, maxResults int32, nextToken string,
 ) ([]*GatewayRouteSummary, string, error) {
@@ -956,7 +971,11 @@ func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListTagsForResource(arn string, maxResults int32, nextToken string) ([]TagRef, string, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	arn string,
+	maxResults int32,
+	nextToken string,
+) ([]TagRef, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if !b.arnExists(arn) {
@@ -979,11 +998,25 @@ func (b *InMemoryBackend) ListTagsForResource(arn string, maxResults int32, next
 // arnExists checks whether the given ARN belongs to any known resource.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) arnExists(arn string) bool {
+	return b.arnInMeshes(arn) ||
+		b.arnInVirtualNodes(arn) ||
+		b.arnInVirtualRouters(arn) ||
+		b.arnInRoutes(arn) ||
+		b.arnInVirtualServices(arn) ||
+		b.arnInVirtualGateways(arn) ||
+		b.arnInGatewayRoutes(arn)
+}
+
+func (b *InMemoryBackend) arnInMeshes(arn string) bool {
 	for _, m := range b.meshes {
 		if m.Meta.Arn == arn {
 			return true
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInVirtualNodes(arn string) bool {
 	for _, vnMap := range b.virtualNodes {
 		for _, vn := range vnMap {
 			if vn.Meta.Arn == arn {
@@ -991,6 +1024,10 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 			}
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInVirtualRouters(arn string) bool {
 	for _, vrMap := range b.virtualRouters {
 		for _, vr := range vrMap {
 			if vr.Meta.Arn == arn {
@@ -998,11 +1035,19 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 			}
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInRoutes(arn string) bool {
 	for _, r := range b.routes {
 		if r.Meta.Arn == arn {
 			return true
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInVirtualServices(arn string) bool {
 	for _, vsMap := range b.virtualSvcs {
 		for _, vs := range vsMap {
 			if vs.Meta.Arn == arn {
@@ -1010,6 +1055,10 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 			}
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInVirtualGateways(arn string) bool {
 	for _, vgMap := range b.virtualGWs {
 		for _, vg := range vgMap {
 			if vg.Meta.Arn == arn {
@@ -1017,6 +1066,10 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 			}
 		}
 	}
+	return false
+}
+
+func (b *InMemoryBackend) arnInGatewayRoutes(arn string) bool {
 	for _, gr := range b.gatewayRoutes {
 		if gr.Meta.Arn == arn {
 			return true

@@ -20,21 +20,39 @@ const (
 	pathSegVirtualNodes   = "virtualNodes"
 	pathSegVirtualRouters = "virtualRouters"
 	// Route paths use singular "virtualRouter" (AWS API quirk).
-	pathSegVirtualRouter  = "virtualRouter"
-	pathSegRoutes         = "routes"
-	pathSegVirtualSvcs    = "virtualServices"
-	pathSegVirtualGWs     = "virtualGateways"
+	pathSegVirtualRouter = "virtualRouter"
+	pathSegRoutes        = "routes"
+	pathSegVirtualSvcs   = "virtualServices"
+	pathSegVirtualGWs    = "virtualGateways"
 	// Gateway route paths use singular "virtualGateway" (AWS API quirk).
-	pathSegVirtualGW      = "virtualGateway"
-	pathSegGatewayRoutes  = "gatewayRoutes"
-	pathSegTags           = "tags"
-	pathSegTag            = "tag"
-	pathSegUntag          = "untag"
+	pathSegVirtualGW     = "virtualGateway"
+	pathSegGatewayRoutes = "gatewayRoutes"
+	pathSegTags          = "tags"
+	pathSegTag           = "tag"
+	pathSegUntag         = "untag"
 
 	keyCode    = "code"
 	keyMessage = "message"
 
 	defaultMaxResults = 100
+
+	keyMesh           = "mesh"
+	keyVirtualNode    = "virtualNode"
+	keyVirtualRouter  = "virtualRouter"
+	keyRoute          = "route"
+	keyVirtualService = "virtualService"
+	keyVirtualGateway = "virtualGateway"
+	keyGatewayRoute   = "gatewayRoute"
+	keyArn            = "arn"
+	keyCreatedAt      = "createdAt"
+	keyLastUpdatedAt  = "lastUpdatedAt"
+	keyMeshOwner      = "meshOwner"
+	keyResourceOwner  = "resourceOwner"
+	keyVersion        = "version"
+	keyMeshName       = "meshName"
+	keyMetadata       = "metadata"
+	keySpec           = "spec"
+	keyStatus         = "status"
 )
 
 // Handler handles App Mesh HTTP requests.
@@ -248,6 +266,7 @@ func (h *Handler) handleVirtualRouters(c *echo.Context, segs []string, meshName 
 
 // ─── Routes (singular virtualRouter in path) ──────────────────────────────────
 
+//nolint:dupl // handler pattern is structurally identical across resource types
 func (h *Handler) handleRoutes(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualRouter/{vrName}/routes
 	if len(segs) < 4 {
@@ -334,6 +353,7 @@ func (h *Handler) handleVirtualGateways(c *echo.Context, segs []string, meshName
 
 // ─── Gateway Routes (singular virtualGateway in path) ────────────────────────
 
+//nolint:dupl // handler pattern is structurally identical across resource types
 func (h *Handler) handleGatewayRoutes(c *echo.Context, segs []string, meshName string) error {
 	// /meshes/{meshName}/virtualGateway/{vgName}/gatewayRoutes[/{routeName}]
 	if len(segs) < 4 {
@@ -871,57 +891,57 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 func metaToWire(m ResourceMeta) map[string]any {
 	return map[string]any{
-		"arn":           m.Arn,
-		"createdAt":    m.CreatedAt.Unix(),
-		"lastUpdatedAt": m.UpdatedAt.Unix(),
-		"meshOwner":    m.MeshOwner,
-		"resourceOwner": m.ResourceOwner,
-		"uid":          m.UID,
-		"version":      m.Version,
+		keyArn:           m.Arn,
+		keyCreatedAt:     m.CreatedAt.Unix(),
+		keyLastUpdatedAt: m.UpdatedAt.Unix(),
+		keyMeshOwner:     m.MeshOwner,
+		keyResourceOwner: m.ResourceOwner,
+		"uid":            m.UID,
+		keyVersion:       m.Version,
 	}
 }
 
 func meshToWire(m *Mesh) map[string]any {
 	return map[string]any{
-		"meshName": m.Name,
-		"metadata": metaToWire(m.Meta),
-		"spec":     specOrEmpty(m.Spec),
-		"status":   map[string]any{"status": m.Status},
+		keyMeshName: m.Name,
+		keyMetadata: metaToWire(m.Meta),
+		keySpec:     specOrEmpty(m.Spec),
+		keyStatus:   map[string]any{keyStatus: m.Status},
 	}
 }
 
 func meshSummaryToWire(ms *MeshSummary) map[string]any {
 	return map[string]any{
-		"arn":           ms.Arn,
-		"createdAt":    ms.CreatedAt.Unix(),
-		"lastUpdatedAt": ms.UpdatedAt.Unix(),
-		"meshName":     ms.Name,
-		"meshOwner":    ms.MeshOwner,
-		"resourceOwner": ms.ResourceOwner,
-		"version":      ms.Version,
+		keyArn:           ms.Arn,
+		keyCreatedAt:     ms.CreatedAt.Unix(),
+		keyLastUpdatedAt: ms.UpdatedAt.Unix(),
+		keyMeshName:      ms.Name,
+		keyMeshOwner:     ms.MeshOwner,
+		keyResourceOwner: ms.ResourceOwner,
+		keyVersion:       ms.Version,
 	}
 }
 
 func vnToWire(vn *VirtualNode) map[string]any {
 	return map[string]any{
-		"meshName":        vn.MeshName,
-		"virtualNodeName": vn.VirtualNodeName,
-		"metadata":        metaToWire(vn.Meta),
-		"spec":            specOrEmpty(vn.Spec),
-		"status":          map[string]any{"status": vn.Status},
+		keyMeshName:         vn.MeshName,
+		"virtualNodeName":   vn.VirtualNodeName,
+		keyMetadata:         metaToWire(vn.Meta),
+		keySpec:             specOrEmpty(vn.Spec),
+		keyStatus:           map[string]any{keyStatus: vn.Status},
 	}
 }
 
 func vnSummaryToWire(vn *VirtualNodeSummary) map[string]any {
 	return map[string]any{
-		"arn":             vn.Arn,
-		"createdAt":      vn.CreatedAt.Unix(),
-		"lastUpdatedAt":  vn.UpdatedAt.Unix(),
-		"meshName":       vn.MeshName,
+		keyArn:            vn.Arn,
+		keyCreatedAt:      vn.CreatedAt.Unix(),
+		keyLastUpdatedAt:  vn.UpdatedAt.Unix(),
+		keyMeshName:       vn.MeshName,
 		"virtualNodeName": vn.VirtualNodeName,
-		"meshOwner":      vn.MeshOwner,
-		"resourceOwner":  vn.ResourceOwner,
-		"version":        vn.Version,
+		keyMeshOwner:      vn.MeshOwner,
+		keyResourceOwner:  vn.ResourceOwner,
+		keyVersion:        vn.Version,
 	}
 }
 
@@ -938,13 +958,13 @@ func vrToWire(vr *VirtualRouter) map[string]any {
 func vrSummaryToWire(vr *VirtualRouterSummary) map[string]any {
 	return map[string]any{
 		"arn":               vr.Arn,
-		"createdAt":        vr.CreatedAt.Unix(),
-		"lastUpdatedAt":    vr.UpdatedAt.Unix(),
-		"meshName":         vr.MeshName,
+		"createdAt":         vr.CreatedAt.Unix(),
+		"lastUpdatedAt":     vr.UpdatedAt.Unix(),
+		"meshName":          vr.MeshName,
 		"virtualRouterName": vr.VirtualRouterName,
-		"meshOwner":        vr.MeshOwner,
-		"resourceOwner":    vr.ResourceOwner,
-		"version":          vr.Version,
+		"meshOwner":         vr.MeshOwner,
+		"resourceOwner":     vr.ResourceOwner,
+		"version":           vr.Version,
 	}
 }
 
@@ -962,14 +982,14 @@ func routeToWire(r *Route) map[string]any {
 func routeSummaryToWire(r *RouteSummary) map[string]any {
 	return map[string]any{
 		"arn":               r.Arn,
-		"createdAt":        r.CreatedAt.Unix(),
-		"lastUpdatedAt":    r.UpdatedAt.Unix(),
-		"meshName":         r.MeshName,
+		"createdAt":         r.CreatedAt.Unix(),
+		"lastUpdatedAt":     r.UpdatedAt.Unix(),
+		"meshName":          r.MeshName,
 		"virtualRouterName": r.VirtualRouterName,
-		"routeName":        r.RouteName,
-		"meshOwner":        r.MeshOwner,
-		"resourceOwner":    r.ResourceOwner,
-		"version":          r.Version,
+		"routeName":         r.RouteName,
+		"meshOwner":         r.MeshOwner,
+		"resourceOwner":     r.ResourceOwner,
+		"version":           r.Version,
 	}
 }
 
@@ -986,13 +1006,13 @@ func vsToWire(vs *VirtualService) map[string]any {
 func vsSummaryToWire(vs *VirtualServiceSummary) map[string]any {
 	return map[string]any{
 		"arn":                vs.Arn,
-		"createdAt":         vs.CreatedAt.Unix(),
-		"lastUpdatedAt":     vs.UpdatedAt.Unix(),
-		"meshName":          vs.MeshName,
+		"createdAt":          vs.CreatedAt.Unix(),
+		"lastUpdatedAt":      vs.UpdatedAt.Unix(),
+		"meshName":           vs.MeshName,
 		"virtualServiceName": vs.VirtualServiceName,
-		"meshOwner":         vs.MeshOwner,
-		"resourceOwner":     vs.ResourceOwner,
-		"version":           vs.Version,
+		"meshOwner":          vs.MeshOwner,
+		"resourceOwner":      vs.ResourceOwner,
+		"version":            vs.Version,
 	}
 }
 
@@ -1009,13 +1029,13 @@ func vgToWire(vg *VirtualGateway) map[string]any {
 func vgSummaryToWire(vg *VirtualGatewaySummary) map[string]any {
 	return map[string]any{
 		"arn":                vg.Arn,
-		"createdAt":         vg.CreatedAt.Unix(),
-		"lastUpdatedAt":     vg.UpdatedAt.Unix(),
-		"meshName":          vg.MeshName,
+		"createdAt":          vg.CreatedAt.Unix(),
+		"lastUpdatedAt":      vg.UpdatedAt.Unix(),
+		"meshName":           vg.MeshName,
 		"virtualGatewayName": vg.VirtualGatewayName,
-		"meshOwner":         vg.MeshOwner,
-		"resourceOwner":     vg.ResourceOwner,
-		"version":           vg.Version,
+		"meshOwner":          vg.MeshOwner,
+		"resourceOwner":      vg.ResourceOwner,
+		"version":            vg.Version,
 	}
 }
 
@@ -1033,14 +1053,14 @@ func grToWire(gr *GatewayRoute) map[string]any {
 func grSummaryToWire(gr *GatewayRouteSummary) map[string]any {
 	return map[string]any{
 		"arn":                gr.Arn,
-		"createdAt":         gr.CreatedAt.Unix(),
-		"lastUpdatedAt":     gr.UpdatedAt.Unix(),
-		"meshName":          gr.MeshName,
+		"createdAt":          gr.CreatedAt.Unix(),
+		"lastUpdatedAt":      gr.UpdatedAt.Unix(),
+		"meshName":           gr.MeshName,
 		"virtualGatewayName": gr.VirtualGatewayName,
-		"gatewayRouteName":  gr.GatewayRouteName,
-		"meshOwner":         gr.MeshOwner,
-		"resourceOwner":     gr.ResourceOwner,
-		"version":           gr.Version,
+		"gatewayRouteName":   gr.GatewayRouteName,
+		"meshOwner":          gr.MeshOwner,
+		"resourceOwner":      gr.ResourceOwner,
+		"version":            gr.Version,
 	}
 }
 
@@ -1150,6 +1170,17 @@ func parseOperation(method, path string) string {
 }
 
 func parseMeshOp(method string, segs []string) string {
+	if op := parseMeshTopLevel(method, segs); op != "" {
+		return op
+	}
+	if len(segs) < 3 {
+		return "Unknown"
+	}
+	return parseMeshSubResource(method, segs)
+}
+
+// parseMeshTopLevel handles /meshes and /meshes/{name}.
+func parseMeshTopLevel(method string, segs []string) string {
 	switch len(segs) {
 	case 1:
 		switch method {
@@ -1168,9 +1199,11 @@ func parseMeshOp(method string, segs []string) string {
 			return "DeleteMesh"
 		}
 	}
-	if len(segs) < 3 {
-		return "Unknown"
-	}
+	return ""
+}
+
+// parseMeshSubResource handles sub-resources under /meshes/{name}/.
+func parseMeshSubResource(method string, segs []string) string {
 	switch segs[2] {
 	case pathSegVirtualNodes:
 		return parseSubOp(method, segs, 3, "VirtualNode", "VirtualNodes")

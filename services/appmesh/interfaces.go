@@ -29,7 +29,11 @@ type StorageBackend interface {
 	ListVirtualRouters(meshName string, maxResults int32, nextToken string) ([]*VirtualRouterSummary, string, error)
 
 	// Route operations (nested under virtual router)
-	CreateRoute(meshName, virtualRouterName, routeName string, spec json.RawMessage, tags map[string]string) (*Route, error)
+	CreateRoute(
+		meshName, virtualRouterName, routeName string,
+		spec json.RawMessage,
+		tags map[string]string,
+	) (*Route, error)
 	DescribeRoute(meshName, virtualRouterName, routeName string) (*Route, error)
 	UpdateRoute(meshName, virtualRouterName, routeName string, spec json.RawMessage) (*Route, error)
 	DeleteRoute(meshName, virtualRouterName, routeName string) (*Route, error)
@@ -50,11 +54,19 @@ type StorageBackend interface {
 	ListVirtualGateways(meshName string, maxResults int32, nextToken string) ([]*VirtualGatewaySummary, string, error)
 
 	// GatewayRoute operations (nested under virtual gateway)
-	CreateGatewayRoute(meshName, virtualGatewayName, routeName string, spec json.RawMessage, tags map[string]string) (*GatewayRoute, error)
+	CreateGatewayRoute(
+		meshName, virtualGatewayName, routeName string,
+		spec json.RawMessage,
+		tags map[string]string,
+	) (*GatewayRoute, error)
 	DescribeGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error)
 	UpdateGatewayRoute(meshName, virtualGatewayName, routeName string, spec json.RawMessage) (*GatewayRoute, error)
 	DeleteGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error)
-	ListGatewayRoutes(meshName, virtualGatewayName string, maxResults int32, nextToken string) ([]*GatewayRouteSummary, string, error)
+	ListGatewayRoutes(
+		meshName, virtualGatewayName string,
+		maxResults int32,
+		nextToken string,
+	) ([]*GatewayRouteSummary, string, error)
 
 	// Tag operations
 	TagResource(arn string, tags map[string]string) error
@@ -80,10 +92,10 @@ type ResourceMeta struct {
 
 // Mesh is an App Mesh service mesh.
 type Mesh struct {
-	Meta     ResourceMeta
-	Name     string
-	Spec     json.RawMessage
-	Status   string
+	Meta   ResourceMeta
+	Name   string
+	Spec   json.RawMessage
+	Status string
 }
 
 // MeshSummary is a mesh entry in a list response.
@@ -99,11 +111,11 @@ type MeshSummary struct {
 
 // VirtualNode is an App Mesh virtual node.
 type VirtualNode struct {
-	Meta             ResourceMeta
-	MeshName         string
-	VirtualNodeName  string
-	Spec             json.RawMessage
-	Status           string
+	Meta            ResourceMeta
+	MeshName        string
+	VirtualNodeName string
+	Spec            json.RawMessage
+	Status          string
 }
 
 // VirtualNodeSummary is a virtual node entry in a list response.
@@ -120,11 +132,11 @@ type VirtualNodeSummary struct {
 
 // VirtualRouter is an App Mesh virtual router.
 type VirtualRouter struct {
-	Meta               ResourceMeta
-	MeshName           string
-	VirtualRouterName  string
-	Spec               json.RawMessage
-	Status             string
+	Meta              ResourceMeta
+	MeshName          string
+	VirtualRouterName string
+	Spec              json.RawMessage
+	Status            string
 }
 
 // VirtualRouterSummary is a virtual router entry in a list response.

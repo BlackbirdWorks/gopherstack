@@ -68,6 +68,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -2728,6 +2729,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&databrewbackend.Provider{},
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
+		&appmeshbackend.Provider{},
 		&appstreambackend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
