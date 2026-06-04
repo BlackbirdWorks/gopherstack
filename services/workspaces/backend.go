@@ -15,11 +15,13 @@ const (
 	errInvalidParameterValues = "InvalidParameterValuesException"
 	workspaceIDPrefix         = "ws-"
 	// AWS workspace IDs use 8 lowercase hex characters after the prefix.
-	workspaceIDHexLen    = 8
-	stateAvailable       = "AVAILABLE"
+	workspaceIDHexLen     = 8
+	stateAvailable        = "AVAILABLE"
 	stateAdminMaintenance = "ADMIN_MAINTENANCE"
 	stateStopped          = "STOPPED"
 	statePending          = "PENDING"
+	errMsgNotFound        = "Workspace not found"
+	ownerAmazon           = "Amazon"
 )
 
 var (
@@ -31,17 +33,17 @@ var (
 
 // storedWorkspace holds a workspace with all persisted fields.
 type storedWorkspace struct {
-	Properties   *WorkspaceProperties  `json:"properties,omitempty"`
-	Tags         map[string]string     `json:"tags"`
-	WorkspaceID  string                `json:"workspaceId"`
-	DirectoryID  string                `json:"directoryId"`
-	UserName     string                `json:"userName"`
-	BundleID     string                `json:"bundleId"`
-	State        string                `json:"state"`
-	ComputerName string                `json:"computerName"`
-	SubnetID     string                `json:"subnetId"`
-	ErrorCode    string                `json:"errorCode"`
-	ErrorMessage string                `json:"errorMessage"`
+	Properties   *WorkspaceProperties `json:"properties,omitempty"`
+	Tags         map[string]string    `json:"tags"`
+	WorkspaceID  string               `json:"workspaceId"`
+	DirectoryID  string               `json:"directoryId"`
+	UserName     string               `json:"userName"`
+	BundleID     string               `json:"bundleId"`
+	State        string               `json:"state"`
+	ComputerName string               `json:"computerName"`
+	SubnetID     string               `json:"subnetId"`
+	ErrorCode    string               `json:"errorCode"`
+	ErrorMessage string               `json:"errorMessage"`
 }
 
 func (w *storedWorkspace) toWorkspace() *Workspace {
@@ -128,62 +130,65 @@ func (b *InMemoryBackend) CreateWorkspace(
 // DescribeWorkspaces returns workspaces matching the given filters.
 func (b *InMemoryBackend) DescribeWorkspaces(
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
-	limit int32, nextToken string,
+	_ int32, _ string,
 ) ([]*Workspace, string, error) {
 	b.mu.RLock("DescribeWorkspaces")
 	defer b.mu.RUnlock()
 
-	idFilter := make(map[string]struct{}, len(workspaceIDs))
-	for _, id := range workspaceIDs {
-		idFilter[id] = struct{}{}
-	}
-
-	dirFilter := make(map[string]struct{}, len(directoryIDs))
-	for _, id := range directoryIDs {
-		dirFilter[id] = struct{}{}
-	}
-
-	userFilter := make(map[string]struct{}, len(userIDs))
-	for _, id := range userIDs {
-		userFilter[id] = struct{}{}
-	}
-
-	bundleFilter := make(map[string]struct{}, len(bundleIDs))
-	for _, id := range bundleIDs {
-		bundleFilter[id] = struct{}{}
-	}
+	idFilter := buildFilter(workspaceIDs)
+	dirFilter := buildFilter(directoryIDs)
+	userFilter := buildFilter(userIDs)
+	bundleFilter := buildFilter(bundleIDs)
 
 	var result []*Workspace
 
 	for _, w := range b.workspaces {
-		if len(idFilter) > 0 {
-			if _, ok := idFilter[w.WorkspaceID]; !ok {
-				continue
-			}
+		if !matchesFilter(idFilter, w.WorkspaceID) {
+			continue
 		}
 
-		if len(dirFilter) > 0 {
-			if _, ok := dirFilter[w.DirectoryID]; !ok {
-				continue
-			}
+		if !matchesFilter(dirFilter, w.DirectoryID) {
+			continue
 		}
 
-		if len(userFilter) > 0 {
-			if _, ok := userFilter[w.UserName]; !ok {
-				continue
-			}
+		if !matchesFilter(userFilter, w.UserName) {
+			continue
 		}
 
-		if len(bundleFilter) > 0 {
-			if _, ok := bundleFilter[w.BundleID]; !ok {
-				continue
-			}
+		if !matchesFilter(bundleFilter, w.BundleID) {
+			continue
 		}
 
 		result = append(result, w.toWorkspace())
 	}
 
 	return result, "", nil
+}
+
+// buildFilter converts a string slice to a set for O(1) membership tests.
+// An empty result means "no filter" (accept all).
+func buildFilter(ids []string) map[string]struct{} {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	f := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		f[id] = struct{}{}
+	}
+
+	return f
+}
+
+// matchesFilter returns true when filter is empty (no filter) or value is in filter.
+func matchesFilter(filter map[string]struct{}, value string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+
+	_, ok := filter[value]
+
+	return ok
 }
 
 // GetWorkspacesConnectionStatus returns connection status for the given workspace IDs.
@@ -249,7 +254,7 @@ func (b *InMemoryBackend) RebootWorkspaces(workspaceIDs []string) ([]FailedReque
 	b.mu.Lock("RebootWorkspaces")
 	defer b.mu.Unlock()
 
-	return b.collectFailures(workspaceIDs, "ResourceNotFoundException", "Workspace not found"), nil
+	return b.collectFailures(workspaceIDs, errResourceNotFound, errMsgNotFound), nil
 }
 
 // RebuildWorkspaces rebuilds the given workspaces, returning failures for unknown IDs.
@@ -257,7 +262,7 @@ func (b *InMemoryBackend) RebuildWorkspaces(workspaceIDs []string) ([]FailedRequ
 	b.mu.Lock("RebuildWorkspaces")
 	defer b.mu.Unlock()
 
-	return b.collectFailures(workspaceIDs, "ResourceNotFoundException", "Workspace not found"), nil
+	return b.collectFailures(workspaceIDs, errResourceNotFound, errMsgNotFound), nil
 }
 
 // StartWorkspaces starts the given workspaces, transitioning STOPPED workspaces to AVAILABLE.
@@ -272,8 +277,8 @@ func (b *InMemoryBackend) StartWorkspaces(workspaceIDs []string) ([]FailedReques
 		if !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
-				ErrorCode:    "ResourceNotFoundException",
-				ErrorMessage: "Workspace not found",
+				ErrorCode:    errResourceNotFound,
+				ErrorMessage: errMsgNotFound,
 			})
 
 			continue
@@ -299,8 +304,8 @@ func (b *InMemoryBackend) StopWorkspaces(workspaceIDs []string) ([]FailedRequest
 		if !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
-				ErrorCode:    "ResourceNotFoundException",
-				ErrorMessage: "Workspace not found",
+				ErrorCode:    errResourceNotFound,
+				ErrorMessage: errMsgNotFound,
 			})
 
 			continue
@@ -325,8 +330,8 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 		if _, ok := b.workspaces[id]; !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
-				ErrorCode:    "ResourceNotFoundException",
-				ErrorMessage: "Workspace not found",
+				ErrorCode:    errResourceNotFound,
+				ErrorMessage: errMsgNotFound,
 			})
 
 			continue
@@ -429,7 +434,7 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 		return filtered, "", nil
 	}
 
-	if owner != "" && owner != "Amazon" {
+	if owner != "" && owner != ownerAmazon {
 		return []*WorkspaceBundle{}, "", nil
 	}
 
@@ -442,19 +447,19 @@ func hardcodedBundles() []*WorkspaceBundle {
 		{
 			BundleID:    "wsb-bh8rsxt14",
 			Name:        "Value",
-			Owner:       "Amazon",
+			Owner:       ownerAmazon,
 			Description: "Value with Windows 10 and Office 2019",
 		},
 		{
 			BundleID:    "wsb-gm4d5tx2v",
 			Name:        "Standard",
-			Owner:       "Amazon",
+			Owner:       ownerAmazon,
 			Description: "Standard with Windows 10 and Office 2019",
 		},
 		{
 			BundleID:    "wsb-b0s22j3d7",
 			Name:        "Performance",
-			Owner:       "Amazon",
+			Owner:       ownerAmazon,
 			Description: "Performance with Windows 10 and Office 2019",
 		},
 	}

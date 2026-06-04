@@ -56,11 +56,11 @@ type WorkspaceConnectionStatus struct {
 
 // WorkspaceProperties holds mutable WorkSpace properties.
 type WorkspaceProperties struct {
-	ComputeTypeName                     string
-	RunningMode                         string
-	RootVolumeSizeGib                   int32
-	RunningModeAutoStopTimeoutInMinutes int32
-	UserVolumeSizeGib                   int32
+	ComputeTypeName                     string `json:"ComputeTypeName,omitempty"`
+	RunningMode                         string `json:"RunningMode,omitempty"`
+	RootVolumeSizeGib                   int32  `json:"RootVolumeSizeGib,omitempty"`
+	RunningModeAutoStopTimeoutInMinutes int32  `json:"RunningModeAutoStopTimeoutInMinutes,omitempty"`
+	UserVolumeSizeGib                   int32  `json:"UserVolumeSizeGib,omitempty"`
 }
 
 // FailedRequest holds error information for a failed workspace bulk operation.

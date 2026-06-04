@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -17,32 +17,21 @@ import (
 const (
 	matchPriority = service.PriorityHeaderExact
 	targetPrefix  = "WorkspacesService."
-
-	opCreateWorkspaces                   = "CreateWorkspaces"
-	opDescribeWorkspaces                 = "DescribeWorkspaces"
-	opDescribeWorkspacesConnectionStatus = "DescribeWorkspacesConnectionStatus"
-	opModifyWorkspaceProperties          = "ModifyWorkspaceProperties"
-	opModifyWorkspaceState               = "ModifyWorkspaceState"
-	opRebootWorkspaces                   = "RebootWorkspaces"
-	opRebuildWorkspaces                  = "RebuildWorkspaces"
-	opStartWorkspaces                    = "StartWorkspaces"
-	opStopWorkspaces                     = "StopWorkspaces"
-	opTerminateWorkspaces                = "TerminateWorkspaces"
-	opCreateTags                         = "CreateTags"
-	opDeleteTags                         = "DeleteTags"
-	opDescribeTags                       = "DescribeTags"
-	opDescribeWorkspaceBundles           = "DescribeWorkspaceBundles"
-	opDescribeWorkspaceDirectories       = "DescribeWorkspaceDirectories"
+	contentType   = "application/x-amz-json-1.1"
 )
 
 // Handler handles WorkSpaces HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	ops     map[string]service.JSONOpFunc
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	h := &Handler{Backend: b}
+	h.ops = h.buildOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -53,23 +42,12 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
-		opCreateWorkspaces,
-		opDescribeWorkspaces,
-		opDescribeWorkspacesConnectionStatus,
-		opModifyWorkspaceProperties,
-		opModifyWorkspaceState,
-		opRebootWorkspaces,
-		opRebuildWorkspaces,
-		opStartWorkspaces,
-		opStopWorkspaces,
-		opTerminateWorkspaces,
-		opCreateTags,
-		opDeleteTags,
-		opDescribeTags,
-		opDescribeWorkspaceBundles,
-		opDescribeWorkspaceDirectories,
+	ops := make([]string, 0, len(h.ops))
+	for k := range h.ops {
+		ops = append(ops, k)
 	}
+
+	return ops
 }
 
 // RouteMatcher returns a matcher that accepts WorkSpaces target header requests.
@@ -84,9 +62,7 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation extracts the operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
-
-	return strings.TrimPrefix(target, targetPrefix)
+	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix)
 }
 
 // ExtractResource extracts the resource identifier from the request.
@@ -97,52 +73,55 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()), h.Name(), contentType,
+			h.GetSupportedOperations(), h.dispatch, h.handleError,
+		)
+	}
+}
 
-		body, err := httputils.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "failed to read body"))
-		}
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.ops[action]
+	if !ok {
+		return nil, newUnknownOpError(action)
+	}
 
-		op := h.ExtractOperation(c)
+	result, err := fn(ctx, body)
+	if err != nil {
+		return nil, err
+	}
 
-		switch op {
-		case opCreateWorkspaces:
-			return h.handleCreateWorkspaces(c, body)
-		case opDescribeWorkspaces:
-			return h.handleDescribeWorkspaces(c, body)
-		case opDescribeWorkspacesConnectionStatus:
-			return h.handleDescribeWorkspacesConnectionStatus(c, body)
-		case opModifyWorkspaceProperties:
-			return h.handleModifyWorkspaceProperties(c, body)
-		case opModifyWorkspaceState:
-			return h.handleModifyWorkspaceState(c, body)
-		case opRebootWorkspaces:
-			return h.handleRebootWorkspaces(c, body)
-		case opRebuildWorkspaces:
-			return h.handleRebuildWorkspaces(c, body)
-		case opStartWorkspaces:
-			return h.handleStartWorkspaces(c, body)
-		case opStopWorkspaces:
-			return h.handleStopWorkspaces(c, body)
-		case opTerminateWorkspaces:
-			return h.handleTerminateWorkspaces(c, body)
-		case opCreateTags:
-			return h.handleCreateTags(c, body)
-		case opDeleteTags:
-			return h.handleDeleteTags(c, body)
-		case opDescribeTags:
-			return h.handleDescribeTags(c, body)
-		case opDescribeWorkspaceBundles:
-			return h.handleDescribeWorkspaceBundles(c, body)
-		case opDescribeWorkspaceDirectories:
-			return h.handleDescribeWorkspaceDirectories(c, body)
-		default:
-			log.Debug("workspaces: unknown operation", "op", op)
+	return json.Marshal(result)
+}
 
-			return c.JSON(http.StatusNotImplemented, errBody("NotImplementedException", "operation not implemented"))
-		}
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, err.Error()))
+	default:
+		return c.JSON(http.StatusInternalServerError, errBody("InternalServerException", err.Error()))
+	}
+}
+
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateWorkspaces":                   service.WrapOp(h.handleCreateWorkspaces),
+		"DescribeWorkspaces":                 service.WrapOp(h.handleDescribeWorkspaces),
+		"DescribeWorkspacesConnectionStatus": service.WrapOp(h.handleDescribeWorkspacesConnectionStatus),
+		"ModifyWorkspaceProperties":          service.WrapOp(h.handleModifyWorkspaceProperties),
+		"ModifyWorkspaceState":               service.WrapOp(h.handleModifyWorkspaceState),
+		"RebootWorkspaces":                   service.WrapOp(h.handleRebootWorkspaces),
+		"RebuildWorkspaces":                  service.WrapOp(h.handleRebuildWorkspaces),
+		"StartWorkspaces":                    service.WrapOp(h.handleStartWorkspaces),
+		"StopWorkspaces":                     service.WrapOp(h.handleStopWorkspaces),
+		"TerminateWorkspaces":                service.WrapOp(h.handleTerminateWorkspaces),
+		"CreateTags":                         service.WrapOp(h.handleCreateTags),
+		"DeleteTags":                         service.WrapOp(h.handleDeleteTags),
+		"DescribeTags":                       service.WrapOp(h.handleDescribeTags),
+		"DescribeWorkspaceBundles":           service.WrapOp(h.handleDescribeWorkspaceBundles),
+		"DescribeWorkspaceDirectories":       service.WrapOp(h.handleDescribeWorkspaceDirectories),
 	}
 }
 
@@ -150,19 +129,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type tagItem struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
-}
-
-// createWorkspaceRequest is a single workspace spec within CreateWorkspaces.
-type createWorkspaceRequest struct {
-	Tags        []tagItem `json:"Tags"`
-	UserName    string    `json:"UserName"`
-	DirectoryId string    `json:"DirectoryId"`
-	BundleId    string    `json:"BundleId"`
-}
-
-// workspaceIDRequest is used for bulk operations that take a WorkspaceId field.
-type workspaceIDRequest struct {
-	WorkspaceId string `json:"WorkspaceId"`
 }
 
 // workspacePropertiesResp is the JSON shape for WorkspaceProperties in responses.
@@ -174,23 +140,36 @@ type workspacePropertiesResp struct {
 	UserVolumeSizeGib                   int32  `json:"UserVolumeSizeGib,omitempty"`
 }
 
-func (h *Handler) handleCreateWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		Workspaces []createWorkspaceRequest `json:"Workspaces"`
-	}
+// --- CreateWorkspaces ---
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
+type createWorkspacesInput struct {
+	Workspaces []createWorkspaceSpec `json:"Workspaces"`
+}
 
-	type pendingWorkspace struct {
-		WorkspaceId string `json:"WorkspaceId"`
-		DirectoryId string `json:"DirectoryId"`
-		UserName    string `json:"UserName"`
-		BundleId    string `json:"BundleId"`
-		State       string `json:"State"`
-	}
+type createWorkspaceSpec struct {
+	UserName    string    `json:"UserName"`
+	DirectoryID string    `json:"DirectoryId"`
+	BundleID    string    `json:"BundleId"`
+	Tags        []tagItem `json:"Tags"`
+}
 
+type createWorkspacesOutput struct {
+	FailedRequests  []failedRequestItem `json:"FailedRequests"`
+	PendingRequests []pendingWorkspace  `json:"PendingRequests"`
+}
+
+type pendingWorkspace struct {
+	WorkspaceID string `json:"WorkspaceId"`
+	DirectoryID string `json:"DirectoryId"`
+	UserName    string `json:"UserName"`
+	BundleID    string `json:"BundleId"`
+	State       string `json:"State"`
+}
+
+func (h *Handler) handleCreateWorkspaces(
+	_ context.Context,
+	req *createWorkspacesInput,
+) (*createWorkspacesOutput, error) {
 	pending := make([]pendingWorkspace, 0, len(req.Workspaces))
 
 	for _, spec := range req.Workspaces {
@@ -199,157 +178,154 @@ func (h *Handler) handleCreateWorkspaces(c *echo.Context, body []byte) error {
 			tags[t.Key] = t.Value
 		}
 
-		ws, err := h.Backend.CreateWorkspace(spec.UserName, spec.DirectoryId, spec.BundleId, tags)
+		ws, err := h.Backend.CreateWorkspace(spec.UserName, spec.DirectoryID, spec.BundleID, tags)
 		if err != nil {
-			return h.mapError(c, err)
+			return nil, err
 		}
 
 		pending = append(pending, pendingWorkspace{
-			WorkspaceId: ws.WorkspaceID,
-			DirectoryId: ws.DirectoryID,
+			WorkspaceID: ws.WorkspaceID,
+			DirectoryID: ws.DirectoryID,
 			UserName:    ws.UserName,
-			BundleId:    ws.BundleID,
+			BundleID:    ws.BundleID,
 			State:       ws.State,
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests":  []any{},
-		"PendingRequests": pending,
-	})
+	return &createWorkspacesOutput{
+		FailedRequests:  []failedRequestItem{},
+		PendingRequests: pending,
+	}, nil
 }
 
-func (h *Handler) handleDescribeWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		WorkspaceIds []string `json:"WorkspaceIds"`
-		DirectoryId  string   `json:"DirectoryId"`
-		UserName     string   `json:"UserName"`
-		BundleId     string   `json:"BundleId"`
-		Limit        int32    `json:"Limit"`
-		NextToken    string   `json:"NextToken"`
-	}
+// --- DescribeWorkspaces ---
 
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-		}
-	}
+type describeWorkspacesInput struct {
+	DirectoryID  string   `json:"DirectoryId"`
+	UserName     string   `json:"UserName"`
+	BundleID     string   `json:"BundleId"`
+	NextToken    string   `json:"NextToken"`
+	WorkspaceIDs []string `json:"WorkspaceIds"`
+	Limit        int32    `json:"Limit"`
+}
 
+type describeWorkspacesOutput struct {
+	NextToken  string          `json:"NextToken,omitempty"`
+	Workspaces []workspaceResp `json:"Workspaces"`
+}
+
+type workspaceResp struct {
+	WorkspaceProperties *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
+	Tags                map[string]string        `json:"Tags,omitempty"`
+	WorkspaceID         string                   `json:"WorkspaceId"`
+	DirectoryID         string                   `json:"DirectoryId"`
+	UserName            string                   `json:"UserName"`
+	BundleID            string                   `json:"BundleId"`
+	State               string                   `json:"State"`
+}
+
+func (h *Handler) handleDescribeWorkspaces(
+	_ context.Context,
+	req *describeWorkspacesInput,
+) (*describeWorkspacesOutput, error) {
 	var directoryIDs, userIDs, bundleIDs []string
-	if req.DirectoryId != "" {
-		directoryIDs = []string{req.DirectoryId}
+	if req.DirectoryID != "" {
+		directoryIDs = []string{req.DirectoryID}
 	}
 
 	if req.UserName != "" {
 		userIDs = []string{req.UserName}
 	}
 
-	if req.BundleId != "" {
-		bundleIDs = []string{req.BundleId}
+	if req.BundleID != "" {
+		bundleIDs = []string{req.BundleID}
 	}
 
-	workspaces, nextToken, err := h.Backend.DescribeWorkspaces(
-		req.WorkspaceIds, directoryIDs, userIDs, bundleIDs, req.Limit, req.NextToken,
+	wsList, nextToken, err := h.Backend.DescribeWorkspaces(
+		req.WorkspaceIDs, directoryIDs, userIDs, bundleIDs, req.Limit, req.NextToken,
 	)
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	type workspaceResp struct {
-		WorkspaceProperties *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
-		Tags                map[string]string        `json:"Tags,omitempty"`
-		WorkspaceId         string                   `json:"WorkspaceId"`
-		DirectoryId         string                   `json:"DirectoryId"`
-		UserName            string                   `json:"UserName"`
-		BundleId            string                   `json:"BundleId"`
-		State               string                   `json:"State"`
+	items := make([]workspaceResp, 0, len(wsList))
+	for _, ws := range wsList {
+		items = append(items, toWorkspaceResp(ws))
 	}
 
-	items := make([]workspaceResp, 0, len(workspaces))
-	for _, ws := range workspaces {
-		item := workspaceResp{
-			WorkspaceId: ws.WorkspaceID,
-			DirectoryId: ws.DirectoryID,
-			UserName:    ws.UserName,
-			BundleId:    ws.BundleID,
-			State:       ws.State,
-			Tags:        ws.Tags,
-		}
-
-		if ws.Properties != nil {
-			item.WorkspaceProperties = &workspacePropertiesResp{
-				ComputeTypeName:                     ws.Properties.ComputeTypeName,
-				RunningMode:                         ws.Properties.RunningMode,
-				RootVolumeSizeGib:                   ws.Properties.RootVolumeSizeGib,
-				RunningModeAutoStopTimeoutInMinutes:  ws.Properties.RunningModeAutoStopTimeoutInMinutes,
-				UserVolumeSizeGib:                   ws.Properties.UserVolumeSizeGib,
-			}
-		}
-
-		items = append(items, item)
-	}
-
-	resp := map[string]any{
-		"Workspaces": items,
-	}
-
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return &describeWorkspacesOutput{Workspaces: items, NextToken: nextToken}, nil
 }
 
-func (h *Handler) handleDescribeWorkspacesConnectionStatus(c *echo.Context, body []byte) error {
-	var req struct {
-		WorkspaceIds []string `json:"WorkspaceIds"`
+func toWorkspaceResp(ws *Workspace) workspaceResp {
+	item := workspaceResp{
+		WorkspaceID: ws.WorkspaceID,
+		DirectoryID: ws.DirectoryID,
+		UserName:    ws.UserName,
+		BundleID:    ws.BundleID,
+		State:       ws.State,
+		Tags:        ws.Tags,
 	}
 
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
+	if ws.Properties != nil {
+		item.WorkspaceProperties = &workspacePropertiesResp{
+			ComputeTypeName:                     ws.Properties.ComputeTypeName,
+			RunningMode:                         ws.Properties.RunningMode,
+			RootVolumeSizeGib:                   ws.Properties.RootVolumeSizeGib,
+			RunningModeAutoStopTimeoutInMinutes: ws.Properties.RunningModeAutoStopTimeoutInMinutes,
+			UserVolumeSizeGib:                   ws.Properties.UserVolumeSizeGib,
 		}
 	}
 
-	statuses, err := h.Backend.GetWorkspacesConnectionStatus(req.WorkspaceIds)
-	if err != nil {
-		return h.mapError(c, err)
-	}
+	return item
+}
 
-	type connStatusResp struct {
-		WorkspaceId     string `json:"WorkspaceId"`
-		ConnectionState string `json:"ConnectionState"`
+// --- DescribeWorkspacesConnectionStatus ---
+
+type describeConnectionStatusInput struct {
+	WorkspaceIDs []string `json:"WorkspaceIds"`
+}
+
+type describeConnectionStatusOutput struct {
+	WorkspacesConnectionStatus []connStatusResp `json:"WorkspacesConnectionStatus"`
+}
+
+type connStatusResp struct {
+	WorkspaceID     string `json:"WorkspaceId"`
+	ConnectionState string `json:"ConnectionState"`
+}
+
+func (h *Handler) handleDescribeWorkspacesConnectionStatus(
+	_ context.Context, req *describeConnectionStatusInput,
+) (*describeConnectionStatusOutput, error) {
+	statuses, err := h.Backend.GetWorkspacesConnectionStatus(req.WorkspaceIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	items := make([]connStatusResp, 0, len(statuses))
 	for _, s := range statuses {
-		items = append(items, connStatusResp{
-			WorkspaceId:     s.WorkspaceID,
-			ConnectionState: s.ConnectionState,
-		})
+		items = append(items, connStatusResp{WorkspaceID: s.WorkspaceID, ConnectionState: s.ConnectionState})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"WorkspacesConnectionStatus": items,
-	})
+	return &describeConnectionStatusOutput{WorkspacesConnectionStatus: items}, nil
 }
 
-func (h *Handler) handleModifyWorkspaceProperties(c *echo.Context, body []byte) error {
-	var req struct {
-		WorkspaceProperties struct {
-			ComputeTypeName                     string `json:"ComputeTypeName"`
-			RunningMode                         string `json:"RunningMode"`
-			RootVolumeSizeGib                   int32  `json:"RootVolumeSizeGib"`
-			RunningModeAutoStopTimeoutInMinutes int32  `json:"RunningModeAutoStopTimeoutInMinutes"`
-			UserVolumeSizeGib                   int32  `json:"UserVolumeSizeGib"`
-		} `json:"WorkspaceProperties"`
-		WorkspaceId string `json:"WorkspaceId"`
-	}
+// --- ModifyWorkspaceProperties ---
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
+type modifyPropertiesInput struct {
+	WorkspaceID         string `json:"WorkspaceId"`
+	WorkspaceProperties struct {
+		ComputeTypeName                     string `json:"ComputeTypeName"`
+		RunningMode                         string `json:"RunningMode"`
+		RootVolumeSizeGib                   int32  `json:"RootVolumeSizeGib"`
+		RunningModeAutoStopTimeoutInMinutes int32  `json:"RunningModeAutoStopTimeoutInMinutes"`
+		UserVolumeSizeGib                   int32  `json:"UserVolumeSizeGib"`
+	} `json:"WorkspaceProperties"`
+}
 
+type emptyOutput struct{}
+
+func (h *Handler) handleModifyWorkspaceProperties(_ context.Context, req *modifyPropertiesInput) (*emptyOutput, error) {
 	props := WorkspaceProperties{
 		ComputeTypeName:                     req.WorkspaceProperties.ComputeTypeName,
 		RunningMode:                         req.WorkspaceProperties.RunningMode,
@@ -358,186 +334,132 @@ func (h *Handler) handleModifyWorkspaceProperties(c *echo.Context, body []byte) 
 		UserVolumeSizeGib:                   req.WorkspaceProperties.UserVolumeSizeGib,
 	}
 
-	if err := h.Backend.ModifyWorkspaceProperties(req.WorkspaceId, props); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return &emptyOutput{}, h.Backend.ModifyWorkspaceProperties(req.WorkspaceID, props)
 }
 
-func (h *Handler) handleModifyWorkspaceState(c *echo.Context, body []byte) error {
-	var req struct {
-		WorkspaceId    string `json:"WorkspaceId"`
-		WorkspaceState string `json:"WorkspaceState"`
-	}
+// --- ModifyWorkspaceState ---
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	if err := h.Backend.ModifyWorkspaceState(req.WorkspaceId, req.WorkspaceState); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+type modifyStateInput struct {
+	WorkspaceID    string `json:"WorkspaceId"`
+	WorkspaceState string `json:"WorkspaceState"`
 }
 
-func (h *Handler) handleRebootWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		RebootWorkspaceRequests []workspaceIDRequest `json:"RebootWorkspaceRequests"`
-	}
+func (h *Handler) handleModifyWorkspaceState(_ context.Context, req *modifyStateInput) (*emptyOutput, error) {
+	return &emptyOutput{}, h.Backend.ModifyWorkspaceState(req.WorkspaceID, req.WorkspaceState)
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
+// --- Bulk workspace operations ---
 
-	ids := extractWorkspaceIDs(req.RebootWorkspaceRequests)
+type workspaceIDItem struct {
+	WorkspaceID string `json:"WorkspaceId"`
+}
 
-	failures, err := h.Backend.RebootWorkspaces(ids)
+type bulkOutput struct {
+	FailedRequests []failedRequestItem `json:"FailedRequests"`
+}
+
+type rebootInput struct {
+	RebootWorkspaceRequests []workspaceIDItem `json:"RebootWorkspaceRequests"`
+}
+
+func (h *Handler) handleRebootWorkspaces(_ context.Context, req *rebootInput) (*bulkOutput, error) {
+	failures, err := h.Backend.RebootWorkspaces(extractIDs(req.RebootWorkspaceRequests))
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests": marshalFailedRequests(failures),
-	})
+	return &bulkOutput{FailedRequests: marshalFailedRequests(failures)}, nil
 }
 
-func (h *Handler) handleRebuildWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		RebuildWorkspaceRequests []workspaceIDRequest `json:"RebuildWorkspaceRequests"`
-	}
+type rebuildInput struct {
+	RebuildWorkspaceRequests []workspaceIDItem `json:"RebuildWorkspaceRequests"`
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	ids := extractWorkspaceIDs(req.RebuildWorkspaceRequests)
-
-	failures, err := h.Backend.RebuildWorkspaces(ids)
+func (h *Handler) handleRebuildWorkspaces(_ context.Context, req *rebuildInput) (*bulkOutput, error) {
+	failures, err := h.Backend.RebuildWorkspaces(extractIDs(req.RebuildWorkspaceRequests))
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests": marshalFailedRequests(failures),
-	})
+	return &bulkOutput{FailedRequests: marshalFailedRequests(failures)}, nil
 }
 
-func (h *Handler) handleStartWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		StartWorkspaceRequests []workspaceIDRequest `json:"StartWorkspaceRequests"`
-	}
+type startInput struct {
+	StartWorkspaceRequests []workspaceIDItem `json:"StartWorkspaceRequests"`
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	ids := extractWorkspaceIDs(req.StartWorkspaceRequests)
-
-	failures, err := h.Backend.StartWorkspaces(ids)
+func (h *Handler) handleStartWorkspaces(_ context.Context, req *startInput) (*bulkOutput, error) {
+	failures, err := h.Backend.StartWorkspaces(extractIDs(req.StartWorkspaceRequests))
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests": marshalFailedRequests(failures),
-	})
+	return &bulkOutput{FailedRequests: marshalFailedRequests(failures)}, nil
 }
 
-func (h *Handler) handleStopWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		StopWorkspaceRequests []workspaceIDRequest `json:"StopWorkspaceRequests"`
-	}
+type stopInput struct {
+	StopWorkspaceRequests []workspaceIDItem `json:"StopWorkspaceRequests"`
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	ids := extractWorkspaceIDs(req.StopWorkspaceRequests)
-
-	failures, err := h.Backend.StopWorkspaces(ids)
+func (h *Handler) handleStopWorkspaces(_ context.Context, req *stopInput) (*bulkOutput, error) {
+	failures, err := h.Backend.StopWorkspaces(extractIDs(req.StopWorkspaceRequests))
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests": marshalFailedRequests(failures),
-	})
+	return &bulkOutput{FailedRequests: marshalFailedRequests(failures)}, nil
 }
 
-func (h *Handler) handleTerminateWorkspaces(c *echo.Context, body []byte) error {
-	var req struct {
-		TerminateWorkspaceRequests []workspaceIDRequest `json:"TerminateWorkspaceRequests"`
-	}
+type terminateInput struct {
+	TerminateWorkspaceRequests []workspaceIDItem `json:"TerminateWorkspaceRequests"`
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	ids := extractWorkspaceIDs(req.TerminateWorkspaceRequests)
-
-	failures, err := h.Backend.TerminateWorkspaces(ids)
+func (h *Handler) handleTerminateWorkspaces(_ context.Context, req *terminateInput) (*bulkOutput, error) {
+	failures, err := h.Backend.TerminateWorkspaces(extractIDs(req.TerminateWorkspaceRequests))
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"FailedRequests": marshalFailedRequests(failures),
-	})
+	return &bulkOutput{FailedRequests: marshalFailedRequests(failures)}, nil
 }
 
-func (h *Handler) handleCreateTags(c *echo.Context, body []byte) error {
-	var req struct {
-		Tags       []tagItem `json:"Tags"`
-		ResourceId string    `json:"ResourceId"`
-	}
+// --- Tags ---
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
+type createTagsInput struct {
+	ResourceID string    `json:"ResourceId"`
+	Tags       []tagItem `json:"Tags"`
+}
 
+func (h *Handler) handleCreateTags(_ context.Context, req *createTagsInput) (*emptyOutput, error) {
 	tags := make(map[string]string, len(req.Tags))
 	for _, t := range req.Tags {
 		tags[t.Key] = t.Value
 	}
 
-	if err := h.Backend.CreateTags(req.ResourceId, tags); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return &emptyOutput{}, h.Backend.CreateTags(req.ResourceID, tags)
 }
 
-func (h *Handler) handleDeleteTags(c *echo.Context, body []byte) error {
-	var req struct {
-		TagKeys    []string `json:"TagKeys"`
-		ResourceId string   `json:"ResourceId"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
-
-	if err := h.Backend.DeleteTags(req.ResourceId, req.TagKeys); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+type deleteTagsInput struct {
+	ResourceID string   `json:"ResourceId"`
+	TagKeys    []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleDescribeTags(c *echo.Context, body []byte) error {
-	var req struct {
-		ResourceId string `json:"ResourceId"`
-	}
+func (h *Handler) handleDeleteTags(_ context.Context, req *deleteTagsInput) (*emptyOutput, error) {
+	return &emptyOutput{}, h.Backend.DeleteTags(req.ResourceID, req.TagKeys)
+}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-	}
+type describeTagsInput struct {
+	ResourceID string `json:"ResourceId"`
+}
 
-	tags, err := h.Backend.DescribeTags(req.ResourceId)
+type describeTagsOutput struct {
+	TagList []tagItem `json:"TagList"`
+}
+
+func (h *Handler) handleDescribeTags(_ context.Context, req *describeTagsInput) (*describeTagsOutput, error) {
+	tags, err := h.Backend.DescribeTags(req.ResourceID)
 	if err != nil {
-		return h.mapError(c, err)
+		return nil, err
 	}
 
 	items := make([]tagItem, 0, len(tags))
@@ -545,86 +467,83 @@ func (h *Handler) handleDescribeTags(c *echo.Context, body []byte) error {
 		items = append(items, tagItem{Key: k, Value: v})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"TagList": items,
-	})
+	return &describeTagsOutput{TagList: items}, nil
 }
 
-func (h *Handler) handleDescribeWorkspaceBundles(c *echo.Context, body []byte) error {
-	var req struct {
-		BundleIds []string `json:"BundleIds"`
-		Owner     string   `json:"Owner"`
-		NextToken string   `json:"NextToken"`
-	}
+// --- DescribeWorkspaceBundles ---
 
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-		}
-	}
+type describeBundlesInput struct {
+	Owner     string   `json:"Owner"`
+	NextToken string   `json:"NextToken"`
+	BundleIDs []string `json:"BundleIds"`
+}
 
-	bundles, nextToken, err := h.Backend.DescribeWorkspaceBundles(req.BundleIds, req.Owner, req.NextToken)
+type describeBundlesOutput struct {
+	NextToken string       `json:"NextToken,omitempty"`
+	Bundles   []bundleResp `json:"Bundles"`
+}
+
+type bundleResp struct {
+	BundleID    string `json:"BundleId"`
+	Name        string `json:"Name"`
+	Owner       string `json:"Owner"`
+	Description string `json:"Description"`
+}
+
+func (h *Handler) handleDescribeWorkspaceBundles(
+	_ context.Context,
+	req *describeBundlesInput,
+) (*describeBundlesOutput, error) {
+	bundles, nextToken, err := h.Backend.DescribeWorkspaceBundles(req.BundleIDs, req.Owner, req.NextToken)
 	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	type bundleResp struct {
-		BundleId    string `json:"BundleId"`
-		Name        string `json:"Name"`
-		Owner       string `json:"Owner"`
-		Description string `json:"Description"`
+		return nil, err
 	}
 
 	items := make([]bundleResp, 0, len(bundles))
 	for _, bun := range bundles {
 		items = append(items, bundleResp{
-			BundleId:    bun.BundleID,
+			BundleID:    bun.BundleID,
 			Name:        bun.Name,
 			Owner:       bun.Owner,
 			Description: bun.Description,
 		})
 	}
 
-	resp := map[string]any{
-		"Bundles": items,
-	}
-
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return &describeBundlesOutput{Bundles: items, NextToken: nextToken}, nil
 }
 
-func (h *Handler) handleDescribeWorkspaceDirectories(c *echo.Context, body []byte) error {
-	var req struct {
-		DirectoryIds []string `json:"DirectoryIds"`
-		NextToken    string   `json:"NextToken"`
-	}
+// --- DescribeWorkspaceDirectories ---
 
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, "invalid request body"))
-		}
-	}
+type describeDirectoriesInput struct {
+	NextToken    string   `json:"NextToken"`
+	DirectoryIDs []string `json:"DirectoryIds"`
+}
 
-	dirs, nextToken, err := h.Backend.DescribeWorkspaceDirectories(req.DirectoryIds, req.NextToken)
+type describeDirectoriesOutput struct {
+	NextToken   string    `json:"NextToken,omitempty"`
+	Directories []dirResp `json:"Directories"`
+}
+
+type dirResp struct {
+	DirectoryID   string `json:"DirectoryId"`
+	DirectoryName string `json:"DirectoryName"`
+	DirectoryType string `json:"DirectoryType"`
+	Alias         string `json:"Alias"`
+	State         string `json:"State"`
+}
+
+func (h *Handler) handleDescribeWorkspaceDirectories(
+	_ context.Context, req *describeDirectoriesInput,
+) (*describeDirectoriesOutput, error) {
+	dirs, nextToken, err := h.Backend.DescribeWorkspaceDirectories(req.DirectoryIDs, req.NextToken)
 	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	type dirResp struct {
-		DirectoryId   string `json:"DirectoryId"`
-		DirectoryName string `json:"DirectoryName"`
-		DirectoryType string `json:"DirectoryType"`
-		Alias         string `json:"Alias"`
-		State         string `json:"State"`
+		return nil, err
 	}
 
 	items := make([]dirResp, 0, len(dirs))
 	for _, d := range dirs {
 		items = append(items, dirResp{
-			DirectoryId:   d.DirectoryID,
+			DirectoryID:   d.DirectoryID,
 			DirectoryName: d.DirectoryName,
 			DirectoryType: d.DirectoryType,
 			Alias:         d.Alias,
@@ -632,40 +551,25 @@ func (h *Handler) handleDescribeWorkspaceDirectories(c *echo.Context, body []byt
 		})
 	}
 
-	resp := map[string]any{
-		"Directories": items,
-	}
-
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return &describeDirectoriesOutput{Directories: items, NextToken: nextToken}, nil
 }
 
-func (h *Handler) mapError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
-	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, err.Error()))
-	default:
-		return c.JSON(http.StatusInternalServerError, errBody("InternalServerException", err.Error()))
-	}
-}
+// --- Helpers ---
 
 func errBody(code, msg string) map[string]string {
-	return map[string]string{
-		"__type":  code,
-		"message": msg,
-	}
+	return map[string]string{"__type": code, "message": msg}
 }
 
-// extractWorkspaceIDs pulls WorkspaceId strings from a slice of workspaceIDRequest.
-func extractWorkspaceIDs(reqs []workspaceIDRequest) []string {
+type unknownOpError struct{ op string }
+
+func (e *unknownOpError) Error() string { return "unknown operation: " + e.op }
+
+func newUnknownOpError(op string) error { return &unknownOpError{op: op} }
+
+func extractIDs(reqs []workspaceIDItem) []string {
 	ids := make([]string, 0, len(reqs))
 	for _, r := range reqs {
-		ids = append(ids, r.WorkspaceId)
+		ids = append(ids, r.WorkspaceID)
 	}
 
 	return ids
@@ -673,12 +577,11 @@ func extractWorkspaceIDs(reqs []workspaceIDRequest) []string {
 
 // failedRequestItem is the JSON representation of a FailedRequest.
 type failedRequestItem struct {
-	WorkspaceId  string `json:"WorkspaceId"`
+	WorkspaceID  string `json:"WorkspaceId"`
 	ErrorCode    string `json:"ErrorCode"`
 	ErrorMessage string `json:"ErrorMessage"`
 }
 
-// marshalFailedRequests converts backend FailedRequests to JSON-serializable items.
 func marshalFailedRequests(failures []FailedRequest) []failedRequestItem {
 	if len(failures) == 0 {
 		return []failedRequestItem{}
@@ -686,11 +589,7 @@ func marshalFailedRequests(failures []FailedRequest) []failedRequestItem {
 
 	items := make([]failedRequestItem, 0, len(failures))
 	for _, f := range failures {
-		items = append(items, failedRequestItem{
-			WorkspaceId:  f.WorkspaceID,
-			ErrorCode:    f.ErrorCode,
-			ErrorMessage: f.ErrorMessage,
-		})
+		items = append(items, failedRequestItem(f))
 	}
 
 	return items
