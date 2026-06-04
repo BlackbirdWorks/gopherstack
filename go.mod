@@ -197,7 +197,10 @@ require (
 
 require github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3 // indirect
 
-require github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3 // indirect
+require (
+	github.com/aws/aws-sdk-go-v2/service/appmesh v1.36.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3 // indirect
+)
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2

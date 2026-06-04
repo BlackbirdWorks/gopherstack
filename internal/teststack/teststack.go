@@ -27,6 +27,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -205,6 +206,7 @@ type Stack struct {
 	AthenaHandler                  *athenabackend.Handler
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
+	AppMeshHandler                 *appmeshbackend.Handler
 	AppRunnerHandler               *apprunnerbackend.Handler
 	BackupHandler                  *backupbackend.Handler
 	CloudTrailHandler              *cloudtrailbackend.Handler
@@ -516,6 +518,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 
 // registerExtraServices registers additional service handlers.
 func registerExtraServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.appmesh)
 	_ = registry.Register(h.apprunner)
 	_ = registry.Register(h.elasticbeanstalk)
 	_ = registry.Register(h.elasticsearch)
@@ -636,6 +639,7 @@ type handlers struct {
 	dms                 *dmsbackend.Handler
 	codeStarConn        *codestarconnectionsbackend.Handler
 	dynamodbStreams     *dynamodbstreamsbackend.Handler
+	appmesh             *appmeshbackend.Handler
 	apprunner           *apprunnerbackend.Handler
 	elasticbeanstalk    *elasticbeanstalkbackend.Handler
 	efs                 *efsbackend.Handler
@@ -880,18 +884,6 @@ func populateNewestHandlers(h *handlers) {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
 	}
 
-	h.apprunner = apprunnerbackend.NewHandler(
-		apprunnerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-
-	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
-		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-
-	h.efs = efsbackend.NewHandler(
-		efsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-	)
-
 	h.eks = eksbackend.NewHandler(
 		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -906,6 +898,22 @@ func populateNewestHandlers(h *handlers) {
 // populateLatestHandlers fills in the most recently added service handlers that would push
 // populateNewestHandlers past the funlen limit.
 func populateLatestHandlers(h *handlers) {
+	h.appmesh = appmeshbackend.NewHandler(
+		appmeshbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.apprunner = apprunnerbackend.NewHandler(
+		apprunnerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
+		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.efs = efsbackend.NewHandler(
+		efsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1256,6 +1264,7 @@ func buildStack(
 		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
+		AppMeshHandler:                 h.appmesh,
 		AppRunnerHandler:               h.apprunner,
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
