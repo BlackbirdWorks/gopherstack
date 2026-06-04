@@ -384,7 +384,7 @@ type NotebookExecution struct {
 	NotebookParams        string    `json:"NotebookParams,omitempty"`
 	ExecutionEngineID     string    `json:"ExecutionEngineId,omitempty"`
 	Status                string    `json:"Status"`
-	Tags                  []Tag     `json:"Tags,omitempty"`
+	Tags                  []Tag     `json:"Tags"`
 }
 
 // InstanceGroupStatus is the status of an EMR instance group.
@@ -451,7 +451,7 @@ type Cluster struct {
 	SecurityConfiguration       string        `json:"SecurityConfiguration,omitempty"`
 	CustomAmiID                 string        `json:"CustomAmiId,omitempty"`
 	instanceGroups              []InstanceGroup
-	Tags                        []Tag           `json:"Tags,omitempty"`
+	Tags                        []Tag           `json:"Tags"`
 	Applications                []Application   `json:"Applications,omitempty"`
 	Configurations              []Configuration `json:"Configurations,omitempty"`
 	steps                       []Step
@@ -529,8 +529,8 @@ type Studio struct {
 	UserRole                          string    `json:"UserRole,omitempty"`
 	IdpAuthURL                        string    `json:"IdpAuthUrl,omitempty"`
 	IdpRelayStateParameterName        string    `json:"IdpRelayStateParameterName,omitempty"`
-	SubnetIDs                         []string  `json:"SubnetIds,omitempty"`
-	Tags                              []Tag     `json:"Tags,omitempty"`
+	SubnetIDs                         []string  `json:"SubnetIds"`
+	Tags                              []Tag     `json:"Tags"`
 	TrustedIdentityPropagationEnabled bool      `json:"TrustedIdentityPropagationEnabled"`
 }
 
@@ -2111,7 +2111,7 @@ func (b *InMemoryBackend) ListStudioSessionMappings(
 	b.mu.RLock("ListStudioSessionMappings")
 	defer b.mu.RUnlock()
 
-	var result []StudioSessionMapping
+	result := make([]StudioSessionMapping, 0)
 
 	for _, m := range b.studioSessionMappings {
 		if m.StudioID != studioID {
@@ -2163,7 +2163,7 @@ func (b *InMemoryBackend) DescribeJobFlows(
 	idSet := buildStringSet(ids)
 	stateSet := buildStateSet(states)
 
-	var flows []JobFlow
+	flows := make([]JobFlow, 0)
 
 	for _, c := range b.clusters {
 		if !jobFlowMatchesFilter(c, idSet, stateSet, createdAfter, createdBefore) {
