@@ -43,7 +43,9 @@ const (
 var (
 	// ErrNotFound is returned when a pipeline resource does not exist.
 	ErrNotFound = awserr.New("PipelineNotFoundException", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a resource with the same name already exists.
+	// ErrPipelineNameInUse is returned when a pipeline with the same name already exists.
+	ErrPipelineNameInUse = awserr.New("PipelineNameInUseException", awserr.ErrAlreadyExists)
+	// ErrAlreadyExists is returned when a non-pipeline resource with the same key already exists.
 	ErrAlreadyExists = awserr.New("InvalidStructureException", awserr.ErrAlreadyExists)
 	// ErrActionTypeNotFound is returned when a requested custom action type does not exist.
 	ErrActionTypeNotFound = awserr.New("ActionTypeNotFoundException", awserr.ErrNotFound)
@@ -388,7 +390,7 @@ func (b *InMemoryBackend) CreatePipeline(decl PipelineDeclaration, tags map[stri
 	defer b.mu.Unlock()
 
 	if _, exists := b.pipelines[decl.Name]; exists {
-		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrAlreadyExists, decl.Name)
+		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrPipelineNameInUse, decl.Name)
 	}
 
 	tagsCopy := make(map[string]string, len(tags))

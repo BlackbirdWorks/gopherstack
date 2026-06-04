@@ -236,6 +236,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, ErrPipelineNameInUse):
+		return errorBlob(c, http.StatusBadRequest, "PipelineNameInUseException", err)
 	case errors.Is(err, ErrNotFound):
 		return errorBlob(c, http.StatusBadRequest, "PipelineNotFoundException", err)
 	case errors.Is(err, ErrActionTypeNotFound):
@@ -620,7 +622,7 @@ type createCustomActionTypeInput struct {
 type customActionTypeResponse struct {
 	Settings                      *ActionTypeSettings           `json:"settings,omitempty"`
 	ID                            ActionTypeID                  `json:"id"`
-	ActionConfigurationProperties []ActionConfigurationProperty `json:"actionConfigurationProperties,omitempty"`
+	ActionConfigurationProperties []ActionConfigurationProperty `json:"actionConfigurationProperties"`
 	InputArtifactDetails          ArtifactDetails               `json:"inputArtifactDetails"`
 	OutputArtifactDetails         ArtifactDetails               `json:"outputArtifactDetails"`
 }
@@ -666,6 +668,11 @@ func (h *Handler) handleCreateCustomActionType(
 		return nil, err
 	}
 
+	configProps := created.ConfigurationProperties
+	if configProps == nil {
+		configProps = []ActionConfigurationProperty{}
+	}
+
 	return &createCustomActionTypeOutput{
 		ActionType: customActionTypeResponse{
 			ID: ActionTypeID{
@@ -677,7 +684,7 @@ func (h *Handler) handleCreateCustomActionType(
 			InputArtifactDetails:          created.InputArtifactDetails,
 			OutputArtifactDetails:         created.OutputArtifactDetails,
 			Settings:                      created.Settings,
-			ActionConfigurationProperties: created.ConfigurationProperties,
+			ActionConfigurationProperties: configProps,
 		},
 		Tags: in.Tags,
 	}, nil
@@ -758,6 +765,11 @@ func (h *Handler) handleGetActionType(
 		return nil, err
 	}
 
+	catConfigProps := cat.ConfigurationProperties
+	if catConfigProps == nil {
+		catConfigProps = []ActionConfigurationProperty{}
+	}
+
 	return &getActionTypeOutput{
 		ActionType: customActionTypeResponse{
 			ID: ActionTypeID{
@@ -769,7 +781,7 @@ func (h *Handler) handleGetActionType(
 			InputArtifactDetails:          cat.InputArtifactDetails,
 			OutputArtifactDetails:         cat.OutputArtifactDetails,
 			Settings:                      cat.Settings,
-			ActionConfigurationProperties: cat.ConfigurationProperties,
+			ActionConfigurationProperties: catConfigProps,
 		},
 	}, nil
 }
@@ -1197,7 +1209,7 @@ type webhookDefinitionView struct {
 	TargetPipeline              string            `json:"targetPipeline"`
 	TargetAction                string            `json:"targetAction"`
 	Authentication              string            `json:"authentication,omitempty"`
-	Filters                     []WebhookFilter   `json:"filters,omitempty"`
+	Filters                     []WebhookFilter   `json:"filters"`
 }
 
 // webhookListEntry is the AWS-spec outer envelope returned per webhook in ListWebhooks.
@@ -1221,13 +1233,18 @@ func (h *Handler) handleListWebhooks(
 	entries := make([]webhookListEntry, len(webhooks))
 
 	for i, wh := range webhooks {
+		filters := wh.Filters
+		if filters == nil {
+			filters = []WebhookFilter{}
+		}
+
 		entries[i] = webhookListEntry{
 			Definition: webhookDefinitionView{
 				Name:                        wh.Name,
 				TargetPipeline:              wh.TargetPipeline,
 				TargetAction:                wh.TargetAction,
 				Authentication:              wh.Authentication,
-				Filters:                     wh.Filters,
+				Filters:                     filters,
 				AuthenticationConfiguration: wh.AuthenticationConfiguration,
 			},
 			URL:                      wh.URL,
@@ -1282,6 +1299,11 @@ func (h *Handler) handlePutWebhook(
 		return nil, err
 	}
 
+	whFilters := wh.Filters
+	if whFilters == nil {
+		whFilters = []WebhookFilter{}
+	}
+
 	return &putWebhookOutput{
 		Webhook: webhookListEntry{
 			Definition: webhookDefinitionView{
@@ -1289,7 +1311,7 @@ func (h *Handler) handlePutWebhook(
 				TargetPipeline:              wh.TargetPipeline,
 				TargetAction:                wh.TargetAction,
 				Authentication:              wh.Authentication,
-				Filters:                     wh.Filters,
+				Filters:                     whFilters,
 				AuthenticationConfiguration: wh.AuthenticationConfiguration,
 			},
 			URL:                      wh.URL,
