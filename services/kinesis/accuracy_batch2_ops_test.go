@@ -296,3 +296,226 @@ func TestAccuracyBatch2_ListShards_NextTokenAlone_Succeeds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
 	assert.NotEmpty(t, page2.Shards)
 }
+
+// ---------------------------------------------------------------------------
+// Fix 4: DeleteStream accepts StreamARN
+//
+// AWS behaviour: DeleteStream accepts either StreamName or StreamARN to
+// identify the stream. Previously the handler only parsed StreamName, so
+// ARN-only callers received ResourceNotFoundException.
+// ---------------------------------------------------------------------------
+
+func TestAccuracyBatch2_DeleteStream_ByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		useARN     bool
+		wantStatus int
+	}{
+		{
+			name:       "by_name",
+			useARN:     false,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "by_arn",
+			useARN:     true,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			streamName := "delete-by-" + tt.name
+			doRequest(t, h, "CreateStream", map[string]any{"StreamName": streamName, "ShardCount": 1})
+
+			b := h.Backend.(*kinesis.InMemoryBackend)
+			desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: streamName})
+			require.NoError(t, err)
+
+			var deleteBody map[string]any
+			if tt.useARN {
+				deleteBody = map[string]any{"StreamARN": desc.StreamARN}
+			} else {
+				deleteBody = map[string]any{"StreamName": streamName}
+			}
+
+			rec := doRequest(t, h, "DeleteStream", deleteBody)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			// Verify stream is gone.
+			descRec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+			assert.Equal(t, http.StatusBadRequest, descRec.Code)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 5: PutRecord and PutRecords accept StreamARN
+//
+// AWS behaviour: PutRecord and PutRecords accept either StreamName or
+// StreamARN. Previously the handler only parsed StreamName, so ARN-only
+// callers received ResourceNotFoundException.
+// ---------------------------------------------------------------------------
+
+func TestAccuracyBatch2_PutRecord_ByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "put-record-arn-stream", "ShardCount": 1})
+
+	b := h.Backend.(*kinesis.InMemoryBackend)
+	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "put-record-arn-stream"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "by_name",
+			body: map[string]any{
+				"StreamName":   "put-record-arn-stream",
+				"PartitionKey": "pk1",
+				"Data":         []byte("hello"),
+			},
+		},
+		{
+			name: "by_arn",
+			body: map[string]any{
+				"StreamARN":    desc.StreamARN,
+				"PartitionKey": "pk2",
+				"Data":         []byte("world"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, "PutRecord", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				ShardId        string `json:"ShardId"`
+				SequenceNumber string `json:"SequenceNumber"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp.ShardId)
+			assert.NotEmpty(t, resp.SequenceNumber)
+		})
+	}
+}
+
+func TestAccuracyBatch2_PutRecords_ByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "put-records-arn-stream", "ShardCount": 1})
+
+	b := h.Backend.(*kinesis.InMemoryBackend)
+	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "put-records-arn-stream"})
+	require.NoError(t, err)
+
+	records := []map[string]any{
+		{"PartitionKey": "pk1", "Data": []byte("r1")},
+		{"PartitionKey": "pk2", "Data": []byte("r2")},
+	}
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "by_name",
+			body: map[string]any{"StreamName": "put-records-arn-stream", "Records": records},
+		},
+		{
+			name: "by_arn",
+			body: map[string]any{"StreamARN": desc.StreamARN, "Records": records},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, "PutRecords", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				FailedRecordCount int `json:"FailedRecordCount"`
+				Records           []struct {
+					ShardId        string `json:"ShardId"`
+					SequenceNumber string `json:"SequenceNumber"`
+				} `json:"Records"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, 0, resp.FailedRecordCount)
+			assert.Len(t, resp.Records, 2)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 6: GetShardIterator accepts StreamARN
+//
+// AWS behaviour: GetShardIterator accepts either StreamName or StreamARN.
+// Previously the handler only parsed StreamName, so ARN-only callers
+// received ResourceNotFoundException.
+// ---------------------------------------------------------------------------
+
+func TestAccuracyBatch2_GetShardIterator_ByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "gsi-arn-stream", "ShardCount": 1})
+
+	b := h.Backend.(*kinesis.InMemoryBackend)
+	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "gsi-arn-stream"})
+	require.NoError(t, err)
+	require.NotEmpty(t, desc.Shards)
+	shardID := desc.Shards[0].ShardID
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "by_name",
+			body: map[string]any{
+				"StreamName":        "gsi-arn-stream",
+				"ShardId":           shardID,
+				"ShardIteratorType": "TRIM_HORIZON",
+			},
+		},
+		{
+			name: "by_arn",
+			body: map[string]any{
+				"StreamARN":         desc.StreamARN,
+				"ShardId":           shardID,
+				"ShardIteratorType": "TRIM_HORIZON",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, "GetShardIterator", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				ShardIterator string `json:"ShardIterator"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp.ShardIterator)
+		})
+	}
+}

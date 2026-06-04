@@ -319,6 +319,7 @@ type jsonCreateStreamReq struct {
 
 type jsonDeleteStreamReq struct {
 	StreamName string `json:"StreamName"`
+	StreamARN  string `json:"StreamARN"`
 }
 
 type jsonDescribeStreamReq struct {
@@ -334,6 +335,7 @@ type jsonListStreamsReq struct {
 
 type jsonPutRecordReq struct {
 	StreamName      string `json:"StreamName"`
+	StreamARN       string `json:"StreamARN"`
 	PartitionKey    string `json:"PartitionKey"`
 	ExplicitHashKey string `json:"ExplicitHashKey,omitempty"`
 	Data            []byte `json:"Data"`
@@ -347,11 +349,13 @@ type jsonPutRecordEntry struct {
 
 type jsonPutRecordsReq struct {
 	StreamName string               `json:"StreamName"`
+	StreamARN  string               `json:"StreamARN"`
 	Records    []jsonPutRecordEntry `json:"Records"`
 }
 
 type jsonGetShardIteratorReq struct {
 	StreamName             string  `json:"StreamName"`
+	StreamARN              string  `json:"StreamARN"`
 	ShardID                string  `json:"ShardId"`
 	ShardIteratorType      string  `json:"ShardIteratorType"`
 	StartingSequenceNumber string  `json:"StartingSequenceNumber"`
@@ -560,17 +564,22 @@ func (h *Handler) handleDeleteStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.DeleteStream(&DeleteStreamInput{StreamName: req.StreamName}); err != nil {
+	streamName := req.StreamName
+	if streamName == "" && req.StreamARN != "" {
+		streamName = streamNameFromARN(req.StreamARN)
+	}
+
+	if err := h.Backend.DeleteStream(&DeleteStreamInput{StreamName: streamName}); err != nil {
 		return nil, err
 	}
 
 	// Clean up handler-level tags to prevent resource/metric leaks.
 	h.tagsMu.Lock("handleDeleteStream")
-	if t := h.tags[req.StreamName]; t != nil {
+	if t := h.tags[streamName]; t != nil {
 		t.Close()
 	}
 
-	delete(h.tags, req.StreamName)
+	delete(h.tags, streamName)
 	h.tagsMu.Unlock()
 
 	return struct{}{}, nil
@@ -730,8 +739,13 @@ func (h *Handler) handlePutRecord(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName := req.StreamName
+	if streamName == "" && req.StreamARN != "" {
+		streamName = streamNameFromARN(req.StreamARN)
+	}
+
 	out, err := h.Backend.PutRecord(&PutRecordInput{
-		StreamName:      req.StreamName,
+		StreamName:      streamName,
 		PartitionKey:    req.PartitionKey,
 		ExplicitHashKey: req.ExplicitHashKey,
 		Data:            req.Data,
@@ -757,18 +771,23 @@ func (h *Handler) handlePutRecords(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName := req.StreamName
+	if streamName == "" && req.StreamARN != "" {
+		streamName = streamNameFromARN(req.StreamARN)
+	}
+
 	numRecords := len(req.Records)
 	const maxPutRecords = 500
 	if numRecords > maxPutRecords {
 		numRecords = maxPutRecords
 	}
 	entries := make([]PutRecordsEntry, numRecords)
-	for i, r := range req.Records {
+	for i, r := range req.Records[:numRecords] {
 		entries[i] = PutRecordsEntry(r)
 	}
 
 	out, err := h.Backend.PutRecords(&PutRecordsInput{
-		StreamName: req.StreamName,
+		StreamName: streamName,
 		Records:    entries,
 	})
 	if err != nil {
@@ -796,8 +815,13 @@ func (h *Handler) handleGetShardIterator(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName := req.StreamName
+	if streamName == "" && req.StreamARN != "" {
+		streamName = streamNameFromARN(req.StreamARN)
+	}
+
 	out, err := h.Backend.GetShardIterator(&GetShardIteratorInput{
-		StreamName:             req.StreamName,
+		StreamName:             streamName,
 		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
