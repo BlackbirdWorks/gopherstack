@@ -425,7 +425,7 @@ type DomainName struct {
 	Tags                          map[string]string         `json:"tags,omitempty"`
 	DomainNameValue               string                    `json:"domainName"`
 	APIMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
-	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
+	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
@@ -623,8 +623,8 @@ type VpcLink struct {
 	VpcLinkID        string            `json:"vpcLinkId"`
 	Name             string            `json:"name"`
 	VpcLinkStatus    string            `json:"vpcLinkStatus,omitempty"`
-	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
-	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string          `json:"securityGroupIds"`
+	SubnetIDs        []string          `json:"subnetIds"`
 }
 
 // CreateVpcLinkInput is the input for CreateVpcLink.
