@@ -47,9 +47,10 @@ const (
 	apiIDChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	apiIDLength = 10
 
-	authorizerTypeJWT   = "JWT"
-	protocolTypeHTTP    = "HTTP"
-	integrationTypeHTTP = "HTTP"
+	authorizerTypeJWT     = "JWT"
+	authorizationTypeNone = "NONE"
+	protocolTypeHTTP      = "HTTP"
+	integrationTypeHTTP   = "HTTP"
 )
 
 var (
@@ -739,7 +740,7 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 
 	authType := input.AuthorizationType
 	if authType == "" {
-		authType = "NONE"
+		authType = authorizationTypeNone
 	}
 
 	if authType == authorizerTypeJWT && input.AuthorizerID == "" {
@@ -860,7 +861,7 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 
 	if input.AuthorizationType != "" {
 		r.AuthorizationType = input.AuthorizationType
-		if input.AuthorizationType == "NONE" {
+		if input.AuthorizationType == authorizationTypeNone {
 			r.AuthorizerID = ""
 		}
 	}
@@ -3157,7 +3158,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 			op["summary"] = route.OperationName
 		}
 
-		if route.AuthorizationType != "" && route.AuthorizationType != "NONE" {
+		if route.AuthorizationType != "" && route.AuthorizationType != authorizationTypeNone {
 			op["security"] = []any{map[string]any{route.AuthorizationType: []any{}}}
 		}
 
