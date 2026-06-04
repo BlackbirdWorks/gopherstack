@@ -76,16 +76,16 @@ func TestAudit2_CreateCustomActionType_ActionConfigurationProperties_EmptyNotAbs
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		configurationProperties any
+		name            string
+		includeEmptyVal bool // true → send configurationProperties:[], false → omit key
 	}{
 		{
-			name:                    "no configurationProperties returns actionConfigurationProperties:[]",
-			configurationProperties: nil,
+			name:            "no configurationProperties returns actionConfigurationProperties:[]",
+			includeEmptyVal: false,
 		},
 		{
-			name:                    "empty configurationProperties returns actionConfigurationProperties:[]",
-			configurationProperties: []any{},
+			name:            "empty configurationProperties returns actionConfigurationProperties:[]",
+			includeEmptyVal: true,
 		},
 	}
 
@@ -95,14 +95,14 @@ func TestAudit2_CreateCustomActionType_ActionConfigurationProperties_EmptyNotAbs
 
 			h := newTestHandler(t)
 			body := map[string]any{
-				"category": "Build",
-				"provider": "MyProvider",
-				"version":  "1",
+				"category":              "Build",
+				"provider":              "MyProvider",
+				"version":               "1",
 				"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 				"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 			}
-			if tt.configurationProperties != nil {
-				body["configurationProperties"] = tt.configurationProperties
+			if tt.includeEmptyVal {
+				body["configurationProperties"] = []any{}
 			}
 
 			rec := doRequest(t, h, "CreateCustomActionType", body)
@@ -131,9 +131,9 @@ func TestAudit2_GetActionType_ActionConfigurationProperties_EmptyNotAbsent(t *te
 
 	// Create action type without configuration properties.
 	createRec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-		"category": "Build",
-		"provider": "MyProvider",
-		"version":  "1",
+		"category":              "Build",
+		"provider":              "MyProvider",
+		"version":               "1",
 		"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 		"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 	})
@@ -168,9 +168,9 @@ func TestAudit2_CreateCustomActionType_ActionConfigurationProperties_RoundTrip(t
 
 	// Create with explicit configuration properties.
 	rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-		"category": "Build",
-		"provider": "MyProvider",
-		"version":  "1",
+		"category":              "Build",
+		"provider":              "MyProvider",
+		"version":               "1",
 		"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 		"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 		"configurationProperties": []any{
@@ -198,16 +198,16 @@ func TestAudit2_PutWebhook_Filters_EmptyNotAbsent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		filters any
+		name            string
+		includeEmptyVal bool // true → send filters:[], false → omit key
 	}{
 		{
-			name:    "no filters returns filters:[]",
-			filters: nil,
+			name:            "no filters returns filters:[]",
+			includeEmptyVal: false,
 		},
 		{
-			name:    "empty filters slice returns filters:[]",
-			filters: []any{},
+			name:            "empty filters slice returns filters:[]",
+			includeEmptyVal: true,
 		},
 	}
 
@@ -222,21 +222,18 @@ func TestAudit2_PutWebhook_Filters_EmptyNotAbsent(t *testing.T) {
 			createRec := doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": pipeline})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
-			webhookBody := map[string]any{
-				"webhook": map[string]any{
-					"name":           "my-webhook",
-					"targetPipeline": "webhook-target",
-					"targetAction":   "SourceAction",
-					"authentication": "UNAUTHENTICATED",
-					"authenticationConfiguration": map[string]any{},
-				},
+			webhookDef := map[string]any{
+				"name":                        "my-webhook",
+				"targetPipeline":              "webhook-target",
+				"targetAction":                "SourceAction",
+				"authentication":              "UNAUTHENTICATED",
+				"authenticationConfiguration": map[string]any{},
 			}
-			if tt.filters != nil {
-				wb := webhookBody["webhook"].(map[string]any)
-				wb["filters"] = tt.filters
+			if tt.includeEmptyVal {
+				webhookDef["filters"] = []any{}
 			}
 
-			rec := doRequest(t, h, "PutWebhook", webhookBody)
+			rec := doRequest(t, h, "PutWebhook", map[string]any{"webhook": webhookDef})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
@@ -269,10 +266,10 @@ func TestAudit2_ListWebhooks_Filters_EmptyNotAbsent(t *testing.T) {
 	// Create webhook with no filters.
 	putRec := doRequest(t, h, "PutWebhook", map[string]any{
 		"webhook": map[string]any{
-			"name":           "list-test-webhook",
-			"targetPipeline": "list-webhook-target",
-			"targetAction":   "SourceAction",
-			"authentication": "UNAUTHENTICATED",
+			"name":                        "list-test-webhook",
+			"targetPipeline":              "list-webhook-target",
+			"targetAction":                "SourceAction",
+			"authentication":              "UNAUTHENTICATED",
 			"authenticationConfiguration": map[string]any{},
 		},
 	})
@@ -314,10 +311,10 @@ func TestAudit2_ListWebhooks_Filters_RoundTrip(t *testing.T) {
 	// Create webhook with filters.
 	putRec := doRequest(t, h, "PutWebhook", map[string]any{
 		"webhook": map[string]any{
-			"name":           "filter-roundtrip-webhook",
-			"targetPipeline": "filter-roundtrip-target",
-			"targetAction":   "SourceAction",
-			"authentication": "UNAUTHENTICATED",
+			"name":                        "filter-roundtrip-webhook",
+			"targetPipeline":              "filter-roundtrip-target",
+			"targetAction":                "SourceAction",
+			"authentication":              "UNAUTHENTICATED",
 			"authenticationConfiguration": map[string]any{},
 			"filters": []any{
 				map[string]any{"jsonPath": "$.ref", "matchEquals": "refs/heads/main"},

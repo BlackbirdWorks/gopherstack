@@ -232,41 +232,42 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	type errMapping struct {
+		sentinel error
+		errType  string
+	}
+
+	sentinels := []errMapping{
+		{ErrPipelineNameInUse, "PipelineNameInUseException"},
+		{ErrNotFound, "PipelineNotFoundException"},
+		{ErrActionTypeNotFound, "ActionTypeNotFoundException"},
+		{ErrJobNotFound, "JobNotFoundException"},
+		{ErrWebhookNotFound, "WebhookNotFoundException"},
+		{ErrAlreadyExists, "InvalidStructureException"},
+		{ErrValidation, "ValidationException"},
+		{ErrConflict, "ConflictException"},
+		{ErrResourceInUse, "ResourceInUseException"},
+		{ErrResourceNotFound, "ResourceNotFoundException"},
+		{ErrStageNotFound, "StageNotFoundException"},
+		{ErrInvalidStructure, "InvalidStructureException"},
+		{errUnknownAction, "InvalidActionException"},
+		{errInvalidRequest, "ValidationException"},
+	}
+
+	for _, m := range sentinels {
+		if errors.Is(err, m.sentinel) {
+			return errorBlob(c, http.StatusBadRequest, m.errType, err)
+		}
+	}
+
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
-	switch {
-	case errors.Is(err, ErrPipelineNameInUse):
-		return errorBlob(c, http.StatusBadRequest, "PipelineNameInUseException", err)
-	case errors.Is(err, ErrNotFound):
-		return errorBlob(c, http.StatusBadRequest, "PipelineNotFoundException", err)
-	case errors.Is(err, ErrActionTypeNotFound):
-		return errorBlob(c, http.StatusBadRequest, "ActionTypeNotFoundException", err)
-	case errors.Is(err, ErrJobNotFound):
-		return errorBlob(c, http.StatusBadRequest, "JobNotFoundException", err)
-	case errors.Is(err, ErrWebhookNotFound):
-		return errorBlob(c, http.StatusBadRequest, "WebhookNotFoundException", err)
-	case errors.Is(err, ErrAlreadyExists):
-		return errorBlob(c, http.StatusBadRequest, "InvalidStructureException", err)
-	case errors.Is(err, ErrValidation):
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 		return errorBlob(c, http.StatusBadRequest, "ValidationException", err)
-	case errors.Is(err, ErrConflict):
-		return errorBlob(c, http.StatusBadRequest, "ConflictException", err)
-	case errors.Is(err, ErrResourceInUse):
-		return errorBlob(c, http.StatusBadRequest, "ResourceInUseException", err)
-	case errors.Is(err, ErrResourceNotFound):
-		return errorBlob(c, http.StatusBadRequest, "ResourceNotFoundException", err)
-	case errors.Is(err, ErrStageNotFound):
-		return errorBlob(c, http.StatusBadRequest, "StageNotFoundException", err)
-	case errors.Is(err, ErrInvalidStructure):
-		return errorBlob(c, http.StatusBadRequest, "InvalidStructureException", err)
-	case errors.Is(err, errUnknownAction):
-		return errorBlob(c, http.StatusBadRequest, "InvalidActionException", err)
-	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return errorBlob(c, http.StatusBadRequest, "ValidationException", err)
-	default:
-		return errorBlob(c, http.StatusInternalServerError, "InternalFailure", err)
 	}
+
+	return errorBlob(c, http.StatusInternalServerError, "InternalFailure", err)
 }
 
 // errorBlob marshals a JSON error response and writes it to the echo context.
