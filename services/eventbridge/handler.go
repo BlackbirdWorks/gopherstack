@@ -2022,6 +2022,9 @@ func (h *Handler) handleError(
 	case errors.Is(reqErr, ErrResourceLimitExceeded):
 		errType = "ResourceLimitExceededException"
 		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrForbiddenOperation):
+		errType = "ForbiddenException"
+		statusCode = http.StatusForbidden
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"
 		statusCode = http.StatusBadRequest
