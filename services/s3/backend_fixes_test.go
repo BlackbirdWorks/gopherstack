@@ -3,6 +3,7 @@ package s3_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -464,4 +465,65 @@ func TestListObjectsV2_ContextPropagation(t *testing.T) {
 			assert.Len(t, out.Contents, tt.wantObjects)
 		})
 	}
+}
+
+// TestSuspendedVersioningDeletePreservesVersions verifies that an unversioned
+// DELETE against a bucket whose versioning is Suspended only removes the "null"
+// version and inserts a "null" delete marker, leaving non-null versions (created
+// while versioning was Enabled) retrievable by version ID.
+func TestSuspendedVersioningDeletePreservesVersions(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	// Enable versioning and write a non-null version.
+	_, err := backend.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
+		Bucket: aws.String("bkt"),
+		VersioningConfiguration: &types.VersioningConfiguration{
+			Status: types.BucketVersioningStatusEnabled,
+		},
+	})
+	require.NoError(t, err)
+
+	putOut, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String("bkt"), Key: aws.String("k"),
+		Body: bytes.NewReader([]byte("enabled-data")),
+	})
+	require.NoError(t, err)
+	keptVersion := aws.ToString(putOut.VersionId)
+	require.NotEqual(t, s3.NullVersion, keptVersion)
+
+	// Suspend versioning and overwrite with a "null" version.
+	_, err = backend.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
+		Bucket: aws.String("bkt"),
+		VersioningConfiguration: &types.VersioningConfiguration{
+			Status: types.BucketVersioningStatusSuspended,
+		},
+	})
+	require.NoError(t, err)
+	mustPutObject(t, backend, "bkt", "k", []byte("null-data"))
+
+	// Unversioned DELETE under suspended versioning.
+	delOut, err := backend.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+		Bucket: aws.String("bkt"), Key: aws.String("k"),
+	})
+	require.NoError(t, err)
+	assert.True(t, aws.ToBool(delOut.DeleteMarker), "expected a delete marker")
+	assert.Equal(t, s3.NullVersion, aws.ToString(delOut.VersionId))
+
+	// The non-null version must still be retrievable by its version ID.
+	got, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("bkt"), Key: aws.String("k"),
+		VersionId: aws.String(keptVersion),
+	})
+	require.NoError(t, err)
+	data, _ := io.ReadAll(got.Body)
+	assert.Equal(t, "enabled-data", string(data))
+
+	// An unversioned GET now sees the delete marker → NoSuchKey.
+	_, err = backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("bkt"), Key: aws.String("k"),
+	})
+	require.ErrorIs(t, err, s3.ErrNoSuchKey)
 }

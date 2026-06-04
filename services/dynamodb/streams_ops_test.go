@@ -303,3 +303,105 @@ func TestUnit_Streams_ComplexAttributeTypes(t *testing.T) {
 	rec := recordsOut.Records[0]
 	assert.NotNil(t, rec.Dynamodb.NewImage)
 }
+
+// TestUnit_Streams_TransactWriteEmitsRecords verifies that TransactWriteItems
+// emits DynamoDB Streams records for Put/Update/Delete, matching real AWS.
+func TestUnit_Streams_TransactWriteEmitsRecords(t *testing.T) {
+	t.Parallel()
+
+	db := newStreamsTestDB(t)
+	ctx := t.Context()
+	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "NEW_AND_OLD_IMAGES"))
+
+	// Transactional Put → INSERT.
+	_, err := db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: []types.TransactWriteItem{
+			{Put: &types.Put{
+				TableName: aws.String("StreamsTestTable"),
+				Item: map[string]types.AttributeValue{
+					"pk":  &types.AttributeValueMemberS{Value: "t1"},
+					"val": &types.AttributeValueMemberS{Value: "a"},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	// Transactional Delete → REMOVE.
+	_, err = db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: []types.TransactWriteItem{
+			{Delete: &types.Delete{
+				TableName: aws.String("StreamsTestTable"),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "t1"},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	records := drainStreamRecords(t, db, "StreamsTestTable")
+	require.Len(t, records, 2)
+	require.Equal(t, streamstypes.OperationTypeInsert, records[0].EventName)
+	require.Equal(t, streamstypes.OperationTypeRemove, records[1].EventName)
+}
+
+// TestUnit_Streams_BatchWriteEmitsRecords verifies that BatchWriteItem PutRequests
+// emit INSERT/MODIFY stream records (deletes were already covered).
+func TestUnit_Streams_BatchWriteEmitsRecords(t *testing.T) {
+	t.Parallel()
+
+	db := newStreamsTestDB(t)
+	ctx := t.Context()
+	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "NEW_AND_OLD_IMAGES"))
+
+	put := func(val string) types.WriteRequest {
+		return types.WriteRequest{PutRequest: &types.PutRequest{
+			Item: map[string]types.AttributeValue{
+				"pk":  &types.AttributeValueMemberS{Value: "b1"},
+				"val": &types.AttributeValueMemberS{Value: val},
+			},
+		}}
+	}
+
+	_, err := db.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]types.WriteRequest{
+			"StreamsTestTable": {put("a")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = db.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]types.WriteRequest{
+			"StreamsTestTable": {put("b")},
+		},
+	})
+	require.NoError(t, err)
+
+	records := drainStreamRecords(t, db, "StreamsTestTable")
+	require.Len(t, records, 2)
+	require.Equal(t, streamstypes.OperationTypeInsert, records[0].EventName)
+	require.Equal(t, streamstypes.OperationTypeModify, records[1].EventName)
+}
+
+// drainStreamRecords reads all stream records for a table from the trim horizon.
+func drainStreamRecords(t *testing.T, db *ddb.InMemoryDB, tableName string) []streamstypes.Record {
+	t.Helper()
+
+	table, ok := db.GetTable(tableName)
+	require.True(t, ok)
+
+	iterOut, err := db.GetShardIterator(t.Context(), &dynamodbstreams.GetShardIteratorInput{
+		StreamArn:         aws.String(table.StreamARN),
+		ShardId:           aws.String(ddb.StreamShardID),
+		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+
+	recOut, err := db.GetRecords(t.Context(), &dynamodbstreams.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.NoError(t, err)
+
+	return recOut.Records
+}

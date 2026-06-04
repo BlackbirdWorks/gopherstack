@@ -667,14 +667,22 @@ func (db *InMemoryDB) applyTransactWrite(
 		if err := db.validateItem(wireItem, table); err != nil {
 			return err
 		}
-		_, matchIndex := db.findMatchForPut(table, wireItem)
+		oldItem, matchIndex := db.findMatchForPut(table, wireItem)
 		db.doPut(table, wireItem, matchIndex)
+		// Capture stream event for the committed transactional write.
+		if matchIndex != -1 {
+			table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+		} else {
+			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+		}
 
 	case ti.Delete != nil:
 		table := tables[aws.ToString(ti.Delete.TableName)]
 		wireKey := models.FromSDKItem(ti.Delete.Key)
-		_, matchIndex := db.findMatchForPut(table, wireKey)
+		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex != -1 {
+			// Capture stream event (REMOVE) before the item is removed.
+			table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
 			db.deleteItemAtIndex(table, matchIndex)
 		}
 
@@ -697,9 +705,15 @@ func (db *InMemoryDB) applyTransactWrite(
 			ExpressionAttributeValues: ti.Update.ExpressionAttributeValues,
 		}
 
-		_, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
+		updated, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
 		if err != nil {
 			return err
+		}
+		// Capture stream event for the committed transactional update.
+		if matchIndex != -1 {
+			table.appendStreamRecord(streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated))
+		} else {
+			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
 		}
 	}
 

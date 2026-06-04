@@ -569,12 +569,16 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 }
 
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
-	_, matchIndex := db.findMatchForPut(table, item)
+	oldItem, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
+		// Capture stream event (MODIFY) before overwriting in place.
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item))
 		table.Items[matchIndex] = item
 
 		return matchIndex
 	}
+	// Capture stream event (INSERT) for the new item.
+	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item))
 	idx := len(table.Items)
 	table.Items = append(table.Items, item)
 
