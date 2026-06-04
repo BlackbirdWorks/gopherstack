@@ -35,6 +35,8 @@ var (
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
 	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
+	// ErrForbiddenOperation is returned when an operation is forbidden (e.g., modifying built-in registries).
+	ErrForbiddenOperation = errors.New("ForbiddenException")
 )
 
 const (
@@ -2654,7 +2656,21 @@ func maskHTTPParameters(p *ConnectionHTTPParameters) *ConnectionHTTPParameters {
 
 const (
 	defaultSchemaVersion = "1"
+
+	// schemaTypeOpenAPI3 and schemaTypeJSONSchemaDraft4 are the only valid schema types AWS accepts.
+	schemaTypeOpenAPI3         = "OpenApi3"
+	schemaTypeJSONSchemaDraft4 = "JSONSchemaDraft4"
+
+	// builtinRegistryAWSEvents and builtinRegistryDiscoveredSchemas are AWS-managed registries
+	// that cannot be created or deleted by users.
+	builtinRegistryAWSEvents         = "aws.events"
+	builtinRegistryDiscoveredSchemas = "discovered-schemas"
 )
+
+// isBuiltinRegistry reports whether name is an AWS-managed registry.
+func isBuiltinRegistry(name string) bool {
+	return name == builtinRegistryAWSEvents || name == builtinRegistryDiscoveredSchemas
+}
 
 func (b *InMemoryBackend) registryARN(name string) string {
 	return arn.Build("schemas", b.region, b.accountID, "registry/"+name)
@@ -2676,6 +2692,14 @@ func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language stri
 func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegistry, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if isBuiltinRegistry(input.RegistryName) {
+		return nil, fmt.Errorf(
+			"%w: cannot create registry with reserved name %s",
+			ErrForbiddenOperation,
+			input.RegistryName,
+		)
 	}
 
 	b.mu.Lock("CreateRegistry")
@@ -2706,6 +2730,14 @@ func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegi
 func (b *InMemoryBackend) DeleteRegistry(registryName string) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
+	}
+
+	if isBuiltinRegistry(registryName) {
+		return fmt.Errorf(
+			"%w: cannot delete built-in registry %s",
+			ErrForbiddenOperation,
+			registryName,
+		)
 	}
 
 	b.mu.Lock("DeleteRegistry")
@@ -2807,6 +2839,16 @@ func (b *InMemoryBackend) CreateSchema(input CreateSchemaInput) (*Schema, error)
 
 	if input.Type == "" {
 		return nil, fmt.Errorf("%w: Type is required", ErrInvalidParameter)
+	}
+
+	if input.Type != schemaTypeOpenAPI3 && input.Type != schemaTypeJSONSchemaDraft4 {
+		return nil, fmt.Errorf(
+			"%w: Type must be %s or %s, got %s",
+			ErrInvalidParameter,
+			schemaTypeOpenAPI3,
+			schemaTypeJSONSchemaDraft4,
+			input.Type,
+		)
 	}
 
 	if input.Content == "" {
@@ -3169,7 +3211,7 @@ func (b *InMemoryBackend) DescribeSchemaVersion(
 }
 
 // DeleteSchemaVersion deletes a specific version of a schema.
-// The latest version cannot be deleted unless it is the only version.
+// AWS rejects deletion of the last remaining version (BadRequestException).
 func (b *InMemoryBackend) DeleteSchemaVersion(
 	registryName, schemaName, schemaVersion string,
 ) error {
@@ -3206,6 +3248,15 @@ func (b *InMemoryBackend) DeleteSchemaVersion(
 			ErrNotFound,
 			schemaVersion,
 			registryName,
+			schemaName,
+		)
+	}
+
+	// AWS rejects deletion of the last remaining schema version.
+	if len(versions) == 1 {
+		return fmt.Errorf(
+			"%w: cannot delete the last remaining version of schema %s",
+			ErrInvalidParameter,
 			schemaName,
 		)
 	}
