@@ -695,7 +695,7 @@ type brokerResponse struct {
 	Configurations             *Configurations          `json:"configurations,omitempty"`
 	PendingDataReplicationMeta *DataReplicationMetadata `json:"pendingDataReplicationMetadata,omitempty"`
 	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
-	Tags                       map[string]string        `json:"tags,omitempty"`
+	Tags                       map[string]string        `json:"tags"`
 	DataReplicationMetadata    *DataReplicationMetadata `json:"dataReplicationMetadata,omitempty"`
 	Logs                       *LogsSummary             `json:"logs,omitempty"`
 	LdapServerMetadata         *LdapServerMetadata      `json:"ldapServerMetadata,omitempty"`
@@ -719,7 +719,7 @@ type brokerResponse struct {
 	ActionsRequired            []ActionRequired         `json:"actionsRequired,omitempty"`
 	SubnetIDs                  []string                 `json:"subnetIds,omitempty"`
 	PendingSecurityGroups      []string                 `json:"pendingSecurityGroups,omitempty"`
-	Users                      []UserSummary            `json:"users,omitempty"`
+	Users                      []UserSummary            `json:"users"`
 	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
 	BrokerInstances            []BrokerInstance         `json:"brokerInstances,omitempty"`
 	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
@@ -749,7 +749,7 @@ func toBrokerResponse(br *Broker) brokerResponse {
 		BrokerInstances:            br.BrokerInstances,
 		SubnetIDs:                  br.SubnetIDs,
 		SecurityGroups:             br.SecurityGroups,
-		Tags:                       br.Tags,
+		Tags:                       tagsOrEmpty(br.Tags),
 		Users:                      users,
 		Created:                    br.Created,
 		PubliclyAccessible:         br.PubliclyAccessible,
@@ -792,11 +792,16 @@ func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string)
 		return h.writeError(c, err)
 	}
 
+	groups := u.Groups
+	if groups == nil {
+		groups = []string{}
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyBrokerID:     brokerID,
 		"username":      u.Username,
 		"consoleAccess": u.Console,
-		"groups":        u.Groups,
+		"groups":        groups,
 	})
 }
 
@@ -959,7 +964,7 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, bo
 
 // configurationResponse is the full configuration detail response.
 type configurationResponse struct {
-	Tags           map[string]string      `json:"tags,omitempty"`
+	Tags           map[string]string      `json:"tags"`
 	Arn            string                 `json:"arn"`
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
@@ -980,19 +985,22 @@ func toConfigurationResponse(cfg *Configuration) configurationResponse {
 		EngineVersion:  cfg.EngineVersion,
 		LatestRevision: cfg.LatestRevision,
 		Created:        cfg.Created,
-		Tags:           cfg.Tags,
+		Tags:           tagsOrEmpty(cfg.Tags),
 	}
+}
+
+func tagsOrEmpty(tags map[string]string) map[string]string {
+	if tags == nil {
+		return map[string]string{}
+	}
+
+	return tags
 }
 
 // --- Tag handlers ---
 
 func (h *Handler) handleListTags(c *echo.Context, resourceARN string) error {
-	tags := h.Backend.ListTags(resourceARN)
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
+	return c.JSON(http.StatusOK, map[string]any{"tags": tagsOrEmpty(h.Backend.ListTags(resourceARN))})
 }
 
 type createTagsInput struct {
