@@ -188,6 +188,7 @@ import (
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	workmailbackend "github.com/blackbirdworks/gopherstack/services/workmail"
+	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -2720,6 +2721,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&wafbackend.Provider{},
 		&wafv2backend.Provider{},
 		&workmailbackend.Provider{},
+		&workspacesbackend.Provider{},
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},

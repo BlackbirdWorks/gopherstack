@@ -195,6 +195,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workmail v1.37.2
 )
 
+require github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3 // indirect
+
 require (
 	github.com/cedar-policy/cedar-go v1.6.2
 	github.com/google/jsonschema-go v0.4.3 // indirect
