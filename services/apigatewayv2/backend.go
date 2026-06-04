@@ -47,9 +47,10 @@ const (
 	apiIDChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	apiIDLength = 10
 
-	authorizerTypeJWT   = "JWT"
-	protocolTypeHTTP    = "HTTP"
-	integrationTypeHTTP = "HTTP"
+	authorizerTypeJWT     = "JWT"
+	authorizationTypeNone = "NONE"
+	protocolTypeHTTP      = "HTTP"
+	integrationTypeHTTP   = "HTTP"
 )
 
 var (
@@ -739,7 +740,7 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 
 	authType := input.AuthorizationType
 	if authType == "" {
-		authType = "NONE"
+		authType = authorizationTypeNone
 	}
 
 	if authType == authorizerTypeJWT && input.AuthorizerID == "" {
@@ -860,6 +861,9 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 
 	if input.AuthorizationType != "" {
 		r.AuthorizationType = input.AuthorizationType
+		if input.AuthorizationType == authorizationTypeNone {
+			r.AuthorizerID = ""
+		}
 	}
 
 	if input.AuthorizerID != "" {
@@ -1391,13 +1395,15 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		return nil, fmt.Errorf("%w: domain name %q already exists", ErrAlreadyExists, input.DomainNameValue)
 	}
 
-	dn := &DomainName{
-		DomainNameValue: input.DomainNameValue,
-		Tags:            copyTags(input.Tags),
+	domainNameConfigs := []DomainNameConfiguration{}
+	if len(input.DomainNameConfigurations) > 0 {
+		domainNameConfigs = applyDomainNameDefaults(input.DomainNameConfigurations, input.DomainNameValue)
 	}
 
-	if len(input.DomainNameConfigurations) > 0 {
-		dn.DomainNameConfigurations = applyDomainNameDefaults(input.DomainNameConfigurations, input.DomainNameValue)
+	dn := &DomainName{
+		DomainNameValue:          input.DomainNameValue,
+		Tags:                     copyTags(input.Tags),
+		DomainNameConfigurations: domainNameConfigs,
 	}
 
 	b.domainNames[input.DomainNameValue] = dn
@@ -1718,13 +1724,18 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 	b.mu.Lock("CreateVpcLink")
 	defer b.mu.Unlock()
 
+	securityGroupIDs := input.SecurityGroupIDs
+	if securityGroupIDs == nil {
+		securityGroupIDs = []string{}
+	}
+
 	now := isoTime{time.Now()}
 	id := randomID()
 	vpcLink := &VpcLink{
 		CreatedDate:      now,
 		VpcLinkID:        id,
 		Name:             input.Name,
-		SecurityGroupIDs: input.SecurityGroupIDs,
+		SecurityGroupIDs: securityGroupIDs,
 		SubnetIDs:        input.SubnetIDs,
 		Tags:             copyTags(input.Tags),
 		VpcLinkStatus:    "AVAILABLE",
@@ -3147,7 +3158,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 			op["summary"] = route.OperationName
 		}
 
-		if route.AuthorizationType != "" && route.AuthorizationType != "NONE" {
+		if route.AuthorizationType != "" && route.AuthorizationType != authorizationTypeNone {
 			op["security"] = []any{map[string]any{route.AuthorizationType: []any{}}}
 		}
 
