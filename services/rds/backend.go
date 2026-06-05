@@ -988,7 +988,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBClusterIdentifier:              opts.DBClusterIdentifier,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 instanceStatusCreating,
+		DBInstanceStatus:                 instanceStatusAvailable,
 		MasterUsername:                   masterUser,
 		DBName:                           dbName,
 		Endpoint:                         endpoint,
@@ -1034,7 +1034,6 @@ func (b *InMemoryBackend) CreateDBInstance(
 		}
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
-	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
 	cp := *inst
 
 	b.mu.Unlock()

@@ -545,38 +545,11 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
-	if h.lambdaInvoker != nil {
-		token := input.ClientRequestToken
-		if token == "" {
-			token = out.VersionID
-		}
-
-		functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
-
-		for _, step := range rotationSteps {
-			event, marshalErr := json.Marshal(map[string]string{
-				"SecretId":           input.SecretID,
-				"ClientRequestToken": token,
-				"Step":               step,
-			})
-			if marshalErr != nil {
-				return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
-			}
-
-			if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
-				ctx, functionName, "RequestResponse", event,
-			); invokeErr != nil {
-				// Lambda failed — abort the pending rotation.
-				if b, ok := h.Backend.(*InMemoryBackend); ok {
-					_ = b.AbortRotation(input.SecretID, out.VersionID)
-				}
-
-				return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
-			}
-		}
+	if err := h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
+		return nil, err
 	}
 
-	// Promote AWSPENDING → AWSCURRENT (either after Lambda success or stub path).
+	// Promote AWSPENDING → AWSCURRENT after all Lambda steps succeed.
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		if finishErr := b.FinishRotation(input.SecretID, out.VersionID); finishErr != nil {
 			return nil, finishErr
@@ -584,6 +557,43 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	return out, nil
+}
+
+// invokeLambdaRotationSteps calls each rotation step in order via the Lambda invoker.
+func (h *Handler) invokeLambdaRotationSteps(
+	ctx context.Context,
+	input *RotateSecretInput,
+	out *RotateSecretOutput,
+) error {
+	token := input.ClientRequestToken
+	if token == "" {
+		token = out.VersionID
+	}
+
+	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
+
+	for _, step := range rotationSteps {
+		event, marshalErr := json.Marshal(map[string]string{
+			"SecretId":           input.SecretID,
+			"ClientRequestToken": token,
+			"Step":               step,
+		})
+		if marshalErr != nil {
+			return fmt.Errorf("rotation event marshal: %w", marshalErr)
+		}
+
+		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
+			ctx, functionName, "RequestResponse", event,
+		); invokeErr != nil {
+			if b, ok := h.Backend.(*InMemoryBackend); ok {
+				_ = b.AbortRotation(input.SecretID, out.VersionID)
+			}
+
+			return fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+		}
+	}
+
+	return nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

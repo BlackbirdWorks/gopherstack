@@ -13,6 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
+var errExecutionLimitReached = errors.New("execution limit reached")
+
 // auditSFNExecutor records StartExecution calls for assertion.
 type auditSFNExecutor struct {
 	mu         sync.Mutex
@@ -126,7 +128,7 @@ func TestAudit_Delivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 	dlqARN := "arn:aws:sqs:us-east-1:123456789012:sfn-dlq"
 	smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:failing-sm"
 
-	sfnSink := &auditSFNExecutor{returnErr: errors.New("execution limit reached")}
+	sfnSink := &auditSFNExecutor{returnErr: errExecutionLimitReached}
 
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
 		StepFunctions: sfnSink,

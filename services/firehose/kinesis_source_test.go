@@ -12,6 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
+var errAccessDenied = errors.New("access denied")
+
 // mockKinesisReader is a simple in-memory Kinesis reader for testing the poller.
 type mockKinesisReader struct {
 	mu       sync.Mutex
@@ -237,7 +239,7 @@ func TestFirehose_KinesisSource_ListShardsError_NoBlock(t *testing.T) {
 	t.Parallel()
 
 	b := newFirehoseBackend(t)
-	kinesis := &mockKinesisReader{listErr: errors.New("access denied")}
+	kinesis := &mockKinesisReader{listErr: errAccessDenied}
 	b.SetKinesisBackend(kinesis)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/error-stream"

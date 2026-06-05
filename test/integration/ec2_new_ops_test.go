@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -212,6 +213,14 @@ func TestIntegration_EC2_InstanceAttributes(t *testing.T) {
 		InstanceIds: []string{instanceID},
 	})
 	require.NoError(t, err)
+
+	// Wait for instance to reach stopped state before modifying attributes.
+	stoppedWaiter := ec2sdk.NewInstanceStoppedWaiter(client, func(o *ec2sdk.InstanceStoppedWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
+	require.NoError(t, stoppedWaiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Second))
 
 	// ModifyInstanceAttribute - set instance type (requires stopped state).
 	_, err = client.ModifyInstanceAttribute(ctx, &ec2sdk.ModifyInstanceAttributeInput{
