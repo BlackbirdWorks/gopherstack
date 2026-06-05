@@ -2,6 +2,7 @@ package sqs
 
 import (
 	"encoding/xml"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -148,6 +149,8 @@ type Queue struct {
 	Permissions         map[string]*QueuePermissionEntry
 	fifoSendTimes       map[string][]time.Time
 	receiveAttempts     map[string]*receiveAttemptEntry
+	// inFlightByHandle indexes in-flight messages by receipt handle for O(1) delete (#56).
+	inFlightByHandle    map[string]*InFlightMessage
 	Tags                *tags.Tags
 	DeduplicationIDs    map[string]time.Time
 	dlq                 *Queue
@@ -156,8 +159,13 @@ type Queue struct {
 	Region              string
 	messages            []*Message
 	inFlightMessages    []*InFlightMessage
+	// mu guards queue-level state independently of the backend-global mu (#55).
+	mu                  sync.Mutex
 	fifoSeqCounter      uint64
 	receiveGeneration   uint64
+	// delayedCount tracks messages in q.messages with VisibleAt > now (#59).
+	// Approximate: may overcount until next mutation reconciles it.
+	delayedCount        int
 	MaxReceiveCount     int
 	IsFIFO              bool
 }
