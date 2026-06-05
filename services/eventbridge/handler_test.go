@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -741,7 +742,7 @@ func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 
 			if tt.putEvents {
 				// Put an event so an async delivery goroutine may be in-flight.
-				backend.PutEvents([]eventbridge.EventEntry{
+				backend.PutEvents(context.Background(), []eventbridge.EventEntry{
 					{Source: "test", DetailType: "test", Detail: `{}`},
 				})
 			}
@@ -752,7 +753,7 @@ func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 			// After Shutdown, Close has been called and the backend's context is
 			// cancelled — any subsequent PutEvents must not panic or deadlock.
 			assert.NotPanics(t, func() {
-				_ = backend.PutEvents([]eventbridge.EventEntry{
+				_ = backend.PutEvents(context.Background(), []eventbridge.EventEntry{
 					{Source: "after-shutdown", DetailType: "test", Detail: `{}`},
 				})
 			})

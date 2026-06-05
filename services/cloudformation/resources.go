@@ -1745,7 +1745,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 		State:              state,
 	}
 
-	rule, err := rc.backends.EventBridge.Backend.PutRule(input)
+	rule, err := rc.backends.EventBridge.Backend.PutRule(context.Background(), input)
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge rule: %w", err)
 	}
@@ -1761,7 +1761,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(name, "default")
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -1787,7 +1787,7 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 		smType = "STANDARD"
 	}
 
-	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(name, definition, roleArn, smType)
+	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(context.Background(), name, definition, roleArn, smType)
 	if err != nil {
 		return "", fmt.Errorf("create StepFunctions state machine: %w", err)
 	}

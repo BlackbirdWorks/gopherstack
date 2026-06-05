@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *eventbridge.InMemoryBackend) string {
-				bus, err := b.CreateEventBus("test-bus", "")
+				bus, err := b.CreateEventBus(context.Background(), "test-bus", "")
 				if err != nil {
 					return ""
 				}
@@ -50,7 +51,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *eventbridge.InMemoryBackend, id string) {
 				t.Helper()
 
-				bus, err := b.DescribeEventBus(id)
+				bus, err := b.DescribeEventBus(context.Background(), id)
 				require.NoError(t, err)
 				assert.Equal(t, id, bus.Name)
 			},
@@ -62,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				// The default event bus always exists; just verify restore worked
-				buses, _, err := b.ListEventBuses("", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "")
 				require.NoError(t, err)
 				assert.NotNil(t, buses)
 			},

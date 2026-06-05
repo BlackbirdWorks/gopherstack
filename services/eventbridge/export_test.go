@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// RegionContextKeyForTest exports the regionContextKey type for external tests.
+type RegionContextKeyForTest = regionContextKey
+
 // MatchPatternForTest exposes the internal matchPattern function for external tests.
 func MatchPatternForTest(pattern, event string) bool {
 	return matchPattern(pattern, event)

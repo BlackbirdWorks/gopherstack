@@ -5,7 +5,7 @@ import "context"
 // SFNPutEvents implements the Step Functions EventBridge PutEvents service integration.
 // It maps the SFN entries (each a map with Source, DetailType, Detail, EventBusName)
 // to EventEntry values and calls PutEvents, returning the count of failed entries.
-func (b *InMemoryBackend) SFNPutEvents(_ context.Context, entries []map[string]any) (int, error) {
+func (b *InMemoryBackend) SFNPutEvents(ctx context.Context, entries []map[string]any) (int, error) {
 	evtEntries := make([]EventEntry, 0, len(entries))
 
 	for _, e := range entries {
@@ -17,7 +17,7 @@ func (b *InMemoryBackend) SFNPutEvents(_ context.Context, entries []map[string]a
 		evtEntries = append(evtEntries, entry)
 	}
 
-	results := b.PutEvents(evtEntries)
+	results := b.PutEvents(ctx, evtEntries)
 
 	failedCount := 0
 	for _, r := range results {
