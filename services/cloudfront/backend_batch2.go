@@ -231,13 +231,23 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []s
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, tenantID)
 	}
 
+	const tenantInvalidationDelay = 100 * time.Millisecond
+
+	now := time.Now().UTC()
 	inv := &Invalidation{
 		ID:         uuid.NewString()[:12],
-		Status:     "Completed",
-		CreateTime: time.Now().UTC(),
+		Status:     "InProgress",
+		CreateTime: now,
 		Paths:      paths,
 	}
 	b.tenantInvalidations[tenantID] = append(b.tenantInvalidations[tenantID], inv)
+
+	if b.tenantInvalidationReadyAt[tenantID] == nil {
+		b.tenantInvalidationReadyAt[tenantID] = make(map[string]time.Time)
+	}
+
+	b.tenantInvalidationReadyAt[tenantID][inv.ID] = now.Add(tenantInvalidationDelay)
+
 	cp := *inv
 
 	return &cp, nil
