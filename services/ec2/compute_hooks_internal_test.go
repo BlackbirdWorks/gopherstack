@@ -119,10 +119,12 @@ func TestComputeHookLifecycle(t *testing.T) {
 				instances := b.DescribeInstances(nil, "")
 				require.Len(t, instances, 1)
 				id := instances[0].ID
+				b.reconcileInstanceLifecycle() // pending → running
 
 				_, err = h.handleStopInstances(map[string][]string{testInstanceIDKey: {id}}, "req")
 				require.NoError(t, err)
 				assert.Equal(t, []string{"ctr-xyz"}, c.stopCalls)
+				b.reconcileInstanceLifecycle() // stopping → stopped
 
 				_, err = h.handleStartInstances(map[string][]string{testInstanceIDKey: {id}}, "req")
 				require.NoError(t, err)

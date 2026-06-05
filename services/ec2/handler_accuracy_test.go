@@ -23,10 +23,12 @@ func TestAccuracy_DescribeInstances_FilterByStateName(t *testing.T) {
 
 	insts, err := b.RunInstances("ami-123", "t3.micro", "", 2)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	// Stop one instance.
 	_, err = b.StopInstances([]string{insts[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	vals := url.Values{
 		"Action":           {"DescribeInstances"},
@@ -325,12 +327,15 @@ func TestAccuracy_DescribeInstances_FilterMultipleValuesOR(t *testing.T) {
 
 	insts1, err := b.RunInstances("ami-123", "t3.micro", "", 1)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	_, err = b.StopInstances([]string{insts1[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	insts2, err := b.RunInstances("ami-123", "t3.micro", "", 1)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	// Filter for both running AND stopped — should return both.
 	vals := url.Values{
@@ -867,10 +872,12 @@ func TestAccuracy_DescribeInstances_FilterWithInstanceIds(t *testing.T) {
 
 	insts, err := b.RunInstances("ami-123", "t3.micro", "", 2)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	// Stop first instance.
 	_, err = b.StopInstances([]string{insts[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	// Request both IDs but filter to running only — should return only the running one.
 	vals := url.Values{
@@ -1125,9 +1132,11 @@ func TestAccuracy_DescribeInstances_LegacyStateFilter_StillWorks(t *testing.T) {
 
 	insts, err := b.RunInstances("ami-123", "t3.micro", "", 2)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	_, err = b.StopInstances([]string{insts[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	// Use Filter.1.Name/Value style (preferred).
 	vals := url.Values{
@@ -1247,6 +1256,7 @@ func TestAccuracy_DescribeInstances_StateFilterNamedStyle_PreservesTerminated(t 
 
 	_, err = b.TerminateInstances([]string{insts[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down → terminated
 
 	vals := url.Values{
 		"Action":           {"DescribeInstances"},
@@ -1323,6 +1333,7 @@ func TestAccuracy_DescribeInstances_FilterTerminated_Visible(t *testing.T) {
 
 	_, err = b.TerminateInstances([]string{insts[0].ID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down → terminated
 
 	// Terminated instances remain visible for ~1hr before janitor sweeps them.
 	vals := url.Values{
