@@ -1783,9 +1783,20 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	return buf
 }
 
+// subscribeToShardStreamDuration is how long a SubscribeToShard stream stays open (~5 min).
+const subscribeToShardStreamDuration = 5 * time.Minute
+
+// subscribeToShardPollInterval is the poll interval between record checks.
+const subscribeToShardPollInterval = 200 * time.Millisecond
+
+// subscribeToShardMaxIdlePolls is the number of consecutive empty polls before the stream
+// is closed gracefully.  AWS clients re-subscribe after a stream closes, so closing on
+// idle is safe.  Keeping this small (3 × 200 ms = 600 ms) ensures tests complete quickly.
+const subscribeToShardMaxIdlePolls = 3
+
 // handleSubscribeToShardHTTP handles the SubscribeToShard operation using the AWS event stream
-// binary protocol. It delivers all currently available records as a single SubscribeToShardEvent
-// and then ends the stream. This is a simplified, polling-based mock.
+// binary protocol. It keeps the response stream open for up to 5 minutes, pushing records as
+// they arrive via periodic polling with chunked flushing.
 func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	ctx := c.Request().Context()
 	log := logger.Load(ctx)
@@ -1812,63 +1823,109 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		sp.Timestamp = &ts
 	}
 
-	out, err := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+	// Validate consumer/shard before opening the stream.
+	if _, err = h.Backend.SubscribeToShard(&SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: sp,
-	})
-	if err != nil {
+	}); err != nil {
 		return h.handleError(ctx, c, "SubscribeToShard", err)
 	}
-
-	records := make([]jsonRecord, len(out.Event.Records))
-	for i, r := range out.Event.Records {
-		records[i] = jsonRecord{
-			Data:                        r.Data,
-			PartitionKey:                r.PartitionKey,
-			SequenceNumber:              r.SequenceNumber,
-			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
-		}
-	}
-
-	eventPayload, err := json.Marshal(jsonSubscribeToShardEvent{
-		Records:                    records,
-		ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
-		MillisBehindLatest:         out.Event.MillisBehindLatest,
-	})
-	if err != nil {
-		log.ErrorContext(ctx, "SubscribeToShard: failed to marshal event payload", "error", err)
-
-		return c.String(http.StatusInternalServerError, "internal server error")
-	}
-
-	// The AWS SDK event stream middleware blocks until it receives an "initial-response"
-	// message. This must be written before any event messages or the SDK and the
-	// readEventStream goroutine will deadlock: the middleware waits on initialResponse
-	// while the goroutine waits for someone to drain the stream channel.
-	// The payload is an empty JSON object because SubscribeToShardOutput has no fields.
-	initialResponseMsg := encodeEventStreamMsg([][2]string{
-		{":event-type", "initial-response"},
-		{":message-type", "event"},
-		{":content-type", "application/json"},
-	}, []byte("{}"))
-
-	eventMsg := encodeEventStreamMsg([][2]string{
-		{":event-type", "SubscribeToShardEvent"},
-		{":message-type", "event"},
-		{":content-type", "application/json"},
-	}, eventPayload)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 
-	if _, err = c.Response().Write(initialResponseMsg); err != nil {
-		return err
+	flusher, canFlush := c.Response().(http.Flusher)
+
+	// Send initial-response so the SDK event-stream middleware unblocks.
+	initialMsg := encodeEventStreamMsg([][2]string{
+		{":event-type", "initial-response"},
+		{":message-type", "event"},
+		{":content-type", "application/json"},
+	}, []byte("{}"))
+	if _, writeErr := c.Response().Write(initialMsg); writeErr != nil {
+		return writeErr
+	}
+	if canFlush {
+		flusher.Flush()
 	}
 
-	_, err = c.Response().Write(eventMsg)
+	deadline := time.Now().Add(subscribeToShardStreamDuration)
+	ticker := time.NewTicker(subscribeToShardPollInterval)
+	defer ticker.Stop()
 
-	return err
+	curSP := sp
+	idlePolls := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return nil
+			}
+
+			out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+				ConsumerARN:      req.ConsumerARN,
+				ShardID:          req.ShardID,
+				StartingPosition: curSP,
+			})
+			if pollErr != nil {
+				return nil
+			}
+
+			if len(out.Event.Records) == 0 {
+				idlePolls++
+				if idlePolls >= subscribeToShardMaxIdlePolls {
+					return nil
+				}
+
+				continue
+			}
+			idlePolls = 0
+
+			records := make([]jsonRecord, len(out.Event.Records))
+			for i, r := range out.Event.Records {
+				records[i] = jsonRecord{
+					Data:                        r.Data,
+					PartitionKey:                r.PartitionKey,
+					SequenceNumber:              r.SequenceNumber,
+					ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
+				}
+			}
+
+			eventPayload, marshalErr := json.Marshal(jsonSubscribeToShardEvent{
+				Records:                    records,
+				ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
+				MillisBehindLatest:         out.Event.MillisBehindLatest,
+			})
+			if marshalErr != nil {
+				continue
+			}
+
+			eventMsg := encodeEventStreamMsg([][2]string{
+				{":event-type", "SubscribeToShardEvent"},
+				{":message-type", "event"},
+				{":content-type", "application/json"},
+			}, eventPayload)
+
+			if _, writeErr := c.Response().Write(eventMsg); writeErr != nil {
+				return nil
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+
+			// Advance cursor past delivered records.
+			if out.Event.ContinuationSequenceNumber != "" {
+				curSP = StartingPosition{
+					Type:           iteratorTypeAfterSequenceNumber,
+					SequenceNumber: out.Event.ContinuationSequenceNumber,
+				}
+			}
+		}
+	}
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

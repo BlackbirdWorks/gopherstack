@@ -152,8 +152,18 @@ func decryptValue(ciphertext string) (string, error) {
 	return string(plaintext), nil
 }
 
+// KMSEncryptor provides symmetric encrypt/decrypt for SecureString parameters.
+// Implemented by an adapter wrapping the KMS backend.
+type KMSEncryptor interface {
+	// EncryptSSM encrypts plaintext using the given KMS key and returns ciphertext bytes.
+	EncryptSSM(keyID string, plaintext []byte) ([]byte, error)
+	// DecryptSSM decrypts ciphertext and returns plaintext bytes.
+	DecryptSSM(ciphertext []byte) ([]byte, error)
+}
+
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
+	kms                        KMSEncryptor
 	activations                map[string]Activation
 	maintenanceWindows         map[string]MaintenanceWindow
 	maintenanceWindowTargets   map[string]MaintenanceWindowTarget
@@ -229,6 +239,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return b
 }
 
+// WithKMS attaches a KMSEncryptor so SecureString parameters whose KeyID is
+// set are encrypted/decrypted using the real KMS backend instead of the
+// built-in mock key.
+func (b *InMemoryBackend) WithKMS(e KMSEncryptor) *InMemoryBackend {
+	b.kms = e
+	return b
+}
+
 // WithCommandTTL sets the TTL used for the ExpiresAfter field on new commands.
 // A zero or negative value falls back to the default (3600 seconds / 1 hour).
 func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
@@ -237,6 +255,38 @@ func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
 	}
 
 	return b
+}
+
+// encryptSSMValue encrypts a SecureString value using KMS (when keyID is set
+// and a KMSEncryptor is wired) or the built-in mock GCM cipher.
+// Returns base64-encoded ciphertext for storage.
+func (b *InMemoryBackend) encryptSSMValue(keyID, plaintext string) (string, error) {
+	if keyID != "" && b.kms != nil {
+		ct, err := b.kms.EncryptSSM(keyID, []byte(plaintext))
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", ErrInvalidKeyID, err)
+		}
+		return base64.StdEncoding.EncodeToString(ct), nil
+	}
+	return encryptValue(plaintext)
+}
+
+// decryptSSMValue decrypts a stored SecureString value.  When the value was
+// encrypted with KMS (detected by attempting KMS decrypt when a backend is
+// available), the KMS path is used; otherwise falls back to the mock cipher.
+func (b *InMemoryBackend) decryptSSMValue(keyID, ciphertext string) (string, error) {
+	if keyID != "" && b.kms != nil {
+		ct, err := base64.StdEncoding.DecodeString(ciphertext)
+		if err != nil {
+			return "", err
+		}
+		pt, err := b.kms.DecryptSSM(ct)
+		if err != nil {
+			return "", err
+		}
+		return string(pt), nil
+	}
+	return decryptValue(ciphertext)
 }
 
 // PutParameter creates or updates a parameter.
@@ -346,11 +396,11 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		version = existing.Version + 1
 	}
 
-	// Encrypt if SecureString type
+	// Encrypt if SecureString type; use KMS when a KeyID is specified.
 	value := input.Value
 	if input.Type == SecureStringType {
 		var encErr error
-		value, encErr = encryptValue(input.Value)
+		value, encErr = b.encryptSSMValue(input.KeyID, input.Value)
 		if encErr != nil {
 			return nil, encErr
 		}
@@ -408,7 +458,7 @@ func (b *InMemoryBackend) GetParameter(input *GetParameterInput) (*GetParameterO
 
 	// Decrypt SecureString if WithDecryption is true; propagate errors.
 	if input.WithDecryption && param.Type == SecureStringType {
-		decrypted, err := decryptValue(param.Value)
+		decrypted, err := b.decryptSSMValue(param.KeyID, param.Value)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrValidationException, err)
 		}
@@ -433,7 +483,7 @@ func (b *InMemoryBackend) GetParameters(input *GetParametersInput) (*GetParamete
 		if param, exists := b.parameters[name]; exists {
 			// Decrypt SecureString if WithDecryption is true
 			if input.WithDecryption && param.Type == SecureStringType {
-				decrypted, err := decryptValue(param.Value)
+				decrypted, err := b.decryptSSMValue(param.KeyID, param.Value)
 				if err != nil {
 					// If decryption fails, add to invalid parameters
 					output.InvalidParameters = append(output.InvalidParameters, name)
@@ -522,7 +572,7 @@ func (b *InMemoryBackend) GetParameterHistory(input *GetParameterHistoryInput) (
 		}
 		// Decrypt SecureString values when WithDecryption is requested.
 		if input.WithDecryption && entry.Type == SecureStringType {
-			if decrypted, err := decryptValue(entry.Value); err == nil {
+			if decrypted, err := b.decryptSSMValue(entry.KeyID, entry.Value); err == nil {
 				entry.Value = decrypted
 			}
 		}
@@ -659,7 +709,7 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 
 	for _, p := range matched[startIdx:end] {
 		if input.WithDecryption && p.Type == SecureStringType {
-			if decrypted, err := decryptValue(p.Value); err == nil {
+			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
 				p.Value = decrypted
 			}
 		}

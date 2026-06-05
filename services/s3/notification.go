@@ -41,9 +41,10 @@ type topicConfiguration struct {
 }
 
 type lambdaConfiguration struct {
-	LambdaID  string   `xml:"Id"`
-	CloudFunc string   `xml:"CloudFunction"`
-	Events    []string `xml:"Event"`
+	LambdaID  string             `xml:"Id"`
+	CloudFunc string             `xml:"CloudFunction"`
+	Events    []string           `xml:"Event"`
+	Filter    notificationFilter `xml:"Filter"`
 }
 
 // notificationFilter mirrors the S3 <Filter> element in a notification configuration.
@@ -417,7 +418,7 @@ func (d *inMemoryNotificationDispatcher) dispatchToLambda(
 	eventName, bucket, key, etag string,
 	size int64,
 ) {
-	if !matchesAnyEvent(lc.Events, eventName) {
+	if !matchesAnyEvent(lc.Events, eventName) || !keyMatchesFilter(key, lc.Filter) {
 		return
 	}
 

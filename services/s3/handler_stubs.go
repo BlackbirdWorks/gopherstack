@@ -414,15 +414,6 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleWriteGetObjectResponse handles POST /?writeGetObjectResponse.
-func (h *S3Handler) handleWriteGetObjectResponse(
-	ctx context.Context,
-	w http.ResponseWriter,
-	_ *http.Request,
-) {
-	h.setOperation(ctx, "WriteGetObjectResponse")
-	w.WriteHeader(http.StatusOK)
-}
 
 // handleListDirectoryBuckets handles GET / with ?list-type=directory.
 func (h *S3Handler) handleListDirectoryBuckets(
