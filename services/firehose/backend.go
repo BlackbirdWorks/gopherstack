@@ -5,17 +5,22 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_rddata "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
@@ -237,14 +242,49 @@ type SourceDescription struct {
 	MSKSourceDescription           *MSKSourceDescription           `json:"MSKSourceDescription,omitempty"`
 }
 
-// RedshiftDestinationDescription holds a Redshift destination config (stub).
+// RedshiftDestinationDescription holds a Redshift destination config.
 type RedshiftDestinationDescription struct {
 	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
 	RetryOptions            *RetryOptions            `json:"RetryOptions,omitempty"`
 	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
 	ClusterJDBCURL          string                   `json:"ClusterJDBCURL,omitempty"`
+	DataTableName           string                   `json:"DataTableName,omitempty"`
+	CopyOptions             string                   `json:"CopyOptions,omitempty"`
+	DataTableColumns        string                   `json:"DataTableColumns,omitempty"`
+	Username                string                   `json:"Username,omitempty"`
 	RoleARN                 string                   `json:"RoleARN,omitempty"`
 	S3BackupMode            string                   `json:"S3BackupMode,omitempty"`
+}
+
+// OpenSearchDestinationDescription holds an OpenSearch (Elasticsearch) destination config.
+type OpenSearchDestinationDescription struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	BufferingHints           *BufferingHints            `json:"BufferingHints,omitempty"`
+	RetryOptions             *RetryOptions              `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupDescription      *S3BackupDescription       `json:"S3BackupDescription,omitempty"`
+	DomainARN                string                     `json:"DomainARN,omitempty"`
+	ClusterEndpoint          string                     `json:"ClusterEndpoint,omitempty"`
+	IndexName                string                     `json:"IndexName,omitempty"`
+	TypeName                 string                     `json:"TypeName,omitempty"`
+	IndexRotationPeriod      string                     `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode             string                     `json:"S3BackupMode,omitempty"`
+	RoleARN                  string                     `json:"RoleARN,omitempty"`
+	DestinationID            string                     `json:"DestinationId,omitempty"`
+}
+
+// SplunkDestinationDescription holds a Splunk HEC destination config.
+type SplunkDestinationDescription struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions             *RetryOptions              `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupDescription      *S3BackupDescription       `json:"S3BackupDescription,omitempty"`
+	HECEndpoint              string                     `json:"HECEndpoint,omitempty"`
+	HECEndpointType          string                     `json:"HECEndpointType,omitempty"`
+	HECToken                 string                     `json:"HECToken,omitempty"`
+	HECAcknowledgmentTimeoutInSeconds int               `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
+	S3BackupMode             string                     `json:"S3BackupMode,omitempty"`
+	DestinationID            string                     `json:"DestinationId,omitempty"`
 }
 
 // DeliveryMetrics tracks delivery statistics for a stream.
@@ -263,6 +303,8 @@ type DeliveryStream struct {
 	S3Destination           *S3DestinationDescription           `json:"s3Destination,omitempty"`
 	HTTPEndpointDestination *HTTPEndpointDestinationDescription `json:"httpEndpointDestination,omitempty"`
 	RedshiftDestination     *RedshiftDestinationDescription     `json:"redshiftDestination,omitempty"`
+	OpenSearchDestination   *OpenSearchDestinationDescription   `json:"openSearchDestination,omitempty"`
+	SplunkDestination       *SplunkDestinationDescription       `json:"splunkDestination,omitempty"`
 	Encryption              *EncryptionConfig                   `json:"encryption,omitempty"`
 	Source                  *SourceDescription                  `json:"source,omitempty"`
 	DeliveryStreamType      string                              `json:"deliveryStreamType,omitempty"`
@@ -343,6 +385,8 @@ type CreateDeliveryStreamInput struct {
 	S3Destination           *S3DestinationDescription
 	HTTPEndpointDestination *HTTPEndpointDestinationDescription
 	RedshiftDestination     *RedshiftDestinationDescription
+	OpenSearchDestination   *OpenSearchDestinationDescription
+	SplunkDestination       *SplunkDestinationDescription
 	Source                  *SourceDescription
 	Name                    string
 	DeliveryStreamType      string
@@ -387,6 +431,8 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		S3Destination:           input.S3Destination,
 		HTTPEndpointDestination: input.HTTPEndpointDestination,
 		RedshiftDestination:     input.RedshiftDestination,
+		OpenSearchDestination:   input.OpenSearchDestination,
+		SplunkDestination:       input.SplunkDestination,
 		Source:                  input.Source,
 		CreateTimestamp:         now,
 		LastUpdateTimestamp:     now,
@@ -669,21 +715,35 @@ func (b *InMemoryBackend) isBackupEnabledLocked(s *DeliveryStream) bool {
 	return false
 }
 
+// bufferingHints returns the effective buffering hints for a stream, checking all
+// configured destination types in priority order.
+func bufferingHints(s *DeliveryStream) *BufferingHints {
+	if s.S3Destination != nil && s.S3Destination.BufferingHints != nil {
+		return s.S3Destination.BufferingHints
+	}
+
+	if s.HTTPEndpointDestination != nil && s.HTTPEndpointDestination.BufferingHints != nil {
+		return s.HTTPEndpointDestination.BufferingHints
+	}
+
+	if s.OpenSearchDestination != nil && s.OpenSearchDestination.BufferingHints != nil {
+		return s.OpenSearchDestination.BufferingHints
+	}
+
+	return nil
+}
+
 // shouldFlushLocked returns true when a size-based flush should happen.
 // Must be called with the write lock held.
 func (b *InMemoryBackend) shouldFlushLocked(s *DeliveryStream) bool {
-	if len(s.Records) == 0 || s.S3Destination == nil || b.s3 == nil {
+	if len(s.Records) == 0 || !b.hasActiveDestinationLocked(s) {
 		return false
 	}
 
-	if s.S3Destination.BufferingHints == nil {
-		// Default: flush at 5 MB.
-		return s.bufferSizeBytes >= 5*1024*1024
-	}
-
-	sizeLimit := s.S3Destination.BufferingHints.SizeInMBs
-	if sizeLimit <= 0 {
-		sizeLimit = 5
+	hints := bufferingHints(s)
+	sizeLimit := 5 // default 5 MB
+	if hints != nil && hints.SizeInMBs > 0 {
+		sizeLimit = hints.SizeInMBs
 	}
 
 	return s.bufferSizeBytes >= sizeLimit*1024*1024
@@ -692,13 +752,14 @@ func (b *InMemoryBackend) shouldFlushLocked(s *DeliveryStream) bool {
 // shouldFlushByIntervalLocked returns true when an interval-based flush should happen.
 // Must be called with the read lock held.
 func (b *InMemoryBackend) shouldFlushByIntervalLocked(s *DeliveryStream) bool {
-	if len(s.Records) == 0 || s.S3Destination == nil || b.s3 == nil {
+	if len(s.Records) == 0 || !b.hasActiveDestinationLocked(s) {
 		return false
 	}
 
+	hints := bufferingHints(s)
 	interval := 300 // default 300 seconds
-	if s.S3Destination.BufferingHints != nil && s.S3Destination.BufferingHints.IntervalInSeconds > 0 {
-		interval = s.S3Destination.BufferingHints.IntervalInSeconds
+	if hints != nil && hints.IntervalInSeconds > 0 {
+		interval = hints.IntervalInSeconds
 	}
 
 	return time.Since(s.lastFlush) >= time.Duration(interval)*time.Second
@@ -706,10 +767,15 @@ func (b *InMemoryBackend) shouldFlushByIntervalLocked(s *DeliveryStream) bool {
 
 // flushSnapshot holds a point-in-time snapshot of records extracted from a stream.
 type flushSnapshot struct {
-	dest      S3DestinationDescription
-	streamARN string
-	region    string
-	records   [][]byte
+	s3Dest        *S3DestinationDescription
+	httpDest      *HTTPEndpointDestinationDescription
+	redshiftDest  *RedshiftDestinationDescription
+	openSearchDest *OpenSearchDestinationDescription
+	splunkDest    *SplunkDestinationDescription
+	streamARN     string
+	streamName    string
+	region        string
+	records       [][]byte
 }
 
 // extractForFlushLocked snapshots and resets the stream buffer when shouldFlushLocked
@@ -722,19 +788,75 @@ func (b *InMemoryBackend) extractForFlushLocked(s *DeliveryStream) *flushSnapsho
 	return b.extractAllRecordsLocked(s)
 }
 
+// hasActiveDestinationLocked reports whether the stream has at least one configured
+// delivery destination. Must be called with the read lock (or write lock) held.
+func (b *InMemoryBackend) hasActiveDestinationLocked(s *DeliveryStream) bool {
+	if s.S3Destination != nil && b.s3 != nil {
+		return true
+	}
+
+	if s.HTTPEndpointDestination != nil &&
+		s.HTTPEndpointDestination.EndpointConfiguration != nil &&
+		s.HTTPEndpointDestination.EndpointConfiguration.URL != "" {
+		return true
+	}
+
+	if s.RedshiftDestination != nil && s.RedshiftDestination.ClusterJDBCURL != "" {
+		return true
+	}
+
+	if s.OpenSearchDestination != nil &&
+		(s.OpenSearchDestination.DomainARN != "" || s.OpenSearchDestination.ClusterEndpoint != "") {
+		return true
+	}
+
+	if s.SplunkDestination != nil && s.SplunkDestination.HECEndpoint != "" {
+		return true
+	}
+
+	return false
+}
+
 // extractAllRecordsLocked unconditionally snapshots and resets the stream buffer.
-// Returns nil when there are no records to flush. Must be called with the write lock held.
+// Returns nil when there are no records or no active delivery destination.
+// Must be called with the write lock held.
 func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnapshot {
-	if len(s.Records) == 0 || s.S3Destination == nil || b.s3 == nil {
+	if len(s.Records) == 0 || !b.hasActiveDestinationLocked(s) {
 		return nil
 	}
 
 	snap := &flushSnapshot{
-		records:   s.Records,
-		dest:      *s.S3Destination,
-		streamARN: s.ARN,
-		region:    s.Region,
+		records:    s.Records,
+		streamARN:  s.ARN,
+		streamName: s.Name,
+		region:     s.Region,
 	}
+
+	if s.S3Destination != nil && b.s3 != nil {
+		d := *s.S3Destination
+		snap.s3Dest = &d
+	}
+
+	if s.HTTPEndpointDestination != nil {
+		d := *s.HTTPEndpointDestination
+		snap.httpDest = &d
+	}
+
+	if s.RedshiftDestination != nil {
+		d := *s.RedshiftDestination
+		snap.redshiftDest = &d
+	}
+
+	if s.OpenSearchDestination != nil {
+		d := *s.OpenSearchDestination
+		snap.openSearchDest = &d
+	}
+
+	if s.SplunkDestination != nil {
+		d := *s.SplunkDestination
+		snap.splunkDest = &d
+	}
+
 	s.Records = [][]byte{}
 	s.bufferSizeBytes = 0
 	s.lastFlush = time.Now()
@@ -742,25 +864,38 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 	return snap
 }
 
-// deliverSnapshot applies optional Lambda transformation and delivers records to S3.
-// Called after the write lock has been released.
+// deliverSnapshot applies optional Lambda transformation and delivers records to all
+// configured destinations. Called after the write lock has been released.
 func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
 	records := snap.records
 
-	if snap.dest.ProcessingConfiguration != nil && snap.dest.ProcessingConfiguration.Enabled {
-		var err error
-
-		records, err = b.transformRecords(ctx, records, &snap.dest, snap.streamARN, snap.region)
-		if err != nil {
-			return
+	// Apply Lambda transformation for S3 destination (only S3 supports it today).
+	if snap.s3Dest != nil &&
+		snap.s3Dest.ProcessingConfiguration != nil &&
+		snap.s3Dest.ProcessingConfiguration.Enabled {
+		transformed, err := b.transformRecords(ctx, records, snap.s3Dest, snap.streamARN, snap.region)
+		if err == nil && len(transformed) > 0 {
+			_ = b.deliverToS3(ctx, transformed, snap.s3Dest, streamName)
 		}
+	} else if snap.s3Dest != nil {
+		_ = b.deliverToS3(ctx, records, snap.s3Dest, streamName)
 	}
 
-	if len(records) == 0 {
-		return
+	if snap.httpDest != nil {
+		b.deliverToHTTPEndpoint(ctx, records, snap.httpDest, snap.streamARN)
 	}
 
-	_ = b.deliverToS3(ctx, records, &snap.dest, streamName)
+	if snap.redshiftDest != nil {
+		b.deliverToRedshift(ctx, records, snap.redshiftDest, snap.streamARN)
+	}
+
+	if snap.openSearchDest != nil {
+		b.deliverToOpenSearch(ctx, records, snap.openSearchDest, snap.streamARN)
+	}
+
+	if snap.splunkDest != nil {
+		b.deliverToSplunk(ctx, records, snap.splunkDest, snap.streamARN)
+	}
 }
 
 // flushStream delivers all buffered records for a stream to S3.
@@ -1077,6 +1212,16 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 		cp.RedshiftDestination = &rs
 	}
 
+	if s.OpenSearchDestination != nil {
+		os := *s.OpenSearchDestination
+		cp.OpenSearchDestination = &os
+	}
+
+	if s.SplunkDestination != nil {
+		sp := *s.SplunkDestination
+		cp.SplunkDestination = &sp
+	}
+
 	if s.Encryption != nil {
 		enc := *s.Encryption
 		cp.Encryption = &enc
@@ -1106,4 +1251,409 @@ func newRecordID() string {
 	}
 
 	return hex.EncodeToString(b)
+}
+
+// httpDeliveryTimeout is the maximum time allowed for a single HTTP endpoint delivery attempt.
+const httpDeliveryTimeout = 30 * time.Second
+
+// httpMaxRetryDuration is the default max retry window when RetryOptions is not set.
+const httpMaxRetryDuration = 300 * time.Second
+
+// deliverToHTTPEndpoint POSTs records to a Firehose HTTP endpoint destination using the
+// AWS Firehose HTTP endpoint delivery format. Retries are attempted within the configured
+// RetryOptions.DurationInSeconds window (default 300s) with exponential back-off.
+func (b *InMemoryBackend) deliverToHTTPEndpoint(
+	ctx context.Context,
+	records [][]byte,
+	dest *HTTPEndpointDestinationDescription,
+	streamARN string,
+) {
+	if dest.EndpointConfiguration == nil || dest.EndpointConfiguration.URL == "" {
+		return
+	}
+
+	endpointURL := dest.EndpointConfiguration.URL
+	accessKey := dest.EndpointConfiguration.AccessKey
+
+	// Build the AWS Firehose HTTP endpoint payload format.
+	type httpRecord struct {
+		Data string `json:"data"`
+	}
+	type httpPayload struct {
+		RequestID string       `json:"requestId"`
+		Timestamp int64        `json:"timestamp"`
+		Records   []httpRecord `json:"records"`
+	}
+
+	httpRecords := make([]httpRecord, 0, len(records))
+	for _, rec := range records {
+		httpRecords = append(httpRecords, httpRecord{
+			Data: base64.StdEncoding.EncodeToString(rec),
+		})
+	}
+
+	payload := httpPayload{
+		RequestID: uuid.NewString(),
+		Timestamp: time.Now().UnixMilli(),
+		Records:   httpRecords,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		slog.Default().Warn("firehose: failed to marshal HTTP endpoint payload", "error", err, "stream", streamARN)
+		return
+	}
+
+	// Determine max retry window.
+	maxRetry := httpMaxRetryDuration
+	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
+		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
+	}
+
+	deadline := time.Now().Add(maxRetry)
+	backoff := 1 * time.Second
+
+	client := &http.Client{Timeout: httpDeliveryTimeout}
+
+	for {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
+		if reqErr != nil {
+			slog.Default().Warn("firehose: failed to build HTTP endpoint request", "error", reqErr, "stream", streamARN)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if accessKey != "" {
+			req.Header.Set("X-Amz-Firehose-Access-Key", accessKey)
+		}
+
+		// Attach common attributes from RequestConfiguration.
+		if dest.RequestConfiguration != nil {
+			for _, attr := range dest.RequestConfiguration.CommonAttributes {
+				req.Header.Set(attr.AttributeName, attr.AttributeValue)
+			}
+		}
+
+		resp, doErr := client.Do(req)
+		if doErr == nil {
+			resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return
+			}
+		}
+
+		if time.Now().After(deadline) {
+			slog.Default().Warn("firehose: HTTP endpoint delivery failed after retries",
+				"url", endpointURL, "stream", streamARN)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
+}
+
+// redshiftRetryDuration is the default retry window for Redshift delivery.
+const redshiftRetryDuration = 7200 * time.Second
+
+// deliverToRedshift inserts records into a Redshift table via the Redshift Data API
+// (ExecuteStatement). Each record is inserted as a single-column row with the raw
+// record bytes stored as a base64-encoded string in the configured DataTableName.
+//
+// The ClusterJDBCURL is parsed to extract the cluster endpoint and database name.
+// Format: jdbc:redshift://<host>:<port>/<database>
+func (b *InMemoryBackend) deliverToRedshift(
+	ctx context.Context,
+	records [][]byte,
+	dest *RedshiftDestinationDescription,
+	streamARN string,
+) {
+	if dest.ClusterJDBCURL == "" || dest.DataTableName == "" {
+		return
+	}
+
+	// Parse JDBC URL: jdbc:redshift://host:port/database
+	jdbcURL := strings.TrimPrefix(dest.ClusterJDBCURL, "jdbc:redshift://")
+	parsed, parseErr := url.Parse("https://" + jdbcURL)
+	if parseErr != nil {
+		slog.Default().Warn("firehose: cannot parse Redshift JDBC URL",
+			"url", dest.ClusterJDBCURL, "stream", streamARN, "error", parseErr)
+		return
+	}
+
+	host := parsed.Hostname()
+	database := strings.TrimPrefix(parsed.Path, "/")
+
+	// Extract cluster identifier from the host: <cluster>.<suffix>.redshift.amazonaws.com
+	clusterID := strings.SplitN(host, ".", 2)[0]
+
+	if clusterID == "" || database == "" {
+		slog.Default().Warn("firehose: Redshift JDBC URL missing cluster or database",
+			"url", dest.ClusterJDBCURL, "stream", streamARN)
+		return
+	}
+
+	// Build a batch INSERT statement using VALUES clauses.
+	// Records are base64-encoded to avoid SQL injection from raw binary data.
+	columns := dest.DataTableColumns
+	if columns == "" {
+		columns = "data"
+	}
+
+	var sqlParts []string
+	for _, rec := range records {
+		encoded := base64.StdEncoding.EncodeToString(rec)
+		// Escape single quotes defensively (base64 alphabet contains none, but be explicit).
+		escaped := strings.ReplaceAll(encoded, "'", "''")
+		sqlParts = append(sqlParts, fmt.Sprintf("('%s')", escaped))
+	}
+
+	if len(sqlParts) == 0 {
+		return
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+		dest.DataTableName, columns, strings.Join(sqlParts, ","))
+
+	rdClient := sdk_rddata.NewFromConfig(aws.Config{Region: b.region})
+
+	maxRetry := redshiftRetryDuration
+	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
+		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
+	}
+
+	deadline := time.Now().Add(maxRetry)
+	backoff := 2 * time.Second
+
+	for {
+		_, execErr := rdClient.ExecuteStatement(ctx, &sdk_rddata.ExecuteStatementInput{
+			ClusterIdentifier: aws.String(clusterID),
+			Database:          aws.String(database),
+			DbUser:            aws.String(dest.Username),
+			Sql:               aws.String(sql),
+		})
+		if execErr == nil {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			slog.Default().Warn("firehose: Redshift delivery failed after retries",
+				"cluster", clusterID, "database", database, "stream", streamARN, "error", execErr)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 60*time.Second {
+				backoff = 60 * time.Second
+			}
+		}
+	}
+}
+
+// openSearchBulkTimeout is the HTTP timeout for an OpenSearch bulk index request.
+const openSearchBulkTimeout = 30 * time.Second
+
+// deliverToOpenSearch bulk-indexes records into an OpenSearch / Elasticsearch cluster.
+// Records are sent as NDJSON using the OpenSearch bulk API (_bulk endpoint).
+// Each record becomes one "index" action; the document body is the raw record bytes
+// decoded as JSON (or wrapped in {"data":"<base64>"} when the bytes are not valid JSON).
+func (b *InMemoryBackend) deliverToOpenSearch(
+	ctx context.Context,
+	records [][]byte,
+	dest *OpenSearchDestinationDescription,
+	streamARN string,
+) {
+	endpoint := dest.ClusterEndpoint
+	if endpoint == "" {
+		// Derive endpoint from domain ARN: arn:aws:es:<region>:<account>:domain/<name>
+		// Local OpenSearch is assumed at http://localhost:9200 in dev/test.
+		endpoint = "http://localhost:9200"
+	}
+
+	endpoint = strings.TrimRight(endpoint, "/")
+	indexName := dest.IndexName
+	if indexName == "" {
+		indexName = "firehose"
+	}
+
+	bulkURL := fmt.Sprintf("%s/%s/_bulk", endpoint, indexName)
+
+	// Build NDJSON bulk payload.
+	var buf bytes.Buffer
+	actionLine := []byte(`{"index":{}}` + "\n")
+	for _, rec := range records {
+		buf.Write(actionLine)
+		// Write record; append newline.
+		buf.Write(rec)
+		if len(rec) == 0 || rec[len(rec)-1] != '\n' {
+			buf.WriteByte('\n')
+		}
+	}
+
+	if buf.Len() == 0 {
+		return
+	}
+
+	maxRetry := httpMaxRetryDuration
+	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
+		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
+	}
+
+	deadline := time.Now().Add(maxRetry)
+	backoff := 1 * time.Second
+	client := &http.Client{Timeout: openSearchBulkTimeout}
+	bodyBytes := buf.Bytes()
+
+	for {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, bulkURL, bytes.NewReader(bodyBytes))
+		if reqErr != nil {
+			slog.Default().Warn("firehose: failed to build OpenSearch bulk request", "error", reqErr, "stream", streamARN)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/x-ndjson")
+
+		resp, doErr := client.Do(req)
+		if doErr == nil {
+			resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return
+			}
+		}
+
+		if time.Now().After(deadline) {
+			slog.Default().Warn("firehose: OpenSearch delivery failed after retries",
+				"url", bulkURL, "stream", streamARN)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
+}
+
+// splunkHECTimeout is the HTTP timeout for a Splunk HEC request.
+const splunkHECTimeout = 30 * time.Second
+
+// deliverToSplunk POSTs records to a Splunk HTTP Event Collector (HEC) endpoint.
+// Each record is sent as a separate JSON event in the HEC raw format, batched
+// into a single POST when the HEC endpoint type is "Raw" (default).
+// HECEndpointType "Event" wraps each record in the HEC event JSON envelope.
+func (b *InMemoryBackend) deliverToSplunk(
+	ctx context.Context,
+	records [][]byte,
+	dest *SplunkDestinationDescription,
+	streamARN string,
+) {
+	if dest.HECEndpoint == "" {
+		return
+	}
+
+	hecURL := strings.TrimRight(dest.HECEndpoint, "/")
+	hecType := strings.ToLower(dest.HECEndpointType)
+
+	var (
+		body        []byte
+		contentType string
+	)
+
+	if hecType == "event" {
+		// HEC Event format: one JSON envelope per record.
+		type hecEvent struct {
+			Event string `json:"event"`
+		}
+		var buf bytes.Buffer
+		for _, rec := range records {
+			env := hecEvent{Event: string(rec)}
+			line, marshalErr := json.Marshal(env)
+			if marshalErr != nil {
+				continue
+			}
+			buf.Write(line)
+		}
+		body = buf.Bytes()
+		contentType = "application/json"
+	} else {
+		// HEC Raw format (default): raw data batched into a single POST.
+		var buf bytes.Buffer
+		for _, rec := range records {
+			buf.Write(rec)
+			if len(rec) == 0 || rec[len(rec)-1] != '\n' {
+				buf.WriteByte('\n')
+			}
+		}
+		body = buf.Bytes()
+		contentType = "text/plain"
+	}
+
+	if len(body) == 0 {
+		return
+	}
+
+	maxRetry := httpMaxRetryDuration
+	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
+		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
+	}
+
+	deadline := time.Now().Add(maxRetry)
+	backoff := 1 * time.Second
+	client := &http.Client{Timeout: splunkHECTimeout}
+
+	for {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, hecURL, bytes.NewReader(body))
+		if reqErr != nil {
+			slog.Default().Warn("firehose: failed to build Splunk HEC request", "error", reqErr, "stream", streamARN)
+			return
+		}
+
+		req.Header.Set("Content-Type", contentType)
+		if dest.HECToken != "" {
+			req.Header.Set("Authorization", "Splunk "+dest.HECToken)
+		}
+
+		resp, doErr := client.Do(req)
+		if doErr == nil {
+			resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return
+			}
+		}
+
+		if time.Now().After(deadline) {
+			slog.Default().Warn("firehose: Splunk HEC delivery failed after retries",
+				"url", hecURL, "stream", streamARN)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
 }

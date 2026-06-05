@@ -102,9 +102,11 @@ func SetDynamoDBStreamsReaderOnPoller(p *EventSourcePoller, r DynamoDBStreamsRea
 }
 
 // SetSQSInvoker sets a test-only override for the Lambda invocation step in the
-// SQS ESM poller. When fn is non-nil it is called instead of InvokeFunction,
-// allowing unit tests to make Lambda invocation succeed without a Docker daemon.
-func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
+// SQS ESM poller. When fn is non-nil it is called instead of InvokeFunction.
+// fn returns the raw response body (may be nil) and any error, mirroring
+// InvokeFunction. Tests that need to simulate ReportBatchItemFailures can
+// return a JSON body containing a batchItemFailures list.
+func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) ([]byte, error)) {
 	p.sqsInvoker = fn
 }
 

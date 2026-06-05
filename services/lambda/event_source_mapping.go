@@ -36,6 +36,7 @@ type EventSourceMapping struct {
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"sourceAccessConfigurations,omitempty"`
 	Topics                              []string                             `json:"topics,omitempty"`
 	Queues                              []string                             `json:"queues,omitempty"`
+	FunctionResponseTypes               []string                             `json:"functionResponseTypes,omitempty"`
 	BatchSize                           int                                  `json:"batchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"maxBatchingWindowSecs,omitempty"`
 	TumblingWindowInSeconds             int                                  `json:"tumblingWindowInSeconds,omitempty"`
@@ -111,6 +112,7 @@ type CreateEventSourceMappingInput struct {
 	SourceAccessConfigurations          []SourceAccessConfiguration
 	Topics                              []string
 	Queues                              []string
+	FunctionResponseTypes               []string
 	BatchSize                           int
 	MaximumBatchingWindowInSeconds      int
 	TumblingWindowInSeconds             int
@@ -131,6 +133,7 @@ type UpdateEventSourceMappingInput struct {
 	SourceAccessConfigurations     []SourceAccessConfiguration
 	Topics                         []string
 	Queues                         []string
+	FunctionResponseTypes          []string
 	BatchSize                      int
 	MaximumBatchingWindowInSeconds int
 	TumblingWindowInSeconds        int
@@ -156,6 +159,7 @@ type jsonESMResponse struct {
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
 	Topics                              []string                             `json:"Topics,omitempty"`
 	Queues                              []string                             `json:"Queues,omitempty"`
+	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes,omitempty"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"` //nolint:lll // AWS field name
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds,omitempty"`
@@ -190,6 +194,7 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		SourceAccessConfigurations:          m.SourceAccessConfigurations,
 		Topics:                              m.Topics,
 		Queues:                              m.Queues,
+		FunctionResponseTypes:               m.FunctionResponseTypes,
 		MaximumBatchingWindowInSeconds:      m.MaximumBatchingWindowInSeconds,
 		TumblingWindowInSeconds:             m.TumblingWindowInSeconds,
 		MaximumRecordAgeInSeconds:           m.MaximumRecordAgeInSeconds,
