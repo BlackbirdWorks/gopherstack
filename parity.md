@@ -96,8 +96,12 @@ credentials (`services/sts/backend.go:483`), EC2 optional Docker-backed compute
 ## 4. Operation-coverage gaps (acknowledged `notImplemented`)
 
 Each service's `services/<svc>/sdk_completeness_test.go` lists AWS SDK operations explicitly
-acknowledged as **not implemented**. The handler answers a subset of the service's API; these
-ops return an unknown-operation error. Largest gaps (exact slice lengths):
+acknowledged as **not implemented** in a `notImplemented := []string{…}` slice. The handler answers
+a subset of the service's API; these ops return an unknown-operation error.
+
+**Exactly 19 services have an incomplete completeness test** (a non-empty `notImplemented` slice),
+totalling **1,011 acknowledged-missing operations**. The complete list (exact slice lengths) follows
+— every other service carries an **empty** slice, i.e. full op-level coverage of its SDK surface.
 
 | Service | # missing ops | Representative missing ops |
 |---|---:|---|
@@ -118,7 +122,9 @@ ops return an unknown-operation error. Largest gaps (exact slice lengths):
 | **mediatailor** | 24 | CreateProgram, CreateLiveSource, CreatePrefetchSchedule, GetChannelSchedule, … |
 | **accessanalyzer** | 23 | CreateAccessPreview, CheckNoPublicAccess, GenerateFindingRecommendation, ApplyArchiveRule, … |
 | **detective** | 19 | AcceptInvitation, StartInvestigation, ListIndicators, BatchGetGraphMemberDatasources, … |
-| **rolesanywhere** | 13 | (see `services/rolesanywhere/sdk_completeness_test.go`) |
+| **rolesanywhere** | 13 | DeleteCrl, DisableCrl, EnableCrl, GetCrl, ImportCrl, ListCrls, GetSubject, PutAttributeMapping, … |
+| **mediapackage** | 4 | CreateHarvestJob, DescribeHarvestJob, ListHarvestJobs, RotateIngestEndpointCredentials |
+| **TOTAL** | **1,011** | across 19 services |
 
 These are mostly newer / LocalStack-Pro-tier or rarely-used management operations. Core data
 services (S3, DynamoDB, SQS, SNS, Lambda, Kinesis, EC2, IAM, KMS, STS, …) carry an **empty**
@@ -150,16 +156,14 @@ These don't affect emulation correctness but break **drop-in replacement** for L
 
 | # | Sev | Gap | Detail | Citation |
 |---|-----|-----|--------|----------|
-| 27 | 🔴 | **Health endpoint path** | Gopherstack serves `/_gopherstack/health`, not LocalStack's **`/_localstack/health`**. Tools that probe LocalStack readiness — `awslocal`, `cdklocal`, the Testcontainers/`localstack` modules — won't recognise it. No compat alias exists. | `cli.go:1992` |
-| 28 | 🟠 | **Default port** | Default `8000`, not LocalStack's edge port **`4566`**. Anything hard-coded to `4566` needs reconfiguration. | `cmd/awsgs/main.go:30` |
-| 29 | 🟠 | **No CORS** | No CORS middleware is registered, so **browser-based** AWS SDK (`@aws-sdk/*` in a webpage) calls fail preflight. LocalStack returns permissive CORS headers. | `cli.go:1985` (middleware chain) |
-| 30 | 🟠 | **Region isolation is inconsistent** | Only ~8 handlers call `ExtractRegionFromRequest`; most backends are single-region, so resources created in `us-east-1` are visible from other regions. S3 is region-aware (`bucketIndex name→region`), but this is not applied uniformly. | `pkgs/httputils/httputils.go:308`; `services/s3/backend_memory.go:109` |
-| 31 | 🟠 | **Lambda packaging** | **Image-based functions only** (`PackageType: Image`). Zip uploads, S3 code delivery, and inline code — all supported by LocalStack — are rejected. | README "Lambda (image-based only)" |
-| 32 | 🟡 | **Thin env-config surface** | Only `AWS_ACCESS_KEY_ID/SECRET/REGION/DEFAULT_REGION` are read from the environment; LocalStack's rich `SERVICES`, `PERSISTENCE`, `DEBUG`, `GATEWAY_LISTEN`, `LAMBDA_*` knobs have no equivalent (gopherstack uses CLI flags instead). | grep `os.Getenv` in `cmd/`, `cli.go`, `pkgs/config` |
-| 33 | 🟡 | **No SigV4 verification** | No request-signature validation anywhere in the pipeline. This **matches** LocalStack's default (expected), but means issued STS credentials aren't cryptographically enforced on later calls. | (no `sigv4` verify outside vendored SDK) |
+| 27 | 🔴 | **Region isolation is not universal** | See §8 — this is the single largest cross-cutting compatibility gap and now has its own section. | — |
+| 28 | 🟠 | **No CORS** | No CORS middleware is registered, so **browser-based** AWS SDK (`@aws-sdk/*` in a webpage) calls fail preflight. LocalStack returns permissive CORS headers. | `cli.go:1985` (middleware chain) |
+| 29 | 🟠 | **Lambda packaging** | **Image-based functions only** (`PackageType: Image`). Zip uploads, S3 code delivery, and inline code — all supported by LocalStack — are rejected. | README "Lambda (image-based only)" |
+| 30 | 🟡 | **Thin env-config surface** | Only `AWS_ACCESS_KEY_ID/SECRET/REGION/DEFAULT_REGION` are read from the environment; LocalStack's rich `SERVICES`, `PERSISTENCE`, `DEBUG`, `GATEWAY_LISTEN`, `LAMBDA_*` knobs have no equivalent (gopherstack uses CLI flags instead). | grep `os.Getenv` in `cmd/`, `cli.go`, `pkgs/config` |
+| 31 | 🟡 | **No SigV4 verification** | No request-signature validation anywhere in the pipeline. This **matches** LocalStack's default (expected), but means issued STS credentials aren't cryptographically enforced on later calls. | (no `sigv4` verify outside vendored SDK) |
 
 **GOOD:** Startup **init hooks** are supported (`pkgs/inithooks`), analogous to LocalStack's
-`init/ready.d` lifecycle. The root `/` GET and `/_gopherstack/health` both report running state.
+`init/ready.d` lifecycle. A health endpoint and the root `/` GET both report running state.
 
 ### Service-directory coverage vs LocalStack
 Gopherstack's 148 service directories are a **superset** of the common LocalStack service list.
@@ -178,6 +182,70 @@ directories but have large `notImplemented` slices.)
 2. **Step Functions silent pass-through** (#1) — turns false-green tests into honest failures or real integrations.
 3. **SNS→Lambda fan-out** (#2) and **EventBridge→Step Functions** (#3) — common event-driven patterns.
 4. **Firehose Kinesis-source polling** (#4) and **Lambda SQS partial-batch failures** (#5).
-5. **EC2 persistence allowlist** (#24) — close the largest restart-data-loss surface.
-6. **LocalStack `/_localstack/health` alias + `:4566` option** (#27, #28) — cheap, unlocks drop-in tooling.
+5. **Universal region support** (§8, #27) — every service must isolate state per region; this is the single largest cross-cutting correctness gap.
+6. **EC2 persistence allowlist** (#24) — close the largest restart-data-loss surface.
 7. **Secrets Manager rotation Lambda invocation** (#14) and **CloudWatch alarm auto-evaluation** (#15).
+
+---
+
+## 8. Region support is mandatory — and currently inconsistent 🔴
+
+**Requirement: every service must isolate its state per AWS region.** In real AWS (and in
+LocalStack), a resource created in `us-east-1` is **not** visible from `eu-west-1`. A bucket, table,
+queue, function, secret, or stream lives in exactly one region, and a `List*`/`Describe*` call only
+returns the resources in the caller's region. This is foundational behaviour that multi-region
+applications, disaster-recovery tests, and cross-region replication tests depend on. Gopherstack
+must honour it **uniformly across all 148 services**, not as a per-service opt-in.
+
+### Current state: region isolation is the exception, not the rule
+
+The plumbing exists but is wired into only a handful of services:
+
+- **Region extraction** is available via `httputils.ExtractRegionFromRequest` (parses the SigV4
+  `Credential=.../<region>/...` scope, falling back to a default) — `pkgs/httputils/httputils.go:308`.
+- **Only ~10 of 148 services consume it.** Direct callers: `kinesis`, `kms`, `sns`, `sqs`,
+  `secretsmanager`, `mwaa`, `pinpoint`. Context-based callers: `dynamodb` and `s3` inject the region
+  into the request context (`services/dynamodb/handler.go:374`, `services/s3/handler.go:318`) and
+  read it back via `regionContextKey{}`. A couple more (`s3control`, `memorydb`) partition some maps
+  by region.
+- **The other ~138 services store a single `Region string` on the backend** (≈136 backends declare a
+  scalar `Region`/`region` field) and **do not partition their data maps by region**. The field is
+  used to build ARNs in responses, but every `List*`/`Describe*` returns **all** resources regardless
+  of the caller's region. So a table/instance/topic created against `us-east-1` is fully visible when
+  the client targets `ap-southeast-2`.
+
+Even the "region-aware" services are only **partially** so — e.g. S3 tracks a bucket→region index
+(`services/s3/backend_memory.go:109`) and rejects cross-region bucket access, but most services that
+read the region use it only for ARN construction, not for state isolation or for filtering list
+results.
+
+### What "supported" must mean (acceptance criteria)
+
+For each service, region support is complete only when **all** of the following hold:
+
+1. **Ingress:** the handler resolves the request region for every operation (SigV4 scope →
+   `X-Amz-*` region hints → configured default), and threads it through `context.Context`.
+2. **Storage:** backend state is keyed by region (e.g. `map[region]map[id]*Resource`, or a `region`
+   field that is part of every lookup key), so two regions never share a resource namespace.
+3. **Reads:** `List*` / `Describe*` / `Get*` only return resources in the caller's region; a lookup
+   for a resource that exists in another region returns the AWS `NotFound`/`NoSuch*` error, not the
+   foreign resource.
+4. **ARNs & cross-region references:** emitted ARNs embed the owning region, and operations that name
+   a foreign-region ARN behave like AWS (most fail; a documented few, e.g. DynamoDB global tables,
+   KMS multi-region keys, Route 53 (global), IAM/STS (global), are deliberately cross-region).
+5. **Global services stay global:** IAM, STS, Route 53, CloudFront, WAF (global scope), and
+   Organizations must **not** be region-partitioned — their state is shared across regions by design.
+6. **Persistence:** the region key survives `Snapshot`/`Restore` (see §5) so regional isolation is
+   stable across restarts.
+7. **Tests:** a per-service test creates a resource in region A and asserts it is invisible/!found in
+   region B (and visible in A). A shared `sdkcheck`-style helper should enforce this so new services
+   can't regress.
+
+### Suggested approach
+
+Introduce a shared region-resolution middleware (or extend the existing dispatch path) that always
+populates `regionContextKey{}` for **every** service, then migrate backends one cluster at a time to
+region-keyed storage — starting with the highest-value stateful services (DynamoDB, S3, SQS, SNS,
+Kinesis, Lambda, EC2, Secrets Manager, SSM, CloudWatch). Track per-service region-support status in a
+matrix (✅ isolated / ⚠️ region read but not isolated / ❌ single-region) and drive it to all-✅,
+excluding the genuinely-global services listed above.
