@@ -622,7 +622,7 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 			return resolveValueCtx(items[index], ctx)
 		}
 	case string:
-		// Might be a null-byte-delimited list produced by Fn::Split.
+		// Might be a null-byte-delimited list produced by Fn::Split or Fn::GetAZs.
 		if strings.Contains(items, splitSep) {
 			parts := strings.Split(items, splitSep)
 			if index >= 0 && index < len(parts) {
@@ -630,6 +630,17 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 			}
 		} else if index == 0 {
 			return items
+		}
+	case map[string]any:
+		// Other intrinsic (e.g. Fn::GetAZs) — resolve first, then select from encoded list.
+		resolved := resolveValueCtx(items, ctx)
+		if strings.Contains(resolved, splitSep) {
+			parts := strings.Split(resolved, splitSep)
+			if index >= 0 && index < len(parts) {
+				return strings.TrimSpace(parts[index])
+			}
+		} else if index == 0 {
+			return resolved
 		}
 	}
 
