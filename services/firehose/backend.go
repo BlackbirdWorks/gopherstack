@@ -67,6 +67,16 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
 }
 
+// KinesisReader is the subset of Kinesis operations that Firehose needs to poll source streams.
+type KinesisReader interface {
+	// ListShards returns all open shard IDs for the named stream.
+	ListShards(streamName string) ([]string, error)
+	// GetShardIterator returns a TRIM_HORIZON iterator token for the given stream/shard.
+	GetShardIterator(streamName, shardID string) (string, error)
+	// GetRecords reads up to limit records. Returns raw data slices, next iterator token, and error.
+	GetRecords(shardIterator string, limit int) (records [][]byte, nextIterator string, err error)
+}
+
 // BufferingHints controls when buffered records are delivered to S3.
 type BufferingHints struct {
 	SizeInMBs         int `json:"SizeInMBs"`
@@ -270,10 +280,13 @@ type DeliveryStream struct {
 
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
-	s3      S3Storer
-	lambda  LambdaInvoker
-	streams map[string]*DeliveryStream
-	mu      *lockmetrics.RWMutex
+	s3             S3Storer
+	lambda         LambdaInvoker
+	kinesisBackend KinesisReader
+	streams        map[string]*DeliveryStream
+	// pollerCancel maps stream name → cancel func for active Kinesis source pollers.
+	pollerCancel map[string]context.CancelFunc
+	mu           *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context; delivery operations use it so
 	// they are cancelled when the server shuts down rather than blocking indefinitely.
 	svcCtx    context.Context
@@ -298,11 +311,12 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	}
 
 	return &InMemoryBackend{
-		streams:   make(map[string]*DeliveryStream),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("firehose"),
-		svcCtx:    svcCtx,
+		streams:      make(map[string]*DeliveryStream),
+		pollerCancel: make(map[string]context.CancelFunc),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("firehose"),
+		svcCtx:       svcCtx,
 	}
 }
 
@@ -317,6 +331,11 @@ func (b *InMemoryBackend) SetS3Backend(s3 S3Storer) {
 // SetLambdaBackend wires the Lambda backend for record transformation.
 func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 	b.lambda = lambda
+}
+
+// SetKinesisBackend wires the Kinesis backend for polling KinesisStreamAsSource streams.
+func (b *InMemoryBackend) SetKinesisBackend(k KinesisReader) {
+	b.kinesisBackend = k
 }
 
 // CreateDeliveryStreamInput holds the input for creating a delivery stream.
@@ -336,9 +355,10 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 	}
 
 	b.mu.Lock("CreateDeliveryStream")
-	defer b.mu.Unlock()
 
 	if _, ok := b.streams[input.Name]; ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -374,16 +394,35 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 	}
 	b.streams[input.Name] = s
 
-	return streamCopy(s), nil
+	// Collect Kinesis poller info while holding the lock.
+	var kinesisStreamARN string
+	shouldPoll := streamType == deliveryStreamTypeKinesisSource &&
+		b.kinesisBackend != nil &&
+		input.Source != nil &&
+		input.Source.KinesisStreamSourceDescription != nil
+	if shouldPoll {
+		kinesisStreamARN = input.Source.KinesisStreamSourceDescription.KinesisStreamARN
+	}
+
+	result := streamCopy(s)
+
+	b.mu.Unlock()
+
+	if shouldPoll {
+		b.launchKinesisPoller(input.Name, kinesisStreamARN)
+	}
+
+	return result, nil
 }
 
 // DeleteDeliveryStream deletes a delivery stream.
 func (b *InMemoryBackend) DeleteDeliveryStream(name string) error {
 	b.mu.Lock("DeleteDeliveryStream")
-	defer b.mu.Unlock()
 
 	s, ok := b.streams[name]
 	if !ok {
+		b.mu.Unlock()
+
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
 
@@ -392,6 +431,16 @@ func (b *InMemoryBackend) DeleteDeliveryStream(name string) error {
 	}
 
 	delete(b.streams, name)
+
+	// Stop Kinesis poller if one is running for this stream.
+	cancel := b.pollerCancel[name]
+	delete(b.pollerCancel, name)
+
+	b.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	return nil
 }
