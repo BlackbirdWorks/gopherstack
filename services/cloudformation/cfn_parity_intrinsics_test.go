@@ -661,7 +661,7 @@ func TestFnGetAZs(t *testing.T) {
 				nil, nil,
 			)
 			parts := strings.Split(got, "\x00")
-			assert.Equal(t, tt.wantCount, len(parts))
+			assert.Len(t, parts, tt.wantCount)
 			assert.Equal(t, tt.wantFirst, parts[0])
 		})
 	}
@@ -766,8 +766,8 @@ func TestFnCidr(t *testing.T) {
 	tests := []struct {
 		name      string
 		args      any
-		wantCount int
 		wantFirst string
+		wantCount int
 	}{
 		{
 			name:      "four_subnets",
@@ -789,7 +789,7 @@ func TestFnCidr(t *testing.T) {
 
 			got := cloudformation.ResolveValue(tt.args, nil, nil)
 			parts := strings.Split(got, "\x00")
-			assert.Equal(t, tt.wantCount, len(parts))
+			assert.Len(t, parts, tt.wantCount)
 			assert.Equal(t, tt.wantFirst, parts[0])
 		})
 	}

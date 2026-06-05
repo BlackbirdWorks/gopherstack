@@ -5,7 +5,7 @@ import "context"
 // SFNRunTask implements the Step Functions ECS RunTask service integration.
 // It maps the SFN input map (ClusterArn, TaskDefinition, LaunchType, Overrides, etc.)
 // to a RunTaskInput and returns the standard ECS RunTask response shape.
-func (b *InMemoryBackend) SFNRunTask(ctx context.Context, input map[string]any) (any, error) {
+func (b *InMemoryBackend) SFNRunTask(_ context.Context, input map[string]any) (any, error) {
 	rti := RunTaskInput{}
 	rti.TaskDefinition, _ = input["TaskDefinition"].(string)
 	rti.Cluster, _ = input["Cluster"].(string)

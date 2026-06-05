@@ -451,7 +451,7 @@ func (h *S3Handler) handlePutBucketAccelerate(
 		_ = xml.Unmarshal(body, &cfg)
 	}
 
-	if cfg.Status != "Enabled" && cfg.Status != "Suspended" {
+	if cfg.Status != statusEnabled && cfg.Status != "Suspended" {
 		cfg.Status = "Suspended"
 	}
 

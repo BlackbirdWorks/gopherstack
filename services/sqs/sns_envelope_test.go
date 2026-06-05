@@ -22,7 +22,7 @@ type snsEnvelopeFields struct {
 	UnsubscribeURL    string                       `json:"UnsubscribeURL"`
 	TopicArn          string                       `json:"TopicArn"`
 	Message           string                       `json:"Message"`
-	MessageId         string                       `json:"MessageId"`
+	MessageID         string                       `json:"MessageId"`
 	Type              string                       `json:"Type"`
 	Subject           string                       `json:"Subject"`
 }
@@ -228,7 +228,7 @@ func TestSNS_SQS_Envelope_NonRaw_SignatureCertParseable(t *testing.T) {
 	certPEM := snsBk.SigningCertPEM()
 	require.NotEmpty(t, certPEM, "SNS backend must expose the signing certificate PEM")
 
-	block, _ := pem.Decode([]byte(certPEM))
+	block, _ := pem.Decode(certPEM)
 	require.NotNil(t, block, "SigningCertURL body must be a valid PEM block")
 
 	_, parseErr := x509.ParseCertificate(block.Bytes)

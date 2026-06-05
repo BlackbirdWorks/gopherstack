@@ -282,9 +282,9 @@ type SplunkDestinationDescription struct {
 	HECEndpoint                       string                    `json:"HECEndpoint,omitempty"`
 	HECEndpointType                   string                    `json:"HECEndpointType,omitempty"`
 	HECToken                          string                    `json:"HECToken,omitempty"`
-	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
 	S3BackupMode                      string                    `json:"S3BackupMode,omitempty"`
 	DestinationID                     string                    `json:"DestinationId,omitempty"`
+	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
 }
 
 // DeliveryMetrics tracks delivery statistics for a stream.
@@ -1267,9 +1267,9 @@ func buildHTTPEndpointBody(records [][]byte) ([]byte, error) {
 		Data string `json:"data"`
 	}
 	type httpPayload struct {
+		Records   []httpRecord `json:"records"`
 		RequestID string       `json:"requestId"`
 		Timestamp int64        `json:"timestamp"`
-		Records   []httpRecord `json:"records"`
 	}
 
 	httpRecords := make([]httpRecord, 0, len(records))

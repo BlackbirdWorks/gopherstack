@@ -14,8 +14,8 @@ import (
 
 // stubSNS records SNS publish calls for assertion.
 type stubSNS struct {
-	mu      sync.Mutex
 	records []snsRecord
+	mu      sync.Mutex
 }
 
 type snsRecord struct {
@@ -56,11 +56,11 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 		operator          string
 		statistic         string
 		treatMissing      string
+		initialState      string
+		wantState         string
 		period            int32
 		evalPeriods       int32
 		datapointsToAlarm int32
-		initialState      string
-		wantState         string
 	}{
 		{
 			name:         "breaching_data_transitions_to_alarm",
@@ -253,8 +253,8 @@ func TestAlarmEvaluator_SNSActionFiredOnStateChange(t *testing.T) {
 	tests := []struct {
 		name         string
 		initialState string
-		dataValue    float64
 		wantState    string
+		dataValue    float64
 		wantSNSCalls int
 	}{
 		{

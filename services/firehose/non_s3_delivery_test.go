@@ -27,9 +27,9 @@ func newTestBackend(t *testing.T) *firehose.InMemoryBackend {
 
 // captureServer starts an httptest.Server that captures all requests.
 type captureServer struct {
-	mu       sync.Mutex
 	requests []*capturedRequest
 	srv      *httptest.Server
+	mu       sync.Mutex
 }
 
 type capturedRequest struct {
@@ -72,8 +72,8 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
 		records        []string
+		name           string
 		accessKey      string
 		wantRecordsLen int
 		wantAccessKey  bool
@@ -139,11 +139,11 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 			require.NotEmpty(t, reqs, "server received no requests")
 
 			var payload struct {
-				RequestID string `json:"requestId"`
-				Timestamp int64  `json:"timestamp"`
-				Records   []struct {
+				Records []struct {
 					Data string `json:"data"`
 				} `json:"records"`
+				RequestID string `json:"requestId"`
+				Timestamp int64  `json:"timestamp"`
 			}
 			require.NoError(t, json.Unmarshal(reqs[0].body, &payload))
 
@@ -172,8 +172,8 @@ func TestFirehose_OpenSearch_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		records    []string
+		name       string
 		indexName  string
 		wantShards int
 	}{
@@ -243,8 +243,8 @@ func TestFirehose_Splunk_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		records     []string
+		name        string
 		hecToken    string
 		hecType     string
 		wantAuthHdr string

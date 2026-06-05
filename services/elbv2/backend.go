@@ -428,14 +428,13 @@ type InMemoryBackend struct {
 	listeners     map[string]*Listener     // keyed by ARN
 	rules         map[string]*Rule         // keyed by ARN
 	trustStores   map[string]*TrustStore   // keyed by ARN
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
-	ruleCounter   int // monotonically increasing counter for rule ARN generation
-
 	// lifecycle: tracks when initial targets become healthy.
 	targetReadyAt map[string]map[string]time.Time // tgArn → targetKey → readyAt
+	accountID     string
+	region        string
+	mu            *lockmetrics.RWMutex
 	stopCh        chan struct{}
+	ruleCounter   int // monotonically increasing counter for rule ARN generation
 }
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.

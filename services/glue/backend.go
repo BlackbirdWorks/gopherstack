@@ -383,10 +383,10 @@ type InMemoryBackend struct {
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
-	glueIdentityCenterConfig  *IdentityCenterConfig
-	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string
+	glueIdentityCenterConfig  *IdentityCenterConfig
+	mu                        *lockmetrics.RWMutex
 
 	// lifecycle reconciler
 	jobRunReadyAt  map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING

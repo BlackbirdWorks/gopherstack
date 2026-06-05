@@ -18,7 +18,7 @@ const (
 
 // DetectStackDrift initiates drift detection for all resources in a stack.
 // It compares deployed resource state against the current template and returns
-// DRIFTED/MODIFIED/DELETED when divergence is found. (#12)
+// DRIFTED/MODIFIED/DELETED when divergence is found (#12).
 func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 	b.mu.Lock("DetectStackDrift")
 	defer b.mu.Unlock()
@@ -55,7 +55,7 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 }
 
 // DetectStackResourceDrift initiates drift detection for a specific resource in a stack.
-// It compares the resource's deployed properties against the template. (#12)
+// It compares the resource's deployed properties against the template (#12).
 func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (string, error) {
 	b.mu.Lock("DetectStackResourceDrift")
 	defer b.mu.Unlock()

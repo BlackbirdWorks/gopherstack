@@ -16,15 +16,15 @@ var errAccessDenied = errors.New("access denied")
 
 // mockKinesisReader is a simple in-memory Kinesis reader for testing the poller.
 type mockKinesisReader struct {
-	mu       sync.Mutex
 	shards   []string
 	records  [][]byte
-	position int
 	listErr  error
 	getErr   error
+	mu       sync.Mutex
+	position int
 }
 
-func (m *mockKinesisReader) ListShards(streamName string) ([]string, error) {
+func (m *mockKinesisReader) ListShards(_ string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -39,11 +39,11 @@ func (m *mockKinesisReader) ListShards(streamName string) ([]string, error) {
 	return append([]string{}, m.shards...), nil
 }
 
-func (m *mockKinesisReader) GetShardIterator(streamName, shardID string) (string, error) {
+func (m *mockKinesisReader) GetShardIterator(_, _ string) (string, error) {
 	return "iter:0", nil
 }
 
-func (m *mockKinesisReader) GetRecords(iter string, limit int) ([][]byte, string, error) {
+func (m *mockKinesisReader) GetRecords(_ string, limit int) ([][]byte, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

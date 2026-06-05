@@ -30,8 +30,8 @@ type snsLambdaNotification struct {
 	Timestamp         string                          `json:"Timestamp"`
 	SignatureVersion  string                          `json:"SignatureVersion"`
 	Signature         string                          `json:"Signature"`
-	SigningCertUrl    string                          `json:"SigningCertUrl"`
-	UnsubscribeUrl    string                          `json:"UnsubscribeUrl"`
+	SigningCertURL    string                          `json:"SigningCertUrl"`
+	UnsubscribeURL    string                          `json:"UnsubscribeUrl"`
 }
 
 type snsLambdaMessageAttr struct {
@@ -54,7 +54,7 @@ func buildLambdaPayload(
 		EventSource:          "aws:sns",
 		EventSubscriptionArn: sub.SubscriptionARN,
 		Sns: snsLambdaNotification{
-			Type:              "Notification",
+			Type:              messageTypeNotification,
 			MessageID:         ev.MessageID,
 			TopicArn:          ev.TopicARN,
 			Subject:           ev.Subject,
@@ -62,8 +62,8 @@ func buildLambdaPayload(
 			Timestamp:         time.Now().UTC().Format(time.RFC3339),
 			SignatureVersion:  "1",
 			Signature:         uuid.NewString(),
-			SigningCertUrl:    "",
-			UnsubscribeUrl:    "",
+			SigningCertURL:    "",
+			UnsubscribeURL:    "",
 			MessageAttributes: attrs,
 		},
 	}
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 }
 
 // firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN.
-// ARN format: arn:aws:firehose:<region>:<account>:deliverystream/<name>
+// ARN format: arn:aws:firehose:<region>:<account>:deliverystream/<name>.
 func firehoseStreamNameFromARN(endpoint string) string {
 	const prefix = "deliverystream/"
 	if idx := strings.Index(endpoint, prefix); idx >= 0 {

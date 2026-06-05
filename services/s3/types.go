@@ -87,13 +87,13 @@ type StoredObjectVersion struct {
 	ChecksumAlgorithm       types.ChecksumAlgorithm  `json:"checksumAlgorithm,omitempty"`
 	VersionID               string                   `json:"versionID"`
 	Data                    []byte                   `json:"data,omitempty"`
+	StorageClassTransitions []StorageClassTransition `json:"storageClassTransitions,omitempty"`
 	Size                    int64                    `json:"size"`
 	IsCompressed            bool                     `json:"isCompressed,omitempty"`
 	IsLatest                bool                     `json:"isLatest"`
 	Deleted                 bool                     `json:"deleted,omitempty"`
 	LegalHold               bool                     `json:"legalHold,omitempty"`
 	OngoingRestore          bool                     `json:"ongoingRestore,omitempty"`
-	StorageClassTransitions []StorageClassTransition `json:"storageClassTransitions,omitempty"`
 }
 
 // StorageClassTransition records a single storage class change applied by a lifecycle rule.

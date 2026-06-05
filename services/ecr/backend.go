@@ -848,12 +848,9 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 
 		size = upload.Size
 		delete(b.layerUploads, uploadID)
-	} else {
+	} else if len(layerDigests) > 0 {
 		// Direct digest path: no prior InitiateLayerUpload.
-		if len(layerDigests) > 0 {
-			digest = layerDigests[0]
-		}
-		// Empty digests with no upload state: return empty digest (legacy path).
+		digest = layerDigests[0]
 	}
 
 	if b.uploadedLayers[repositoryName] == nil {
@@ -890,7 +887,7 @@ func isFullSHA256Digest(s string) bool {
 	}
 
 	for _, c := range s[len(prefix):] {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

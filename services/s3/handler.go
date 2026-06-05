@@ -61,7 +61,8 @@ const (
 	ChecksumCRC32C  = "CRC32C"
 	ChecksumSHA1    = "SHA1"
 	ChecksumSHA256  = "SHA256"
-	storageStandard = "STANDARD"
+	storageStandard  = "STANDARD"
+	statusEnabled    = "Enabled"
 
 	maxDeleteObjects = 1000
 )
@@ -71,13 +72,13 @@ const (
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
 	objectLambdaHandlerFields
+	notificationMu  sync.RWMutex
 	notifier        NotificationDispatcher
 	notificationCtx context.Context
 	Backend         StorageBackend
-	janitor         *Janitor
 	DefaultRegion   string
 	Endpoint        string
-	notificationMu  sync.RWMutex
+	janitor         *Janitor
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
