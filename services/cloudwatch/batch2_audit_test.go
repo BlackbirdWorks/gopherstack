@@ -353,6 +353,7 @@ func TestCBOR_PutMetricAlarm_Dimensions_Stored(t *testing.T) {
 					for _, gotDim := range got {
 						if gotDim.Name == wantDim.Name && gotDim.Value == wantDim.Value {
 							found = true
+
 							break
 						}
 					}
