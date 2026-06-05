@@ -119,7 +119,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	// without blocking the current goroutine.
 	go func() {
 		dispCtx := h.notificationDispatchContext()
-		if inv, ok := h.notifier.(objectLambdaInvoker); ok {
+		if inv, ok := h.notifier.(LambdaInvoker); ok {
 			_, _, invErr := inv.InvokeFunction(dispCtx, lambdaARN, "RequestResponse", payload)
 			if invErr != nil {
 				logger.Load(dispCtx).WarnContext(dispCtx, "object lambda: invocation failed",
@@ -158,12 +158,6 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	case <-ctx.Done():
 		h.pendingObjectLambdaRequests.Delete(token)
 	}
-}
-
-// objectLambdaInvoker is implemented by the NotificationDispatcher when it has a LambdaInvoker.
-// We use a narrow interface to avoid importing the full notification subsystem here.
-type objectLambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
 // handleWriteGetObjectResponse handles POST /?writeGetObjectResponse.
@@ -223,11 +217,11 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 // They are embedded into S3Handler.
 type objectLambdaHandlerFields struct {
 	pendingObjectLambdaRequests sync.Map
-	objectLambdaMu              sync.RWMutex
 	objectLambdaConfigs         map[string]string
+	objectLambdaMu              sync.RWMutex
 }
 
-// InvokeFunction satisfies objectLambdaInvoker for inMemoryNotificationDispatcher.
+// InvokeFunction satisfies LambdaInvoker for inMemoryNotificationDispatcher.
 // The existing dispatcher already exposes its LambdaInvoker. We add a small shim
 // so callers don't need to type-assert into the private struct.
 func (d *inMemoryNotificationDispatcher) InvokeFunction(

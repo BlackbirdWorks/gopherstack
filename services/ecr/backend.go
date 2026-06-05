@@ -826,29 +826,39 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	var size int64
 
 	upload, ok := b.layerUploads[uploadID]
-	if ok && upload.RepositoryName == repositoryName {
-		if len(upload.Data) > 0 {
-			computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
+	switch {
+	case ok && upload.RepositoryName == repositoryName && len(upload.Data) > 0:
+		computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
 
-			if len(layerDigests) > 0 && layerDigests[0] != "" {
-				provided := layerDigests[0]
-				// Only enforce digest verification for full 64-char SHA256 digests.
-				if isFullSHA256Digest(provided) && provided != computed {
-					return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
-						ErrLayerDigestMismatch, provided, computed)
-				}
+		provided := ""
+		if len(layerDigests) > 0 {
+			provided = layerDigests[0]
+		}
 
-				digest = provided
-			} else {
-				digest = computed
+		if provided != "" {
+			// Only enforce digest verification for full 64-char SHA256 digests.
+			if isFullSHA256Digest(provided) && provided != computed {
+				return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
+					ErrLayerDigestMismatch, provided, computed)
 			}
-		} else if len(layerDigests) > 0 {
+
+			digest = provided
+		} else {
+			digest = computed
+		}
+
+		size = upload.Size
+		delete(b.layerUploads, uploadID)
+
+	case ok && upload.RepositoryName == repositoryName:
+		if len(layerDigests) > 0 {
 			digest = layerDigests[0]
 		}
 
 		size = upload.Size
 		delete(b.layerUploads, uploadID)
-	} else if len(layerDigests) > 0 {
+
+	case len(layerDigests) > 0:
 		// Direct digest path: no prior InitiateLayerUpload.
 		digest = layerDigests[0]
 	}

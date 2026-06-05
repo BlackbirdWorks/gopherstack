@@ -469,6 +469,8 @@ type VpcOrigin struct {
 
 // InMemoryBackend stores CloudFront resources in memory.
 type InMemoryBackend struct {
+	accountID                         string
+	region                            string
 	distributions                     map[string]*Distribution
 	distributionARNs                  map[string]string          // ARN → distribution ID (O(1) tag lookups)
 	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)
@@ -521,10 +523,7 @@ type InMemoryBackend struct {
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
-	accountID         string
-	region            string
 	mu                *lockmetrics.RWMutex
-
 	// lifecycle: tracks when InProgress invalidations become Completed.
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt

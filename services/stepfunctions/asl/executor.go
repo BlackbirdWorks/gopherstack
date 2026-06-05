@@ -1103,8 +1103,8 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	}
 
 	var result any
-	if unmarshalErr := json.Unmarshal(respBytes, &result); unmarshalErr != nil {
-		// If not JSON, return raw string as the output — the error is expected and intentional.
+	if json.Unmarshal(respBytes, &result) != nil {
+		// If not JSON, return raw string as the output — non-JSON responses are valid Lambda output.
 		return string(respBytes), nil
 	}
 
@@ -1343,7 +1343,7 @@ func (e *Executor) invokeEventBridgeTask(
 		if rawEntries, ok := m["Entries"].([]any); ok {
 			entries = make([]map[string]any, 0, len(rawEntries))
 			for _, e := range rawEntries {
-				if entry, ok := e.(map[string]any); ok {
+				if entry, ok2 := e.(map[string]any); ok2 {
 					entries = append(entries, entry)
 				}
 			}
