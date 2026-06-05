@@ -319,6 +319,7 @@ func TestAccuracy_SetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T
 
 	instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	id := instances[0].ID
 
@@ -330,6 +331,7 @@ func TestAccuracy_SetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T
 	// Stop then modify — should succeed.
 	_, stopErr := b.StopInstances([]string{id})
 	require.NoError(t, stopErr)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	err = b.SetInstanceAttribute(id, "instanceType", "t3.large")
 	require.NoError(t, err)

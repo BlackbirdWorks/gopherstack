@@ -120,9 +120,15 @@ func (h *Handler) buildOps() {
 	h.ops = table
 }
 
-// SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
+// SetLambdaInvoker sets the Lambda invoker used for RotateSecret. It is stored
+// on both the handler (for HTTP-triggered rotations) and the backend (for
+// scheduled rotations triggered by the rotation scheduler goroutine).
 func (h *Handler) SetLambdaInvoker(invoker LambdaInvoker) {
 	h.lambdaInvoker = invoker
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.SetLambdaInvoker(invoker)
+	}
 }
 
 // Name returns the service name.
@@ -525,6 +531,8 @@ func extractFunctionNameFromARN(arn string) string {
 }
 
 // rotateSecret performs RotateSecret, optionally invoking a rotation Lambda for each step.
+// The backend creates a new AWSPENDING version; this function promotes it to AWSCURRENT
+// after all Lambda steps succeed (or immediately if no Lambda ARN is configured).
 func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
 	out, err := h.Backend.RotateSecret(input)
 	if err != nil {
@@ -532,33 +540,46 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
+		// No Lambda ARN, or no invoker wired — backend already promoted to AWSCURRENT.
 		return out, nil
 	}
 
-	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
-
-	token := input.ClientRequestToken
-	if token == "" {
-		token = out.VersionID
-	}
-
-	for _, step := range rotationSteps {
-		event, marshalErr := json.Marshal(map[string]string{
-			"SecretId":           input.SecretID,
-			"ClientRequestToken": token,
-			"Step":               step,
-		})
-		if marshalErr != nil {
-			return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
+	if h.lambdaInvoker != nil {
+		token := input.ClientRequestToken
+		if token == "" {
+			token = out.VersionID
 		}
 
-		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
-			ctx,
-			functionName,
-			"RequestResponse",
-			event,
-		); invokeErr != nil {
-			return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+		functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
+
+		for _, step := range rotationSteps {
+			event, marshalErr := json.Marshal(map[string]string{
+				"SecretId":           input.SecretID,
+				"ClientRequestToken": token,
+				"Step":               step,
+			})
+			if marshalErr != nil {
+				return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+			}
+
+			if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
+				ctx, functionName, "RequestResponse", event,
+			); invokeErr != nil {
+				// Lambda failed — abort the pending rotation.
+				if b, ok := h.Backend.(*InMemoryBackend); ok {
+					_ = b.AbortRotation(input.SecretID, out.VersionID)
+				}
+
+				return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+			}
+		}
+	}
+
+	// Promote AWSPENDING → AWSCURRENT (either after Lambda success or stub path).
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if finishErr := b.FinishRotation(input.SecretID, out.VersionID); finishErr != nil {
+			return nil, finishErr
 		}
 	}
 

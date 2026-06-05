@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +52,9 @@ const (
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
 	stateActive = "active"
+
+	// lifecycleReconcileInterval is how often the reconciler advances transitional instance states.
+	lifecycleReconcileInterval = 50 * time.Millisecond
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -312,6 +316,7 @@ type InMemoryBackend struct {
 	nextElasticIPIndex                 int
 	ebsEncryptionByDefault             bool
 	serialConsoleAccess                bool
+	lifecycleOnce                      sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -440,8 +445,43 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.Region = region
 	b.mu = lockmetrics.New("ec2")
 	b.initDefaults()
+	b.ensureLifecycleReconciler()
 
 	return b
+}
+
+// ensureLifecycleReconciler starts the background goroutine that advances
+// instances through their transitional states (pending→running, stopping→stopped,
+// shutting-down→terminated). Idempotent — safe to call multiple times.
+func (b *InMemoryBackend) ensureLifecycleReconciler() {
+	b.lifecycleOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(lifecycleReconcileInterval)
+			defer ticker.Stop()
+
+			for range ticker.C {
+				b.reconcileInstanceLifecycle()
+			}
+		}()
+	})
+}
+
+// reconcileInstanceLifecycle advances all instances in transitional states to their
+// next stable state. It is also called directly by tests via TickLifecycleForTest.
+func (b *InMemoryBackend) reconcileInstanceLifecycle() {
+	b.mu.Lock("reconcileInstanceLifecycle")
+	defer b.mu.Unlock()
+
+	for _, inst := range b.instances {
+		switch inst.State {
+		case StatePending:
+			inst.State = StateRunning
+		case StateStopping:
+			inst.State = StateStopped
+		case StateShuttingDown:
+			inst.State = StateTerminated
+		}
+	}
 }
 
 // initDefaults pre-populates a default VPC, subnet, and security group.
@@ -513,10 +553,8 @@ func (b *InMemoryBackend) RunInstances(
 			ID:           id,
 			ImageID:      imageID,
 			InstanceType: instanceType,
-			// AWS state machine: pending → running.
-			// The mock completes this transition immediately so instances are
-			// always observable as running after RunInstances returns.
-			State:      StateRunning,
+			// AWS state machine: pending → running via reconciler goroutine.
+			State:      StatePending,
 			VPCID:      vpcID,
 			SubnetID:   subnetID,
 			LaunchTime: time.Now(),
@@ -756,9 +794,10 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		}
 
 		prev := inst.State
-		// AWS state machine: any state → shutting-down → terminated.
-		// The mock completes this transition immediately.
-		inst.State = StateTerminated
+		// AWS state machine: any state → shutting-down → terminated (reconciler advances).
+		// Resource cleanup (ENIs, EIPs, volumes) happens immediately so callers
+		// do not observe dangling attachments, but state advances asynchronously.
+		inst.State = StateShuttingDown
 		inst.TerminatedAt = time.Now()
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,

@@ -301,6 +301,7 @@ type StorageBackend interface {
 		execParams []string,
 	) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
+	GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
 	BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID)
@@ -388,6 +389,8 @@ type InMemoryBackend struct {
 	namedQueries         map[string]*NamedQuery
 	dataCatalogs         map[string]*DataCatalog
 	queryExecutions      map[string]*QueryExecution
+	queryResults         map[string]*sqlResult               // executionID -> computed result set
+	tableData            map[string][]map[string]any         // "catalog/database/table" -> rows
 	resourceTags         map[string]map[string]string
 	preparedStatements   map[string]*PreparedStatement // key: "workGroup/name"
 	capacityReservations map[string]*CapacityReservation
@@ -408,6 +411,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		namedQueries:         make(map[string]*NamedQuery),
 		dataCatalogs:         make(map[string]*DataCatalog),
 		queryExecutions:      make(map[string]*QueryExecution),
+		queryResults:         make(map[string]*sqlResult),
+		tableData:            make(map[string][]map[string]any),
 		resourceTags:         make(map[string]map[string]string),
 		preparedStatements:   make(map[string]*PreparedStatement),
 		capacityReservations: make(map[string]*CapacityReservation),
@@ -907,9 +912,9 @@ func (b *InMemoryBackend) StartQueryExecution(
 	}
 
 	b.mu.Lock("StartQueryExecution")
-	defer b.mu.Unlock()
 
 	if _, ok := b.workGroups[workGroup]; !ok {
+		b.mu.Unlock()
 		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
 	}
 
@@ -944,6 +949,14 @@ func (b *InMemoryBackend) StartQueryExecution(
 	}
 
 	b.queryExecutions[id] = qe
+	b.mu.Unlock()
+
+	// Execute SQL outside the write-lock: executeSQL acquires its own RLock.
+	result := b.executeSQL(query, ctx)
+
+	b.mu.Lock("StartQueryExecution-storeResult")
+	b.queryResults[id] = result
+	b.mu.Unlock()
 
 	return id, nil
 }
