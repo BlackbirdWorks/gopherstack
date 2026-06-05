@@ -128,7 +128,7 @@ func ensureBackendSnapshotMaps(snap *backendSnapshot) {
 }
 
 func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
-	for _, busRules := range b.rules {
+	for busKey, busRules := range b.rules {
 		for _, rule := range busRules {
 			if rule.EventPattern != "" {
 				compiled, err := b.getOrCompilePattern(rule.EventPattern)
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
 				}
 				rule.compiledPattern = compiled
 			}
-			b.addRuleToIndex(rule)
+			b.addRuleToIndex(busKey, rule)
 		}
 	}
 

@@ -150,5 +150,5 @@ func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName string) {
 		EventBusName: busName,
 	}
 
-	s.backend.PutEvents([]EventEntry{entry})
+	s.backend.PutEvents(context.Background(), []EventEntry{entry})
 }

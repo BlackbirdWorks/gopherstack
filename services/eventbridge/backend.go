@@ -25,6 +25,27 @@ const (
 	replayStateStarting = "STARTING"
 )
 
+// regionContextKey is the context key for the per-request AWS region.
+type regionContextKey struct{}
+
+// getRegionFromContext extracts the region from context, falling back to defaultRegion.
+func getRegionFromContext(ctx context.Context, defaultRegion string) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+
+	return defaultRegion
+}
+
+// ebBusKey returns the compound key used to store a bus in the region-isolated map.
+func ebBusKey(region, busName string) string {
+	if busName == "" {
+		busName = "default"
+	}
+
+	return busName + "@" + region
+}
+
 var (
 	ErrEventBusNotFound       = errors.New("ResourceNotFoundException")
 	ErrEventBusAlreadyExists  = errors.New("ResourceAlreadyExistsException")
@@ -71,87 +92,87 @@ type ruleIndexKey struct {
 
 // StorageBackend is the interface for an EventBridge in-memory store.
 type StorageBackend interface {
-	CreateEventBus(name, description string) (*EventBus, error)
-	DeleteEventBus(name string) error
-	ListEventBuses(namePrefix, nextToken string) ([]EventBus, string, error)
-	DescribeEventBus(name string) (*EventBus, error)
-	PutRule(input PutRuleInput) (*Rule, error)
-	DeleteRule(name, eventBusName string) error
-	ListRules(eventBusName, namePrefix, nextToken string) ([]Rule, string, error)
-	DescribeRule(name, eventBusName string) (*Rule, error)
-	EnableRule(name, eventBusName string) error
-	DisableRule(name, eventBusName string) error
-	PutTargets(ruleName, eventBusName string, targets []Target) ([]FailedEntry, error)
-	RemoveTargets(ruleName, eventBusName string, ids []string) ([]FailedEntry, error)
-	ListTargetsByRule(ruleName, eventBusName, nextToken string) ([]Target, string, error)
-	PutEvents(entries []EventEntry) []EventResultEntry
-	GetEventLog() []EventLogEntry
-	ActivateEventSource(name string) error
-	DeactivateEventSource(name string) error
-	CreatePartnerEventSource(name, account string) (*PartnerEventSource, error)
-	CancelReplay(replayName string) (*Replay, error)
-	CreateAPIDestination(input CreateAPIDestinationInput) (*APIDestination, error)
-	CreateArchive(input CreateArchiveInput) (*Archive, error)
-	CreateConnection(input CreateConnectionInput) (*Connection, error)
-	CreateEndpoint(input CreateEndpointInput) (*Endpoint, error)
-	DeauthorizeConnection(name string) (*Connection, error)
-	DeleteAPIDestination(name string) error
-	DeleteArchive(name string) error
-	DescribeArchive(name string) (*Archive, error)
-	ListArchives(namePrefix, nextToken string) ([]Archive, string, error)
-	UpdateArchive(input UpdateArchiveInput) (*Archive, error)
-	DeleteConnection(name string) error
-	DescribeConnection(name string) (*Connection, error)
-	ListConnections(namePrefix, nextToken string) ([]Connection, string, error)
-	UpdateConnection(input UpdateConnectionInput) (*Connection, error)
-	DeleteEndpoint(name string) error
-	DescribeEndpoint(name string) (*Endpoint, error)
-	ListEndpoints(namePrefix, nextToken string) ([]Endpoint, string, error)
-	UpdateEndpoint(input UpdateEndpointInput) (*Endpoint, error)
-	DescribeAPIDestination(name string) (*APIDestination, error)
-	ListAPIDestinations(namePrefix, nextToken string) ([]APIDestination, string, error)
-	UpdateAPIDestination(input UpdateAPIDestinationInput) (*APIDestination, error)
-	DescribeEventSource(name string) (*EventSource, error)
-	ListEventSources(namePrefix, nextToken string) ([]EventSource, string, error)
-	DescribePartnerEventSource(name string) (*PartnerEventSource, error)
-	DeletePartnerEventSource(name string) error
-	ListPartnerEventSources(namePrefix, nextToken string) ([]PartnerEventSource, string, error)
-	PutPartnerEvents(entries []EventEntry) []EventResultEntry
-	DescribeReplay(name string) (*Replay, error)
-	ListReplays(namePrefix, nextToken string) ([]Replay, string, error)
-	StartReplay(input StartReplayInput) (*Replay, error)
-	ListRuleNamesByTarget(targetARN, eventBusName, nextToken string) ([]string, string, error)
-	TestEventPattern(pattern, event string) (bool, error)
-	UpdateEventBus(input UpdateEventBusInput) (*EventBus, error)
-	PutPermission(input PutPermissionInput) error
-	RemovePermission(input RemovePermissionInput) error
-	GetEventBusPolicy(eventBusName string) (string, error)
-	PutEventBusPolicy(input PutEventBusPolicyInput) error
-	CreatePipe(input CreatePipeInput) (*Pipe, error)
-	DeletePipe(name string) error
-	DescribePipe(name string) (*Pipe, error)
-	ListPipes(namePrefix, nextToken string) ([]Pipe, string, error)
-	UpdatePipe(input UpdatePipeInput) (*Pipe, error)
+	CreateEventBus(ctx context.Context, name, description string) (*EventBus, error)
+	DeleteEventBus(ctx context.Context, name string) error
+	ListEventBuses(ctx context.Context, namePrefix, nextToken string) ([]EventBus, string, error)
+	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
+	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
+	DeleteRule(ctx context.Context, name, eventBusName string) error
+	ListRules(ctx context.Context, eventBusName, namePrefix, nextToken string) ([]Rule, string, error)
+	DescribeRule(ctx context.Context, name, eventBusName string) (*Rule, error)
+	EnableRule(ctx context.Context, name, eventBusName string) error
+	DisableRule(ctx context.Context, name, eventBusName string) error
+	PutTargets(ctx context.Context, ruleName, eventBusName string, targets []Target) ([]FailedEntry, error)
+	RemoveTargets(ctx context.Context, ruleName, eventBusName string, ids []string) ([]FailedEntry, error)
+	ListTargetsByRule(ctx context.Context, ruleName, eventBusName, nextToken string) ([]Target, string, error)
+	PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	GetEventLog(ctx context.Context) []EventLogEntry
+	ActivateEventSource(ctx context.Context, name string) error
+	DeactivateEventSource(ctx context.Context, name string) error
+	CreatePartnerEventSource(ctx context.Context, name, account string) (*PartnerEventSource, error)
+	CancelReplay(ctx context.Context, replayName string) (*Replay, error)
+	CreateAPIDestination(ctx context.Context, input CreateAPIDestinationInput) (*APIDestination, error)
+	CreateArchive(ctx context.Context, input CreateArchiveInput) (*Archive, error)
+	CreateConnection(ctx context.Context, input CreateConnectionInput) (*Connection, error)
+	CreateEndpoint(ctx context.Context, input CreateEndpointInput) (*Endpoint, error)
+	DeauthorizeConnection(ctx context.Context, name string) (*Connection, error)
+	DeleteAPIDestination(ctx context.Context, name string) error
+	DeleteArchive(ctx context.Context, name string) error
+	DescribeArchive(ctx context.Context, name string) (*Archive, error)
+	ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error)
+	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
+	DeleteConnection(ctx context.Context, name string) error
+	DescribeConnection(ctx context.Context, name string) (*Connection, error)
+	ListConnections(ctx context.Context, namePrefix, nextToken string) ([]Connection, string, error)
+	UpdateConnection(ctx context.Context, input UpdateConnectionInput) (*Connection, error)
+	DeleteEndpoint(ctx context.Context, name string) error
+	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
+	ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error)
+	UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error)
+	DescribeAPIDestination(ctx context.Context, name string) (*APIDestination, error)
+	ListAPIDestinations(ctx context.Context, namePrefix, nextToken string) ([]APIDestination, string, error)
+	UpdateAPIDestination(ctx context.Context, input UpdateAPIDestinationInput) (*APIDestination, error)
+	DescribeEventSource(ctx context.Context, name string) (*EventSource, error)
+	ListEventSources(ctx context.Context, namePrefix, nextToken string) ([]EventSource, string, error)
+	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
+	DeletePartnerEventSource(ctx context.Context, name string) error
+	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
+	PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	DescribeReplay(ctx context.Context, name string) (*Replay, error)
+	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
+	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
+	ListRuleNamesByTarget(ctx context.Context, targetARN, eventBusName, nextToken string) ([]string, string, error)
+	TestEventPattern(ctx context.Context, pattern, event string) (bool, error)
+	UpdateEventBus(ctx context.Context, input UpdateEventBusInput) (*EventBus, error)
+	PutPermission(ctx context.Context, input PutPermissionInput) error
+	RemovePermission(ctx context.Context, input RemovePermissionInput) error
+	GetEventBusPolicy(ctx context.Context, eventBusName string) (string, error)
+	PutEventBusPolicy(ctx context.Context, input PutEventBusPolicyInput) error
+	CreatePipe(ctx context.Context, input CreatePipeInput) (*Pipe, error)
+	DeletePipe(ctx context.Context, name string) error
+	DescribePipe(ctx context.Context, name string) (*Pipe, error)
+	ListPipes(ctx context.Context, namePrefix, nextToken string) ([]Pipe, string, error)
+	UpdatePipe(ctx context.Context, input UpdatePipeInput) (*Pipe, error)
 	// Schema Registry operations.
-	CreateRegistry(input CreateRegistryInput) (*SchemaRegistry, error)
-	DeleteRegistry(registryName string) error
-	DescribeRegistry(registryName string) (*SchemaRegistry, error)
-	ListRegistries(namePrefix, nextToken string) ([]SchemaRegistry, string, error)
-	UpdateRegistry(input UpdateRegistryInput) (*SchemaRegistry, error)
-	CreateSchema(input CreateSchemaInput) (*Schema, error)
-	DeleteSchema(registryName, schemaName string) error
-	DescribeSchema(registryName, schemaName, schemaVersion string) (*Schema, error)
-	ListSchemas(registryName, namePrefix, nextToken string) ([]Schema, string, error)
-	SearchSchemas(registryName, keywords, nextToken string) ([]Schema, string, error)
-	UpdateSchema(input UpdateSchemaInput) (*Schema, error)
-	ListSchemaVersions(registryName, schemaName, nextToken string) ([]SchemaVersion, string, error)
-	DescribeSchemaVersion(registryName, schemaName, schemaVersion string) (*SchemaVersion, error)
-	DeleteSchemaVersion(registryName, schemaName, schemaVersion string) error
-	GetDiscoveredSchema(input GetDiscoveredSchemaInput) (string, error)
-	PutCodeBinding(input PutCodeBindingInput) (*CodeBinding, error)
-	DescribeCodeBinding(input DescribeCodeBindingInput) (*CodeBinding, error)
-	ListCodeBindings(input ListCodeBindingsInput) ([]CodeBinding, string, error)
-	GetCodeBindingSource(registryName, schemaName, language, schemaVersion string) (string, error)
+	CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error)
+	DeleteRegistry(ctx context.Context, registryName string) error
+	DescribeRegistry(ctx context.Context, registryName string) (*SchemaRegistry, error)
+	ListRegistries(ctx context.Context, namePrefix, nextToken string) ([]SchemaRegistry, string, error)
+	UpdateRegistry(ctx context.Context, input UpdateRegistryInput) (*SchemaRegistry, error)
+	CreateSchema(ctx context.Context, input CreateSchemaInput) (*Schema, error)
+	DeleteSchema(ctx context.Context, registryName, schemaName string) error
+	DescribeSchema(ctx context.Context, registryName, schemaName, schemaVersion string) (*Schema, error)
+	ListSchemas(ctx context.Context, registryName, namePrefix, nextToken string) ([]Schema, string, error)
+	SearchSchemas(ctx context.Context, registryName, keywords, nextToken string) ([]Schema, string, error)
+	UpdateSchema(ctx context.Context, input UpdateSchemaInput) (*Schema, error)
+	ListSchemaVersions(ctx context.Context, registryName, schemaName, nextToken string) ([]SchemaVersion, string, error)
+	DescribeSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) (*SchemaVersion, error)
+	DeleteSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) error
+	GetDiscoveredSchema(ctx context.Context, input GetDiscoveredSchemaInput) (string, error)
+	PutCodeBinding(ctx context.Context, input PutCodeBindingInput) (*CodeBinding, error)
+	DescribeCodeBinding(ctx context.Context, input DescribeCodeBindingInput) (*CodeBinding, error)
+	ListCodeBindings(ctx context.Context, input ListCodeBindingsInput) ([]CodeBinding, string, error)
+	GetCodeBindingSource(ctx context.Context, registryName, schemaName, language, schemaVersion string) (string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -244,9 +265,9 @@ func NewInMemoryBackendWithContext(
 		ruleIndex:       make(map[string]map[ruleIndexKey]map[string]*Rule),
 	}
 	// Create the default event bus.
-	b.buses[defaultEventBusName] = &EventBus{
+	b.buses[ebBusKey(b.region, defaultEventBusName)] = &EventBus{
 		Name:        defaultEventBusName,
-		Arn:         b.busARN(defaultEventBusName),
+		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
 	}
 
@@ -311,12 +332,12 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	b.deliveryTargets = dt
 }
 
-func (b *InMemoryBackend) busARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "event-bus/"+name)
+func (b *InMemoryBackend) busARN(region, name string) string {
+	return arn.Build("events", region, b.accountID, "event-bus/"+name)
 }
 
-func (b *InMemoryBackend) ruleARN(busName, ruleName string) string {
-	return arn.Build("events", b.region, b.accountID, "rule/"+busName+"/"+ruleName)
+func (b *InMemoryBackend) ruleARN(region, busName, ruleName string) string {
+	return arn.Build("events", region, b.accountID, "rule/"+busName+"/"+ruleName)
 }
 
 func (b *InMemoryBackend) apiDestinationARN(name string) string {
@@ -343,8 +364,8 @@ func (b *InMemoryBackend) replayARN(name string) string {
 	return arn.Build("events", b.region, b.accountID, "replay/"+name)
 }
 
-func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
-	return busName + "/" + ruleName
+func (b *InMemoryBackend) targetKey(region, busName, ruleName string) string {
+	return busName + "@" + region + "/" + ruleName
 }
 
 func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPattern, error) {
@@ -369,14 +390,14 @@ func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPatt
 	return compiled, nil
 }
 
-func (b *InMemoryBackend) addRuleToIndex(rule *Rule) {
+func (b *InMemoryBackend) addRuleToIndex(busKey string, rule *Rule) {
 	if rule.compiledPattern == nil && rule.EventPattern == "" {
 		return
 	}
-	indexes := b.ruleIndex[rule.EventBusName]
+	indexes := b.ruleIndex[busKey]
 	if indexes == nil {
 		indexes = make(map[ruleIndexKey]map[string]*Rule)
-		b.ruleIndex[rule.EventBusName] = indexes
+		b.ruleIndex[busKey] = indexes
 	}
 
 	keys := indexKeysFromRule(rule)
@@ -391,8 +412,8 @@ func (b *InMemoryBackend) addRuleToIndex(rule *Rule) {
 	rule.indexKeys = keys
 }
 
-func (b *InMemoryBackend) removeRuleFromIndex(rule *Rule) {
-	indexes := b.ruleIndex[rule.EventBusName]
+func (b *InMemoryBackend) removeRuleFromIndex(busKey string, rule *Rule) {
+	indexes := b.ruleIndex[busKey]
 	if indexes == nil {
 		return
 	}
@@ -409,7 +430,7 @@ func (b *InMemoryBackend) removeRuleFromIndex(rule *Rule) {
 	}
 
 	if len(indexes) == 0 {
-		delete(b.ruleIndex, rule.EventBusName)
+		delete(b.ruleIndex, busKey)
 	}
 }
 
@@ -438,7 +459,7 @@ func indexKeysFromRule(rule *Rule) []ruleIndexKey {
 }
 
 // CreateEventBus creates a new event bus.
-func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, error) {
+func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description string) (*EventBus, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -458,17 +479,22 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 		)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[name]; exists {
+	if _, exists := b.buses[ebBusKey(region, name)]; exists {
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
 	// Count custom buses (exclude the default bus against the limit).
 	customBusCount := 0
-	for busName := range b.buses {
-		if busName != defaultEventBusName {
+	for busKey := range b.buses {
+		if !strings.HasSuffix(busKey, "@"+region) {
+			continue
+		}
+		if busKey != ebBusKey(region, defaultEventBusName) {
 			customBusCount++
 		}
 	}
@@ -482,51 +508,60 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 
 	bus := &EventBus{
 		Name:        name,
-		Arn:         b.busARN(name),
+		Arn:         b.busARN(region, name),
 		Description: description,
 		CreatedTime: time.Now(),
 	}
-	b.buses[name] = bus
+	b.buses[ebBusKey(region, name)] = bus
 
 	return bus, nil
 }
 
 // DeleteEventBus deletes an event bus by name (default bus cannot be deleted).
 // It also removes all rules and targets associated with the bus.
-func (b *InMemoryBackend) DeleteEventBus(name string) error {
+func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error {
 	if name == defaultEventBusName {
 		return fmt.Errorf("%w: cannot delete the default event bus", ErrCannotDeleteDefaultBus)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeleteEventBus")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[name]; !exists {
+	busKey := ebBusKey(region, name)
+	if _, exists := b.buses[busKey]; !exists {
 		return fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
 
-	delete(b.buses, name)
-	delete(b.ruleIndex, name)
+	delete(b.buses, busKey)
+	delete(b.ruleIndex, busKey)
 
 	// Clean up all rules for this bus.
-	if busRules, ok := b.rules[name]; ok {
+	if busRules, ok := b.rules[busKey]; ok {
 		for ruleName := range busRules {
-			delete(b.targets, b.targetKey(name, ruleName))
+			delete(b.targets, b.targetKey(region, name, ruleName))
 		}
 
-		delete(b.rules, name)
+		delete(b.rules, busKey)
 	}
 
 	return nil
 }
 
 // ListEventBuses returns event buses optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEventBuses(namePrefix, nextToken string) ([]EventBus, string, error) {
+func (b *InMemoryBackend) ListEventBuses(ctx context.Context, namePrefix, nextToken string) ([]EventBus, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListEventBuses")
 	defer b.mu.RUnlock()
 
-	all := make([]EventBus, 0, len(b.buses))
-	for _, bus := range b.buses {
+	regionSuffix := "@" + region
+	all := make([]EventBus, 0)
+	for busKey, bus := range b.buses {
+		if !strings.HasSuffix(busKey, regionSuffix) {
+			continue
+		}
 		if namePrefix == "" || strings.HasPrefix(bus.Name, namePrefix) {
 			all = append(all, *bus)
 		}
@@ -540,15 +575,17 @@ func (b *InMemoryBackend) ListEventBuses(namePrefix, nextToken string) ([]EventB
 }
 
 // DescribeEventBus returns details for a single event bus.
-func (b *InMemoryBackend) DescribeEventBus(name string) (*EventBus, error) {
+func (b *InMemoryBackend) DescribeEventBus(ctx context.Context, name string) (*EventBus, error) {
 	if name == "" {
 		name = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeEventBus")
 	defer b.mu.RUnlock()
 
-	bus, exists := b.buses[name]
+	bus, exists := b.buses[ebBusKey(region, name)]
 	if !exists {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
@@ -602,10 +639,12 @@ func validatePutRuleInput(input PutRuleInput) error {
 }
 
 // PutRule creates or updates a rule on an event bus.
-func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
+func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rule, error) {
 	if err := validatePutRuleInput(input); err != nil {
 		return nil, err
 	}
+
+	region := getRegionFromContext(ctx, b.region)
 
 	busName := input.EventBusName
 	if busName == "" {
@@ -621,10 +660,12 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		}
 	}
 
+	busKey := ebBusKey(region, busName)
+
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busName]; !exists {
+	if _, exists := b.buses[busKey]; !exists {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -633,13 +674,13 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		state = ruleStateEnabled
 	}
 
-	if b.rules[busName] == nil {
-		b.rules[busName] = make(map[string]*Rule)
+	if b.rules[busKey] == nil {
+		b.rules[busKey] = make(map[string]*Rule)
 	}
 
 	// Enforce per-bus rule limit only for new rules (not updates).
-	if _, exists := b.rules[busName][input.Name]; !exists {
-		if len(b.rules[busName]) >= maxRulesPerBus {
+	if _, exists := b.rules[busKey][input.Name]; !exists {
+		if len(b.rules[busKey]) >= maxRulesPerBus {
 			return nil, fmt.Errorf(
 				"%w: event bus %s has reached the maximum of %d rules",
 				ErrResourceLimitExceeded,
@@ -651,7 +692,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 
 	rule := &Rule{
 		Name:               input.Name,
-		Arn:                b.ruleARN(busName, input.Name),
+		Arn:                b.ruleARN(region, busName, input.Name),
 		EventBusName:       busName,
 		EventPattern:       input.EventPattern,
 		State:              state,
@@ -662,25 +703,28 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		compiledPattern:    compiled,
 	}
 
-	if existing, exists := b.rules[busName][input.Name]; exists {
-		b.removeRuleFromIndex(existing)
+	if existing, exists := b.rules[busKey][input.Name]; exists {
+		b.removeRuleFromIndex(busKey, existing)
 	}
-	b.rules[busName][input.Name] = rule
-	b.addRuleToIndex(rule)
+	b.rules[busKey][input.Name] = rule
+	b.addRuleToIndex(busKey, rule)
 
 	return rule, nil
 }
 
 // DeleteRule removes a rule from an event bus.
-func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
+func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName string) error {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, eventBusName)
+
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[eventBusName]
+	busRules, exists := b.rules[busKey]
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -690,26 +734,29 @@ func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	b.removeRuleFromIndex(rule)
+	b.removeRuleFromIndex(busKey, rule)
 	delete(busRules, name)
 	// Also remove targets for this rule.
-	delete(b.targets, b.targetKey(eventBusName, name))
+	delete(b.targets, b.targetKey(region, eventBusName, name))
 
 	return nil
 }
 
 // ListRules returns rules for an event bus optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRules(
+func (b *InMemoryBackend) ListRules(ctx context.Context,
 	eventBusName, namePrefix, nextToken string,
 ) ([]Rule, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, eventBusName)
+
 	b.mu.RLock("ListRules")
 	defer b.mu.RUnlock()
 
-	busRules := b.rules[eventBusName]
+	busRules := b.rules[busKey]
 	all := make([]Rule, 0, len(busRules))
 	for _, r := range busRules {
 		if namePrefix == "" || strings.HasPrefix(r.Name, namePrefix) {
@@ -725,15 +772,18 @@ func (b *InMemoryBackend) ListRules(
 }
 
 // DescribeRule returns a single rule.
-func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error) {
+func (b *InMemoryBackend) DescribeRule(ctx context.Context, name, eventBusName string) (*Rule, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, eventBusName)
+
 	b.mu.RLock("DescribeRule")
 	defer b.mu.RUnlock()
 
-	busRules, exists := b.rules[eventBusName]
+	busRules, exists := b.rules[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -749,24 +799,27 @@ func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error)
 }
 
 // EnableRule sets a rule's state to ENABLED.
-func (b *InMemoryBackend) EnableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, ruleStateEnabled)
+func (b *InMemoryBackend) EnableRule(ctx context.Context, name, eventBusName string) error {
+	return b.setRuleState(ctx, name, eventBusName, ruleStateEnabled)
 }
 
 // DisableRule sets a rule's state to DISABLED.
-func (b *InMemoryBackend) DisableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, ruleStateDisabled)
+func (b *InMemoryBackend) DisableRule(ctx context.Context, name, eventBusName string) error {
+	return b.setRuleState(ctx, name, eventBusName, ruleStateDisabled)
 }
 
-func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {
+func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, state string) error {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, eventBusName)
+
 	b.mu.Lock("setRuleState")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[eventBusName]
+	busRules, exists := b.rules[busKey]
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -782,7 +835,7 @@ func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {
 }
 
 // PutTargets adds or updates targets for a rule.
-func (b *InMemoryBackend) PutTargets(
+func (b *InMemoryBackend) PutTargets(ctx context.Context, 
 	ruleName, eventBusName string,
 	targets []Target,
 ) ([]FailedEntry, error) {
@@ -794,10 +847,13 @@ func (b *InMemoryBackend) PutTargets(
 		return nil, fmt.Errorf("%w: at least one target is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, eventBusName)
+
 	b.mu.Lock("PutTargets")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[eventBusName]
+	busRules, exists := b.rules[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
@@ -806,7 +862,7 @@ func (b *InMemoryBackend) PutTargets(
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	key := b.targetKey(eventBusName, ruleName)
+	key := b.targetKey(region, eventBusName, ruleName)
 	if b.targets[key] == nil {
 		b.targets[key] = make(map[string]*Target)
 	}
@@ -851,7 +907,7 @@ func (b *InMemoryBackend) PutTargets(
 }
 
 // RemoveTargets removes targets from a rule by their IDs.
-func (b *InMemoryBackend) RemoveTargets(
+func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 	ruleName, eventBusName string,
 	ids []string,
 ) ([]FailedEntry, error) {
@@ -859,10 +915,12 @@ func (b *InMemoryBackend) RemoveTargets(
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("RemoveTargets")
 	defer b.mu.Unlock()
 
-	key := b.targetKey(eventBusName, ruleName)
+	key := b.targetKey(region, eventBusName, ruleName)
 	ruleTargets := b.targets[key]
 
 	var failed []FailedEntry
@@ -883,17 +941,19 @@ func (b *InMemoryBackend) RemoveTargets(
 }
 
 // ListTargetsByRule returns targets for a rule with optional pagination.
-func (b *InMemoryBackend) ListTargetsByRule(
+func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 	ruleName, eventBusName, nextToken string,
 ) ([]Target, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListTargetsByRule")
 	defer b.mu.RUnlock()
 
-	key := b.targetKey(eventBusName, ruleName)
+	key := b.targetKey(region, eventBusName, ruleName)
 	ruleTargets := b.targets[key]
 	all := make([]Target, 0, len(ruleTargets))
 	for _, t := range ruleTargets {
@@ -914,7 +974,7 @@ func (b *InMemoryBackend) ListTargetsByRule(
 // entry). Entries that, combined with what's been accepted so far, would
 // exceed the cap are rejected individually with the AWS error code
 // `EventSizeLimitExceeded`. The remaining entries continue to be accepted.
-func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
+func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
 	const maxBatchBytes = 256 * 1024
 
 	b.mu.Lock("PutEvents")
@@ -964,7 +1024,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
-	ctx := b.ctx
+	svcCtx := b.ctx
 	delivTimeout := b.deliveryTimeout
 	b.mu.Unlock()
 
@@ -980,10 +1040,10 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 			select {
 			case workerSem <- struct{}{}:
 				defer func() { <-workerSem }()
-			case <-ctx.Done():
+			case <-svcCtx.Done():
 				return
 			}
-			b.deliverEvents(ctx, entriesCopy, dtCopy, delivTimeout)
+			b.deliverEvents(svcCtx, entriesCopy, dtCopy, delivTimeout)
 		})
 	}
 
@@ -991,7 +1051,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 }
 
 // GetEventLog returns a copy of the current event log.
-func (b *InMemoryBackend) GetEventLog() []EventLogEntry {
+func (b *InMemoryBackend) GetEventLog(ctx context.Context, ) []EventLogEntry {
 	b.mu.RLock("GetEventLog")
 	defer b.mu.RUnlock()
 
@@ -1062,15 +1122,15 @@ func (b *InMemoryBackend) Reset() {
 	b.patternCache = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
-	b.buses[defaultEventBusName] = &EventBus{
+	b.buses[ebBusKey(b.region, defaultEventBusName)] = &EventBus{
 		Name:        defaultEventBusName,
-		Arn:         b.busARN(defaultEventBusName),
+		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
 	}
 }
 
 // ActivateEventSource activates a partner event source.
-func (b *InMemoryBackend) ActivateEventSource(name string) error {
+func (b *InMemoryBackend) ActivateEventSource(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1089,7 +1149,7 @@ func (b *InMemoryBackend) ActivateEventSource(name string) error {
 }
 
 // DeactivateEventSource deactivates a partner event source.
-func (b *InMemoryBackend) DeactivateEventSource(name string) error {
+func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1108,7 +1168,7 @@ func (b *InMemoryBackend) DeactivateEventSource(name string) error {
 }
 
 // CreatePartnerEventSource creates a new partner event source.
-func (b *InMemoryBackend) CreatePartnerEventSource(
+func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context, 
 	name, account string,
 ) (*PartnerEventSource, error) {
 	if name == "" {
@@ -1148,7 +1208,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(
 }
 
 // CancelReplay cancels a running or starting replay.
-func (b *InMemoryBackend) CancelReplay(replayName string) (*Replay, error) {
+func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (*Replay, error) {
 	if replayName == "" {
 		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
 	}
@@ -1178,7 +1238,7 @@ func (b *InMemoryBackend) CancelReplay(replayName string) (*Replay, error) {
 }
 
 // CreateAPIDestination creates a new API destination.
-func (b *InMemoryBackend) CreateAPIDestination(
+func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context, 
 	input CreateAPIDestinationInput,
 ) (*APIDestination, error) {
 	if input.Name == "" {
@@ -1236,7 +1296,7 @@ func (b *InMemoryBackend) CreateAPIDestination(
 }
 
 // CreateArchive creates a new event archive.
-func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, error) {
+func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchiveInput) (*Archive, error) {
 	if input.ArchiveName == "" {
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
@@ -1285,7 +1345,7 @@ func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, err
 }
 
 // CreateConnection creates a new connection.
-func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConnectionInput) (*Connection, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1327,7 +1387,7 @@ func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connec
 }
 
 // CreateEndpoint creates a new global endpoint.
-func (b *InMemoryBackend) CreateEndpoint(input CreateEndpointInput) (*Endpoint, error) {
+func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpointInput) (*Endpoint, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1367,7 +1427,7 @@ func (b *InMemoryBackend) CreateEndpoint(input CreateEndpointInput) (*Endpoint, 
 }
 
 // DeauthorizeConnection deauthorizes a connection.
-func (b *InMemoryBackend) DeauthorizeConnection(name string) (*Connection, error) {
+func (b *InMemoryBackend) DeauthorizeConnection(ctx context.Context, name string) (*Connection, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1388,7 +1448,7 @@ func (b *InMemoryBackend) DeauthorizeConnection(name string) (*Connection, error
 }
 
 // DeleteAPIDestination deletes an API destination.
-func (b *InMemoryBackend) DeleteAPIDestination(name string) error {
+func (b *InMemoryBackend) DeleteAPIDestination(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1406,7 +1466,7 @@ func (b *InMemoryBackend) DeleteAPIDestination(name string) error {
 }
 
 // DeleteArchive deletes an archive.
-func (b *InMemoryBackend) DeleteArchive(name string) error {
+func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
@@ -1424,7 +1484,7 @@ func (b *InMemoryBackend) DeleteArchive(name string) error {
 }
 
 // DescribeArchive returns a single archive by name.
-func (b *InMemoryBackend) DescribeArchive(name string) (*Archive, error) {
+func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Archive, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
@@ -1443,7 +1503,7 @@ func (b *InMemoryBackend) DescribeArchive(name string) (*Archive, error) {
 }
 
 // ListArchives returns archives optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListArchives(namePrefix, nextToken string) ([]Archive, string, error) {
+func (b *InMemoryBackend) ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error) {
 	b.mu.RLock("ListArchives")
 	defer b.mu.RUnlock()
 
@@ -1462,7 +1522,7 @@ func (b *InMemoryBackend) ListArchives(namePrefix, nextToken string) ([]Archive,
 }
 
 // UpdateArchive updates an existing archive.
-func (b *InMemoryBackend) UpdateArchive(input UpdateArchiveInput) (*Archive, error) {
+func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error) {
 	if input.ArchiveName == "" {
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
@@ -1491,7 +1551,7 @@ func (b *InMemoryBackend) UpdateArchive(input UpdateArchiveInput) (*Archive, err
 }
 
 // DeleteConnection deletes a connection.
-func (b *InMemoryBackend) DeleteConnection(name string) error {
+func (b *InMemoryBackend) DeleteConnection(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1509,7 +1569,7 @@ func (b *InMemoryBackend) DeleteConnection(name string) error {
 }
 
 // DescribeConnection returns a single connection by name.
-func (b *InMemoryBackend) DescribeConnection(name string) (*Connection, error) {
+func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (*Connection, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1528,7 +1588,7 @@ func (b *InMemoryBackend) DescribeConnection(name string) (*Connection, error) {
 }
 
 // ListConnections returns connections optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListConnections(
+func (b *InMemoryBackend) ListConnections(ctx context.Context, 
 	namePrefix, nextToken string,
 ) ([]Connection, string, error) {
 	b.mu.RLock("ListConnections")
@@ -1549,7 +1609,7 @@ func (b *InMemoryBackend) ListConnections(
 }
 
 // UpdateConnection updates an existing connection.
-func (b *InMemoryBackend) UpdateConnection(input UpdateConnectionInput) (*Connection, error) {
+func (b *InMemoryBackend) UpdateConnection(ctx context.Context, input UpdateConnectionInput) (*Connection, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1579,7 +1639,7 @@ func (b *InMemoryBackend) UpdateConnection(input UpdateConnectionInput) (*Connec
 }
 
 // DeleteEndpoint deletes an endpoint.
-func (b *InMemoryBackend) DeleteEndpoint(name string) error {
+func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1597,7 +1657,7 @@ func (b *InMemoryBackend) DeleteEndpoint(name string) error {
 }
 
 // DescribeEndpoint returns a single endpoint by name.
-func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
+func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1616,7 +1676,7 @@ func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
 }
 
 // ListEndpoints returns endpoints optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEndpoints(namePrefix, nextToken string) ([]Endpoint, string, error) {
+func (b *InMemoryBackend) ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error) {
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
@@ -1635,7 +1695,7 @@ func (b *InMemoryBackend) ListEndpoints(namePrefix, nextToken string) ([]Endpoin
 }
 
 // UpdateEndpoint updates an existing endpoint.
-func (b *InMemoryBackend) UpdateEndpoint(input UpdateEndpointInput) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1671,7 +1731,7 @@ func (b *InMemoryBackend) UpdateEndpoint(input UpdateEndpointInput) (*Endpoint, 
 }
 
 // DescribeAPIDestination returns a single API destination by name.
-func (b *InMemoryBackend) DescribeAPIDestination(name string) (*APIDestination, error) {
+func (b *InMemoryBackend) DescribeAPIDestination(ctx context.Context, name string) (*APIDestination, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1690,7 +1750,7 @@ func (b *InMemoryBackend) DescribeAPIDestination(name string) (*APIDestination, 
 }
 
 // ListAPIDestinations returns API destinations optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListAPIDestinations(
+func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context, 
 	namePrefix, nextToken string,
 ) ([]APIDestination, string, error) {
 	b.mu.RLock("ListAPIDestinations")
@@ -1711,7 +1771,7 @@ func (b *InMemoryBackend) ListAPIDestinations(
 }
 
 // UpdateAPIDestination updates an existing API destination.
-func (b *InMemoryBackend) UpdateAPIDestination(
+func (b *InMemoryBackend) UpdateAPIDestination(ctx context.Context, 
 	input UpdateAPIDestinationInput,
 ) (*APIDestination, error) {
 	if input.Name == "" {
@@ -1749,7 +1809,7 @@ func (b *InMemoryBackend) UpdateAPIDestination(
 }
 
 // DescribeEventSource returns a single event source by name.
-func (b *InMemoryBackend) DescribeEventSource(name string) (*EventSource, error) {
+func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) (*EventSource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1768,7 +1828,7 @@ func (b *InMemoryBackend) DescribeEventSource(name string) (*EventSource, error)
 }
 
 // ListEventSources returns event sources optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEventSources(
+func (b *InMemoryBackend) ListEventSources(ctx context.Context, 
 	namePrefix, nextToken string,
 ) ([]EventSource, string, error) {
 	b.mu.RLock("ListEventSources")
@@ -1789,7 +1849,7 @@ func (b *InMemoryBackend) ListEventSources(
 }
 
 // DescribePartnerEventSource returns a single partner event source by name.
-func (b *InMemoryBackend) DescribePartnerEventSource(name string) (*PartnerEventSource, error) {
+func (b *InMemoryBackend) DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1808,7 +1868,7 @@ func (b *InMemoryBackend) DescribePartnerEventSource(name string) (*PartnerEvent
 }
 
 // DeletePartnerEventSource deletes a partner event source.
-func (b *InMemoryBackend) DeletePartnerEventSource(name string) error {
+func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -1826,7 +1886,7 @@ func (b *InMemoryBackend) DeletePartnerEventSource(name string) error {
 }
 
 // ListPartnerEventSources returns partner event sources optionally filtered by name prefix.
-func (b *InMemoryBackend) ListPartnerEventSources(
+func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context, 
 	namePrefix, nextToken string,
 ) ([]PartnerEventSource, string, error) {
 	b.mu.RLock("ListPartnerEventSources")
@@ -1847,12 +1907,12 @@ func (b *InMemoryBackend) ListPartnerEventSources(
 }
 
 // PutPartnerEvents records partner events (same as PutEvents but intended for partner sources).
-func (b *InMemoryBackend) PutPartnerEvents(entries []EventEntry) []EventResultEntry {
-	return b.PutEvents(entries)
+func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
+	return b.PutEvents(ctx, entries)
 }
 
 // DescribeReplay returns a single replay by name.
-func (b *InMemoryBackend) DescribeReplay(name string) (*Replay, error) {
+func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Replay, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
 	}
@@ -1871,7 +1931,7 @@ func (b *InMemoryBackend) DescribeReplay(name string) (*Replay, error) {
 }
 
 // ListReplays returns replays optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListReplays(namePrefix, nextToken string) ([]Replay, string, error) {
+func (b *InMemoryBackend) ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error) {
 	b.mu.RLock("ListReplays")
 	defer b.mu.RUnlock()
 
@@ -1890,7 +1950,7 @@ func (b *InMemoryBackend) ListReplays(namePrefix, nextToken string) ([]Replay, s
 }
 
 // StartReplay creates a new replay in the STARTING state.
-func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
+func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error) {
 	if input.ReplayName == "" {
 		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
 	}
@@ -1970,14 +2030,14 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
-	ctx := b.ctx
+	svcCtx := b.ctx
 	delivTimeout := b.deliveryTimeout
 	cp := *replay
 	b.mu.Unlock()
 
 	// Deliver archived events asynchronously and mark the replay complete.
 	if !b.closing.Load() {
-		b.scheduleReplayWorker(ctx, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
+		b.scheduleReplayWorker(svcCtx, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
 	}
 
 	return &cp, nil
@@ -2055,25 +2115,28 @@ func (b *InMemoryBackend) scheduleReplayWorker(
 }
 
 // ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
-func (b *InMemoryBackend) ListRuleNamesByTarget(
+func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 	targetARN, eventBusName, nextToken string,
 ) ([]string, string, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListRuleNamesByTarget")
 	defer b.mu.RUnlock()
 
+	// Target keys have format: "busName@region/ruleName"
+	prefix := eventBusName + "@" + region + "/"
 	var names []string
-	for ruleName, tMap := range b.targets {
-		prefix := eventBusName + "/"
-		if !strings.HasPrefix(ruleName, prefix) {
+	for targetKey, tMap := range b.targets {
+		if !strings.HasPrefix(targetKey, prefix) {
 			continue
 		}
 		for _, t := range tMap {
 			if t.Arn == targetARN {
-				names = append(names, strings.TrimPrefix(ruleName, prefix))
+				names = append(names, strings.TrimPrefix(targetKey, prefix))
 
 				break
 			}
@@ -2088,7 +2151,7 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(
 }
 
 // TestEventPattern tests an event pattern against an event JSON string.
-func (b *InMemoryBackend) TestEventPattern(pattern, event string) (bool, error) {
+func (b *InMemoryBackend) TestEventPattern(ctx context.Context, pattern, event string) (bool, error) {
 	if pattern == "" {
 		return false, fmt.Errorf("%w: EventPattern is required", ErrInvalidParameter)
 	}
@@ -2110,16 +2173,19 @@ func (b *InMemoryBackend) TestEventPattern(pattern, event string) (bool, error) 
 }
 
 // UpdateEventBus updates an existing event bus description.
-func (b *InMemoryBackend) UpdateEventBus(input UpdateEventBusInput) (*EventBus, error) {
+func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventBusInput) (*EventBus, error) {
 	busName := input.Name
 	if busName == "" {
 		busName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, busName)
+
 	b.mu.Lock("UpdateEventBus")
 	defer b.mu.Unlock()
 
-	bus, exists := b.buses[busName]
+	bus, exists := b.buses[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
@@ -2132,23 +2198,26 @@ func (b *InMemoryBackend) UpdateEventBus(input UpdateEventBusInput) (*EventBus, 
 }
 
 // PutPermission adds or replaces a resource-based policy statement on an event bus.
-func (b *InMemoryBackend) PutPermission(input PutPermissionInput) error {
+func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermissionInput) error {
 	busName := input.EventBusName
 	if busName == "" {
 		busName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, busName)
+
 	b.mu.Lock("PutPermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busName]; !exists {
+	if _, exists := b.buses[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	policy := b.busePolicies[busName]
+	policy := b.busePolicies[busKey]
 	if policy == nil {
 		policy = &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement)}
-		b.busePolicies[busName] = policy
+		b.busePolicies[busKey] = policy
 	}
 
 	// If a raw Policy JSON is provided it replaces the whole policy.
@@ -2181,26 +2250,29 @@ func (b *InMemoryBackend) PutPermission(input PutPermissionInput) error {
 }
 
 // RemovePermission removes a resource-based policy statement from an event bus.
-func (b *InMemoryBackend) RemovePermission(input RemovePermissionInput) error {
+func (b *InMemoryBackend) RemovePermission(ctx context.Context, input RemovePermissionInput) error {
 	busName := input.EventBusName
 	if busName == "" {
 		busName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, busName)
+
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busName]; !exists {
+	if _, exists := b.buses[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
 	if input.RemoveAllPermissions {
-		delete(b.busePolicies, busName)
+		delete(b.busePolicies, busKey)
 
 		return nil
 	}
 
-	policy := b.busePolicies[busName]
+	policy := b.busePolicies[busKey]
 	if policy == nil {
 		return nil
 	}
@@ -2210,20 +2282,23 @@ func (b *InMemoryBackend) RemovePermission(input RemovePermissionInput) error {
 }
 
 // GetEventBusPolicy returns the resource-based policy for an event bus as JSON.
-func (b *InMemoryBackend) GetEventBusPolicy(eventBusName string) (string, error) {
+func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName string) (string, error) {
 	busName := eventBusName
 	if busName == "" {
 		busName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, busName)
+
 	b.mu.RLock("GetEventBusPolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.buses[busName]; !exists {
+	if _, exists := b.buses[busKey]; !exists {
 		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	policy := b.busePolicies[busName]
+	policy := b.busePolicies[busKey]
 	if policy == nil || len(policy.Statements) == 0 {
 		return "", nil
 	}
@@ -2241,21 +2316,24 @@ func (b *InMemoryBackend) GetEventBusPolicy(eventBusName string) (string, error)
 }
 
 // PutEventBusPolicy replaces the resource-based policy on an event bus with raw JSON.
-func (b *InMemoryBackend) PutEventBusPolicy(input PutEventBusPolicyInput) error {
+func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventBusPolicyInput) error {
 	busName := input.EventBusName
 	if busName == "" {
 		busName = defaultEventBusName
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(region, busName)
+
 	b.mu.Lock("PutEventBusPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busName]; !exists {
+	if _, exists := b.buses[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
 	if input.Policy == "" {
-		delete(b.busePolicies, busName)
+		delete(b.busePolicies, busKey)
 
 		return nil
 	}
@@ -2270,7 +2348,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(input PutEventBusPolicyInput) error 
 		s := stmts[i]
 		policy.Statements[s.Sid] = &s
 	}
-	b.busePolicies[busName] = policy
+	b.busePolicies[busKey] = policy
 
 	return nil
 }
@@ -2281,7 +2359,7 @@ func (b *InMemoryBackend) pipeARN(name string) string {
 }
 
 // CreatePipe creates a new EventBridge Pipe.
-func (b *InMemoryBackend) CreatePipe(input CreatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) CreatePipe(ctx context.Context, input CreatePipeInput) (*Pipe, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2331,7 +2409,7 @@ func (b *InMemoryBackend) CreatePipe(input CreatePipeInput) (*Pipe, error) {
 }
 
 // DeletePipe removes an EventBridge Pipe.
-func (b *InMemoryBackend) DeletePipe(name string) error {
+func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2351,7 +2429,7 @@ func (b *InMemoryBackend) DeletePipe(name string) error {
 }
 
 // DescribePipe returns a single EventBridge Pipe by name.
-func (b *InMemoryBackend) DescribePipe(name string) (*Pipe, error) {
+func (b *InMemoryBackend) DescribePipe(ctx context.Context, name string) (*Pipe, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2370,7 +2448,7 @@ func (b *InMemoryBackend) DescribePipe(name string) (*Pipe, error) {
 }
 
 // ListPipes returns EventBridge Pipes optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListPipes(namePrefix, nextToken string) ([]Pipe, string, error) {
+func (b *InMemoryBackend) ListPipes(ctx context.Context, namePrefix, nextToken string) ([]Pipe, string, error) {
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
 
@@ -2389,7 +2467,7 @@ func (b *InMemoryBackend) ListPipes(namePrefix, nextToken string) ([]Pipe, strin
 }
 
 // UpdatePipe updates an existing EventBridge Pipe.
-func (b *InMemoryBackend) UpdatePipe(input UpdatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) UpdatePipe(ctx context.Context, input UpdatePipeInput) (*Pipe, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2429,7 +2507,7 @@ func (b *InMemoryBackend) UpdatePipe(input UpdatePipeInput) (*Pipe, error) {
 // matches the event bus ARN and whose EventPattern matches the event.
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) captureEventInArchives(entry EventEntry, busName string) {
-	busARN := b.busARN(busName)
+	busARN := b.busARN(b.region, busName)
 	envelope := buildEventEnvelope(entry)
 	for _, archive := range b.archives {
 		if archive.EventSourceArn != busARN {
@@ -2689,7 +2767,7 @@ func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language stri
 }
 
 // CreateRegistry creates a new schema registry.
-func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2727,7 +2805,7 @@ func (b *InMemoryBackend) CreateRegistry(input CreateRegistryInput) (*SchemaRegi
 }
 
 // DeleteRegistry deletes a registry and all its schemas and versions.
-func (b *InMemoryBackend) DeleteRegistry(registryName string) error {
+func (b *InMemoryBackend) DeleteRegistry(ctx context.Context, registryName string) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2767,7 +2845,7 @@ func (b *InMemoryBackend) DeleteRegistry(registryName string) error {
 }
 
 // DescribeRegistry returns a single schema registry.
-func (b *InMemoryBackend) DescribeRegistry(registryName string) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) DescribeRegistry(ctx context.Context, registryName string) (*SchemaRegistry, error) {
 	if registryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2786,7 +2864,7 @@ func (b *InMemoryBackend) DescribeRegistry(registryName string) (*SchemaRegistry
 }
 
 // ListRegistries returns schema registries optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRegistries(
+func (b *InMemoryBackend) ListRegistries(ctx context.Context, 
 	namePrefix, nextToken string,
 ) ([]SchemaRegistry, string, error) {
 	b.mu.RLock("ListRegistries")
@@ -2807,7 +2885,7 @@ func (b *InMemoryBackend) ListRegistries(
 }
 
 // UpdateRegistry updates an existing schema registry description.
-func (b *InMemoryBackend) UpdateRegistry(input UpdateRegistryInput) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) UpdateRegistry(ctx context.Context, input UpdateRegistryInput) (*SchemaRegistry, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2828,7 +2906,7 @@ func (b *InMemoryBackend) UpdateRegistry(input UpdateRegistryInput) (*SchemaRegi
 }
 
 // CreateSchema creates a new schema (version "1") within a registry.
-func (b *InMemoryBackend) CreateSchema(input CreateSchemaInput) (*Schema, error) {
+func (b *InMemoryBackend) CreateSchema(ctx context.Context, input CreateSchemaInput) (*Schema, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2909,7 +2987,7 @@ func (b *InMemoryBackend) CreateSchema(input CreateSchemaInput) (*Schema, error)
 }
 
 // DeleteSchema deletes a schema and all its versions.
-func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
+func (b *InMemoryBackend) DeleteSchema(ctx context.Context, registryName, schemaName string) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -2950,7 +3028,7 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 }
 
 // DescribeSchema returns the current (or requested version of) a schema.
-func (b *InMemoryBackend) DescribeSchema(
+func (b *InMemoryBackend) DescribeSchema(ctx context.Context, 
 	registryName, schemaName, schemaVersion string,
 ) (*Schema, error) {
 	if registryName == "" {
@@ -3003,7 +3081,7 @@ func (b *InMemoryBackend) DescribeSchema(
 }
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
-func (b *InMemoryBackend) ListSchemas(
+func (b *InMemoryBackend) ListSchemas(ctx context.Context, 
 	registryName, namePrefix, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3032,7 +3110,7 @@ func (b *InMemoryBackend) ListSchemas(
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
-func (b *InMemoryBackend) SearchSchemas(
+func (b *InMemoryBackend) SearchSchemas(ctx context.Context, 
 	registryName, keywords, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3065,7 +3143,7 @@ func (b *InMemoryBackend) SearchSchemas(
 }
 
 // UpdateSchema creates a new version of an existing schema.
-func (b *InMemoryBackend) UpdateSchema(input UpdateSchemaInput) (*Schema, error) {
+func (b *InMemoryBackend) UpdateSchema(ctx context.Context, input UpdateSchemaInput) (*Schema, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3133,7 +3211,7 @@ func (b *InMemoryBackend) UpdateSchema(input UpdateSchemaInput) (*Schema, error)
 }
 
 // ListSchemaVersions returns all versions of a schema.
-func (b *InMemoryBackend) ListSchemaVersions(
+func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, 
 	registryName, schemaName, nextToken string,
 ) ([]SchemaVersion, string, error) {
 	if registryName == "" {
@@ -3174,7 +3252,7 @@ func (b *InMemoryBackend) ListSchemaVersions(
 }
 
 // DescribeSchemaVersion returns a specific schema version.
-func (b *InMemoryBackend) DescribeSchemaVersion(
+func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context, 
 	registryName, schemaName, schemaVersion string,
 ) (*SchemaVersion, error) {
 	if registryName == "" {
@@ -3212,7 +3290,7 @@ func (b *InMemoryBackend) DescribeSchemaVersion(
 
 // DeleteSchemaVersion deletes a specific version of a schema.
 // AWS rejects deletion of the last remaining version (BadRequestException).
-func (b *InMemoryBackend) DeleteSchemaVersion(
+func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context, 
 	registryName, schemaName, schemaVersion string,
 ) error {
 	if registryName == "" {
@@ -3297,7 +3375,7 @@ func (b *InMemoryBackend) maybeUpdateSchemaAfterVersionDelete(
 
 // GetDiscoveredSchema generates a schema skeleton from one or more event JSON strings.
 // Returns a minimal OpenApi3 schema template (real schema inference is out of scope).
-func (b *InMemoryBackend) GetDiscoveredSchema(input GetDiscoveredSchemaInput) (string, error) {
+func (b *InMemoryBackend) GetDiscoveredSchema(ctx context.Context, input GetDiscoveredSchemaInput) (string, error) {
 	if len(input.Events) == 0 {
 		return "", fmt.Errorf("%w: at least one event is required", ErrInvalidParameter)
 	}
@@ -3314,7 +3392,7 @@ func (b *InMemoryBackend) GetDiscoveredSchema(input GetDiscoveredSchemaInput) (s
 }
 
 // PutCodeBinding triggers code binding generation for a schema version.
-func (b *InMemoryBackend) PutCodeBinding(input PutCodeBindingInput) (*CodeBinding, error) {
+func (b *InMemoryBackend) PutCodeBinding(ctx context.Context, input PutCodeBindingInput) (*CodeBinding, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3369,7 +3447,7 @@ func (b *InMemoryBackend) PutCodeBinding(input PutCodeBindingInput) (*CodeBindin
 }
 
 // DescribeCodeBinding returns the status of a code binding.
-func (b *InMemoryBackend) DescribeCodeBinding(
+func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context, 
 	input DescribeCodeBindingInput,
 ) (*CodeBinding, error) {
 	if input.RegistryName == "" {
@@ -3400,7 +3478,7 @@ func (b *InMemoryBackend) DescribeCodeBinding(
 }
 
 // ListCodeBindings returns all code bindings for a given schema (optionally filtered by version).
-func (b *InMemoryBackend) ListCodeBindings(
+func (b *InMemoryBackend) ListCodeBindings(ctx context.Context, 
 	input ListCodeBindingsInput,
 ) ([]CodeBinding, string, error) {
 	if input.RegistryName == "" {
@@ -3438,7 +3516,7 @@ func (b *InMemoryBackend) ListCodeBindings(
 
 // GetCodeBindingSource returns placeholder source code for a generated code binding.
 // Real source generation is out of scope for in-process emulation.
-func (b *InMemoryBackend) GetCodeBindingSource(
+func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context, 
 	registryName, schemaName, language, schemaVersion string,
 ) (string, error) {
 	if registryName == "" {

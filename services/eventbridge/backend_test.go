@@ -16,12 +16,12 @@ func TestCreateAndDescribeEventBus(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	bus, err := b.CreateEventBus("my-bus", "a test bus")
+	bus, err := b.CreateEventBus(context.Background(), "my-bus", "a test bus")
 	require.NoError(t, err)
 	assert.Equal(t, "my-bus", bus.Name)
 	assert.Contains(t, bus.Arn, "my-bus")
 
-	got, err := b.DescribeEventBus("my-bus")
+	got, err := b.DescribeEventBus(context.Background(), "my-bus")
 	require.NoError(t, err)
 	assert.Equal(t, "my-bus", got.Name)
 	assert.Equal(t, "a test bus", got.Description)
@@ -31,10 +31,10 @@ func TestCreateEventBusAlreadyExists(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus("dup-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "dup-bus", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateEventBus("dup-bus", "")
+	_, err = b.CreateEventBus(context.Background(), "dup-bus", "")
 	require.ErrorIs(t, err, eventbridge.ErrEventBusAlreadyExists)
 }
 
@@ -42,13 +42,13 @@ func TestDeleteEventBus(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus("to-delete", "")
+	_, err := b.CreateEventBus(context.Background(), "to-delete", "")
 	require.NoError(t, err)
 
-	err = b.DeleteEventBus("to-delete")
+	err = b.DeleteEventBus(context.Background(), "to-delete")
 	require.NoError(t, err)
 
-	_, err = b.DescribeEventBus("to-delete")
+	_, err = b.DescribeEventBus(context.Background(), "to-delete")
 	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
 }
 
@@ -56,7 +56,7 @@ func TestDeleteDefaultEventBusFails(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	err := b.DeleteEventBus("default")
+	err := b.DeleteEventBus(context.Background(), "default")
 	require.ErrorIs(t, err, eventbridge.ErrCannotDeleteDefaultBus)
 }
 
@@ -91,10 +91,10 @@ func TestListEventBuses(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			for _, name := range tt.setupBuses {
-				_, _ = b.CreateEventBus(name, "")
+				_, _ = b.CreateEventBus(context.Background(), name, "")
 			}
 
-			buses, next, err := b.ListEventBuses(tt.prefix, "")
+			buses, next, err := b.ListEventBuses(context.Background(), tt.prefix, "")
 			require.NoError(t, err)
 			assert.Empty(t, next)
 			assert.Len(t, buses, tt.wantCount)
@@ -123,7 +123,7 @@ func TestDescribeEventBus(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			bus, err := b.DescribeEventBus(tt.busName)
+			bus, err := b.DescribeEventBus(context.Background(), tt.busName)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, bus.Name)
 		})
@@ -140,13 +140,13 @@ func TestPutAndListRules(t *testing.T) {
 		EventPattern: `{"source":["my.app"]}`,
 		State:        "ENABLED",
 	}
-	rule, err := b.PutRule(input)
+	rule, err := b.PutRule(context.Background(), input)
 	require.NoError(t, err)
 	assert.Equal(t, "my-rule", rule.Name)
 	assert.Equal(t, "ENABLED", rule.State)
 	assert.Contains(t, rule.Arn, "my-rule")
 
-	rules, next, err := b.ListRules("default", "", "")
+	rules, next, err := b.ListRules(context.Background(), "default", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, next)
 	assert.Len(t, rules, 1)
@@ -156,10 +156,10 @@ func TestDescribeRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`})
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`})
 	require.NoError(t, err)
 
-	rule, err := b.DescribeRule("r1", "")
+	rule, err := b.DescribeRule(context.Background(), "r1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "r1", rule.Name)
 	assert.Equal(t, "desc", rule.Description)
@@ -169,13 +169,13 @@ func TestDeleteRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "del-rule", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "del-rule", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
-	err = b.DeleteRule("del-rule", "")
+	err = b.DeleteRule(context.Background(), "del-rule", "")
 	require.NoError(t, err)
 
-	_, err = b.DescribeRule("del-rule", "")
+	_, err = b.DescribeRule(context.Background(), "del-rule", "")
 	require.ErrorIs(t, err, eventbridge.ErrRuleNotFound)
 }
 
@@ -183,22 +183,22 @@ func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(
+	_, err := b.PutRule(context.Background(), 
 		eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`},
 	)
 	require.NoError(t, err)
 
-	err = b.DisableRule("toggle-rule", "")
+	err = b.DisableRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 
-	rule, err := b.DescribeRule("toggle-rule", "")
+	rule, err := b.DescribeRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "DISABLED", rule.State)
 
-	err = b.EnableRule("toggle-rule", "")
+	err = b.EnableRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 
-	rule, err = b.DescribeRule("toggle-rule", "")
+	rule, err = b.DescribeRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", rule.State)
 }
@@ -207,7 +207,7 @@ func TestPutAndListTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-with-targets", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "rule-with-targets", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
 	targets := []eventbridge.Target{
@@ -215,11 +215,11 @@ func TestPutAndListTargets(t *testing.T) {
 		{ID: "t2", Arn: "arn:aws:sqs:us-east-1:123456789012:my-queue"},
 	}
 
-	failed, err := b.PutTargets("rule-with-targets", "", targets)
+	failed, err := b.PutTargets(context.Background(), "rule-with-targets", "", targets)
 	require.NoError(t, err)
 	assert.Empty(t, failed)
 
-	got, next, err := b.ListTargetsByRule("rule-with-targets", "", "")
+	got, next, err := b.ListTargetsByRule(context.Background(), "rule-with-targets", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, next)
 	assert.Len(t, got, 2)
@@ -229,19 +229,19 @@ func TestRemoveTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-remove", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "rule-remove", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("rule-remove", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "rule-remove", "", []eventbridge.Target{
 		{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:fn"},
 	})
 	require.NoError(t, err)
 
-	failed, err := b.RemoveTargets("rule-remove", "", []string{"t1"})
+	failed, err := b.RemoveTargets(context.Background(), "rule-remove", "", []string{"t1"})
 	require.NoError(t, err)
 	assert.Empty(t, failed)
 
-	got, _, err := b.ListTargetsByRule("rule-remove", "", "")
+	got, _, err := b.ListTargetsByRule(context.Background(), "rule-remove", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -256,14 +256,14 @@ func TestPutEvents(t *testing.T) {
 		{Source: "my.app", DetailType: "UserDeleted", Detail: `{"userId":"456"}`},
 	}
 
-	results := b.PutEvents(entries)
+	results := b.PutEvents(context.Background(), entries)
 	assert.Len(t, results, 2)
 	for _, r := range results {
 		assert.NotEmpty(t, r.EventID)
 		assert.Empty(t, r.ErrorCode)
 	}
 
-	log := b.GetEventLog()
+	log := b.GetEventLog(context.Background(), )
 	assert.Len(t, log, 2)
 }
 
@@ -276,9 +276,9 @@ func TestEventLogMaxSize(t *testing.T) {
 	for i := range batch {
 		batch[i] = eventbridge.EventEntry{Source: "s", DetailType: "t", Detail: "{}"}
 	}
-	b.PutEvents(batch)
+	b.PutEvents(context.Background(), batch)
 
-	log := b.GetEventLog()
+	log := b.GetEventLog(context.Background(), )
 	assert.Len(t, log, 1000)
 }
 
@@ -312,7 +312,7 @@ func TestPutRule(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			rule, err := b.PutRule(tt.input)
+			rule, err := b.PutRule(context.Background(), tt.input)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 
@@ -330,7 +330,7 @@ func TestScheduler_LastFiredCleanupOnDeleteRule(t *testing.T) {
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	defer b.Close()
 
-	rule, err := b.PutRule(eventbridge.PutRuleInput{
+	rule, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:               "sched-rule",
 		ScheduleExpression: "rate(1 minute)",
 		State:              "ENABLED",
@@ -344,7 +344,7 @@ func TestScheduler_LastFiredCleanupOnDeleteRule(t *testing.T) {
 	}
 
 	// Delete the rule then run a scheduler tick.
-	err = b.DeleteRule("sched-rule", "default")
+	err = b.DeleteRule(context.Background(), "sched-rule", "default")
 	require.NoError(t, err)
 
 	sched := eventbridge.NewScheduler(b, 0)
@@ -369,10 +369,10 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Create a user-defined event bus and a rule.
-	_, err := b.CreateEventBus("user-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "user-bus", "")
 	require.NoError(t, err)
 
-	_, err = b.PutRule(eventbridge.PutRuleInput{
+	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "user-rule",
 		EventPattern: `{"source":["test"]}`,
 		State:        "ENABLED",
@@ -383,11 +383,11 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	b.Reset()
 
 	// User bus must be gone.
-	_, err = b.DescribeEventBus("user-bus")
+	_, err = b.DescribeEventBus(context.Background(), "user-bus")
 	require.Error(t, err)
 
 	// Default event bus must still exist so PutRule works.
-	_, err = b.PutRule(eventbridge.PutRuleInput{
+	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "post-reset-rule",
 		EventBusName: "default",
 		EventPattern: `{"source":["test"]}`,
@@ -396,7 +396,7 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	require.NoError(t, err, "default event bus must be available after Reset")
 
 	// Default bus must appear in ListEventBuses.
-	buses, _, err := b.ListEventBuses("", "")
+	buses, _, err := b.ListEventBuses(context.Background(), "", "")
 	require.NoError(t, err)
 	assert.Len(t, buses, 1, "only the default bus should exist after Reset")
 	assert.Equal(t, "default", buses[0].Name)
@@ -486,19 +486,19 @@ func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing
 			b.SetDeliveryTimeout(0)
 			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{Lambda: invoker})
 
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "hung-rule",
 				EventPattern: `{"source":["hung-test"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = b.PutTargets("hung-rule", "default", []eventbridge.Target{
+			_, err = b.PutTargets(context.Background(), "hung-rule", "default", []eventbridge.Target{
 				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
 			})
 			require.NoError(t, err)
 
-			b.PutEvents([]eventbridge.EventEntry{
+			b.PutEvents(context.Background(), []eventbridge.EventEntry{
 				{Source: "hung-test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
 			})
 
@@ -556,19 +556,19 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 			b.SetShutdownTimeout(2 * time.Second)
 			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{Lambda: invoker})
 
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "timeout-rule",
 				EventPattern: `{"source":["timeout-test"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = b.PutTargets("timeout-rule", "default", []eventbridge.Target{
+			_, err = b.PutTargets(context.Background(), "timeout-rule", "default", []eventbridge.Target{
 				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
 			})
 			require.NoError(t, err)
 
-			b.PutEvents([]eventbridge.EventEntry{
+			b.PutEvents(context.Background(), []eventbridge.EventEntry{
 				{Source: "timeout-test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
 			})
 
@@ -629,13 +629,13 @@ func TestPutRule_PatternCompilationCache(t *testing.T) {
 
 			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "rule-1",
 				EventPattern: tt.firstPattern,
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutRule(eventbridge.PutRuleInput{
+			_, err = backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "rule-2",
 				EventPattern: tt.secondPattern,
 			})
@@ -673,26 +673,26 @@ func TestPutRule_RuleIndexUpdatedOnRuleUpdate(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSender})
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "idx-rule",
 				EventPattern: `{"source":["` + tt.firstSource + `"],"detail-type":["first"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets("idx-rule", "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), "idx-rule", "default", []eventbridge.Target{
 				{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:index-queue"},
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutRule(eventbridge.PutRuleInput{
+			_, err = backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "idx-rule",
 				EventPattern: `{"source":["` + tt.nextSource + `"],"detail-type":["first"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents([]eventbridge.EventEntry{
+			backend.PutEvents(context.Background(), []eventbridge.EventEntry{
 				{Source: tt.firstSource, DetailType: "first", Detail: `{}`},
 				{Source: tt.nextSource, DetailType: "first", Detail: `{}`},
 			})
@@ -735,7 +735,7 @@ func TestArchiveJanitor_SweepOnce(t *testing.T) {
 			t.Parallel()
 
 			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			_, err := backend.CreateArchive(eventbridge.CreateArchiveInput{
+			_, err := backend.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 				ArchiveName:    tt.archiveName,
 				EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
 				RetentionDays:  tt.retentionDays,

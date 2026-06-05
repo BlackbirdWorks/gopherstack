@@ -96,8 +96,9 @@ func (b *InMemoryBackend) deliverEvents(
 			busName = defaultEventBusName
 		}
 
+		busKey := ebBusKey(region, busName)
 		eventEnvelope := buildEventEnvelope(entry)
-		rules := indexedRulesForEvent(busRuleIndex[busName], entry.Source, entry.DetailType)
+		rules := indexedRulesForEvent(busRuleIndex[busKey], entry.Source, entry.DetailType)
 		for _, rule := range rules {
 			if rule.State != "ENABLED" {
 				continue
@@ -118,7 +119,7 @@ func (b *InMemoryBackend) deliverEvents(
 			// Deliver to all targets for this rule. Each target gets its own
 			// bounded context so a hung downstream service cannot block the
 			// goroutine beyond the configured timeout.
-			key := b.targetKey(busName, rule.Name)
+			key := b.targetKey(region, busName, rule.Name)
 			var wg sync.WaitGroup
 			for _, t := range busTargets[key] {
 				target := t

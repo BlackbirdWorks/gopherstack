@@ -68,18 +68,18 @@ func TestAudit_Delivery_StepFunctions_DeliversEvent(t *testing.T) {
 
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "sfn-rule",
 		EventPattern: `{"source":["sfn-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("sfn-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "sfn-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: smARN},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "sfn-test", DetailType: "Order", Detail: `{"id":42}`},
 	})
 
@@ -99,19 +99,19 @@ func TestAudit_Delivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
 	smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:no-backend"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "sfn-nil-rule",
 		EventPattern: `{"source":["nil-sfn"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("sfn-nil-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "sfn-nil-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: smARN},
 	})
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		b.PutEvents([]eventbridge.EventEntry{
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
 			{Source: "nil-sfn", DetailType: "T", Detail: `{}`},
 		})
 	})
@@ -133,13 +133,13 @@ func TestAudit_Delivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 		SQS:           dlqSink,
 	})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "sfn-fail-rule",
 		EventPattern: `{"source":["sfn-fail"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("sfn-fail-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "sfn-fail-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: smARN,
@@ -151,7 +151,7 @@ func TestAudit_Delivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "sfn-fail", DetailType: "T", Detail: `{}`},
 	})
 
@@ -182,18 +182,18 @@ func TestAudit_Delivery_IsStateMachineARN(t *testing.T) {
 			sfn := &auditSFNExecutor{}
 			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{StepFunctions: sfn})
 
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "arn-test-" + tt.name,
 				EventPattern: `{"source":["arn-probe-` + tt.name + `"]}`,
 			})
 			require.NoError(t, err)
 
-			_, err = b.PutTargets("arn-test-"+tt.name, "", []eventbridge.Target{
+			_, err = b.PutTargets(context.Background(), "arn-test-"+tt.name, "", []eventbridge.Target{
 				{ID: "t1", Arn: tt.arn},
 			})
 			require.NoError(t, err)
 
-			b.PutEvents([]eventbridge.EventEntry{
+			b.PutEvents(context.Background(), []eventbridge.EventEntry{
 				{Source: "arn-probe-" + tt.name, DetailType: "T", Detail: `{}`},
 			})
 

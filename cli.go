@@ -3057,10 +3057,10 @@ type s3EventBridgeAdapter struct {
 }
 
 func (a *s3EventBridgeAdapter) PublishS3Event(
-	_ context.Context,
+	ctx context.Context,
 	source, detailType, detail string,
 ) {
-	a.backend.PutEvents([]ebbackend.EventEntry{
+	a.backend.PutEvents(ctx, []ebbackend.EventEntry{
 		{Source: source, DetailType: detailType, Detail: detail},
 	})
 }
