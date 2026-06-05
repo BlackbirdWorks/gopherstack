@@ -201,12 +201,13 @@ type InMemoryBackend struct {
 	stackSetOpResults  map[string]map[string][]StackSetOperationResult // stackSetName → opID → results
 	typeVersions       map[string][]*RegisteredTypeVersion             // typeArn → versions
 	resourceScanItems  map[string][]ScannedResource                    // scanID → scanned resources
-	creator            *ResourceCreator
-	resolver           DynamicRefResolver
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	region             string
-	orgAccessEnabled   bool
+	resourceDriftStatus map[string]map[string]string // stackID → logicalID → drift status
+	creator             *ResourceCreator
+	resolver            DynamicRefResolver
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
+	orgAccessEnabled    bool
 }
 
 const (
@@ -242,35 +243,36 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 	}
 
 	b := &InMemoryBackend{
-		stacks:             make(map[string]*Stack),
-		stackIDIndex:       make(map[string]string),
-		events:             make(map[string][]StackEvent),
-		resources:          make(map[string]map[string]*StackResource),
-		changeSets:         make(map[string]map[string]*ChangeSet),
-		exports:            make(map[string]*Export),
-		driftDetections:    make(map[string]*DriftDetectionStatus),
-		stackPolicies:      make(map[string]string),
-		stackSets:          make(map[string]*StackSet),
-		stackInstances:     make(map[string][]StackInstance),
-		stackSetOperations: make(map[string]map[string]*StackSetOperation),
-		generatedTemplates: make(map[string]*GeneratedTemplate),
-		resourceScans:      make(map[string]*ResourceScan),
-		typeRegistry:       make(map[string]*RegisteredType),
-		typeRegistrations:  make(map[string]*TypeRegistrationRecord),
-		typeConfigs:        make(map[string]string),
-		publishers:         make(map[string]*Publisher),
-		stackRefactors:     make(map[string]*StackRefactor),
-		hookResults:        make(map[string]*HookResult),
-		handlerProgress:    make(map[string]string),
-		signals:            make(map[string][]SignalRecord),
-		stackSetOpResults:  make(map[string]map[string][]StackSetOperationResult),
-		typeVersions:       make(map[string][]*RegisteredTypeVersion),
-		resourceScanItems:  make(map[string][]ScannedResource),
-		creator:            creator,
-		resolver:           resolver,
-		accountID:          accountID,
-		region:             region,
-		mu:                 lockmetrics.New("cloudformation"),
+		stacks:              make(map[string]*Stack),
+		stackIDIndex:        make(map[string]string),
+		events:              make(map[string][]StackEvent),
+		resources:           make(map[string]map[string]*StackResource),
+		changeSets:          make(map[string]map[string]*ChangeSet),
+		exports:             make(map[string]*Export),
+		driftDetections:     make(map[string]*DriftDetectionStatus),
+		stackPolicies:       make(map[string]string),
+		stackSets:           make(map[string]*StackSet),
+		stackInstances:      make(map[string][]StackInstance),
+		stackSetOperations:  make(map[string]map[string]*StackSetOperation),
+		generatedTemplates:  make(map[string]*GeneratedTemplate),
+		resourceScans:       make(map[string]*ResourceScan),
+		typeRegistry:        make(map[string]*RegisteredType),
+		typeRegistrations:   make(map[string]*TypeRegistrationRecord),
+		typeConfigs:         make(map[string]string),
+		publishers:          make(map[string]*Publisher),
+		stackRefactors:      make(map[string]*StackRefactor),
+		hookResults:         make(map[string]*HookResult),
+		handlerProgress:     make(map[string]string),
+		signals:             make(map[string][]SignalRecord),
+		stackSetOpResults:   make(map[string]map[string][]StackSetOperationResult),
+		typeVersions:        make(map[string][]*RegisteredTypeVersion),
+		resourceScanItems:   make(map[string][]ScannedResource),
+		resourceDriftStatus: make(map[string]map[string]string),
+		creator:             creator,
+		resolver:            resolver,
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("cloudformation"),
 	}
 
 	// Wire the backend as the NestedStackCreator so nested stacks can be provisioned.
@@ -519,12 +521,20 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 		return
 	}
 
+	resourceTypes := make(map[string]string, len(tmpl.Resources))
+	for logicalID, res := range tmpl.Resources {
+		resourceTypes[logicalID] = res.Type
+	}
 	rctx := resolveCtx{
-		params:      resolvedParams,
-		physicalIDs: physicalIDs,
-		exports:     b.buildExportsMap(),
-		conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
-		mappings:    tmpl.Mappings,
+		params:        resolvedParams,
+		physicalIDs:   physicalIDs,
+		resourceTypes: resourceTypes,
+		exports:       b.buildExportsMap(),
+		conditions:    evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:      tmpl.Mappings,
+		accountID:     b.accountID,
+		region:        b.region,
+		stackName:     name,
 	}
 	var exportMap map[string]string
 	stack.Outputs, exportMap = resolveOutputsWithContext(tmpl, rctx)
@@ -821,12 +831,20 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 	b.removeExports(stack.StackID)
 
+	updateResourceTypes := make(map[string]string, len(tmpl.Resources))
+	for logicalID, res := range tmpl.Resources {
+		updateResourceTypes[logicalID] = res.Type
+	}
 	rctx := resolveCtx{
-		params:      resolvedParams,
-		physicalIDs: physicalIDs,
-		exports:     b.buildExportsMap(),
-		conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
-		mappings:    tmpl.Mappings,
+		params:        resolvedParams,
+		physicalIDs:   physicalIDs,
+		resourceTypes: updateResourceTypes,
+		exports:       b.buildExportsMap(),
+		conditions:    evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:      tmpl.Mappings,
+		accountID:     b.accountID,
+		region:        b.region,
+		stackName:     stack.StackName,
 	}
 
 	var exportMap map[string]string
