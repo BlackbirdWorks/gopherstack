@@ -412,7 +412,11 @@ func (b *InMemoryBackend) PutObject(
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
 	// the version so GET can decrypt. ETag stays as MD5(plaintext) so
 	// existing checksum-based tests + SDK clients keep matching.
-	encryptedData, dek, nonce, encErr := encryptWithSSE(storedData, sseFromCtx, sseFromCtx.SSECKeyB64)
+	encryptedData, dek, nonce, encErr := encryptWithSSE(
+		storedData,
+		sseFromCtx,
+		sseFromCtx.SSECKeyB64,
+	)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -637,7 +641,14 @@ func (b *InMemoryBackend) GetObject(
 			// reject the request before reading the body.
 			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
 		}
-		decrypted, decErr := decryptWithSSE(dataToDecompress, sseAlg, sseCAlg, dek, nonce, sseFromCtx.SSECKeyB64)
+		decrypted, decErr := decryptWithSSE(
+			dataToDecompress,
+			sseAlg,
+			sseCAlg,
+			dek,
+			nonce,
+			sseFromCtx.SSECKeyB64,
+		)
 		if decErr != nil {
 			return nil, decErr
 		}
@@ -2138,7 +2149,11 @@ func (b *InMemoryBackend) commitMultipartObject(
 	var dek, nonce []byte
 	if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
 		var encErr error
-		storedBody, dek, nonce, encErr = encryptWithSSE(assembled.compressedData, sse, sse.SSECKeyB64)
+		storedBody, dek, nonce, encErr = encryptWithSSE(
+			assembled.compressedData,
+			sse,
+			sse.SSECKeyB64,
+		)
 		if encErr != nil {
 			bucket.mu.Unlock()
 
