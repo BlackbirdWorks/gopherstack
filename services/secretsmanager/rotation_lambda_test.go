@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -163,55 +163,69 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 	t.Parallel()
 
-	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend)
-
-	var calledSteps []string
-	mock := &recordingLambdaInvoker{
-		onInvoke: func(name, _ string, payload []byte) ([]byte, int, error) {
-			calledSteps = append(calledSteps, extractStep(payload))
-			return nil, 200, nil
+	tests := []struct {
+		name      string
+		lambdaErr error
+		wantSteps []string
+	}{
+		{
+			name:      "lambda_succeeds_version_becomes_current",
+			lambdaErr: nil,
+			wantSteps: []string{"createSecret", "setSecret", "testSecret", "finishSecret"},
 		},
 	}
-	h.SetLambdaInvoker(mock)
 
-	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
-		Name:         "sched-lambda",
-		SecretString: "v0",
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Enable rotation with a very short interval so the scheduler fires quickly.
-	days := int64(1)
-	_, err = backend.RotateSecret(&secretsmanager.RotateSecretInput{
-		SecretID:          "sched-lambda",
-		RotationLambdaARN: testLambdaARN,
-		RotationRules: &secretsmanager.RotationRulesType{
-			AutomaticallyAfterDays: &days,
-		},
-		RotateImmediately: boolPtr(false),
-	})
-	require.NoError(t, err)
+			backend := secretsmanager.NewInMemoryBackend()
+			h := secretsmanager.NewHandler(backend)
 
-	// The scheduler runs every ~1s. Advance time far enough for the rule to fire.
-	// We use a direct call via TickScheduler (exported for tests) OR wait for the scheduler.
-	// Here we rely on the real scheduler with a 1s interval; wait up to 3s.
-	require.Eventually(t, func() bool {
-		curr, getErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "sched-lambda"})
-		if getErr != nil {
-			return false
-		}
-		// Scheduler rotated if the version changed AND Lambda was invoked.
-		return len(calledSteps) == 4
-	}, 3*time.Second, 50*time.Millisecond, "scheduler must invoke Lambda for scheduled rotation")
+			var calledSteps []string
+			mock := &recordingLambdaInvoker{
+				onInvoke: func(_, _ string, payload []byte) ([]byte, int, error) {
+					calledSteps = append(calledSteps, extractStep(payload))
+					if tt.lambdaErr != nil {
+						return nil, 500, tt.lambdaErr
+					}
+					return nil, 200, nil
+				},
+			}
+			h.SetLambdaInvoker(mock)
 
-	// All four steps in order.
-	assert.Equal(t, []string{"createSecret", "setSecret", "testSecret", "finishSecret"}, calledSteps)
+			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "sched-lambda",
+				SecretString: "v0",
+			})
+			require.NoError(t, err)
 
-	// New version must be AWSCURRENT.
-	curr, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "sched-lambda"})
-	require.NoError(t, err)
-	assert.Contains(t, curr.VersionStages, "AWSCURRENT")
+			days := int64(1)
+			_, err = backend.RotateSecret(&secretsmanager.RotateSecretInput{
+				SecretID:          "sched-lambda",
+				RotationLambdaARN: testLambdaARN,
+				RotationRules: &secretsmanager.RotationRulesType{
+					AutomaticallyAfterDays: &days,
+				},
+				RotateImmediately: boolPtr(false),
+			})
+			require.NoError(t, err)
+
+			// Trigger the scheduler directly with a time far enough in the future
+			// for the 1-day rotation rule to be due.
+			futureNow := time.Now().Add(2 * 24 * time.Hour)
+			backend.RunScheduledRotationsForTest(futureNow)
+
+			// Lambda must have been invoked with all four steps in order.
+			require.Equal(t, tt.wantSteps, calledSteps,
+				"scheduler must invoke Lambda rotation steps in order")
+
+			// New version must be AWSCURRENT.
+			curr, getErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "sched-lambda"})
+			require.NoError(t, getErr)
+			assert.Contains(t, curr.VersionStages, "AWSCURRENT")
+		})
+	}
 }
 
 // recordingLambdaInvoker records calls and delegates to onInvoke.

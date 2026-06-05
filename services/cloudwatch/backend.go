@@ -2358,3 +2358,185 @@ func (b *InMemoryBackend) DeleteMetricFilter(filterName, logGroupName string) er
 
 	return nil
 }
+
+// EvaluateAlarms evaluates all metric alarms against recent metric data and
+// transitions state (OK ↔ ALARM ↔ INSUFFICIENT_DATA) as appropriate. SNS and
+// Lambda alarm actions are fired on state change. Intended to be called
+// periodically by the Janitor.
+func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
+	// Snapshot alarms under a read-lock to avoid holding the lock during evaluation.
+	b.mu.RLock("EvaluateAlarms.snapshot")
+
+	type alarmSnap struct {
+		alarm MetricAlarm
+	}
+
+	var snaps []alarmSnap
+
+	for _, a := range b.alarms {
+		if a.MetricName == "" || a.Namespace == "" || a.Period <= 0 || a.EvaluationPeriods <= 0 {
+			continue
+		}
+
+		cp := *a
+		snaps = append(snaps, alarmSnap{alarm: cp})
+	}
+
+	b.mu.RUnlock()
+
+	for _, snap := range snaps {
+		newState := b.evaluateMetricAlarmState(snap.alarm, now)
+		if newState == snap.alarm.StateValue {
+			continue
+		}
+
+		reason := fmt.Sprintf("Threshold Crossed: %d datapoints breached the threshold", snap.alarm.DatapointsToAlarm)
+		if newState == alarmStateInsufficientData {
+			reason = "Insufficient Data: not enough datapoints to evaluate"
+		} else if newState == alarmStateOK {
+			reason = "Threshold Crossed: datapoints within normal range"
+		}
+
+		// SetAlarmState acquires its own lock and fires SNS/Lambda actions.
+		_ = b.SetAlarmState(ctx, snap.alarm.AlarmName, newState, reason, "")
+	}
+}
+
+// evaluateMetricAlarmState computes the new state for a metric alarm.
+// It fetches the most recent EvaluationPeriods periods of data, counts
+// breaching periods applying TreatMissingData logic, and returns the resulting state.
+func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time) string {
+	periodDur := time.Duration(alarm.Period) * time.Second
+	evalPeriods := int(alarm.EvaluationPeriods)
+
+	// Fetch metric data covering EvaluationPeriods windows.
+	endTime := now
+	startTime := now.Add(-periodDur * time.Duration(evalPeriods))
+
+	stats := []string{alarm.Statistic}
+	extStats := []string{}
+
+	if alarm.Statistic == "" && alarm.ExtendedStatistic != "" {
+		stats = nil
+		extStats = []string{alarm.ExtendedStatistic}
+	}
+
+	datapoints, err := b.GetMetricStatistics(
+		alarm.Namespace, alarm.MetricName, alarm.Dimensions,
+		startTime, endTime, alarm.Period, stats, extStats,
+	)
+	if err != nil {
+		return alarm.StateValue
+	}
+
+	// Build a map of period-bucket-index → statistic value.
+	bucketValues := make(map[int]float64, len(datapoints))
+
+	for _, dp := range datapoints {
+		offset := dp.Timestamp.Sub(startTime)
+		idx := int(offset / periodDur)
+
+		if idx < 0 || idx >= evalPeriods {
+			continue
+		}
+
+		val := extractDatapointValue(dp, alarm.Statistic, alarm.ExtendedStatistic)
+		if val != nil {
+			bucketValues[idx] = *val
+		}
+	}
+
+	treatMissing := alarm.TreatMissingData
+	if treatMissing == "" {
+		treatMissing = "missing"
+	}
+
+	datapointsToAlarm := int(alarm.DatapointsToAlarm)
+	if datapointsToAlarm <= 0 {
+		datapointsToAlarm = evalPeriods
+	}
+
+	breachCount := 0
+	evaluatedCount := 0
+
+	for i := range evalPeriods {
+		val, hasData := bucketValues[i]
+
+		if !hasData {
+			switch treatMissing {
+			case "breaching":
+				breachCount++
+				evaluatedCount++
+			case "notBreaching":
+				evaluatedCount++
+			case "ignore":
+				// Don't count this period at all.
+			default: // "missing"
+				// Don't count toward evaluated.
+			}
+
+			continue
+		}
+
+		evaluatedCount++
+
+		if breachesThreshold(val, alarm.Threshold, alarm.ComparisonOperator) {
+			breachCount++
+		}
+	}
+
+	if breachCount >= datapointsToAlarm {
+		return alarmStateAlarm
+	}
+
+	// Determine if we have enough data to call OK vs INSUFFICIENT_DATA.
+	// If TreatMissingData is not breaching/notBreaching and we have fewer than
+	// datapointsToAlarm evaluated periods, stay INSUFFICIENT_DATA.
+	if evaluatedCount < datapointsToAlarm && treatMissing == "missing" {
+		return alarmStateInsufficientData
+	}
+
+	return alarmStateOK
+}
+
+// extractDatapointValue extracts the relevant statistic value from a Datapoint.
+func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *float64 {
+	switch statistic {
+	case "Average":
+		return dp.Average
+	case "Sum":
+		return dp.Sum
+	case "Minimum":
+		return dp.Minimum
+	case "Maximum":
+		return dp.Maximum
+	case "SampleCount":
+		return dp.SampleCount
+	}
+
+	if extendedStatistic != "" {
+		if v, ok := dp.ExtendedStatistics[extendedStatistic]; ok {
+			return &v
+		}
+	}
+
+	return nil
+}
+
+// breachesThreshold reports whether value breaches the threshold for the given operator.
+func breachesThreshold(value, threshold float64, op string) bool {
+	switch op {
+	case "GreaterThanThreshold":
+		return value > threshold
+	case "GreaterThanOrEqualToThreshold":
+		return value >= threshold
+	case "LessThanThreshold":
+		return value < threshold
+	case "LessThanOrEqualToThreshold":
+		return value <= threshold
+	case "LessThanLowerOrGreaterThanUpperThreshold":
+		return value < threshold
+	default:
+		return false
+	}
+}
