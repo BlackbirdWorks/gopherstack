@@ -1966,7 +1966,7 @@ type batchEntryPrep struct {
 // processSendMessageBatchEntries iterates over batch entries (already lock-held on q),
 // delegates to sendMessageLocked, and accumulates Successful/Failed results.
 func processSendMessageBatchEntries(
-	q *queue,
+	q *Queue,
 	input *SendMessageBatchInput,
 	preps []batchEntryPrep,
 	now time.Time,

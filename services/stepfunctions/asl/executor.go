@@ -69,7 +69,7 @@ const (
 	errCodeStatesPermissions = "States.Permissions"
 	errCodeStatesRuntime     = "States.Runtime"
 	errCodeStatesTimeout     = "States.Timeout"
-	errCodeStatesTaskFailed  = errCodeStatesTaskFailed
+	errCodeStatesTaskFailed  = "States.TaskFailed"
 )
 
 // LambdaInvoker can invoke a Lambda function.

@@ -1444,7 +1444,7 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 		for _, v := range obj.Versions {
 			sc := v.StorageClass
 			if sc == "" {
-				sc = "STANDARD"
+				sc = storageStandard
 			}
 
 			snapshots = append(snapshots, versionSnapshot{

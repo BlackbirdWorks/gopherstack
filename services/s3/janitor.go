@@ -479,7 +479,7 @@ func (j *Janitor) applyLifecycleRules(
 
 	for i := range cfg.Rules {
 		rule := &cfg.Rules[i]
-		if !strings.EqualFold(rule.Status, "Enabled") {
+		if !strings.EqualFold(rule.Status, statusEnabled) {
 			continue
 		}
 
@@ -761,7 +761,7 @@ func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag
 
 	for i := range cfg.Rules {
 		rule := &cfg.Rules[i]
-		if !strings.EqualFold(rule.Status, "Enabled") {
+		if !strings.EqualFold(rule.Status, statusEnabled) {
 			continue
 		}
 
@@ -984,7 +984,7 @@ func (j *Janitor) applyNoncurrentStorageClassTransitions(
 
 			fromClass := ver.StorageClass
 			if fromClass == "" {
-				fromClass = "STANDARD"
+				fromClass = storageStandard
 			}
 
 			if fromClass != targetClass {
