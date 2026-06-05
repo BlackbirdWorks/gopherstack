@@ -109,17 +109,19 @@ type getExecutionHistoryInput struct {
 
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
-	Backend StorageBackend
-	tags    map[string]*tags.Tags
-	tagsMu  *lockmetrics.RWMutex
+	Backend       StorageBackend
+	DefaultRegion string
+	tags          map[string]*tags.Tags
+	tagsMu        *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend: backend,
-		tags:    make(map[string]*tags.Tags),
-		tagsMu:  lockmetrics.New("sfn.tags"),
+		Backend:       backend,
+		DefaultRegion: config.DefaultRegion,
+		tags:          make(map[string]*tags.Tags),
+		tagsMu:        lockmetrics.New("sfn.tags"),
 	}
 }
 
@@ -219,10 +221,8 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 
 // ChaosRegions returns all regions this Step Functions instance handles.
 func (h *Handler) ChaosRegions() []string {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		if r := b.Region(); r != "" {
-			return []string{r}
-		}
+	if h.DefaultRegion != "" {
+		return []string{h.DefaultRegion}
 	}
 
 	return []string{config.DefaultRegion}
@@ -278,8 +278,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Step Functions requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"StepFunctions", "application/x-amz-json-1.0",
 			h.GetSupportedOperations(),
 			h.dispatch,
@@ -478,13 +482,13 @@ type describeStateMachineForExecutionInput struct {
 
 // createStateMachineAction handles CreateStateMachine and applies tracing/logging/encryption
 // configuration and inline tags when supplied in the request body.
-func (h *Handler) createStateMachineAction(b []byte) (any, error) {
+func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, error) {
 	var input createStateMachineInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	sm, err := h.Backend.CreateStateMachine(input.Name, input.Definition, input.RoleArn, input.Type)
+	sm, err := h.Backend.CreateStateMachine(ctx, input.Name, input.Definition, input.RoleArn, input.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +555,7 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
-		"CreateStateMachine": h.createStateMachineAction,
+		// CreateStateMachine and ListStateMachines are handled in dispatch (ctx-aware).
 		"DeleteStateMachine": func(b []byte) (any, error) {
 			var input deleteStateMachineInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -570,18 +574,6 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			h.tagsMu.Unlock()
 
 			return &deleteStateMachineOutput{}, nil
-		},
-		"ListStateMachines": func(b []byte) (any, error) {
-			var input listStateMachinesInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			sms, next, err := h.Backend.ListStateMachines(input.NextToken, input.MaxResults)
-			if err != nil {
-				return nil, err
-			}
-
-			return &listStateMachinesOutput{StateMachines: sms, NextToken: next}, nil
 		},
 		"DescribeStateMachine": func(b []byte) (any, error) {
 			var input describeStateMachineInput
@@ -920,25 +912,24 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 }
 
 // activityActions returns handler functions for activity-related operations.
+// CreateActivity and ListActivities are handled in dispatch (ctx-aware).
 func (h *Handler) activityActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateActivity":    h.handleCreateActivity,
 		"DeleteActivity":    h.handleDeleteActivity,
 		"DescribeActivity":  h.handleDescribeActivity,
-		"ListActivities":    h.handleListActivities,
 		"SendTaskSuccess":   h.handleSendTaskSuccess,
 		"SendTaskFailure":   h.handleSendTaskFailure,
 		"SendTaskHeartbeat": h.handleSendTaskHeartbeat,
 	}
 }
 
-func (h *Handler) handleCreateActivity(b []byte) (any, error) {
+func (h *Handler) handleCreateActivity(ctx context.Context, b []byte) (any, error) {
 	var input createActivityInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	a, err := h.Backend.CreateActivity(input.Name)
+	a, err := h.Backend.CreateActivity(ctx, input.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -968,13 +959,13 @@ func (h *Handler) handleDescribeActivity(b []byte) (any, error) {
 	return h.Backend.DescribeActivity(input.ActivityArn)
 }
 
-func (h *Handler) handleListActivities(b []byte) (any, error) {
+func (h *Handler) handleListActivities(ctx context.Context, b []byte) (any, error) {
 	var input listActivitiesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	acts, next, err := h.Backend.ListActivities(input.NextToken, input.MaxResults)
+	acts, next, err := h.Backend.ListActivities(ctx, input.NextToken, input.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -1073,9 +1064,43 @@ func (h *Handler) utilActions() map[string]actionFn {
 
 // dispatch routes the action to the correct handler function.
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	// GetActivityTask is context-aware (long-poll up to 60 seconds).
-	if action == "GetActivityTask" {
+	// Context-aware actions are handled directly before the dispatch table.
+	switch action {
+	case "GetActivityTask":
 		return h.handleGetActivityTask(ctx, body)
+	case "CreateStateMachine":
+		resp, err := h.createStateMachineAction(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	case "ListStateMachines":
+		var input listStateMachinesInput
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+
+		sms, next, err := h.Backend.ListStateMachines(ctx, input.NextToken, input.MaxResults)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(&listStateMachinesOutput{StateMachines: sms, NextToken: next})
+	case "CreateActivity":
+		resp, err := h.handleCreateActivity(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	case "ListActivities":
+		resp, err := h.handleListActivities(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
 	}
 
 	fn, ok := h.dispatchTable()[action]
