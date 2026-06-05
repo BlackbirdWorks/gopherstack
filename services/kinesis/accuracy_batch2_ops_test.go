@@ -402,11 +402,11 @@ func TestAccuracyBatch2_PutRecord_ByARN(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				ShardId        string `json:"ShardId"`
+				ShardID        string `json:"ShardId"`
 				SequenceNumber string `json:"SequenceNumber"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp.ShardId)
+			assert.NotEmpty(t, resp.ShardID)
 			assert.NotEmpty(t, resp.SequenceNumber)
 		})
 	}
@@ -449,11 +449,11 @@ func TestAccuracyBatch2_PutRecords_ByARN(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				FailedRecordCount int `json:"FailedRecordCount"`
-				Records           []struct {
-					ShardId        string `json:"ShardId"`
+				Records []struct {
+					ShardID        string `json:"ShardId"`
 					SequenceNumber string `json:"SequenceNumber"`
 				} `json:"Records"`
+				FailedRecordCount int `json:"FailedRecordCount"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Equal(t, 0, resp.FailedRecordCount)
