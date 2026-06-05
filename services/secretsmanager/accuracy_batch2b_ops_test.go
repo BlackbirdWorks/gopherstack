@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,11 +114,11 @@ func TestBatch2B_CreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*testing.T, *sm.InMemoryBackend)
-		name         string
-		body         string
-		wantErrType  string
-		wantStatus   int
+		setup       func(*testing.T, *sm.InMemoryBackend)
+		name        string
+		body        string
+		wantErrType string
+		wantStatus  int
 	}{
 		{
 			name: "deleted_name_returns_400_InvalidRequestException",
@@ -170,7 +171,7 @@ func TestBatch2B_CreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 
 // TestBatch2B_BatchGetSecretValue_SecretIDListTooLong verifies that BatchGetSecretValue
 // rejects a SecretIdList with more than 20 entries with InvalidParameterException.
-// AWS enforces this limit: "SecretIdList must not contain more than 20 entries."
+// AWS enforces this limit: SecretIdList must not contain more than 20 entries.
 func TestBatch2B_BatchGetSecretValue_SecretIDListTooLong(t *testing.T) {
 	t.Parallel()
 
@@ -238,29 +239,20 @@ func TestBatch2B_BatchGetSecretValue_SecretIDListTooLong_HTTP(t *testing.T) {
 			ids[i] = fmt.Sprintf(`"secret-%d"`, i+1)
 		}
 
-		listJSON := "["
-		for i, id := range ids {
-			if i > 0 {
-				listJSON += ","
-			}
-
-			listJSON += id
-		}
-
-		return listJSON + "]"
+		return "[" + strings.Join(ids, ",") + "]"
 	}
 
 	tests := []struct {
 		name       string
 		body       string
-		wantStatus int
 		wantType   string
+		wantStatus int
 	}{
 		{
 			name:       "21_ids_returns_400_InvalidParameterException",
 			body:       `{"SecretIdList":` + makeJSONIDList(21) + `}`,
-			wantStatus: http.StatusBadRequest,
 			wantType:   "InvalidParameterException",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "20_ids_returns_200",
@@ -301,9 +293,9 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(*testing.T, *sm.InMemoryBackend) string
-		wantFn  func(*testing.T, error)
-		name    string
+		setup  func(*testing.T, *sm.InMemoryBackend) string
+		wantFn func(*testing.T, error)
+		name   string
 	}{
 		{
 			name: "remove_awscurrent_without_move_rejected",
