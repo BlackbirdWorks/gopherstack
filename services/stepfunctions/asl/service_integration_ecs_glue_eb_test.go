@@ -11,6 +11,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
+var (
+	errClusterNotFound = errors.New("cluster not found")
+	errJobNotFound     = errors.New("job not found")
+)
+
 // --- mock implementations ---
 
 type mockECS struct {
@@ -149,7 +154,7 @@ func TestSFN_ECSRunTask(t *testing.T) {
 					}
 				}
 			}`,
-			mock:              &mockECS{returnErr: errors.New("cluster not found")},
+			mock:              &mockECS{returnErr: errClusterNotFound},
 			wantError:         "TaskFailed",
 			wantCauseContains: "cluster not found",
 		},
@@ -279,7 +284,7 @@ func TestSFN_GlueStartJobRun(t *testing.T) {
 					}
 				}
 			}`,
-			mock:              &mockGlue{returnErr: errors.New("job not found")},
+			mock:              &mockGlue{returnErr: errJobNotFound},
 			input:             `{"JobName": "missing-job"}`,
 			wantError:         "TaskFailed",
 			wantCauseContains: "job not found",

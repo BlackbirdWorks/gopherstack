@@ -18,6 +18,8 @@ import (
 
 const testLambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:my-rotator"
 
+var errLambdaExecutionFailed = errors.New("lambda execution failed")
+
 // TestRotation_StagingLabels_PendingBeforeFinish verifies that a rotation version
 // stays AWSPENDING until all Lambda steps complete (finishSecret included).
 func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
@@ -120,7 +122,7 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 				onInvoke: func(_, _ string, _ []byte) ([]byte, int, error) {
 					callCount++
 					if callCount == tt.failAfter {
-						return nil, 500, errors.New("lambda execution failed")
+						return nil, 500, errLambdaExecutionFailed
 					}
 					return nil, 200, nil
 				},

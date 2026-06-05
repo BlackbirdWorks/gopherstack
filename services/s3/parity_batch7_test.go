@@ -372,7 +372,7 @@ func (l *staticObjectLambda) InvokeFunction(_ context.Context, _, _ string, payl
 	if err != nil {
 		return nil, 0, err
 	}
-	wgorReq.Header.Set("x-amz-request-token", event.GetObjectContext.OutputToken)
+	wgorReq.Header.Set("X-Amz-Request-Token", event.GetObjectContext.OutputToken)
 	wgorReq.Header.Set("Content-Type", "application/octet-stream")
 
 	wgorResp, err := http.DefaultClient.Do(wgorReq)

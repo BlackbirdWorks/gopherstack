@@ -264,7 +264,7 @@ func (b *InMemoryBackend) encryptSSMValue(keyID, plaintext string) (string, erro
 	if keyID != "" && b.kms != nil {
 		ct, err := b.kms.EncryptSSM(keyID, []byte(plaintext))
 		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrInvalidKeyID, err)
+			return "", fmt.Errorf("%w: %w", ErrInvalidKeyID, err)
 		}
 		return base64.StdEncoding.EncodeToString(ct), nil
 	}
