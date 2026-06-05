@@ -112,7 +112,7 @@ const (
 	// AWS KMS defaults to 365 days.
 	defaultRotationPeriodDays = 365
 	// minRotationPeriodDays is the minimum rotation period AWS KMS allows.
-	minRotationPeriodDays = 1
+	minRotationPeriodDays = 90
 	// maxRotationPeriodDays is the maximum rotation period AWS KMS allows.
 	maxRotationPeriodDays = 2560
 	// maxPlaintextBytes is the maximum plaintext size for Encrypt (4096 bytes per AWS).

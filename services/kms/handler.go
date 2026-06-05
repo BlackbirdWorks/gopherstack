@@ -681,8 +681,13 @@ func (h *Handler) tagResource(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+	desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID})
+	if descErr != nil {
 		return nil, descErr
+	}
+
+	if desc.KeyMetadata.KeyState == KeyStatePendingDeletion {
+		return nil, fmt.Errorf("%w: key %q is pending deletion", ErrKeyInvalidState, desc.KeyMetadata.KeyID)
 	}
 
 	newTags := make(map[string]string, len(input.Tags))
@@ -761,8 +766,13 @@ func (h *Handler) untagResource(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+	desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID})
+	if descErr != nil {
 		return nil, descErr
+	}
+
+	if desc.KeyMetadata.KeyState == KeyStatePendingDeletion {
+		return nil, fmt.Errorf("%w: key %q is pending deletion", ErrKeyInvalidState, desc.KeyMetadata.KeyID)
 	}
 
 	h.removeTags(input.KeyID, input.TagKeys)
