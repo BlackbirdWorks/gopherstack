@@ -160,6 +160,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			region = b.effectiveRegion("")
 		}
 
+		// Rebuild inFlightByHandle index and delayedCount from persisted state.
+		inFlightByHandle := make(map[string]*InFlightMessage, len(qs.InFlightMessages))
+		for _, inf := range qs.InFlightMessages {
+			inFlightByHandle[inf.ReceiptHandle] = inf
+		}
+
+		now := time.Now()
+		delayedCount := 0
+		for _, msg := range qs.Messages {
+			if now.Before(msg.VisibleAt) {
+				delayedCount++
+			}
+		}
+
 		b.queues[queueKey(region, qs.Name)] = &Queue{
 			DeduplicationIDs:    qs.DeduplicationIDs,
 			Attributes:          qs.Attributes,
@@ -167,6 +181,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			Permissions:         qs.Permissions,
 			messages:            qs.Messages,
 			inFlightMessages:    qs.InFlightMessages,
+			inFlightByHandle:    inFlightByHandle,
 			deduplicationMsgIDs: qs.DeduplicationMsgIDs,
 			Name:                qs.Name,
 			URL:                 qs.URL,
@@ -174,6 +189,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
 			notify:              make(chan struct{}),
+			delayedCount:        delayedCount,
 		}
 	}
 
