@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +52,9 @@ const (
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
 	stateActive = "active"
+
+	// lifecycleReconcileInterval is how often the reconciler advances transitional instance states.
+	lifecycleReconcileInterval = 50 * time.Millisecond
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -312,6 +316,7 @@ type InMemoryBackend struct {
 	nextElasticIPIndex                 int
 	ebsEncryptionByDefault             bool
 	serialConsoleAccess                bool
+	lifecycleOnce                      sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
