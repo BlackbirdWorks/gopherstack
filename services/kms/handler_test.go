@@ -1154,7 +1154,7 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 	out, _ := backend.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	doKMSRequest := func(t *testing.T, h *kms.Handler, action, body string) *httptest.ResponseRecorder {
+	doKMSReqLocal := func(t *testing.T, h *kms.Handler, action, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 		req.Header.Set("X-Amz-Target", "TrentService."+action)
@@ -1171,19 +1171,19 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 	}
 
 	body := `{"KeyId":"` + keyID + `"}`
-	rec := doKMSRequest(t, h, "DisableKey", body)
+	rec := doKMSReqLocal(t, h, "DisableKey", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doKMSRequest(t, h, "EnableKey", body)
+	rec = doKMSReqLocal(t, h, "EnableKey", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doKMSRequest(t, h, "ScheduleKeyDeletion", `{"KeyId":"`+keyID+`","PendingWindowInDays":7}`)
+	rec = doKMSReqLocal(t, h, "ScheduleKeyDeletion", `{"KeyId":"`+keyID+`","PendingWindowInDays":7}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var schedResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
 	assert.Equal(t, kms.KeyStatePendingDeletion, schedResp["KeyState"])
 
-	rec = doKMSRequest(t, h, "CancelKeyDeletion", body)
+	rec = doKMSReqLocal(t, h, "CancelKeyDeletion", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 

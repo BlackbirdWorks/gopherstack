@@ -778,6 +778,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		AlarmActions:            cborStrList(input, "AlarmActions"),
 		OKActions:               cborStrList(input, "OKActions"),
 		InsufficientDataActions: cborStrList(input, "InsufficientDataActions"),
+		Dimensions:              cborDimensions(input),
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
@@ -1003,6 +1004,9 @@ func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 	if !a.CreatedAt.IsZero() {
 		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
 	}
+	if !a.StateTransitionedTimestamp.IsZero() {
+		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
+	}
 	if len(a.AlarmActions) > 0 {
 		m["AlarmActions"] = cborStringList(a.AlarmActions)
 	}
@@ -1063,6 +1067,7 @@ func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) error {
 	namespace := cborStr(input, keyNamespace)
 	metricName := cborStr(input, keyMetricName)
+	dimensions := cborDimensions(input)
 	alarmNames := cborStrList(input, "AlarmNames")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -1070,6 +1075,7 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 	p, err := h.Backend.DescribeAlarmsForMetric(
 		namespace,
 		metricName,
+		dimensions,
 		alarmNames,
 		nextToken,
 		maxRecords,

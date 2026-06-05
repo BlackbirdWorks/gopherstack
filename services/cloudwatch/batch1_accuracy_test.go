@@ -1407,7 +1407,7 @@ func TestBackend_DescribeAlarmsForMetric_Filters(t *testing.T) {
 		}))
 	}
 
-	p, err := b.DescribeAlarmsForMetric("AWS/EC2", "CPU", nil, "", 0)
+	p, err := b.DescribeAlarmsForMetric("AWS/EC2", "CPU", nil, nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "CPU-alarm", p.Data[0].AlarmName)
