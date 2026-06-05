@@ -211,6 +211,9 @@ type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
+	// totalMetrics is the running count of distinct metric series across all
+	// namespaces, maintained on insert/delete to avoid O(namespaces) walks (#60).
+	totalMetrics int
 }
 
 // dashboardRecord holds dashboard body and metadata.
@@ -246,19 +249,28 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 
 // dimensionSetKey returns a stable string key for a slice of Dimensions,
 // sorting by Name so that dim order in caller input does not affect the key.
+// Uses a single strings.Builder to avoid intermediate slice + Join alloc (#60).
 func dimensionSetKey(dims []Dimension) string {
 	if len(dims) == 0 {
 		return ""
 	}
+
 	sorted := make([]Dimension, len(dims))
 	copy(sorted, dims)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
-	parts := make([]string, len(sorted))
+
+	var b strings.Builder
 	for i, d := range sorted {
-		parts[i] = d.Name + "=" + d.Value
+		if i > 0 {
+			b.WriteByte(',')
+		}
+
+		b.WriteString(d.Name)
+		b.WriteByte('=')
+		b.WriteString(d.Value)
 	}
 
-	return strings.Join(parts, ",")
+	return b.String()
 }
 
 // metricStorageKey returns the composite inner-map key for a metric series.
@@ -294,15 +306,11 @@ func dimsContainAll(stored, filter []Dimension) bool {
 	return true
 }
 
-// countTotalMetrics returns the total number of distinct metric time series across all namespaces.
+// countTotalMetrics returns the total number of distinct metric time series
+// across all namespaces. Uses the running counter (#60) maintained on insert.
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) countTotalMetrics() int {
-	total := 0
-	for _, nsMap := range b.metrics {
-		total += len(nsMap)
-	}
-
-	return total
+	return b.totalMetrics
 }
 
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.
@@ -389,6 +397,7 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) ([
 			copy(dims, d.Dimensions)
 			rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
 			b.metrics[namespace][key] = rec
+			b.totalMetrics++ // #60: maintain running total
 		}
 
 		rec.Points = append(rec.Points, d)
@@ -485,7 +494,9 @@ func (b *InMemoryBackend) SweepExpiredMetrics() {
 	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
 
 	for ns, nsMap := range b.metrics {
+		before := len(nsMap)
 		sweepMetricNamespace(nsMap, cutoff)
+		b.totalMetrics -= before - len(nsMap) // #60: maintain running total
 		if len(nsMap) == 0 {
 			delete(b.metrics, ns)
 		}

@@ -483,6 +483,37 @@ func snapshotFullIndex(table *Table) (map[string]int, map[string]map[string]int)
 	return pkIndexCopy, pkskIndexCopy
 }
 
+// snapshotItemsByOffset builds a sparse offset-keyed map containing only the
+// item pointers referenced by pkIndexCopy or pkskIndexCopy (#57). The caller
+// must already hold the table read-lock when these index copies were made.
+func snapshotItemsByOffset(
+	table *Table,
+	pkIndexCopy map[string]int,
+	pkskIndexCopy map[string]map[string]int,
+) map[int]map[string]any {
+	offsets := make(map[int]struct{})
+
+	for _, idx := range pkIndexCopy {
+		offsets[idx] = struct{}{}
+	}
+
+	for _, skMap := range pkskIndexCopy {
+		for _, idx := range skMap {
+			offsets[idx] = struct{}{}
+		}
+	}
+
+	result := make(map[int]map[string]any, len(offsets))
+
+	for idx := range offsets {
+		if idx >= 0 && idx < len(table.Items) {
+			result[idx] = table.Items[idx]
+		}
+	}
+
+	return result
+}
+
 // getAttributeType returns the attribute type for a given attribute name, or defaultType if not found.
 func getAttributeType(
 	attrDefs []models.AttributeDefinition,
