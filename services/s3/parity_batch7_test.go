@@ -387,4 +387,3 @@ func (l *staticObjectLambda) InvokeFunction(_ context.Context, _, _ string, payl
 
 	return nil, 200, nil
 }
-

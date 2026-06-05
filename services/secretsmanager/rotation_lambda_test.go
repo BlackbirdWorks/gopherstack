@@ -260,4 +260,3 @@ func extractStep(payload []byte) string {
 
 	return step
 }
-

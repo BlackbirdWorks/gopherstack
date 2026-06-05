@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"math"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -428,6 +429,9 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
 	dataLen := max(len(data), 0)
+	if dataLen > math.MaxUint32 {
+		dataLen = math.MaxUint32
+	}
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(dataLen))
 
 	buf = append(buf, lenBuf[:]...)
@@ -1678,7 +1682,14 @@ func pickVisibleMessages(
 
 // enqueueReceivedMessage stamps msg with a receipt handle, increments counters, registers it
 // as in-flight on q, and marks its FIFO group as blocked. Caller must hold q.mu.
-func enqueueReceivedMessage(q *Queue, msg *Message, blockedGroups map[string]bool, now time.Time, vt int, accountID string) {
+func enqueueReceivedMessage(
+	q *Queue,
+	msg *Message,
+	blockedGroups map[string]bool,
+	now time.Time,
+	vt int,
+	accountID string,
+) {
 	q.receiveGeneration++
 	receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
 	msg.ReceiptHandle = receipt

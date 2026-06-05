@@ -1103,9 +1103,9 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	}
 
 	var result any
+	// Non-JSON Lambda responses are valid; fall back to raw string.
 	if json.Unmarshal(respBytes, &result) != nil {
-		// If not JSON, return raw string as the output — non-JSON responses are valid Lambda output.
-		return string(respBytes), nil
+		result = string(respBytes)
 	}
 
 	return result, nil

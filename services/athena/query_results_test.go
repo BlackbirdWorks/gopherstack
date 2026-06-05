@@ -161,7 +161,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 		table    = "items"
 	)
 
-	var testRows []map[string]any
+	testRows := make([]map[string]any, 0, 5)
 	for i := range 5 {
 		testRows = append(testRows, map[string]any{"n": i})
 	}

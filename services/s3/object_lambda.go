@@ -217,8 +217,8 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 // They are embedded into S3Handler.
 type objectLambdaHandlerFields struct {
 	pendingObjectLambdaRequests sync.Map
-	objectLambdaConfigs         map[string]string
 	objectLambdaMu              sync.RWMutex
+	objectLambdaConfigs         map[string]string
 }
 
 // InvokeFunction satisfies LambdaInvoker for inMemoryNotificationDispatcher.

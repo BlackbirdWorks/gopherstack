@@ -244,6 +244,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 // built-in mock key.
 func (b *InMemoryBackend) WithKMS(e KMSEncryptor) *InMemoryBackend {
 	b.kms = e
+
 	return b
 }
 
@@ -266,8 +267,10 @@ func (b *InMemoryBackend) encryptSSMValue(keyID, plaintext string) (string, erro
 		if err != nil {
 			return "", fmt.Errorf("%w: %w", ErrInvalidKeyID, err)
 		}
+
 		return base64.StdEncoding.EncodeToString(ct), nil
 	}
+
 	return encryptValue(plaintext)
 }
 
@@ -284,8 +287,10 @@ func (b *InMemoryBackend) decryptSSMValue(keyID, ciphertext string) (string, err
 		if err != nil {
 			return "", err
 		}
+
 		return string(pt), nil
 	}
+
 	return decryptValue(ciphertext)
 }
 
