@@ -414,7 +414,6 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 	w.WriteHeader(http.StatusOK)
 }
 
-
 // handleListDirectoryBuckets handles GET / with ?list-type=directory.
 func (h *S3Handler) handleListDirectoryBuckets(
 	ctx context.Context,

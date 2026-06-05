@@ -22,6 +22,7 @@ import (
 const (
 	statusTrainedInsufficient = "TRAINED_INSUFFICIENT_DATA"
 	metricDataStatusComplete  = "Complete"
+	statSum                   = "Sum"
 )
 
 const (
@@ -625,7 +626,7 @@ func buildDatapoint(bk *metricBucket, statSet map[string]bool) Datapoint {
 		dp.Average = &avg
 	}
 
-	if statSet["Sum"] {
+	if statSet[statSum] {
 		s := bk.sum
 		dp.Sum = &s
 	}
@@ -945,7 +946,7 @@ func (b *InMemoryBackend) resolveMetricStat(
 // statValue extracts a single float value from a Datapoint based on the requested statistic.
 func statValue(dp Datapoint, stat string) float64 {
 	switch stat {
-	case "Sum":
+	case statSum:
 		if dp.Sum != nil {
 			return *dp.Sum
 		}
@@ -1821,7 +1822,7 @@ func aggregateContributorPoint(
 		}
 		dimKeys[key] = keys
 	}
-	if strings.EqualFold(orderBy, "Sum") {
+	if strings.EqualFold(orderBy, statSum) {
 		dimSums[key] += pt.Sum
 	} else {
 		dimSums[key] += pt.Count
@@ -2507,7 +2508,14 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		return alarm.StateValue
 	}
 
-	bucketValues := buildBucketValues(datapoints, startTime, periodDur, evalPeriods, alarm.Statistic, alarm.ExtendedStatistic)
+	bucketValues := buildBucketValues(
+		datapoints,
+		startTime,
+		periodDur,
+		evalPeriods,
+		alarm.Statistic,
+		alarm.ExtendedStatistic,
+	)
 
 	treatMissing := alarm.TreatMissingData
 	if treatMissing == "" {
@@ -2519,7 +2527,13 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		datapointsToAlarm = evalPeriods
 	}
 
-	breachCount, evaluatedCount := countBreachingPeriods(bucketValues, evalPeriods, treatMissing, alarm.Threshold, alarm.ComparisonOperator)
+	breachCount, evaluatedCount := countBreachingPeriods(
+		bucketValues,
+		evalPeriods,
+		treatMissing,
+		alarm.Threshold,
+		alarm.ComparisonOperator,
+	)
 
 	if breachCount >= datapointsToAlarm {
 		return alarmStateAlarm
@@ -2595,7 +2609,7 @@ func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *f
 	switch statistic {
 	case "Average":
 		return dp.Average
-	case "Sum":
+	case statSum:
 		return dp.Sum
 	case "Minimum":
 		return dp.Minimum

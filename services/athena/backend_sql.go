@@ -115,7 +115,7 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 	// If metadata is absent, derive columns from first row.
 	if len(colMeta) == 0 && len(rawRows) > 0 {
 		for k := range rawRows[0] {
-			colMeta = append(colMeta, Column{Name: k, Type: "string"})
+			colMeta = append(colMeta, Column{Name: k, Type: columnTypeString})
 		}
 		sortColumns(colMeta)
 	}

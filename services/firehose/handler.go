@@ -297,44 +297,44 @@ type redshiftDestinationInput struct {
 // openSearchDestinationInput holds the OpenSearch destination configuration.
 type openSearchDestinationInput struct {
 	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
-	BufferingHints           *BufferingHints            `json:"BufferingHints"`
-	RetryOptions             *RetryOptions              `json:"RetryOptions"`
-	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions"`
-	S3BackupConfiguration    *s3BackupInput             `json:"S3BackupConfiguration"`
-	DomainARN                string                     `json:"DomainARN"`
-	ClusterEndpoint          string                     `json:"ClusterEndpoint"`
-	IndexName                string                     `json:"IndexName"`
-	TypeName                 string                     `json:"TypeName"`
-	IndexRotationPeriod      string                     `json:"IndexRotationPeriod"`
-	S3BackupMode             string                     `json:"S3BackupMode"`
-	RoleARN                  string                     `json:"RoleARN"`
+	BufferingHints           *BufferingHints           `json:"BufferingHints"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration    *s3BackupInput            `json:"S3BackupConfiguration"`
+	DomainARN                string                    `json:"DomainARN"`
+	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
+	IndexName                string                    `json:"IndexName"`
+	TypeName                 string                    `json:"TypeName"`
+	IndexRotationPeriod      string                    `json:"IndexRotationPeriod"`
+	S3BackupMode             string                    `json:"S3BackupMode"`
+	RoleARN                  string                    `json:"RoleARN"`
 }
 
 // splunkDestinationInput holds the Splunk HEC destination configuration.
 type splunkDestinationInput struct {
-	ProcessingConfiguration               *ProcessingConfiguration  `json:"ProcessingConfiguration"`
-	RetryOptions                          *RetryOptions             `json:"RetryOptions"`
-	CloudWatchLoggingOptions              *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
-	S3BackupConfiguration                 *s3BackupInput            `json:"S3BackupConfiguration"`
-	HECEndpoint                           string                    `json:"HECEndpoint"`
-	HECEndpointType                       string                    `json:"HECEndpointType"`
-	HECToken                              string                    `json:"HECToken"`
-	S3BackupMode                          string                    `json:"S3BackupMode"`
-	HECAcknowledgmentTimeoutInSeconds     int                       `json:"HECAcknowledgmentTimeoutInSeconds"`
+	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	RetryOptions                      *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration             *s3BackupInput            `json:"S3BackupConfiguration"`
+	HECEndpoint                       string                    `json:"HECEndpoint"`
+	HECEndpointType                   string                    `json:"HECEndpointType"`
+	HECToken                          string                    `json:"HECToken"`
+	S3BackupMode                      string                    `json:"S3BackupMode"`
+	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds"`
 }
 
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration               *s3DestinationInput                    `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration       *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration     *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
-	KinesisStreamSourceConfiguration         *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration                   *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration         *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
-	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput     `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
-	SplunkDestinationConfiguration           *splunkDestinationInput                `json:"SplunkDestinationConfiguration"`
-	DeliveryStreamName                       string                                 `json:"DeliveryStreamName"`
-	DeliveryStreamType                       string                                 `json:"DeliveryStreamType"`
-	Tags                                     []svcTags.KV                           `json:"Tags"`
+	S3DestinationConfiguration                      *s3DestinationInput                    `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration              *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration            *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
+	KinesisStreamSourceConfiguration                *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration                          *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration                *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
+	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput            `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
+	SplunkDestinationConfiguration                  *splunkDestinationInput                `json:"SplunkDestinationConfiguration"`
+	DeliveryStreamName                              string                                 `json:"DeliveryStreamName"`
+	DeliveryStreamType                              string                                 `json:"DeliveryStreamType"`
+	Tags                                            []svcTags.KV                           `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -457,14 +457,14 @@ func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescri
 	}
 
 	dest := &SplunkDestinationDescription{
-		HECEndpoint:                           sp.HECEndpoint,
-		HECEndpointType:                       sp.HECEndpointType,
-		HECToken:                              sp.HECToken,
-		S3BackupMode:                          sp.S3BackupMode,
-		HECAcknowledgmentTimeoutInSeconds:     sp.HECAcknowledgmentTimeoutInSeconds,
-		ProcessingConfiguration:               sp.ProcessingConfiguration,
-		RetryOptions:                          sp.RetryOptions,
-		CloudWatchLoggingOptions:              sp.CloudWatchLoggingOptions,
+		HECEndpoint:                       sp.HECEndpoint,
+		HECEndpointType:                   sp.HECEndpointType,
+		HECToken:                          sp.HECToken,
+		S3BackupMode:                      sp.S3BackupMode,
+		HECAcknowledgmentTimeoutInSeconds: sp.HECAcknowledgmentTimeoutInSeconds,
+		ProcessingConfiguration:           sp.ProcessingConfiguration,
+		RetryOptions:                      sp.RetryOptions,
+		CloudWatchLoggingOptions:          sp.CloudWatchLoggingOptions,
 	}
 
 	if sp.S3BackupConfiguration != nil {

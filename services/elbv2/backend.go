@@ -533,7 +533,7 @@ func resolveTargetHealth(pending []pendingTarget) []healthResult {
 	results := make([]healthResult, 0, len(pending))
 
 	for _, p := range pending {
-		state := "healthy"
+		state := healthStateHealthy
 
 		if p.tg.HealthCheckProtocol == protoHTTP || p.tg.HealthCheckProtocol == protoHTTPS {
 			state = probeTargetHTTP(p.tg, p.targetKey)
@@ -568,7 +568,7 @@ func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
 }
 
 // probeTargetHTTP performs a real HTTP health check against the target.
-// Returns "healthy" on 2xx, "unhealthy" otherwise. Falls back to "healthy" on unreachable targets.
+// Returns healthStateHealthy on 2xx, "unhealthy" otherwise. Falls back to healthStateHealthy on unreachable targets.
 func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
 	id := strings.SplitN(targetKey, ":", 2)[0] //nolint:mnd // key format: "id:port"
 
@@ -589,13 +589,13 @@ func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
 
 	resp, err := client.Get(url) //nolint:noctx // probe is fire-and-forget
 	if err != nil {
-		return "healthy" // unreachable → treat as healthy in mock
+		return healthStateHealthy // unreachable → treat as healthy in mock
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		return "healthy"
+		return healthStateHealthy
 	}
 
 	return "unhealthy"
@@ -1617,7 +1617,7 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	for i, t := range tg.Targets {
 		state := t.HealthState
 		if state == "" {
-			state = "healthy"
+			state = healthStateHealthy
 		}
 
 		result[i] = TargetHealthDescription{
@@ -1654,7 +1654,8 @@ func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int3
 }
 
 const (
-	protoHTTP         = "HTTP"
+	healthStateHealthy = healthStateHealthy
+	protoHTTP          = "HTTP"
 	protoHTTPS        = "HTTPS"
 	protoTLS          = "TLS"
 	lbTypeApplication = "application"

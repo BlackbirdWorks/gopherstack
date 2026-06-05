@@ -28,6 +28,11 @@ var ErrParameterValidation = errors.New("parameter validation failed")
 // A null byte cannot appear in CloudFormation string values, making it unambiguous.
 const splitSep = "\x00"
 
+const (
+	resTypeStepFunctionsStateMachine = "AWS::StepFunctions::StateMachine"
+	attrNameArn                      = "Arn"
+)
+
 // Template represents a parsed CloudFormation template.
 type Template struct {
 	Parameters               map[string]TemplateParameter `json:"Parameters"               yaml:"Parameters"`
@@ -868,7 +873,7 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 	switch resType {
 	case "AWS::S3::Bucket":
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.BuildS3(physID)
 		case "DomainName":
 			return physID + ".s3.amazonaws.com"
@@ -887,20 +892,20 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 		}
 	case "AWS::DynamoDB::Table":
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.Build("dynamodb", region, accountID, "table/"+physID)
 		case "StreamArn":
 			return arn.Build("dynamodb", region, accountID, "table/"+physID+"/stream/2000-01-01T00:00:00.000")
 		}
 	case "AWS::Lambda::Function":
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.Build("lambda", region, accountID, "function:"+physID)
 		}
 	case "AWS::SQS::Queue":
 		queueName := sqsQueueNameFromURL(physID)
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.Build("sqs", region, accountID, queueName)
 		case "QueueName":
 			return queueName
@@ -915,7 +920,7 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 		}
 	case "AWS::KMS::Key":
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.Build("kms", region, accountID, "key/"+physID)
 		case "KeyId":
 			return physID
@@ -923,14 +928,14 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 	case "AWS::IAM::Role":
 		// physID is already an ARN for IAM roles
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return physID
 		case "RoleId":
 			return physID
 		}
 	case "AWS::Logs::LogGroup":
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return arn.Build("logs", region, accountID, "log-group:"+physID+":*")
 		}
 	case "AWS::SecretsManager::Secret":
@@ -939,10 +944,10 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 		case "Id":
 			return physID
 		}
-	case "AWS::StepFunctions::StateMachine":
+	case resTypeStepFunctionsStateMachine:
 		// physID is already an ARN
 		switch attrName {
-		case "Arn":
+		case attrNameArn:
 			return physID
 		case "Name":
 			parts := strings.Split(physID, ":")
@@ -1019,14 +1024,14 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 	}
 
 	var count int
-	if _, err := fmt.Sscanf(countStr, "%d", &count); err != nil || count <= 0 {
+	if _, err = fmt.Sscanf(countStr, "%d", &count); err != nil || count <= 0 {
 		return ""
 	}
 
 	// Determine prefix length for subnets.
 	var newBits int
 	if cidrBitsStr != "" {
-		if _, err := fmt.Sscanf(cidrBitsStr, "%d", &newBits); err != nil {
+		if _, err = fmt.Sscanf(cidrBitsStr, "%d", &newBits); err != nil {
 			return ""
 		}
 	} else {

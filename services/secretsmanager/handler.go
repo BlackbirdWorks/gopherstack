@@ -545,7 +545,7 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
-	if err := h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
+	if err = h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
 		return nil, err
 	}
 

@@ -163,7 +163,7 @@ func (b *InMemoryBackend) GetObjectAttributes(
 	}
 
 	if out.StorageClass == "" {
-		out.StorageClass = "STANDARD"
+		out.StorageClass = storageStandard
 	}
 
 	if ver.ChecksumSHA1 != nil {

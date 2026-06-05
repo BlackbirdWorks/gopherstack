@@ -781,7 +781,7 @@ func (b *InMemoryBackend) HeadObject(
 
 	sc := ver.StorageClass
 	if sc == "" {
-		sc = "STANDARD"
+		sc = storageStandard
 	}
 
 	return &s3.HeadObjectOutput{

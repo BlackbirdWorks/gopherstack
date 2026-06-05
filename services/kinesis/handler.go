@@ -1866,66 +1866,91 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 				return nil
 			}
 
-			out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
-				ConsumerARN:      req.ConsumerARN,
-				ShardID:          req.ShardID,
-				StartingPosition: curSP,
-			})
-			if pollErr != nil {
+			done, nextSP, tickErr := h.pollSubscribeToShardTick(req, curSP, c.Response(), flusher, canFlush, &idlePolls)
+			if tickErr != nil {
 				return nil
 			}
-
-			if len(out.Event.Records) == 0 {
-				idlePolls++
-				if idlePolls >= subscribeToShardMaxIdlePolls {
-					return nil
-				}
-
-				continue
-			}
-			idlePolls = 0
-
-			records := make([]jsonRecord, len(out.Event.Records))
-			for i, r := range out.Event.Records {
-				records[i] = jsonRecord{
-					Data:                        r.Data,
-					PartitionKey:                r.PartitionKey,
-					SequenceNumber:              r.SequenceNumber,
-					ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
-				}
-			}
-
-			eventPayload, marshalErr := json.Marshal(jsonSubscribeToShardEvent{
-				Records:                    records,
-				ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
-				MillisBehindLatest:         out.Event.MillisBehindLatest,
-			})
-			if marshalErr != nil {
-				continue
-			}
-
-			eventMsg := encodeEventStreamMsg([][2]string{
-				{":event-type", "SubscribeToShardEvent"},
-				{":message-type", "event"},
-				{":content-type", "application/json"},
-			}, eventPayload)
-
-			if _, writeErr := c.Response().Write(eventMsg); writeErr != nil {
+			if done {
 				return nil
 			}
-			if canFlush {
-				flusher.Flush()
-			}
-
-			// Advance cursor past delivered records.
-			if out.Event.ContinuationSequenceNumber != "" {
-				curSP = StartingPosition{
-					Type:           iteratorTypeAfterSequenceNumber,
-					SequenceNumber: out.Event.ContinuationSequenceNumber,
-				}
+			if nextSP != nil {
+				curSP = *nextSP
 			}
 		}
 	}
+}
+
+// pollSubscribeToShardTick performs one poll tick for handleSubscribeToShardHTTP.
+// Returns (done=true, nil, nil) when the stream should close gracefully,
+// (false, nextSP, nil) when records were delivered (nextSP non-nil means cursor advanced),
+// and (false, nil, err) on a write error.
+func (h *Handler) pollSubscribeToShardTick(
+	req jsonSubscribeToShardReq,
+	curSP StartingPosition,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	canFlush bool,
+	idlePolls *int,
+) (done bool, nextSP *StartingPosition, err error) {
+	out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+		ConsumerARN:      req.ConsumerARN,
+		ShardID:          req.ShardID,
+		StartingPosition: curSP,
+	})
+	if pollErr != nil {
+		return true, nil, nil
+	}
+
+	if len(out.Event.Records) == 0 {
+		*idlePolls++
+		if *idlePolls >= subscribeToShardMaxIdlePolls {
+			return true, nil, nil
+		}
+		return false, nil, nil
+	}
+	*idlePolls = 0
+
+	records := make([]jsonRecord, len(out.Event.Records))
+	for i, r := range out.Event.Records {
+		records[i] = jsonRecord{
+			Data:                        r.Data,
+			PartitionKey:                r.PartitionKey,
+			SequenceNumber:              r.SequenceNumber,
+			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
+		}
+	}
+
+	eventPayload, marshalErr := json.Marshal(jsonSubscribeToShardEvent{
+		Records:                    records,
+		ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
+		MillisBehindLatest:         out.Event.MillisBehindLatest,
+	})
+	if marshalErr != nil {
+		return false, nil, nil
+	}
+
+	eventMsg := encodeEventStreamMsg([][2]string{
+		{":event-type", "SubscribeToShardEvent"},
+		{":message-type", "event"},
+		{":content-type", "application/json"},
+	}, eventPayload)
+
+	if _, writeErr := w.Write(eventMsg); writeErr != nil {
+		return false, nil, writeErr
+	}
+	if canFlush {
+		flusher.Flush()
+	}
+
+	if out.Event.ContinuationSequenceNumber != "" {
+		sp := StartingPosition{
+			Type:           iteratorTypeAfterSequenceNumber,
+			SequenceNumber: out.Event.ContinuationSequenceNumber,
+		}
+		return false, &sp, nil
+	}
+
+	return false, nil, nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

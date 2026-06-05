@@ -66,8 +66,8 @@ func TestLambda_SQS_PartialBatchFailure(t *testing.T) {
 					{"itemIdentifier": "msg-2"},
 				},
 			}),
-			wantDeleted:    nil,
-			wantNotDeleted: []string{"rh-1", "rh-2"},
+			wantDeleted:      nil,
+			wantNotDeleted:   []string{"rh-1", "rh-2"},
 			functionRespType: "ReportBatchItemFailures",
 		},
 		{

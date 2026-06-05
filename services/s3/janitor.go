@@ -483,82 +483,74 @@ func (j *Janitor) applyLifecycleRules(
 			continue
 		}
 
-		prefix := rule.prefix()
-		tagFilters := rule.Filter.tags()
-
-		// Days-based expiration of current versions.
-		// Days must be explicitly set (non-nil) to trigger expiration.
-		// An absent Days element (nil pointer) must not delete objects even though
-		// the Go zero value for int would be 0 (which would incorrectly match all objects).
-		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
-			expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
-			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
-		}
-
-		// Date-based expiration of current versions.
-		// Use the parsed expireDate as the cutoff so only objects older than that
-		// date are removed (not all objects indiscriminately).
-		if rule.Expiration.Date != "" {
-			expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
-			if parseErr == nil && now.After(expireDate) {
-				evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
-			}
-		}
-
-		// Noncurrent version expiration: delete versions that are not the latest
-		// and are older than NoncurrentDays. A nil pointer means the rule is absent.
-		if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
-			noncurrentBefore := now.Add(
-				-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour,
-			)
-			evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
-		}
-
-		// Abort incomplete multipart uploads older than DaysAfterInitiation.
-		// A nil pointer means the rule is absent; 0 means abort immediately.
-		if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
-			abortBefore := now.Add(
-				-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
-			)
-			j.abortStaleMultipartUploads(bucketName, abortBefore)
-		}
-
-		// Days-based storage class transitions.
-		for _, tr := range rule.Transitions {
-			if tr.Days <= 0 || tr.StorageClass == "" {
-				continue
-			}
-
-			transitionAfter := time.Duration(tr.Days) * 24 * time.Hour
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, transitionAfter, "")
-		}
-
-		// Date-based storage class transitions.
-		for _, tr := range rule.Transitions {
-			if tr.Date == "" || tr.StorageClass == "" {
-				continue
-			}
-
-			transitionDate, parseErr := parseLifecycleDate(tr.Date)
-			if parseErr == nil && now.After(transitionDate) {
-				j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, 0, tr.Date)
-			}
-		}
-
-		// Noncurrent version transitions.
-		for _, tr := range rule.NoncurrentVersionTransitions {
-			if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
-				continue
-			}
-
-			noncurrentAfter := time.Duration(tr.NoncurrentDays) * 24 * time.Hour
-			j.applyNoncurrentStorageClassTransitions(bucket, prefix, rule.ID, tr.StorageClass, now, noncurrentAfter)
-		}
+		evicted += j.applyLifecycleRule(bucket, bucketName, rule, tagsByKey, now)
 	}
 
 	if evicted > 0 {
 		logger.Load(ctx).InfoContext(ctx, "S3 janitor: lifecycle objects evicted",
 			"bucket", bucketName, "count", evicted)
+	}
+
+	return evicted
+}
+
+// applyLifecycleRule applies all expiration, abort, and transition actions for a single
+// enabled lifecycle rule. Returns the number of objects evicted.
+func (j *Janitor) applyLifecycleRule(
+	bucket *StoredBucket,
+	bucketName string,
+	rule *lifecycleRule,
+	tagsByKey map[string][]types.Tag,
+	now time.Time,
+) int {
+	prefix := rule.prefix()
+	tagFilters := rule.Filter.tags()
+	evicted := 0
+
+	if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
+		expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
+		evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
+	}
+
+	if rule.Expiration.Date != "" {
+		expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
+		if parseErr == nil && now.After(expireDate) {
+			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
+		}
+	}
+
+	if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
+		noncurrentBefore := now.Add(-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour)
+		evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
+	}
+
+	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+		abortBefore := now.Add(-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour)
+		j.abortStaleMultipartUploads(bucketName, abortBefore)
+	}
+
+	for _, tr := range rule.Transitions {
+		if tr.Days <= 0 || tr.StorageClass == "" {
+			continue
+		}
+		j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
+	}
+
+	for _, tr := range rule.Transitions {
+		if tr.Date == "" || tr.StorageClass == "" {
+			continue
+		}
+		transitionDate, parseErr := parseLifecycleDate(tr.Date)
+		if parseErr == nil && now.After(transitionDate) {
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, 0, tr.Date)
+		}
+	}
+
+	for _, tr := range rule.NoncurrentVersionTransitions {
+		if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
+			continue
+		}
+		j.applyNoncurrentStorageClassTransitions(bucket, prefix, rule.ID, tr.StorageClass, now, time.Duration(tr.NoncurrentDays)*24*time.Hour)
 	}
 
 	return evicted
@@ -946,7 +938,7 @@ func (j *Janitor) applyStorageClassTransitions(
 
 		fromClass := ver.StorageClass
 		if fromClass == "" {
-			fromClass = "STANDARD"
+			fromClass = storageStandard
 		}
 
 		if fromClass != targetClass {

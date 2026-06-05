@@ -29,23 +29,23 @@ var (
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
 // Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
 const (
-	glueARNParts           = 6
-	errEntityNotFoundCode  = "EntityNotFoundException"
-	stateRunning           = "RUNNING"
-	stateStarting          = "STARTING"
-	stateReady             = "READY"
-	stateStopping          = "STOPPING"
-	stateStopped           = "STOPPED"
-	stateSucceeded         = "SUCCEEDED"
+	glueARNParts          = 6
+	errEntityNotFoundCode = "EntityNotFoundException"
+	stateRunning          = "RUNNING"
+	stateStarting         = "STARTING"
+	stateReady            = "READY"
+	stateStopping         = "STOPPING"
+	stateStopped          = "STOPPED"
+	stateSucceeded        = "SUCCEEDED"
 
-	jobTransitionDelay    = 150 * time.Millisecond // STARTING→RUNNING
-	jobSucceededDelay     = 300 * time.Millisecond // RUNNING→SUCCEEDED
+	jobTransitionDelay     = 150 * time.Millisecond // STARTING→RUNNING
+	jobSucceededDelay      = 300 * time.Millisecond // RUNNING→SUCCEEDED
 	crawlerTransitionDelay = 200 * time.Millisecond // RUNNING→READY
 	reconcilerTickDivisor  = 5
-	stateAvailable        = "AVAILABLE"
-	stateDeleting         = "DELETING"
-	stateProvisioning     = "PROVISIONING"
-	stateActive           = "ACTIVE"
+	stateAvailable         = "AVAILABLE"
+	stateDeleting          = "DELETING"
+	stateProvisioning      = "PROVISIONING"
+	stateActive            = "ACTIVE"
 
 	// maxNameLen is the maximum length (in characters) for Glue resource names.
 	// AWS enforces a 255-character limit for database, table, crawler, and job names.
@@ -480,6 +480,30 @@ func (b *InMemoryBackend) runReconciler() {
 	}
 }
 
+// advanceJobRunState applies STARTING→RUNNING and RUNNING→SUCCEEDED transitions for a
+// single run, consulting the readyMap and doneMap timing tables. Must be called with b.mu held.
+func advanceJobRunState(run *JobRun, readyMap, doneMap map[string]time.Time, now time.Time) {
+	if readyMap != nil {
+		if t, ok := readyMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateStarting {
+				run.JobRunState = stateRunning
+			}
+			delete(readyMap, run.ID)
+		}
+	}
+
+	if doneMap != nil {
+		if t, ok := doneMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateRunning {
+				run.JobRunState = stateSucceeded
+				run.CompletedOn = float64(now.Unix())
+				run.ExecutionTime = int(jobSucceededDelay.Seconds())
+			}
+			delete(doneMap, run.ID)
+		}
+	}
+}
+
 // reconcileLocked applies pending lifecycle transitions. Must be called with b.mu held.
 func (b *InMemoryBackend) reconcileLocked() {
 	now := time.Now()
@@ -490,27 +514,7 @@ func (b *InMemoryBackend) reconcileLocked() {
 		doneMap := b.jobRunDoneAt[jobName]
 
 		for _, run := range runs {
-			if readyMap != nil {
-				if t, ok := readyMap[run.ID]; ok && now.After(t) {
-					if run.JobRunState == stateStarting {
-						run.JobRunState = stateRunning
-					}
-
-					delete(readyMap, run.ID)
-				}
-			}
-
-			if doneMap != nil {
-				if t, ok := doneMap[run.ID]; ok && now.After(t) {
-					if run.JobRunState == stateRunning {
-						run.JobRunState = stateSucceeded
-						run.CompletedOn = float64(now.Unix())
-						run.ExecutionTime = int(jobSucceededDelay.Seconds())
-					}
-
-					delete(doneMap, run.ID)
-				}
-			}
+			advanceJobRunState(run, readyMap, doneMap, now)
 		}
 	}
 

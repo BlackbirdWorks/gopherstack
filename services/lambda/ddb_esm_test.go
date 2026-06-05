@@ -395,8 +395,8 @@ func TestLambda_DDB_Poller_MultiShard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		shardIDs       []string
+		name            string
+		shardIDs        []string
 		recordsPerShard map[string][]lambda.DynamoDBStreamRecord
 		wantInvocations int
 	}{
@@ -420,8 +420,8 @@ func TestLambda_DDB_Poller_MultiShard(t *testing.T) {
 			wantInvocations: 2,
 		},
 		{
-			name:            "SingleShard_MatchesLegacyBehaviour",
-			shardIDs:        []string{"shard-0001"},
+			name:     "SingleShard_MatchesLegacyBehaviour",
+			shardIDs: []string{"shard-0001"},
 			recordsPerShard: map[string][]lambda.DynamoDBStreamRecord{
 				"shard-0001": {{EventID: "ex", EventName: "INSERT", SequenceNumber: "99"}},
 			},
