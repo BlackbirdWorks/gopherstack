@@ -65,22 +65,24 @@ const (
 // AWS API: alphanumeric characters, hyphens, underscores, and dots.
 var resourceNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 
-// validMeasureValueTypes is the set of MeasureValueType values accepted by the AWS API.
-var validMeasureValueTypes = map[string]bool{
-	"DOUBLE":    true,
-	"BIGINT":    true,
-	"BOOLEAN":   true,
-	"VARCHAR":   true,
-	"TIMESTAMP": true,
-	"MULTI":     true,
+// isValidMeasureValueType reports whether v is a MeasureValueType accepted by the AWS API.
+func isValidMeasureValueType(v string) bool {
+	switch v {
+	case "DOUBLE", "BIGINT", "BOOLEAN", "VARCHAR", "TIMESTAMP", "MULTI":
+		return true
+	}
+
+	return false
 }
 
-// validTimeUnits is the set of TimeUnit values accepted by the AWS API.
-var validTimeUnits = map[string]bool{
-	"SECONDS":      true,
-	"MILLISECONDS": true,
-	"MICROSECONDS": true,
-	"NANOSECONDS":  true,
+// isValidTimeUnit reports whether v is a TimeUnit accepted by the AWS API.
+func isValidTimeUnit(v string) bool {
+	switch v {
+	case "SECONDS", "MILLISECONDS", "MICROSECONDS", "NANOSECONDS":
+		return true
+	}
+
+	return false
 }
 
 // validateDatabaseName validates a Timestream database name against AWS length and format
@@ -228,14 +230,16 @@ func validateSchemaPartitionKeys(sc *schemaInput) error {
 // validateRecord validates an individual WriteRecords record against AWS constraints.
 // Validation runs on the merged record (after CommonAttributes is applied).
 func validateRecord(r recordInput, idx int) error {
-	if r.MeasureValueType != "" && !validMeasureValueTypes[r.MeasureValueType] {
+	if r.MeasureValueType != "" && !isValidMeasureValueType(r.MeasureValueType) {
 		return fmt.Errorf(
-			"%w: record[%d] has invalid MeasureValueType %q; valid values are DOUBLE, BIGINT, BOOLEAN, VARCHAR, TIMESTAMP, MULTI",
-			errInvalidRequest, idx, r.MeasureValueType,
+			"%w: record[%d] has invalid MeasureValueType %q; valid: DOUBLE, BIGINT, BOOLEAN, VARCHAR, TIMESTAMP, MULTI",
+			errInvalidRequest,
+			idx,
+			r.MeasureValueType,
 		)
 	}
 
-	if r.TimeUnit != "" && !validTimeUnits[r.TimeUnit] {
+	if r.TimeUnit != "" && !isValidTimeUnit(r.TimeUnit) {
 		return fmt.Errorf(
 			"%w: record[%d] has invalid TimeUnit %q; valid values are SECONDS, MILLISECONDS, MICROSECONDS, NANOSECONDS",
 			errInvalidRequest, idx, r.TimeUnit,
