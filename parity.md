@@ -336,3 +336,82 @@ table + backend, then move it out of `notImplemented`. Ordered by descending gap
 
 `CreateHarvestJob`, `DescribeHarvestJob`, `ListHarvestJobs`, `RotateIngestEndpointCredentials`
 
+
+---
+
+## Appendix B — Region-support status matrix (all 148 services)
+
+Status for the §8 requirement that **every service isolates state per region**. Buckets are
+**heuristically auto-derived** from source (does any non-test file in the service read the request/
+context region via `ExtractRegionFromRequest` / `regionContextKey` / `getRegionFromContext`?), so
+each row needs per-service confirmation — but this is the work list to drive to all-isolated.
+
+Legend: 🌐 global by design (must **not** be region-partitioned) · 🟡 region-aware in code (reads the
+request region, but isolation may be partial — e.g. used only for ARNs) · ❌ single-region (no region
+handling found; `List*`/`Describe*` leak across regions).
+
+### 🌐 Global by design — 8 (leave shared across regions)
+
+`cloudfront`, `iam`, `organizations`, `route53`, `shield`, `sts`, `waf`, `wafv2`
+
+> Note: AWS `account` (absent — see §6) is also global. `route53resolver` is **regional** (in ❌ below).
+
+### 🟡 Region-aware in code — 9 (verify full isolation, then promote to ✅)
+
+`dynamodb`, `kinesis`, `kms`, `mwaa`, `pinpoint`, `s3`, `secretsmanager`, `sns`, `sqs`
+
+> Of these, only `s3` is confirmed to actually isolate resources by region (bucket→region index,
+> cross-region access rejected). The rest read the region but may use it only for ARN construction —
+> each needs an isolation test (create in region A, assert not-found in region B).
+
+### ❌ Single-region — 131 (no region handling — primary work list)
+
+These store a scalar `Region`/`region` field (used for ARNs) but do **not** partition state by region.
+Each needs: region resolved per op → backend state keyed by region → region-scoped `List*`/`Describe*`
+→ region-aware persistence (§5) → an isolation test.
+
+`accessanalyzer`, `acm`, `acmpca`, `amplify`, `apigateway`, `apigatewaymanagementapi`, `apigatewayv2`, `appconfig`, `appconfigdata`, `applicationautoscaling`, `appmesh`, `apprunner`, `appstream`, `appsync`, `athena`, `autoscaling`, `awsconfig`, `backup`, `batch`, `bedrock`, `bedrockruntime`, `ce`, `cloudcontrol`, `cloudformation`, `cloudtrail`, `cloudwatch`, `cloudwatchlogs`, `codeartifact`, `codebuild`, `codecommit`, `codeconnections`, `codedeploy`, `codepipeline`, `codestarconnections`, `cognitoidentity`, `cognitoidp`, `comprehend`, `databrew`, `datasync`, `dax`, `detective`, `directoryservice`, `dlm`, `dms`, `docdb`, `dynamodbstreams`, `ec2`, `ecr`, `ecs`, `efs`, `eks`, `elasticache`, `elasticbeanstalk`, `elasticsearch`, `elb`, `elbv2`, `emr`, `emrserverless`, `eventbridge`, `firehose`, `fis`, `forecast`, `fsx`, `glacier`, `glue`, `guardduty`, `identitystore`, `inspector2`, `iot`, `iotanalytics`, `iotdataplane`, `iotwireless`, `kafka`, `kinesisanalytics`, `kinesisanalyticsv2`, `lakeformation`, `lambda`, `macie2`, `managedblockchain`, `mediaconvert`, `medialive`, `mediapackage`, `mediastore`, `mediastoredata`, `mediatailor`, `memorydb`, `mq`, `neptune`, `opensearch`, `opsworks`, `personalize`, `pipes`, `polly`, `qldb`, `qldbsession`, `quicksight`, `ram`, `rds`, `rdsdata`, `redshift`, `redshiftdata`, `rekognition`, `resourcegroups`, `resourcegroupstaggingapi`, `rolesanywhere`, `route53resolver`, `s3control`, `s3tables`, `sagemaker`, `sagemakerruntime`, `scheduler`, `securityhub`, `serverlessrepo`, `servicediscovery`, `ses`, `sesv2`, `ssm`, `ssoadmin`, `stepfunctions`, `support`, `swf`, `textract`, `timestreamquery`, `timestreamwrite`, `transcribe`, `transfer`, `translate`, `verifiedpermissions`, `workmail`, `workspaces`, `xray`
+
+---
+
+## Appendix C — Region-isolation implementation playbook
+
+A grounded, copy-from-existing-code recipe for promoting a ❌ service (Appendix B) to region-isolated.
+Two services already implement the target pattern — use them as templates:
+- **DynamoDB:** sets the region on the context in the handler (`services/dynamodb/handler.go:374` —
+  `ctx = context.WithValue(ctx, regionContextKey{}, region)`) and reads it in every op via
+  `getRegionFromContext` (`services/dynamodb/item_ops_crud.go:64`, …).
+- **S3:** same handler pattern (`services/s3/handler.go:317`) plus a bucket→region index that rejects
+  cross-region access (`services/s3/backend_memory.go:109`).
+
+### Per-service steps
+1. **Resolve region at ingress.** In the service handler, before dispatch, derive the region with
+   `httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)` (parses the SigV4
+   `Credential=.../<region>/...` scope) and stash it: `ctx = context.WithValue(ctx, regionContextKey{}, region)`.
+   Define `type regionContextKey struct{}` per package (as DynamoDB does at `handler.go:95`).
+2. **Key backend state by region.** Convert top-level maps from `map[id]*T` to
+   `map[region]map[id]*T` (or add `region` to a composite key). Add a small
+   `func (b *Backend) regionStore(region string) map[id]*T` helper that lazily creates the inner map.
+3. **Scope every op.** Thread `ctx` (or an explicit `region` arg) into Create/Get/Update/Delete/List
+   so each one touches only its region's store. `List*`/`Describe*` must iterate only the caller's
+   region; a `Get*` for an id that lives in another region returns the AWS `NotFound`/`NoSuch*` error.
+4. **Region in ARNs.** Ensure emitted ARNs embed the owning region; operations naming a foreign-region
+   ARN fail like AWS (documented exceptions: DynamoDB global tables, KMS multi-region keys).
+5. **Persist the region key (§5).** Update `persistence.go` `backendSnapshot` so the region dimension
+   survives Snapshot/Restore — otherwise isolation resets on restart.
+6. **Add the isolation test.** Create resource in region A, assert it is found in A and **not found**
+   in region B. Add a shared `sdkcheck`-style helper (e.g. `sdkcheck.CheckRegionIsolation`) and wire
+   it into each service's test suite so new services can't regress.
+
+### Do NOT region-partition the global services
+`iam`, `sts`, `route53`, `cloudfront`, `waf`, `wafv2`, `organizations`, `shield` (Appendix B 🌐) keep a
+single shared store across regions by design — a region-isolation test there should assert the
+**opposite** (resource created via region A *is* visible via region B).
+
+### Suggested batching for the mega PR
+- **Batch 1 (highest value, stateful):** ec2, lambda, ssm, cloudwatch, cloudwatchlogs, ecs, ecr, rds,
+  stepfunctions, eventbridge, firehose — these back the most integration tests.
+- **Batch 2:** the remaining ❌ services in Appendix B, grouped by domain (messaging, data, analytics,
+  media, security, dev-tools) to keep PRs reviewable.
+- **Batch 3:** promote the 🟡 region-aware services to confirmed-✅ by adding isolation tests and
+  fixing any ARN-only usages.
