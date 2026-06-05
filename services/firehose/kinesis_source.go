@@ -63,10 +63,8 @@ func (b *InMemoryBackend) pollKinesisShard(
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
+		if isDone(ctx) {
 			return
-		default:
 		}
 
 		records, nextIter, err := b.kinesisBackend.GetRecords(iter, kinesisPollerBatchLimit)
@@ -74,36 +72,48 @@ func (b *InMemoryBackend) pollKinesisShard(
 			slog.WarnContext(ctx, "firehose kinesis poller: GetRecords failed",
 				"stream", firehoseStream, "shard", shardID, "error", err)
 
-			select {
-			case <-ctx.Done():
+			if waitOrDone(ctx, kinesisPollerInterval) {
 				return
-			case <-time.After(kinesisPollerInterval):
 			}
 
 			continue
 		}
 
 		for _, rec := range records {
-			if err := b.injectKinesisRecord(firehoseStream, rec); err != nil {
+			if injectErr := b.injectKinesisRecord(firehoseStream, rec); injectErr != nil {
 				slog.WarnContext(ctx, "firehose kinesis poller: inject failed",
-					"stream", firehoseStream, "error", err)
+					"stream", firehoseStream, "error", injectErr)
 			}
 		}
 
 		if nextIter == "" {
-			// Shard is closed and exhausted.
 			return
 		}
 
 		iter = nextIter
 
-		if len(records) == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(kinesisPollerInterval):
-			}
+		if len(records) == 0 && waitOrDone(ctx, kinesisPollerInterval) {
+			return
 		}
+	}
+}
+
+func isDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// waitOrDone sleeps for d or until ctx is done. Returns true if ctx was cancelled.
+func waitOrDone(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-time.After(d):
+		return false
 	}
 }
 

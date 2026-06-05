@@ -175,10 +175,7 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 ) {
 	h.setOperation(ctx, "WriteGetObjectResponse")
 
-	token := r.Header.Get("x-amz-request-token")
-	if token == "" {
-		token = r.Header.Get("X-Amz-Request-Token")
-	}
+	token := r.Header.Get("X-Amz-Request-Token")
 
 	if token == "" {
 		// No pending request token; return 200 as a no-op stub.
