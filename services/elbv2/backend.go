@@ -482,44 +482,54 @@ func (b *InMemoryBackend) runHealthReconciler() {
 	}
 }
 
+type pendingTarget struct {
+	tgArn     string
+	targetKey string
+	tg        *TargetGroup
+}
+
+type healthResult struct {
+	key   string
+	tgArn string
+	state string
+}
+
 // reconcileTargetHealth promotes initial targets to healthy (or probes HTTP targets).
 func (b *InMemoryBackend) reconcileTargetHealth() {
 	now := time.Now()
 
 	b.mu.RLock("reconcileTargetHealth-read")
-
-	type pendingTarget struct {
-		tgArn     string
-		targetKey string
-		tg        *TargetGroup
-	}
-
-	var pending []pendingTarget
-
-	for tgArn, readyMap := range b.targetReadyAt {
-		for key, readyAt := range readyMap {
-			if now.After(readyAt) {
-				tg := b.targetGroups[tgArn]
-				if tg != nil {
-					pending = append(pending, pendingTarget{tgArn: tgArn, targetKey: key, tg: tg})
-				}
-			}
-		}
-	}
-
+	pending := b.collectPendingTargets(now)
 	b.mu.RUnlock()
 
 	if len(pending) == 0 {
 		return
 	}
 
-	// For HTTP/HTTPS target groups with real IP targets, optionally probe.
-	type healthResult struct {
-		key   string
-		tgArn string
-		state string
+	results := resolveTargetHealth(pending)
+
+	b.mu.Lock("reconcileTargetHealth-write")
+	b.applyHealthResults(results)
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) collectPendingTargets(now time.Time) []pendingTarget {
+	var pending []pendingTarget
+
+	for tgArn, readyMap := range b.targetReadyAt {
+		for key, readyAt := range readyMap {
+			if now.After(readyAt) {
+				if tg := b.targetGroups[tgArn]; tg != nil {
+					pending = append(pending, pendingTarget{tgArn: tgArn, targetKey: key, tg: tg})
+				}
+			}
+		}
 	}
 
+	return pending
+}
+
+func resolveTargetHealth(pending []pendingTarget) []healthResult {
 	results := make([]healthResult, 0, len(pending))
 
 	for _, p := range pending {
@@ -532,8 +542,10 @@ func (b *InMemoryBackend) reconcileTargetHealth() {
 		results = append(results, healthResult{key: p.targetKey, tgArn: p.tgArn, state: state})
 	}
 
-	b.mu.Lock("reconcileTargetHealth-write")
+	return results
+}
 
+func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
 	for _, r := range results {
 		tg, ok := b.targetGroups[r.tgArn]
 		if !ok {
@@ -553,8 +565,6 @@ func (b *InMemoryBackend) reconcileTargetHealth() {
 			delete(rm, r.key)
 		}
 	}
-
-	b.mu.Unlock()
 }
 
 // probeTargetHTTP performs a real HTTP health check against the target.

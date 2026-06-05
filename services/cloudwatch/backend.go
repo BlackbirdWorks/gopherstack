@@ -2488,7 +2488,6 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 	periodDur := time.Duration(alarm.Period) * time.Second
 	evalPeriods := int(alarm.EvaluationPeriods)
 
-	// Fetch metric data covering EvaluationPeriods windows.
 	endTime := now
 	startTime := now.Add(-periodDur * time.Duration(evalPeriods))
 
@@ -2508,22 +2507,7 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		return alarm.StateValue
 	}
 
-	// Build a map of period-bucket-index → statistic value.
-	bucketValues := make(map[int]float64, len(datapoints))
-
-	for _, dp := range datapoints {
-		offset := dp.Timestamp.Sub(startTime)
-		idx := int(offset / periodDur)
-
-		if idx < 0 || idx >= evalPeriods {
-			continue
-		}
-
-		val := extractDatapointValue(dp, alarm.Statistic, alarm.ExtendedStatistic)
-		if val != nil {
-			bucketValues[idx] = *val
-		}
-	}
+	bucketValues := buildBucketValues(datapoints, startTime, periodDur, evalPeriods, alarm.Statistic, alarm.ExtendedStatistic)
 
 	treatMissing := alarm.TreatMissingData
 	if treatMissing == "" {
@@ -2535,9 +2519,52 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		datapointsToAlarm = evalPeriods
 	}
 
-	breachCount := 0
-	evaluatedCount := 0
+	breachCount, evaluatedCount := countBreachingPeriods(bucketValues, evalPeriods, treatMissing, alarm.Threshold, alarm.ComparisonOperator)
 
+	if breachCount >= datapointsToAlarm {
+		return alarmStateAlarm
+	}
+
+	if evaluatedCount < datapointsToAlarm && treatMissing == "missing" {
+		return alarmStateInsufficientData
+	}
+
+	return alarmStateOK
+}
+
+// buildBucketValues maps each datapoint into its evaluation-period bucket.
+func buildBucketValues(
+	datapoints []Datapoint,
+	startTime time.Time,
+	periodDur time.Duration,
+	evalPeriods int,
+	statistic, extStatistic string,
+) map[int]float64 {
+	bucketValues := make(map[int]float64, len(datapoints))
+
+	for _, dp := range datapoints {
+		idx := int(dp.Timestamp.Sub(startTime) / periodDur)
+
+		if idx < 0 || idx >= evalPeriods {
+			continue
+		}
+
+		if val := extractDatapointValue(dp, statistic, extStatistic); val != nil {
+			bucketValues[idx] = *val
+		}
+	}
+
+	return bucketValues
+}
+
+// countBreachingPeriods tallies breach and evaluated counts across all evaluation periods.
+func countBreachingPeriods(
+	bucketValues map[int]float64,
+	evalPeriods int,
+	treatMissing string,
+	threshold float64,
+	comparisonOperator string,
+) (breachCount, evaluatedCount int) {
 	for i := range evalPeriods {
 		val, hasData := bucketValues[i]
 
@@ -2548,10 +2575,6 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 				evaluatedCount++
 			case "notBreaching":
 				evaluatedCount++
-			case "ignore":
-				// Don't count this period at all.
-			default: // "missing"
-				// Don't count toward evaluated.
 			}
 
 			continue
@@ -2559,23 +2582,12 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 
 		evaluatedCount++
 
-		if breachesThreshold(val, alarm.Threshold, alarm.ComparisonOperator) {
+		if breachesThreshold(val, threshold, comparisonOperator) {
 			breachCount++
 		}
 	}
 
-	if breachCount >= datapointsToAlarm {
-		return alarmStateAlarm
-	}
-
-	// Determine if we have enough data to call OK vs INSUFFICIENT_DATA.
-	// If TreatMissingData is not breaching/notBreaching and we have fewer than
-	// datapointsToAlarm evaluated periods, stay INSUFFICIENT_DATA.
-	if evaluatedCount < datapointsToAlarm && treatMissing == "missing" {
-		return alarmStateInsufficientData
-	}
-
-	return alarmStateOK
+	return breachCount, evaluatedCount
 }
 
 // extractDatapointValue extracts the relevant statistic value from a Datapoint.

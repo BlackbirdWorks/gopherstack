@@ -753,25 +753,9 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	logger.Load(ctx).DebugContext(ctx, "esm sqs: invoked Lambda",
 		"function", fnName, "messages", len(msgs))
 
-	// Build the set of failed message IDs when partial-batch reporting is enabled.
-	if reportFailures && len(respBody) > 0 {
-		var failures batchItemFailures
-		if jsonErr := json.Unmarshal(respBody, &failures); jsonErr == nil && len(failures.BatchItemFailures) > 0 {
-			failedIDs := make(map[string]struct{}, len(failures.BatchItemFailures))
-			for _, f := range failures.BatchItemFailures {
-				failedIDs[f.ItemIdentifier] = struct{}{}
-			}
-
-			// Return only handles for messages NOT in the failure list.
-			toDelete := make([]string, 0, len(msgs))
-			for _, msg := range msgs {
-				if _, failed := failedIDs[msg.MessageID]; !failed {
-					toDelete = append(toDelete, msg.ReceiptHandle)
-				}
-			}
-
-			return toDelete, nil
-		}
+	// Apply partial-batch failure filtering when enabled.
+	if handles := filterByBatchItemFailures(reportFailures, respBody, msgs); handles != nil {
+		return handles, nil
 	}
 
 	// Default: delete all delivered messages.
@@ -781,4 +765,31 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	}
 
 	return allHandles, nil
+}
+
+// filterByBatchItemFailures parses the ReportBatchItemFailures response and returns
+// receipt handles for messages that succeeded. Returns nil if filtering is not applicable.
+func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQSMessage) []string {
+	if !reportFailures || len(respBody) == 0 {
+		return nil
+	}
+
+	var failures batchItemFailures
+	if jsonErr := json.Unmarshal(respBody, &failures); jsonErr != nil || len(failures.BatchItemFailures) == 0 {
+		return nil
+	}
+
+	failedIDs := make(map[string]struct{}, len(failures.BatchItemFailures))
+	for _, f := range failures.BatchItemFailures {
+		failedIDs[f.ItemIdentifier] = struct{}{}
+	}
+
+	toDelete := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		if _, failed := failedIDs[msg.MessageID]; !failed {
+			toDelete = append(toDelete, msg.ReceiptHandle)
+		}
+	}
+
+	return toDelete
 }
