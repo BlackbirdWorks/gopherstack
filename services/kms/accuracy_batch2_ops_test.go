@@ -188,13 +188,13 @@ func TestAB2_TagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(b *kms.InMemoryBackend, keyID string) error
+		name  string
 	}{
-		{"enabled", func(_ *kms.InMemoryBackend, _ string) error { return nil }},
+		{name: "enabled", setup: func(_ *kms.InMemoryBackend, _ string) error { return nil }},
 		{
-			"disabled",
-			func(b *kms.InMemoryBackend, keyID string) error {
+			name: "disabled",
+			setup: func(b *kms.InMemoryBackend, keyID string) error {
 				return b.DisableKey(&kms.DisableKeyInput{KeyID: keyID})
 			},
 		},
@@ -249,13 +249,13 @@ func TestAB2_UntagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(b *kms.InMemoryBackend, keyID string) error
+		name  string
 	}{
-		{"enabled", func(_ *kms.InMemoryBackend, _ string) error { return nil }},
+		{name: "enabled", setup: func(_ *kms.InMemoryBackend, _ string) error { return nil }},
 		{
-			"disabled",
-			func(b *kms.InMemoryBackend, keyID string) error {
+			name: "disabled",
+			setup: func(b *kms.InMemoryBackend, keyID string) error {
 				return b.DisableKey(&kms.DisableKeyInput{KeyID: keyID})
 			},
 		},
