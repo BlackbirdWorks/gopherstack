@@ -57,11 +57,31 @@ const (
 	// maxMagneticRetentionDays is the maximum allowed value for MagneticStoreRetentionPeriodInDays
 	// (approximately 200 years).
 	maxMagneticRetentionDays = 73000
+	// maxDimensionsPerRecord is the maximum number of dimensions allowed per record per the AWS API.
+	maxDimensionsPerRecord = 128
 )
 
 // resourceNameRE is the allowed character set for Timestream database and table names per the
 // AWS API: alphanumeric characters, hyphens, underscores, and dots.
 var resourceNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validMeasureValueTypes is the set of MeasureValueType values accepted by the AWS API.
+var validMeasureValueTypes = map[string]bool{
+	"DOUBLE":    true,
+	"BIGINT":    true,
+	"BOOLEAN":   true,
+	"VARCHAR":   true,
+	"TIMESTAMP": true,
+	"MULTI":     true,
+}
+
+// validTimeUnits is the set of TimeUnit values accepted by the AWS API.
+var validTimeUnits = map[string]bool{
+	"SECONDS":      true,
+	"MILLISECONDS": true,
+	"MICROSECONDS": true,
+	"NANOSECONDS":  true,
+}
 
 // validateDatabaseName validates a Timestream database name against AWS length and format
 // constraints. The name must be non-empty, at most 64 characters, and contain only
@@ -200,6 +220,33 @@ func validateSchemaPartitionKeys(sc *schemaInput) error {
 				errInvalidRequest, i, pk.Type, PartitionKeyTypeDimension, PartitionKeyTypeMeasure,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateRecord validates an individual WriteRecords record against AWS constraints.
+// Validation runs on the merged record (after CommonAttributes is applied).
+func validateRecord(r recordInput, idx int) error {
+	if r.MeasureValueType != "" && !validMeasureValueTypes[r.MeasureValueType] {
+		return fmt.Errorf(
+			"%w: record[%d] has invalid MeasureValueType %q; valid values are DOUBLE, BIGINT, BOOLEAN, VARCHAR, TIMESTAMP, MULTI",
+			errInvalidRequest, idx, r.MeasureValueType,
+		)
+	}
+
+	if r.TimeUnit != "" && !validTimeUnits[r.TimeUnit] {
+		return fmt.Errorf(
+			"%w: record[%d] has invalid TimeUnit %q; valid values are SECONDS, MILLISECONDS, MICROSECONDS, NANOSECONDS",
+			errInvalidRequest, idx, r.TimeUnit,
+		)
+	}
+
+	if len(r.Dimensions) > maxDimensionsPerRecord {
+		return fmt.Errorf(
+			"%w: record[%d] has %d dimensions; maximum allowed is %d",
+			errInvalidRequest, idx, len(r.Dimensions), maxDimensionsPerRecord,
+		)
 	}
 
 	return nil
@@ -995,8 +1042,12 @@ func (h *Handler) handleWriteRecords(
 
 	records := make([]Record, 0, len(in.Records))
 
-	for _, r := range in.Records {
+	for i, r := range in.Records {
 		merged := mergeRecordWithCommon(r, in.CommonAttributes)
+		if err := validateRecord(merged, i); err != nil {
+			return nil, err
+		}
+
 		records = append(records, recordInputToBackend(merged))
 	}
 
