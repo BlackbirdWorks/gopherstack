@@ -187,6 +187,10 @@ type Table struct {
 	kinesisEmitter             KinesisEmitter
 	pkIndex                    map[string]int
 	pkskIndex                  map[string]map[string]int
+	// itemsByOffset is a query-snapshot-only field populated instead of Items
+	// when a known PK constrains the query to a small set of items (#57).
+	// nil on live tables and full-scan snapshots.
+	itemsByOffset              map[int]map[string]any
 	mu                         *lockmetrics.RWMutex
 	activateTimer              *time.Timer
 	Tags                       *tags.Tags                    `json:"Tags,omitempty"`

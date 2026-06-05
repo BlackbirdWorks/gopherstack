@@ -1214,7 +1214,7 @@ func (b *InMemoryBackend) processListObjects(
 }
 
 func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject) []types.Object {
-	var contents []types.Object
+	contents := make([]types.Object, 0, len(objectSnapshots)) // #61: capacity hint
 	for _, obj := range objectSnapshots {
 		obj.mu.RLock("ListObjects")
 		latestID := obj.LatestVersionID
