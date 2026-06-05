@@ -98,9 +98,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.region = snap.Region
 
 	// Rebuild secondary indexes from the restored state.
-	b.nameIndex = make(map[string]string, len(b.stateMachines))
+	b.nameIndex = make(map[string]map[string]string)
 	for smARN, sm := range b.stateMachines {
-		b.nameIndex[sm.Name] = smARN
+		region := regionFromARN(smARN, b.region)
+		if b.nameIndex[region] == nil {
+			b.nameIndex[region] = make(map[string]string)
+		}
+
+		b.nameIndex[region][sm.Name] = smARN
 	}
 
 	b.smExecutions = make(map[string][]string)
@@ -109,11 +114,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	// Rebuild activity name index and create empty queues (pending tasks are not persisted).
-	b.activityNameIndex = make(map[string]string, len(b.activities))
+	b.activityNameIndex = make(map[string]map[string]string)
 	b.pendingTaskQueues = make(map[string]chan *activityTaskEntry, len(b.activities))
 
 	for actARN, a := range b.activities {
-		b.activityNameIndex[a.Name] = actARN
+		actRegion := regionFromARN(actARN, b.region)
+		if b.activityNameIndex[actRegion] == nil {
+			b.activityNameIndex[actRegion] = make(map[string]string)
+		}
+
+		b.activityNameIndex[actRegion][a.Name] = actARN
 		b.pendingTaskQueues[actARN] = make(chan *activityTaskEntry, maxPendingActivityTasks)
 	}
 

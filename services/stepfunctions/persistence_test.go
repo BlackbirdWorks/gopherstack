@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			name: "round_trip_preserves_state",
 			setup: func(b *stepfunctions.InMemoryBackend) string {
 				sm, err := b.CreateStateMachine(
+					context.Background(),
 					"test-sm",
 					`{"Comment":"test","StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}`,
 					"arn:aws:iam::000000000000:role/test",
@@ -47,7 +49,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *stepfunctions.InMemoryBackend, _ string) {
 				t.Helper()
 
-				sms, _, err := b.ListStateMachines("", 0)
+				sms, _, err := b.ListStateMachines(context.Background(), "", 0)
 				require.NoError(t, err)
 				assert.Empty(t, sms)
 			},

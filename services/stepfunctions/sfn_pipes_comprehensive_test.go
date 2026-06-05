@@ -7,6 +7,7 @@ package stepfunctions_test
 //   - Wait state with Timestamp/TimestampPath
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -145,7 +146,7 @@ func TestParallelState_WithCatch(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("parallel-catch-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "parallel-catch-"+tt.name, tt.definition, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "exec-"+tt.name, tt.input)
@@ -189,7 +190,7 @@ func TestExecutionHistory_Events(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("hist-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "hist-"+tt.name, tt.definition, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
@@ -227,7 +228,7 @@ func TestExecutionHistory_ReverseOrder(t *testing.T) {
 	t.Parallel()
 
 	b := newSFBackend()
-	sm, err := b.CreateStateMachine("hist-rev", exprPassDef, "arn:role", "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "hist-rev", exprPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "rev-exec", "{}")
@@ -277,7 +278,7 @@ func TestStateMachineVersions_Lifecycle(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("ver-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "ver-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			var lastVersionARN string
@@ -321,7 +322,7 @@ func TestWaitState_TimestampPast(t *testing.T) {
 	t.Parallel()
 
 	b := newSFBackend()
-	sm, err := b.CreateStateMachine("wait-ts", waitTimestampPastDef, "arn:role", "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "wait-ts", waitTimestampPastDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "wait-exec", `{"x": 1}`)
@@ -365,7 +366,7 @@ func TestChoiceState_AndOrCombiners(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("choice-"+tt.name, choiceAndOrDef, "arn:role", "EXPRESS")
+			sm, err := b.CreateStateMachine(context.Background(), "choice-"+tt.name, choiceAndOrDef, "arn:role", "EXPRESS")
 			require.NoError(t, err)
 
 			result, err := b.StartSyncExecution(sm.StateMachineArn, "", tt.input)
