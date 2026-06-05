@@ -17,6 +17,13 @@ const DefaultTerminatedTTL = defaultTerminatedTTL
 // DefaultCancelledSpotTTL exposes the package default cancelled spot request TTL for testing.
 const DefaultCancelledSpotTTL = defaultCancelledSpotTTL
 
+// TickLifecycleForTest synchronously runs one pass of the lifecycle reconciler,
+// advancing any transitional instance states to their next stable state.
+// Used in tests to avoid waiting for the background goroutine.
+func (b *InMemoryBackend) TickLifecycleForTest() {
+	b.reconcileInstanceLifecycle()
+}
+
 // SweepTerminatedInstancesForTest exposes sweepTerminatedInstances for unit tests.
 func (j *Janitor) SweepTerminatedInstancesForTest(ctx context.Context) {
 	j.sweepTerminatedInstances(ctx)
