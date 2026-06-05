@@ -17,9 +17,9 @@ var errExecutionLimitReached = errors.New("execution limit reached")
 
 // auditSFNExecutor records StartExecution calls for assertion.
 type auditSFNExecutor struct {
-	mu         sync.Mutex
 	executions []sfnExecution
 	returnErr  error
+	mu         sync.Mutex
 }
 
 type sfnExecution struct {
@@ -202,7 +202,7 @@ func TestAudit_Delivery_IsStateMachineARN(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			if tt.want {
-				assert.Greater(t, sfn.Count(), 0, "expected SFN invocation for ARN %s", tt.arn)
+				assert.Positive(t, sfn.Count(), "expected SFN invocation for ARN %s", tt.arn)
 			} else {
 				assert.Equal(t, 0, sfn.Count(), "expected no SFN invocation for non-SM ARN %s", tt.arn)
 			}

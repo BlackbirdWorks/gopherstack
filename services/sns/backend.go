@@ -50,7 +50,8 @@ const (
 )
 
 const (
-	protocolLambda   = "lambda"
+	messageTypeNotification = messageTypeNotification
+	protocolLambda          = "lambda"
 	protocolFirehose = "firehose"
 	protocolEmail    = "email"
 	protocolHTTP     = "http"
@@ -378,7 +379,7 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 		{"MessageId", msgID},
 		{"Timestamp", timestamp},
 		{topicArnKey, topicARN},
-		{"Type", "Notification"},
+		{"Type", messageTypeNotification},
 	}
 	if subject != "" {
 		fields = append(fields, field{"Subject", subject})
@@ -397,13 +398,13 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 	return sb.String()
 }
 
-// SNSLambdaInvoker can invoke a Lambda function for SNS subscription delivery.
-type SNSLambdaInvoker interface {
+// LambdaInvoker can invoke a Lambda function for SNS subscription delivery.
+type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
-// SNSFirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
-type SNSFirehosePutter interface {
+// FirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
+type FirehosePutter interface {
 	// PutRecordBatch delivers a batch of records to the named delivery stream.
 	PutRecordBatch(streamName string, records [][]byte) (int, error)
 }
@@ -411,8 +412,8 @@ type SNSFirehosePutter interface {
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
-	lambdaBackend        SNSLambdaInvoker
-	firehoseBackend      SNSFirehosePutter
+	lambdaBackend        LambdaInvoker
+	firehoseBackend      FirehosePutter
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -511,7 +512,7 @@ func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.
 }
 
 // SetLambdaBackend wires the Lambda backend for SNS → Lambda subscription delivery.
-func (b *InMemoryBackend) SetLambdaBackend(lambda SNSLambdaInvoker) {
+func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 	b.mu.Lock("SetLambdaBackend")
 	defer b.mu.Unlock()
 
@@ -519,7 +520,7 @@ func (b *InMemoryBackend) SetLambdaBackend(lambda SNSLambdaInvoker) {
 }
 
 // SetFirehoseBackend wires the Firehose backend for SNS → Firehose subscription delivery.
-func (b *InMemoryBackend) SetFirehoseBackend(firehose SNSFirehosePutter) {
+func (b *InMemoryBackend) SetFirehoseBackend(firehose FirehosePutter) {
 	b.mu.Lock("SetFirehoseBackend")
 	defer b.mu.Unlock()
 
@@ -2198,7 +2199,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		}
 
 		env := snsHTTPNotification{
-			Type:             "Notification",
+			Type:             messageTypeNotification,
 			MessageID:        d.messageID,
 			TopicArn:         d.topicARN,
 			Message:          d.body,
@@ -2230,7 +2231,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	req.Header.Set("Content-Type", "application/json")
 
 	// Add standard AWS SNS HTTP notification headers.
-	req.Header.Set("X-Amz-Sns-Message-Type", "Notification")
+	req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
 	if d.messageID != "" {
 		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
 	}

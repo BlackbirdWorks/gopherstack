@@ -102,6 +102,8 @@ func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, uni
 // sqsMetricNamespace is the CloudWatch namespace used for SQS metrics.
 const sqsMetricNamespace = "AWS/SQS"
 
+const sqsMetricUnitCount = "Count"
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	metricEmitter  MetricEmitter
@@ -125,7 +127,7 @@ func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
 // emitMetric emits a single metric to CloudWatch if a MetricEmitter is configured.
 // It reads the emitter under the lock, then calls it without holding the lock
 // to avoid a potential deadlock if the emitter itself takes a lock.
-func (b *InMemoryBackend) emitMetric(name string, value float64, unit string) {
+func (b *InMemoryBackend) emitMetric(name string, value float64) {
 	b.mu.RLock("emitMetric")
 	e := b.metricEmitter
 	b.mu.RUnlock()
@@ -135,7 +137,7 @@ func (b *InMemoryBackend) emitMetric(name string, value float64, unit string) {
 	}
 
 	// Emit without holding the lock.
-	_ = e.EmitMetric(sqsMetricNamespace, name, value, unit)
+	_ = e.EmitMetric(sqsMetricNamespace, name, value, sqsMetricUnitCount)
 }
 
 const sqsDefaultMaxResults = 1000
@@ -425,12 +427,11 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(
-		lenBuf[:],
-		uint32(
-			len(data),
-		), //nolint:gosec // length is always non-negative and bounded by message size limits
-	)
+	dataLen := len(data)
+	if dataLen < 0 {
+		dataLen = 0
+	}
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(dataLen))
 
 	buf = append(buf, lenBuf[:]...)
 	buf = append(buf, data...)
@@ -1034,7 +1035,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	go b.emitMetric("NumberOfMessagesSent", 1, "Count")
+	go b.emitMetric("NumberOfMessagesSent", 1)
 
 	return out, nil
 }
@@ -1418,7 +1419,7 @@ func (b *InMemoryBackend) ReceiveMessage(
 
 		if len(msgs) > 0 {
 			count := float64(len(msgs))
-			go b.emitMetric("NumberOfMessagesReceived", count, "Count")
+			go b.emitMetric("NumberOfMessagesReceived", count)
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
@@ -1473,26 +1474,6 @@ func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int
 	}
 
 	return 0
-}
-
-// drainToDLQ moves messages that have hit maxReceiveCount into the DLQ queue.
-func drainToDLQ(q *Queue) {
-	if q.MaxReceiveCount <= 0 || q.dlq == nil {
-		return
-	}
-
-	remaining := q.messages[:0]
-
-	for _, msg := range q.messages {
-		if msg.ApproximateReceiveCount >= q.MaxReceiveCount {
-			msg.ReceiptHandle = ""
-			q.dlq.messages = append(q.dlq.messages, msg)
-		} else {
-			remaining = append(remaining, msg)
-		}
-	}
-
-	q.messages = remaining
 }
 
 // receiveAttemptTTL is the AWS-specified window for ReceiveRequestAttemptID
@@ -1786,7 +1767,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 		}
 	}
 
-	go b.emitMetric("NumberOfMessagesDeleted", 1, "Count")
+	go b.emitMetric("NumberOfMessagesDeleted", 1)
 
 	return nil
 }
@@ -1973,6 +1954,60 @@ func validateBatchEnvelope(ids []string) error {
 	return nil
 }
 
+// batchEntryPrep holds pre-computed crypto digests and a generated message ID for one
+// SendMessageBatch entry, computed outside the queue lock.
+type batchEntryPrep struct {
+	md5Body    string
+	sha256Body string
+	md5Attrs   string
+	msgID      string
+}
+
+// processSendMessageBatchEntries iterates over batch entries (already lock-held on q),
+// delegates to sendMessageLocked, and accumulates Successful/Failed results.
+func processSendMessageBatchEntries(
+	q *queue,
+	input *SendMessageBatchInput,
+	preps []batchEntryPrep,
+	now time.Time,
+) *SendMessageBatchOutput {
+	out := &SendMessageBatchOutput{}
+
+	for i, entry := range input.Entries {
+		p := preps[i]
+		sendOut, err := sendMessageLocked(q, &SendMessageInput{
+			QueueURL:                input.QueueURL,
+			Region:                  input.Region,
+			MessageBody:             entry.MessageBody,
+			MessageGroupID:          entry.MessageGroupID,
+			MessageDeduplicationID:  entry.MessageDeduplicationID,
+			DelaySeconds:            entry.DelaySeconds,
+			MessageAttributes:       entry.MessageAttributes,
+			MessageSystemAttributes: entry.MessageSystemAttributes,
+		}, p.md5Body, p.sha256Body, p.md5Attrs, p.msgID, now)
+		if err != nil {
+			out.Failed = append(out.Failed, BatchResultErrorEntry{
+				ID:          entry.ID,
+				Code:        err.Error(),
+				Message:     err.Error(),
+				SenderFault: true,
+			})
+
+			continue
+		}
+
+		out.Successful = append(out.Successful, SendMessageBatchResultEntry{
+			ID:                     entry.ID,
+			MessageID:              sendOut.MessageID,
+			MD5OfBody:              sendOut.MD5OfBody,
+			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
+			SequenceNumber:         sendOut.SequenceNumber,
+		})
+	}
+
+	return out
+}
+
 // SendMessageBatch sends a batch of messages to the specified queue.
 // Results in the Successful and Failed slices are returned in the same
 // order as the corresponding entries in the input slice.
@@ -2007,28 +2042,12 @@ func (b *InMemoryBackend) SendMessageBatch(
 	totalBytes := 0
 	allEntriesUnderLimit := true
 
-	// Pre-compute per-entry crypto and IDs outside the lock.
-	type entryPrep struct {
-		md5Body    string
-		sha256Body string
-		md5Attrs   string
-		msgID      string
-	}
-
-	preps := make([]entryPrep, len(input.Entries))
+	preps := make([]batchEntryPrep, len(input.Entries))
 
 	for i, entry := range input.Entries {
 		entryBytes := len(entry.MessageBody)
 		for name, attr := range entry.MessageAttributes {
-			entryBytes += len(
-				name,
-			) + len(
-				attr.DataType,
-			) + len(
-				attr.StringValue,
-			) + len(
-				attr.BinaryValue,
-			)
+			entryBytes += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
 		}
 
 		if entryBytes > defaultMaxMessageSize {
@@ -2037,7 +2056,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 
 		totalBytes += entryBytes
 
-		preps[i] = entryPrep{
+		preps[i] = batchEntryPrep{
 			md5Body:    computeMD5(entry.MessageBody),
 			sha256Body: computeSHA256(entry.MessageBody),
 			md5Attrs:   computeMD5OfMessageAttributes(entry.MessageAttributes),
@@ -2054,43 +2073,11 @@ func (b *InMemoryBackend) SendMessageBatch(
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	out := &SendMessageBatchOutput{}
-
 	// Process entries in input order; append results directly so Successful and
 	// Failed slices already match the original entry order without sorting.
-	for i, entry := range input.Entries {
-		p := preps[i]
-		sendOut, err := sendMessageLocked(q, &SendMessageInput{
-			QueueURL:                input.QueueURL,
-			Region:                  input.Region,
-			MessageBody:             entry.MessageBody,
-			MessageGroupID:          entry.MessageGroupID,
-			MessageDeduplicationID:  entry.MessageDeduplicationID,
-			DelaySeconds:            entry.DelaySeconds,
-			MessageAttributes:       entry.MessageAttributes,
-			MessageSystemAttributes: entry.MessageSystemAttributes,
-		}, p.md5Body, p.sha256Body, p.md5Attrs, p.msgID, now)
-		if err != nil {
-			out.Failed = append(out.Failed, BatchResultErrorEntry{
-				ID:          entry.ID,
-				Code:        err.Error(),
-				Message:     err.Error(),
-				SenderFault: true,
-			})
+	out := processSendMessageBatchEntries(q, input, preps, now)
 
-			continue
-		}
-
-		out.Successful = append(out.Successful, SendMessageBatchResultEntry{
-			ID:                     entry.ID,
-			MessageID:              sendOut.MessageID,
-			MD5OfBody:              sendOut.MD5OfBody,
-			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
-			SequenceNumber:         sendOut.SequenceNumber,
-		})
-	}
-
-	go b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)), "Count")
+	go b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)))
 
 	return out, nil
 }

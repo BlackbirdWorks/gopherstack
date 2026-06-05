@@ -32,11 +32,11 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantCols   []string // expected column names (in order)
 		name       string
 		query      string
-		wantCols   []string // expected column names (in order)
-		wantRowLen int      // expected data rows (excludes header)
-		wantFirst  string   // first data cell of first result row (col 0)
+		wantFirst  string // first data cell of first result row (col 0)
+		wantRowLen int    // expected data rows (excludes header)
 	}{
 		{
 			name:       "select_star_returns_all_rows",
@@ -127,7 +127,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			}
 
 			// First row is the header.
-			require.Greater(t, len(allRows), 0, "at least header row expected")
+			require.NotEmpty(t, allRows, "at least header row expected")
 			headerRow := allRows[0].(map[string]any)
 			headerData, _ := headerRow["Data"].([]any)
 			require.Len(t, headerData, len(tt.wantCols), "header column count")

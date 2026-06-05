@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -493,15 +494,7 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 	}
 
 	if exportName, hasImport := val["Fn::ImportValue"]; hasImport {
-		name := resolveValueCtx(exportName, ctx)
-		if ctx.exports != nil {
-			if expVal, exists := ctx.exports[name]; exists {
-				return expVal
-			}
-		}
-
-		// Export not found; return a sentinel so callers can detect unresolved imports.
-		return unresolvedImportMarker(name)
+		return resolveImportValue(exportName, ctx)
 	}
 
 	// Fn::Base64: base64-encode input (#13)
@@ -532,7 +525,7 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 	}
 
 	// Fn::ToJsonString: serialize value to JSON string (#13)
-	if jsonVal, hasJson := val["Fn::ToJsonString"]; hasJson {
+	if jsonVal, hasJSON := val["Fn::ToJsonString"]; hasJSON {
 		data, err := json.Marshal(jsonVal)
 		if err != nil {
 			return ""
@@ -547,6 +540,17 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 	}
 
 	return fmt.Sprintf("%v", val)
+}
+
+func resolveImportValue(exportName any, ctx resolveCtx) string {
+	name := resolveValueCtx(exportName, ctx)
+	if ctx.exports != nil {
+		if expVal, exists := ctx.exports[name]; exists {
+			return expVal
+		}
+	}
+
+	return unresolvedImportMarker(name)
 }
 
 func resolveSub(s string, ctx resolveCtx) string {
@@ -605,48 +609,59 @@ func resolveSplit(args []any, ctx resolveCtx) string {
 func resolveSelect(args []any, ctx resolveCtx) string {
 	index := extractSelectIndex(args[0])
 
-	// Special case: second argument is Fn::Split evaluated inline. Resolve the
-	// split directly so we have access to the raw parts rather than the encoded form.
+	// Special case: second argument is Fn::Split evaluated inline.
 	if splitMap, isSplitMap := args[1].(map[string]any); isSplitMap {
-		if splitArgs, isSplit := splitMap["Fn::Split"].([]any); isSplit && len(splitArgs) == 2 {
-			delimiter, _ := splitArgs[0].(string)
-			sourceStr := resolveValueCtx(splitArgs[1], ctx)
-			parts := strings.Split(sourceStr, delimiter)
-
-			if index >= 0 && index < len(parts) {
-				return strings.TrimSpace(parts[index])
-			}
-
-			return ""
+		if result, ok := resolveSelectFromSplit(splitMap, index, ctx); ok {
+			return result
 		}
 	}
 
-	switch items := args[1].(type) {
+	return resolveSelectFromItems(args[1], index, ctx)
+}
+
+// resolveSelectFromSplit handles the inline Fn::Split case for Fn::Select.
+func resolveSelectFromSplit(splitMap map[string]any, index int, ctx resolveCtx) (string, bool) {
+	splitArgs, isSplit := splitMap["Fn::Split"].([]any)
+	if !isSplit || len(splitArgs) != 2 {
+		return "", false
+	}
+
+	delimiter, _ := splitArgs[0].(string)
+	sourceStr := resolveValueCtx(splitArgs[1], ctx)
+	parts := strings.Split(sourceStr, delimiter)
+
+	if index >= 0 && index < len(parts) {
+		return strings.TrimSpace(parts[index]), true
+	}
+
+	return "", true
+}
+
+// resolveSelectFromItems selects from a list, encoded string, or intrinsic map.
+func resolveSelectFromItems(second any, index int, ctx resolveCtx) string {
+	switch items := second.(type) {
 	case []any:
 		if index >= 0 && index < len(items) {
 			return resolveValueCtx(items[index], ctx)
 		}
 	case string:
-		// Might be a null-byte-delimited list produced by Fn::Split or Fn::GetAZs.
-		if strings.Contains(items, splitSep) {
-			parts := strings.Split(items, splitSep)
-			if index >= 0 && index < len(parts) {
-				return strings.TrimSpace(parts[index])
-			}
-		} else if index == 0 {
-			return items
-		}
+		return selectFromEncodedString(items, index)
 	case map[string]any:
-		// Other intrinsic (e.g. Fn::GetAZs) — resolve first, then select from encoded list.
 		resolved := resolveValueCtx(items, ctx)
-		if strings.Contains(resolved, splitSep) {
-			parts := strings.Split(resolved, splitSep)
-			if index >= 0 && index < len(parts) {
-				return strings.TrimSpace(parts[index])
-			}
-		} else if index == 0 {
-			return resolved
+		return selectFromEncodedString(resolved, index)
+	}
+
+	return ""
+}
+
+func selectFromEncodedString(s string, index int) string {
+	if strings.Contains(s, splitSep) {
+		parts := strings.Split(s, splitSep)
+		if index >= 0 && index < len(parts) {
+			return strings.TrimSpace(parts[index])
 		}
+	} else if index == 0 {
+		return s
 	}
 
 	return ""
@@ -856,7 +871,7 @@ func collectImportValuesFromValue(v any, params map[string]string, refs *[]strin
 	}
 }
 
-// resolveGetAtt resolves Fn::GetAtt [logicalID, attributeName] using the ctx. (#9)
+// resolveGetAtt resolves Fn::GetAtt [logicalID, attributeName] using the ctx (#9).
 func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	physID := ctx.physicalIDs[logicalID]
 	resType := ctx.resourceTypes[logicalID]
@@ -872,99 +887,117 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 
 	switch resType {
 	case "AWS::S3::Bucket":
-		switch attrName {
-		case attrNameArn:
-			return arn.BuildS3(physID)
-		case "DomainName":
-			return physID + ".s3.amazonaws.com"
-		case "RegionalDomainName":
-			if region != "" {
-				return physID + ".s3." + region + ".amazonaws.com"
-			}
-
-			return physID + ".s3.amazonaws.com"
-		case "WebsiteURL":
-			if region != "" {
-				return "http://" + physID + ".s3-website." + region + ".amazonaws.com"
-			}
-
-			return "http://" + physID + ".s3-website.us-east-1.amazonaws.com"
-		}
+		return getS3BucketAttribute(physID, attrName, region)
 	case "AWS::DynamoDB::Table":
-		switch attrName {
-		case attrNameArn:
-			return arn.Build("dynamodb", region, accountID, "table/"+physID)
-		case "StreamArn":
-			return arn.Build("dynamodb", region, accountID, "table/"+physID+"/stream/2000-01-01T00:00:00.000")
-		}
+		return getDynamoDBTableAttribute(physID, attrName, accountID, region)
 	case "AWS::Lambda::Function":
-		switch attrName {
-		case attrNameArn:
+		if attrName == attrNameArn {
 			return arn.Build("lambda", region, accountID, "function:"+physID)
 		}
 	case "AWS::SQS::Queue":
-		queueName := sqsQueueNameFromURL(physID)
-		switch attrName {
-		case attrNameArn:
-			return arn.Build("sqs", region, accountID, queueName)
-		case "QueueName":
-			return queueName
-		case "QueueUrl":
-			return physID
-		}
+		return getSQSQueueAttribute(physID, attrName, accountID, region)
 	case "AWS::SNS::Topic":
-		// physID is already the topic ARN
-		switch attrName {
-		case "TopicArn":
+		if attrName == "TopicArn" {
 			return physID
 		}
 	case "AWS::KMS::Key":
-		switch attrName {
-		case attrNameArn:
-			return arn.Build("kms", region, accountID, "key/"+physID)
-		case "KeyId":
-			return physID
-		}
+		return getKMSKeyAttribute(physID, attrName, accountID, region)
 	case "AWS::IAM::Role":
-		// physID is already an ARN for IAM roles
-		switch attrName {
-		case attrNameArn:
-			return physID
-		case "RoleId":
+		if attrName == attrNameArn || attrName == "RoleId" {
 			return physID
 		}
 	case "AWS::Logs::LogGroup":
-		switch attrName {
-		case attrNameArn:
+		if attrName == attrNameArn {
 			return arn.Build("logs", region, accountID, "log-group:"+physID+":*")
 		}
 	case "AWS::SecretsManager::Secret":
-		// physID is already an ARN for secrets
-		switch attrName {
-		case "Id":
+		if attrName == "Id" {
 			return physID
 		}
 	case resTypeStepFunctionsStateMachine:
-		// physID is already an ARN
-		switch attrName {
-		case attrNameArn:
-			return physID
-		case "Name":
-			parts := strings.Split(physID, ":")
-			if len(parts) > 0 {
-				return parts[len(parts)-1]
-			}
-
-			return physID
-		}
+		return getStateMachineAttribute(physID, attrName)
 	case "AWS::CloudFormation::Stack":
-		switch attrName {
-		case "Outputs":
+		if attrName == "Outputs" {
 			return physID
 		}
 	}
 
-	// Fallback: return the physical ID itself (works for ARN-typed physicalIDs and "Ref" attribute).
+	return physID
+}
+
+func getS3BucketAttribute(physID, attrName, region string) string {
+	switch attrName {
+	case attrNameArn:
+		return arn.BuildS3(physID)
+	case "DomainName":
+		return physID + ".s3.amazonaws.com"
+	case "RegionalDomainName":
+		if region != "" {
+			return physID + ".s3." + region + ".amazonaws.com"
+		}
+
+		return physID + ".s3.amazonaws.com"
+	case "WebsiteURL":
+		if region != "" {
+			return "http://" + physID + ".s3-website." + region + ".amazonaws.com"
+		}
+
+		return "http://" + physID + ".s3-website.us-east-1.amazonaws.com"
+	}
+
+	return physID
+}
+
+func getDynamoDBTableAttribute(physID, attrName, accountID, region string) string {
+	switch attrName {
+	case attrNameArn:
+		return arn.Build("dynamodb", region, accountID, "table/"+physID)
+	case "StreamArn":
+		return arn.Build("dynamodb", region, accountID, "table/"+physID+"/stream/2000-01-01T00:00:00.000")
+	}
+
+	return physID
+}
+
+func getSQSQueueAttribute(physID, attrName, accountID, region string) string {
+	queueName := sqsQueueNameFromURL(physID)
+
+	switch attrName {
+	case attrNameArn:
+		return arn.Build("sqs", region, accountID, queueName)
+	case "QueueName":
+		return queueName
+	case "QueueUrl":
+		return physID
+	}
+
+	return physID
+}
+
+func getKMSKeyAttribute(physID, attrName, accountID, region string) string {
+	switch attrName {
+	case attrNameArn:
+		return arn.Build("kms", region, accountID, "key/"+physID)
+	case "KeyId":
+		return physID
+	}
+
+	return physID
+}
+
+func getStateMachineAttribute(physID, attrName string) string {
+	switch attrName {
+	case attrNameArn:
+		return physID
+	case "Name":
+		parts := strings.Split(physID, ":")
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+
+		return physID
+	}
+
 	return physID
 }
 
@@ -1068,11 +1101,11 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 func resolveLength(v any, ctx resolveCtx) string {
 	switch val := v.(type) {
 	case []any:
-		return fmt.Sprintf("%d", len(val))
+		return strconv.Itoa(len(val))
 	case string:
 		// Could be a splitSep-encoded list
 		if strings.Contains(val, splitSep) {
-			return fmt.Sprintf("%d", len(strings.Split(val, splitSep)))
+			return strconv.Itoa(len(strings.Split(val, splitSep)))
 		}
 
 		return "1"
@@ -1080,7 +1113,7 @@ func resolveLength(v any, ctx resolveCtx) string {
 		// Resolve first, then check result
 		resolved := resolveValueCtx(val, ctx)
 		if strings.Contains(resolved, splitSep) {
-			return fmt.Sprintf("%d", len(strings.Split(resolved, splitSep)))
+			return strconv.Itoa(len(strings.Split(resolved, splitSep)))
 		}
 
 		return "1"

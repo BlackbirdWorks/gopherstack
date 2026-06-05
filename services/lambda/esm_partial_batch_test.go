@@ -20,11 +20,11 @@ func TestLambda_SQS_PartialBatchFailure(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		messages         []*lambda.SQSMessage
 		response         []byte
 		wantDeleted      []string
 		wantNotDeleted   []string
+		name             string
 		functionRespType string
 	}{
 		{

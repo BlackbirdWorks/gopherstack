@@ -71,10 +71,10 @@ func (b *InMemoryBackend) pollKinesisShard(
 			return
 		}
 
-		records, nextIter, err := b.kinesisBackend.GetRecords(iter, kinesisPollerBatchLimit)
-		if err != nil {
+		records, nextIter, getErr := b.kinesisBackend.GetRecords(iter, kinesisPollerBatchLimit)
+		if getErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: GetRecords failed",
-				"stream", firehoseStream, "shard", shardID, "error", err)
+				"stream", firehoseStream, "shard", shardID, "error", getErr)
 
 			if waitOrDone(ctx, kinesisPollerInterval) {
 				return
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) injectKinesisRecord(streamName string, data []byte) er
 }
 
 // kinesisStreamNameFromARN extracts the stream name from a Kinesis ARN.
-// ARN format: arn:aws:kinesis:<region>:<account>:stream/<name>
+// ARN format: arn:aws:kinesis:<region>:<account>:stream/<name>.
 func kinesisStreamNameFromARN(kinesisARN string) string {
 	if !strings.Contains(kinesisARN, ":stream/") {
 		return ""

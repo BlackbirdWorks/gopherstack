@@ -57,7 +57,7 @@ var (
 		"task token callback invoker not configured",
 	)
 	ErrECSIntegrationNotConfigured         = errors.New("ECS integration not configured")
-	ErrGlueIntegrationNotConfigured        = errors.New("Glue integration not configured")
+	ErrGlueIntegrationNotConfigured        = errors.New("glue integration not configured")
 	ErrEventBridgeIntegrationNotConfigured = errors.New("EventBridge integration not configured")
 	ErrUnsupportedECSAction                = errors.New("unsupported ECS action")
 	ErrUnsupportedGlueAction               = errors.New("unsupported Glue action")
@@ -69,6 +69,7 @@ const (
 	errCodeStatesPermissions = "States.Permissions"
 	errCodeStatesRuntime     = "States.Runtime"
 	errCodeStatesTimeout     = "States.Timeout"
+	errCodeStatesTaskFailed  = errCodeStatesTaskFailed
 )
 
 // LambdaInvoker can invoke a Lambda function.
@@ -1039,13 +1040,13 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 	}
 	if isAPIGatewayResource(state.Resource) || isEMRResource(state.Resource) {
 		return nil, &FailError{
-			ErrCode: "States.TaskFailed",
+			ErrCode: errCodeStatesTaskFailed,
 			Cause:   fmt.Sprintf("unsupported service integration: %s", state.Resource),
 		}
 	}
 
 	return nil, &FailError{
-		ErrCode: "States.TaskFailed",
+		ErrCode: errCodeStatesTaskFailed,
 		Cause:   fmt.Sprintf("unsupported service integration: %s", state.Resource),
 	}
 }
@@ -1104,9 +1105,7 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	var result any
 	if unmarshalErr := json.Unmarshal(respBytes, &result); unmarshalErr != nil {
 		// If not JSON, return raw string as the output — the error is expected and intentional.
-		return string(
-			respBytes,
-		), nil //nolint:nilerr // non-JSON Lambda response is valid; return as string
+		return string(respBytes), nil
 	}
 
 	return result, nil
@@ -2493,7 +2492,7 @@ func catchesError(errorEquals []string, err error) bool {
 			if errCode == errCodeStatesTimeout {
 				return true
 			}
-		case "States.TaskFailed":
+		case errCodeStatesTaskFailed:
 			if errCode != errCodeStatesTimeout &&
 				errCode != errCodeStatesRuntime &&
 				errCode != errCodeStatesPermissions {

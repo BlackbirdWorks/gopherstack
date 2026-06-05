@@ -53,21 +53,38 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 		return &sqlResult{}
 	}
 
-	// --- parse FROM ---
 	fromIdx := strings.Index(upper, " FROM ")
 	if fromIdx < 0 {
 		return &sqlResult{}
 	}
 
 	selectClause := strings.TrimSpace(q[len("SELECT"):fromIdx])
-
 	rest := strings.TrimSpace(q[fromIdx+len(" FROM "):])
-	upper = strings.ToUpper(rest)
 
-	// parse optional WHERE / LIMIT after table name
-	var tableRef, whereClause string
-	var limit int
+	tableRef, whereClause, limit := parseFromClause(rest)
 
+	catalog, database, table := resolveTableRef(tableRef, ctx)
+	key := catalog + "/" + database + "/" + table
+
+	b.mu.RLock("executeSQL")
+	rawRows := b.tableData[key]
+	meta := b.tables[catalog+"/"+database]
+	b.mu.RUnlock()
+
+	if rawRows == nil {
+		return &sqlResult{}
+	}
+
+	colMeta := deriveColMeta(meta, table, rawRows)
+	selected := resolveSelectedColumns(selectClause, colMeta)
+	pred := parsePredicate(whereClause)
+
+	return applyPredicateAndProject(rawRows, selected, pred, limit)
+}
+
+// parseFromClause parses the FROM ... [WHERE ...] [LIMIT ...] tail of a SELECT.
+func parseFromClause(rest string) (tableRef, whereClause string, limit int) {
+	upper := strings.ToUpper(rest)
 	whereIdx := strings.Index(upper, " WHERE ")
 	limitIdx := strings.Index(upper, " LIMIT ")
 
@@ -90,29 +107,19 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 		tableRef = rest
 	}
 
-	// Resolve catalog / database / table from tableRef and context.
-	catalog, database, table := resolveTableRef(tableRef, ctx)
+	return tableRef, whereClause, limit
+}
 
-	key := catalog + "/" + database + "/" + table
-
-	b.mu.RLock("executeSQL")
-	rawRows := b.tableData[key]
-	meta := b.tables[catalog+"/"+database]
-	b.mu.RUnlock()
-
-	if rawRows == nil {
-		return &sqlResult{}
-	}
-
-	// Determine column set from table metadata (preserves declaration order).
+// deriveColMeta returns column metadata for a table, falling back to first-row keys.
+func deriveColMeta(meta map[string]*TableMetadata, table string, rawRows []map[string]any) []Column {
 	var colMeta []Column
+
 	if meta != nil {
 		if tm, ok := meta[table]; ok {
 			colMeta = tm.Columns
 		}
 	}
 
-	// If metadata is absent, derive columns from first row.
 	if len(colMeta) == 0 && len(rawRows) > 0 {
 		for k := range rawRows[0] {
 			colMeta = append(colMeta, Column{Name: k, Type: columnTypeString})
@@ -120,7 +127,11 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 		sortColumns(colMeta)
 	}
 
-	// Resolve the selected columns.
+	return colMeta
+}
+
+// resolveSelectedColumns expands the SELECT clause into a list of sqlColumns.
+func resolveSelectedColumns(selectClause string, colMeta []Column) []sqlColumn {
 	var selected []sqlColumn
 
 	if strings.TrimSpace(selectClause) == "*" {
@@ -135,10 +146,11 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 		}
 	}
 
-	// Parse WHERE predicate.
-	pred := parsePredicate(whereClause)
+	return selected
+}
 
-	// Apply predicate and project columns.
+// applyPredicateAndProject filters rows by pred and projects the selected columns.
+func applyPredicateAndProject(rawRows []map[string]any, selected []sqlColumn, pred predicate, limit int) *sqlResult {
 	var result [][]string
 
 	for _, row := range rawRows {
@@ -148,8 +160,7 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 
 		var projected []string
 		for _, col := range selected {
-			v := row[col.name]
-			projected = append(projected, anyToString(v))
+			projected = append(projected, anyToString(row[col.name]))
 		}
 
 		result = append(result, projected)
@@ -213,7 +224,8 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 
 // --- helpers ---
 
-func resolveTableRef(ref string, ctx QueryExecutionContext) (catalog, database, table string) {
+func resolveTableRef(ref string, ctx QueryExecutionContext) (string, string, string) {
+	var catalog, database, table string
 	parts := strings.Split(ref, ".")
 	switch len(parts) {
 	case 3:
@@ -266,7 +278,7 @@ func columnType(name string, cols []Column) string {
 		}
 	}
 
-	return "string"
+	return columnTypeString
 }
 
 // predicate is a row-level filter function.

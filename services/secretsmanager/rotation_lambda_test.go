@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -47,8 +48,9 @@ func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
 			// Track which steps were called.
 			var calledSteps []string
 			mock := &recordingLambdaInvoker{
-				onInvoke: func(name, _ string, payload []byte) ([]byte, int, error) {
+				onInvoke: func(_, _ string, payload []byte) ([]byte, int, error) {
 					calledSteps = append(calledSteps, extractStep(payload))
+
 					return nil, 200, nil
 				},
 			}
@@ -62,7 +64,7 @@ func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
 
 			e := echo.New()
 			body := fmt.Sprintf(`{"SecretId":"pending-test","RotationLambdaARN":%q}`, testLambdaARN)
-			req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
 			rec := httptest.NewRecorder()
 			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -122,26 +124,25 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 				onInvoke: func(_, _ string, _ []byte) ([]byte, int, error) {
 					callCount++
 					if callCount == tt.failAfter {
+
 						return nil, 500, errLambdaExecutionFailed
 					}
+
 					return nil, 200, nil
 				},
 			}
 			h.SetLambdaInvoker(mock)
 
-			originalVersion := ""
-			{
-				out, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
-					Name:         "abort-test",
-					SecretString: "original",
-				})
-				require.NoError(t, err)
-				originalVersion = out.VersionID
-			}
+			out0, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "abort-test",
+				SecretString: "original",
+			})
+			require.NoError(t, err)
+			originalVersion := out0.VersionID
 
 			e := echo.New()
 			body := fmt.Sprintf(`{"SecretId":"abort-test","RotationLambdaARN":%q}`, testLambdaARN)
-			req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
 			rec := httptest.NewRecorder()
 			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -189,8 +190,10 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 				onInvoke: func(_, _ string, payload []byte) ([]byte, int, error) {
 					calledSteps = append(calledSteps, extractStep(payload))
 					if tt.lambdaErr != nil {
+
 						return nil, 500, tt.lambdaErr
 					}
+
 					return nil, 200, nil
 				},
 			}
@@ -250,13 +253,16 @@ func extractStep(payload []byte) string {
 	const marker = `"Step":"`
 	idx := strings.Index(s, marker)
 	if idx < 0 {
+
 		return ""
 	}
 	rest := s[idx+len(marker):]
 	end := strings.Index(rest, `"`)
 	if end < 0 {
+
 		return rest
 	}
+
 	return rest[:end]
 }
 

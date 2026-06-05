@@ -2470,11 +2470,14 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		reason := fmt.Sprintf("Threshold Crossed: %d datapoints breached the threshold", snap.alarm.DatapointsToAlarm)
-		if newState == alarmStateInsufficientData {
+		var reason string
+		switch newState {
+		case alarmStateInsufficientData:
 			reason = "Insufficient Data: not enough datapoints to evaluate"
-		} else if newState == alarmStateOK {
+		case alarmStateOK:
 			reason = "Threshold Crossed: datapoints within normal range"
+		default:
+			reason = fmt.Sprintf("Threshold Crossed: %d datapoints breached the threshold", snap.alarm.DatapointsToAlarm)
 		}
 
 		// SetAlarmState acquires its own lock and fires SNS/Lambda actions.

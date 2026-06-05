@@ -34,8 +34,8 @@ func (a *testKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 }
 
 // newSSMWithKMS creates an SSM backend wired to a real KMS backend.
-// Returns the SSM backend, KMS backend, and the created key ID.
-func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, *kms.InMemoryBackend, string) {
+// Returns the SSM backend and the created key ID.
+func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, string) {
 	t.Helper()
 	kmsBackend := kms.NewInMemoryBackend()
 	keyOut, err := kmsBackend.CreateKey(&kms.CreateKeyInput{Description: "test key"})
@@ -44,7 +44,7 @@ func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, *kms.InMemoryBackend, st
 
 	ssmBackend := ssm.NewInMemoryBackend()
 	ssmBackend.WithKMS(&testKMSAdapter{b: kmsBackend})
-	return ssmBackend, kmsBackend, keyID
+	return ssmBackend, keyID
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, *kms.InMemoryBackend, st
 func TestSSMSecureStringKMS_EncryptedAtRest(t *testing.T) {
 	t.Parallel()
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	// PutParameter — value should be KMS-encrypted.
 	_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
@@ -77,7 +77,7 @@ func TestSSMSecureStringKMS_EncryptedAtRest(t *testing.T) {
 func TestSSMSecureStringKMS_DecryptOnGet(t *testing.T) {
 	t.Parallel()
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
 		Name:  "/test/db-pass",
@@ -108,7 +108,7 @@ func TestSSMSecureStringKMS_MultipleParams(t *testing.T) {
 		{"gamma", "password-gamma", "/multi/gamma"},
 	}
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, tt := range tests {
 		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
@@ -133,7 +133,7 @@ func TestSSMSecureStringKMS_MultipleParams(t *testing.T) {
 func TestSSMSecureStringKMS_GetParameters(t *testing.T) {
 	t.Parallel()
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, p := range []struct{ name, val string }{
 		{"/batch/x", "val-x"},
@@ -165,7 +165,7 @@ func TestSSMSecureStringKMS_GetParameters(t *testing.T) {
 func TestSSMSecureStringKMS_GetParametersByPath(t *testing.T) {
 	t.Parallel()
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, p := range []struct{ name, val string }{
 		{"/path/a", "v-a"},
@@ -197,7 +197,7 @@ func TestSSMSecureStringKMS_GetParametersByPath(t *testing.T) {
 func TestSSMSecureStringKMS_History(t *testing.T) {
 	t.Parallel()
 
-	ssmBackend, _, keyID := newSSMWithKMS(t)
+	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, v := range []string{"v1", "v2"} {
 		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{

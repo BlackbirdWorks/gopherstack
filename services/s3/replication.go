@@ -13,7 +13,7 @@ import (
 )
 
 // bucketNameFromARN extracts the bucket name from an S3 ARN.
-// S3 ARN format: arn:aws:s3:::bucket-name
+// S3 ARN format: arn:aws:s3:::bucket-name.
 func bucketNameFromARN(arn string) string {
 	// Strip "arn:aws:s3:::" prefix (or any partition variant)
 	const arnPrefix = "arn:"
@@ -32,7 +32,7 @@ func bucketNameFromARN(arn string) string {
 // triggerReplication asynchronously replicates a newly-written object to all
 // destination buckets configured in the source bucket's ReplicationConfiguration.
 // It is called after PutObject completes successfully.
-func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, key, etag string) {
+func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, key, _ string) {
 	b.mu.RLock("triggerReplication.readConfig")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 	}
 
 	for _, rule := range cfg.Rules {
-		if rule.Status != "Enabled" {
+		if rule.Status != statusEnabled {
 			continue
 		}
 		if rule.Prefix != "" && !strings.HasPrefix(key, rule.Prefix) {
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 }
 
 // triggerDeleteMarkerReplication asynchronously replicates a delete-marker to
-// destination buckets whose rules have DeleteMarkerReplication.Status = "Enabled".
+// destination buckets whose rules have DeleteMarkerReplication.Status = statusEnabled.
 func (b *InMemoryBackend) triggerDeleteMarkerReplication(ctx context.Context, bucketName, key string) {
 	b.mu.RLock("triggerDeleteMarkerReplication.readConfig")
 	bucket, err := b.getBucket(bucketName)
@@ -128,10 +128,10 @@ func (b *InMemoryBackend) triggerDeleteMarkerReplication(ctx context.Context, bu
 	}
 
 	for _, rule := range cfg.Rules {
-		if rule.Status != "Enabled" {
+		if rule.Status != statusEnabled {
 			continue
 		}
-		if rule.DeleteMarkerReplication.Status != "Enabled" {
+		if rule.DeleteMarkerReplication.Status != statusEnabled {
 			continue
 		}
 		if rule.Prefix != "" && !strings.HasPrefix(key, rule.Prefix) {

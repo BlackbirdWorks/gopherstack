@@ -521,9 +521,9 @@ type InMemoryBackend struct {
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
-	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
+	mu                *lockmetrics.RWMutex
 
 	// lifecycle: tracks when InProgress invalidations become Completed.
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
@@ -629,31 +629,28 @@ func (b *InMemoryBackend) reconcileInvalidationsLocked() {
 	now := time.Now()
 
 	for distID, invMap := range b.invalidationReadyAt {
-		for invID, readyAt := range invMap {
-			if now.After(readyAt) {
-				for _, inv := range b.invalidations[distID] {
-					if inv.ID == invID && inv.Status == statusInProgress {
-						inv.Status = "Completed"
-					}
-				}
-
-				delete(invMap, invID)
-			}
-		}
+		reconcileInvMap(invMap, b.invalidations[distID], now)
 	}
 
 	for tenantID, invMap := range b.tenantInvalidationReadyAt {
-		for invID, readyAt := range invMap {
-			if now.After(readyAt) {
-				for _, inv := range b.tenantInvalidations[tenantID] {
-					if inv.ID == invID && inv.Status == statusInProgress {
-						inv.Status = "Completed"
-					}
-				}
+		reconcileInvMap(invMap, b.tenantInvalidations[tenantID], now)
+	}
+}
 
-				delete(invMap, invID)
+// reconcileInvMap marks ready InProgress invalidations as Completed and removes them from readyAt.
+func reconcileInvMap(invMap map[string]time.Time, invs []*Invalidation, now time.Time) {
+	for invID, readyAt := range invMap {
+		if !now.After(readyAt) {
+			continue
+		}
+
+		for _, inv := range invs {
+			if inv.ID == invID && inv.Status == statusInProgress {
+				inv.Status = "Completed"
 			}
 		}
+
+		delete(invMap, invID)
 	}
 }
 

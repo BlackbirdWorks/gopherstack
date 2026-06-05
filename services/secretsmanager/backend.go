@@ -106,10 +106,10 @@ type InMemoryBackend struct {
 	replicationConfigs map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
+	lambdaInvoker      LambdaInvoker
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
-	lambdaInvoker      LambdaInvoker
 }
 
 // SetLambdaInvoker stores the Lambda invoker on the backend. The rotation
