@@ -136,6 +136,7 @@ type StorageBackend interface {
 	) (page.Page[MetricAlarm], page.Page[CompositeAlarm], error)
 	DescribeAlarmsForMetric(
 		namespace, metricName string,
+		dimensions []Dimension,
 		alarmNames []string,
 		nextToken string,
 		maxRecords int,
@@ -1270,6 +1271,7 @@ func (b *InMemoryBackend) collectCompositeAlarms(
 // DescribeAlarmsForMetric returns metric alarms associated with a specific metric.
 func (b *InMemoryBackend) DescribeAlarmsForMetric(
 	namespace, metricName string,
+	dimensions []Dimension,
 	alarmNames []string,
 	nextToken string,
 	maxRecords int,
@@ -1291,6 +1293,9 @@ func (b *InMemoryBackend) DescribeAlarmsForMetric(
 			continue
 		}
 		if len(nameSet) > 0 && !nameSet[alarm.AlarmName] {
+			continue
+		}
+		if len(dimensions) > 0 && !dimsContainAll(alarm.Dimensions, dimensions) {
 			continue
 		}
 		result = append(result, *alarm)
