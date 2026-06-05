@@ -765,6 +765,11 @@ func (b *InMemoryBackend) HeadObject(
 		"versionId", aws.ToString(versionID),
 		"foundContentType", ver.ContentType)
 
+	sc := ver.StorageClass
+	if sc == "" {
+		sc = "STANDARD"
+	}
+
 	return &s3.HeadObjectOutput{
 		ContentLength:        aws.Int64(ver.Size),
 		ContentType:          aws.String(ver.ContentType),
@@ -779,6 +784,7 @@ func (b *InMemoryBackend) HeadObject(
 		ChecksumSHA1:         ver.ChecksumSHA1,
 		ChecksumSHA256:       ver.ChecksumSHA256,
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
+		StorageClass:         types.StorageClass(sc),
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
 		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
 		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
@@ -1335,6 +1341,7 @@ type versionSnapshot struct {
 	key          string
 	versionID    string
 	etag         string
+	storageClass string
 	size         int64
 	isLatest     bool
 	deleted      bool
@@ -1416,6 +1423,11 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 		}
 
 		for _, v := range obj.Versions {
+			sc := v.StorageClass
+			if sc == "" {
+				sc = "STANDARD"
+			}
+
 			snapshots = append(snapshots, versionSnapshot{
 				key:          v.Key,
 				versionID:    v.VersionID,
@@ -1424,6 +1436,7 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 				size:         v.Size,
 				isLatest:     v.IsLatest,
 				deleted:      v.Deleted,
+				storageClass: sc,
 			})
 		}
 	}
@@ -1534,7 +1547,7 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				LastModified: aws.Time(snap.lastModified),
 				ETag:         aws.String(snap.etag),
 				Size:         aws.Int64(snap.size),
-				StorageClass: types.ObjectVersionStorageClassStandard,
+				StorageClass: types.ObjectVersionStorageClass(snap.storageClass),
 				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
 			})
 		}
