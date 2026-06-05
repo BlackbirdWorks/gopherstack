@@ -828,17 +828,19 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	upload, ok := b.layerUploads[uploadID]
 	if ok && upload.RepositoryName == repositoryName {
 		if len(upload.Data) > 0 {
-			// Verify SHA256 only when actual bytes were uploaded.
 			computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
 
-			digest = computed
 			if len(layerDigests) > 0 && layerDigests[0] != "" {
-				if layerDigests[0] != computed {
+				provided := layerDigests[0]
+				// Only enforce digest verification for full 64-char SHA256 digests.
+				if isFullSHA256Digest(provided) && provided != computed {
 					return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
-						ErrLayerDigestMismatch, layerDigests[0], computed)
+						ErrLayerDigestMismatch, provided, computed)
 				}
 
-				digest = layerDigests[0]
+				digest = provided
+			} else {
+				digest = computed
 			}
 		} else if len(layerDigests) > 0 {
 			digest = layerDigests[0]
@@ -874,6 +876,26 @@ func sha256Sum(data []byte) []byte {
 	h.Write(data)
 
 	return h.Sum(nil)
+}
+
+// isFullSHA256Digest returns true when s is a properly-formed "sha256:<64 hex>" digest.
+func isFullSHA256Digest(s string) bool {
+	const prefix = "sha256:"
+	if len(s) != len(prefix)+64 {
+		return false
+	}
+
+	if s[:len(prefix)] != prefix {
+		return false
+	}
+
+	for _, c := range s[len(prefix):] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // GetDownloadURLForLayer resolves a local download URL for an uploaded layer.
