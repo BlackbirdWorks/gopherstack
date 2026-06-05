@@ -50,8 +50,10 @@ const (
 )
 
 const (
-	protocolEmail = "email"
-	protocolHTTP  = "http"
+	protocolLambda   = "lambda"
+	protocolFirehose = "firehose"
+	protocolEmail    = "email"
+	protocolHTTP     = "http"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -108,6 +110,9 @@ const (
 	// snsMaxConcurrentDeliveries caps the number of HTTP/HTTPS subscription
 	// deliveries that may run concurrently for a single Publish call.
 	snsMaxConcurrentDeliveries = 8
+
+	// snsLambdaInvocationType is the Lambda invocation type for SNS delivery (fire-and-forget).
+	snsLambdaInvocationType = "Event"
 
 	// maxDeliveryResponseBytes is the maximum number of bytes read from an HTTP
 	// delivery response body to prevent unbounded memory growth from large responses.
@@ -392,9 +397,22 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 	return sb.String()
 }
 
+// SNSLambdaInvoker can invoke a Lambda function for SNS subscription delivery.
+type SNSLambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// SNSFirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
+type SNSFirehosePutter interface {
+	// PutRecordBatch delivers a batch of records to the named delivery stream.
+	PutRecordBatch(streamName string, records [][]byte) (int, error)
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	lambdaBackend        SNSLambdaInvoker
+	firehoseBackend      SNSFirehosePutter
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -490,6 +508,22 @@ func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.
 	defer b.mu.Unlock()
 
 	b.emitter = emitter
+}
+
+// SetLambdaBackend wires the Lambda backend for SNS → Lambda subscription delivery.
+func (b *InMemoryBackend) SetLambdaBackend(lambda SNSLambdaInvoker) {
+	b.mu.Lock("SetLambdaBackend")
+	defer b.mu.Unlock()
+
+	b.lambdaBackend = lambda
+}
+
+// SetFirehoseBackend wires the Firehose backend for SNS → Firehose subscription delivery.
+func (b *InMemoryBackend) SetFirehoseBackend(firehose SNSFirehosePutter) {
+	b.mu.Lock("SetFirehoseBackend")
+	defer b.mu.Unlock()
+
+	b.firehoseBackend = firehose
 }
 
 // CreateTopic creates a new SNS topic using the backend's default region.
@@ -1721,6 +1755,16 @@ func (b *InMemoryBackend) Publish(
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
 	b.emitPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
+
+	ev := &events.SNSPublishedEvent{
+		TopicARN:      topicArn,
+		MessageID:     messageID,
+		Message:       message,
+		Subject:       subject,
+		Subscriptions: targets.subs,
+	}
+	b.deliverToLambdaSubscriptions(ev)
+	b.deliverToFirehoseSubscriptions(ev)
 
 	return messageID, nil
 }
