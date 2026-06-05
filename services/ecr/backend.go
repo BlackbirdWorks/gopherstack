@@ -359,6 +359,7 @@ type ImageTagMutabilityExclusionFilter struct {
 
 type layerUploadState struct {
 	RepositoryName string
+	Data           []byte
 	Size           int64
 }
 
@@ -808,7 +809,11 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 	return configs, failures, nil
 }
 
+// ErrLayerDigestMismatch is returned when the provided digest does not match the uploaded bytes.
+var ErrLayerDigestMismatch = awserr.New("InvalidLayerException", awserr.ErrInvalidParameter)
+
 // CompleteLayerUpload finalises the upload of an image layer.
+// It computes the SHA256 of the accumulated bytes and verifies the provided digest.
 func (b *InMemoryBackend) CompleteLayerUpload(
 	repositoryName, uploadID string,
 	layerDigests []string,
@@ -816,8 +821,20 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	b.mu.Lock("CompleteLayerUpload")
 	defer b.mu.Unlock()
 
-	digest := ""
-	if len(layerDigests) > 0 {
+	upload, ok := b.layerUploads[uploadID]
+	if !ok || upload.RepositoryName != repositoryName {
+		return nil, fmt.Errorf("%w: upload %s not found", ErrRepositoryNotFound, uploadID)
+	}
+
+	computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
+
+	digest := computed
+	if len(layerDigests) > 0 && layerDigests[0] != "" {
+		if layerDigests[0] != computed {
+			return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
+				ErrLayerDigestMismatch, layerDigests[0], computed)
+		}
+
 		digest = layerDigests[0]
 	}
 
@@ -825,9 +842,8 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 		b.uploadedLayers[repositoryName] = make(map[string]int64)
 	}
 
-	if digest != "" {
-		b.uploadedLayers[repositoryName][digest] = 1234
-	}
+	b.uploadedLayers[repositoryName][digest] = upload.Size
+	delete(b.layerUploads, uploadID)
 
 	return &CompleteLayerUploadResult{
 		LayerDigest:    digest,
@@ -835,6 +851,14 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 		RegistryID:     b.accountID,
 		UploadID:       uploadID,
 	}, nil
+}
+
+// sha256Sum returns the SHA256 hash of data.
+func sha256Sum(data []byte) []byte {
+	h := sha256.New()
+	h.Write(data)
+
+	return h.Sum(nil)
 }
 
 // GetDownloadURLForLayer resolves a local download URL for an uploaded layer.
@@ -891,11 +915,12 @@ func (b *InMemoryBackend) UploadLayerPart(
 		return nil, fmt.Errorf("%w: upload not found", ErrRepositoryNotFound)
 	}
 
-	if lastByte < 0 && len(blob) > 0 {
-		lastByte = int64(len(blob) - 1)
-	}
+	upload.Data = append(upload.Data, blob...)
+	upload.Size = int64(len(upload.Data))
 
-	upload.Size = lastByte + 1
+	if lastByte < 0 && len(blob) > 0 {
+		lastByte = upload.Size - 1
+	}
 
 	return &LayerUploadPartResult{
 		LastByteReceived: lastByte,
