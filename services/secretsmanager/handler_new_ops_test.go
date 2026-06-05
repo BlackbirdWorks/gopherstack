@@ -513,11 +513,19 @@ func TestUpdateSecretVersionStage(t *testing.T) {
 				t.Helper()
 				out, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stage-remove", SecretString: "v1"})
 				require.NoError(t, err)
+				// Add a custom label first so we can remove it.
+				// AWSCURRENT cannot be removed without MoveToVersionId (AWS constraint).
+				_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+					SecretID:        "stage-remove",
+					VersionStage:    "AWSCUSTOM",
+					MoveToVersionID: out.VersionID,
+				})
+				require.NoError(t, err)
 
 				return out.VersionID
 			},
 			bodyFn: func(versionID string) string {
-				return `{"SecretId":"stage-remove","VersionStage":"AWSCURRENT","RemoveFromVersionId":"` + versionID + `"}`
+				return `{"SecretId":"stage-remove","VersionStage":"AWSCUSTOM","RemoveFromVersionId":"` + versionID + `"}`
 			},
 			expectedStatus: http.StatusOK,
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
