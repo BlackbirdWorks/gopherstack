@@ -460,7 +460,7 @@ type jsonSendMessageResp struct {
 	MessageID              string `json:"MessageId"`
 	MD5OfMessageBody       string `json:"MD5OfMessageBody"`
 	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
-	SequenceNumber         string `json:"SequenceNumber"`
+	SequenceNumber         string `json:"SequenceNumber,omitempty"`
 }
 
 type jsonReceivedMessage struct {
@@ -729,7 +729,11 @@ func (h *Handler) handleReceiveMessage(
 
 	vt := noVisibilitySet
 	if req.VisibilityTimeout != nil {
-		vt = *req.VisibilityTimeout
+		v := *req.VisibilityTimeout
+		if v < 0 || v > maxVisibilityTimeoutSeconds {
+			return nil, ErrInvalidVisibilityTimeout
+		}
+		vt = v
 	}
 
 	// Merge MessageSystemAttributeNames into AttributeNames for unified system attribute filtering.
