@@ -4,7 +4,8 @@
 > and LocalStack feature coverage. Every finding below was confirmed by reading the
 > referenced handler/backend source (citations are `file:line`). Audit date: 2026-06-05.
 >
-> This document is a **behavioural & compatibility** audit. It complements:
+> This document is a **behavioural, compatibility, resource-leak & performance** audit
+> (§1–§9 parity/fidelity, §10 leaks, §11 performance). It complements:
 > - `PARITY.md` — a changelog of already-fixed wire-protocol/parity bugs.
 > - `STATUS.md` / `MISSING.md` — service-level coverage matrices (note: both are **stale** —
 >   they list ~45 services, but `services/` actually contains **148**).
@@ -187,6 +188,11 @@ directories but have large `notImplemented` slices.)
 6. **EC2 persistence allowlist** (#24) — close the largest restart-data-loss surface.
 7. **Secrets Manager rotation Lambda invocation** (#14) and **CloudWatch alarm auto-evaluation** (#15).
 
+**Cheap, high-value quick wins (do first):**
+- **DynamoDB iterator-store leak** (#48) — one line: add `iteratorStore.Sweep()` to the production `mainTicker` case. Stops an unbounded leak under any stream/ESM load and corrects the stale `PARITY.md` claim.
+- **SQS per-queue locking + single-pass receive** (#54, #55, #56) — the biggest throughput win, directly relevant to the "faster than LocalStack" positioning.
+- **Stuck-forever async states** (#35 Glue, #36 CloudFront invalidations, #38 ELBv2 health) — break poll-until-complete client code; add a reconciler/timed transition.
+
 ---
 
 ## 8. Region support is mandatory — and currently inconsistent 🔴
@@ -250,6 +256,83 @@ region-keyed storage — starting with the highest-value stateful services (Dyna
 Kinesis, Lambda, EC2, Secrets Manager, SSM, CloudWatch). Track per-service region-support status in a
 matrix (✅ isolated / ⚠️ region read but not isolated / ❌ single-region) and drive it to all-✅,
 excluding the genuinely-global services listed above.
+
+---
+
+## 9. Additional behavioural fidelity gaps (newer / less-covered services)
+
+A second behavioural sweep over services not in §1–§3. The dominant pattern is **lifecycle skip**
+(resources are born in their terminal state) and **stuck-forever** async states — both break realistic
+"poll until ready / complete" client code.
+
+| # | Sev | Service | Gap | Citation |
+|---|-----|---------|-----|----------|
+| 34 | 🔴 | **Route 53 / DNS** | Registered A/CNAME records **all resolve to one fixed IP** (default `127.0.0.1`). The `DNSRegistrar` interface only passes the hostname, not the record value, so the DNS server ignores the actual record data; CNAMEs are answered as A→127.0.0.1, and weighted/latency/alias routing isn't reflected. | `services/route53/backend.go:946`, `pkgs/dns/dns.go:264` |
+| 35 | 🔴 | **Glue** | `StartJobRun` runs are created `STARTING` and **never transition** to RUNNING/SUCCEEDED/FAILED (no reconciler). `StartCrawler` crawlers stay `RUNNING` forever, never scan a source or populate Data Catalog tables. | `services/glue/backend.go:1695`, `:1872` |
+| 36 | 🔴 | **CloudFront** | `CreateInvalidation` invalidations are stuck **`InProgress` forever** — a `GetInvalidation` poll loop hangs. (The tenant variant inconsistently hardcodes `Completed`.) No origin proxying at all; `CreateDistribution` jumps straight to `Deployed`. | `services/cloudfront/backend.go:982`, `:710` |
+| 37 | 🔴 | **ECR** | **Layer blobs are discarded** — `UploadLayerPart` ignores the bytes (records only a size); `CompleteLayerUpload` accepts any digest without verifying content and hardcodes layer size `1234`. `docker push`/`pull` image data can't round-trip. | `services/ecr/backend.go:877`, `:828` |
+| 38 | 🟠 | **ELBv2** | Registered targets are set `initial` and **never probed/transitioned** to `healthy` (only the test-only `SetTargetHealthState` mutates it). Listener rules are metadata — no traffic is forwarded to targets. | `services/elbv2/backend.go:1396`, `:1450` |
+| 39 | 🟠 | **RDS** | `CreateDBInstance` sets status directly to `available` and never sets `instanceReadyAt`, so created instances never pass through `creating` (the reconciler only advances Modify/Reboot). | `services/rds/backend.go:990`, `:1023` |
+| 40 | 🟠 | **EKS** | `CreateCluster` and nodegroups go straight to `ACTIVE` — no `CREATING` state, no reconciler. | `services/eks/backend.go:408`, `:638` |
+| 41 | 🟠 | **ElastiCache** | Clusters created directly `available`; no `creating`, no reconciler. | `services/elasticache/backend.go:599` |
+| 42 | 🟠 | **EFS** | `CreateFileSystem`/`CreateMountTarget` go straight to `available`; the `statusCreating` constant is defined but never used. | `services/efs/backend.go:511`, `:745` |
+| 43 | 🟠 | **Cognito Identity** | `GetCredentialsForIdentity` returns random `ASIA…` creds **not wired to STS/IAM** — they don't correspond to the pool's IAM role and can't authorize calls to other services (no `AssumeRoleWithWebIdentity`). Login-token validation itself is good. | `services/cognitoidentity/backend.go:438` |
+| 44 | 🟠 | **Route 53 Resolver** | Forwarding rules store `TargetIps` but **never forward DNS queries** to them — no `pkgs/dns` integration. Pure metadata. | `services/route53resolver/backend.go:141`, `:573` |
+| 45 | 🟡 | **Transcribe** | `StartTranscriptionJob` returns a job already `COMPLETED` with a hardcoded synthetic transcript — never `IN_PROGRESS`, never reads audio. (No real ASR — inherent.) | `services/transcribe/backend.go:246` |
+| 46 | 🟡 | **OpenSearch** | `DescribeDomain` hardcodes `Processing: false` and a custom `Active` status; newly-created domains never appear as creating/processing. | `services/opensearch/handler.go:1429`, `backend.go:590` |
+| 47 | 🟡 | **Route 53 Resolver / apigatewayv2** | `CreateResolverEndpoint`→`OPERATIONAL` and apigatewayv2 `CreateDeployment`→`DEPLOYED` immediately, skipping the `CREATING`/`PENDING` state. | `services/route53resolver/backend.go:439`, `services/apigatewayv2/backend.go:1122` |
+
+**Confirmed GOOD (do not misreport):** **ECS** runs tasks via real Docker (`docker_runner.go`) with
+PROVISIONING→RUNNING→STOPPED + a desired-count reconciler; **DynamoDB Streams** surface real
+INSERT/MODIFY/REMOVE (incl. TTL deletes) via per-table ring buffers; **Scheduler** actually fires
+cron/rate schedules to 8+ target types with retries/backoff/DLQ (`services/scheduler/runner.go:175`);
+**Cognito IDP** does real bcrypt + signed-JWT auth with MFA/SRP/refresh tokens; **SES** enforces
+verified identities and stores a retrievable outbox.
+
+---
+
+## 10. Resource leaks (unbounded growth / lifecycle)
+
+Verified by reading the backends and their janitors. Severity = growth rate under normal use.
+
+| # | Sev | Service | Leak | Citation |
+|---|-----|---------|------|----------|
+| 48 | 🔴 | **DynamoDB shard-iterator store** | `ShardIteratorStore.Put` runs on every `GetShardIterator` **and every `GetRecords`** (a fresh token per poll, old one not deleted). A `Sweep()` exists but is wired **only into the test-only `runOnce`** — the production `Run` loop's `mainTicker` case sweeps `exprCache` but **not** `iteratorStore`. Any stream consumer (e.g. the Lambda ESM poller, ~1 poll/s) adds a permanent map entry per poll. **Contradicts the `PARITY.md:74` claim that this was fixed.** One-line fix: add `j.Backend.iteratorStore.Sweep()` to the `mainTicker` case. | `services/dynamodb/janitor.go:102` (Run) vs `:131` (runOnce); `streams_ops.go:473` |
+| 49 | 🔴 | **sagemakerruntime** | `sessions` and `asyncInvocations` maps grow forever — **no `delete()`, no janitor, no Sweep**. `Session.ExpiresAt` is computed and returned to clients in a header but **never enforced**. One entry per stateful `InvokeEndpoint` / `InvokeEndpointAsync`, retained for process lifetime. | `services/sagemakerruntime/backend.go:48`, `:123`, `:169` |
+| 50 | 🟠 | **Comprehend** | `jobs` and `iterations` maps leak — inserted per `Start*Job`/flywheel iteration; no trim, cap, or janitor (the package's `delete()` calls target `resources`/`tags`/`policies`, not jobs). AWS has no DeleteJob, so they only grow. | `services/comprehend/backend.go:175`, `:386` |
+| 51 | 🟠 | **Textract** | The `clientTokenToJobID` / `adapterClientTokenToID` idempotency maps are **never included in any trim**, so they keep growing even after the jobs they point to are LRU-evicted. (The job maps themselves *are* bounded — not a leak.) | `services/textract/backend.go:417`, `:418` |
+| 52 | 🟡 | **DataBrew** | `jobRuns` slice is append-only per `StartJobRun`, never trimmed (no janitor). The completion goroutine is short-lived and fine. | `services/databrew/backend.go:683` |
+| 53 | 🟡 | **EventBridge** | `archivedEvents` map and `eventLog` slice are append-only with no sweep (delivery lifecycle itself is clean: ctx-cancelled, `wg`, `Close()` with timeout). Bounded by archive feature use. | `services/eventbridge/backend.go:173`, `:185` |
+
+**Confirmed clean (skeptical pass):** Lambda ESM poller (single shared goroutine, ctx-cancelled,
+`sweepStaleIterators` + `RemoveMapping` on delete), Lambda function-URL listeners (stopped + map-deleted
+on delete/Close), Step Functions per-execution `cancelFns` (deleted on completion/stop), kinesisanalytics
+`cancelFuncs`, DynamoDB `txnTokens`/`exprCache` (swept), resourcegroupstaggingapi (false positive — all
+local vars), and the two outbound HTTP-client sites both `defer resp.Body.Close()`.
+
+---
+
+## 11. Performance / optimization opportunities
+
+The codebase is unusually disciplined (custom `lockmetrics.RWMutex`, fine-grained per-resource locks,
+map indexes, debounced persistence). These are the genuine remaining inefficiencies.
+
+| # | Sev | Service | Issue | Fix | Citation |
+|---|-----|---------|-------|-----|----------|
+| 54 | 🔴 | **SQS** | `ReceiveMessage` rebuilds the entire message slice 3–4× per receive: under the global write lock, `reQueueExpired`/`expireRetainedMessages`/`drainToDLQ`/`pickMessages` each iterate **all** of `q.messages` and reallocate. Receiving 1 from a 10k-deep queue is O(10k) with up to 4 reallocs. | Fold the passes into one walk; compact only when something was removed. | `services/sqs/backend.go:1459` |
+| 55 | 🔴 | **SQS** | One **global** write `Lock` for all send/receive/delete, so traffic on queue A serializes unrelated queue B. | Per-queue mutex (the queue struct is the natural scope). | `services/sqs/backend.go:996`, `:1451`, `:1708` |
+| 56 | 🔴 | **SQS** | `DeleteMessage` is an O(in-flight) linear scan by receipt handle + O(n) slice splice. | Index in-flight by `map[receiptHandle]*InFlightMessage` for O(1) delete. | `services/sqs/backend.go:1718` |
+| 57 | 🟠 | **DynamoDB** | `Query` shallow-copies the **entire** table items slice even for a single-PK lookup (candidates resolved by offset into the full `Items` snapshot), making an indexed query O(total-table-size). | Copy only referenced item pointers into a small offset-keyed map. | `services/dynamodb/item_ops_query.go:83` |
+| 58 | 🟠 | **SQS** | `SendMessageBatch`/`DeleteMessageBatch` re-lock + re-lookup the queue + churn the long-poll `notify` channel **per entry** (10-entry batch = 10 lock cycles). | Resolve the queue once; append all entries under one lock. | `services/sqs/backend.go:1934` |
+| 59 | 🟠 | **SQS** | `GetQueueAttributes` walks every message to count delayed ones (`ApproximateNumberOfMessages`); commonly polled in tight loops → O(depth) per poll. | Maintain a delayed-message counter. | `services/sqs/backend.go:686` |
+| 60 | 🟡 | **CloudWatch** | `countTotalMetrics()` iterates all namespaces per new series inside the `PutMetricData` loop; `dimensionSetKey` allocates a sorted copy + parts slice + `strings.Join` per datum. | Running total counter; build the key with one `strings.Builder`. | `services/cloudwatch/backend.go:378`, `:248` |
+| 61 | 🟡 | **SQS / S3** | List result slices built without capacity hints (`ListQueues`, `processObjectSnapshots`) despite the length being known. | Preallocate with `make([]T, 0, n)`. | `services/sqs/backend.go:622`, `services/s3/backend_memory.go:1217` |
+
+**Already well-optimized (do not report):** DynamoDB `Query` pre-parses PK before locking, uses `RLock`,
+copies only the targeted partition, releases before filter/sort; 16-shard LRU expression cache; S3
+three-level locking with compression/hashing/encryption done lock-free; EC2 secondary indexes
+(`instanceIDsByVPC`/`eniIDsByInstance`); CloudWatch two-level metric map (direct hits, no scans);
+debounced generation-checked persistence.
 
 ---
 
