@@ -1104,6 +1104,7 @@ type handleCreateESMInput struct {
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
 	Topics                              []string                             `json:"Topics"`
 	Queues                              []string                             `json:"Queues"`
+	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`
@@ -1144,6 +1145,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			SourceAccessConfigurations:          req.SourceAccessConfigurations,
 			Topics:                              req.Topics,
 			Queues:                              req.Queues,
+			FunctionResponseTypes:               req.FunctionResponseTypes,
 			MaximumBatchingWindowInSeconds:      req.MaximumBatchingWindowInSeconds,
 			TumblingWindowInSeconds:             req.TumblingWindowInSeconds,
 			MaximumRecordAgeInSeconds:           req.MaximumRecordAgeInSeconds,
@@ -1215,6 +1217,7 @@ type handleUpdateESMInput struct {
 	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
 	Topics                         []string                    `json:"Topics"`
 	Queues                         []string                    `json:"Queues"`
+	FunctionResponseTypes          []string                    `json:"FunctionResponseTypes"`
 	BatchSize                      int                         `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds int                         `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds        int                         `json:"TumblingWindowInSeconds"`
@@ -1248,6 +1251,7 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 		SourceAccessConfigurations:     req.SourceAccessConfigurations,
 		Topics:                         req.Topics,
 		Queues:                         req.Queues,
+		FunctionResponseTypes:          req.FunctionResponseTypes,
 		MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
 		TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
 		MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,

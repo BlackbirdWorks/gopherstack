@@ -12,16 +12,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
+// snsMessageAttribute is a single message attribute in the SNS notification envelope.
+type snsMessageAttribute struct {
+	Type  string `json:"Type"`
+	Value string `json:"Value"`
+}
+
 // snsEnvelope is the JSON body delivered to an SQS queue from SNS.
 type snsEnvelope struct {
-	Type             string `json:"Type"`
-	MessageID        string `json:"MessageId"`
-	TopicArn         string `json:"TopicArn"`
-	Subject          string `json:"Subject,omitempty"`
-	Message          string `json:"Message"`
-	Timestamp        string `json:"Timestamp"`
-	SignatureVersion string `json:"SignatureVersion"`
-	Signature        string `json:"Signature"`
+	MessageAttributes map[string]snsMessageAttribute `json:"MessageAttributes,omitempty"`
+	Type              string                         `json:"Type"`
+	MessageID         string                         `json:"MessageId"`
+	TopicArn          string                         `json:"TopicArn"`
+	Subject           string                         `json:"Subject,omitempty"`
+	Message           string                         `json:"Message"`
+	Timestamp         string                         `json:"Timestamp"`
+	SignatureVersion  string                         `json:"SignatureVersion"`
+	Signature         string                         `json:"Signature"`
+	SigningCertURL    string                         `json:"SigningCertURL"`
+	UnsubscribeURL    string                         `json:"UnsubscribeURL"`
 }
 
 // SubscribeToSNS registers a listener on the given SNS publish emitter so that
@@ -171,15 +180,37 @@ func queueNameFromARN(endpoint string) string {
 
 // buildSNSEnvelope wraps the published message in the standard SNS notification JSON.
 func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
+	ts := ev.Timestamp
+	if ts == "" {
+		ts = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	sig := ev.Signature
+	if sig == "" {
+		sig = uuid.NewString()
+	}
+
 	env := snsEnvelope{
 		Type:             "Notification",
 		MessageID:        ev.MessageID,
 		TopicArn:         ev.TopicARN,
 		Subject:          ev.Subject,
 		Message:          ev.Message,
-		Timestamp:        time.Now().UTC().Format(time.RFC3339),
+		Timestamp:        ts,
 		SignatureVersion: "1",
-		Signature:        uuid.NewString(), // mock signature
+		Signature:        sig,
+		SigningCertURL:   ev.SigningCertURL,
+		UnsubscribeURL:   "https://sns.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + ev.TopicARN,
+	}
+
+	if len(ev.Attributes) > 0 {
+		env.MessageAttributes = make(map[string]snsMessageAttribute, len(ev.Attributes))
+		for k, v := range ev.Attributes {
+			env.MessageAttributes[k] = snsMessageAttribute{
+				Type:  v.DataType,
+				Value: v.StringValue,
+			}
+		}
 	}
 
 	b, err := json.Marshal(env)

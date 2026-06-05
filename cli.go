@@ -3304,18 +3304,37 @@ type ddbStreamsReaderAdapter struct {
 	backend *ddbbackend.InMemoryDB
 }
 
-// ddbStreamsShardID is the canonical shard ID used by the DynamoDB Streams in-memory backend.
-// It must match the value defined in services/dynamodb/streams_ops.go (streamShardID).
-const ddbStreamsShardID = "shardId-00000000000000000001-00000001"
+func (a *ddbStreamsReaderAdapter) DescribeStreamShards(streamARN string) ([]string, error) {
+	out, err := a.backend.DescribeStream(
+		context.Background(),
+		&awsddbstreams.DescribeStreamInput{StreamArn: aws.String(streamARN)},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if out.StreamDescription == nil {
+		return nil, nil
+	}
+
+	shardIDs := make([]string, 0, len(out.StreamDescription.Shards))
+	for _, s := range out.StreamDescription.Shards {
+		if s.ShardId != nil {
+			shardIDs = append(shardIDs, *s.ShardId)
+		}
+	}
+
+	return shardIDs, nil
+}
 
 func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(
-	streamARN, iteratorType string,
+	streamARN, shardID, iteratorType string,
 ) (string, error) {
 	out, err := a.backend.GetShardIterator(
 		context.Background(),
 		&awsddbstreams.GetShardIteratorInput{
 			StreamArn:         aws.String(streamARN),
-			ShardId:           aws.String(ddbStreamsShardID),
+			ShardId:           aws.String(shardID),
 			ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
 		},
 	)
