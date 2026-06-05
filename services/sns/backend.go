@@ -50,7 +50,7 @@ const (
 )
 
 const (
-	messageTypeNotification = messageTypeNotification
+	messageTypeNotification = "Notification"
 	protocolLambda          = "lambda"
 	protocolFirehose = "firehose"
 	protocolEmail    = "email"

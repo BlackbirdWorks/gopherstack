@@ -1653,7 +1653,7 @@ func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int3
 }
 
 const (
-	healthStateHealthy = healthStateHealthy
+	healthStateHealthy = "healthy"
 	protoHTTP          = "HTTP"
 	protoHTTPS        = "HTTPS"
 	protoTLS          = "TLS"
