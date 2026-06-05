@@ -22,6 +22,7 @@ func (a *testKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
+
 	return out.CiphertextBlob, nil
 }
 
@@ -30,6 +31,7 @@ func (a *testKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return out.Plaintext, nil
 }
 
@@ -44,6 +46,7 @@ func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, string) {
 
 	ssmBackend := ssm.NewInMemoryBackend()
 	ssmBackend.WithKMS(&testKMSAdapter{b: kmsBackend})
+
 	return ssmBackend, keyID
 }
 

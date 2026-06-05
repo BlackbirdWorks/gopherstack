@@ -57,10 +57,7 @@ func (m *mockKinesisReader) GetRecords(_ string, limit int) ([][]byte, string, e
 		return nil, "iter:end", nil
 	}
 
-	end := start + limit
-	if end > len(m.records) {
-		end = len(m.records)
-	}
+	end := min(start+limit, len(m.records))
 
 	batch := append([][]byte{}, m.records[start:end]...)
 	m.position = end

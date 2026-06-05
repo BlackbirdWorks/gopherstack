@@ -427,10 +427,7 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	dataLen := len(data)
-	if dataLen < 0 {
-		dataLen = 0
-	}
+	dataLen := max(len(data), 0)
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(dataLen))
 
 	buf = append(buf, lenBuf[:]...)
@@ -1633,7 +1630,14 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 // pickVisibleMessages compacts q.messages in-place, routing DLQ-bound messages,
 // skipping blocked FIFO groups, and picking up to maxMessages visible messages.
 // Caller must hold q.mu.
-func pickVisibleMessages(q *Queue, blockedGroups map[string]bool, maxMessages, vt int, now time.Time, cutoff time.Time, accountID string) []*Message {
+func pickVisibleMessages(
+	q *Queue,
+	blockedGroups map[string]bool,
+	maxMessages, vt int,
+	now time.Time,
+	cutoff time.Time,
+	accountID string,
+) []*Message {
 	// nolint:prealloc,nolintlint // capacity tainted by user input — satisfies CodeQL
 	result := make([]*Message, 0)
 	j := 0
@@ -1659,32 +1663,8 @@ func pickVisibleMessages(q *Queue, blockedGroups map[string]bool, maxMessages, v
 		}
 
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
-			q.receiveGeneration++
-			receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
-			msg.ReceiptHandle = receipt
-			msg.ApproximateReceiveCount++
-			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
-
-			if msg.ApproximateFirstReceiveTimestamp == 0 {
-				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
-				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(msg.ApproximateFirstReceiveTimestamp, 10)
-				msg.Attributes[attrSenderID] = accountID
-			}
-
-			inf := &InFlightMessage{
-				VisibleAt:     now.Add(time.Duration(vt) * time.Second),
-				ReceiptHandle: receipt,
-				Generation:    q.receiveGeneration,
-				Msg:           msg,
-			}
-			q.inFlightMessages = append(q.inFlightMessages, inf)
-			q.inFlightByHandle[receipt] = inf
+			enqueueReceivedMessage(q, msg, blockedGroups, now, vt, accountID)
 			result = append(result, msg)
-
-			if q.IsFIFO && msg.MessageGroupID != "" {
-				blockedGroups[msg.MessageGroupID] = true
-			}
-
 			continue
 		}
 
@@ -1694,6 +1674,35 @@ func pickVisibleMessages(q *Queue, blockedGroups map[string]bool, maxMessages, v
 
 	q.messages = q.messages[:j]
 	return result
+}
+
+// enqueueReceivedMessage stamps msg with a receipt handle, increments counters, registers it
+// as in-flight on q, and marks its FIFO group as blocked. Caller must hold q.mu.
+func enqueueReceivedMessage(q *Queue, msg *Message, blockedGroups map[string]bool, now time.Time, vt int, accountID string) {
+	q.receiveGeneration++
+	receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
+	msg.ReceiptHandle = receipt
+	msg.ApproximateReceiveCount++
+	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
+
+	if msg.ApproximateFirstReceiveTimestamp == 0 {
+		msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
+		msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(msg.ApproximateFirstReceiveTimestamp, 10)
+		msg.Attributes[attrSenderID] = accountID
+	}
+
+	inf := &InFlightMessage{
+		VisibleAt:     now.Add(time.Duration(vt) * time.Second),
+		ReceiptHandle: receipt,
+		Generation:    q.receiveGeneration,
+		Msg:           msg,
+	}
+	q.inFlightMessages = append(q.inFlightMessages, inf)
+	q.inFlightByHandle[receipt] = inf
+
+	if q.IsFIFO && msg.MessageGroupID != "" {
+		blockedGroups[msg.MessageGroupID] = true
+	}
 }
 
 func prepareAndPickMessages(

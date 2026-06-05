@@ -525,35 +525,63 @@ func (j *Janitor) applyLifecycleRule(
 	}
 
 	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
-		abortBefore := now.Add(-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour)
+		abortBefore := now.Add(
+			-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
+		)
 		j.abortStaleMultipartUploads(bucketName, abortBefore)
 	}
 
-	for _, tr := range rule.Transitions {
-		if tr.Days <= 0 || tr.StorageClass == "" {
-			continue
+	j.applyTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, rule.Transitions, now)
+	j.applyNoncurrentTransitions(bucket, prefix, rule.ID, rule.NoncurrentVersionTransitions, now)
+
+	return evicted
+}
+
+// applyTransitions processes all Transition entries for a lifecycle rule, applying
+// days-based and date-based storage class transitions.
+func (j *Janitor) applyTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	ruleID string,
+	transitions []lifecycleTransition,
+	now time.Time,
+) {
+	for _, tr := range transitions {
+		if tr.Days > 0 && tr.StorageClass != "" {
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+				tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
 		}
-		j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
 	}
 
-	for _, tr := range rule.Transitions {
+	for _, tr := range transitions {
 		if tr.Date == "" || tr.StorageClass == "" {
 			continue
 		}
 		transitionDate, parseErr := parseLifecycleDate(tr.Date)
 		if parseErr == nil && now.After(transitionDate) {
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, 0, tr.Date)
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+				tr.StorageClass, now, 0, tr.Date)
 		}
 	}
+}
 
-	for _, tr := range rule.NoncurrentVersionTransitions {
+// applyNoncurrentTransitions processes NoncurrentVersionTransition entries for a lifecycle rule.
+func (j *Janitor) applyNoncurrentTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	ruleID string,
+	transitions []lifecycleNoncurrentTransition,
+	now time.Time,
+) {
+	for _, tr := range transitions {
 		if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
 			continue
 		}
-		j.applyNoncurrentStorageClassTransitions(bucket, prefix, rule.ID, tr.StorageClass, now, time.Duration(tr.NoncurrentDays)*24*time.Hour)
+		j.applyNoncurrentStorageClassTransitions(bucket, prefix, ruleID, tr.StorageClass, now,
+			time.Duration(tr.NoncurrentDays)*24*time.Hour)
 	}
-
-	return evicted
 }
 
 // evictExpiredObjects deletes objects from the bucket that match the prefix (and

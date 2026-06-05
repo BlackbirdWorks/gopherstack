@@ -1655,17 +1655,17 @@ func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int3
 const (
 	healthStateHealthy = "healthy"
 	protoHTTP          = "HTTP"
-	protoHTTPS        = "HTTPS"
-	protoTLS          = "TLS"
-	lbTypeApplication = "application"
-	lbTypeNetwork     = "network"
-	lbTypeGateway     = "gateway"
-	targetTypeLambda  = "lambda"
-	priorityDefault   = "default"
-	maxNameLength     = 32
-	maxTagKeyLen      = 128
-	maxTagValueLen    = 256
-	maxTagsPerRes     = 50
+	protoHTTPS         = "HTTPS"
+	protoTLS           = "TLS"
+	lbTypeApplication  = "application"
+	lbTypeNetwork      = "network"
+	lbTypeGateway      = "gateway"
+	targetTypeLambda   = "lambda"
+	priorityDefault    = "default"
+	maxNameLength      = 32
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+	maxTagsPerRes      = 50
 
 	attrAccessLogsS3Enabled           = "access_logs.s3.enabled"
 	attrDeletionProtectionEnabled     = "deletion_protection.enabled"

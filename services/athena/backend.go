@@ -917,6 +917,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 	if _, ok := b.workGroups[workGroup]; !ok {
 		b.mu.Unlock()
+
 		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
 	}
 

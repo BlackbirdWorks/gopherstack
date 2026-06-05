@@ -12,6 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// s3ARNParts is the number of colon-separated parts in a full S3 ARN
+// (arn:partition:s3:region:account:resource).
+const s3ARNParts = 6
+
 // bucketNameFromARN extracts the bucket name from an S3 ARN.
 // S3 ARN format: arn:aws:s3:::bucket-name.
 func bucketNameFromARN(arn string) string {
@@ -22,8 +26,8 @@ func bucketNameFromARN(arn string) string {
 	}
 	// Find the 6th colon (arn:partition:s3:region:account:resource)
 	// For S3: arn:aws:s3:::bucket → resource is "bucket"
-	parts := strings.SplitN(arn, ":", 6)
-	if len(parts) == 6 {
+	parts := strings.SplitN(arn, ":", s3ARNParts)
+	if len(parts) == s3ARNParts {
 		return parts[5]
 	}
 	return arn

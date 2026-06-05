@@ -52,9 +52,9 @@ const (
 const (
 	messageTypeNotification = "Notification"
 	protocolLambda          = "lambda"
-	protocolFirehose = "firehose"
-	protocolEmail    = "email"
-	protocolHTTP     = "http"
+	protocolFirehose        = "firehose"
+	protocolEmail           = "email"
+	protocolHTTP            = "http"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.

@@ -122,8 +122,8 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 // ARN format: arn:aws:firehose:<region>:<account>:deliverystream/<name>.
 func firehoseStreamNameFromARN(endpoint string) string {
 	const prefix = "deliverystream/"
-	if idx := strings.Index(endpoint, prefix); idx >= 0 {
-		return endpoint[idx+len(prefix):]
+	if _, after, ok := strings.Cut(endpoint, prefix); ok {
+		return after
 	}
 
 	// Fall back to last path segment (URL-style endpoint).

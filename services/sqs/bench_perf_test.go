@@ -83,7 +83,6 @@ func BenchmarkSendReceiveDelete_PerQueueLock(b *testing.B) {
 						MessageBody: "payload",
 					})
 					if err != nil {
-
 						return
 					}
 

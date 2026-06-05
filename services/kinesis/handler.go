@@ -1866,18 +1866,30 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 				return nil
 			}
 
-			done, nextSP, tickErr := h.pollSubscribeToShardTick(req, curSP, c.Response(), flusher, canFlush, &idlePolls)
-			if tickErr != nil {
+			if stop, next := h.advanceShardCursor(req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
 				return nil
-			}
-			if done {
-				return nil
-			}
-			if nextSP != nil {
-				curSP = *nextSP
+			} else if next != nil {
+				curSP = *next
 			}
 		}
 	}
+}
+
+// advanceShardCursor calls pollSubscribeToShardTick and returns (stop=true, nil) when the
+// stream should close, or (false, nextSP) when it should continue (nextSP may be nil).
+func (h *Handler) advanceShardCursor(
+	req jsonSubscribeToShardReq,
+	curSP StartingPosition,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	canFlush bool,
+	idlePolls *int,
+) (stop bool, nextSP *StartingPosition) {
+	done, next, tickErr := h.pollSubscribeToShardTick(req, curSP, w, flusher, canFlush, idlePolls)
+	if tickErr != nil || done {
+		return true, nil
+	}
+	return false, next
 }
 
 // pollSubscribeToShardTick performs one poll tick for handleSubscribeToShardHTTP.

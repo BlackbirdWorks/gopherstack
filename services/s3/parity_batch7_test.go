@@ -63,11 +63,13 @@ func TestS3BucketReplication_PutObjectReplicates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Allow the async goroutine to run.
+	testKey := "test.txt"
 	require.Eventually(t, func() bool {
 		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: strPtr(dst),
-			Key:    strPtr("test.txt"),
+			Bucket: &dst,
+			Key:    &testKey,
 		})
+
 		return err == nil
 	}, 3*time.Second, 50*time.Millisecond, "replicated object should appear in destination bucket")
 }
@@ -120,9 +122,10 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // let goroutines finish
 
 	for _, tt := range tests {
+		ttKey := tt.key
 		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: strPtr(dst),
-			Key:    strPtr(tt.key),
+			Bucket: &dst,
+			Key:    &ttKey,
 		})
 		if tt.wantRepl {
 			assert.NoError(t, err, "key %q should be replicated", tt.key)
@@ -186,10 +189,11 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
+	noteKey := "note.txt"
 	require.Eventually(t, func() bool {
 		out, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: strPtr(dst),
-			Key:    strPtr("note.txt"),
+			Bucket: &dst,
+			Key:    &noteKey,
 		})
 		if err != nil {
 			return true // key was deleted
@@ -384,8 +388,3 @@ func (l *staticObjectLambda) InvokeFunction(_ context.Context, _, _ string, payl
 	return nil, 200, nil
 }
 
-// strPtr is a local helper (the test package may already have one; using a
-// distinct name to avoid collision).
-func strPtr(s string) *string {
-	return &s
-}

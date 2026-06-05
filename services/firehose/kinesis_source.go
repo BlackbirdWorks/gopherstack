@@ -12,6 +12,7 @@ import (
 const (
 	kinesisPollerInterval   = time.Second
 	kinesisPollerBatchLimit = 100
+	kinesisARNSplitParts    = 2 // SplitN limit: prefix + stream-name
 )
 
 // launchKinesisPoller starts one goroutine per shard for the given Kinesis source stream.
@@ -146,8 +147,8 @@ func kinesisStreamNameFromARN(kinesisARN string) string {
 		return ""
 	}
 
-	parts := strings.SplitN(kinesisARN, ":stream/", 2)
-	if len(parts) == 2 {
+	parts := strings.SplitN(kinesisARN, ":stream/", kinesisARNSplitParts)
+	if len(parts) == kinesisARNSplitParts {
 		return parts[1]
 	}
 
