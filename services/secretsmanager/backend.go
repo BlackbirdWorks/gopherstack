@@ -86,6 +86,8 @@ const (
 	maxResultsListSecrets = 100
 	// maxResultsBatchGet is the maximum allowed MaxResults for BatchGetSecretValue.
 	maxResultsBatchGet = 20
+	// maxSecretIDListSize is the maximum number of IDs allowed in BatchGetSecretValue.SecretIdList.
+	maxSecretIDListSize = 20
 	// rotationSchedulerInterval controls the background schedule evaluation cadence.
 	rotationSchedulerInterval = time.Second
 	// hoursPerDay is the number of hours in a day, used for day-granularity truncation.
@@ -239,7 +241,14 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
-	if _, exists := b.secrets[input.Name]; exists {
+	if existing, exists := b.secrets[input.Name]; exists {
+		if existing.DeletedDate != nil {
+			return nil, fmt.Errorf(
+				"%w: a secret with this name is already scheduled for deletion; restore or force-delete it first",
+				ErrSecretDeleted,
+			)
+		}
+
 		return nil, ErrSecretAlreadyExists
 	}
 
@@ -1598,6 +1607,14 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 		}
 	}
 
+	if len(input.SecretIDList) > maxSecretIDListSize {
+		return nil, fmt.Errorf(
+			"%w: SecretIdList must not contain more than %d entries",
+			ErrInvalidParameter,
+			maxSecretIDListSize,
+		)
+	}
+
 	b.mu.Lock("BatchGetSecretValue")
 	defer b.mu.Unlock()
 
@@ -2018,6 +2035,14 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 
 	if secret.DeletedDate != nil {
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	// AWS does not allow removing AWSCURRENT without moving it to another version.
+	if input.VersionStage == StagingLabelCurrent && input.MoveToVersionID == "" {
+		return nil, fmt.Errorf(
+			"%w: AWSCURRENT staging label can only be moved to another version, not removed",
+			ErrInvalidParameter,
+		)
 	}
 
 	if input.MoveToVersionID != "" {
