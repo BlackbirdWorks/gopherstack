@@ -965,7 +965,8 @@ func applyChange(zd *zoneData, ch Change, toRegister *[]dnsOp, toDeregister *[]s
 	case ChangeActionDelete:
 		delete(zd.records, key)
 
-		if hasDNS && (rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME || rrs.Type == recordTypeAAAA || rrs.AliasTarget != nil) {
+		if hasDNS &&
+			(rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME || rrs.Type == recordTypeAAAA || rrs.AliasTarget != nil) {
 			*toDeregister = append(*toDeregister, rrs.Name)
 		}
 

@@ -563,10 +563,7 @@ func resolveSub(s string, ctx resolveCtx) string {
 		}
 
 		// ${LogicalID.Attribute} — GetAtt-style ref (#11)
-		if dotIdx := strings.IndexByte(varName, '.'); dotIdx >= 0 {
-			logicalID := varName[:dotIdx]
-			attrName := varName[dotIdx+1:]
-
+		if logicalID, attrName, ok := strings.Cut(varName, "."); ok {
 			return resolveGetAtt(logicalID, attrName, ctx)
 		}
 
@@ -891,35 +888,71 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 	case "AWS::DynamoDB::Table":
 		return getDynamoDBTableAttribute(physID, attrName, accountID, region)
 	case "AWS::Lambda::Function":
-		if attrName == attrNameArn {
-			return arn.Build("lambda", region, accountID, "function:"+physID)
-		}
+		return getLambdaFunctionAttribute(physID, attrName, accountID, region)
 	case "AWS::SQS::Queue":
 		return getSQSQueueAttribute(physID, attrName, accountID, region)
 	case "AWS::SNS::Topic":
-		if attrName == "TopicArn" {
-			return physID
-		}
+		return getSNSTopicAttribute(physID, attrName)
 	case "AWS::KMS::Key":
 		return getKMSKeyAttribute(physID, attrName, accountID, region)
 	case "AWS::IAM::Role":
-		if attrName == attrNameArn || attrName == "RoleId" {
-			return physID
-		}
+		return getIAMRoleAttribute(physID, attrName)
 	case "AWS::Logs::LogGroup":
-		if attrName == attrNameArn {
-			return arn.Build("logs", region, accountID, "log-group:"+physID+":*")
-		}
+		return getLogsLogGroupAttribute(physID, attrName, accountID, region)
 	case "AWS::SecretsManager::Secret":
-		if attrName == "Id" {
-			return physID
-		}
+		return getSecretsManagerSecretAttribute(physID, attrName)
 	case resTypeStepFunctionsStateMachine:
 		return getStateMachineAttribute(physID, attrName)
 	case "AWS::CloudFormation::Stack":
-		if attrName == "Outputs" {
-			return physID
-		}
+		return getCloudFormationStackAttribute(physID, attrName)
+	}
+
+	return physID
+}
+
+func getLambdaFunctionAttribute(physID, attrName, accountID, region string) string {
+	if attrName == attrNameArn {
+		return arn.Build("lambda", region, accountID, "function:"+physID)
+	}
+
+	return physID
+}
+
+func getSNSTopicAttribute(physID, attrName string) string {
+	if attrName == "TopicArn" {
+		return physID
+	}
+
+	return physID
+}
+
+func getIAMRoleAttribute(physID, attrName string) string {
+	if attrName == attrNameArn || attrName == "RoleId" {
+		return physID
+	}
+
+	return physID
+}
+
+func getLogsLogGroupAttribute(physID, attrName, accountID, region string) string {
+	if attrName == attrNameArn {
+		return arn.Build("logs", region, accountID, "log-group:"+physID+":*")
+	}
+
+	return physID
+}
+
+func getSecretsManagerSecretAttribute(physID, attrName string) string {
+	if attrName == "Id" {
+		return physID
+	}
+
+	return physID
+}
+
+func getCloudFormationStackAttribute(physID, attrName string) string {
+	if attrName == "Outputs" {
+		return physID
 	}
 
 	return physID
@@ -1041,13 +1074,16 @@ func getAZsForRegion(region string) []string {
 	}
 }
 
+// cidrArgsWithBits is the minimum arg count for Fn::Cidr to include a cidrBits argument.
+const cidrArgsWithBits = 3
+
 // resolveCidr computes CIDR subnets from [ipBlock, count, cidrBits] arguments.
 func resolveCidr(args []any, ctx resolveCtx) string {
 	ipBlock := resolveValueCtx(args[0], ctx)
 	countStr := resolveValueCtx(args[1], ctx)
 
 	var cidrBitsStr string
-	if len(args) >= 3 {
+	if len(args) >= cidrArgsWithBits {
 		cidrBitsStr = resolveValueCtx(args[2], ctx)
 	}
 
@@ -1073,10 +1109,7 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 	}
 
 	ones, bits := ipNet.Mask.Size()
-	subnetBits := ones + newBits
-	if subnetBits > bits {
-		subnetBits = bits
-	}
+	subnetBits := min(ones+newBits, bits)
 
 	subnets := make([]string, 0, count)
 	baseIP := ipNet.IP.To4()
@@ -1087,7 +1120,7 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 	step := new(big.Int).Lsh(big.NewInt(1), uint(bits-subnetBits))
 	ipInt := new(big.Int).SetBytes(baseIP)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		subnet := make(net.IP, len(baseIP))
 		ipInt.FillBytes(subnet)
 		subnets = append(subnets, fmt.Sprintf("%s/%d", subnet.String(), subnetBits))

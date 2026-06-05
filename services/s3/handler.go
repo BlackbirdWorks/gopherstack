@@ -61,8 +61,8 @@ const (
 	ChecksumCRC32C  = "CRC32C"
 	ChecksumSHA1    = "SHA1"
 	ChecksumSHA256  = "SHA256"
-	storageStandard  = "STANDARD"
-	statusEnabled    = "Enabled"
+	storageStandard = "STANDARD"
+	statusEnabled   = "Enabled"
 
 	maxDeleteObjects = 1000
 )

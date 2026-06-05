@@ -83,7 +83,10 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 }
 
 // parseFromClause parses the FROM ... [WHERE ...] [LIMIT ...] tail of a SELECT.
-func parseFromClause(rest string) (tableRef, whereClause string, limit int) {
+func parseFromClause(rest string) (string, string, int) {
+	var tableRef, whereClause string
+	var limit int
+
 	upper := strings.ToUpper(rest)
 	whereIdx := strings.Index(upper, " WHERE ")
 	limitIdx := strings.Index(upper, " LIMIT ")
@@ -158,7 +161,7 @@ func applyPredicateAndProject(rawRows []map[string]any, selected []sqlColumn, pr
 			continue
 		}
 
-		var projected []string
+		projected := make([]string, 0, len(selected))
 		for _, col := range selected {
 			projected = append(projected, anyToString(row[col.name]))
 		}
@@ -205,10 +208,7 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 		return &sqlResultPage{Columns: res.columns}, nil
 	}
 
-	end := offset + maxResults
-	if end > len(res.rows) {
-		end = len(res.rows)
-	}
+	end := min(offset+maxResults, len(res.rows))
 
 	page := &sqlResultPage{
 		Columns: res.columns,
@@ -224,15 +224,20 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 
 // --- helpers ---
 
+const (
+	tableRefPartsFull = 3 // catalog.database.table
+	tableRefPartsTwo  = 2 // database.table
+)
+
 func resolveTableRef(ref string, ctx QueryExecutionContext) (string, string, string) {
 	var catalog, database, table string
 	parts := strings.Split(ref, ".")
 	switch len(parts) {
-	case 3:
+	case tableRefPartsFull:
 		catalog = parts[0]
 		database = parts[1]
 		table = parts[2]
-	case 2:
+	case tableRefPartsTwo:
 		database = parts[0]
 		table = parts[1]
 	default:
@@ -291,13 +296,13 @@ func parsePredicate(clause string) predicate {
 		return nil
 	}
 
-	idx := strings.Index(clause, "=")
-	if idx < 0 {
+	before, after, found := strings.Cut(clause, "=")
+	if !found {
 		return nil
 	}
 
-	col := strings.TrimSpace(clause[:idx])
-	val := strings.TrimSpace(clause[idx+1:])
+	col := strings.TrimSpace(before)
+	val := strings.TrimSpace(after)
 	val = strings.Trim(val, "'\"")
 
 	return func(row map[string]any) bool {

@@ -1285,7 +1285,12 @@ func buildHTTPEndpointBody(records [][]byte) ([]byte, error) {
 }
 
 // buildHTTPEndpointRequest constructs a single POST request for the HTTP endpoint delivery loop.
-func buildHTTPEndpointRequest(ctx context.Context, endpointURL, accessKey string, dest *HTTPEndpointDestinationDescription, body []byte) (*http.Request, error) {
+func buildHTTPEndpointRequest(
+	ctx context.Context,
+	endpointURL, accessKey string,
+	dest *HTTPEndpointDestinationDescription,
+	body []byte,
+) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -1323,7 +1328,9 @@ func (b *InMemoryBackend) deliverToHTTPEndpoint(
 
 	body, err := buildHTTPEndpointBody(records)
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "firehose: failed to marshal HTTP endpoint payload", "error", err, "stream", streamARN)
+		logger.Load(ctx).
+			WarnContext(ctx, "firehose: failed to marshal HTTP endpoint payload", "error", err, "stream", streamARN)
+
 		return
 	}
 
@@ -1339,7 +1346,9 @@ func (b *InMemoryBackend) deliverToHTTPEndpoint(
 	for {
 		req, reqErr := buildHTTPEndpointRequest(ctx, endpointURL, accessKey, dest, body)
 		if reqErr != nil {
-			logger.Load(ctx).WarnContext(ctx, "firehose: failed to build HTTP endpoint request", "error", reqErr, "stream", streamARN)
+			logger.Load(ctx).
+				WarnContext(ctx, "firehose: failed to build HTTP endpoint request", "error", reqErr, "stream", streamARN)
+
 			return
 		}
 
@@ -1357,23 +1366,40 @@ func (b *InMemoryBackend) deliverToHTTPEndpoint(
 		if time.Now().After(deadline) {
 			logger.Load(ctx).WarnContext(ctx, "firehose: HTTP endpoint delivery failed after retries",
 				"url", endpointURL, "stream", streamARN)
+
 			return
 		}
 
-		select {
-		case <-ctx.Done():
+		if !httpDeliveryBackoff(ctx, deadline, &backoff) {
 			return
-		case <-time.After(backoff):
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
 		}
+	}
+}
+
+const httpBackoffMaxInterval = 30 * time.Second
+
+// httpDeliveryBackoff waits for the next retry interval or returns false if the context
+// is cancelled. backoff is doubled on each call and capped at httpBackoffMaxInterval.
+// Returns true when the caller should proceed with the next attempt, false when it should stop.
+func httpDeliveryBackoff(ctx context.Context, deadline time.Time, backoff *time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(*backoff):
+		*backoff *= 2
+		if *backoff > httpBackoffMaxInterval {
+			*backoff = httpBackoffMaxInterval
+		}
+
+		return time.Now().Before(deadline)
 	}
 }
 
 // redshiftRetryDuration is the default retry window for Redshift delivery.
 const redshiftRetryDuration = 7200 * time.Second
+
+const redshiftBackoffInitial = 2 * time.Second
+const redshiftBackoffMax = 60 * time.Second
 
 // buildRedshiftInsertSQL constructs a batch INSERT SQL statement for Redshift delivery.
 // Returns the SQL string and true, or ("", false) when records is empty.
@@ -1418,6 +1444,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 	if parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "firehose: cannot parse Redshift JDBC URL",
 			"url", dest.ClusterJDBCURL, "stream", streamARN, "error", parseErr)
+
 		return
 	}
 
@@ -1430,6 +1457,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 	if clusterID == "" || database == "" {
 		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift JDBC URL missing cluster or database",
 			"url", dest.ClusterJDBCURL, "stream", streamARN)
+
 		return
 	}
 
@@ -1446,7 +1474,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 	}
 
 	deadline := time.Now().Add(maxRetry)
-	backoff := 2 * time.Second
+	backoff := redshiftBackoffInitial
 
 	for {
 		_, execErr := rdClient.ExecuteStatement(ctx, &sdk_rddata.ExecuteStatementInput{
@@ -1462,6 +1490,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 		if time.Now().After(deadline) {
 			logger.Load(ctx).WarnContext(ctx, "firehose: Redshift delivery failed after retries",
 				"cluster", clusterID, "database", database, "stream", streamARN, "error", execErr)
+
 			return
 		}
 
@@ -1470,8 +1499,8 @@ func (b *InMemoryBackend) deliverToRedshift(
 			return
 		case <-time.After(backoff):
 			backoff *= 2
-			if backoff > 60*time.Second {
-				backoff = 60 * time.Second
+			if backoff > redshiftBackoffMax {
+				backoff = redshiftBackoffMax
 			}
 		}
 	}
@@ -1544,6 +1573,7 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		if reqErr != nil {
 			logger.Load(ctx).WarnContext(ctx,
 				"firehose: failed to build OpenSearch bulk request", "error", reqErr, "stream", streamARN)
+
 			return
 		}
 
@@ -1552,7 +1582,8 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		resp, doErr := client.Do(req)
 		if doErr == nil {
 			if closeErr := resp.Body.Close(); closeErr != nil {
-				logger.Load(ctx).WarnContext(ctx, "firehose: failed to close OpenSearch response body", "error", closeErr)
+				logger.Load(ctx).
+					WarnContext(ctx, "firehose: failed to close OpenSearch response body", "error", closeErr)
 			}
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -1563,17 +1594,12 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		if time.Now().After(deadline) {
 			logger.Load(ctx).WarnContext(ctx, "firehose: OpenSearch delivery failed after retries",
 				"url", bulkURL, "stream", streamARN)
+
 			return
 		}
 
-		select {
-		case <-ctx.Done():
+		if !httpDeliveryBackoff(ctx, deadline, &backoff) {
 			return
-		case <-time.After(backoff):
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
 		}
 	}
 }
@@ -1654,7 +1680,9 @@ func (b *InMemoryBackend) deliverToSplunk(
 	for {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, hecURL, bytes.NewReader(body))
 		if reqErr != nil {
-			logger.Load(ctx).WarnContext(ctx, "firehose: failed to build Splunk HEC request", "error", reqErr, "stream", streamARN)
+			logger.Load(ctx).
+				WarnContext(ctx, "firehose: failed to build Splunk HEC request", "error", reqErr, "stream", streamARN)
+
 			return
 		}
 
@@ -1677,17 +1705,12 @@ func (b *InMemoryBackend) deliverToSplunk(
 		if time.Now().After(deadline) {
 			logger.Load(ctx).WarnContext(ctx, "firehose: Splunk HEC delivery failed after retries",
 				"url", hecURL, "stream", streamARN)
+
 			return
 		}
 
-		select {
-		case <-ctx.Done():
+		if !httpDeliveryBackoff(ctx, deadline, &backoff) {
 			return
-		case <-time.After(backoff):
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
 		}
 	}
 }

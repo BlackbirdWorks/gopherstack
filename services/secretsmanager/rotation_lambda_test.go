@@ -124,7 +124,6 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 				onInvoke: func(_, _ string, _ []byte) ([]byte, int, error) {
 					callCount++
 					if callCount == tt.failAfter {
-
 						return nil, 500, errLambdaExecutionFailed
 					}
 
@@ -190,7 +189,6 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 				onInvoke: func(_, _ string, payload []byte) ([]byte, int, error) {
 					calledSteps = append(calledSteps, extractStep(payload))
 					if tt.lambdaErr != nil {
-
 						return nil, 500, tt.lambdaErr
 					}
 
@@ -206,13 +204,14 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 			require.NoError(t, err)
 
 			days := int64(1)
+			rotateImmediately := false
 			_, err = backend.RotateSecret(&secretsmanager.RotateSecretInput{
 				SecretID:          "sched-lambda",
 				RotationLambdaARN: testLambdaARN,
 				RotationRules: &secretsmanager.RotationRulesType{
 					AutomaticallyAfterDays: &days,
 				},
-				RotateImmediately: boolPtr(false),
+				RotateImmediately: &rotateImmediately,
 			})
 			require.NoError(t, err)
 
@@ -249,21 +248,16 @@ func (r *recordingLambdaInvoker) InvokeFunction(
 // extractStep extracts the "Step" field from a Lambda rotation event JSON payload.
 func extractStep(payload []byte) string {
 	// Fast-path: find `"Step":"<value>"`
-	s := string(payload)
 	const marker = `"Step":"`
-	idx := strings.Index(s, marker)
-	if idx < 0 {
-
+	_, rest, found := strings.Cut(string(payload), marker)
+	if !found {
 		return ""
 	}
-	rest := s[idx+len(marker):]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-
+	step, _, ok := strings.Cut(rest, `"`)
+	if !ok {
 		return rest
 	}
 
-	return rest[:end]
+	return step
 }
 
-func boolPtr(v bool) *bool { return &v }

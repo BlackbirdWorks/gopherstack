@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	statusDeployed    = "Deployed"
-	statusInProgress  = "InProgress"
+	statusDeployed   = "Deployed"
+	statusInProgress = "InProgress"
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000

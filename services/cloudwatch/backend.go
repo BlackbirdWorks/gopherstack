@@ -2477,7 +2477,10 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 		case alarmStateOK:
 			reason = "Threshold Crossed: datapoints within normal range"
 		default:
-			reason = fmt.Sprintf("Threshold Crossed: %d datapoints breached the threshold", snap.alarm.DatapointsToAlarm)
+			reason = fmt.Sprintf(
+				"Threshold Crossed: %d datapoints breached the threshold",
+				snap.alarm.DatapointsToAlarm,
+			)
 		}
 
 		// SetAlarmState acquires its own lock and fires SNS/Lambda actions.
@@ -2581,7 +2584,9 @@ func countBreachingPeriods(
 	treatMissing string,
 	threshold float64,
 	comparisonOperator string,
-) (breachCount, evaluatedCount int) {
+) (int, int) {
+	var breachCount, evaluatedCount int
+
 	for i := range evalPeriods {
 		val, hasData := bucketValues[i]
 

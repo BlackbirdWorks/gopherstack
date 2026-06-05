@@ -27,12 +27,14 @@ func (s *stubSNS) PublishToTopic(topicARN, message string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.records = append(s.records, snsRecord{topicARN: topicARN, message: message})
+
 	return nil
 }
 
 func (s *stubSNS) calls() []snsRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return append([]snsRecord(nil), s.records...)
 }
 
@@ -51,8 +53,8 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 	now := time.Now().UTC()
 
 	tests := []struct {
-		name              string
 		points            []cloudwatch.MetricDatum
+		name              string
 		operator          string
 		statistic         string
 		treatMissing      string
@@ -387,6 +389,7 @@ func TestAlarmEvaluator_BackgroundJanitor(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		pages, _, listErr := b.DescribeAlarms([]string{alarmName}, nil, "", "", "", 100)
+
 		return listErr == nil && len(pages.Data) > 0 && pages.Data[0].StateValue == "ALARM"
 	}, 500*time.Millisecond, 10*time.Millisecond, "background janitor must evaluate alarm to ALARM")
 }
