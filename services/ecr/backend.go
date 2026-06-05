@@ -813,7 +813,8 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 var ErrLayerDigestMismatch = awserr.New("InvalidLayerException", awserr.ErrInvalidParameter)
 
 // CompleteLayerUpload finalises the upload of an image layer.
-// It computes the SHA256 of the accumulated bytes and verifies the provided digest.
+// If an upload session exists, it computes the SHA256 of accumulated bytes and verifies the digest.
+// If no session exists (direct digest path), the provided digest is trusted as-is.
 func (b *InMemoryBackend) CompleteLayerUpload(
 	repositoryName, uploadID string,
 	layerDigests []string,
@@ -821,29 +822,43 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	b.mu.Lock("CompleteLayerUpload")
 	defer b.mu.Unlock()
 
+	var digest string
+	var size int64
+
 	upload, ok := b.layerUploads[uploadID]
-	if !ok || upload.RepositoryName != repositoryName {
-		return nil, fmt.Errorf("%w: upload %s not found", ErrRepositoryNotFound, uploadID)
-	}
+	if ok && upload.RepositoryName == repositoryName {
+		if len(upload.Data) > 0 {
+			// Verify SHA256 only when actual bytes were uploaded.
+			computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
 
-	computed := "sha256:" + hex.EncodeToString(sha256Sum(upload.Data))
+			digest = computed
+			if len(layerDigests) > 0 && layerDigests[0] != "" {
+				if layerDigests[0] != computed {
+					return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
+						ErrLayerDigestMismatch, layerDigests[0], computed)
+				}
 
-	digest := computed
-	if len(layerDigests) > 0 && layerDigests[0] != "" {
-		if layerDigests[0] != computed {
-			return nil, fmt.Errorf("%w: digest mismatch: got %s, want %s",
-				ErrLayerDigestMismatch, layerDigests[0], computed)
+				digest = layerDigests[0]
+			}
+		} else if len(layerDigests) > 0 {
+			digest = layerDigests[0]
 		}
 
-		digest = layerDigests[0]
+		size = upload.Size
+		delete(b.layerUploads, uploadID)
+	} else {
+		// Direct digest path: no prior InitiateLayerUpload.
+		if len(layerDigests) > 0 {
+			digest = layerDigests[0]
+		}
+		// Empty digests with no upload state: return empty digest (legacy path).
 	}
 
 	if b.uploadedLayers[repositoryName] == nil {
 		b.uploadedLayers[repositoryName] = make(map[string]int64)
 	}
 
-	b.uploadedLayers[repositoryName][digest] = upload.Size
-	delete(b.layerUploads, uploadID)
+	b.uploadedLayers[repositoryName][digest] = size
 
 	return &CompleteLayerUploadResult{
 		LayerDigest:    digest,

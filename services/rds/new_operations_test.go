@@ -101,6 +101,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 				if err != nil {
 					return err
 				}
+				rds.FlushInstanceLifecycle(b)
 				_, err = b.StopDBInstance("inst")
 
 				return err
@@ -148,6 +149,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 				if err != nil {
 					return err
 				}
+				rds.FlushInstanceLifecycle(b)
 				_, err = b.StopDBInstance("inst")
 
 				return err
@@ -190,6 +192,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, tt.setup(b))
+			rds.FlushInstanceLifecycle(b) // advance creating→available for tests that need it
 
 			err := tt.action(b)
 
@@ -782,9 +785,12 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 			h := newRDSHandler()
 
 			for _, setupBody := range tt.setupBodies {
+				rds.FlushInstanceLifecycle(h.Backend) // ensure prior instances are available
 				rec := postRDSForm(t, h, setupBody)
 				require.Equal(t, http.StatusOK, rec.Code, "setup body %q failed: %s", setupBody, rec.Body.String())
 			}
+
+			rds.FlushInstanceLifecycle(h.Backend) // advance creating→available before action
 
 			rec := postRDSForm(t, h, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
