@@ -70,6 +70,7 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
+	objectLambdaHandlerFields
 	notifier        NotificationDispatcher
 	notificationCtx context.Context
 	Backend         StorageBackend

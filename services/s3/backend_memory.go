@@ -460,6 +460,9 @@ func (b *InMemoryBackend) PutObject(
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
 
+	// Async replication to configured destination buckets.
+	go b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
 		VersionId:         aws.String(newVersionID),
@@ -804,7 +807,7 @@ func (b *InMemoryBackend) HeadObject(
 }
 
 func (b *InMemoryBackend) DeleteObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.DeleteObjectInput,
 ) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -837,6 +840,11 @@ func (b *InMemoryBackend) DeleteObject(
 			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
 		}
 		b.mu.Unlock()
+	}
+
+	// Async delete-marker replication when versioning created a delete marker.
+	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+		go b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
 	}
 
 	return out, nil
