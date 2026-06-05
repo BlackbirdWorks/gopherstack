@@ -1564,16 +1564,9 @@ func parsePerProtocolMessages(message, messageStructure string) map[string]strin
 	return pm
 }
 
-// Publish delivers a message to all subscriptions of topicArn. HTTP/HTTPS
-// subscriptions each receive an asynchronous best-effort delivery goroutine
-// after the read lock is released to avoid lock starvation. Goroutines
-// wait for a concurrency slot (up to snsMaxConcurrentDeliveries concurrent HTTP
-// calls) or exit early if the backend is shutting down.
-// All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
-func (b *InMemoryBackend) Publish(
-	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
-) (string, error) {
-	// Validate total message size before acquiring any lock (cheap pre-check).
+// validatePublishMessage checks message size, subject format, structure, and
+// attribute constraints before any backend lock is acquired.
+func validatePublishMessage(message, subject, messageStructure string, attrs map[string]MessageAttribute) error {
 	// AWS SNS counts the message body plus every attribute name + type + value
 	// toward the 256 KiB cap.
 	totalSize := len(message)
@@ -1582,7 +1575,7 @@ func (b *InMemoryBackend) Publish(
 	}
 
 	if totalSize > maxMessageSizeBytes {
-		return "", fmt.Errorf(
+		return fmt.Errorf(
 			"%w: Message size exceeds SNS limit of %d bytes",
 			ErrInvalidParameter,
 			maxMessageSizeBytes,
@@ -1593,7 +1586,7 @@ func (b *InMemoryBackend) Publish(
 	// printable characters (control characters, high-byte runes).
 	if subject != "" {
 		if len(subject) > maxSubjectLen {
-			return "", fmt.Errorf(
+			return fmt.Errorf(
 				"%w: Subject must be no longer than %d characters",
 				ErrInvalidParameter,
 				maxSubjectLen,
@@ -1602,7 +1595,7 @@ func (b *InMemoryBackend) Publish(
 
 		for _, r := range subject {
 			if r < 0x20 || r > 0x7E {
-				return "", fmt.Errorf(
+				return fmt.Errorf(
 					"%w: Subject contains invalid characters; must be printable ASCII",
 					ErrInvalidParameter,
 				)
@@ -1611,11 +1604,75 @@ func (b *InMemoryBackend) Publish(
 	}
 
 	if err := validateStructuredMessage(message, messageStructure); err != nil {
-		return "", err
+		return err
 	}
 
-	// Validate message attributes before any backend mutation.
-	if err := validateMessageAttributes(attrs); err != nil {
+	return validateMessageAttributes(attrs)
+}
+
+// dispatchHTTPDeliveries schedules asynchronous HTTP/HTTPS deliveries for each
+// entry in deliveries. The closing check is evaluated once so that either all
+// deliveries for a given Publish call are scheduled or none are, avoiding
+// partial delivery when shutdown is in progress.
+func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, client *http.Client) {
+	if b.closing.Load() {
+		return
+	}
+
+	ctx := b.svcCtx
+	for _, d := range deliveries {
+		b.deliveryWg.Go(func() {
+			select {
+			case b.workerSem <- struct{}{}:
+				defer func() { <-b.workerSem }()
+				deliverHTTPWithMeta(ctx, d, client)
+			case <-ctx.Done():
+				// Service is shutting down; drop this delivery rather than
+				// blocking indefinitely on a full semaphore.
+			}
+		})
+	}
+}
+
+// emitPublishedEvent fires an SNSPublishedEvent so other services (e.g. SQS)
+// can react. It is a no-op when no emitter has been registered.
+func (b *InMemoryBackend) emitPublishedEvent(
+	topicArn, messageID, message, subject string,
+	attrs map[string]MessageAttribute,
+	subs []events.SNSSubscriptionSnapshot,
+) {
+	if b.emitter == nil {
+		return
+	}
+
+	attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
+	for k, v := range attrs {
+		attrSnaps[k] = events.SNSMessageAttributeSnapshot{
+			DataType:    v.DataType,
+			StringValue: v.StringValue,
+		}
+	}
+
+	_ = b.emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
+		TopicARN:      topicArn,
+		MessageID:     messageID,
+		Message:       message,
+		Subject:       subject,
+		Subscriptions: subs,
+		Attributes:    attrSnaps,
+	})
+}
+
+// Publish delivers a message to all subscriptions of topicArn. HTTP/HTTPS
+// subscriptions each receive an asynchronous best-effort delivery goroutine
+// after the read lock is released to avoid lock starvation. Goroutines
+// wait for a concurrency slot (up to snsMaxConcurrentDeliveries concurrent HTTP
+// calls) or exit early if the backend is shutting down.
+// All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
+func (b *InMemoryBackend) Publish(
+	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
+) (string, error) {
+	if err := validatePublishMessage(message, subject, messageStructure, attrs); err != nil {
 		return "", err
 	}
 
@@ -1647,9 +1704,8 @@ func (b *InMemoryBackend) Publish(
 		targets.httpDeliveries[i].signer = signer
 	}
 
-	// Capture emitter and httpClient under the read lock to avoid data races
-	// with concurrent SetPublishEmitter / SetHTTPDeliveryClient calls.
-	emitter := b.emitter
+	// Capture httpClient under the read lock to avoid data races with
+	// concurrent SetHTTPDeliveryClient calls.
 	client := b.httpClient
 
 	// Release the read lock before performing any network I/O so that slow or
@@ -1662,51 +1718,9 @@ func (b *InMemoryBackend) Publish(
 		b.archivePublishedMessage(topicArn, messageID, message, subject, attrs)
 	}
 
-	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
-	// Each subscription gets its own goroutine which blocks until a concurrency
-	// slot is available from workerSem. Publish returns immediately after
-	// launching all goroutines — it never blocks on the semaphore itself.
-	// Goroutines that were launched before WaitDeliveries was called always
-	// complete their delivery; none are silently dropped.
-	//
-	// The closing check is evaluated once before the loop so that either all
-	// HTTP subscriptions for this Publish call are scheduled or none are,
-	// avoiding partial delivery when shutdown is in progress.
-	if !b.closing.Load() {
-		ctx := b.svcCtx
-		for _, d := range targets.httpDeliveries {
-			b.deliveryWg.Go(func() {
-				select {
-				case b.workerSem <- struct{}{}:
-					defer func() { <-b.workerSem }()
-					deliverHTTPWithMeta(ctx, d, client)
-				case <-ctx.Done():
-					// Service is shutting down; drop this delivery rather than
-					// blocking indefinitely on a full semaphore.
-				}
-			})
-		}
-	}
+	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
-	// Emit event for other services (e.g. SQS) to react to.
-	if emitter != nil {
-		attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
-		for k, v := range attrs {
-			attrSnaps[k] = events.SNSMessageAttributeSnapshot{
-				DataType:    v.DataType,
-				StringValue: v.StringValue,
-			}
-		}
-
-		_ = emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
-			TopicARN:      topicArn,
-			MessageID:     messageID,
-			Message:       message,
-			Subject:       subject,
-			Subscriptions: targets.subs,
-			Attributes:    attrSnaps,
-		})
-	}
+	b.emitPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
 
 	return messageID, nil
 }
