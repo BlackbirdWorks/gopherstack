@@ -1,15 +1,21 @@
 package cloudformation
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
+	"net"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ErrEmptyTemplate is returned when a template body is empty.
@@ -204,12 +210,22 @@ func ValidateParameters(tmpl *Template, resolved map[string]string) error {
 
 // resolveCtx holds all context needed to resolve a CloudFormation value.
 type resolveCtx struct {
-	params      map[string]string
-	physicalIDs map[string]string
-	exports     map[string]string
-	conditions  map[string]bool
-	mappings    map[string]any
+	params        map[string]string
+	physicalIDs   map[string]string
+	resourceTypes map[string]string // logicalID → CFN resource type (e.g. "AWS::S3::Bucket")
+	exports       map[string]string
+	conditions    map[string]bool
+	mappings      map[string]any
+	accountID     string
+	region        string
+	stackName     string
 }
+
+// subVarPattern matches ${VarName} or ${Logical.Attr} in Fn::Sub strings.
+var subVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+// awsNoValueSentinel is returned when Ref: AWS::NoValue is resolved.
+const awsNoValueSentinel = "\x02AWS::NoValue"
 
 // evaluateConditions evaluates the Conditions section of a template and returns
 // a map of condition name to bool. It uses fixed-point iteration with sorted keys
@@ -373,6 +389,42 @@ func resolveMapIntrinsic(val map[string]any, ctx resolveCtx) string {
 }
 
 func resolveRef(ref string, ctx resolveCtx) string {
+	// Pseudo-parameters (#10)
+	switch ref {
+	case "AWS::Region":
+		if ctx.region != "" {
+			return ctx.region
+		}
+
+		return "us-east-1"
+	case "AWS::AccountId":
+		if ctx.accountID != "" {
+			return ctx.accountID
+		}
+
+		return "000000000000"
+	case "AWS::StackName":
+		if ctx.stackName != "" {
+			return ctx.stackName
+		}
+
+		return "unknown-stack"
+	case "AWS::Partition":
+		return arn.PartitionForRegion(ctx.region)
+	case "AWS::URLSuffix":
+		if strings.HasPrefix(ctx.region, "cn-") {
+			return "amazonaws.com.cn"
+		}
+
+		return "amazonaws.com"
+	case "AWS::NoValue":
+		return awsNoValueSentinel
+	case "AWS::StackId":
+		return "arn:aws:cloudformation:" + ctx.region + ":" + ctx.accountID + ":stack/" + ctx.stackName + "/unknown"
+	case "AWS::NotificationARNs":
+		return ""
+	}
+
 	if pval, exists := ctx.params[ref]; exists {
 		return pval
 	}
@@ -387,6 +439,28 @@ func resolveRef(ref string, ctx resolveCtx) string {
 func resolveCollectionIntrinsic(val map[string]any, ctx resolveCtx) (string, bool) {
 	if subStr, isSub := val["Fn::Sub"].(string); isSub {
 		return resolveSub(subStr, ctx), true
+	}
+
+	// Two-arg Fn::Sub: ["template", {"Var": "value", ...}] (#11)
+	if subArgs, isSub := val["Fn::Sub"].([]any); isSub && len(subArgs) == 2 {
+		tmplStr, _ := subArgs[0].(string)
+		varMap, _ := subArgs[1].(map[string]any)
+		subCtx := ctx
+		newParams := maps.Clone(ctx.params)
+		for k, v := range varMap {
+			newParams[k] = resolveValueCtx(v, ctx)
+		}
+		subCtx.params = newParams
+
+		return resolveSub(tmplStr, subCtx), true
+	}
+
+	// Fn::GetAtt: [LogicalID, AttributeName] (#9)
+	if getAttArgs, isGetAtt := val["Fn::GetAtt"].([]any); isGetAtt && len(getAttArgs) == 2 {
+		logicalID, _ := getAttArgs[0].(string)
+		attrName, _ := getAttArgs[1].(string)
+
+		return resolveGetAtt(logicalID, attrName, ctx), true
 	}
 
 	if joinArgs, isJoin := val["Fn::Join"].([]any); isJoin && len(joinArgs) >= 2 {
@@ -425,19 +499,82 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 		return unresolvedImportMarker(name)
 	}
 
+	// Fn::Base64: base64-encode input (#13)
+	if b64Input, hasB64 := val["Fn::Base64"]; hasB64 {
+		s := resolveValueCtx(b64Input, ctx)
+
+		return base64.StdEncoding.EncodeToString([]byte(s))
+	}
+
+	// Fn::GetAZs: return canned AZ list for region (#13)
+	if regionVal, hasAZs := val["Fn::GetAZs"]; hasAZs {
+		region := resolveValueCtx(regionVal, ctx)
+		if region == "" {
+			region = ctx.region
+		}
+
+		return strings.Join(getAZsForRegion(region), splitSep)
+	}
+
+	// Fn::Cidr: compute CIDR subnets (#13)
+	if cidrArgs, hasCidr := val["Fn::Cidr"].([]any); hasCidr && len(cidrArgs) >= 2 {
+		return resolveCidr(cidrArgs, ctx)
+	}
+
+	// Fn::Length: count of list elements (#13)
+	if lenVal, hasLen := val["Fn::Length"]; hasLen {
+		return resolveLength(lenVal, ctx)
+	}
+
+	// Fn::ToJsonString: serialize value to JSON string (#13)
+	if jsonVal, hasJson := val["Fn::ToJsonString"]; hasJson {
+		data, err := json.Marshal(jsonVal)
+		if err != nil {
+			return ""
+		}
+
+		return string(data)
+	}
+
+	// Fn::Transform: stub — AWS-internal macro system; return template as-is
+	if _, hasTransform := val["Fn::Transform"]; hasTransform {
+		return fmt.Sprintf("%v", val)
+	}
+
 	return fmt.Sprintf("%v", val)
 }
 
 func resolveSub(s string, ctx resolveCtx) string {
-	result := s
-	for key, val := range ctx.params {
-		result = strings.ReplaceAll(result, "${"+key+"}", val)
-	}
-	for key, val := range ctx.physicalIDs {
-		result = strings.ReplaceAll(result, "${"+key+"}", val)
-	}
+	return subVarPattern.ReplaceAllStringFunc(s, func(match string) string {
+		varName := match[2 : len(match)-1] // strip ${ and }
 
-	return result
+		// Check explicit params (includes overrides from two-arg form).
+		if v, ok := ctx.params[varName]; ok {
+			return v
+		}
+
+		// ${LogicalID.Attribute} — GetAtt-style ref (#11)
+		if dotIdx := strings.IndexByte(varName, '.'); dotIdx >= 0 {
+			logicalID := varName[:dotIdx]
+			attrName := varName[dotIdx+1:]
+
+			return resolveGetAtt(logicalID, attrName, ctx)
+		}
+
+		// ${LogicalID} — plain physical ID ref
+		if pid, ok := ctx.physicalIDs[varName]; ok {
+			return pid
+		}
+
+		// Pseudo-parameters and anything else via resolveRef
+		resolved := resolveRef(varName, ctx)
+		if resolved == varName {
+			// Unknown variable: leave placeholder intact
+			return match
+		}
+
+		return resolved
+	})
 }
 
 func resolveJoin(args []any, ctx resolveCtx) string {
@@ -485,7 +622,7 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 			return resolveValueCtx(items[index], ctx)
 		}
 	case string:
-		// Might be a null-byte-delimited list produced by Fn::Split.
+		// Might be a null-byte-delimited list produced by Fn::Split or Fn::GetAZs.
 		if strings.Contains(items, splitSep) {
 			parts := strings.Split(items, splitSep)
 			if index >= 0 && index < len(parts) {
@@ -493,6 +630,17 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 			}
 		} else if index == 0 {
 			return items
+		}
+	case map[string]any:
+		// Other intrinsic (e.g. Fn::GetAZs) — resolve first, then select from encoded list.
+		resolved := resolveValueCtx(items, ctx)
+		if strings.Contains(resolved, splitSep) {
+			parts := strings.Split(resolved, splitSep)
+			if index >= 0 && index < len(parts) {
+				return strings.TrimSpace(parts[index])
+			}
+		} else if index == 0 {
+			return resolved
 		}
 	}
 
@@ -701,4 +849,237 @@ func collectImportValuesFromValue(v any, params map[string]string, refs *[]strin
 			collectImportValuesFromValue(item, params, refs)
 		}
 	}
+}
+
+// resolveGetAtt resolves Fn::GetAtt [logicalID, attributeName] using the ctx. (#9)
+func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
+	physID := ctx.physicalIDs[logicalID]
+	resType := ctx.resourceTypes[logicalID]
+
+	return getResourceAttribute(resType, physID, attrName, ctx.accountID, ctx.region)
+}
+
+// getResourceAttribute derives the named attribute value from a resource's physicalID and type.
+func getResourceAttribute(resType, physID, attrName, accountID, region string) string {
+	if physID == "" {
+		return ""
+	}
+
+	switch resType {
+	case "AWS::S3::Bucket":
+		switch attrName {
+		case "Arn":
+			return arn.BuildS3(physID)
+		case "DomainName":
+			return physID + ".s3.amazonaws.com"
+		case "RegionalDomainName":
+			if region != "" {
+				return physID + ".s3." + region + ".amazonaws.com"
+			}
+
+			return physID + ".s3.amazonaws.com"
+		case "WebsiteURL":
+			if region != "" {
+				return "http://" + physID + ".s3-website." + region + ".amazonaws.com"
+			}
+
+			return "http://" + physID + ".s3-website.us-east-1.amazonaws.com"
+		}
+	case "AWS::DynamoDB::Table":
+		switch attrName {
+		case "Arn":
+			return arn.Build("dynamodb", region, accountID, "table/"+physID)
+		case "StreamArn":
+			return arn.Build("dynamodb", region, accountID, "table/"+physID+"/stream/2000-01-01T00:00:00.000")
+		}
+	case "AWS::Lambda::Function":
+		switch attrName {
+		case "Arn":
+			return arn.Build("lambda", region, accountID, "function:"+physID)
+		}
+	case "AWS::SQS::Queue":
+		queueName := sqsQueueNameFromURL(physID)
+		switch attrName {
+		case "Arn":
+			return arn.Build("sqs", region, accountID, queueName)
+		case "QueueName":
+			return queueName
+		case "QueueUrl":
+			return physID
+		}
+	case "AWS::SNS::Topic":
+		// physID is already the topic ARN
+		switch attrName {
+		case "TopicArn":
+			return physID
+		}
+	case "AWS::KMS::Key":
+		switch attrName {
+		case "Arn":
+			return arn.Build("kms", region, accountID, "key/"+physID)
+		case "KeyId":
+			return physID
+		}
+	case "AWS::IAM::Role":
+		// physID is already an ARN for IAM roles
+		switch attrName {
+		case "Arn":
+			return physID
+		case "RoleId":
+			return physID
+		}
+	case "AWS::Logs::LogGroup":
+		switch attrName {
+		case "Arn":
+			return arn.Build("logs", region, accountID, "log-group:"+physID+":*")
+		}
+	case "AWS::SecretsManager::Secret":
+		// physID is already an ARN for secrets
+		switch attrName {
+		case "Id":
+			return physID
+		}
+	case "AWS::StepFunctions::StateMachine":
+		// physID is already an ARN
+		switch attrName {
+		case "Arn":
+			return physID
+		case "Name":
+			parts := strings.Split(physID, ":")
+			if len(parts) > 0 {
+				return parts[len(parts)-1]
+			}
+
+			return physID
+		}
+	case "AWS::CloudFormation::Stack":
+		switch attrName {
+		case "Outputs":
+			return physID
+		}
+	}
+
+	// Fallback: return the physical ID itself (works for ARN-typed physicalIDs and "Ref" attribute).
+	return physID
+}
+
+// sqsQueueNameFromURL extracts the queue name from an SQS queue URL.
+// URL format: scheme://host/accountID/queueName
+func sqsQueueNameFromURL(queueURL string) string {
+	parts := strings.Split(queueURL, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+
+	return queueURL
+}
+
+// getAZsForRegion returns a canned list of availability zones for the given region.
+func getAZsForRegion(region string) []string {
+	switch region {
+	case "us-east-1":
+		return []string{"us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1e", "us-east-1f"}
+	case "us-east-2":
+		return []string{"us-east-2a", "us-east-2b", "us-east-2c"}
+	case "us-west-1":
+		return []string{"us-west-1a", "us-west-1b"}
+	case "us-west-2":
+		return []string{"us-west-2a", "us-west-2b", "us-west-2c", "us-west-2d"}
+	case "eu-west-1":
+		return []string{"eu-west-1a", "eu-west-1b", "eu-west-1c"}
+	case "eu-west-2":
+		return []string{"eu-west-2a", "eu-west-2b", "eu-west-2c"}
+	case "eu-central-1":
+		return []string{"eu-central-1a", "eu-central-1b", "eu-central-1c"}
+	case "ap-southeast-1":
+		return []string{"ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"}
+	case "ap-southeast-2":
+		return []string{"ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c"}
+	case "ap-northeast-1":
+		return []string{"ap-northeast-1a", "ap-northeast-1b", "ap-northeast-1c"}
+	default:
+		// Default: three zones using the region name
+		return []string{region + "a", region + "b", region + "c"}
+	}
+}
+
+// resolveCidr computes CIDR subnets from [ipBlock, count, cidrBits] arguments.
+func resolveCidr(args []any, ctx resolveCtx) string {
+	ipBlock := resolveValueCtx(args[0], ctx)
+	countStr := resolveValueCtx(args[1], ctx)
+
+	var cidrBitsStr string
+	if len(args) >= 3 {
+		cidrBitsStr = resolveValueCtx(args[2], ctx)
+	}
+
+	_, ipNet, err := net.ParseCIDR(ipBlock)
+	if err != nil {
+		return ""
+	}
+
+	var count int
+	if _, err := fmt.Sscanf(countStr, "%d", &count); err != nil || count <= 0 {
+		return ""
+	}
+
+	// Determine prefix length for subnets.
+	var newBits int
+	if cidrBitsStr != "" {
+		if _, err := fmt.Sscanf(cidrBitsStr, "%d", &newBits); err != nil {
+			return ""
+		}
+	} else {
+		// Default: split evenly
+		newBits = 4
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	subnetBits := ones + newBits
+	if subnetBits > bits {
+		subnetBits = bits
+	}
+
+	subnets := make([]string, 0, count)
+	baseIP := ipNet.IP.To4()
+	if baseIP == nil {
+		baseIP = ipNet.IP.To16()
+	}
+
+	step := new(big.Int).Lsh(big.NewInt(1), uint(bits-subnetBits))
+	ipInt := new(big.Int).SetBytes(baseIP)
+
+	for i := 0; i < count; i++ {
+		subnet := make(net.IP, len(baseIP))
+		ipInt.FillBytes(subnet)
+		subnets = append(subnets, fmt.Sprintf("%s/%d", subnet.String(), subnetBits))
+		ipInt.Add(ipInt, step)
+	}
+
+	return strings.Join(subnets, splitSep)
+}
+
+// resolveLength returns the count of elements in a list value.
+func resolveLength(v any, ctx resolveCtx) string {
+	switch val := v.(type) {
+	case []any:
+		return fmt.Sprintf("%d", len(val))
+	case string:
+		// Could be a splitSep-encoded list
+		if strings.Contains(val, splitSep) {
+			return fmt.Sprintf("%d", len(strings.Split(val, splitSep)))
+		}
+
+		return "1"
+	case map[string]any:
+		// Resolve first, then check result
+		resolved := resolveValueCtx(val, ctx)
+		if strings.Contains(resolved, splitSep) {
+			return fmt.Sprintf("%d", len(strings.Split(resolved, splitSep)))
+		}
+
+		return "1"
+	}
+
+	return "0"
 }
