@@ -1353,14 +1353,8 @@ func (b *InMemoryBackend) deliverToHTTPEndpoint(
 		}
 
 		resp, doErr := client.Do(req)
-		if doErr == nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				logger.Load(ctx).WarnContext(ctx, "firehose: failed to close HTTP response body", "error", closeErr)
-			}
-
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				return
-			}
+		if checkHTTPDeliveryResponse(ctx, resp, doErr) {
+			return
 		}
 
 		if time.Now().After(deadline) {
@@ -1395,8 +1389,24 @@ func httpDeliveryBackoff(ctx context.Context, deadline time.Time, backoff *time.
 	}
 }
 
+// checkHTTPDeliveryResponse closes the response body and returns true when the
+// response indicates success (2xx status). When doErr is non-nil or the status
+// is outside 2xx it returns false so the caller retries.
+func checkHTTPDeliveryResponse(ctx context.Context, resp *http.Response, doErr error) bool {
+	if doErr != nil {
+		return false
+	}
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "firehose: failed to close HTTP response body", "error", closeErr)
+	}
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
 // redshiftRetryDuration is the default retry window for Redshift delivery.
 const redshiftRetryDuration = 7200 * time.Second
+
+// redshiftHostParts is the SplitN limit for extracting cluster ID from JDBC host.
+const redshiftHostParts = 2
 
 const redshiftBackoffInitial = 2 * time.Second
 const redshiftBackoffMax = 60 * time.Second
@@ -1452,7 +1462,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 	database := strings.TrimPrefix(parsed.Path, "/")
 
 	// Extract cluster identifier from the host: <cluster>.<suffix>.redshift.amazonaws.com
-	clusterID := strings.SplitN(host, ".", 2)[0]
+	clusterID := strings.SplitN(host, ".", redshiftHostParts)[0]
 
 	if clusterID == "" || database == "" {
 		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift JDBC URL missing cluster or database",
@@ -1580,15 +1590,8 @@ func (b *InMemoryBackend) deliverToOpenSearch(
 		req.Header.Set("Content-Type", "application/x-ndjson")
 
 		resp, doErr := client.Do(req)
-		if doErr == nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				logger.Load(ctx).
-					WarnContext(ctx, "firehose: failed to close OpenSearch response body", "error", closeErr)
-			}
-
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				return
-			}
+		if checkHTTPDeliveryResponse(ctx, resp, doErr) {
+			return
 		}
 
 		if time.Now().After(deadline) {
@@ -1692,14 +1695,8 @@ func (b *InMemoryBackend) deliverToSplunk(
 		}
 
 		resp, doErr := client.Do(req)
-		if doErr == nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				logger.Load(ctx).WarnContext(ctx, "firehose: failed to close Splunk response body", "error", closeErr)
-			}
-
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				return
-			}
+		if checkHTTPDeliveryResponse(ctx, resp, doErr) {
+			return
 		}
 
 		if time.Now().After(deadline) {

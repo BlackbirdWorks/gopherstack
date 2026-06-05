@@ -1120,7 +1120,7 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 	step := new(big.Int).Lsh(big.NewInt(1), uint(bits-subnetBits))
 	ipInt := new(big.Int).SetBytes(baseIP)
 
-	for i := range count {
+	for range count {
 		subnet := make(net.IP, len(baseIP))
 		ipInt.FillBytes(subnet)
 		subnets = append(subnets, fmt.Sprintf("%s/%d", subnet.String(), subnetBits))

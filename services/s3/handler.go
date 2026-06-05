@@ -72,10 +72,10 @@ const (
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
 	objectLambdaHandlerFields
+	notificationMu  sync.RWMutex
 	notifier        NotificationDispatcher
 	notificationCtx context.Context
 	Backend         StorageBackend
-	notificationMu  sync.RWMutex
 	DefaultRegion   string
 	Endpoint        string
 	janitor         *Janitor

@@ -1884,11 +1884,12 @@ func (h *Handler) advanceShardCursor(
 	flusher http.Flusher,
 	canFlush bool,
 	idlePolls *int,
-) (stop bool, nextSP *StartingPosition) {
+) (bool, *StartingPosition) {
 	done, next, tickErr := h.pollSubscribeToShardTick(req, curSP, w, flusher, canFlush, idlePolls)
 	if tickErr != nil || done {
 		return true, nil
 	}
+
 	return false, next
 }
 
