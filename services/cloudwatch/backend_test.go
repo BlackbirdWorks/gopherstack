@@ -606,7 +606,7 @@ func TestCloudWatchBackend_DescribeAlarmsForMetric(t *testing.T) {
 		AlarmName: "mem-alarm", Namespace: "AWS/EC2", MetricName: "MemoryUtilization",
 	}))
 
-	p, err := b.DescribeAlarmsForMetric("AWS/EC2", "CPUUtilization", nil, "", 0)
+	p, err := b.DescribeAlarmsForMetric("AWS/EC2", "CPUUtilization", nil, nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "cpu-alarm", p.Data[0].AlarmName)
@@ -810,7 +810,7 @@ func TestCloudWatchBackend_DescribeAlarmsForMetric_WithAlarmNames(t *testing.T) 
 	}))
 
 	// Filter by both namespace+metric AND alarm name.
-	p, err := b.DescribeAlarmsForMetric("NS", "M", []string{"match-name"}, "", 0)
+	p, err := b.DescribeAlarmsForMetric("NS", "M", nil, []string{"match-name"}, "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "match-name", p.Data[0].AlarmName)

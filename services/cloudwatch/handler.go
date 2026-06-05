@@ -1334,6 +1334,7 @@ func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) erro
 func (h *Handler) handleDescribeAlarmsForMetric(form url.Values, c *echo.Context) error {
 	namespace := form.Get("Namespace")
 	metricName := form.Get("MetricName")
+	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 	alarmNames := parseMemberList(form, "AlarmNames.")
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
@@ -1341,6 +1342,7 @@ func (h *Handler) handleDescribeAlarmsForMetric(form url.Values, c *echo.Context
 	p, err := h.Backend.DescribeAlarmsForMetric(
 		namespace,
 		metricName,
+		dimensions,
 		alarmNames,
 		nextToken,
 		maxRecords,
