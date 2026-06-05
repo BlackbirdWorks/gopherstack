@@ -627,10 +627,8 @@ type getQueryResultsInput struct {
 	MaxResults       int    `json:"MaxResults,omitempty"`
 }
 
-// handleGetQueryResults validates the query execution exists and the requested
-// MaxResults page size is in range [1, 1000]. The mock backend stores no rows
-// so the response is always an empty page; pagination tokens are accepted and
-// returned as nil to model end-of-stream.
+// handleGetQueryResults returns the stored result set for a query execution.
+// Real rows are returned for SELECT queries against registered in-memory tables.
 func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 	var input getQueryResultsInput
 	if err := json.Unmarshal(b, &input); err != nil {
@@ -652,15 +650,55 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{
+	page, err := h.Backend.GetQueryResults(input.QueryExecutionID, input.NextToken, input.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build ColumnInfo list.
+	columnInfo := make([]map[string]any, 0, len(page.Columns))
+	for _, c := range page.Columns {
+		columnInfo = append(columnInfo, map[string]any{
+			"Name": c.name,
+			"Type": c.typ,
+		})
+	}
+
+	// Build Rows: first row is header (column names), subsequent rows are data.
+	rows := make([]map[string]any, 0)
+
+	if len(page.Columns) > 0 {
+		header := make([]map[string]any, 0, len(page.Columns))
+		for _, c := range page.Columns {
+			name := c.name
+			header = append(header, map[string]any{"VarCharValue": name})
+		}
+		rows = append(rows, map[string]any{"Data": header})
+	}
+
+	for _, row := range page.Rows {
+		data := make([]map[string]any, 0, len(row))
+		for _, cell := range row {
+			data = append(data, map[string]any{"VarCharValue": cell})
+		}
+		rows = append(rows, map[string]any{"Data": data})
+	}
+
+	resp := map[string]any{
 		"ResultSet": map[string]any{
-			"Rows": []any{},
+			"Rows": rows,
 			"ResultSetMetadata": map[string]any{
-				"ColumnInfo": []any{},
+				"ColumnInfo": columnInfo,
 			},
 		},
 		"UpdateCount": 0,
-	}, nil
+	}
+
+	if page.NextToken != "" {
+		resp["NextToken"] = page.NextToken
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) tagOps() map[string]athenaActionFn {
