@@ -20,6 +20,8 @@ const (
 	typeVisibilityPrivate       = "PRIVATE"
 	typeStatusDeprecated        = "DEPRECATED"
 	driftStatusDrifted          = "DRIFTED"
+	driftStatusModified         = "MODIFIED"
+	driftStatusDeleted          = "DELETED"
 )
 
 // ---- Stack Sets ----
