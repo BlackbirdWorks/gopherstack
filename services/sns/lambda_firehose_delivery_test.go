@@ -15,8 +15,8 @@ import (
 // --- mock backends ---
 
 type mockLambdaInvoker struct {
-	mu          sync.Mutex
 	invocations []lambdaInvocation
+	mu          sync.Mutex
 }
 
 type lambdaInvocation struct {
@@ -61,8 +61,8 @@ func (m *mockLambdaInvoker) Last() lambdaInvocation {
 }
 
 type mockFirehosePutter struct {
-	mu      sync.Mutex
 	streams map[string][][]byte
+	mu      sync.Mutex
 }
 
 func newMockFirehose() *mockFirehosePutter {

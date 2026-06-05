@@ -430,10 +430,10 @@ type InMemoryBackend struct {
 	trustStores   map[string]*TrustStore   // keyed by ARN
 	// lifecycle: tracks when initial targets become healthy.
 	targetReadyAt map[string]map[string]time.Time // tgArn → targetKey → readyAt
-	accountID     string
-	region        string
 	mu            *lockmetrics.RWMutex
 	stopCh        chan struct{}
+	accountID     string
+	region        string
 	ruleCounter   int // monotonically increasing counter for rule ARN generation
 }
 
@@ -482,9 +482,9 @@ func (b *InMemoryBackend) runHealthReconciler() {
 }
 
 type pendingTarget struct {
+	tg        *TargetGroup
 	tgArn     string
 	targetKey string
-	tg        *TargetGroup
 }
 
 type healthResult struct {

@@ -49,9 +49,9 @@ func (m *mockGlue) SFNStartJobRun(
 }
 
 type mockEventBridge struct {
-	returnFailCount int
-	returnErr       error
 	capturedEntries []map[string]any
+	returnErr       error
+	returnFailCount int
 }
 
 func (m *mockEventBridge) SFNPutEvents(_ context.Context, entries []map[string]any) (int, error) {

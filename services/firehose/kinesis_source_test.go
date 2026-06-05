@@ -20,8 +20,8 @@ type mockKinesisReader struct {
 	records  [][]byte
 	listErr  error
 	getErr   error
-	mu       sync.Mutex
 	position int
+	mu       sync.Mutex
 }
 
 func (m *mockKinesisReader) ListShards(_ string) ([]string, error) {

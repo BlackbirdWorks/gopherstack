@@ -341,6 +341,8 @@ type DataQualityEvaluationRun struct {
 
 // InMemoryBackend stores Glue state in memory.
 type InMemoryBackend struct {
+	accountID                 string
+	region                    string
 	databases                 map[string]*Database                      // key: databaseName
 	tables                    map[string]*Table                         // key: "databaseName|tableName"
 	crawlers                  map[string]*Crawler                       // key: crawlerName
@@ -383,8 +385,6 @@ type InMemoryBackend struct {
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
-	accountID                 string
-	region                    string
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
@@ -539,11 +539,9 @@ func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) {
 	for _, s3t := range c.Targets.S3Targets {
 		path := strings.TrimPrefix(s3t.Path, "s3://")
 		// Extract prefix after bucket name.
-		slash := strings.Index(path, "/")
-
 		var prefix string
-		if slash >= 0 {
-			prefix = strings.Trim(path[slash+1:], "/")
+		if _, after, ok := strings.Cut(path, "/"); ok {
+			prefix = strings.Trim(after, "/")
 		}
 
 		if prefix == "" {

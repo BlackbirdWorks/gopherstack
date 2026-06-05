@@ -1893,7 +1893,7 @@ func (h *Handler) advanceShardCursor(
 }
 
 // pollSubscribeToShardTick performs one poll tick for handleSubscribeToShardHTTP.
-// Returns (done=true, nil, nil) when the stream should close gracefully,
+// Returns (true, nil, err) when the stream should close (poll error or idle limit reached),
 // (false, nextSP, nil) when records were delivered (nextSP non-nil means cursor advanced),
 // and (false, nil, err) on a write error.
 func (h *Handler) pollSubscribeToShardTick(
@@ -1903,14 +1903,14 @@ func (h *Handler) pollSubscribeToShardTick(
 	flusher http.Flusher,
 	canFlush bool,
 	idlePolls *int,
-) (done bool, nextSP *StartingPosition, err error) {
+) (bool, *StartingPosition, error) {
 	out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: curSP,
 	})
 	if pollErr != nil {
-		return true, nil, nil
+		return true, nil, pollErr
 	}
 
 	if len(out.Event.Records) == 0 {
@@ -1938,7 +1938,7 @@ func (h *Handler) pollSubscribeToShardTick(
 		MillisBehindLatest:         out.Event.MillisBehindLatest,
 	})
 	if marshalErr != nil {
-		return false, nil, nil
+		return false, nil, marshalErr
 	}
 
 	eventMsg := encodeEventStreamMsg([][2]string{
