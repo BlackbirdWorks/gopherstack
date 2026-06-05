@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	statusDeployed = "Deployed"
+	statusDeployed    = "Deployed"
+	statusInProgress  = statusInProgress
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000
@@ -585,9 +586,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		invalidationReadyAt:                 make(map[string]map[string]time.Time),
 		tenantInvalidationReadyAt:           make(map[string]map[string]time.Time),
 		stopCh:                              make(chan struct{}),
-		mu:        lockmetrics.New("cloudfront"),
-		accountID: accountID,
-		region:    region,
+		mu:                                  lockmetrics.New("cloudfront"),
+		accountID:                           accountID,
+		region:                              region,
 	}
 
 	go b.runInvalidationReconciler()
@@ -631,7 +632,7 @@ func (b *InMemoryBackend) reconcileInvalidationsLocked() {
 		for invID, readyAt := range invMap {
 			if now.After(readyAt) {
 				for _, inv := range b.invalidations[distID] {
-					if inv.ID == invID && inv.Status == "InProgress" {
+					if inv.ID == invID && inv.Status == statusInProgress {
 						inv.Status = "Completed"
 					}
 				}
@@ -645,7 +646,7 @@ func (b *InMemoryBackend) reconcileInvalidationsLocked() {
 		for invID, readyAt := range invMap {
 			if now.After(readyAt) {
 				for _, inv := range b.tenantInvalidations[tenantID] {
-					if inv.ID == invID && inv.Status == "InProgress" {
+					if inv.ID == invID && inv.Status == statusInProgress {
 						inv.Status = "Completed"
 					}
 				}
@@ -1055,7 +1056,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 	now := time.Now().UTC()
 	inv := &Invalidation{
 		ID:         generateID(),
-		Status:     "InProgress",
+		Status:     statusInProgress,
 		CreateTime: now,
 		Paths:      append([]string(nil), paths...),
 		CallerRef:  callerRef,

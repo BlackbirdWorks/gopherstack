@@ -19,16 +19,16 @@ const (
 // Janitor is the CloudWatch background worker that manages metric retention
 // and evaluates metric alarm states.
 type Janitor struct {
-	Backend          *InMemoryBackend
-	Interval         time.Duration
+	Backend           *InMemoryBackend
+	Interval          time.Duration
 	AlarmEvalInterval time.Duration
 }
 
 // NewJanitor creates a new CloudWatch Janitor.
 func NewJanitor(backend *InMemoryBackend) *Janitor {
 	return &Janitor{
-		Backend:          backend,
-		Interval:         defaultJanitorInterval,
+		Backend:           backend,
+		Interval:          defaultJanitorInterval,
 		AlarmEvalInterval: alarmEvalInterval,
 	}
 }

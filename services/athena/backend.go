@@ -30,6 +30,8 @@ const (
 	stateFailed     = "FAILED"
 	stateCancelled  = "CANCELLED"
 	stateCancelling = "CANCELLING"
+
+	columnTypeString = "string"
 )
 
 var (
@@ -389,8 +391,8 @@ type InMemoryBackend struct {
 	namedQueries         map[string]*NamedQuery
 	dataCatalogs         map[string]*DataCatalog
 	queryExecutions      map[string]*QueryExecution
-	queryResults         map[string]*sqlResult               // executionID -> computed result set
-	tableData            map[string][]map[string]any         // "catalog/database/table" -> rows
+	queryResults         map[string]*sqlResult       // executionID -> computed result set
+	tableData            map[string][]map[string]any // "catalog/database/table" -> rows
 	resourceTags         map[string]map[string]string
 	preparedStatements   map[string]*PreparedStatement // key: "workGroup/name"
 	capacityReservations map[string]*CapacityReservation
@@ -460,7 +462,7 @@ func (b *InMemoryBackend) seedDefaultMetadata() {
 			TableType: "EXTERNAL_TABLE",
 			Columns: []Column{
 				{Name: "id", Type: "bigint"},
-				{Name: "value", Type: "string"},
+				{Name: "value", Type: columnTypeString},
 			},
 		},
 	}

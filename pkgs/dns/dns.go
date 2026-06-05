@@ -302,81 +302,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 
 		switch q.Qtype {
 		case dns.TypeA:
-			answered := false
-
-			for _, e := range entries {
-				if e.recordType != "A" {
-					continue
-				}
-
-				for _, v := range e.values {
-					ip := net.ParseIP(v)
-					if ip4 := ip.To4(); ip4 != nil {
-						msg.Answer = append(msg.Answer, &dns.A{
-							Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
-							A:   ip4,
-						})
-						answered = true
-					}
-				}
-			}
-
-			if !answered {
-				if inNames {
-					msg.Answer = append(msg.Answer, &dns.A{
-						Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
-						A:   s.resolveIP,
-					})
-				} else {
-					msg.Rcode = dns.RcodeNameError
-				}
-			}
-
+			s.handleAQuery(msg, q, entries, inNames)
 		case dns.TypeCNAME:
-			answered := false
-
-			for _, e := range entries {
-				if e.recordType != "CNAME" && e.recordType != "ALIAS" {
-					continue
-				}
-
-				for _, v := range e.values {
-					msg.Answer = append(msg.Answer, &dns.CNAME{
-						Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: defaultTTL},
-						Target: dns.Fqdn(strings.TrimSuffix(v, ".")),
-					})
-					answered = true
-				}
-			}
-
-			if !answered {
-				msg.Rcode = dns.RcodeNameError
-			}
-
+			s.handleCNAMEQuery(msg, q, entries)
 		case dns.TypeAAAA:
-			answered := false
-
-			for _, e := range entries {
-				if e.recordType != "AAAA" {
-					continue
-				}
-
-				for _, v := range e.values {
-					ip := net.ParseIP(v)
-					if ip != nil && ip.To4() == nil {
-						msg.Answer = append(msg.Answer, &dns.AAAA{
-							Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: defaultTTL},
-							AAAA: ip.To16(),
-						})
-						answered = true
-					}
-				}
-			}
-
-			if !answered {
-				msg.Rcode = dns.RcodeNameError
-			}
-
+			s.handleAAAAQuery(msg, q, entries)
 		default:
 			// For other query types, return NOERROR with empty answer (NODATA).
 		}
@@ -386,6 +316,95 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		if s.cfg.Logger != nil {
 			s.cfg.Logger.Warn("dns: write response failed", "error", werr)
 		}
+	}
+}
+
+func (s *Server) handleAQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry, inNames bool) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "A" {
+			continue
+		}
+
+		for _, v := range e.values {
+			ip := net.ParseIP(v)
+			if ip4 := ip.To4(); ip4 != nil {
+				msg.Answer = append(msg.Answer, &dns.A{
+					Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
+					A:   ip4,
+				})
+				answered = true
+			}
+		}
+	}
+
+	if !answered {
+		if inNames {
+			msg.Answer = append(msg.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
+				A:   s.resolveIP,
+			})
+		} else {
+			msg.Rcode = dns.RcodeNameError
+		}
+	}
+}
+
+func (s *Server) handleCNAMEQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "CNAME" && e.recordType != "ALIAS" {
+			continue
+		}
+
+		for _, v := range e.values {
+			msg.Answer = append(msg.Answer, &dns.CNAME{
+				Hdr: dns.RR_Header{
+					Name:   q.Name,
+					Rrtype: dns.TypeCNAME,
+					Class:  dns.ClassINET,
+					Ttl:    defaultTTL,
+				},
+				Target: dns.Fqdn(strings.TrimSuffix(v, ".")),
+			})
+			answered = true
+		}
+	}
+
+	if !answered {
+		msg.Rcode = dns.RcodeNameError
+	}
+}
+
+func (s *Server) handleAAAAQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "AAAA" {
+			continue
+		}
+
+		for _, v := range e.values {
+			ip := net.ParseIP(v)
+			if ip != nil && ip.To4() == nil {
+				msg.Answer = append(msg.Answer, &dns.AAAA{
+					Hdr: dns.RR_Header{
+						Name:   q.Name,
+						Rrtype: dns.TypeAAAA,
+						Class:  dns.ClassINET,
+						Ttl:    defaultTTL,
+					},
+					AAAA: ip.To16(),
+				})
+				answered = true
+			}
+		}
+	}
+
+	if !answered {
+		msg.Rcode = dns.RcodeNameError
 	}
 }
 

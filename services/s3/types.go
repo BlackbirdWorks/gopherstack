@@ -75,24 +75,24 @@ type StoredObjectVersion struct {
 	// EncryptionNonce is the GCM nonce/IV used for this object's ciphertext.
 	// Stored alongside the ciphertext (in StoredObjectVersion.Data) so GET
 	// can decrypt without re-deriving anything.
-	EncryptionNonce    []byte                  `json:"-"`
-	Key                string                  `json:"key"`
-	ETag               string                  `json:"etag"`
-	ContentType        string                  `json:"contentType"`
-	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
-	ContentDisposition string                  `json:"contentDisposition,omitempty"`
-	RetentionMode      string                  `json:"retentionMode,omitempty"`
-	StorageClass       string                  `json:"storageClass,omitempty"`
-	ACL                string                  `json:"acl,omitempty"`
-	ChecksumAlgorithm  types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
-	VersionID          string                  `json:"versionID"`
-	Data               []byte                  `json:"data,omitempty"`
-	Size               int64                   `json:"size"`
-	IsCompressed       bool                    `json:"isCompressed,omitempty"`
-	IsLatest           bool                    `json:"isLatest"`
-	Deleted            bool                    `json:"deleted,omitempty"`
-	LegalHold              bool                    `json:"legalHold,omitempty"`
-	OngoingRestore         bool                    `json:"ongoingRestore,omitempty"`
+	EncryptionNonce         []byte                   `json:"-"`
+	Key                     string                   `json:"key"`
+	ETag                    string                   `json:"etag"`
+	ContentType             string                   `json:"contentType"`
+	ContentEncoding         string                   `json:"contentEncoding,omitempty"`
+	ContentDisposition      string                   `json:"contentDisposition,omitempty"`
+	RetentionMode           string                   `json:"retentionMode,omitempty"`
+	StorageClass            string                   `json:"storageClass,omitempty"`
+	ACL                     string                   `json:"acl,omitempty"`
+	ChecksumAlgorithm       types.ChecksumAlgorithm  `json:"checksumAlgorithm,omitempty"`
+	VersionID               string                   `json:"versionID"`
+	Data                    []byte                   `json:"data,omitempty"`
+	Size                    int64                    `json:"size"`
+	IsCompressed            bool                     `json:"isCompressed,omitempty"`
+	IsLatest                bool                     `json:"isLatest"`
+	Deleted                 bool                     `json:"deleted,omitempty"`
+	LegalHold               bool                     `json:"legalHold,omitempty"`
+	OngoingRestore          bool                     `json:"ongoingRestore,omitempty"`
 	StorageClassTransitions []StorageClassTransition `json:"storageClassTransitions,omitempty"`
 }
 

@@ -1939,8 +1939,8 @@ func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context)
 			keys = append(keys, cbor.String(k))
 		}
 		contributors = append(contributors, cbor.Map{
-			"Keys": keys,
-			"Sum":  cbor.Float64(contrib.Sum),
+			"Keys":  keys,
+			statSum: cbor.Float64(contrib.Sum),
 		})
 	}
 

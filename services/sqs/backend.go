@@ -1621,103 +1621,72 @@ func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
 // re-queues visibility-expired entries. Pass 2 sweeps q.messages (including
 // newly re-queued ones): discards retention-expired, drains to DLQ, picks up
 // to maxMessages visible messages. maxMessages=0 performs cleanup only.
-func prepareAndPickMessages(
-	q *Queue,
-	accountID string,
-	maxMessages, vt int,
-	now time.Time,
-) []*Message {
-	retentionSecs, err := strconv.Atoi(q.Attributes[attrMessageRetentionPeriod])
-	if err != nil || retentionSecs <= 0 {
-		retentionSecs = defaultMessageRetentionPeriod
-	}
-
-	cutoff := now.Add(-time.Duration(retentionSecs) * time.Second)
-
-	// Pass 1: sweep inFlightMessages — discard retention-expired, re-queue
-	// visibility-expired. Re-queued messages are appended to q.messages for
-	// Pass 2 to process.
-	infChanged := false
+// sweepInFlight processes q.inFlightMessages: discards retention-expired entries and
+// re-queues visibility-expired entries back onto q.messages. Caller must hold q.mu.
+func sweepInFlight(q *Queue, cutoff, now time.Time) {
+	changed := false
 	newInFlight := q.inFlightMessages[:0]
 
 	for _, inf := range q.inFlightMessages {
 		if time.UnixMilli(inf.Msg.SentTimestamp).Before(cutoff) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
-			infChanged = true
-
+			changed = true
 			continue
 		}
 
 		if now.After(inf.VisibleAt) {
-			// Visibility timeout expired; return to the visible queue.
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
 			q.messages = append(q.messages, inf.Msg)
-			infChanged = true
-
+			changed = true
 			continue
 		}
 
 		newInFlight = append(newInFlight, inf)
 	}
 
-	if infChanged {
+	if changed {
 		q.inFlightMessages = newInFlight
 	}
+}
 
-	// Pass 2: sweep q.messages (original + re-queued from Pass 1) in-place.
-	var blockedGroups map[string]bool
-	if q.IsFIFO {
-		blockedGroups = buildBlockedGroups(q.inFlightMessages)
-	}
-
+// pickVisibleMessages compacts q.messages in-place, routing DLQ-bound messages,
+// skipping blocked FIFO groups, and picking up to maxMessages visible messages.
+// Caller must hold q.mu.
+func pickVisibleMessages(q *Queue, blockedGroups map[string]bool, maxMessages, vt int, now time.Time, cutoff time.Time, accountID string) []*Message {
 	// nolint:prealloc,nolintlint // capacity tainted by user input — satisfies CodeQL
 	result := make([]*Message, 0)
-	j := 0 // write pointer for in-place compaction
+	j := 0
 
 	for _, msg := range q.messages {
-		// Retention check.
 		if time.UnixMilli(msg.SentTimestamp).Before(cutoff) {
 			continue
 		}
 
-		// DLQ routing: messages that have exceeded maxReceiveCount.
-		if q.MaxReceiveCount > 0 && q.dlq != nil &&
-			msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+		if q.MaxReceiveCount > 0 && q.dlq != nil && msg.ApproximateReceiveCount >= q.MaxReceiveCount {
 			msg.ReceiptHandle = ""
 			q.dlq.messages = append(q.dlq.messages, msg)
 			if now.Before(msg.VisibleAt) {
 				q.dlq.delayedCount++
 			}
-
 			continue
 		}
 
-		// FIFO: skip messages whose group has an in-flight message.
 		if q.IsFIFO && msg.MessageGroupID != "" && blockedGroups[msg.MessageGroupID] {
 			q.messages[j] = msg
 			j++
-
 			continue
 		}
 
-		// Pick if visible and result set not yet full.
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
 			q.receiveGeneration++
-			receipt := fmt.Sprintf(
-				"%s:%d:%s",
-				msg.MessageID,
-				q.receiveGeneration,
-				uuid.New().String(),
-			)
+			receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
 			msg.ReceiptHandle = receipt
 			msg.ApproximateReceiveCount++
 			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
 			if msg.ApproximateFirstReceiveTimestamp == 0 {
 				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
-				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
-					msg.ApproximateFirstReceiveTimestamp, 10,
-				)
+				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(msg.ApproximateFirstReceiveTimestamp, 10)
 				msg.Attributes[attrSenderID] = accountID
 			}
 
@@ -1728,7 +1697,7 @@ func prepareAndPickMessages(
 				Msg:           msg,
 			}
 			q.inFlightMessages = append(q.inFlightMessages, inf)
-			q.inFlightByHandle[receipt] = inf // #56
+			q.inFlightByHandle[receipt] = inf
 			result = append(result, msg)
 
 			if q.IsFIFO && msg.MessageGroupID != "" {
@@ -1743,10 +1712,34 @@ func prepareAndPickMessages(
 	}
 
 	q.messages = q.messages[:j]
+	return result
+}
+
+func prepareAndPickMessages(
+	q *Queue,
+	accountID string,
+	maxMessages, vt int,
+	now time.Time,
+) []*Message {
+	retentionSecs, err := strconv.Atoi(q.Attributes[attrMessageRetentionPeriod])
+	if err != nil || retentionSecs <= 0 {
+		retentionSecs = defaultMessageRetentionPeriod
+	}
+
+	cutoff := now.Add(-time.Duration(retentionSecs) * time.Second)
+
+	// Pass 1: sweep inFlightMessages — discard retention-expired, re-queue visibility-expired.
+	sweepInFlight(q, cutoff, now)
+
+	// Pass 2: sweep q.messages (original + re-queued from Pass 1) in-place.
+	var blockedGroups map[string]bool
+	if q.IsFIFO {
+		blockedGroups = buildBlockedGroups(q.inFlightMessages)
+	}
+
+	result := pickVisibleMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID)
 
 	// Recompute delayedCount from the remaining messages (#59).
-	// This corrects any staleness from messages that became visible since the
-	// last mutation without an explicit event.
 	q.delayedCount = 0
 	for _, msg := range q.messages {
 		if now.Before(msg.VisibleAt) {

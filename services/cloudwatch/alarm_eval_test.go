@@ -63,25 +63,25 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 		wantState         string
 	}{
 		{
-			name:      "breaching_data_transitions_to_alarm",
-			operator:  "GreaterThanThreshold",
-			statistic: "Average",
-			period:    60,
-			evalPeriods: 1,
+			name:         "breaching_data_transitions_to_alarm",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  1,
 			initialState: "INSUFFICIENT_DATA",
-			wantState:   "ALARM",
+			wantState:    "ALARM",
 			points: []cloudwatch.MetricDatum{
 				{Timestamp: now.Add(-30 * time.Second), Value: 150.0},
 			},
 		},
 		{
-			name:      "non_breaching_data_transitions_to_ok",
-			operator:  "GreaterThanThreshold",
-			statistic: "Average",
-			period:    60,
-			evalPeriods: 1,
+			name:         "non_breaching_data_transitions_to_ok",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  1,
 			initialState: "INSUFFICIENT_DATA",
-			wantState:   "OK",
+			wantState:    "OK",
 			points: []cloudwatch.MetricDatum{
 				{Timestamp: now.Add(-30 * time.Second), Value: 50.0},
 			},
@@ -97,9 +97,9 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 			wantState:         "ALARM",
 			// 3 periods: oldest (not breaching), middle (breaching), newest (breaching).
 			points: []cloudwatch.MetricDatum{
-				{Timestamp: now.Add(-150 * time.Second), Value: 50.0},  // period 0: not breach
-				{Timestamp: now.Add(-90 * time.Second), Value: 200.0},  // period 1: breach
-				{Timestamp: now.Add(-30 * time.Second), Value: 200.0},  // period 2: breach
+				{Timestamp: now.Add(-150 * time.Second), Value: 50.0}, // period 0: not breach
+				{Timestamp: now.Add(-90 * time.Second), Value: 200.0}, // period 1: breach
+				{Timestamp: now.Add(-30 * time.Second), Value: 200.0}, // period 2: breach
 			},
 		},
 		{
@@ -151,25 +151,25 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 			points:       nil,
 		},
 		{
-			name:      "less_than_operator_breaches_when_below_threshold",
-			operator:  "LessThanThreshold",
-			statistic: "Average",
-			period:    60,
-			evalPeriods: 1,
+			name:         "less_than_operator_breaches_when_below_threshold",
+			operator:     "LessThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  1,
 			initialState: "OK",
-			wantState:   "ALARM",
+			wantState:    "ALARM",
 			points: []cloudwatch.MetricDatum{
 				{Timestamp: now.Add(-30 * time.Second), Value: 50.0},
 			},
 		},
 		{
-			name:      "alarm_transitions_back_to_ok_when_data_normalizes",
-			operator:  "GreaterThanThreshold",
-			statistic: "Sum",
-			period:    60,
-			evalPeriods: 1,
+			name:         "alarm_transitions_back_to_ok_when_data_normalizes",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Sum",
+			period:       60,
+			evalPeriods:  1,
 			initialState: "ALARM",
-			wantState:   "OK",
+			wantState:    "OK",
 			points: []cloudwatch.MetricDatum{
 				{Timestamp: now.Add(-30 * time.Second), Value: 10.0},
 			},
@@ -293,7 +293,16 @@ func TestAlarmEvaluator_SNSActionFiredOnStateChange(t *testing.T) {
 			// Put metric datum — normalize Value to StatisticSet fields.
 			v := tt.dataValue
 			_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
-				{MetricName: metricName, Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: now.Add(-30 * time.Second), Unit: "Count"},
+				{
+					MetricName: metricName,
+					Value:      v,
+					Count:      1,
+					Sum:        v,
+					Min:        v,
+					Max:        v,
+					Timestamp:  now.Add(-30 * time.Second),
+					Unit:       "Count",
+				},
 			})
 			require.NoError(t, err)
 
@@ -341,7 +350,16 @@ func TestAlarmEvaluator_BackgroundJanitor(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{
-		{MetricName: metricName, Value: 200.0, Count: 1, Sum: 200.0, Min: 200.0, Max: 200.0, Timestamp: now.Add(-5 * time.Second), Unit: "Percent"},
+		{
+			MetricName: metricName,
+			Value:      200.0,
+			Count:      1,
+			Sum:        200.0,
+			Min:        200.0,
+			Max:        200.0,
+			Timestamp:  now.Add(-5 * time.Second),
+			Unit:       "Percent",
+		},
 	})
 	require.NoError(t, err)
 
@@ -372,4 +390,3 @@ func TestAlarmEvaluator_BackgroundJanitor(t *testing.T) {
 		return listErr == nil && len(pages.Data) > 0 && pages.Data[0].StateValue == "ALARM"
 	}, 500*time.Millisecond, 10*time.Millisecond, "background janitor must evaluate alarm to ALARM")
 }
-

@@ -236,7 +236,7 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []s
 	now := time.Now().UTC()
 	inv := &Invalidation{
 		ID:         uuid.NewString()[:12],
-		Status:     "InProgress",
+		Status:     statusInProgress,
 		CreateTime: now,
 		Paths:      paths,
 	}

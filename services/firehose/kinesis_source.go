@@ -3,9 +3,10 @@ package firehose
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -22,7 +23,10 @@ func (b *InMemoryBackend) launchKinesisPoller(firehoseStream, kinesisStreamARN s
 	b.pollerCancel[firehoseStream] = cancel
 	b.mu.Unlock()
 
-	go b.pollKinesisStream(ctx, firehoseStream, kinesisStreamARN)
+	go func() {
+		defer cancel()
+		b.pollKinesisStream(ctx, firehoseStream, kinesisStreamARN)
+	}()
 }
 
 // pollKinesisStream lists shards and starts a per-shard polling loop.
@@ -37,7 +41,7 @@ func (b *InMemoryBackend) pollKinesisStream(
 
 	shards, err := b.kinesisBackend.ListShards(streamName)
 	if err != nil {
-		slog.WarnContext(ctx, "firehose kinesis poller: ListShards failed",
+		logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: ListShards failed",
 			"stream", firehoseStream, "kinesis", streamName, "error", err)
 
 		return
@@ -56,7 +60,7 @@ func (b *InMemoryBackend) pollKinesisShard(
 ) {
 	iter, err := b.kinesisBackend.GetShardIterator(kinesisStream, shardID)
 	if err != nil {
-		slog.WarnContext(ctx, "firehose kinesis poller: GetShardIterator failed",
+		logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: GetShardIterator failed",
 			"stream", firehoseStream, "shard", shardID, "error", err)
 
 		return
@@ -69,7 +73,7 @@ func (b *InMemoryBackend) pollKinesisShard(
 
 		records, nextIter, err := b.kinesisBackend.GetRecords(iter, kinesisPollerBatchLimit)
 		if err != nil {
-			slog.WarnContext(ctx, "firehose kinesis poller: GetRecords failed",
+			logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: GetRecords failed",
 				"stream", firehoseStream, "shard", shardID, "error", err)
 
 			if waitOrDone(ctx, kinesisPollerInterval) {
@@ -81,7 +85,7 @@ func (b *InMemoryBackend) pollKinesisShard(
 
 		for _, rec := range records {
 			if injectErr := b.injectKinesisRecord(firehoseStream, rec); injectErr != nil {
-				slog.WarnContext(ctx, "firehose kinesis poller: inject failed",
+				logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: inject failed",
 					"stream", firehoseStream, "error", injectErr)
 			}
 		}

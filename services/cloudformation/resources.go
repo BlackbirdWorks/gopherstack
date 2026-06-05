@@ -378,7 +378,7 @@ func (rc *ResourceCreator) createPlatformResources(
 		physID, err := rc.createEventBus(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::StepFunctions::StateMachine":
+	case resTypeStepFunctionsStateMachine:
 		physID, err := rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1058,7 +1058,7 @@ func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceT
 	case "AWS::Events::EventBus":
 
 		return true, rc.deleteEventBus(physicalID)
-	case "AWS::StepFunctions::StateMachine":
+	case resTypeStepFunctionsStateMachine:
 
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
 	case resTypeLogGroup:
