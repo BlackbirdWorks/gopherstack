@@ -91,8 +91,17 @@ type StoredObjectVersion struct {
 	IsCompressed       bool                    `json:"isCompressed,omitempty"`
 	IsLatest           bool                    `json:"isLatest"`
 	Deleted            bool                    `json:"deleted,omitempty"`
-	LegalHold          bool                    `json:"legalHold,omitempty"`
-	OngoingRestore     bool                    `json:"ongoingRestore,omitempty"`
+	LegalHold              bool                    `json:"legalHold,omitempty"`
+	OngoingRestore         bool                    `json:"ongoingRestore,omitempty"`
+	StorageClassTransitions []StorageClassTransition `json:"storageClassTransitions,omitempty"`
+}
+
+// StorageClassTransition records a single storage class change applied by a lifecycle rule.
+type StorageClassTransition struct {
+	TransitionedAt time.Time `json:"transitionedAt"`
+	FromClass      string    `json:"fromClass"`
+	ToClass        string    `json:"toClass"`
+	RuleID         string    `json:"ruleID,omitempty"`
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.

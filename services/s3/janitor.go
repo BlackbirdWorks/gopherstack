@@ -523,8 +523,37 @@ func (j *Janitor) applyLifecycleRules(
 			j.abortStaleMultipartUploads(bucketName, abortBefore)
 		}
 
-		// Transitions: in a mock, storage class transitions are not enforced but
-		// the rule is parsed and accepted without error.
+		// Days-based storage class transitions.
+		for _, tr := range rule.Transitions {
+			if tr.Days <= 0 || tr.StorageClass == "" {
+				continue
+			}
+
+			transitionAfter := time.Duration(tr.Days) * 24 * time.Hour
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, transitionAfter, "")
+		}
+
+		// Date-based storage class transitions.
+		for _, tr := range rule.Transitions {
+			if tr.Date == "" || tr.StorageClass == "" {
+				continue
+			}
+
+			transitionDate, parseErr := parseLifecycleDate(tr.Date)
+			if parseErr == nil && now.After(transitionDate) {
+				j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, tr.StorageClass, now, 0, tr.Date)
+			}
+		}
+
+		// Noncurrent version transitions.
+		for _, tr := range rule.NoncurrentVersionTransitions {
+			if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
+				continue
+			}
+
+			noncurrentAfter := time.Duration(tr.NoncurrentDays) * 24 * time.Hour
+			j.applyNoncurrentStorageClassTransitions(bucket, prefix, rule.ID, tr.StorageClass, now, noncurrentAfter)
+		}
 	}
 
 	if evicted > 0 {
@@ -862,6 +891,122 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 		if upload.Initiated.Before(abortBefore) {
 			delete(bucketUploads, uploadID)
 		}
+	}
+}
+
+// applyStorageClassTransitions updates the StorageClass of current (latest) object versions
+// that match prefix+tagFilters and are older than transitionAfter duration (or past transitionDate
+// when date != ""). Only transitions that change the storage class are recorded.
+func (j *Janitor) applyStorageClassTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	ruleID, targetClass string,
+	now time.Time,
+	transitionAfter time.Duration,
+	transitionDate string,
+) {
+	bucket.mu.Lock("applyStorageClassTransitions")
+	defer bucket.mu.Unlock()
+
+	for _, obj := range bucket.Objects {
+		obj.mu.Lock("applyStorageClassTransitions-obj")
+
+		ver, ok := obj.Versions[obj.LatestVersionID]
+		if !ok || ver.Deleted {
+			obj.mu.Unlock()
+			continue
+		}
+
+		if !strings.HasPrefix(ver.Key, prefix) {
+			obj.mu.Unlock()
+			continue
+		}
+
+		tagKey := bucket.Name + "/" + ver.Key + "/" + ver.VersionID
+		if !objectMatchesTags(tagsByKey[tagKey], tagFilters) {
+			obj.mu.Unlock()
+			continue
+		}
+
+		var shouldTransition bool
+		if transitionDate != "" {
+			// Date-based: object was last modified before the transition date.
+			shouldTransition = ver.LastModified.Before(now)
+		} else {
+			// Days-based: object age exceeds transitionAfter.
+			shouldTransition = now.Sub(ver.LastModified) >= transitionAfter
+		}
+
+		if !shouldTransition {
+			obj.mu.Unlock()
+			continue
+		}
+
+		fromClass := ver.StorageClass
+		if fromClass == "" {
+			fromClass = "STANDARD"
+		}
+
+		if fromClass != targetClass {
+			ver.StorageClass = targetClass
+			ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
+				TransitionedAt: now,
+				FromClass:      fromClass,
+				ToClass:        targetClass,
+				RuleID:         ruleID,
+			})
+		}
+
+		obj.mu.Unlock()
+	}
+}
+
+// applyNoncurrentStorageClassTransitions updates the StorageClass of noncurrent (non-latest)
+// object versions that are older than noncurrentAfter.
+func (j *Janitor) applyNoncurrentStorageClassTransitions(
+	bucket *StoredBucket,
+	prefix, ruleID, targetClass string,
+	now time.Time,
+	noncurrentAfter time.Duration,
+) {
+	bucket.mu.Lock("applyNoncurrentStorageClassTransitions")
+	defer bucket.mu.Unlock()
+
+	for _, obj := range bucket.Objects {
+		obj.mu.Lock("applyNoncurrentSCT-obj")
+
+		for vid, ver := range obj.Versions {
+			if vid == obj.LatestVersionID || ver.Deleted {
+				continue
+			}
+
+			if !strings.HasPrefix(ver.Key, prefix) {
+				continue
+			}
+
+			if now.Sub(ver.LastModified) < noncurrentAfter {
+				continue
+			}
+
+			fromClass := ver.StorageClass
+			if fromClass == "" {
+				fromClass = "STANDARD"
+			}
+
+			if fromClass != targetClass {
+				ver.StorageClass = targetClass
+				ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
+					TransitionedAt: now,
+					FromClass:      fromClass,
+					ToClass:        targetClass,
+					RuleID:         ruleID,
+				})
+			}
+		}
+
+		obj.mu.Unlock()
 	}
 }
 
