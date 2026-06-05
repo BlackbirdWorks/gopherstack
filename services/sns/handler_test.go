@@ -4806,7 +4806,7 @@ func TestSNS_FIFOTopic(t *testing.T) {
 				assert.Equal(t, "true", attrs["FifoTopic"])
 				assert.Equal(t, "false", attrs["ContentBasedDeduplication"])
 			} else {
-				assert.Empty(t, attrs["FifoTopic"])
+				assert.Equal(t, "false", attrs["FifoTopic"])
 			}
 		})
 	}
