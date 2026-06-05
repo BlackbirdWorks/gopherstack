@@ -996,7 +996,7 @@ func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
 	poller.SetSQSReader(reader)
 
 	// Stub the invoker to return nil so the poller proceeds to the delete step.
-	lambda.SetSQSInvoker(poller, func(_ context.Context, _ string) error { return nil })
+	lambda.SetSQSInvoker(poller, func(_ context.Context, _ string) ([]byte, error) { return nil, nil })
 
 	ctx := t.Context()
 	// Should not panic even when the delete step fails.

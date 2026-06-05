@@ -1687,13 +1687,23 @@ func (b *InMemoryBackend) emitPublishedEvent(
 		}
 	}
 
+	// Compute a fixed timestamp and RSA-SHA1 signature so SQS envelope
+	// delivery can include a verifiable Signature field per AWS spec.
+	ts := time.Now().UTC().Format(time.RFC3339)
+	canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
+	sig := b.signer.sign(canonical)
+	certURL := b.signer.certURL
+
 	_ = b.emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
-		TopicARN:      topicArn,
-		MessageID:     messageID,
-		Message:       message,
-		Subject:       subject,
-		Subscriptions: subs,
-		Attributes:    attrSnaps,
+		TopicARN:       topicArn,
+		MessageID:      messageID,
+		Message:        message,
+		Subject:        subject,
+		Subscriptions:  subs,
+		Attributes:     attrSnaps,
+		Timestamp:      ts,
+		Signature:      sig,
+		SigningCertURL: certURL,
 	})
 }
 

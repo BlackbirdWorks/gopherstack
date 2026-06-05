@@ -288,18 +288,53 @@ type redshiftDestinationInput struct {
 	ClusterJDBCURL          string                   `json:"ClusterJDBCURL"`
 	RoleARN                 string                   `json:"RoleARN"`
 	S3BackupMode            string                   `json:"S3BackupMode"`
+	DataTableName           string                   `json:"DataTableName"`
+	DataTableColumns        string                   `json:"DataTableColumns"`
+	CopyOptions             string                   `json:"CopyOptions"`
+	Username                string                   `json:"Username"`
+}
+
+// openSearchDestinationInput holds the OpenSearch destination configuration.
+type openSearchDestinationInput struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	BufferingHints           *BufferingHints            `json:"BufferingHints"`
+	RetryOptions             *RetryOptions              `json:"RetryOptions"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration    *s3BackupInput             `json:"S3BackupConfiguration"`
+	DomainARN                string                     `json:"DomainARN"`
+	ClusterEndpoint          string                     `json:"ClusterEndpoint"`
+	IndexName                string                     `json:"IndexName"`
+	TypeName                 string                     `json:"TypeName"`
+	IndexRotationPeriod      string                     `json:"IndexRotationPeriod"`
+	S3BackupMode             string                     `json:"S3BackupMode"`
+	RoleARN                  string                     `json:"RoleARN"`
+}
+
+// splunkDestinationInput holds the Splunk HEC destination configuration.
+type splunkDestinationInput struct {
+	ProcessingConfiguration               *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	RetryOptions                          *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions              *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration                 *s3BackupInput            `json:"S3BackupConfiguration"`
+	HECEndpoint                           string                    `json:"HECEndpoint"`
+	HECEndpointType                       string                    `json:"HECEndpointType"`
+	HECToken                              string                    `json:"HECToken"`
+	S3BackupMode                          string                    `json:"S3BackupMode"`
+	HECAcknowledgmentTimeoutInSeconds     int                       `json:"HECAcknowledgmentTimeoutInSeconds"`
 }
 
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration           *s3DestinationInput                    `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration   *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
-	KinesisStreamSourceConfiguration     *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration               *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration     *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
-	DeliveryStreamName                   string                                 `json:"DeliveryStreamName"`
-	DeliveryStreamType                   string                                 `json:"DeliveryStreamType"`
-	Tags                                 []svcTags.KV                           `json:"Tags"`
+	S3DestinationConfiguration               *s3DestinationInput                    `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration       *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration     *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
+	KinesisStreamSourceConfiguration         *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration                   *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration         *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
+	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput     `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
+	SplunkDestinationConfiguration           *splunkDestinationInput                `json:"SplunkDestinationConfiguration"`
+	DeliveryStreamName                       string                                 `json:"DeliveryStreamName"`
+	DeliveryStreamType                       string                                 `json:"DeliveryStreamType"`
+	Tags                                     []svcTags.KV                           `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -375,10 +410,65 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 		S3BackupMode:            rs.S3BackupMode,
 		ProcessingConfiguration: rs.ProcessingConfiguration,
 		RetryOptions:            rs.RetryOptions,
+		DataTableName:           rs.DataTableName,
+		DataTableColumns:        rs.DataTableColumns,
+		CopyOptions:             rs.CopyOptions,
+		Username:                rs.Username,
 	}
 
 	if rs.S3BackupConfiguration != nil {
 		dest.S3BackupDescription = buildS3BackupDescription(rs.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildOpenSearchDestination converts openSearchDestinationInput to the backend type.
+func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDestinationDescription {
+	if os == nil {
+		return nil
+	}
+
+	dest := &OpenSearchDestinationDescription{
+		DomainARN:                os.DomainARN,
+		ClusterEndpoint:          os.ClusterEndpoint,
+		IndexName:                os.IndexName,
+		TypeName:                 os.TypeName,
+		IndexRotationPeriod:      os.IndexRotationPeriod,
+		S3BackupMode:             os.S3BackupMode,
+		RoleARN:                  os.RoleARN,
+		ProcessingConfiguration:  os.ProcessingConfiguration,
+		BufferingHints:           os.BufferingHints,
+		RetryOptions:             os.RetryOptions,
+		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
+	}
+
+	if os.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(os.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildSplunkDestination converts splunkDestinationInput to the backend type.
+func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescription {
+	if sp == nil {
+		return nil
+	}
+
+	dest := &SplunkDestinationDescription{
+		HECEndpoint:                           sp.HECEndpoint,
+		HECEndpointType:                       sp.HECEndpointType,
+		HECToken:                              sp.HECToken,
+		S3BackupMode:                          sp.S3BackupMode,
+		HECAcknowledgmentTimeoutInSeconds:     sp.HECAcknowledgmentTimeoutInSeconds,
+		ProcessingConfiguration:               sp.ProcessingConfiguration,
+		RetryOptions:                          sp.RetryOptions,
+		CloudWatchLoggingOptions:              sp.CloudWatchLoggingOptions,
+	}
+
+	if sp.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(sp.S3BackupConfiguration)
 	}
 
 	return dest
@@ -447,6 +537,8 @@ func (h *Handler) handleCreateDeliveryStream(
 		S3Destination:           buildS3DestinationDescription(rawS3),
 		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
 		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationConfiguration),
+		OpenSearchDestination:   buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationConfiguration),
+		SplunkDestination:       buildSplunkDestination(in.SplunkDestinationConfiguration),
 		Source:                  buildSourceDescription(in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration),
 	})
 	if err != nil {

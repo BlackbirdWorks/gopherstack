@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,8 +20,6 @@ const (
 	arnLambdaPartCount = 7
 	// millisToSeconds converts Unix milliseconds to a float64 second timestamp.
 	millisToSeconds = 1000.0
-	// ddbStreamShardID is the single fixed shard ID used by all DynamoDB streams.
-	ddbStreamShardID = "shardId-00000000000000000001-00000001"
 )
 
 // DynamoDBStreamRecord is a single record from a DynamoDB stream.
@@ -40,9 +39,13 @@ type DynamoDBStreamRecord struct {
 // DynamoDBStreamsReader reads records from a DynamoDB stream.
 // It is implemented by the DynamoDB backend adapter in the CLI wiring layer.
 type DynamoDBStreamsReader interface {
-	// GetStreamShardIterator returns an iterator for the single shard of the stream.
-	// streamARN is the full DynamoDB stream ARN. iteratorType is TRIM_HORIZON or LATEST.
-	GetStreamShardIterator(streamARN, iteratorType string) (string, error)
+	// DescribeStreamShards returns the ordered list of shard IDs for the stream.
+	// streamARN is the full DynamoDB stream ARN.
+	DescribeStreamShards(streamARN string) ([]string, error)
+	// GetStreamShardIterator returns an iterator for a specific shard of the stream.
+	// streamARN is the full DynamoDB stream ARN, shardID is the shard identifier,
+	// and iteratorType is TRIM_HORIZON or LATEST.
+	GetStreamShardIterator(streamARN, shardID, iteratorType string) (string, error)
 	// GetStreamRecords reads up to limit records from the given iterator.
 	GetStreamRecords(iteratorToken string, limit int) ([]DynamoDBStreamRecord, string, error)
 }
@@ -97,8 +100,9 @@ type EventSourcePoller struct {
 	notifyC chan struct{}
 	// sqsInvoker is an optional override for the Lambda invocation step used
 	// when processing SQS messages. When nil the real InMemoryBackend is used.
+	// Returns the raw invocation response body (may be nil) and any error.
 	// Intended for use in unit tests only.
-	sqsInvoker func(ctx context.Context, fnName string) error
+	sqsInvoker func(ctx context.Context, fnName string) ([]byte, error)
 	// ddbInvoker is an optional override for the Lambda invocation step used
 	// when processing DynamoDB stream records. When nil the real InMemoryBackend is used.
 	// Intended for use in unit tests only.
@@ -483,46 +487,73 @@ func isDynamoDBStreamARN(resourceARN string) bool {
 	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
 }
 
-// processDynamoDBStreamMapping polls a DynamoDB stream's single shard and invokes Lambda.
+// processDynamoDBStreamMapping polls all shards of a DynamoDB stream and invokes Lambda.
+// Shard IDs are discovered via DescribeStreamShards on each poll cycle; new shards are
+// detected automatically. Records are batched per shard to preserve ordering guarantees.
 func (p *EventSourcePoller) processDynamoDBStreamMapping(
 	ctx context.Context,
 	m *EventSourceMapping,
 	reader DynamoDBStreamsReader,
 ) {
-	iterKey := m.UUID + ":" + ddbStreamShardID
+	shardIDs, err := reader.DescribeStreamShards(m.EventSourceARN)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to describe DDB stream shards",
+			"stream", m.EventSourceARN, "error", err)
 
-	p.mu.RLock("processDDBMapping.read")
+		return
+	}
+
+	if len(shardIDs) == 0 {
+		// No shards yet (stream may be initialising); nothing to poll.
+		return
+	}
+
+	for _, shardID := range shardIDs {
+		p.processDDBShard(ctx, m, reader, shardID)
+	}
+}
+
+// processDDBShard polls a single DynamoDB stream shard and invokes Lambda with any records.
+func (p *EventSourcePoller) processDDBShard(
+	ctx context.Context,
+	m *EventSourceMapping,
+	reader DynamoDBStreamsReader,
+	shardID string,
+) {
+	iterKey := m.UUID + ":" + shardID
+
+	p.mu.RLock("processDDBShard.read")
 	it, exists := p.shardIterators[iterKey]
 	p.mu.RUnlock()
 
 	var err error
 
 	if !exists {
-		it, err = reader.GetStreamShardIterator(m.EventSourceARN, m.StartingPosition)
+		it, err = reader.GetStreamShardIterator(m.EventSourceARN, shardID, m.StartingPosition)
 		if err != nil {
 			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to get DDB shard iterator",
-				"stream", m.EventSourceARN, "error", err)
+				"stream", m.EventSourceARN, "shard", shardID, "error", err)
 
 			return
 		}
 
-		p.mu.Lock("processDDBMapping.initIter")
+		p.mu.Lock("processDDBShard.initIter")
 		p.shardIterators[iterKey] = it
 		p.mu.Unlock()
 	}
 
 	records, nextIt, readErr := reader.GetStreamRecords(it, m.BatchSize)
 	if readErr != nil {
-		p.mu.Lock("processDDBMapping.resetIter")
+		p.mu.Lock("processDDBShard.resetIter")
 		delete(p.shardIterators, iterKey)
 		p.mu.Unlock()
 		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB GetStreamRecords failed, resetting iterator",
-			"stream", m.EventSourceARN, "error", readErr)
+			"stream", m.EventSourceARN, "shard", shardID, "error", readErr)
 
 		return
 	}
 
-	p.mu.Lock("processDDBMapping.advanceIter")
+	p.mu.Lock("processDDBShard.advanceIter")
 	p.shardIterators[iterKey] = nextIt
 	p.mu.Unlock()
 
@@ -611,7 +642,10 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 }
 
 // processSQSMapping polls an SQS queue, invokes Lambda with the messages, and
-// deletes the messages on successful invocation.
+// deletes messages that were successfully processed. When ReportBatchItemFailures
+// is in the ESM's FunctionResponseTypes and the invocation response contains a
+// batchItemFailures list, only messages NOT in that list are deleted; the failed
+// ones remain in the queue and become visible again after their visibility timeout.
 func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourceMapping, reader SQSReader) {
 	msgs, err := reader.ReceiveMessagesLocal(m.EventSourceARN, m.BatchSize)
 	if err != nil {
@@ -625,7 +659,7 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 		return
 	}
 
-	receiptHandles, invErr := p.invokeLambdaForSQS(ctx, m, msgs)
+	toDelete, invErr := p.invokeLambdaForSQS(ctx, m, msgs)
 	if invErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "esm sqs: Lambda invocation failed",
 			"function", m.FunctionARN, "error", invErr)
@@ -633,14 +667,28 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 		return
 	}
 
-	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles); delErr != nil {
+	if len(toDelete) == 0 {
+		return
+	}
+
+	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, toDelete); delErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to delete messages",
 			"queue", m.EventSourceARN, "error", delErr)
 	}
 }
 
+// batchItemFailures is the structure returned by a Lambda function when
+// FunctionResponseTypes includes ReportBatchItemFailures.
+type batchItemFailures struct {
+	BatchItemFailures []struct {
+		ItemIdentifier string `json:"itemIdentifier"`
+	} `json:"batchItemFailures"`
+}
+
 // invokeLambdaForSQS formats SQS messages as a Lambda SQS event and invokes the function.
-// On success it returns the receipt handles of the delivered messages.
+// It returns the receipt handles of messages that should be deleted from the queue.
+// When ReportBatchItemFailures is in m.FunctionResponseTypes and the response body
+// contains a batchItemFailures list, only handles NOT in that list are returned.
 func (p *EventSourcePoller) invokeLambdaForSQS(
 	ctx context.Context,
 	m *EventSourceMapping,
@@ -661,7 +709,6 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	}
 
 	records := make([]sqsEventRecord, len(msgs))
-	receiptHandles := make([]string, len(msgs))
 
 	for i, msg := range msgs {
 		records[i] = sqsEventRecord{
@@ -674,7 +721,6 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 			EventSourceARN: m.EventSourceARN,
 			AWSRegion:      p.lambdaBackend.region,
 		}
-		receiptHandles[i] = msg.ReceiptHandle
 	}
 
 	payload, err := json.Marshal(sqsEvent{Records: records})
@@ -687,11 +733,17 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 		fnName = m.FunctionARN
 	}
 
-	var invokeErr error
+	reportFailures := slices.Contains(m.FunctionResponseTypes, "ReportBatchItemFailures")
+
+	var (
+		respBody  []byte
+		invokeErr error
+	)
+
 	if p.sqsInvoker != nil {
-		invokeErr = p.sqsInvoker(ctx, fnName)
+		respBody, invokeErr = p.sqsInvoker(ctx, fnName)
 	} else {
-		_, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+		respBody, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
 	}
 
 	if invokeErr != nil {
@@ -701,5 +753,32 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	logger.Load(ctx).DebugContext(ctx, "esm sqs: invoked Lambda",
 		"function", fnName, "messages", len(msgs))
 
-	return receiptHandles, nil
+	// Build the set of failed message IDs when partial-batch reporting is enabled.
+	if reportFailures && len(respBody) > 0 {
+		var failures batchItemFailures
+		if jsonErr := json.Unmarshal(respBody, &failures); jsonErr == nil && len(failures.BatchItemFailures) > 0 {
+			failedIDs := make(map[string]struct{}, len(failures.BatchItemFailures))
+			for _, f := range failures.BatchItemFailures {
+				failedIDs[f.ItemIdentifier] = struct{}{}
+			}
+
+			// Return only handles for messages NOT in the failure list.
+			toDelete := make([]string, 0, len(msgs))
+			for _, msg := range msgs {
+				if _, failed := failedIDs[msg.MessageID]; !failed {
+					toDelete = append(toDelete, msg.ReceiptHandle)
+				}
+			}
+
+			return toDelete, nil
+		}
+	}
+
+	// Default: delete all delivered messages.
+	allHandles := make([]string, len(msgs))
+	for i, msg := range msgs {
+		allHandles[i] = msg.ReceiptHandle
+	}
+
+	return allHandles, nil
 }
