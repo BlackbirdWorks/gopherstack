@@ -183,10 +183,10 @@ const (
 //
 
 type Table struct {
-	CreationDateTime           time.Time `json:"CreationDateTime"`
-	kinesisEmitter             KinesisEmitter
-	pkIndex                    map[string]int
-	pkskIndex                  map[string]map[string]int
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	kinesisEmitter   KinesisEmitter
+	pkIndex          map[string]int
+	pkskIndex        map[string]map[string]int
 	// itemsByOffset is a query-snapshot-only field populated instead of Items
 	// when a known PK constrains the query to a small set of items (#57).
 	// nil on live tables and full-scan snapshots.
@@ -779,7 +779,11 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 		S3Bucket:     desc.S3Bucket,
 	}
 	db.exports[desc.ExportArn] = rec
-	evictOldest(db.exports, maxExportsRetained, func(v storedExport) time.Time { return v.CreatedAt })
+	evictOldest(
+		db.exports,
+		maxExportsRetained,
+		func(v storedExport) time.Time { return v.CreatedAt },
+	)
 }
 
 // evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= keep.
@@ -862,7 +866,11 @@ func (db *InMemoryDB) storeImport(imp storedImport) {
 		imp.CreatedAt = time.Now()
 	}
 	db.imports[imp.ImportArn] = imp
-	evictOldest(db.imports, maxImportsRetained, func(v storedImport) time.Time { return v.CreatedAt })
+	evictOldest(
+		db.imports,
+		maxImportsRetained,
+		func(v storedImport) time.Time { return v.CreatedAt },
+	)
 }
 
 // lookupImport retrieves a stored import by ARN.

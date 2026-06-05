@@ -45,8 +45,12 @@ type StorageBackend interface {
 	TagQueue(input *TagQueueInput) error
 	UntagQueue(input *UntagQueueInput) error
 	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
-	ChangeMessageVisibilityBatch(input *ChangeMessageVisibilityBatchInput) (*ChangeMessageVisibilityBatchOutput, error)
-	ListDeadLetterSourceQueues(input *ListDeadLetterSourceQueuesInput) (*ListDeadLetterSourceQueuesOutput, error)
+	ChangeMessageVisibilityBatch(
+		input *ChangeMessageVisibilityBatchInput,
+	) (*ChangeMessageVisibilityBatchOutput, error)
+	ListDeadLetterSourceQueues(
+		input *ListDeadLetterSourceQueuesInput,
+	) (*ListDeadLetterSourceQueuesOutput, error)
 	AddPermission(input *AddPermissionInput) error
 	RemovePermission(input *RemovePermissionInput) error
 	StartMessageMoveTask(input *StartMessageMoveTaskInput) (*StartMessageMoveTaskOutput, error)
@@ -423,7 +427,9 @@ func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(
 		lenBuf[:],
-		uint32(len(data)), //nolint:gosec // length is always non-negative and bounded by message size limits
+		uint32(
+			len(data),
+		), //nolint:gosec // length is always non-negative and bounded by message size limits
 	)
 
 	buf = append(buf, lenBuf[:]...)
@@ -666,7 +672,9 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 }
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
-func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*GetQueueAttributesOutput, error) {
+func (b *InMemoryBackend) GetQueueAttributes(
+	input *GetQueueAttributesInput,
+) (*GetQueueAttributesOutput, error) {
 	b.mu.RLock("GetQueueAttributes")
 	defer b.mu.RUnlock()
 
@@ -815,7 +823,8 @@ func validateFIFOAttributes(attrs map[string]string) error {
 	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit
 	// is perMessageGroupId. Enforce the pairing only when both sides are
 	// present in the same SetQueueAttributes call.
-	if t, hasT := attrs[attrFifoThroughputLimit]; hasT && t == fifoThroughputLimitPerMessageGroupID {
+	if t, hasT := attrs[attrFifoThroughputLimit]; hasT &&
+		t == fifoThroughputLimitPerMessageGroupID {
 		if s, hasS := attrs[attrDeduplicationScope]; hasS && s != fifoDedupScopePerMessageGroup {
 			return ErrInvalidAttribute
 		}
@@ -957,7 +966,12 @@ type fifoPreflight struct {
 // throughput limiting, and content-based deduplication.
 //
 // Caller must already hold b.mu (write).
-func preflightFIFOSend(q *Queue, input *SendMessageInput, md5Body, sha256Body string, now time.Time) fifoPreflight {
+func preflightFIFOSend(
+	q *Queue,
+	input *SendMessageInput,
+	md5Body, sha256Body string,
+	now time.Time,
+) fifoPreflight {
 	if err := validateFIFOParams(input, q); err != nil {
 		return fifoPreflight{Err: err, Handled: true}
 	}
@@ -1062,8 +1076,15 @@ func sendMessageLocked(
 		SequenceNumber:         seqNum,
 		SentTimestamp:          now.UnixMilli(),
 		MessageAttributes:      input.MessageAttributes,
-		Attributes:             buildInitialMessageAttributes(sentTS, input.MessageSystemAttributes),
-		VisibleAt:              resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
+		Attributes: buildInitialMessageAttributes(
+			sentTS,
+			input.MessageSystemAttributes,
+		),
+		VisibleAt: resolveMessageVisibleAt(
+			now,
+			input.DelaySeconds,
+			q.Attributes[attrDelaySeconds],
+		),
 	}
 
 	if q.IsFIFO {
@@ -1287,7 +1308,11 @@ const maxDedupEntriesPerQueue = 100_000
 // map is at capacity, the entries closest to expiry are evicted first.
 // bodyHash is the SHA-256 hash of the message body, used when ContentBasedDeduplication
 // is enabled (AWS spec uses SHA-256, not MD5, for content-based dedup IDs).
-func storeDedup(q *Queue, groupID, dedupID, bodyHash, contentBasedDedup, msgID string, now time.Time) {
+func storeDedup(
+	q *Queue,
+	groupID, dedupID, bodyHash, contentBasedDedup, msgID string,
+	now time.Time,
+) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = bodyHash
@@ -1364,7 +1389,9 @@ func validateReceiveInput(input *ReceiveMessageInput) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+func (b *InMemoryBackend) ReceiveMessage(
+	input *ReceiveMessageInput,
+) (*ReceiveMessageOutput, error) {
 	if err := validateReceiveInput(input); err != nil {
 		return nil, err
 	}
@@ -1439,7 +1466,8 @@ func (b *InMemoryBackend) resolveWaitSeconds(queueURL string, requested int) int
 	defer b.mu.RUnlock()
 
 	if q, ok := b.lookupQueueByURL("", queueURL); ok {
-		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil && v > 0 {
+		if v, err := strconv.Atoi(q.Attributes[attrReceiveMessageWaitTimeSeconds]); err == nil &&
+			v > 0 {
 			return v
 		}
 	}
@@ -1472,7 +1500,10 @@ func drainToDLQ(q *Queue) {
 const receiveAttemptTTL = 5 * time.Minute
 
 // receiveOnce performs a single receive attempt under the per-queue lock (#55).
-func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, chan struct{}, error) {
+func (b *InMemoryBackend) receiveOnce(
+	name string,
+	input *ReceiveMessageInput,
+) ([]*Message, chan struct{}, error) {
 	// #55: resolve queue under global RLock, then mutate under per-queue lock.
 	b.mu.RLock("receiveOnce")
 	q, ok := b.lookupQueueByName(input.Region, name)
@@ -1590,7 +1621,12 @@ func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
 // re-queues visibility-expired entries. Pass 2 sweeps q.messages (including
 // newly re-queued ones): discards retention-expired, drains to DLQ, picks up
 // to maxMessages visible messages. maxMessages=0 performs cleanup only.
-func prepareAndPickMessages(q *Queue, accountID string, maxMessages, vt int, now time.Time) []*Message {
+func prepareAndPickMessages(
+	q *Queue,
+	accountID string,
+	maxMessages, vt int,
+	now time.Time,
+) []*Message {
 	retentionSecs, err := strconv.Atoi(q.Attributes[attrMessageRetentionPeriod])
 	if err != nil || retentionSecs <= 0 {
 		retentionSecs = defaultMessageRetentionPeriod
@@ -1645,7 +1681,8 @@ func prepareAndPickMessages(q *Queue, accountID string, maxMessages, vt int, now
 		}
 
 		// DLQ routing: messages that have exceeded maxReceiveCount.
-		if q.MaxReceiveCount > 0 && q.dlq != nil && msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+		if q.MaxReceiveCount > 0 && q.dlq != nil &&
+			msg.ApproximateReceiveCount >= q.MaxReceiveCount {
 			msg.ReceiptHandle = ""
 			q.dlq.messages = append(q.dlq.messages, msg)
 			if now.Before(msg.VisibleAt) {
@@ -1666,7 +1703,12 @@ func prepareAndPickMessages(q *Queue, accountID string, maxMessages, vt int, now
 		// Pick if visible and result set not yet full.
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
 			q.receiveGeneration++
-			receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
+			receipt := fmt.Sprintf(
+				"%s:%d:%s",
+				msg.MessageID,
+				q.receiveGeneration,
+				uuid.New().String(),
+			)
 			msg.ReceiptHandle = receipt
 			msg.ApproximateReceiveCount++
 			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
@@ -1941,7 +1983,9 @@ func validateBatchEnvelope(ids []string) error {
 // SendMessageBatch sends a batch of messages to the specified queue.
 // Results in the Successful and Failed slices are returned in the same
 // order as the corresponding entries in the input slice.
-func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error) {
+func (b *InMemoryBackend) SendMessageBatch(
+	input *SendMessageBatchInput,
+) (*SendMessageBatchOutput, error) {
 	ids := make([]string, len(input.Entries))
 	for i, e := range input.Entries {
 		ids[i] = e.ID
@@ -1972,10 +2016,10 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 
 	// Pre-compute per-entry crypto and IDs outside the lock.
 	type entryPrep struct {
-		md5Body   string
+		md5Body    string
 		sha256Body string
-		md5Attrs  string
-		msgID     string
+		md5Attrs   string
+		msgID      string
 	}
 
 	preps := make([]entryPrep, len(input.Entries))
@@ -1983,7 +2027,15 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 	for i, entry := range input.Entries {
 		entryBytes := len(entry.MessageBody)
 		for name, attr := range entry.MessageAttributes {
-			entryBytes += len(name) + len(attr.DataType) + len(attr.StringValue) + len(attr.BinaryValue)
+			entryBytes += len(
+				name,
+			) + len(
+				attr.DataType,
+			) + len(
+				attr.StringValue,
+			) + len(
+				attr.BinaryValue,
+			)
 		}
 
 		if entryBytes > defaultMaxMessageSize {
@@ -1993,10 +2045,10 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		totalBytes += entryBytes
 
 		preps[i] = entryPrep{
-			md5Body:   computeMD5(entry.MessageBody),
+			md5Body:    computeMD5(entry.MessageBody),
 			sha256Body: computeSHA256(entry.MessageBody),
-			md5Attrs:  computeMD5OfMessageAttributes(entry.MessageAttributes),
-			msgID:     uuid.New().String(),
+			md5Attrs:   computeMD5OfMessageAttributes(entry.MessageAttributes),
+			msgID:      uuid.New().String(),
 		}
 	}
 
@@ -2051,7 +2103,9 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 }
 
 // DeleteMessageBatch deletes a batch of messages from the specified queue.
-func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error) {
+func (b *InMemoryBackend) DeleteMessageBatch(
+	input *DeleteMessageBatchInput,
+) (*DeleteMessageBatchOutput, error) {
 	ids := make([]string, len(input.Entries))
 	for i, e := range input.Entries {
 		ids[i] = e.ID
@@ -2326,7 +2380,10 @@ func (b *InMemoryBackend) UntagQueueByARN(queueARN string, tagKeys []string) err
 // messages from a queue without long-polling. It returns up to maxMessages
 // visible messages, moving them to in-flight state using the queue's default
 // visibility timeout.
-func (b *InMemoryBackend) ReceiveMessagesLocal(queueURL string, maxMessages int) ([]*Message, error) {
+func (b *InMemoryBackend) ReceiveMessagesLocal(
+	queueURL string,
+	maxMessages int,
+) ([]*Message, error) {
 	out, err := b.ReceiveMessage(&ReceiveMessageInput{
 		QueueURL:            queueURL,
 		MaxNumberOfMessages: maxMessages,
@@ -2739,7 +2796,11 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 
 // from the source queue one at a time and writes them to the destination queue
 // until the source is empty, the context is cancelled, or a fatal error occurs.
-func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState, srcURL, destURL string) {
+func (b *InMemoryBackend) runMoveTask(
+	ctx context.Context,
+	state *moveTaskState,
+	srcURL, destURL string,
+) {
 	defer func() {
 		state.mu.Lock()
 
