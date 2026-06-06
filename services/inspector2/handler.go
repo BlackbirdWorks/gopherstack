@@ -71,7 +71,7 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	base := []string{
 		opEnable,
 		opDisable,
 		opBatchGetAccountStatus,
@@ -86,6 +86,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUntagResource,
 		opListTagsForResource,
 	}
+
+	return append(base, appendixAOps()...)
 }
 
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
@@ -99,7 +101,25 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/filters/") ||
 			strings.HasPrefix(path, "/findings/") ||
 			strings.HasPrefix(path, "/configuration/") ||
-			strings.HasPrefix(path, pathTagsPrefix+"arn:aws:inspector2:")
+			strings.HasPrefix(path, pathTagsPrefix+"arn:aws:inspector2:") ||
+			strings.HasPrefix(path, "/members/") ||
+			strings.HasPrefix(path, "/delegatedadminaccounts/") ||
+			strings.HasPrefix(path, "/organizationconfiguration/") ||
+			strings.HasPrefix(path, "/ec2deepinspection") ||
+			strings.HasPrefix(path, "/encryptionkey/") ||
+			strings.HasPrefix(path, "/cis/") ||
+			strings.HasPrefix(path, "/cissession/") ||
+			strings.HasPrefix(path, "/codesecurity/") ||
+			strings.HasPrefix(path, "/reporting/") ||
+			strings.HasPrefix(path, "/sbomexport/") ||
+			strings.HasPrefix(path, "/coverage/") ||
+			strings.HasPrefix(path, "/findings/aggregation/") ||
+			strings.HasPrefix(path, "/usage/") ||
+			strings.HasPrefix(path, "/accountpermissions/") ||
+			strings.HasPrefix(path, "/vulnerabilities/") ||
+			strings.HasPrefix(path, "/codesnippet/") ||
+			strings.HasPrefix(path, "/freetrialinfo/") ||
+			strings.HasPrefix(path, "/cluster/")
 	}
 }
 
@@ -108,7 +128,18 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation extracts the operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	return classifyPath(c.Request().Method, c.Request().URL.Path)
+	method := c.Request().Method
+	path := c.Request().URL.Path
+
+	if op := classifyPath(method, path); op != opUnknown {
+		return op
+	}
+
+	if op := classifyAppendixAPath(method, path); op != opUnknown {
+		return op
+	}
+
+	return opUnknown
 }
 
 // ExtractResource extracts the resource identifier from the request.
@@ -160,6 +191,10 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		return h.handleTagResource(c)
 	case opUntagResource:
 		return h.handleUntagResource(c)
+	}
+
+	if handled, err := h.handleAppendixA(c); handled {
+		return err
 	}
 
 	log := logger.Load(c.Request().Context())
