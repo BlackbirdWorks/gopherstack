@@ -152,29 +152,52 @@ type ThreatIntelSet struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu              *lockmetrics.RWMutex
-	detectors       map[string]*Detector                  // detectorID → Detector
-	filters         map[string]map[string]*Filter         // detectorID → filterName → Filter
-	findings        map[string]map[string]*Finding        // detectorID → findingID → Finding
-	ipSets          map[string]map[string]*IPSet          // detectorID → ipSetID → IPSet
-	threatIntelSets map[string]map[string]*ThreatIntelSet // detectorID → setID → ThreatIntelSet
-	tags            map[string]map[string]string          // resourceARN → tags
-	accountID       string
-	region          string
+	mu                     *lockmetrics.RWMutex
+	detectors              map[string]*Detector                         // detectorID → Detector
+	filters                map[string]map[string]*Filter                // detectorID → filterName → Filter
+	findings               map[string]map[string]*Finding               // detectorID → findingID → Finding
+	ipSets                 map[string]map[string]*IPSet                 // detectorID → ipSetID → IPSet
+	threatIntelSets        map[string]map[string]*ThreatIntelSet        // detectorID → setID → ThreatIntelSet
+	tags                   map[string]map[string]string                 // resourceARN → tags
+	members                map[string]map[string]*Member                // detectorID → accountID → Member
+	invitations            map[string]*Invitation                       // invitationID → Invitation
+	orgAdminAccounts       map[string]*OrgAdminAccount                  // accountID → OrgAdminAccount
+	orgConfigs             map[string]*OrgConfig                        // detectorID → OrgConfig
+	adminAccounts          map[string]*AdminAccount                     // detectorID → AdminAccount
+	publishingDestinations map[string]map[string]*PublishingDestination // detectorID → destID → Dest
+	malwareScans           map[string]*MalwareScan                      // scanID → Scan
+	malwareScanSettings    map[string]*MalwareScanSettings              // detectorID → settings
+	malwareProtectionPlans map[string]*MalwareProtectionPlan            // planID → Plan
+	threatEntitySets       map[string]map[string]*ThreatEntitySet       // detectorID → setID → set
+	trustedEntitySets      map[string]map[string]*TrustedEntitySet      // detectorID → setID → set
+	memberSeq              int64
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:              lockmetrics.New("guardduty"),
-		accountID:       accountID,
-		region:          region,
-		detectors:       make(map[string]*Detector),
-		filters:         make(map[string]map[string]*Filter),
-		findings:        make(map[string]map[string]*Finding),
-		ipSets:          make(map[string]map[string]*IPSet),
-		threatIntelSets: make(map[string]map[string]*ThreatIntelSet),
-		tags:            make(map[string]map[string]string),
+		mu:                     lockmetrics.New("guardduty"),
+		accountID:              accountID,
+		region:                 region,
+		detectors:              make(map[string]*Detector),
+		filters:                make(map[string]map[string]*Filter),
+		findings:               make(map[string]map[string]*Finding),
+		ipSets:                 make(map[string]map[string]*IPSet),
+		threatIntelSets:        make(map[string]map[string]*ThreatIntelSet),
+		tags:                   make(map[string]map[string]string),
+		members:                make(map[string]map[string]*Member),
+		invitations:            make(map[string]*Invitation),
+		orgAdminAccounts:       make(map[string]*OrgAdminAccount),
+		orgConfigs:             make(map[string]*OrgConfig),
+		adminAccounts:          make(map[string]*AdminAccount),
+		publishingDestinations: make(map[string]map[string]*PublishingDestination),
+		malwareScans:           make(map[string]*MalwareScan),
+		malwareScanSettings:    make(map[string]*MalwareScanSettings),
+		malwareProtectionPlans: make(map[string]*MalwareProtectionPlan),
+		threatEntitySets:       make(map[string]map[string]*ThreatEntitySet),
+		trustedEntitySets:      make(map[string]map[string]*TrustedEntitySet),
 	}
 }
 
@@ -247,6 +270,10 @@ func (b *InMemoryBackend) CreateDetector(
 	b.findings[id] = make(map[string]*Finding)
 	b.ipSets[id] = make(map[string]*IPSet)
 	b.threatIntelSets[id] = make(map[string]*ThreatIntelSet)
+	b.members[id] = make(map[string]*Member)
+	b.publishingDestinations[id] = make(map[string]*PublishingDestination)
+	b.threatEntitySets[id] = make(map[string]*ThreatEntitySet)
+	b.trustedEntitySets[id] = make(map[string]*TrustedEntitySet)
 
 	arn := b.detectorARN(id)
 	if tags != nil {
@@ -985,6 +1012,18 @@ func (b *InMemoryBackend) Reset() {
 	b.ipSets = make(map[string]map[string]*IPSet)
 	b.threatIntelSets = make(map[string]map[string]*ThreatIntelSet)
 	b.tags = make(map[string]map[string]string)
+	b.members = make(map[string]map[string]*Member)
+	b.invitations = make(map[string]*Invitation)
+	b.orgAdminAccounts = make(map[string]*OrgAdminAccount)
+	b.orgConfigs = make(map[string]*OrgConfig)
+	b.adminAccounts = make(map[string]*AdminAccount)
+	b.publishingDestinations = make(map[string]map[string]*PublishingDestination)
+	b.malwareScans = make(map[string]*MalwareScan)
+	b.malwareScanSettings = make(map[string]*MalwareScanSettings)
+	b.malwareProtectionPlans = make(map[string]*MalwareProtectionPlan)
+	b.threatEntitySets = make(map[string]map[string]*ThreatEntitySet)
+	b.trustedEntitySets = make(map[string]map[string]*TrustedEntitySet)
+	b.memberSeq = 0
 }
 
 // Snapshot serializes backend state to JSON.
@@ -993,21 +1032,45 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	type snap struct {
-		Detectors       map[string]*Detector                  `json:"detectors"`
-		Filters         map[string]map[string]*Filter         `json:"filters"`
-		Findings        map[string]map[string]*Finding        `json:"findings"`
-		IPSets          map[string]map[string]*IPSet          `json:"ipSets"`
-		ThreatIntelSets map[string]map[string]*ThreatIntelSet `json:"threatIntelSets"`
-		Tags            map[string]map[string]string          `json:"tags"`
+		Detectors              map[string]*Detector                         `json:"detectors"`
+		Filters                map[string]map[string]*Filter                `json:"filters"`
+		Findings               map[string]map[string]*Finding               `json:"findings"`
+		IPSets                 map[string]map[string]*IPSet                 `json:"ipSets"`
+		ThreatIntelSets        map[string]map[string]*ThreatIntelSet        `json:"threatIntelSets"`
+		Tags                   map[string]map[string]string                 `json:"tags"`
+		Members                map[string]map[string]*Member                `json:"members"`
+		Invitations            map[string]*Invitation                       `json:"invitations"`
+		OrgAdminAccounts       map[string]*OrgAdminAccount                  `json:"orgAdminAccounts"`
+		OrgConfigs             map[string]*OrgConfig                        `json:"orgConfigs"`
+		AdminAccounts          map[string]*AdminAccount                     `json:"adminAccounts"`
+		PublishingDestinations map[string]map[string]*PublishingDestination `json:"publishingDestinations"`
+		MalwareScans           map[string]*MalwareScan                      `json:"malwareScans"`
+		MalwareScanSettings    map[string]*MalwareScanSettings              `json:"malwareScanSettings"`
+		MalwareProtectionPlans map[string]*MalwareProtectionPlan            `json:"malwareProtectionPlans"`
+		ThreatEntitySets       map[string]map[string]*ThreatEntitySet       `json:"threatEntitySets"`
+		TrustedEntitySets      map[string]map[string]*TrustedEntitySet      `json:"trustedEntitySets"`
+		MemberSeq              int64                                        `json:"memberSeq"`
 	}
 
 	data, _ := json.Marshal(snap{
-		Detectors:       b.detectors,
-		Filters:         b.filters,
-		Findings:        b.findings,
-		IPSets:          b.ipSets,
-		ThreatIntelSets: b.threatIntelSets,
-		Tags:            b.tags,
+		Detectors:              b.detectors,
+		Filters:                b.filters,
+		Findings:               b.findings,
+		IPSets:                 b.ipSets,
+		ThreatIntelSets:        b.threatIntelSets,
+		Tags:                   b.tags,
+		Members:                b.members,
+		Invitations:            b.invitations,
+		OrgAdminAccounts:       b.orgAdminAccounts,
+		OrgConfigs:             b.orgConfigs,
+		AdminAccounts:          b.adminAccounts,
+		PublishingDestinations: b.publishingDestinations,
+		MalwareScans:           b.malwareScans,
+		MalwareScanSettings:    b.malwareScanSettings,
+		MalwareProtectionPlans: b.malwareProtectionPlans,
+		ThreatEntitySets:       b.threatEntitySets,
+		TrustedEntitySets:      b.trustedEntitySets,
+		MemberSeq:              b.memberSeq,
 	})
 
 	return data
@@ -1019,12 +1082,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	type snap struct {
-		Detectors       map[string]*Detector                  `json:"detectors"`
-		Filters         map[string]map[string]*Filter         `json:"filters"`
-		Findings        map[string]map[string]*Finding        `json:"findings"`
-		IPSets          map[string]map[string]*IPSet          `json:"ipSets"`
-		ThreatIntelSets map[string]map[string]*ThreatIntelSet `json:"threatIntelSets"`
-		Tags            map[string]map[string]string          `json:"tags"`
+		Detectors              map[string]*Detector                         `json:"detectors"`
+		Filters                map[string]map[string]*Filter                `json:"filters"`
+		Findings               map[string]map[string]*Finding               `json:"findings"`
+		IPSets                 map[string]map[string]*IPSet                 `json:"ipSets"`
+		ThreatIntelSets        map[string]map[string]*ThreatIntelSet        `json:"threatIntelSets"`
+		Tags                   map[string]map[string]string                 `json:"tags"`
+		Members                map[string]map[string]*Member                `json:"members"`
+		Invitations            map[string]*Invitation                       `json:"invitations"`
+		OrgAdminAccounts       map[string]*OrgAdminAccount                  `json:"orgAdminAccounts"`
+		OrgConfigs             map[string]*OrgConfig                        `json:"orgConfigs"`
+		AdminAccounts          map[string]*AdminAccount                     `json:"adminAccounts"`
+		PublishingDestinations map[string]map[string]*PublishingDestination `json:"publishingDestinations"`
+		MalwareScans           map[string]*MalwareScan                      `json:"malwareScans"`
+		MalwareScanSettings    map[string]*MalwareScanSettings              `json:"malwareScanSettings"`
+		MalwareProtectionPlans map[string]*MalwareProtectionPlan            `json:"malwareProtectionPlans"`
+		ThreatEntitySets       map[string]map[string]*ThreatEntitySet       `json:"threatEntitySets"`
+		TrustedEntitySets      map[string]map[string]*TrustedEntitySet      `json:"trustedEntitySets"`
+		MemberSeq              int64                                        `json:"memberSeq"`
 	}
 
 	var s snap
@@ -1038,6 +1113,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.ipSets = s.IPSets
 	b.threatIntelSets = s.ThreatIntelSets
 	b.tags = s.Tags
+	b.members = s.Members
+	b.invitations = s.Invitations
+	b.orgAdminAccounts = s.OrgAdminAccounts
+	b.orgConfigs = s.OrgConfigs
+	b.adminAccounts = s.AdminAccounts
+	b.publishingDestinations = s.PublishingDestinations
+	b.malwareScans = s.MalwareScans
+	b.malwareScanSettings = s.MalwareScanSettings
+	b.malwareProtectionPlans = s.MalwareProtectionPlans
+	b.threatEntitySets = s.ThreatEntitySets
+	b.trustedEntitySets = s.TrustedEntitySets
+	b.memberSeq = s.MemberSeq
 
 	return nil
 }
