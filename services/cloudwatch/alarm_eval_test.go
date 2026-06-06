@@ -53,13 +53,13 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 	now := time.Now().UTC()
 
 	tests := []struct {
-		points            []cloudwatch.MetricDatum
 		name              string
 		operator          string
 		statistic         string
 		treatMissing      string
 		initialState      string
 		wantState         string
+		points            []cloudwatch.MetricDatum
 		period            int32
 		evalPeriods       int32
 		datapointsToAlarm int32

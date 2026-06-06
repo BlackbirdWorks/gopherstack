@@ -72,9 +72,9 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		records        []string
 		name           string
 		accessKey      string
+		records        []string
 		wantRecordsLen int
 		wantAccessKey  bool
 	}{
@@ -139,11 +139,11 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 			require.NotEmpty(t, reqs, "server received no requests")
 
 			var payload struct {
-				Records []struct {
+				RequestID string `json:"requestId"`
+				Records   []struct {
 					Data string `json:"data"`
 				} `json:"records"`
-				RequestID string `json:"requestId"`
-				Timestamp int64  `json:"timestamp"`
+				Timestamp int64 `json:"timestamp"`
 			}
 			require.NoError(t, json.Unmarshal(reqs[0].body, &payload))
 
@@ -172,9 +172,9 @@ func TestFirehose_OpenSearch_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		records    []string
 		name       string
 		indexName  string
+		records    []string
 		wantShards int
 	}{
 		{
@@ -243,11 +243,11 @@ func TestFirehose_Splunk_Delivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		records     []string
 		name        string
 		hecToken    string
 		hecType     string
 		wantAuthHdr string
+		records     []string
 	}{
 		{
 			name:        "RawFormat_SingleRecord",

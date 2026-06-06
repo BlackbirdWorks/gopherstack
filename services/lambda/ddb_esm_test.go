@@ -395,9 +395,9 @@ func TestLambda_DDB_Poller_MultiShard(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		shardIDs        []string
-		name            string
 		recordsPerShard map[string][]lambda.DynamoDBStreamRecord
+		name            string
+		shardIDs        []string
 		wantInvocations int
 	}{
 		{

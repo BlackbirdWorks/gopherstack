@@ -266,8 +266,8 @@ type httpEndpointConfigurationInput struct {
 	AccessKey string `json:"AccessKey"`
 }
 
-// kinesisStreamSourceConfigurationInput holds Kinesis stream source config.
-type kinesisStreamSourceConfigurationInput struct {
+// kinesisStreamSrcInput holds Kinesis stream source config.
+type kinesisStreamSrcInput struct {
 	KinesisStreamARN string `json:"KinesisStreamARN"`
 	RoleARN          string `json:"RoleARN"`
 }
@@ -323,18 +323,25 @@ type splunkDestinationInput struct {
 	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds"`
 }
 
+// aosDeliveryField holds the AmazonOpenSearch field separately so its long name
+// does not drive gofmt alignment in createDeliveryStreamInput. Embedding keeps
+// JSON marshaling transparent.
+type aosDeliveryField struct {
+	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
+}
+
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration                      *s3DestinationInput                    `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration              *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration            *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"`
-	KinesisStreamSourceConfiguration                *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration                          *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration                *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
-	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput            `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
-	SplunkDestinationConfiguration                  *splunkDestinationInput                `json:"SplunkDestinationConfiguration"`
-	DeliveryStreamName                              string                                 `json:"DeliveryStreamName"`
-	DeliveryStreamType                              string                                 `json:"DeliveryStreamType"`
-	Tags                                            []svcTags.KV                           `json:"Tags"`
+	aosDeliveryField
+	S3DestinationConfiguration           *s3DestinationInput           `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration   *s3DestinationInput           `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
+	KinesisStreamSourceConfiguration     *kinesisStreamSrcInput        `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration               *mskSourceConfigurationInput  `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration     *redshiftDestinationInput     `json:"RedshiftDestinationConfiguration"`
+	SplunkDestinationConfiguration       *splunkDestinationInput       `json:"SplunkDestinationConfiguration"`
+	DeliveryStreamName                   string                        `json:"DeliveryStreamName"`
+	DeliveryStreamType                   string                        `json:"DeliveryStreamType"`
+	Tags                                 []svcTags.KV                  `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -491,7 +498,7 @@ func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 
 // buildSourceDescription converts source config inputs to the backend type.
 func buildSourceDescription(
-	ks *kinesisStreamSourceConfigurationInput,
+	ks *kinesisStreamSrcInput,
 	msk *mskSourceConfigurationInput,
 ) *SourceDescription {
 	if ks != nil {
