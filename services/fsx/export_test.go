@@ -25,3 +25,43 @@ func HandlerOpsLen(h *Handler) int {
 func GetBackend(h *Handler) *InMemoryBackend {
 	return h.Backend.(*InMemoryBackend)
 }
+
+// SnapshotCount returns the number of stored snapshots.
+func SnapshotCount(b *InMemoryBackend) int {
+	b.mu.RLock("SnapshotCount")
+	defer b.mu.RUnlock()
+
+	return len(b.snapshots)
+}
+
+// SVMCount returns the number of stored storage virtual machines.
+func SVMCount(b *InMemoryBackend) int {
+	b.mu.RLock("SVMCount")
+	defer b.mu.RUnlock()
+
+	return len(b.storageVirtualMachines)
+}
+
+// VolumeCount returns the number of stored volumes.
+func VolumeCount(b *InMemoryBackend) int {
+	b.mu.RLock("VolumeCount")
+	defer b.mu.RUnlock()
+
+	return len(b.volumes)
+}
+
+// FileCacheCount returns the number of stored file caches.
+func FileCacheCount(b *InMemoryBackend) int {
+	b.mu.RLock("FileCacheCount")
+	defer b.mu.RUnlock()
+
+	return len(b.fileCaches)
+}
+
+// DRACount returns the number of stored data repository associations.
+func DRACount(b *InMemoryBackend) int {
+	b.mu.RLock("DRACount")
+	defer b.mu.RUnlock()
+
+	return len(b.dataRepositoryAssocs)
+}
