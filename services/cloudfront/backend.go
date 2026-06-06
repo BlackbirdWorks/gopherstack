@@ -469,8 +469,6 @@ type VpcOrigin struct {
 
 // InMemoryBackend stores CloudFront resources in memory.
 type InMemoryBackend struct {
-	accountID                         string
-	region                            string
 	distributions                     map[string]*Distribution
 	distributionARNs                  map[string]string          // ARN → distribution ID (O(1) tag lookups)
 	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)
@@ -528,6 +526,8 @@ type InMemoryBackend struct {
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
 	stopCh                    chan struct{}
+	accountID                 string
+	region                    string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.

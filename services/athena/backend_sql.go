@@ -19,9 +19,9 @@ type sqlColumn struct {
 
 // sqlResultPage is a paginated slice of a sqlResult.
 type sqlResultPage struct {
+	NextToken string
 	Columns   []sqlColumn
 	Rows      [][]string
-	NextToken string
 }
 
 // InsertRows loads test data into a table for SQL execution.

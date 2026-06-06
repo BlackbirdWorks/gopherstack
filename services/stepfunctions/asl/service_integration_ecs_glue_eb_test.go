@@ -31,10 +31,10 @@ func (m *mockECS) SFNRunTask(_ context.Context, input map[string]any) (any, erro
 }
 
 type mockGlue struct {
-	returnJobRunID string
 	returnErr      error
-	capturedJob    string
 	capturedArgs   map[string]string
+	returnJobRunID string
+	capturedJob    string
 }
 
 func (m *mockGlue) SFNStartJobRun(
@@ -49,8 +49,8 @@ func (m *mockGlue) SFNStartJobRun(
 }
 
 type mockEventBridge struct {
-	capturedEntries []map[string]any
 	returnErr       error
+	capturedEntries []map[string]any
 	returnFailCount int
 }
 

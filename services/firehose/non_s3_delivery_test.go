@@ -27,8 +27,8 @@ func newTestBackend(t *testing.T) *firehose.InMemoryBackend {
 
 // captureServer starts an httptest.Server that captures all requests.
 type captureServer struct {
-	requests []*capturedRequest
 	srv      *httptest.Server
+	requests []*capturedRequest
 	mu       sync.Mutex
 }
 

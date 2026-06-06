@@ -480,9 +480,9 @@ func TestLambda_DDB_Poller_MultiShard(t *testing.T) {
 
 // multiShardReader implements DynamoDBStreamsReader with per-shard records, for multi-shard tests.
 type multiShardReader struct {
-	shardIDs  []string
 	recordMap map[string][]lambda.DynamoDBStreamRecord
 	seen      map[string]bool
+	shardIDs  []string
 	mu        sync.Mutex
 }
 

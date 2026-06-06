@@ -1919,6 +1919,7 @@ func (h *Handler) pollSubscribeToShardTick(
 		if *idlePolls >= subscribeToShardMaxIdlePolls {
 			return true, nil, nil
 		}
+
 		return false, nil, nil
 	}
 	*idlePolls = 0
@@ -1960,6 +1961,7 @@ func (h *Handler) pollSubscribeToShardTick(
 			Type:           iteratorTypeAfterSequenceNumber,
 			SequenceNumber: out.Event.ContinuationSequenceNumber,
 		}
+
 		return false, &sp, nil
 	}
 

@@ -2270,6 +2270,7 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 		if b.lambdaInvoker == nil || lambdaARN == "" {
 			// No Lambda configured — promote immediately while still locked.
 			b.finishRotationLocked(secret, versionID)
+
 			continue
 		}
 

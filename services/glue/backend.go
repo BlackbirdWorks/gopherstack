@@ -341,8 +341,6 @@ type DataQualityEvaluationRun struct {
 
 // InMemoryBackend stores Glue state in memory.
 type InMemoryBackend struct {
-	accountID                 string
-	region                    string
 	databases                 map[string]*Database                      // key: databaseName
 	tables                    map[string]*Table                         // key: "databaseName|tableName"
 	crawlers                  map[string]*Crawler                       // key: crawlerName
@@ -393,6 +391,8 @@ type InMemoryBackend struct {
 	jobRunDoneAt   map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
 	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
 	stopCh         chan struct{}
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.

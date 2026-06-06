@@ -44,6 +44,7 @@ func subscribeAndCollect(t *testing.T, h *kinesis.Handler, consumerARN, shardID 
 	c := e.NewContext(req, rec)
 	err = h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -150,6 +151,7 @@ func getFirstShardID(t *testing.T, h *kinesis.Handler, streamName string) string
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.StreamDescription.Shards)
+
 	return resp.StreamDescription.Shards[0].ShardID
 }
 
@@ -168,5 +170,6 @@ func registerConsumerAndGetARN(t *testing.T, h *kinesis.Handler, streamARN, cons
 		} `json:"Consumer"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp.Consumer.ConsumerARN
 }
