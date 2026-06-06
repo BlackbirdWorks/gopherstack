@@ -4,12 +4,10 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -428,8 +426,14 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	dataLen := min(max(len(data), 0), math.MaxUint32)
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(dataLen))
+	n := len(data)
+	if n < 0 {
+		n = 0
+	}
+	lenBuf[0] = byte(n >> 24)
+	lenBuf[1] = byte(n >> 16)
+	lenBuf[2] = byte(n >> 8)
+	lenBuf[3] = byte(n)
 
 	buf = append(buf, lenBuf[:]...)
 	buf = append(buf, data...)

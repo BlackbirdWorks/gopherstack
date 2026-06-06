@@ -71,14 +71,14 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	objectLambdaHandlerFields
 	notifier        NotificationDispatcher
 	notificationCtx context.Context
 	Backend         StorageBackend
 	janitor         *Janitor
 	DefaultRegion   string
 	Endpoint        string
-	notificationMu  sync.RWMutex
+	objectLambdaHandlerFields
+	notificationMu sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
