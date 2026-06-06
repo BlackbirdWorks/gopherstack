@@ -83,21 +83,48 @@ type InMemoryBackend struct {
 	findings        map[string]*storedFinding        // id → finding
 	tags            map[string]map[string]string     // resourceARN → tags
 	session         *Session
-	accountID       string
-	region          string
+	// Appendix A fields
+	classificationJobs    map[string]*ClassificationJob             // jobID → job
+	members               map[string]*Member                        // accountID → member
+	invitations           map[string]*Invitation                    // invitationID → invitation
+	administrator         *AdministratorAccount                     // this account's admin
+	orgAdminAccounts      map[string]*OrgAdminAccount               // accountID → org admin
+	orgConfig             *OrgConfig                                // org configuration
+	autoDiscoveryConfig   *AutoDiscoveryConfig                      // automated discovery config
+	autoDiscoveryAccounts map[string]*AutoDiscoveryAccount          // accountID → auto discovery
+	classExportConfig     *ClassificationExportConfig               // export config
+	classScopes           map[string]*ClassificationScope           // scopeID → scope
+	findingsPubConfig     *FindingsPublicationConfig                // findings publication config
+	resourceProfiles      map[string]*ResourceProfile               // resourceArn → profile
+	resourceDetections    map[string][]ResourceProfileDetection     // resourceArn → detections
+	revealConfig          *RevealConfiguration                      // reveal config
+	sensitivityTemplates  map[string]*SensitivityInspectionTemplate // templateID → template
+	accountID             string
+	region                string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:              lockmetrics.New("macie2"),
-		accountID:       accountID,
-		region:          region,
-		allowLists:      make(map[string]*storedAllowList),
-		customDataIDs:   make(map[string]*storedCustomDataID),
-		findingsFilters: make(map[string]*storedFindingsFilter),
-		findings:        make(map[string]*storedFinding),
-		tags:            make(map[string]map[string]string),
+		mu:                    lockmetrics.New("macie2"),
+		accountID:             accountID,
+		region:                region,
+		allowLists:            make(map[string]*storedAllowList),
+		customDataIDs:         make(map[string]*storedCustomDataID),
+		findingsFilters:       make(map[string]*storedFindingsFilter),
+		findings:              make(map[string]*storedFinding),
+		tags:                  make(map[string]map[string]string),
+		classificationJobs:    make(map[string]*ClassificationJob),
+		members:               make(map[string]*Member),
+		invitations:           make(map[string]*Invitation),
+		orgAdminAccounts:      make(map[string]*OrgAdminAccount),
+		orgConfig:             &OrgConfig{AutoEnable: false},
+		autoDiscoveryConfig:   &AutoDiscoveryConfig{Status: "DISABLED"},
+		autoDiscoveryAccounts: make(map[string]*AutoDiscoveryAccount),
+		classScopes:           make(map[string]*ClassificationScope),
+		resourceProfiles:      make(map[string]*ResourceProfile),
+		resourceDetections:    make(map[string][]ResourceProfileDetection),
+		sensitivityTemplates:  make(map[string]*SensitivityInspectionTemplate),
 	}
 }
 
@@ -857,6 +884,21 @@ func (b *InMemoryBackend) Reset() {
 	b.findingsFilters = make(map[string]*storedFindingsFilter)
 	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
+	b.classificationJobs = make(map[string]*ClassificationJob)
+	b.members = make(map[string]*Member)
+	b.invitations = make(map[string]*Invitation)
+	b.administrator = nil
+	b.orgAdminAccounts = make(map[string]*OrgAdminAccount)
+	b.orgConfig = &OrgConfig{AutoEnable: false}
+	b.autoDiscoveryConfig = &AutoDiscoveryConfig{Status: "DISABLED"}
+	b.autoDiscoveryAccounts = make(map[string]*AutoDiscoveryAccount)
+	b.classExportConfig = nil
+	b.classScopes = make(map[string]*ClassificationScope)
+	b.findingsPubConfig = nil
+	b.resourceProfiles = make(map[string]*ResourceProfile)
+	b.resourceDetections = make(map[string][]ResourceProfileDetection)
+	b.revealConfig = nil
+	b.sensitivityTemplates = make(map[string]*SensitivityInspectionTemplate)
 }
 
 func validateTagInput(tags map[string]string) error {
@@ -878,12 +920,27 @@ func validateTagInput(tags map[string]string) error {
 }
 
 type snapshot struct {
-	Session         *Session                         `json:"session,omitempty"`
-	AllowLists      map[string]*storedAllowList      `json:"allowLists"`
-	CustomDataIDs   map[string]*storedCustomDataID   `json:"customDataIds"`
-	FindingsFilters map[string]*storedFindingsFilter `json:"findingsFilters"`
-	Findings        map[string]*storedFinding        `json:"findings"`
-	Tags            map[string]map[string]string     `json:"tags"`
+	Session               *Session                                  `json:"session,omitempty"`
+	AllowLists            map[string]*storedAllowList               `json:"allowLists"`
+	CustomDataIDs         map[string]*storedCustomDataID            `json:"customDataIds"`
+	FindingsFilters       map[string]*storedFindingsFilter          `json:"findingsFilters"`
+	Findings              map[string]*storedFinding                 `json:"findings"`
+	Tags                  map[string]map[string]string              `json:"tags"`
+	ClassificationJobs    map[string]*ClassificationJob             `json:"classificationJobs"`
+	Members               map[string]*Member                        `json:"members"`
+	Invitations           map[string]*Invitation                    `json:"invitations"`
+	Administrator         *AdministratorAccount                     `json:"administrator,omitempty"`
+	OrgAdminAccounts      map[string]*OrgAdminAccount               `json:"orgAdminAccounts"`
+	OrgConfig             *OrgConfig                                `json:"orgConfig,omitempty"`
+	AutoDiscoveryConfig   *AutoDiscoveryConfig                      `json:"autoDiscoveryConfig,omitempty"`
+	AutoDiscoveryAccounts map[string]*AutoDiscoveryAccount          `json:"autoDiscoveryAccounts"`
+	ClassExportConfig     *ClassificationExportConfig               `json:"classExportConfig,omitempty"`
+	ClassScopes           map[string]*ClassificationScope           `json:"classScopes"`
+	FindingsPubConfig     *FindingsPublicationConfig                `json:"findingsPubConfig,omitempty"`
+	ResourceProfiles      map[string]*ResourceProfile               `json:"resourceProfiles"`
+	ResourceDetections    map[string][]ResourceProfileDetection     `json:"resourceDetections"`
+	RevealConfig          *RevealConfiguration                      `json:"revealConfig,omitempty"`
+	SensitivityTemplates  map[string]*SensitivityInspectionTemplate `json:"sensitivityTemplates"`
 }
 
 // Snapshot serializes backend state to JSON.
@@ -892,12 +949,27 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	data, _ := json.Marshal(snapshot{
-		Session:         b.session,
-		AllowLists:      b.allowLists,
-		CustomDataIDs:   b.customDataIDs,
-		FindingsFilters: b.findingsFilters,
-		Findings:        b.findings,
-		Tags:            b.tags,
+		Session:               b.session,
+		AllowLists:            b.allowLists,
+		CustomDataIDs:         b.customDataIDs,
+		FindingsFilters:       b.findingsFilters,
+		Findings:              b.findings,
+		Tags:                  b.tags,
+		ClassificationJobs:    b.classificationJobs,
+		Members:               b.members,
+		Invitations:           b.invitations,
+		Administrator:         b.administrator,
+		OrgAdminAccounts:      b.orgAdminAccounts,
+		OrgConfig:             b.orgConfig,
+		AutoDiscoveryConfig:   b.autoDiscoveryConfig,
+		AutoDiscoveryAccounts: b.autoDiscoveryAccounts,
+		ClassExportConfig:     b.classExportConfig,
+		ClassScopes:           b.classScopes,
+		FindingsPubConfig:     b.findingsPubConfig,
+		ResourceProfiles:      b.resourceProfiles,
+		ResourceDetections:    b.resourceDetections,
+		RevealConfig:          b.revealConfig,
+		SensitivityTemplates:  b.sensitivityTemplates,
 	})
 
 	return data
@@ -919,6 +991,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.findingsFilters = snap.FindingsFilters
 	b.findings = snap.Findings
 	b.tags = snap.Tags
+	b.classificationJobs = snap.ClassificationJobs
+	b.members = snap.Members
+	b.invitations = snap.Invitations
+	b.administrator = snap.Administrator
+	b.orgAdminAccounts = snap.OrgAdminAccounts
+	b.orgConfig = snap.OrgConfig
+	b.autoDiscoveryConfig = snap.AutoDiscoveryConfig
+	b.autoDiscoveryAccounts = snap.AutoDiscoveryAccounts
+	b.classExportConfig = snap.ClassExportConfig
+	b.classScopes = snap.ClassScopes
+	b.findingsPubConfig = snap.FindingsPubConfig
+	b.resourceProfiles = snap.ResourceProfiles
+	b.resourceDetections = snap.ResourceDetections
+	b.revealConfig = snap.RevealConfig
+	b.sensitivityTemplates = snap.SensitivityTemplates
 
 	return nil
 }
