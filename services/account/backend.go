@@ -71,13 +71,13 @@ type ContactInformation struct {
 	PhoneNumber      string `json:"PhoneNumber"`
 	PostalCode       string `json:"PostalCode"`
 	StateOrRegion    string `json:"StateOrRegion,omitempty"`
-	WebsiteUrl       string `json:"WebsiteUrl,omitempty"`
+	WebsiteURL       string `json:"WebsiteUrl,omitempty"`
 }
 
 // StorageBackend defines the interface for the account service backend.
 type StorageBackend interface {
 	Reset()
-	DescribeAccount() (*AccountDetails, error)
+	DescribeAccount() (*Details, error)
 	ListRegions(statusFilter []RegionOptStatus, maxResults int, nextToken string) ([]*Region, string, error)
 	GetAlternateContact(ContactType) (*AlternateContact, error)
 	PutAlternateContact(*AlternateContact) error
@@ -132,14 +132,14 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // DescribeAccount returns account details.
-func (b *InMemoryBackend) DescribeAccount() (*AccountDetails, error) {
+func (b *InMemoryBackend) DescribeAccount() (*Details, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return &AccountDetails{
+	return &Details{
 		Arn:          fmt.Sprintf("arn:aws:organizations::%s:account/o-fake/%s", b.accountID, b.accountID),
 		Email:        "admin@example.com",
-		Id:           b.accountID,
+		ID:           b.accountID,
 		Name:         "Test Account",
 		Status:       "ACTIVE",
 		JoinedMethod: "CREATED",
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) DescribeAccount() (*AccountDetails, error) {
 }
 
 // ListRegions returns regions filtered by opt-in status.
-func (b *InMemoryBackend) ListRegions(statusFilter []RegionOptStatus, maxResults int, nextToken string) ([]*Region, string, error) {
+func (b *InMemoryBackend) ListRegions(statusFilter []RegionOptStatus, _ int, _ string) ([]*Region, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

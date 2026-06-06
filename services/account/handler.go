@@ -196,7 +196,7 @@ func (h *Handler) handleDescribeAccount(c *echo.Context) error {
 
 func (h *Handler) handleListRegions(c *echo.Context, q interface{ Get(string) string }) error {
 	statusRaw := c.Request().URL.Query()[queryRegionOptStatusContains]
-	var statusFilter []RegionOptStatus
+	statusFilter := make([]RegionOptStatus, 0, len(statusRaw))
 
 	for _, s := range statusRaw {
 		statusFilter = append(statusFilter, RegionOptStatus(s))
