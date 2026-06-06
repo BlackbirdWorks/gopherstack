@@ -101,25 +101,33 @@ type Finding struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu           *lockmetrics.RWMutex
-	analyzers    map[string]*Analyzer               // name → Analyzer
-	archiveRules map[string]map[string]*ArchiveRule // analyzerName → ruleName → Rule
-	findings     map[string]map[string]*Finding     // analyzerName → findingID → Finding
-	tags         map[string]map[string]string       // resourceARN → tags
-	accountID    string
-	region       string
+	mu                     *lockmetrics.RWMutex
+	analyzers              map[string]*Analyzer               // name → Analyzer
+	archiveRules           map[string]map[string]*ArchiveRule // analyzerName → ruleName → Rule
+	findings               map[string]map[string]*Finding     // analyzerName → findingID → Finding
+	tags                   map[string]map[string]string       // resourceARN → tags
+	policyGenerations      map[string]*PolicyGeneration       // jobID → PolicyGeneration
+	accessPreviews         map[string]*AccessPreview          // id → AccessPreview
+	analyzedResources      map[string]*AnalyzedResource       // analyzerArn|resourceArn → AnalyzedResource
+	findingRecommendations map[string]*FindingRecommendation  // findingID → FindingRecommendation
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:           lockmetrics.New("accessanalyzer"),
-		accountID:    accountID,
-		region:       region,
-		analyzers:    make(map[string]*Analyzer),
-		archiveRules: make(map[string]map[string]*ArchiveRule),
-		findings:     make(map[string]map[string]*Finding),
-		tags:         make(map[string]map[string]string),
+		mu:                     lockmetrics.New("accessanalyzer"),
+		accountID:              accountID,
+		region:                 region,
+		analyzers:              make(map[string]*Analyzer),
+		archiveRules:           make(map[string]map[string]*ArchiveRule),
+		findings:               make(map[string]map[string]*Finding),
+		tags:                   make(map[string]map[string]string),
+		policyGenerations:      make(map[string]*PolicyGeneration),
+		accessPreviews:         make(map[string]*AccessPreview),
+		analyzedResources:      make(map[string]*AnalyzedResource),
+		findingRecommendations: make(map[string]*FindingRecommendation),
 	}
 }
 
@@ -510,6 +518,10 @@ func (b *InMemoryBackend) Reset() {
 	b.archiveRules = make(map[string]map[string]*ArchiveRule)
 	b.findings = make(map[string]map[string]*Finding)
 	b.tags = make(map[string]map[string]string)
+	b.policyGenerations = make(map[string]*PolicyGeneration)
+	b.accessPreviews = make(map[string]*AccessPreview)
+	b.analyzedResources = make(map[string]*AnalyzedResource)
+	b.findingRecommendations = make(map[string]*FindingRecommendation)
 }
 
 // Region returns the backend's region.

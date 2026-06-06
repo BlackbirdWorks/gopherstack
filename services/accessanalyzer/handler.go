@@ -77,28 +77,6 @@ func (h *Handler) Name() string { return "AccessAnalyzer" }
 // Reset resets the backend.
 func (h *Handler) Reset() { h.Backend.Reset() }
 
-// GetSupportedOperations returns the list of supported operations.
-func (h *Handler) GetSupportedOperations() []string {
-	return []string{
-		opCreateAnalyzer,
-		opGetAnalyzer,
-		opListAnalyzers,
-		opDeleteAnalyzer,
-		opCreateArchiveRule,
-		opGetArchiveRule,
-		opListArchiveRules,
-		opDeleteArchiveRule,
-		opUpdateArchiveRule,
-		opGetFinding,
-		opListFindings,
-		opUpdateFindings,
-		opStartResourceScan,
-		opTagResource,
-		opUntagResource,
-		opListTagsForResource,
-	}
-}
-
 // RouteMatcher returns a function that matches Access Analyzer requests by path prefix.
 // For /tags/{ARN} paths, only matches when the ARN belongs to Access Analyzer
 // (i.e. contains ":access-analyzer:") to avoid intercepting tag requests for other services.
@@ -114,9 +92,23 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return strings.Contains(after, ":"+accessAnalyzerService+":")
 		}
 
-		return path == "/"+pathResource+"/"+pathScan ||
-			path == "/"+pathAnalyzedResource ||
-			strings.HasPrefix(path, "/"+pathAnalyzedResource)
+		for _, prefix := range []string{
+			"/" + pathResource + "/" + pathScan,
+			"/" + pathAnalyzedResource,
+			"/" + pathArchiveRuleRoot,
+			"/" + pathAccessPreview,
+			"/" + pathServiceLinkedAnalyzer,
+			"/" + pathRecommendation + "/",
+			"/" + pathFindingV2,
+			"/" + pathPolicy + "/",
+			"/" + pathAnalyzedResourceHyph,
+		} {
+			if path == prefix || strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+
+		return false
 	}
 }
 
@@ -125,16 +117,30 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation extracts the operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
+	op, _ := parseAllPaths(c.Request().Method, c.Request().URL.Path)
 
 	return op
 }
 
 // ExtractResource extracts the resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	_, resource := parseRESTPath(c.Request().Method, c.Request().URL.Path)
+	_, resource := parseAllPaths(c.Request().Method, c.Request().URL.Path)
 
 	return resource
+}
+
+// parseAllPaths tries both the original and appendixa parsers.
+func parseAllPaths(method, path string) (string, string) {
+	op, resource := parseRESTPath(method, path)
+	if op != opUnknown {
+		return op, resource
+	}
+
+	if op2, resource2, ok := parseRESTPathAppendixA(method, path); ok {
+		return op2, resource2
+	}
+
+	return opUnknown, ""
 }
 
 // Handler returns the Echo handler function.
@@ -149,7 +155,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	ctx := c.Request().Context()
 	log := logger.Load(ctx)
 
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
+	op, _ := parseAllPaths(c.Request().Method, c.Request().URL.Path)
 
 	if op == opUnknown {
 		return c.JSON(http.StatusNotFound, errorBody("ResourceNotFoundException", "not found"))
@@ -193,6 +199,10 @@ func (h *Handler) dispatch(
 	}
 
 	if result, code, ok, err := h.dispatchFindingOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchAppendixA(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -567,13 +577,20 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrAnalyzerAlreadyExists), errors.Is(err, ErrArchiveRuleAlreadyExists):
 		return c.JSON(http.StatusConflict, errorBody("ConflictException", err.Error()))
 	case errors.Is(err, ErrAnalyzerNotFound), errors.Is(err, ErrArchiveRuleNotFound),
-		errors.Is(err, ErrFindingNotFound):
+		errors.Is(err, ErrFindingNotFound),
+		isNotFoundErr(err):
 		return c.JSON(http.StatusNotFound, errorBody("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorBody("ValidationException", err.Error()))
 	}
 
 	return c.JSON(http.StatusInternalServerError, errorBody("InternalFailure", err.Error()))
+}
+
+func isNotFoundErr(err error) bool {
+	var nfe *notFoundErr
+
+	return errors.As(err, &nfe)
 }
 
 // ---- URL path parsing ----
@@ -634,6 +651,8 @@ func parseAnalyzerResource(method, name string) (string, string) {
 		return opGetAnalyzer, name
 	case http.MethodDelete:
 		return opDeleteAnalyzer, name
+	case http.MethodPut:
+		return opUpdateAnalyzer, name
 	}
 
 	return opUnknown, ""
@@ -656,6 +675,11 @@ func parseAnalyzerSubResource(method string, segments []string) (string, string)
 			return opListFindings, name
 		case http.MethodPut:
 			return opUpdateFindings, name
+		}
+	case pathStatistics:
+		// /analyzer/findings/statistics (name == "findings" here)
+		if method == http.MethodPost {
+			return opGetFindingsStatistics, ""
 		}
 	}
 
