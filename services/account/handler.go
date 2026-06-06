@@ -110,48 +110,79 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		path := c.Request().URL.Path
-		method := c.Request().Method
-		q := c.Request().URL.Query()
-
-		var body []byte
-
-		if method == http.MethodPut || method == http.MethodPost {
-			var err error
-
-			body, err = httputils.ReadBody(c.Request())
-			if err != nil {
-				return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
-			}
-		}
-
-		switch {
-		case path == pathAccount && method == http.MethodGet:
-			return h.handleDescribeAccount(c)
-
-		case path == pathRegions && method == http.MethodGet:
-			return h.handleListRegions(c, q)
-
-		case path == pathAlternateContact && method == http.MethodGet:
-			ct := q.Get(queryAlternateContactType)
-			return h.handleGetAlternateContact(c, ct)
-
-		case path == pathAlternateContact && method == http.MethodPut:
-			return h.handlePutAlternateContact(c, body)
-
-		case path == pathAlternateContact && method == http.MethodDelete:
-			ct := q.Get(queryAlternateContactType)
-			return h.handleDeleteAlternateContact(c, ct)
-
-		case path == pathContact && method == http.MethodGet:
-			return h.handleGetContactInformation(c)
-
-		case path == pathContact && method == http.MethodPut:
-			return h.handlePutContactInformation(c, body)
-		}
-
-		return writeError(c, http.StatusNotFound, "InvalidAction", "unsupported operation")
+		return h.route(c)
 	}
+}
+
+func (h *Handler) route(c *echo.Context) error {
+	path := c.Request().URL.Path
+	method := c.Request().Method
+	q := c.Request().URL.Query()
+
+	switch path {
+	case pathAccount:
+		return h.routeAccount(c, method)
+	case pathRegions:
+		return h.routeRegions(c, method, q)
+	case pathAlternateContact:
+		return h.routeAlternateContact(c, method, q)
+	case pathContact:
+		return h.routeContact(c, method)
+	}
+
+	return writeError(c, http.StatusNotFound, "InvalidAction", "unsupported operation")
+}
+
+func (h *Handler) routeAccount(c *echo.Context, method string) error {
+	if method != http.MethodGet {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	return h.handleDescribeAccount(c)
+}
+
+func (h *Handler) routeRegions(c *echo.Context, method string, q interface{ Get(string) string }) error {
+	if method != http.MethodGet {
+		return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+	}
+
+	return h.handleListRegions(c, q)
+}
+
+func (h *Handler) routeAlternateContact(c *echo.Context, method string, q interface{ Get(string) string }) error {
+	ct := q.Get(queryAlternateContactType)
+
+	switch method {
+	case http.MethodGet:
+		return h.handleGetAlternateContact(c, ct)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+		}
+
+		return h.handlePutAlternateContact(c, body)
+	case http.MethodDelete:
+		return h.handleDeleteAlternateContact(c, ct)
+	}
+
+	return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
+}
+
+func (h *Handler) routeContact(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodGet:
+		return h.handleGetContactInformation(c)
+	case http.MethodPut:
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
+		}
+
+		return h.handlePutContactInformation(c, body)
+	}
+
+	return writeError(c, http.StatusMethodNotAllowed, "InvalidAction", "unsupported method")
 }
 
 func (h *Handler) handleDescribeAccount(c *echo.Context) error {
