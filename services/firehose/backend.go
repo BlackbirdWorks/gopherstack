@@ -1399,6 +1399,7 @@ func checkHTTPDeliveryResponse(ctx context.Context, resp *http.Response, doErr e
 	if closeErr := resp.Body.Close(); closeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "firehose: failed to close HTTP response body", "error", closeErr)
 	}
+
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
