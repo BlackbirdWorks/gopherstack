@@ -24,10 +24,7 @@ func (b *InMemoryBackend) launchKinesisPoller(firehoseStream, kinesisStreamARN s
 	b.pollerCancel[firehoseStream] = cancel
 	b.mu.Unlock()
 
-	go func() {
-		defer cancel()
-		b.pollKinesisStream(ctx, firehoseStream, kinesisStreamARN)
-	}()
+	go b.pollKinesisStream(ctx, firehoseStream, kinesisStreamARN)
 }
 
 // pollKinesisStream lists shards and starts a per-shard polling loop.
