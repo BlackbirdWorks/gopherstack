@@ -324,17 +324,17 @@ type splunkDestinationInput struct {
 }
 
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration         *s3DestinationInput                    `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
-	KinesisStreamSourceConfiguration   *kinesisStreamSourceConfigurationInput  `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration             *mskSourceConfigurationInput            `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration   *redshiftDestinationInput               `json:"RedshiftDestinationConfiguration"`
-	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
-	SplunkDestinationConfiguration     *splunkDestinationInput                 `json:"SplunkDestinationConfiguration"`
-	DeliveryStreamName                 string                                  `json:"DeliveryStreamName"`
-	DeliveryStreamType                 string                                  `json:"DeliveryStreamType"`
-	Tags                               []svcTags.KV                            `json:"Tags"`
+	S3DestinationConfiguration                      *s3DestinationInput                    `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration              *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration            *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"`
+	KinesisStreamSourceConfiguration                *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration                          *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration                *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
+	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput            `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
+	SplunkDestinationConfiguration                  *splunkDestinationInput                `json:"SplunkDestinationConfiguration"`
+	DeliveryStreamName                              string                                 `json:"DeliveryStreamName"`
+	DeliveryStreamType                              string                                 `json:"DeliveryStreamType"`
+	Tags                                            []svcTags.KV                           `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
