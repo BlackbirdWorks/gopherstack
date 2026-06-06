@@ -32,11 +32,11 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 	}
 
 	tests := []struct {
-		wantCols   []string // expected column names (in order)
 		name       string
 		query      string
-		wantFirst  string // first data cell of first result row (col 0)
-		wantRowLen int    // expected data rows (excludes header)
+		wantFirst  string   // first data cell of first result row (col 0)
+		wantCols   []string // expected column names (in order)
+		wantRowLen int      // expected data rows (excludes header)
 	}{
 		{
 			name:       "select_star_returns_all_rows",
@@ -123,6 +123,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			// Rows includes a header row (col names) when columns exist.
 			if tt.wantRowLen == 0 && len(tt.wantCols) == 0 {
 				assert.Empty(t, allRows, "no rows expected for empty result set")
+
 				return
 			}
 
