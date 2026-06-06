@@ -1267,8 +1267,8 @@ func buildHTTPEndpointBody(records [][]byte) ([]byte, error) {
 		Data string `json:"data"`
 	}
 	type httpPayload struct {
-		Records   []httpRecord `json:"records"`
 		RequestID string       `json:"requestId"`
+		Records   []httpRecord `json:"records"`
 		Timestamp int64        `json:"timestamp"`
 	}
 

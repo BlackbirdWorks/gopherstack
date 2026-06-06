@@ -17,8 +17,8 @@ var errExecutionLimitReached = errors.New("execution limit reached")
 
 // auditSFNExecutor records StartExecution calls for assertion.
 type auditSFNExecutor struct {
-	executions []sfnExecution
 	returnErr  error
+	executions []sfnExecution
 	mu         sync.Mutex
 }
 

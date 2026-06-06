@@ -16,10 +16,10 @@ var errAccessDenied = errors.New("access denied")
 
 // mockKinesisReader is a simple in-memory Kinesis reader for testing the poller.
 type mockKinesisReader struct {
-	shards   []string
-	records  [][]byte
 	listErr  error
 	getErr   error
+	shards   []string
+	records  [][]byte
 	position int
 	mu       sync.Mutex
 }

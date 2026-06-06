@@ -20,9 +20,9 @@ const objectLambdaTimeout = 30 * time.Second
 
 // objectLambdaResponse carries the transformed response from a Lambda function.
 type objectLambdaResponse struct {
-	body       []byte
 	err        error
 	headers    http.Header
+	body       []byte
 	statusCode int
 }
 
@@ -216,9 +216,9 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 // objectLambdaHandlerFields holds the new fields required by object lambda support.
 // They are embedded into S3Handler.
 type objectLambdaHandlerFields struct {
+	objectLambdaConfigs         map[string]string
 	pendingObjectLambdaRequests sync.Map
 	objectLambdaMu              sync.RWMutex
-	objectLambdaConfigs         map[string]string
 }
 
 // InvokeFunction satisfies LambdaInvoker for inMemoryNotificationDispatcher.

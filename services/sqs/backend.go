@@ -6,10 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"math"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -428,10 +428,7 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	dataLen := max(len(data), 0)
-	if dataLen > math.MaxUint32 {
-		dataLen = math.MaxUint32
-	}
+	dataLen := min(max(len(data), 0), math.MaxUint32)
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(dataLen))
 
 	buf = append(buf, lenBuf[:]...)
@@ -1613,6 +1610,7 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 		if time.UnixMilli(inf.Msg.SentTimestamp).Before(cutoff) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
 			changed = true
+
 			continue
 		}
 
@@ -1620,6 +1618,7 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
 			q.messages = append(q.messages, inf.Msg)
 			changed = true
+
 			continue
 		}
 
@@ -1657,18 +1656,21 @@ func pickVisibleMessages(
 			if now.Before(msg.VisibleAt) {
 				q.dlq.delayedCount++
 			}
+
 			continue
 		}
 
 		if q.IsFIFO && msg.MessageGroupID != "" && blockedGroups[msg.MessageGroupID] {
 			q.messages[j] = msg
 			j++
+
 			continue
 		}
 
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
 			enqueueReceivedMessage(q, msg, blockedGroups, now, vt, accountID)
 			result = append(result, msg)
+
 			continue
 		}
 
@@ -1677,6 +1679,7 @@ func pickVisibleMessages(
 	}
 
 	q.messages = q.messages[:j]
+
 	return result
 }
 
