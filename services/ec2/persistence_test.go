@@ -111,3 +111,136 @@ func TestPersistenceNewTypes(t *testing.T) {
 	require.Len(t, enis, 1)
 	assert.Equal(t, "persist-eni", enis[0].Description)
 }
+
+// TestPersistenceExtended verifies that §5 expansion fields survive snapshot/restore.
+func TestPersistenceExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		setup  func(b *ec2.InMemoryBackend)
+		verify func(t *testing.T, b *ec2.InMemoryBackend)
+	}{
+		{
+			name: "vpn_gateway_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateVpnGateway("ipsec.1")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				gws := b.DescribeVpnGateways(nil)
+				assert.NotEmpty(t, gws)
+			},
+		},
+		{
+			name: "customer_gateway_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				cgws := b.DescribeCustomerGateways(nil)
+				assert.NotEmpty(t, cgws)
+			},
+		},
+		{
+			name: "ipam_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateIpam()
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				ipams := b.DescribeIpams(nil)
+				assert.NotEmpty(t, ipams)
+			},
+		},
+		{
+			name: "carrier_gateway_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateCarrierGateway("vpc-test")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				cgws := b.DescribeCarrierGateways(nil)
+				assert.NotEmpty(t, cgws)
+			},
+		},
+		{
+			name: "ec2_fleet_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateFleet("instant", 1)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				fleets := b.DescribeFleets(nil)
+				assert.NotEmpty(t, fleets)
+			},
+		},
+		{
+			name: "network_insights_path_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateNetworkInsightsPath("i-src", "i-dst", "tcp", 0)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				paths := b.DescribeNetworkInsightsPaths(nil)
+				assert.NotEmpty(t, paths)
+			},
+		},
+		{
+			name: "ebs_encryption_default_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				b.EnableEbsEncryptionByDefault()
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				assert.True(t, b.GetEbsEncryptionByDefault())
+			},
+		},
+		{
+			name: "serial_console_access_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				b.EnableSerialConsoleAccess()
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				assert.True(t, b.GetSerialConsoleAccessStatus())
+			},
+		},
+		{
+			name: "managed_prefix_list_persists",
+			setup: func(b *ec2.InMemoryBackend) {
+				_, err := b.CreateManagedPrefixList("persist-pl", "IPv4", 10)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
+				t.Helper()
+				pls := b.DescribeManagedPrefixLists(nil)
+				assert.NotEmpty(t, pls)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			tt.setup(original)
+
+			snap := original.Snapshot()
+			require.NotNil(t, snap)
+
+			fresh := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, fresh.Restore(snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}
