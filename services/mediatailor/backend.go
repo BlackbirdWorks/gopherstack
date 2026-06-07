@@ -594,7 +594,10 @@ func (b *InMemoryBackend) ConfigureLogsForChannel(channelName string, logTypes [
 }
 
 // ConfigureLogsForPlaybackConfiguration sets the percent enabled for playback config logs.
-func (b *InMemoryBackend) ConfigureLogsForPlaybackConfiguration(playbackConfigName string, percentEnabled int) (string, int, error) {
+func (b *InMemoryBackend) ConfigureLogsForPlaybackConfiguration(
+	playbackConfigName string,
+	percentEnabled int,
+) (string, int, error) {
 	b.mu.RLock("ConfigureLogsForPlaybackConfiguration")
 	defer b.mu.RUnlock()
 
@@ -1173,8 +1176,26 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 }
 
 // GetChannelSchedule returns the schedule for a channel.
-func (b *InMemoryBackend) GetChannelSchedule(channelName string, maxResults int, nextToken string) ([]*ProgramScheduleEntry, string, error) {
-	return nil, "", nil
+func (b *InMemoryBackend) GetChannelSchedule(
+	channelName string, maxResults int, nextToken string,
+) ([]*ProgramScheduleEntry, string, error) {
+	b.mu.RLock("GetChannelSchedule")
+	defer b.mu.RUnlock()
+
+	var out []*ProgramScheduleEntry
+	for _, prog := range b.programs {
+		if prog.ChannelName != channelName {
+			continue
+		}
+
+		out = append(out, &ProgramScheduleEntry{
+			ARN:         prog.ARN,
+			ChannelName: prog.ChannelName,
+			ProgramName: prog.ProgramName,
+		})
+	}
+
+	return out, "", nil
 }
 
 // --- ChannelPolicy operations ---
@@ -1223,7 +1244,10 @@ func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
 // --- Function operations ---
 
 // PutFunction creates or updates a function.
-func (b *InMemoryBackend) PutFunction(functionID, functionType, description string, tags map[string]string) (*Function, error) {
+func (b *InMemoryBackend) PutFunction(
+	functionID, functionType, description string,
+	tags map[string]string,
+) (*Function, error) {
 	if functionType == "" {
 		return nil, fmt.Errorf("%w: FunctionType is required", ErrInvalidParameter)
 	}
