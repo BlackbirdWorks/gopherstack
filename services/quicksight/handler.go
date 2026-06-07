@@ -78,6 +78,241 @@ const (
 	opUntagResource           = "UntagResource"
 	opListTagsForResource     = "ListTagsForResource"
 
+	// folder ops.
+	opCreateFolder                  = "CreateFolder"
+	opDescribeFolder                = "DescribeFolder"
+	opUpdateFolder                  = "UpdateFolder"
+	opDeleteFolder                  = "DeleteFolder"
+	opListFolders                   = "ListFolders"
+	opSearchFolders                 = "SearchFolders"
+	opCreateFolderMembership        = "CreateFolderMembership"
+	opDeleteFolderMembership        = "DeleteFolderMembership"
+	opListFolderMembers             = "ListFolderMembers"
+	opListFoldersForResource        = "ListFoldersForResource"
+	opDescribeFolderPermissions     = "DescribeFolderPermissions"
+	opDescribeFolderResolvedPerms   = "DescribeFolderResolvedPermissions"
+	opUpdateFolderPermissions       = "UpdateFolderPermissions"
+
+	// template ops.
+	opCreateTemplate            = "CreateTemplate"
+	opDescribeTemplate          = "DescribeTemplate"
+	opUpdateTemplate            = "UpdateTemplate"
+	opDeleteTemplate            = "DeleteTemplate"
+	opListTemplates             = "ListTemplates"
+	opListTemplateVersions      = "ListTemplateVersions"
+	opDescribeTemplateDefinition = "DescribeTemplateDefinition"
+	opDescribeTemplatePerms     = "DescribeTemplatePermissions"
+	opUpdateTemplatePerms       = "UpdateTemplatePermissions"
+	opCreateTemplateAlias       = "CreateTemplateAlias"
+	opDescribeTemplateAlias     = "DescribeTemplateAlias"
+	opUpdateTemplateAlias       = "UpdateTemplateAlias"
+	opDeleteTemplateAlias       = "DeleteTemplateAlias"
+	opListTemplateAliases       = "ListTemplateAliases"
+
+	// theme ops.
+	opCreateTheme          = "CreateTheme"
+	opDescribeTheme        = "DescribeTheme"
+	opUpdateTheme          = "UpdateTheme"
+	opDeleteTheme          = "DeleteTheme"
+	opListThemes           = "ListThemes"
+	opListThemeVersions    = "ListThemeVersions"
+	opDescribeThemePerms   = "DescribeThemePermissions"
+	opUpdateThemePerms     = "UpdateThemePermissions"
+	opCreateThemeAlias     = "CreateThemeAlias"
+	opDescribeThemeAlias   = "DescribeThemeAlias"
+	opUpdateThemeAlias     = "UpdateThemeAlias"
+	opDeleteThemeAlias     = "DeleteThemeAlias"
+	opListThemeAliases     = "ListThemeAliases"
+
+	// topic ops.
+	opCreateTopic                   = "CreateTopic"
+	opDescribeTopic                 = "DescribeTopic"
+	opUpdateTopic                   = "UpdateTopic"
+	opDeleteTopic                   = "DeleteTopic"
+	opListTopics                    = "ListTopics"
+	opSearchTopics                  = "SearchTopics"
+	opDescribeTopicPerms            = "DescribeTopicPermissions"
+	opUpdateTopicPerms              = "UpdateTopicPermissions"
+	opCreateTopicRefreshSchedule    = "CreateTopicRefreshSchedule"
+	opDescribeTopicRefreshSchedule  = "DescribeTopicRefreshSchedule"
+	opUpdateTopicRefreshSchedule    = "UpdateTopicRefreshSchedule"
+	opDeleteTopicRefreshSchedule    = "DeleteTopicRefreshSchedule"
+	opListTopicRefreshSchedules     = "ListTopicRefreshSchedules"
+	opDescribeTopicRefresh          = "DescribeTopicRefresh"
+	opBatchCreateTopicAnswers       = "BatchCreateTopicReviewedAnswer"
+	opBatchDeleteTopicAnswers       = "BatchDeleteTopicReviewedAnswer"
+	opListTopicReviewedAnswers      = "ListTopicReviewedAnswers"
+
+	// VPC connection ops.
+	opCreateVPCConnection  = "CreateVPCConnection"
+	opDescribeVPCConnection = "DescribeVPCConnection"
+	opUpdateVPCConnection  = "UpdateVPCConnection"
+	opDeleteVPCConnection  = "DeleteVPCConnection"
+	opListVPCConnections   = "ListVPCConnections"
+
+	// IAM policy assignment ops.
+	opCreateIAMPolicyAssignment         = "CreateIAMPolicyAssignment"
+	opDescribeIAMPolicyAssignment       = "DescribeIAMPolicyAssignment"
+	opUpdateIAMPolicyAssignment         = "UpdateIAMPolicyAssignment"
+	opDeleteIAMPolicyAssignment         = "DeleteIAMPolicyAssignment"
+	opListIAMPolicyAssignments          = "ListIAMPolicyAssignments"
+	opListIAMPolicyAssignmentsForUser   = "ListIAMPolicyAssignmentsForUser"
+
+	// custom permissions ops.
+	opCreateCustomPermissions  = "CreateCustomPermissions"
+	opDescribeCustomPermissions = "DescribeCustomPermissions"
+	opUpdateCustomPermissions  = "UpdateCustomPermissions"
+	opDeleteCustomPermissions  = "DeleteCustomPermissions"
+	opListCustomPermissions    = "ListCustomPermissions"
+
+	// role membership ops.
+	opCreateRoleMembership        = "CreateRoleMembership"
+	opDeleteRoleMembership        = "DeleteRoleMembership"
+	opListRoleMemberships         = "ListRoleMemberships"
+	opGetRoleCustomPermission     = "DescribeRoleCustomPermission"
+	opUpdateRoleCustomPermission  = "UpdateRoleCustomPermission"
+	opDeleteRoleCustomPermission  = "DeleteRoleCustomPermission"
+
+	// user custom permission ops.
+	opUpdateUserCustomPermission = "UpdateUserCustomPermission"
+	opDeleteUserCustomPermission = "DeleteUserCustomPermission"
+
+	// dashboard extra ops.
+	opDescribeDashboardDefinition         = "DescribeDashboardDefinition"
+	opDescribeDashboardPerms              = "DescribeDashboardPermissions"
+	opUpdateDashboardPerms                = "UpdateDashboardPermissions"
+	opUpdateDashboardPublishedVersion     = "UpdateDashboardPublishedVersion"
+	opUpdateDashboardLinks                = "UpdateDashboardLinks"
+	opStartDashboardSnapshotJob           = "StartDashboardSnapshotJob"
+	opDescribeDashboardSnapshotJob        = "DescribeDashboardSnapshotJob"
+	opDescribeDashboardSnapshotJobResult  = "DescribeDashboardSnapshotJobResult"
+	opStartDashboardSnapshotJobSchedule   = "StartDashboardSnapshotJobSchedule"
+	opGetDashboardEmbedUrl                = "GetDashboardEmbedUrl"
+	opDescribeDashboardsQAConfiguration   = "DescribeDashboardsQAConfiguration"
+	opUpdateDashboardsQAConfiguration     = "UpdateDashboardsQAConfiguration"
+
+	// analysis extra ops.
+	opDescribeAnalysisDefinition = "DescribeAnalysisDefinition"
+	opDescribeAnalysisPerms      = "DescribeAnalysisPermissions"
+	opUpdateAnalysisPerms        = "UpdateAnalysisPermissions"
+
+	// data-set extra ops.
+	opDescribeDataSetPerms          = "DescribeDataSetPermissions"
+	opUpdateDataSetPerms            = "UpdateDataSetPermissions"
+	opCreateRefreshSchedule         = "CreateRefreshSchedule"
+	opDescribeRefreshSchedule       = "DescribeRefreshSchedule"
+	opUpdateRefreshSchedule         = "UpdateRefreshSchedule"
+	opDeleteRefreshSchedule         = "DeleteRefreshSchedule"
+	opListRefreshSchedules          = "ListRefreshSchedules"
+	opPutDataSetRefreshProperties   = "PutDataSetRefreshProperties"
+	opDescribeDataSetRefreshProps   = "DescribeDataSetRefreshProperties"
+	opDeleteDataSetRefreshProps     = "DeleteDataSetRefreshProperties"
+
+	// data-source extra ops.
+	opDescribeDataSourcePerms = "DescribeDataSourcePermissions"
+	opUpdateDataSourcePerms   = "UpdateDataSourcePermissions"
+
+	// brand ops.
+	opCreateBrand               = "CreateBrand"
+	opDescribeBrand             = "DescribeBrand"
+	opUpdateBrand               = "UpdateBrand"
+	opDeleteBrand               = "DeleteBrand"
+	opListBrands                = "ListBrands"
+	opDescribeBrandAssignment   = "DescribeBrandAssignment"
+	opUpdateBrandAssignment     = "UpdateBrandAssignment"
+	opDeleteBrandAssignment     = "DeleteBrandAssignment"
+	opDescribeBrandPublishedVer = "DescribeBrandPublishedVersion"
+	opUpdateBrandPublishedVer   = "UpdateBrandPublishedVersion"
+
+	// OAuth app ops.
+	opCreateOAuthClientApp  = "CreateOAuthClientApplication"
+	opDescribeOAuthClientApp = "DescribeOAuthClientApplication"
+	opUpdateOAuthClientApp  = "UpdateOAuthClientApplication"
+	opDeleteOAuthClientApp  = "DeleteOAuthClientApplication"
+	opListOAuthClientApps   = "ListOAuthClientApplications"
+
+	// action connector ops.
+	opCreateActionConnector         = "CreateActionConnector"
+	opDescribeActionConnector       = "DescribeActionConnector"
+	opUpdateActionConnector         = "UpdateActionConnector"
+	opDeleteActionConnector         = "DeleteActionConnector"
+	opListActionConnectors          = "ListActionConnectors"
+	opSearchActionConnectors        = "SearchActionConnectors"
+	opDescribeActionConnectorPerms  = "DescribeActionConnectorPermissions"
+	opUpdateActionConnectorPerms    = "UpdateActionConnectorPermissions"
+
+	// identity propagation ops.
+	opListIdentityPropagationConfigs    = "ListIdentityPropagationConfigs"
+	opUpdateIdentityPropagationConfig   = "UpdateIdentityPropagationConfig"
+	opDeleteIdentityPropagationConfig   = "DeleteIdentityPropagationConfig"
+
+	// asset bundle ops.
+	opStartAssetBundleExportJob    = "StartAssetBundleExportJob"
+	opDescribeAssetBundleExportJob = "DescribeAssetBundleExportJob"
+	opListAssetBundleExportJobs    = "ListAssetBundleExportJobs"
+	opStartAssetBundleImportJob    = "StartAssetBundleImportJob"
+	opDescribeAssetBundleImportJob = "DescribeAssetBundleImportJob"
+	opListAssetBundleImportJobs    = "ListAssetBundleImportJobs"
+
+	// automation ops.
+	opStartAutomationJob    = "StartAutomationJob"
+	opDescribeAutomationJob = "DescribeAutomationJob"
+
+	// account-level ops.
+	opCreateAccountCustomization   = "CreateAccountCustomization"
+	opDescribeAccountCustomization = "DescribeAccountCustomization"
+	opUpdateAccountCustomization   = "UpdateAccountCustomization"
+	opDeleteAccountCustomization   = "DeleteAccountCustomization"
+	opDescribeAccountCustomPerm    = "DescribeAccountCustomPermission"
+	opUpdateAccountCustomPerm      = "UpdateAccountCustomPermission"
+	opDeleteAccountCustomPerm      = "DeleteAccountCustomPermission"
+	opDescribeAccountSettings      = "DescribeAccountSettings"
+	opUpdateAccountSettings        = "UpdateAccountSettings"
+	opCreateAccountSubscription    = "CreateAccountSubscription"
+	opDescribeAccountSubscription  = "DescribeAccountSubscription"
+	opDeleteAccountSubscription    = "DeleteAccountSubscription"
+	opDescribeIpRestriction        = "DescribeIpRestriction"
+	opUpdateIpRestriction          = "UpdateIpRestriction"
+	opDescribeKeyRegistration      = "DescribeKeyRegistration"
+	opUpdateKeyRegistration        = "UpdateKeyRegistration"
+	opUpdatePublicSharingSettings  = "UpdatePublicSharingSettings"
+	opDescribeQPersonalization     = "DescribeQPersonalizationConfiguration"
+	opUpdateQPersonalization       = "UpdateQPersonalizationConfiguration"
+	opDescribeQSearchConfig        = "DescribeQuickSightQSearchConfiguration"
+	opUpdateQSearchConfig          = "UpdateQuickSightQSearchConfiguration"
+	opUpdateSPICECapacity          = "UpdateSPICECapacityConfiguration"
+	opDescribeDefaultQBiz          = "DescribeDefaultQBusinessApplication"
+	opUpdateDefaultQBiz            = "UpdateDefaultQBusinessApplication"
+	opDeleteDefaultQBiz            = "DeleteDefaultQBusinessApplication"
+	opUpdateAppTokenGrant          = "UpdateApplicationWithTokenExchangeGrant"
+	opGetIdentityContext           = "GetIdentityContext"
+	opPredictQAResults             = "PredictQAResults"
+
+	// embed ops.
+	opGenerateEmbedForAnonUser        = "GenerateEmbedUrlForAnonymousUser"
+	opGenerateEmbedForRegUser         = "GenerateEmbedUrlForRegisteredUser"
+	opGenerateEmbedForRegUserIdentity = "GenerateEmbedUrlForRegisteredUserWithIdentity"
+	opGetSessionEmbedUrl              = "GetSessionEmbedUrl"
+
+	// search ops.
+	opSearchAnalyses    = "SearchAnalyses"
+	opSearchDashboards  = "SearchDashboards"
+	opSearchDataSets    = "SearchDataSets"
+	opSearchDataSources = "SearchDataSources"
+
+	// flow ops.
+	opListFlows          = "ListFlows"
+	opSearchFlows        = "SearchFlows"
+	opGetFlowMetadata    = "GetFlowMetadata"
+	opGetFlowPermissions = "GetFlowPermissions"
+	opUpdateFlowPerms    = "UpdateFlowPermissions"
+
+	// namespace self-upgrade ops.
+	opDescribeSelfUpgradeConfig = "DescribeSelfUpgradeConfiguration"
+	opUpdateSelfUpgradeConfig   = "UpdateSelfUpgradeConfiguration"
+	opListSelfUpgrades          = "ListSelfUpgrades"
+	opUpdateSelfUpgrade         = "UpdateSelfUpgrade"
+
 	// path segment indices.
 	segAccountID   = 1
 	segResource    = 2
@@ -151,6 +386,70 @@ const (
 	pathSegTagsSuffix     = "tags"
 	pathSegGroupsSearch   = "groups-search"
 	pathSegUserPrincipals = "user-principals"
+
+	// new path segment names.
+	pathSegFolders              = "folders"
+	pathSegTemplates            = "templates"
+	pathSegThemes               = "themes"
+	pathSegTopics               = "topics"
+	pathSegVPCConnections       = "vpc-connections"
+	pathSegActionConnectors     = "action-connectors"
+	pathSegBrands               = "brands"
+	pathSegBrandAssignments     = "brandassignments"
+	pathSegCustomPermissions    = "custom-permissions"
+	pathSegCustomPermission     = "custom-permission"
+	pathSegCustomizations       = "customizations"
+	pathSegSettings             = "settings"
+	pathSegOAuthApps            = "oauth-client-applications"
+	pathSegIAMPolicyAssignments = "iam-policy-assignments"
+	pathSegRoles                = "roles"
+	pathSegIdentityPropagation  = "identity-propagation-config"
+	pathSegAssetBundleExport    = "asset-bundle-export-jobs"
+	pathSegAssetBundleImport    = "asset-bundle-import-jobs"
+	pathSegAutomationGroups     = "automation-groups"
+	pathSegRefreshSchedules     = "refresh-schedules"
+	pathSegRefreshProperties    = "refresh-properties"
+	pathSegPermissions          = "permissions"
+	pathSegDefinition           = "definition"
+	pathSegAliases              = "aliases"
+	pathSegSnapshotJobs         = "snapshot-jobs"
+	pathSegLinkedEntities       = "linked-entities"
+	pathSegSchedules            = "schedules"
+	pathSegEmbedUrl             = "embed-url"
+	pathSegIPRestriction        = "ip-restriction"
+	pathSegKeyRegistration      = "key-registration"
+	pathSegPublicSharing        = "public-sharing-settings"
+	pathSegQPersonalization     = "q-personalization-configuration"
+	pathSegQSearchConfig        = "quicksight-q-search-configuration"
+	pathSegSPICECapacity        = "spice-capacity-configuration"
+	pathSegDashboardsQACfg      = "dashboards-qa-configuration"
+	pathSegDefaultQBiz          = "default-qbusiness-application"
+	pathSegSessionEmbedUrl      = "session-embed-url"
+	pathSegFlows                = "flows"
+	pathSegIdentityContext      = "identity-context"
+	pathSegResource2            = "resource"
+	pathSegAppTokenGrant        = "application-with-token-exchange-grant"
+	pathSegV2                   = "v2"
+	pathSegPublishedVersion     = "publishedversion"
+	pathSegAccountSingular      = "account"
+	pathSegNamespaceSingular    = "namespace"
+	pathSegReviewedAnswers      = "reviewed-answers"
+	pathSegBatchCreateReviewed  = "batch-create-reviewed-answers"
+	pathSegBatchDeleteReviewed  = "batch-delete-reviewed-answers"
+	pathSegSearchFlows          = "searchFlows"
+	pathSegQA                   = "qa"
+	pathSegPredict              = "predict"
+	pathSegSelfUpgradeCfg       = "self-upgrade-configuration"
+	pathSegSelfUpgradeReqs      = "self-upgrade-requests"
+	pathSegUpdateSelfUpgrade    = "update-self-upgrade-request"
+	pathSegAutomations          = "automations"
+	pathSegJobs                 = "jobs"
+	pathSegResolvedPerms        = "resolved-permissions"
+	pathSegExport               = "export"
+	pathSegImport               = "import"
+	pathSegMetadata             = "metadata"
+	pathSegRefresh              = "refresh"
+	pathSegResult               = "result"
 
 	// time format.
 	timeFormat = "2006-01-02T15:04:05Z"
@@ -272,6 +571,89 @@ func (h *Handler) GetSupportedOperations() []string {
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
+		// folder ops
+		opCreateFolder, opDescribeFolder, opUpdateFolder, opDeleteFolder, opListFolders, opSearchFolders,
+		opCreateFolderMembership, opDeleteFolderMembership, opListFolderMembers, opListFoldersForResource,
+		opDescribeFolderPermissions, opDescribeFolderResolvedPerms, opUpdateFolderPermissions,
+		// template ops
+		opCreateTemplate, opDescribeTemplate, opUpdateTemplate, opDeleteTemplate, opListTemplates, opListTemplateVersions,
+		opDescribeTemplateDefinition, opDescribeTemplatePerms, opUpdateTemplatePerms,
+		opCreateTemplateAlias, opDescribeTemplateAlias, opUpdateTemplateAlias, opDeleteTemplateAlias, opListTemplateAliases,
+		// theme ops
+		opCreateTheme, opDescribeTheme, opUpdateTheme, opDeleteTheme, opListThemes, opListThemeVersions,
+		opDescribeThemePerms, opUpdateThemePerms,
+		opCreateThemeAlias, opDescribeThemeAlias, opUpdateThemeAlias, opDeleteThemeAlias, opListThemeAliases,
+		// topic ops
+		opCreateTopic, opDescribeTopic, opUpdateTopic, opDeleteTopic, opListTopics, opSearchTopics,
+		opDescribeTopicPerms, opUpdateTopicPerms,
+		opCreateTopicRefreshSchedule, opDescribeTopicRefreshSchedule, opUpdateTopicRefreshSchedule,
+		opDeleteTopicRefreshSchedule, opListTopicRefreshSchedules, opDescribeTopicRefresh,
+		opBatchCreateTopicAnswers, opBatchDeleteTopicAnswers, opListTopicReviewedAnswers,
+		// VPC connection ops
+		opCreateVPCConnection, opDescribeVPCConnection, opUpdateVPCConnection, opDeleteVPCConnection, opListVPCConnections,
+		// IAM policy assignment ops
+		opCreateIAMPolicyAssignment, opDescribeIAMPolicyAssignment, opUpdateIAMPolicyAssignment,
+		opDeleteIAMPolicyAssignment, opListIAMPolicyAssignments, opListIAMPolicyAssignmentsForUser,
+		// custom permissions ops
+		opCreateCustomPermissions, opDescribeCustomPermissions, opUpdateCustomPermissions,
+		opDeleteCustomPermissions, opListCustomPermissions,
+		// role ops
+		opCreateRoleMembership, opDeleteRoleMembership, opListRoleMemberships,
+		opGetRoleCustomPermission, opUpdateRoleCustomPermission, opDeleteRoleCustomPermission,
+		// user custom permission ops
+		opUpdateUserCustomPermission, opDeleteUserCustomPermission,
+		// dashboard extra ops
+		opDescribeDashboardDefinition, opDescribeDashboardPerms, opUpdateDashboardPerms,
+		opUpdateDashboardPublishedVersion, opUpdateDashboardLinks,
+		opStartDashboardSnapshotJob, opDescribeDashboardSnapshotJob, opDescribeDashboardSnapshotJobResult,
+		opStartDashboardSnapshotJobSchedule, opGetDashboardEmbedUrl,
+		opDescribeDashboardsQAConfiguration, opUpdateDashboardsQAConfiguration,
+		// analysis extra ops
+		opDescribeAnalysisDefinition, opDescribeAnalysisPerms, opUpdateAnalysisPerms,
+		// data-set extra ops
+		opDescribeDataSetPerms, opUpdateDataSetPerms,
+		opCreateRefreshSchedule, opDescribeRefreshSchedule, opUpdateRefreshSchedule, opDeleteRefreshSchedule, opListRefreshSchedules,
+		opPutDataSetRefreshProperties, opDescribeDataSetRefreshProps, opDeleteDataSetRefreshProps,
+		// data-source extra ops
+		opDescribeDataSourcePerms, opUpdateDataSourcePerms,
+		// brand ops
+		opCreateBrand, opDescribeBrand, opUpdateBrand, opDeleteBrand, opListBrands,
+		opDescribeBrandAssignment, opUpdateBrandAssignment, opDeleteBrandAssignment,
+		opDescribeBrandPublishedVer, opUpdateBrandPublishedVer,
+		// OAuth app ops
+		opCreateOAuthClientApp, opDescribeOAuthClientApp, opUpdateOAuthClientApp, opDeleteOAuthClientApp, opListOAuthClientApps,
+		// action connector ops
+		opCreateActionConnector, opDescribeActionConnector, opUpdateActionConnector, opDeleteActionConnector, opListActionConnectors,
+		opSearchActionConnectors, opDescribeActionConnectorPerms, opUpdateActionConnectorPerms,
+		// identity propagation ops
+		opListIdentityPropagationConfigs, opUpdateIdentityPropagationConfig, opDeleteIdentityPropagationConfig,
+		// asset bundle ops
+		opStartAssetBundleExportJob, opDescribeAssetBundleExportJob, opListAssetBundleExportJobs,
+		opStartAssetBundleImportJob, opDescribeAssetBundleImportJob, opListAssetBundleImportJobs,
+		// automation ops
+		opStartAutomationJob, opDescribeAutomationJob,
+		// account-level ops
+		opCreateAccountCustomization, opDescribeAccountCustomization, opUpdateAccountCustomization, opDeleteAccountCustomization,
+		opDescribeAccountCustomPerm, opUpdateAccountCustomPerm, opDeleteAccountCustomPerm,
+		opDescribeAccountSettings, opUpdateAccountSettings,
+		opCreateAccountSubscription, opDescribeAccountSubscription, opDeleteAccountSubscription,
+		opDescribeIpRestriction, opUpdateIpRestriction,
+		opDescribeKeyRegistration, opUpdateKeyRegistration,
+		opUpdatePublicSharingSettings,
+		opDescribeQPersonalization, opUpdateQPersonalization,
+		opDescribeQSearchConfig, opUpdateQSearchConfig,
+		opUpdateSPICECapacity,
+		opDescribeDefaultQBiz, opUpdateDefaultQBiz, opDeleteDefaultQBiz,
+		opUpdateAppTokenGrant,
+		opGetIdentityContext, opPredictQAResults,
+		// embed ops
+		opGenerateEmbedForAnonUser, opGenerateEmbedForRegUser, opGenerateEmbedForRegUserIdentity, opGetSessionEmbedUrl,
+		// search ops
+		opSearchAnalyses, opSearchDashboards, opSearchDataSets, opSearchDataSources,
+		// flow ops
+		opListFlows, opSearchFlows, opGetFlowMetadata, opGetFlowPermissions, opUpdateFlowPerms,
+		// namespace self-upgrade ops
+		opDescribeSelfUpgradeConfig, opUpdateSelfUpgradeConfig, opListSelfUpgrades, opUpdateSelfUpgrade,
 	}
 }
 
@@ -390,6 +772,8 @@ func (h *Handler) dispatch(c *echo.Context) error {
 		return h.dispatchAnalysis(c, op)
 	case isTagOp(op):
 		return h.dispatchTag(c, op)
+	case op != opUnknown:
+		return h.dispatchNew(c, op)
 	default:
 		return writeError(
 			c,
@@ -643,6 +1027,11 @@ func classifyRequest(method, path string) (string, string) {
 		return opUnknown, ""
 	}
 
+	// /account/{accountId} (singular) — AccountSubscription ops
+	if n >= nSegsAccountRoot && segs[0] == pathSegAccountSingular {
+		return classifyAccountSubscriptionPaths(method, segs, n)
+	}
+
 	// All remaining paths start with /accounts/{accountId}
 	if n < nSegsAccountRoot || segs[0] != pathSegAccounts {
 		return opUnknown, ""
@@ -663,6 +1052,9 @@ func classifyRequest(method, path string) (string, string) {
 	switch resourceType {
 	case pathSegNamespaces:
 		return classifyNamespacePaths(method, segs, n)
+	case pathSegNamespaceSingular:
+		// DELETE /accounts/{id}/namespace/{ns}/iam-policy-assignments/{name}
+		return classifyNamespaceSingularPaths(method, segs, n)
 	case pathSegDataSources:
 		return classifyDataSourcePaths(method, segs, n)
 	case pathSegDataSets:
@@ -675,6 +1067,82 @@ func classifyRequest(method, path string) (string, string) {
 		return classifySearchPaths(method, segs, n)
 	case pathSegRestore:
 		return classifyRestorePaths(method, segs, n)
+	case pathSegFolders:
+		return classifyFolderPaths(method, segs, n)
+	case pathSegTemplates:
+		return classifyTemplatePaths(method, segs, n)
+	case pathSegThemes:
+		return classifyThemePaths(method, segs, n)
+	case pathSegTopics:
+		return classifyTopicPaths(method, segs, n)
+	case pathSegVPCConnections:
+		return classifyVPCConnectionPaths(method, segs, n)
+	case pathSegActionConnectors:
+		return classifyActionConnectorPaths(method, segs, n)
+	case pathSegBrands:
+		return classifyBrandPaths(method, segs, n)
+	case pathSegBrandAssignments:
+		return classifyBrandAssignmentPaths(method, segs, n)
+	case pathSegCustomPermissions:
+		return classifyCustomPermissionsPaths(method, segs, n)
+	case pathSegOAuthApps:
+		return classifyOAuthAppPaths(method, segs, n)
+	case pathSegIdentityPropagation:
+		return classifyIdentityPropagationPaths(method, segs, n)
+	case pathSegAssetBundleExport:
+		return classifyAssetBundleExportPaths(method, segs, n)
+	case pathSegAssetBundleImport:
+		return classifyAssetBundleImportPaths(method, segs, n)
+	case pathSegAutomationGroups:
+		return classifyAutomationPaths(method, segs, n)
+	case pathSegFlows:
+		return classifyFlowPaths(method, segs, n)
+	case pathSegResource2:
+		return classifyResourceFoldersPaths(method, segs, n)
+	case pathSegCustomizations:
+		return classifyCustomizationPaths(method, segs, n)
+	case pathSegCustomPermission:
+		return classifyAccountCustomPermissionPaths(method, segs, n)
+	case pathSegSettings:
+		return classifyAccountSettingsPaths(method, segs, n)
+	case pathSegDashboardsQACfg:
+		return classifyDashboardsQAPaths(method, segs, n)
+	case pathSegDefaultQBiz:
+		return classifyDefaultQBizPaths(method, segs, n)
+	case pathSegIPRestriction:
+		return classifyIPRestrictionPaths(method, segs, n)
+	case pathSegKeyRegistration:
+		return classifyKeyRegistrationPaths(method, segs, n)
+	case pathSegPublicSharing:
+		if method == http.MethodPut {
+			return opUpdatePublicSharingSettings, seg(segs, segAccountID)
+		}
+	case pathSegQPersonalization:
+		return classifyQPersonalizationPaths(method, segs, n)
+	case pathSegQSearchConfig:
+		return classifyQSearchConfigPaths(method, segs, n)
+	case pathSegSPICECapacity:
+		if method == http.MethodPost {
+			return opUpdateSPICECapacity, seg(segs, segAccountID)
+		}
+	case pathSegEmbedUrl:
+		return classifyEmbedUrlPaths(method, segs, n)
+	case pathSegSessionEmbedUrl:
+		if method == http.MethodGet {
+			return opGetSessionEmbedUrl, seg(segs, segAccountID)
+		}
+	case pathSegIdentityContext:
+		if method == http.MethodPost {
+			return opGetIdentityContext, seg(segs, segAccountID)
+		}
+	case pathSegQA:
+		if n > nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
+			return opPredictQAResults, seg(segs, segAccountID)
+		}
+	case pathSegAppTokenGrant:
+		if method == http.MethodPut {
+			return opUpdateAppTokenGrant, seg(segs, segAccountID)
+		}
 	}
 
 	return opUnknown, ""
@@ -741,6 +1209,28 @@ func classifyNsWithSubRes(method string, segs []string) (string, string) {
 		if method == http.MethodPost {
 			return opSearchGroups, ns
 		}
+	case pathSegIAMPolicyAssignments:
+		switch method {
+		case http.MethodPost:
+			return opCreateIAMPolicyAssignment, ns
+		case http.MethodGet:
+			return opListIAMPolicyAssignments, ns
+		}
+	case pathSegSelfUpgradeCfg:
+		switch method {
+		case http.MethodGet:
+			return opDescribeSelfUpgradeConfig, ns
+		case http.MethodPut:
+			return opUpdateSelfUpgradeConfig, ns
+		}
+	case pathSegSelfUpgradeReqs:
+		if method == http.MethodGet {
+			return opListSelfUpgrades, ns
+		}
+	case pathSegUpdateSelfUpgrade:
+		if method == http.MethodPost {
+			return opUpdateSelfUpgrade, ns
+		}
 	}
 
 	return opUnknown, ""
@@ -772,6 +1262,19 @@ func classifyNsWithSubResID(method string, segs []string) (string, string) {
 		if method == http.MethodDelete {
 			return opDeleteUserByPrincipalID, seg(segs, segResID)
 		}
+	case pathSegIAMPolicyAssignments:
+		// namespaces/{ns}/iam-policy-assignments/{name}
+		switch method {
+		case http.MethodGet:
+			return opDescribeIAMPolicyAssignment, id
+		case http.MethodPut:
+			return opUpdateIAMPolicyAssignment, id
+		}
+	case pathSegV2:
+		// namespaces/{ns}/v2/iam-policy-assignments
+		if id == pathSegIAMPolicyAssignments && method == http.MethodGet {
+			return opListIAMPolicyAssignments, seg(segs, segResID)
+		}
 	}
 
 	return opUnknown, ""
@@ -790,6 +1293,30 @@ func classifyNsWithSubSubRes(method string, segs []string) (string, string) {
 		if method == http.MethodGet {
 			return opListUserGroups, id
 		}
+	case sub == pathSegUsers && tail == pathSegIAMPolicyAssignments:
+		if method == http.MethodGet {
+			return opListIAMPolicyAssignmentsForUser, id
+		}
+	case sub == pathSegUsers && tail == pathSegCustomPermission:
+		switch method {
+		case http.MethodPut:
+			return opUpdateUserCustomPermission, id
+		case http.MethodDelete:
+			return opDeleteUserCustomPermission, id
+		}
+	case sub == pathSegRoles && tail == pathSegCustomPermission:
+		switch method {
+		case http.MethodGet:
+			return opGetRoleCustomPermission, id
+		case http.MethodPut:
+			return opUpdateRoleCustomPermission, id
+		case http.MethodDelete:
+			return opDeleteRoleCustomPermission, id
+		}
+	case sub == pathSegRoles && tail == pathSegMembers:
+		if method == http.MethodGet {
+			return opListRoleMemberships, id
+		}
 	}
 
 	return opUnknown, ""
@@ -798,7 +1325,8 @@ func classifyNsWithSubSubRes(method string, segs []string) (string, string) {
 func classifyNsWithSubSubResID(method string, segs []string) (string, string) {
 	sub := seg(segs, segSubRes)
 	tail := seg(segs, segSubSubRes)
-	if sub == pathSegGroups && tail == pathSegMembers {
+	switch {
+	case sub == pathSegGroups && tail == pathSegMembers:
 		switch method {
 		case http.MethodPut:
 			return opCreateGroupMembership, seg(segs, segSubResID)
@@ -806,6 +1334,13 @@ func classifyNsWithSubSubResID(method string, segs []string) (string, string) {
 			return opDescribeGroupMembership, seg(segs, segSubResID)
 		case http.MethodDelete:
 			return opDeleteGroupMembership, seg(segs, segSubResID)
+		}
+	case sub == pathSegRoles && tail == pathSegMembers:
+		switch method {
+		case http.MethodPost:
+			return opCreateRoleMembership, seg(segs, segSubResID)
+		case http.MethodDelete:
+			return opDeleteRoleMembership, seg(segs, segSubResID)
 		}
 	}
 
@@ -830,6 +1365,16 @@ func classifyDataSourcePaths(method string, segs []string, n int) (string, strin
 			return opUpdateDataSource, id
 		case http.MethodDelete:
 			return opDeleteDataSource, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		if seg(segs, segSubRes) == pathSegPermissions {
+			switch method {
+			case http.MethodGet:
+				return opDescribeDataSourcePerms, id
+			case http.MethodPost:
+				return opUpdateDataSourcePerms, id
+			}
 		}
 	}
 
@@ -876,9 +1421,51 @@ func classifyDataSetPaths(method string, segs []string, n int) (string, string) 
 		case http.MethodDelete:
 			return opDeleteDataSet, id
 		}
-	case nSegsSubRes, nSegsSubResID:
-		if seg(segs, segSubRes) == pathSegIngestions {
+	case nSegsSubRes:
+		sub := seg(segs, segSubRes)
+		id := seg(segs, segResID)
+		switch sub {
+		case pathSegIngestions:
 			return classifyIngestionPaths(method, segs, n)
+		case pathSegRefreshSchedules:
+			switch method {
+			case http.MethodPost:
+				return opCreateRefreshSchedule, id
+			case http.MethodGet:
+				return opListRefreshSchedules, id
+			case http.MethodPut:
+				return opUpdateRefreshSchedule, id
+			}
+		case pathSegRefreshProperties:
+			switch method {
+			case http.MethodPut:
+				return opPutDataSetRefreshProperties, id
+			case http.MethodGet:
+				return opDescribeDataSetRefreshProps, id
+			case http.MethodDelete:
+				return opDeleteDataSetRefreshProps, id
+			}
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeDataSetPerms, id
+			case http.MethodPost:
+				return opUpdateDataSetPerms, id
+			}
+		}
+	case nSegsSubResID:
+		sub := seg(segs, segSubRes)
+		id := seg(segs, segResID)
+		switch sub {
+		case pathSegIngestions:
+			return classifyIngestionPaths(method, segs, n)
+		case pathSegRefreshSchedules:
+			switch method {
+			case http.MethodGet:
+				return opDescribeRefreshSchedule, id
+			case http.MethodDelete:
+				return opDeleteRefreshSchedule, id
+			}
 		}
 	}
 
@@ -904,8 +1491,63 @@ func classifyDashboardPaths(method string, segs []string, n int) (string, string
 			return opDeleteDashboard, id
 		}
 	case nSegsSubRes:
-		if seg(segs, segSubRes) == pathSegVersions && method == http.MethodGet {
-			return opListDashboardVersions, seg(segs, segResID)
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegVersions:
+			if method == http.MethodGet {
+				return opListDashboardVersions, id
+			}
+		case pathSegDefinition:
+			if method == http.MethodGet {
+				return opDescribeDashboardDefinition, id
+			}
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeDashboardPerms, id
+			case http.MethodPut:
+				return opUpdateDashboardPerms, id
+			}
+		case pathSegSnapshotJobs:
+			switch method {
+			case http.MethodPost:
+				return opStartDashboardSnapshotJob, id
+			}
+		case pathSegLinkedEntities:
+			if method == http.MethodPut {
+				return opUpdateDashboardLinks, id
+			}
+		case pathSegEmbedUrl:
+			if method == http.MethodGet {
+				return opGetDashboardEmbedUrl, id
+			}
+		}
+	case nSegsSubResID:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		subID := seg(segs, segSubResID)
+		switch sub {
+		case pathSegVersions:
+			// PUT /accounts/{id}/dashboards/{dashId}/versions/{versionNumber}
+			if method == http.MethodPut {
+				return opUpdateDashboardPublishedVersion, id
+			}
+		case pathSegSnapshotJobs:
+			// GET /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}
+			if method == http.MethodGet {
+				return opDescribeDashboardSnapshotJob, subID
+			}
+		case pathSegSchedules:
+			// POST /accounts/{id}/dashboards/{dashId}/schedules/{scheduleId}
+			if method == http.MethodPost {
+				return opStartDashboardSnapshotJobSchedule, id
+			}
+		}
+	case nSegsSubSubRes:
+		// /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}/result
+		if seg(segs, segSubRes) == pathSegSnapshotJobs && seg(segs, segSubSubRes) == pathSegResult && method == http.MethodGet {
+			return opDescribeDashboardSnapshotJobResult, seg(segs, segSubResID)
 		}
 	}
 
@@ -930,6 +1572,22 @@ func classifyAnalysisPaths(method string, segs []string, n int) (string, string)
 		case http.MethodDelete:
 			return opDeleteAnalysis, id
 		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegDefinition:
+			if method == http.MethodGet {
+				return opDescribeAnalysisDefinition, id
+			}
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeAnalysisPerms, id
+			case http.MethodPut:
+				return opUpdateAnalysisPerms, id
+			}
+		}
 	}
 
 	return opUnknown, ""
@@ -942,15 +1600,19 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 
 	switch seg(segs, segResID) {
 	case pathSegAnalyses:
-		return "SearchAnalyses", ""
+		return opSearchAnalyses, ""
 	case pathSegDashboards:
-		return "SearchDashboards", ""
+		return opSearchDashboards, ""
 	case pathSegDataSets:
-		return "SearchDataSets", ""
+		return opSearchDataSets, ""
 	case pathSegDataSources:
-		return "SearchDataSources", ""
-	case "folders":
-		return "SearchFolders", ""
+		return opSearchDataSources, ""
+	case pathSegFolders:
+		return opSearchFolders, ""
+	case pathSegActionConnectors:
+		return opSearchActionConnectors, ""
+	case pathSegTopics:
+		return opSearchTopics, ""
 	}
 
 	return opUnknown, ""
