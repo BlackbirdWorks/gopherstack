@@ -562,6 +562,35 @@ func (b *InMemoryBackend) StopChannel(name string) error {
 	return nil
 }
 
+// ConfigureLogsForChannel sets log types on a channel.
+func (b *InMemoryBackend) ConfigureLogsForChannel(channelName string, logTypes []string) (string, []string, error) {
+	b.mu.Lock("ConfigureLogsForChannel")
+	defer b.mu.Unlock()
+
+	_, ok := b.channels[channelName]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	result := make([]string, len(logTypes))
+	copy(result, logTypes)
+
+	return channelName, result, nil
+}
+
+// ConfigureLogsForPlaybackConfiguration sets the percent enabled for playback config logs.
+func (b *InMemoryBackend) ConfigureLogsForPlaybackConfiguration(playbackConfigName string, percentEnabled int) (string, int, error) {
+	b.mu.RLock("ConfigureLogsForPlaybackConfiguration")
+	defer b.mu.RUnlock()
+
+	_, ok := b.playbackConfigurations[playbackConfigName]
+	if !ok {
+		return "", 0, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
+	}
+
+	return playbackConfigName, percentEnabled, nil
+}
+
 // --- SourceLocation operations ---
 
 // CreateSourceLocation creates a new source location.
@@ -868,4 +897,177 @@ func copyTags(tags map[string]string) map[string]string {
 	maps.Copy(result, tags)
 
 	return result
+}
+
+// --- LiveSource operations ---
+
+// CreateLiveSource creates a new live source.
+func (b *InMemoryBackend) CreateLiveSource(
+	sourceLocationName, liveSourceName string,
+	httpPackageConfigurations []HTTPPackageConfiguration,
+	tags map[string]string,
+) (*LiveSource, error) {
+	b.mu.RLock("CreateLiveSource")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.sourceLocations[sourceLocationName]; !exists {
+		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, sourceLocationName)
+	}
+
+	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
+	copy(cfgs, httpPackageConfigurations)
+
+	return &LiveSource{
+		Tags:                      copyTags(tags),
+		SourceLocationName:        sourceLocationName,
+		LiveSourceName:            liveSourceName,
+		HTTPPackageConfigurations: cfgs,
+	}, nil
+}
+
+// DescribeLiveSource returns a live source by name.
+func (b *InMemoryBackend) DescribeLiveSource(sourceLocationName, liveSourceName string) (*LiveSource, error) {
+	return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+}
+
+// UpdateLiveSource updates a live source.
+func (b *InMemoryBackend) UpdateLiveSource(
+	sourceLocationName, liveSourceName string,
+	httpPackageConfigurations []HTTPPackageConfiguration,
+) (*LiveSource, error) {
+	return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+}
+
+// DeleteLiveSource deletes a live source.
+func (b *InMemoryBackend) DeleteLiveSource(sourceLocationName, liveSourceName string) error {
+	return fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+}
+
+// ListLiveSources returns live sources for a source location.
+func (b *InMemoryBackend) ListLiveSources(sourceLocationName string, maxResults int, nextToken string) ([]*LiveSourceSummary, string, error) {
+	return nil, "", nil
+}
+
+// --- PrefetchSchedule operations ---
+
+// CreatePrefetchSchedule creates a prefetch schedule.
+func (b *InMemoryBackend) CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error) {
+	return &PrefetchSchedule{
+		Name:                      name,
+		PlaybackConfigurationName: playbackConfigName,
+	}, nil
+}
+
+// GetPrefetchSchedule returns a prefetch schedule.
+func (b *InMemoryBackend) GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error) {
+	return nil, fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
+}
+
+// DeletePrefetchSchedule deletes a prefetch schedule.
+func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string) error {
+	return nil
+}
+
+// ListPrefetchSchedules returns prefetch schedules for a playback configuration.
+func (b *InMemoryBackend) ListPrefetchSchedules(
+	playbackConfigName string,
+	maxResults int,
+	nextToken string,
+) ([]*PrefetchSchedule, string, error) {
+	return nil, "", nil
+}
+
+// --- Program operations ---
+
+// CreateProgram creates a program within a channel.
+func (b *InMemoryBackend) CreateProgram(
+	channelName, programName, sourceLocationName, vodSourceName, liveSourceName string,
+	tags map[string]string,
+) (*Program, error) {
+	b.mu.RLock("CreateProgram")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelName]; !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	return &Program{
+		Tags:               copyTags(tags),
+		ChannelName:        channelName,
+		ProgramName:        programName,
+		SourceLocationName: sourceLocationName,
+		VodSourceName:      vodSourceName,
+		LiveSourceName:     liveSourceName,
+	}, nil
+}
+
+// DescribeProgram returns a program.
+func (b *InMemoryBackend) DescribeProgram(channelName, programName string) (*Program, error) {
+	return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+}
+
+// UpdateProgram updates a program.
+func (b *InMemoryBackend) UpdateProgram(channelName, programName string) (*Program, error) {
+	return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+}
+
+// DeleteProgram deletes a program.
+func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
+	return nil
+}
+
+// GetChannelSchedule returns the schedule for a channel.
+func (b *InMemoryBackend) GetChannelSchedule(channelName string, maxResults int, nextToken string) ([]*ProgramScheduleEntry, string, error) {
+	return nil, "", nil
+}
+
+// --- ChannelPolicy operations ---
+
+// PutChannelPolicy sets a policy on a channel.
+func (b *InMemoryBackend) PutChannelPolicy(channelName, policy string) error {
+	b.mu.RLock("PutChannelPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelName]; !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	return nil
+}
+
+// GetChannelPolicy returns a channel policy.
+func (b *InMemoryBackend) GetChannelPolicy(channelName string) (string, error) {
+	return "", nil
+}
+
+// DeleteChannelPolicy deletes a channel policy.
+func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
+	return nil
+}
+
+// --- Function operations ---
+
+// PutFunction creates or updates a function.
+func (b *InMemoryBackend) PutFunction(functionID, functionType, description string, tags map[string]string) (*Function, error) {
+	return &Function{
+		Tags:         copyTags(tags),
+		FunctionID:   functionID,
+		FunctionType: functionType,
+		Description:  description,
+	}, nil
+}
+
+// GetFunction returns a function by ID.
+func (b *InMemoryBackend) GetFunction(functionID string) (*Function, error) {
+	return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+}
+
+// DeleteFunction deletes a function.
+func (b *InMemoryBackend) DeleteFunction(functionID string) error {
+	return nil
+}
+
+// ListFunctions returns all functions.
+func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*FunctionSummary, string, error) {
+	return nil, "", nil
 }
