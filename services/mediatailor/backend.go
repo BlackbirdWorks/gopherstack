@@ -896,7 +896,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	existing := b.tags[resourceARN]
 	if existing == nil {
-		return nil
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
 	for _, k := range tagKeys {
@@ -1182,6 +1182,10 @@ func (b *InMemoryBackend) GetChannelSchedule(
 	b.mu.RLock("GetChannelSchedule")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.channels[channelName]; !ok {
+		return nil, "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
 	var out []*ProgramScheduleEntry
 	for _, prog := range b.programs {
 		if prog.ChannelName != channelName {
@@ -1235,6 +1239,10 @@ func (b *InMemoryBackend) GetChannelPolicy(channelName string) (string, error) {
 func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
 	b.mu.Lock("DeleteChannelPolicy")
 	defer b.mu.Unlock()
+
+	if _, ok := b.channels[channelName]; !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
 
 	delete(b.channelPolicies, channelName)
 

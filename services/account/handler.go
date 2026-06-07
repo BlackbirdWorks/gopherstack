@@ -307,7 +307,11 @@ func writeBackendError(c *echo.Context, err error) error {
 	code := "InternalServerError"
 	status := http.StatusInternalServerError
 
-	if strings.Contains(err.Error(), "ValidationException") {
+	switch {
+	case strings.Contains(err.Error(), "ResourceNotFoundException"):
+		code = "ResourceNotFoundException"
+		status = http.StatusNotFound
+	case strings.Contains(err.Error(), "ValidationException"):
 		code = "ValidationException"
 		status = http.StatusBadRequest
 	}

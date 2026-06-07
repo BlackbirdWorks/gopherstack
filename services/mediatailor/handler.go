@@ -349,7 +349,7 @@ func classifyPath(method, path string) (string, string, string) {
 		return opListAlerts, "", ""
 	}
 
-	if tagARN, ok := strings.CutPrefix(path, pathTags); ok {
+	if tagARN, ok := strings.CutPrefix(path, pathTags); ok && strings.Contains(tagARN, ":mediatailor:") {
 		return classifyTagPath(method), tagARN, ""
 	}
 
