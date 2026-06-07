@@ -1,32 +1,31 @@
-// Package awsmeta carries AWS request metadata (account, region, partition,
-// request ID) on context.Context for use by service backends.
+// Package awsmeta defines the Metadata struct that carries AWS request-scoped
+// identity (account, region, partition, request ID) and a helper to populate
+// it from an *http.Request.
 //
-// Handler middleware extracts metadata from the incoming HTTP request (SigV4
-// auth header, X-Amz-* headers, configured defaults) and stashes it via Set.
-// Service backends read it with Get to scope state per account/region without
-// each service defining its own context key.
+// Storage on context.Context is delegated to pkgs/ctxval — this package
+// exposes a single Key plus thin Set/Get/Region/Account wrappers so service
+// backends pull metadata uniformly without each one defining its own key.
 package awsmeta
 
 import (
 	"context"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // Metadata carries AWS request-scoped identity and routing fields.
 type Metadata struct {
-	// Account is the 12-digit AWS account ID. Defaults to "000000000000".
+	// Account is the 12-digit AWS account ID.
 	Account string
 	// Region is the AWS region (e.g. "us-east-1"). Empty for global services.
 	Region string
-	// Partition is the AWS partition (aws, aws-cn, aws-us-gov). Defaults to "aws".
+	// Partition is the AWS partition (aws, aws-cn, aws-us-gov).
 	Partition string
 	// RequestID is the X-Amz-Request-Id correlation value.
 	RequestID string
 }
-
-type ctxKey struct{}
 
 // DefaultAccount is the gopherstack default 12-digit account ID.
 const DefaultAccount = "000000000000"
@@ -34,49 +33,49 @@ const DefaultAccount = "000000000000"
 // DefaultPartition is the public AWS commercial partition.
 const DefaultPartition = "aws"
 
-// Set returns a child context carrying m. Service handlers/backends read it
-// with Get. Passing nil is a no-op that returns ctx unchanged.
+// Key is the context key under which Metadata is stored. Exported so callers
+// that want raw ctxval access (e.g. middleware that wraps Set with logging)
+// can reuse it.
+var Key = ctxval.NewKey[*Metadata]("awsmeta")
+
+// Set returns a child context carrying m. Passing nil is a no-op.
 func Set(ctx context.Context, m *Metadata) context.Context {
 	if m == nil {
 		return ctx
 	}
 
-	return context.WithValue(ctx, ctxKey{}, m)
+	return Key.Set(ctx, m)
 }
 
-// Get returns the metadata carried on ctx, or a zero-value *Metadata with
-// defaults filled in if none was set. The return is never nil so callers can
-// dereference fields without a nil check.
+// Get returns the metadata carried on ctx, or a *Metadata with default Account
+// and Partition fields when none was set. The return is never nil so callers
+// can dereference fields without a guard.
 func Get(ctx context.Context) *Metadata {
-	if ctx == nil {
-		return defaults()
-	}
-
-	if v, ok := ctx.Value(ctxKey{}).(*Metadata); ok && v != nil {
-		return v
+	if m, ok := Key.Get(ctx); ok && m != nil {
+		return m
 	}
 
 	return defaults()
 }
 
-// Region is a convenience that returns Get(ctx).Region.
+// Region returns Get(ctx).Region.
 func Region(ctx context.Context) string {
 	return Get(ctx).Region
 }
 
-// Account is a convenience that returns Get(ctx).Account.
+// Account returns Get(ctx).Account.
 func Account(ctx context.Context) string {
 	return Get(ctx).Account
 }
 
-// Partition is a convenience that returns Get(ctx).Partition.
+// Partition returns Get(ctx).Partition.
 func Partition(ctx context.Context) string {
 	return Get(ctx).Partition
 }
 
-// FromRequest builds a Metadata by extracting fields from r. defaultRegion is
-// applied when no region can be derived from the SigV4 scope or X-Amz-Region
-// headers; the returned Metadata always has non-empty Account and Partition.
+// FromRequest builds a Metadata from r. defaultRegion is applied when no
+// region is derivable from the SigV4 scope. Always returns non-nil with
+// Account and Partition populated.
 func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	if r == nil {
 		m := defaults()
@@ -99,9 +98,6 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	return m
 }
 
-// defaults returns a Metadata with safe defaults and no region set. Callers
-// that observe Region == "" can decide whether the service is global or
-// whether to fall back to a configured default.
 func defaults() *Metadata {
 	return &Metadata{
 		Account:   DefaultAccount,
