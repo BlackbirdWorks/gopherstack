@@ -461,17 +461,19 @@ const (
 
 // Handler is the Echo HTTP handler for QuickSight operations.
 type Handler struct {
-	Backend   StorageBackend
-	accountID string
-	region    string
+	Backend     StorageBackend
+	appendixOps map[string]appendixHandlerFn
+	accountID   string
+	region      string
 }
 
 // NewHandler creates a new QuickSight handler.
 func NewHandler(b StorageBackend) *Handler {
 	return &Handler{
-		Backend:   b,
-		accountID: b.AccountID(),
-		region:    b.Region(),
+		Backend:     b,
+		appendixOps: buildAppendixOps(),
+		accountID:   b.AccountID(),
+		region:      b.Region(),
 	}
 }
 
@@ -1126,7 +1128,7 @@ func classifyRequest(method, path string) (string, string) {
 			return opUpdateSPICECapacity, seg(segs, segAccountID)
 		}
 	case pathSegEmbedUrl:
-		return classifyEmbedUrlPaths(method, segs, n)
+		return classifyEmbedURLPaths(method, segs, n)
 	case pathSegSessionEmbedUrl:
 		if method == http.MethodGet {
 			return opGetSessionEmbedUrl, seg(segs, segAccountID)

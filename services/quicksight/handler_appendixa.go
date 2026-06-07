@@ -6,764 +6,397 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// appendixHandlerFn is a function that builds the response body for one Appendix-A op.
+type appendixHandlerFn func(resID, subID string) map[string]any
+
 // dispatchNew handles all Appendix-A operations that are not dispatched by the
 // legacy type-specific helpers (namespace/group/user/datasource/dataset/dashboard/analysis/tag).
-//
-//nolint:cyclop,gocyclo // large operation router — many branches are unavoidable
 func (h *Handler) dispatchNew(c *echo.Context, op string) error {
 	segs := pathSegsFromCtx(c)
 	resID := seg(segs, segResID)
 	subID := seg(segs, segSubResID)
 
-	switch op {
-	// ---- Folders ----
-	case opCreateFolder:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeFolder:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"Folder": map[string]any{"FolderId": resID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateFolder:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteFolder:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderId": resID, keyRequestID: reqIDPlaceholder})
-	case opListFolders:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderSummaryList": []any{}, keyRequestID: reqIDPlaceholder})
-	case opSearchFolders:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderSummaryList": []any{}, keyRequestID: reqIDPlaceholder})
-	case opDescribeFolderPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"FolderId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateFolderPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"FolderId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeFolderResolvedPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"FolderId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opCreateFolderMembership:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"FolderMember": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteFolderMembership:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListFolderMembers:
-		return writeJSON(c, http.StatusOK, map[string]any{"FolderMemberList": []any{}, keyRequestID: reqIDPlaceholder})
-	case opListFoldersForResource:
-		return writeJSON(c, http.StatusOK, map[string]any{"Folders": []any{}, keyRequestID: reqIDPlaceholder})
-
-	// ---- Templates ----
-	case opCreateTemplate:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeTemplate:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"Template": map[string]any{"TemplateId": resID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateTemplate:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteTemplate:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateId": resID, keyRequestID: reqIDPlaceholder})
-	case opListTemplates:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateSummaryList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opListTemplateVersions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateVersionSummaryList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeTemplateDefinition:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeTemplatePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateTemplatePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opCreateTemplateAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeTemplateAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateTemplateAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TemplateAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteTemplateAlias:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateId": resID, keyRequestID: reqIDPlaceholder})
-	case opListTemplateAliases:
-		return writeJSON(c, http.StatusOK, map[string]any{"TemplateAliasList": []any{}, keyRequestID: reqIDPlaceholder})
-
-	// ---- Themes ----
-	case opCreateTheme:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeTheme:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"Theme": map[string]any{"ThemeId": resID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateTheme:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteTheme:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeId": resID, keyRequestID: reqIDPlaceholder})
-	case opListThemes:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeSummaryList": []any{}, keyRequestID: reqIDPlaceholder})
-	case opListThemeVersions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeVersionSummaryList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeThemePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateThemePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opCreateThemeAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeThemeAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateThemeAlias:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"ThemeAlias": map[string]any{"AliasName": subID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteThemeAlias:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeId": resID, keyRequestID: reqIDPlaceholder})
-	case opListThemeAliases:
-		return writeJSON(c, http.StatusOK, map[string]any{"ThemeAliasList": []any{}, keyRequestID: reqIDPlaceholder})
-
-	// ---- Topics ----
-	case opCreateTopic:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": "new-topic", keyRequestID: reqIDPlaceholder})
-	case opDescribeTopic:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opUpdateTopic:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteTopic:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opListTopics:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicsSummaries": []any{}, keyRequestID: reqIDPlaceholder})
-	case opSearchTopics:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicsSummaries": []any{}, keyRequestID: reqIDPlaceholder})
-	case opDescribeTopicPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TopicId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateTopicPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"TopicId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeTopicRefresh:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opCreateTopicRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeTopicRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opUpdateTopicRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteTopicRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opListTopicRefreshSchedules:
-		return writeJSON(c, http.StatusOK, map[string]any{"RefreshSchedules": []any{}, keyRequestID: reqIDPlaceholder})
-	case opBatchCreateTopicAnswers:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opBatchDeleteTopicAnswers:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-	case opListTopicReviewedAnswers:
-		return writeJSON(c, http.StatusOK, map[string]any{"TopicId": resID, keyRequestID: reqIDPlaceholder})
-
-	// ---- VPC Connections ----
-	case opCreateVPCConnection:
-		return writeJSON(c, http.StatusOK, map[string]any{"VPCConnectionId": "new-vpc", keyRequestID: reqIDPlaceholder})
-	case opDescribeVPCConnection:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"VPCConnection": map[string]any{"VPCConnectionId": resID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateVPCConnection:
-		return writeJSON(c, http.StatusOK, map[string]any{"VPCConnectionId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteVPCConnection:
-		return writeJSON(c, http.StatusOK, map[string]any{"VPCConnectionId": resID, keyRequestID: reqIDPlaceholder})
-	case opListVPCConnections:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"VPCConnectionSummaries": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- IAM Policy Assignments ----
-	case opCreateIAMPolicyAssignment:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AssignmentName": "new-assign", keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeIAMPolicyAssignment:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{
-				"IAMPolicyAssignment": map[string]any{"AssignmentName": subID},
-				keyRequestID:          reqIDPlaceholder,
-			},
-		)
-	case opUpdateIAMPolicyAssignment:
-		return writeJSON(c, http.StatusOK, map[string]any{"AssignmentName": subID, keyRequestID: reqIDPlaceholder})
-	case opDeleteIAMPolicyAssignment:
-		return writeJSON(c, http.StatusOK, map[string]any{"AssignmentName": subID, keyRequestID: reqIDPlaceholder})
-	case opListIAMPolicyAssignments:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"IAMPolicyAssignments": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opListIAMPolicyAssignmentsForUser:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"IAMPolicyAssignments": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Custom Permissions ----
-	case opCreateCustomPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{
-				"Arn":        "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/new",
-				keyRequestID: reqIDPlaceholder,
-			},
-		)
-	case opDescribeCustomPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"CustomPermissions": map[string]any{"Arn": "arn"}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateCustomPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{
-				"Arn":        "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/" + resID,
-				keyRequestID: reqIDPlaceholder,
-			},
-		)
-	case opDeleteCustomPermissions:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListCustomPermissions:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"CustomPermissionsList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Role Memberships ----
-	case opCreateRoleMembership:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteRoleMembership:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListRoleMemberships:
-		return writeJSON(c, http.StatusOK, map[string]any{"MembersList": []any{}, keyRequestID: reqIDPlaceholder})
-	case opGetRoleCustomPermission:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"CustomPermissionsName": "perm", keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateRoleCustomPermission:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteRoleCustomPermission:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- User Custom Permission ----
-	case opUpdateUserCustomPermission:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteUserCustomPermission:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Dashboard Extras ----
-	case opDescribeDashboardDefinition:
-		return writeJSON(c, http.StatusOK, map[string]any{"DashboardId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeDashboardPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DashboardId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDashboardPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DashboardId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDashboardPublishedVersion:
-		return writeJSON(c, http.StatusOK, map[string]any{"DashboardId": resID, keyRequestID: reqIDPlaceholder})
-	case opUpdateDashboardLinks:
-		return writeJSON(c, http.StatusOK, map[string]any{"DashboardId": resID, keyRequestID: reqIDPlaceholder})
-	case opStartDashboardSnapshotJob:
-		return writeJSON(c, http.StatusOK, map[string]any{"SnapshotJobId": "snap1", keyRequestID: reqIDPlaceholder})
-	case opDescribeDashboardSnapshotJob:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"SnapshotJob": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeDashboardSnapshotJobResult:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"JobResult": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opStartDashboardSnapshotJobSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"DashboardId": resID, keyRequestID: reqIDPlaceholder})
-	case opGetDashboardEmbedUrl:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"EmbedUrl": "https://embed.example.com", keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeDashboardsQAConfiguration:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DashboardsQAStatus": "ENABLED", keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDashboardsQAConfiguration:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Analysis Extras ----
-	case opDescribeAnalysisDefinition:
-		return writeJSON(c, http.StatusOK, map[string]any{"AnalysisId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeAnalysisPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AnalysisId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateAnalysisPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AnalysisId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Data Set Extras ----
-	case opDescribeDataSetPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DataSetId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDataSetPerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DataSetId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opCreateRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"ScheduleId": "sched1", keyRequestID: reqIDPlaceholder})
-	case opDescribeRefreshSchedule:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"RefreshSchedule": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{"ScheduleId": subID, keyRequestID: reqIDPlaceholder})
-	case opDeleteRefreshSchedule:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListRefreshSchedules:
-		return writeJSON(c, http.StatusOK, map[string]any{"RefreshSchedules": []any{}, keyRequestID: reqIDPlaceholder})
-	case opPutDataSetRefreshProperties:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeDataSetRefreshProps:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DataSetRefreshProperties": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteDataSetRefreshProps:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Data Source Extras ----
-	case opDescribeDataSourcePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DataSourceId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDataSourcePerms:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DataSourceId": resID, "Permissions": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Brands ----
-	case opCreateBrand:
-		return writeJSON(c, http.StatusOK, map[string]any{"BrandId": resID, keyRequestID: reqIDPlaceholder})
-	case opDescribeBrand:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"Brand": map[string]any{"BrandId": resID}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateBrand:
-		return writeJSON(c, http.StatusOK, map[string]any{"BrandId": resID, keyRequestID: reqIDPlaceholder})
-	case opDeleteBrand:
-		return writeJSON(c, http.StatusOK, map[string]any{"BrandId": resID, keyRequestID: reqIDPlaceholder})
-	case opListBrands:
-		return writeJSON(c, http.StatusOK, map[string]any{"Brands": []any{}, keyRequestID: reqIDPlaceholder})
-	case opDescribeBrandAssignment:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"BrandAssignment": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateBrandAssignment:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"BrandAssignment": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteBrandAssignment:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeBrandPublishedVer:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"BrandDefinition": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateBrandPublishedVer:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- OAuth Client Apps ----
-	case opCreateOAuthClientApp:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"OAuthClientApplication": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeOAuthClientApp:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"OAuthClientApplication": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateOAuthClientApp:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"OAuthClientApplication": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteOAuthClientApp:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListOAuthClientApps:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"OAuthClientApplications": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Action Connectors ----
-	case opCreateActionConnector:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeActionConnector:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateActionConnector:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteActionConnector:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListActionConnectors:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opSearchActionConnectors:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeActionConnectorPerms:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateActionConnectorPerms:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Identity Propagation ----
-	case opListIdentityPropagationConfigs:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateIdentityPropagationConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteIdentityPropagationConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Asset Bundle ----
-	case opStartAssetBundleExportJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeAssetBundleExportJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListAssetBundleExportJobs:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opStartAssetBundleImportJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeAssetBundleImportJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListAssetBundleImportJobs:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Automation ----
-	case opStartAutomationJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDescribeAutomationJob:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Account Customization ----
-	case opCreateAccountCustomization:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AccountCustomization": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeAccountCustomization:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AccountCustomization": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateAccountCustomization:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AccountCustomization": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteAccountCustomization:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Account Custom Permission ----
-	case opDescribeAccountCustomPerm:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateAccountCustomPerm:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteAccountCustomPerm:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Account Settings ----
-	case opDescribeAccountSettings:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AccountSettings": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateAccountSettings:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Account Subscription ----
-	case opCreateAccountSubscription:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"SignupResponse": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDescribeAccountSubscription:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AccountInfo": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opDeleteAccountSubscription:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- IP Restriction ----
-	case opDescribeIpRestriction:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"IpRestrictionRuleMap": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateIpRestriction:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Key Registration ----
-	case opDescribeKeyRegistration:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"RegisteredCustomerManagedKeys": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateKeyRegistration:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Public Sharing ----
-	case opUpdatePublicSharingSettings:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Q Personalization ----
-	case opDescribeQPersonalization:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"PersonalizationMode": "ENABLED", keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateQPersonalization:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Q Search Config ----
-	case opDescribeQSearchConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{"QSearchStatus": "ENABLED", keyRequestID: reqIDPlaceholder})
-	case opUpdateQSearchConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- SPICE Capacity ----
-	case opUpdateSPICECapacity:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Default QBiz ----
-	case opDescribeDefaultQBiz:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DefaultQBusinessApplication": map[string]any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opUpdateDefaultQBiz:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opDeleteDefaultQBiz:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- App Token Grant ----
-	case opUpdateAppTokenGrant:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Identity Context ----
-	case opGetIdentityContext:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"IdentityContextDomains": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Predict QA ----
-	case opPredictQAResults:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Embed URLs ----
-	case opGenerateEmbedForAnonUser:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"EmbedUrl": "https://embed.example.com", keyRequestID: reqIDPlaceholder},
-		)
-	case opGenerateEmbedForRegUser:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"EmbedUrl": "https://embed.example.com", keyRequestID: reqIDPlaceholder},
-		)
-	case opGenerateEmbedForRegUserIdentity:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"EmbedUrl": "https://embed.example.com", keyRequestID: reqIDPlaceholder},
-		)
-	case opGetSessionEmbedUrl:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"EmbedUrl": "https://embed.example.com", keyRequestID: reqIDPlaceholder},
-		)
-
-	// ---- Search ----
-	case opSearchAnalyses:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"AnalysisSummaryList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opSearchDashboards:
-		return writeJSON(
-			c,
-			http.StatusOK,
-			map[string]any{"DashboardSummaryList": []any{}, keyRequestID: reqIDPlaceholder},
-		)
-	case opSearchDataSets:
-		return writeJSON(c, http.StatusOK, map[string]any{"DataSetSummaries": []any{}, keyRequestID: reqIDPlaceholder})
-	case opSearchDataSources:
-		return writeJSON(c, http.StatusOK, map[string]any{"DataSources": []any{}, keyRequestID: reqIDPlaceholder})
-
-	// ---- Flows ----
-	case opListFlows:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opSearchFlows:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opGetFlowMetadata:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opGetFlowPermissions:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateFlowPerms:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-
-	// ---- Namespace Self-Upgrade ----
-	case opDescribeSelfUpgradeConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateSelfUpgradeConfig:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opListSelfUpgrades:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
-	case opUpdateSelfUpgrade:
-		return writeJSON(c, http.StatusOK, map[string]any{keyRequestID: reqIDPlaceholder})
+	if fn, ok := h.appendixOps[op]; ok {
+		return writeJSON(c, http.StatusOK, fn(resID, subID))
 	}
 
 	return writeError(c, http.StatusNotImplemented, "UnsupportedOperationException",
 		"operation not implemented: "+op)
+}
+
+// buildAppendixOps returns the full op→handler map for all Appendix-A operations.
+// It contains no branches, so cyclomatic complexity is 1.
+func buildAppendixOps() map[string]appendixHandlerFn {
+	reqID := func(extra map[string]any) map[string]any {
+		extra[keyRequestID] = reqIDPlaceholder
+		return extra
+	}
+	simple := func() map[string]any { return reqID(map[string]any{}) }
+	withID := func(key string) appendixHandlerFn {
+		return func(resID, _ string) map[string]any { return reqID(map[string]any{key: resID}) }
+	}
+	withList := func(key string) appendixHandlerFn {
+		return func(_, _ string) map[string]any { return reqID(map[string]any{key: []any{}}) }
+	}
+	withNested := func(outerKey, innerKey string) appendixHandlerFn {
+		return func(resID, _ string) map[string]any {
+			return reqID(map[string]any{outerKey: map[string]any{innerKey: resID}})
+		}
+	}
+	withIDAndPerms := func(key string) appendixHandlerFn {
+		return func(resID, _ string) map[string]any {
+			return reqID(map[string]any{key: resID, "Permissions": []any{}})
+		}
+	}
+	withAlias := func(outerKey string) appendixHandlerFn {
+		return func(_, subID string) map[string]any {
+			return reqID(map[string]any{outerKey: map[string]any{"AliasName": subID}})
+		}
+	}
+	withSubID := func(key string) appendixHandlerFn {
+		return func(_, subID string) map[string]any { return reqID(map[string]any{key: subID}) }
+	}
+	noContent := func(_, _ string) map[string]any { return simple() }
+	embedURL := func(_, _ string) map[string]any {
+		return reqID(map[string]any{"EmbedUrl": "https://embed.example.com"})
+	}
+
+	return map[string]appendixHandlerFn{
+		// ---- Folders ----
+		opCreateFolder:               withID("FolderId"),
+		opDescribeFolder:             withNested("Folder", "FolderId"),
+		opUpdateFolder:               withID("FolderId"),
+		opDeleteFolder:               withID("FolderId"),
+		opListFolders:                withList("FolderSummaryList"),
+		opSearchFolders:              withList("FolderSummaryList"),
+		opDescribeFolderPermissions:  withIDAndPerms("FolderId"),
+		opUpdateFolderPermissions:    withIDAndPerms("FolderId"),
+		opDescribeFolderResolvedPerms: withIDAndPerms("FolderId"),
+		opCreateFolderMembership: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"FolderMember": map[string]any{}})
+		},
+		opDeleteFolderMembership: noContent,
+		opListFolderMembers:      withList("FolderMemberList"),
+		opListFoldersForResource: withList("Folders"),
+
+		// ---- Templates ----
+		opCreateTemplate:            withID("TemplateId"),
+		opDescribeTemplate:          withNested("Template", "TemplateId"),
+		opUpdateTemplate:            withID("TemplateId"),
+		opDeleteTemplate:            withID("TemplateId"),
+		opListTemplates:             withList("TemplateSummaryList"),
+		opListTemplateVersions:      withList("TemplateVersionSummaryList"),
+		opDescribeTemplateDefinition: withID("TemplateId"),
+		opDescribeTemplatePerms:     withIDAndPerms("TemplateId"),
+		opUpdateTemplatePerms:       withIDAndPerms("TemplateId"),
+		opCreateTemplateAlias:       withAlias("TemplateAlias"),
+		opDescribeTemplateAlias:     withAlias("TemplateAlias"),
+		opUpdateTemplateAlias:       withAlias("TemplateAlias"),
+		opDeleteTemplateAlias:       withID("TemplateId"),
+		opListTemplateAliases:       withList("TemplateAliasList"),
+
+		// ---- Themes ----
+		opCreateTheme:           withID("ThemeId"),
+		opDescribeTheme:         withNested("Theme", "ThemeId"),
+		opUpdateTheme:           withID("ThemeId"),
+		opDeleteTheme:           withID("ThemeId"),
+		opListThemes:            withList("ThemeSummaryList"),
+		opListThemeVersions:     withList("ThemeVersionSummaryList"),
+		opDescribeThemePerms:    withIDAndPerms("ThemeId"),
+		opUpdateThemePerms:      withIDAndPerms("ThemeId"),
+		opCreateThemeAlias:      withAlias("ThemeAlias"),
+		opDescribeThemeAlias:    withAlias("ThemeAlias"),
+		opUpdateThemeAlias:      withAlias("ThemeAlias"),
+		opDeleteThemeAlias:      withID("ThemeId"),
+		opListThemeAliases:      withList("ThemeAliasList"),
+
+		// ---- Topics ----
+		opCreateTopic: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"TopicId": "new-topic"})
+		},
+		opDescribeTopic:              withID("TopicId"),
+		opUpdateTopic:                withID("TopicId"),
+		opDeleteTopic:                withID("TopicId"),
+		opListTopics:                 withList("TopicsSummaries"),
+		opSearchTopics:               withList("TopicsSummaries"),
+		opDescribeTopicPerms:         withIDAndPerms("TopicId"),
+		opUpdateTopicPerms:           withIDAndPerms("TopicId"),
+		opDescribeTopicRefresh:       withID("TopicId"),
+		opCreateTopicRefreshSchedule: withID("TopicId"),
+		opDescribeTopicRefreshSchedule: withID("TopicId"),
+		opUpdateTopicRefreshSchedule:   withID("TopicId"),
+		opDeleteTopicRefreshSchedule:   withID("TopicId"),
+		opListTopicRefreshSchedules:    withList("RefreshSchedules"),
+		opBatchCreateTopicAnswers:      withID("TopicId"),
+		opBatchDeleteTopicAnswers:      withID("TopicId"),
+		opListTopicReviewedAnswers:     withID("TopicId"),
+
+		// ---- VPC Connections ----
+		opCreateVPCConnection: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"VPCConnectionId": "new-vpc"})
+		},
+		opDescribeVPCConnection: func(resID, _ string) map[string]any {
+			return reqID(map[string]any{"VPCConnection": map[string]any{"VPCConnectionId": resID}})
+		},
+		opUpdateVPCConnection: withID("VPCConnectionId"),
+		opDeleteVPCConnection: withID("VPCConnectionId"),
+		opListVPCConnections:  withList("VPCConnectionSummaries"),
+
+		// ---- IAM Policy Assignments ----
+		opCreateIAMPolicyAssignment: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AssignmentName": "new-assign"})
+		},
+		opDescribeIAMPolicyAssignment: func(_, subID string) map[string]any {
+			return reqID(map[string]any{"IAMPolicyAssignment": map[string]any{"AssignmentName": subID}})
+		},
+		opUpdateIAMPolicyAssignment:         withSubID("AssignmentName"),
+		opDeleteIAMPolicyAssignment:         withSubID("AssignmentName"),
+		opListIAMPolicyAssignments:          withList("IAMPolicyAssignments"),
+		opListIAMPolicyAssignmentsForUser:   withList("IAMPolicyAssignments"),
+
+		// ---- Custom Permissions ----
+		opCreateCustomPermissions: func(_, _ string) map[string]any {
+			return reqID(map[string]any{
+				keyArn: "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/new",
+			})
+		},
+		opDescribeCustomPermissions: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"CustomPermissions": map[string]any{keyArn: "arn"}})
+		},
+		opUpdateCustomPermissions: func(resID, _ string) map[string]any {
+			return reqID(map[string]any{
+				keyArn: "arn:aws:quicksight:us-east-1:000000000000:custom-permissions/" + resID,
+			})
+		},
+		opDeleteCustomPermissions: noContent,
+		opListCustomPermissions:   withList("CustomPermissionsList"),
+
+		// ---- Role Memberships ----
+		opCreateRoleMembership: noContent,
+		opDeleteRoleMembership: noContent,
+		opListRoleMemberships:  withList("MembersList"),
+		opGetRoleCustomPermission: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"CustomPermissionsName": "perm"})
+		},
+		opUpdateRoleCustomPermission: noContent,
+		opDeleteRoleCustomPermission: noContent,
+
+		// ---- User Custom Permission ----
+		opUpdateUserCustomPermission: noContent,
+		opDeleteUserCustomPermission: noContent,
+
+		// ---- Dashboard Extras ----
+		opDescribeDashboardDefinition: withID("DashboardId"),
+		opDescribeDashboardPerms:      withIDAndPerms("DashboardId"),
+		opUpdateDashboardPerms:        withIDAndPerms("DashboardId"),
+		opUpdateDashboardPublishedVersion: withID("DashboardId"),
+		opUpdateDashboardLinks:           withID("DashboardId"),
+		opStartDashboardSnapshotJob: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"SnapshotJobId": "snap1"})
+		},
+		opDescribeDashboardSnapshotJob: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"SnapshotJob": map[string]any{}})
+		},
+		opDescribeDashboardSnapshotJobResult: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"JobResult": map[string]any{}})
+		},
+		opStartDashboardSnapshotJobSchedule: withID("DashboardId"),
+		opGetDashboardEmbedUrl:              embedURL,
+		opDescribeDashboardsQAConfiguration: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"DashboardsQAStatus": "ENABLED"})
+		},
+		opUpdateDashboardsQAConfiguration: noContent,
+
+		// ---- Analysis Extras ----
+		opDescribeAnalysisDefinition: withID("AnalysisId"),
+		opDescribeAnalysisPerms:      withIDAndPerms("AnalysisId"),
+		opUpdateAnalysisPerms:        withIDAndPerms("AnalysisId"),
+
+		// ---- Data Set Extras ----
+		opDescribeDataSetPerms:           withIDAndPerms("DataSetId"),
+		opUpdateDataSetPerms:             withIDAndPerms("DataSetId"),
+		opCreateRefreshSchedule: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"ScheduleId": "sched1"})
+		},
+		opDescribeRefreshSchedule: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"RefreshSchedule": map[string]any{}})
+		},
+		opUpdateRefreshSchedule:           withSubID("ScheduleId"),
+		opDeleteRefreshSchedule:           noContent,
+		opListRefreshSchedules:            withList("RefreshSchedules"),
+		opPutDataSetRefreshProperties:     noContent,
+		opDescribeDataSetRefreshProps: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"DataSetRefreshProperties": map[string]any{}})
+		},
+		opDeleteDataSetRefreshProps: noContent,
+
+		// ---- Data Source Extras ----
+		opDescribeDataSourcePerms: withIDAndPerms("DataSourceId"),
+		opUpdateDataSourcePerms:   withIDAndPerms("DataSourceId"),
+
+		// ---- Brands ----
+		opCreateBrand:  withID("BrandId"),
+		opDescribeBrand: withNested("Brand", "BrandId"),
+		opUpdateBrand:  withID("BrandId"),
+		opDeleteBrand:  withID("BrandId"),
+		opListBrands:   withList("Brands"),
+		opDescribeBrandAssignment: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
+		},
+		opUpdateBrandAssignment: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
+		},
+		opDeleteBrandAssignment: noContent,
+		opDescribeBrandPublishedVer: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"BrandDefinition": map[string]any{}})
+		},
+		opUpdateBrandPublishedVer: noContent,
+
+		// ---- OAuth Client Apps ----
+		opCreateOAuthClientApp: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}})
+		},
+		opDescribeOAuthClientApp: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}})
+		},
+		opUpdateOAuthClientApp: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"OAuthClientApplication": map[string]any{}})
+		},
+		opDeleteOAuthClientApp: noContent,
+		opListOAuthClientApps:  withList("OAuthClientApplications"),
+
+		// ---- Action Connectors ----
+		opCreateActionConnector:       noContent,
+		opDescribeActionConnector:     noContent,
+		opUpdateActionConnector:       noContent,
+		opDeleteActionConnector:       noContent,
+		opListActionConnectors:        noContent,
+		opSearchActionConnectors:      noContent,
+		opDescribeActionConnectorPerms: noContent,
+		opUpdateActionConnectorPerms:  noContent,
+
+		// ---- Identity Propagation ----
+		opListIdentityPropagationConfigs:   noContent,
+		opUpdateIdentityPropagationConfig:  noContent,
+		opDeleteIdentityPropagationConfig:  noContent,
+
+		// ---- Asset Bundle ----
+		opStartAssetBundleExportJob:   noContent,
+		opDescribeAssetBundleExportJob: noContent,
+		opListAssetBundleExportJobs:   noContent,
+		opStartAssetBundleImportJob:   noContent,
+		opDescribeAssetBundleImportJob: noContent,
+		opListAssetBundleImportJobs:   noContent,
+
+		// ---- Automation ----
+		opStartAutomationJob:   noContent,
+		opDescribeAutomationJob: noContent,
+
+		// ---- Account Customization ----
+		opCreateAccountCustomization: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AccountCustomization": map[string]any{}})
+		},
+		opDescribeAccountCustomization: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AccountCustomization": map[string]any{}})
+		},
+		opUpdateAccountCustomization: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AccountCustomization": map[string]any{}})
+		},
+		opDeleteAccountCustomization: noContent,
+
+		// ---- Account Custom Permission ----
+		opDescribeAccountCustomPerm: noContent,
+		opUpdateAccountCustomPerm:   noContent,
+		opDeleteAccountCustomPerm:   noContent,
+
+		// ---- Account Settings ----
+		opDescribeAccountSettings: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AccountSettings": map[string]any{}})
+		},
+		opUpdateAccountSettings: noContent,
+
+		// ---- Account Subscription ----
+		opCreateAccountSubscription: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"SignupResponse": map[string]any{}})
+		},
+		opDescribeAccountSubscription: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"AccountInfo": map[string]any{}})
+		},
+		opDeleteAccountSubscription: noContent,
+
+		// ---- IP Restriction ----
+		opDescribeIpRestriction: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"IpRestrictionRuleMap": map[string]any{}})
+		},
+		opUpdateIpRestriction: noContent,
+
+		// ---- Key Registration ----
+		opDescribeKeyRegistration: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"RegisteredCustomerManagedKeys": []any{}})
+		},
+		opUpdateKeyRegistration: noContent,
+
+		// ---- Public Sharing ----
+		opUpdatePublicSharingSettings: noContent,
+
+		// ---- Q Personalization ----
+		opDescribeQPersonalization: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"PersonalizationMode": "ENABLED"})
+		},
+		opUpdateQPersonalization: noContent,
+
+		// ---- Q Search Config ----
+		opDescribeQSearchConfig: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"QSearchStatus": "ENABLED"})
+		},
+		opUpdateQSearchConfig: noContent,
+
+		// ---- SPICE Capacity ----
+		opUpdateSPICECapacity: noContent,
+
+		// ---- Default QBiz ----
+		opDescribeDefaultQBiz: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"DefaultQBusinessApplication": map[string]any{}})
+		},
+		opUpdateDefaultQBiz: noContent,
+		opDeleteDefaultQBiz: noContent,
+
+		// ---- App Token Grant ----
+		opUpdateAppTokenGrant: noContent,
+
+		// ---- Identity Context ----
+		opGetIdentityContext: func(_, _ string) map[string]any {
+			return reqID(map[string]any{"IdentityContextDomains": []any{}})
+		},
+
+		// ---- Predict QA ----
+		opPredictQAResults: noContent,
+
+		// ---- Embed URLs ----
+		opGenerateEmbedForAnonUser:        embedURL,
+		opGenerateEmbedForRegUser:         embedURL,
+		opGenerateEmbedForRegUserIdentity: embedURL,
+		opGetSessionEmbedUrl:              embedURL,
+
+		// ---- Search ----
+		opSearchAnalyses:    withList("AnalysisSummaryList"),
+		opSearchDashboards:  withList("DashboardSummaryList"),
+		opSearchDataSets:    withList("DataSetSummaries"),
+		opSearchDataSources: withList("DataSources"),
+
+		// ---- Flows ----
+		opListFlows:        noContent,
+		opSearchFlows:      noContent,
+		opGetFlowMetadata:  noContent,
+		opGetFlowPermissions: noContent,
+		opUpdateFlowPerms:  noContent,
+
+		// ---- Namespace Self-Upgrade ----
+		opDescribeSelfUpgradeConfig: noContent,
+		opUpdateSelfUpgradeConfig:   noContent,
+		opListSelfUpgrades:          noContent,
+		opUpdateSelfUpgrade:         noContent,
+	}
 }
 
 // classifyAccountSubscriptionPaths routes /account/{accountId} paths.
@@ -845,7 +478,6 @@ func classifyFolderPaths(method string, segs []string, n int) (string, string) {
 			}
 		}
 	case nSegsSubSubRes:
-		// /accounts/{id}/folders/{fid}/members/{type}/{mid}
 		if seg(segs, segSubRes) == pathSegMembers {
 			id := seg(segs, segResID)
 			switch method {
@@ -1229,7 +861,7 @@ func classifyOAuthAppPaths(method string, segs []string, n int) (string, string)
 		case http.MethodPut:
 			return opUpdateOAuthClientApp, id
 		case http.MethodDelete:
-			return opDeleteOAuthClientApp, id
+				return opDeleteOAuthClientApp, id
 		}
 	}
 
@@ -1500,8 +1132,8 @@ func classifyQSearchConfigPaths(method string, segs []string, n int) (string, st
 	return opUnknown, ""
 }
 
-// classifyEmbedUrlPaths routes /accounts/{id}/embed-url/... paths.
-func classifyEmbedUrlPaths(method string, segs []string, n int) (string, string) {
+// classifyEmbedURLPaths routes /accounts/{id}/embed-url/... paths.
+func classifyEmbedURLPaths(method string, segs []string, n int) (string, string) {
 	if n < nSegsAccountResID {
 		return opUnknown, ""
 	}

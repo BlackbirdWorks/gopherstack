@@ -927,12 +927,12 @@ type azureBlobSasConfigInput struct {
 
 type createLocationAzureBlobInput struct {
 	SasConfiguration *azureBlobSasConfigInput `json:"SasConfiguration"`
-	AgentArns        []string                 `json:"AgentArns"`
-	Tags             []tagInput               `json:"Tags"`
 	ContainerURL     string                   `json:"ContainerUrl"`
 	Subdirectory     string                   `json:"Subdirectory,omitempty"`
 	BlobType         string                   `json:"BlobType,omitempty"`
 	AccessTier       string                   `json:"AccessTier,omitempty"`
+	AgentArns        []string                 `json:"AgentArns"`
+	Tags             []tagInput               `json:"Tags"`
 }
 
 type createLocationAzureBlobOutput struct {
@@ -975,13 +975,13 @@ type azureBlobSasConfigOutput struct {
 
 type describeLocationAzureBlobOutput struct {
 	SasConfiguration *azureBlobSasConfigOutput `json:"SasConfiguration,omitempty"`
-	AgentArns        []string                  `json:"AgentArns,omitempty"`
 	LocationArn      string                    `json:"LocationArn"`
 	LocationURI      string                    `json:"LocationUri"`
 	ContainerURL     string                    `json:"ContainerUrl,omitempty"`
 	Subdirectory     string                    `json:"Subdirectory,omitempty"`
 	BlobType         string                    `json:"BlobType,omitempty"`
 	AccessTier       string                    `json:"AccessTier,omitempty"`
+	AgentArns        []string                  `json:"AgentArns,omitempty"`
 	CreationTime     int64                     `json:"CreationTime"`
 }
 
@@ -1018,12 +1018,12 @@ func (h *Handler) handleDescribeLocationAzureBlob(
 
 type updateLocationAzureBlobInput struct {
 	SasConfiguration *azureBlobSasConfigInput `json:"SasConfiguration"`
-	AgentArns        []string                 `json:"AgentArns"`
 	LocationArn      string                   `json:"LocationArn"`
 	ContainerURL     string                   `json:"ContainerUrl,omitempty"`
 	Subdirectory     string                   `json:"Subdirectory,omitempty"`
 	BlobType         string                   `json:"BlobType,omitempty"`
 	AccessTier       string                   `json:"AccessTier,omitempty"`
+	AgentArns        []string                 `json:"AgentArns"`
 }
 
 type updateLocationAzureBlobOutput struct{}
@@ -1054,18 +1054,18 @@ func (h *Handler) handleUpdateLocationAzureBlob(
 // --- EFS location ---
 
 type ec2ConfigInput struct {
-	SecurityGroupArns []string `json:"SecurityGroupArns"`
 	SubnetArn         string   `json:"SubnetArn"`
+	SecurityGroupArns []string `json:"SecurityGroupArns"`
 }
 
 type createLocationEfsInput struct {
 	Ec2Config               *ec2ConfigInput `json:"Ec2Config"`
-	Tags                    []tagInput      `json:"Tags"`
 	EfsFilesystemArn        string          `json:"EfsFilesystemArn"`
 	Subdirectory            string          `json:"Subdirectory,omitempty"`
 	AccessPointArn          string          `json:"AccessPointArn,omitempty"`
 	FileSystemAccessRoleArn string          `json:"FileSystemAccessRoleArn,omitempty"`
 	InTransitEncryption     string          `json:"InTransitEncryption,omitempty"`
+	Tags                    []tagInput      `json:"Tags"`
 }
 
 type createLocationEfsOutput struct {
@@ -1107,8 +1107,8 @@ type describeLocationEfsInput struct {
 }
 
 type ec2ConfigOutput struct {
-	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	SubnetArn         string   `json:"SubnetArn"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 }
 
 type describeLocationEfsOutput struct {
@@ -1198,10 +1198,10 @@ func (h *Handler) handleUpdateLocationEfs(
 // --- FSx Lustre location ---
 
 type createLocationFsxLustreInput struct {
-	SecurityGroupArns []string   `json:"SecurityGroupArns"`
-	Tags              []tagInput `json:"Tags"`
 	FsxFilesystemArn  string     `json:"FsxFilesystemArn"`
 	Subdirectory      string     `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string   `json:"SecurityGroupArns"`
+	Tags              []tagInput `json:"Tags"`
 }
 
 type createLocationFsxLustreOutput struct {
@@ -1231,11 +1231,11 @@ type describeLocationFsxLustreInput struct {
 }
 
 type describeLocationFsxLustreOutput struct {
-	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	LocationArn       string   `json:"LocationArn"`
 	LocationURI       string   `json:"LocationUri"`
 	FsxFilesystemArn  string   `json:"FsxFilesystemArn,omitempty"`
 	Subdirectory      string   `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	CreationTime      int64    `json:"CreationTime"`
 }
 
@@ -1382,10 +1382,10 @@ func fsxProtocolToOutput(p *FsxProtocol) *fsxProtocolOutput {
 
 type createLocationFsxOntapInput struct {
 	Protocol                 *fsxProtocolInput `json:"Protocol"`
-	SecurityGroupArns        []string          `json:"SecurityGroupArns"`
-	Tags                     []tagInput        `json:"Tags"`
 	StorageVirtualMachineArn string            `json:"StorageVirtualMachineArn"`
 	Subdirectory             string            `json:"Subdirectory,omitempty"`
+	SecurityGroupArns        []string          `json:"SecurityGroupArns"`
+	Tags                     []tagInput        `json:"Tags"`
 }
 
 type createLocationFsxOntapOutput struct {
@@ -1419,11 +1419,11 @@ type describeLocationFsxOntapInput struct {
 
 type describeLocationFsxOntapOutput struct {
 	Protocol                 *fsxProtocolOutput `json:"Protocol,omitempty"`
-	SecurityGroupArns        []string           `json:"SecurityGroupArns,omitempty"`
 	LocationArn              string             `json:"LocationArn"`
 	LocationURI              string             `json:"LocationUri"`
 	StorageVirtualMachineArn string             `json:"StorageVirtualMachineArn,omitempty"`
 	Subdirectory             string             `json:"Subdirectory,omitempty"`
+	SecurityGroupArns        []string           `json:"SecurityGroupArns,omitempty"`
 	CreationTime             int64              `json:"CreationTime"`
 }
 
@@ -1480,10 +1480,10 @@ func (h *Handler) handleUpdateLocationFsxOntap(
 
 type createLocationFsxOpenZfsInput struct {
 	Protocol          *fsxProtocolInput `json:"Protocol"`
-	SecurityGroupArns []string          `json:"SecurityGroupArns"`
-	Tags              []tagInput        `json:"Tags"`
 	FsxFilesystemArn  string            `json:"FsxFilesystemArn"`
 	Subdirectory      string            `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string          `json:"SecurityGroupArns"`
+	Tags              []tagInput        `json:"Tags"`
 }
 
 type createLocationFsxOpenZfsOutput struct {
@@ -1517,11 +1517,11 @@ type describeLocationFsxOpenZfsInput struct {
 
 type describeLocationFsxOpenZfsOutput struct {
 	Protocol          *fsxProtocolOutput `json:"Protocol,omitempty"`
-	SecurityGroupArns []string           `json:"SecurityGroupArns,omitempty"`
 	LocationArn       string             `json:"LocationArn"`
 	LocationURI       string             `json:"LocationUri"`
 	FsxFilesystemArn  string             `json:"FsxFilesystemArn,omitempty"`
 	Subdirectory      string             `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string           `json:"SecurityGroupArns,omitempty"`
 	CreationTime      int64              `json:"CreationTime"`
 }
 
@@ -1577,13 +1577,13 @@ func (h *Handler) handleUpdateLocationFsxOpenZfs(
 // --- FSx Windows location ---
 
 type createLocationFsxWindowsInput struct {
-	SecurityGroupArns []string   `json:"SecurityGroupArns"`
-	Tags              []tagInput `json:"Tags"`
 	FsxFilesystemArn  string     `json:"FsxFilesystemArn"`
 	Subdirectory      string     `json:"Subdirectory,omitempty"`
 	Domain            string     `json:"Domain,omitempty"`
 	User              string     `json:"User"`
 	Password          string     `json:"Password"`
+	SecurityGroupArns []string   `json:"SecurityGroupArns"`
+	Tags              []tagInput `json:"Tags"`
 }
 
 type createLocationFsxWindowsOutput struct {
@@ -1616,13 +1616,13 @@ type describeLocationFsxWindowsInput struct {
 }
 
 type describeLocationFsxWindowsOutput struct {
-	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	LocationArn       string   `json:"LocationArn"`
 	LocationURI       string   `json:"LocationUri"`
 	FsxFilesystemArn  string   `json:"FsxFilesystemArn,omitempty"`
 	Subdirectory      string   `json:"Subdirectory,omitempty"`
 	Domain            string   `json:"Domain,omitempty"`
 	User              string   `json:"User,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	CreationTime      int64    `json:"CreationTime"`
 }
 
@@ -1692,16 +1692,16 @@ type hdfsQopConfigInput struct {
 
 type createLocationHdfsInput struct {
 	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
-	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
-	AgentArns          []string            `json:"AgentArns"`
-	Tags               []tagInput          `json:"Tags"`
+	SimpleUser         string              `json:"SimpleUser,omitempty"`
 	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
 	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
 	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
 	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
 	AuthenticationType string              `json:"AuthenticationType,omitempty"`
-	SimpleUser         string              `json:"SimpleUser,omitempty"`
 	Subdirectory       string              `json:"Subdirectory,omitempty"`
+	AgentArns          []string            `json:"AgentArns"`
+	Tags               []tagInput          `json:"Tags"`
+	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
 	BlockSize          int64               `json:"BlockSize,omitempty"`
 	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
 }
@@ -1761,15 +1761,15 @@ type hdfsQopConfigOutput struct {
 
 type describeLocationHdfsOutput struct {
 	QopConfiguration   *hdfsQopConfigOutput `json:"QopConfiguration,omitempty"`
-	NameNodes          []hdfsNameNodeOutput `json:"NameNodes,omitempty"`
-	AgentArns          []string             `json:"AgentArns,omitempty"`
+	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`
 	LocationArn        string               `json:"LocationArn"`
 	LocationURI        string               `json:"LocationUri"`
 	KerberosPrincipal  string               `json:"KerberosPrincipal,omitempty"`
-	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`
 	AuthenticationType string               `json:"AuthenticationType,omitempty"`
 	SimpleUser         string               `json:"SimpleUser,omitempty"`
 	Subdirectory       string               `json:"Subdirectory,omitempty"`
+	AgentArns          []string             `json:"AgentArns,omitempty"`
+	NameNodes          []hdfsNameNodeOutput `json:"NameNodes,omitempty"`
 	CreationTime       int64                `json:"CreationTime"`
 	BlockSize          int64                `json:"BlockSize,omitempty"`
 	ReplicationFactor  int32                `json:"ReplicationFactor,omitempty"`
@@ -1821,16 +1821,16 @@ func (h *Handler) handleDescribeLocationHdfs(
 
 type updateLocationHdfsInput struct {
 	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
-	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
-	AgentArns          []string            `json:"AgentArns"`
+	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
 	LocationArn        string              `json:"LocationArn"`
 	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
 	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
-	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
 	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
 	AuthenticationType string              `json:"AuthenticationType,omitempty"`
 	SimpleUser         string              `json:"SimpleUser,omitempty"`
 	Subdirectory       string              `json:"Subdirectory,omitempty"`
+	AgentArns          []string            `json:"AgentArns"`
+	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
 	BlockSize          int64               `json:"BlockSize,omitempty"`
 	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
 }
@@ -1882,9 +1882,9 @@ type nfsOnPremConfigInput struct {
 type createLocationNfsInput struct {
 	MountOptions   *mountOptionsInput    `json:"MountOptions"`
 	OnPremConfig   *nfsOnPremConfigInput `json:"OnPremConfig"`
-	Tags           []tagInput            `json:"Tags"`
 	ServerHostname string                `json:"ServerHostname"`
 	Subdirectory   string                `json:"Subdirectory,omitempty"`
+	Tags           []tagInput            `json:"Tags"`
 }
 
 type createLocationNfsOutput struct {
@@ -2010,14 +2010,14 @@ func (h *Handler) handleUpdateLocationNfs(
 // --- ObjectStorage location ---
 
 type createLocationObjectStorageInput struct {
-	AgentArns      []string   `json:"AgentArns"`
-	Tags           []tagInput `json:"Tags"`
 	ServerHostname string     `json:"ServerHostname"`
 	BucketName     string     `json:"BucketName"`
 	Subdirectory   string     `json:"Subdirectory,omitempty"`
 	AccessKey      string     `json:"AccessKey,omitempty"`
 	SecretKey      string     `json:"SecretKey,omitempty"`
 	ServerProtocol string     `json:"ServerProtocol,omitempty"`
+	AgentArns      []string   `json:"AgentArns"`
+	Tags           []tagInput `json:"Tags"`
 	ServerPort     int32      `json:"ServerPort,omitempty"`
 }
 
@@ -2055,7 +2055,6 @@ type describeLocationObjectStorageInput struct {
 }
 
 type describeLocationObjectStorageOutput struct {
-	AgentArns      []string `json:"AgentArns,omitempty"`
 	LocationArn    string   `json:"LocationArn"`
 	LocationURI    string   `json:"LocationUri"`
 	ServerHostname string   `json:"ServerHostname,omitempty"`
@@ -2063,6 +2062,7 @@ type describeLocationObjectStorageOutput struct {
 	Subdirectory   string   `json:"Subdirectory,omitempty"`
 	AccessKey      string   `json:"AccessKey,omitempty"`
 	ServerProtocol string   `json:"ServerProtocol,omitempty"`
+	AgentArns      []string `json:"AgentArns,omitempty"`
 	CreationTime   int64    `json:"CreationTime"`
 	ServerPort     int32    `json:"ServerPort,omitempty"`
 }
@@ -2095,12 +2095,12 @@ func (h *Handler) handleDescribeLocationObjectStorage(
 }
 
 type updateLocationObjectStorageInput struct {
-	AgentArns      []string `json:"AgentArns"`
 	LocationArn    string   `json:"LocationArn"`
 	Subdirectory   string   `json:"Subdirectory,omitempty"`
 	AccessKey      string   `json:"AccessKey,omitempty"`
 	SecretKey      string   `json:"SecretKey,omitempty"`
 	ServerProtocol string   `json:"ServerProtocol,omitempty"`
+	AgentArns      []string `json:"AgentArns"`
 	ServerPort     int32    `json:"ServerPort,omitempty"`
 }
 
@@ -2128,13 +2128,13 @@ func (h *Handler) handleUpdateLocationObjectStorage(
 
 type createLocationSmbInput struct {
 	MountOptions   *mountOptionsInput `json:"MountOptions"`
-	AgentArns      []string           `json:"AgentArns"`
-	Tags           []tagInput         `json:"Tags"`
 	ServerHostname string             `json:"ServerHostname"`
 	Subdirectory   string             `json:"Subdirectory,omitempty"`
 	Domain         string             `json:"Domain,omitempty"`
 	User           string             `json:"User"`
 	Password       string             `json:"Password"`
+	AgentArns      []string           `json:"AgentArns"`
+	Tags           []tagInput         `json:"Tags"`
 }
 
 type createLocationSmbOutput struct {
@@ -2173,13 +2173,13 @@ type describeLocationSmbInput struct {
 
 type describeLocationSmbOutput struct {
 	MountOptions   *mountOptionsOutput `json:"MountOptions,omitempty"`
-	AgentArns      []string            `json:"AgentArns,omitempty"`
 	LocationArn    string              `json:"LocationArn"`
 	LocationURI    string              `json:"LocationUri"`
 	ServerHostname string              `json:"ServerHostname,omitempty"`
 	Subdirectory   string              `json:"Subdirectory,omitempty"`
 	Domain         string              `json:"Domain,omitempty"`
 	User           string              `json:"User,omitempty"`
+	AgentArns      []string            `json:"AgentArns,omitempty"`
 	CreationTime   int64               `json:"CreationTime"`
 }
 
@@ -2216,12 +2216,12 @@ func (h *Handler) handleDescribeLocationSmb(
 
 type updateLocationSmbInput struct {
 	MountOptions *mountOptionsInput `json:"MountOptions"`
-	AgentArns    []string           `json:"AgentArns"`
 	LocationArn  string             `json:"LocationArn"`
 	Subdirectory string             `json:"Subdirectory,omitempty"`
 	Domain       string             `json:"Domain,omitempty"`
 	User         string             `json:"User,omitempty"`
 	Password     string             `json:"Password,omitempty"`
+	AgentArns    []string           `json:"AgentArns"`
 }
 
 type updateLocationSmbOutput struct{}

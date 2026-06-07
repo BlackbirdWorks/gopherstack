@@ -17,8 +17,8 @@ func TestDataSync_UpdateLocationS3(t *testing.T) {
 	locArn := createTestLocationS3(t, h)
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -71,8 +71,8 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{

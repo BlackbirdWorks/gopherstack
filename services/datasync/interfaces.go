@@ -278,19 +278,19 @@ type SasConfiguration struct {
 type LocationAzureBlob struct {
 	CreationTime     time.Time
 	SasConfiguration *SasConfiguration
-	AgentArns        []string
 	LocationArn      string
 	LocationURI      string
 	ContainerURL     string
 	BlobType         string
 	AccessTier       string
 	Subdirectory     string
+	AgentArns        []string
 }
 
 // Ec2Config holds EC2 configuration for an EFS location.
 type Ec2Config struct {
-	SecurityGroupArns []string
 	SubnetArn         string
+	SecurityGroupArns []string
 }
 
 // LocationEfs is a DataSync EFS location with full details.
@@ -311,11 +311,11 @@ type LocationEfs struct {
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationFsxLustre struct {
 	CreationTime      time.Time
-	SecurityGroupArns []string
 	LocationArn       string
 	LocationURI       string
 	FsxFilesystemArn  string
 	Subdirectory      string
+	SecurityGroupArns []string
 }
 
 // MountOptions holds NFS/SMB mount version.
@@ -347,11 +347,11 @@ type FsxProtocol struct {
 type LocationFsxOntap struct {
 	CreationTime             time.Time
 	Protocol                 *FsxProtocol
-	SecurityGroupArns        []string
 	LocationArn              string
 	LocationURI              string
 	StorageVirtualMachineArn string
 	Subdirectory             string
+	SecurityGroupArns        []string
 }
 
 // LocationFsxOpenZfs is a DataSync FSx OpenZFS location with full details.
@@ -359,24 +359,24 @@ type LocationFsxOntap struct {
 type LocationFsxOpenZfs struct {
 	CreationTime      time.Time
 	Protocol          *FsxProtocol
-	SecurityGroupArns []string
 	LocationArn       string
 	LocationURI       string
 	FsxFilesystemArn  string
 	Subdirectory      string
+	SecurityGroupArns []string
 }
 
 // LocationFsxWindows is a DataSync FSx Windows location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationFsxWindows struct {
 	CreationTime      time.Time
-	SecurityGroupArns []string
 	LocationArn       string
 	LocationURI       string
 	FsxFilesystemArn  string
 	Domain            string
 	User              string
 	Subdirectory      string
+	SecurityGroupArns []string
 }
 
 // HdfsNameNode is an HDFS name node endpoint.
@@ -396,15 +396,15 @@ type QopConfiguration struct {
 type LocationHdfs struct {
 	CreationTime       time.Time
 	QopConfiguration   *QopConfiguration
-	NameNodes          []HdfsNameNode
-	AgentArns          []string
+	KmsKeyProviderURI  string
 	LocationArn        string
 	LocationURI        string
 	AuthenticationType string
 	SimpleUser         string
 	KerberosPrincipal  string
-	KmsKeyProviderURI  string
 	Subdirectory       string
+	AgentArns          []string
+	NameNodes          []HdfsNameNode
 	BlockSize          int64
 	ReplicationFactor  int32
 }
@@ -414,18 +414,17 @@ type LocationHdfs struct {
 type LocationNfs struct {
 	CreationTime   time.Time
 	MountOptions   *MountOptions
-	AgentArns      []string
 	LocationArn    string
 	LocationURI    string
 	ServerHostname string
 	Subdirectory   string
+	AgentArns      []string
 }
 
 // LocationObjectStorage is a DataSync object storage location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationObjectStorage struct {
 	CreationTime   time.Time
-	AgentArns      []string
 	LocationArn    string
 	LocationURI    string
 	ServerHostname string
@@ -433,6 +432,7 @@ type LocationObjectStorage struct {
 	BucketName     string
 	AccessKey      string
 	Subdirectory   string
+	AgentArns      []string
 	ServerPort     int32
 }
 
@@ -441,13 +441,13 @@ type LocationObjectStorage struct {
 type LocationSmb struct {
 	CreationTime   time.Time
 	MountOptions   *MountOptions
-	AgentArns      []string
 	LocationArn    string
 	LocationURI    string
 	ServerHostname string
 	Domain         string
 	User           string
 	Subdirectory   string
+	AgentArns      []string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

@@ -285,42 +285,23 @@ func (s *backendSnapshot) initCoreMaps() {
 	}
 }
 
+// initMapIfNil initialises m to an empty map if it is nil.
+func initMapIfNil[K comparable, V any](m *map[K]V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+}
+
 func (s *backendSnapshot) initDeepDiveMaps() {
-	if s.Images == nil {
-		s.Images = make(map[string]*AMIStub)
-	}
-
-	if s.ImageUsageReports == nil {
-		s.ImageUsageReports = make(map[string]*ImageUsageReport)
-	}
-
-	if s.LaunchTemplates == nil {
-		s.LaunchTemplates = make(map[string]*LaunchTemplate)
-	}
-
-	if s.VpcEndpoints == nil {
-		s.VpcEndpoints = make(map[string]*VpcEndpoint)
-	}
-
-	if s.Snapshots == nil {
-		s.Snapshots = make(map[string]*Snapshot)
-	}
-
-	if s.NetworkACLs == nil {
-		s.NetworkACLs = make(map[string]*StoredNetworkACL)
-	}
-
-	if s.TransitGateways == nil {
-		s.TransitGateways = make(map[string]*TransitGateway)
-	}
-
-	if s.FlowLogs == nil {
-		s.FlowLogs = make(map[string]*FlowLog)
-	}
-
-	if s.DhcpOptionSets == nil {
-		s.DhcpOptionSets = make(map[string]*DhcpOptions)
-	}
+	initMapIfNil(&s.Images)
+	initMapIfNil(&s.ImageUsageReports)
+	initMapIfNil(&s.LaunchTemplates)
+	initMapIfNil(&s.VpcEndpoints)
+	initMapIfNil(&s.Snapshots)
+	initMapIfNil(&s.NetworkACLs)
+	initMapIfNil(&s.TransitGateways)
+	initMapIfNil(&s.FlowLogs)
+	initMapIfNil(&s.DhcpOptionSets)
 }
 
 // initNewOpsMaps initialises the map fields added for the new Accept/Advertise/Allocate operations.
@@ -371,41 +352,15 @@ func (s *backendSnapshot) initNewOpsMaps() {
 }
 
 func (s *backendSnapshot) initAppendixMaps() {
-	if s.VpnGateways == nil {
-		s.VpnGateways = make(map[string]*VpnGateway)
-	}
-
-	if s.CustomerGateways == nil {
-		s.CustomerGateways = make(map[string]*CustomerGateway)
-	}
-
-	if s.Ipams == nil {
-		s.Ipams = make(map[string]*Ipam)
-	}
-
-	if s.IpamPools == nil {
-		s.IpamPools = make(map[string]*IpamPool)
-	}
-
-	if s.IpamPoolAllocations == nil {
-		s.IpamPoolAllocations = make(map[string]*IpamPoolAllocation)
-	}
-
-	if s.CarrierGateways == nil {
-		s.CarrierGateways = make(map[string]*CarrierGateway)
-	}
-
-	if s.Fleets == nil {
-		s.Fleets = make(map[string]*Fleet)
-	}
-
-	if s.NetworkInsightsPaths == nil {
-		s.NetworkInsightsPaths = make(map[string]*NetworkInsightsPath)
-	}
-
-	if s.ManagedPrefixLists == nil {
-		s.ManagedPrefixLists = make(map[string]*ManagedPrefixList)
-	}
+	initMapIfNil(&s.VpnGateways)
+	initMapIfNil(&s.CustomerGateways)
+	initMapIfNil(&s.Ipams)
+	initMapIfNil(&s.IpamPools)
+	initMapIfNil(&s.IpamPoolAllocations)
+	initMapIfNil(&s.CarrierGateways)
+	initMapIfNil(&s.Fleets)
+	initMapIfNil(&s.NetworkInsightsPaths)
+	initMapIfNil(&s.ManagedPrefixLists)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
