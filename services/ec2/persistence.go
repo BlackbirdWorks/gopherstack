@@ -51,6 +51,17 @@ type backendSnapshot struct {
 	VpcPeeringConnections          map[string]*VpcPeeringConnection  `json:"vpcPeeringConnections,omitempty"`
 	ByoipCidrs                     map[string]*ByoipCidr             `json:"byoipCidrs,omitempty"`
 	DedicatedHosts                 map[string]*Host                  `json:"dedicatedHosts,omitempty"`
+	VpnGateways                    map[string]*VpnGateway            `json:"vpnGateways,omitempty"`
+	CustomerGateways               map[string]*CustomerGateway       `json:"customerGateways,omitempty"`
+	Ipams                          map[string]*Ipam                  `json:"ipams,omitempty"`
+	IpamPools                      map[string]*IpamPool              `json:"ipamPools,omitempty"`
+	IpamPoolAllocations            map[string]*IpamPoolAllocation    `json:"ipamPoolAllocations,omitempty"`
+	CarrierGateways                map[string]*CarrierGateway        `json:"carrierGateways,omitempty"`
+	Fleets                         map[string]*Fleet                 `json:"fleets,omitempty"`
+	NetworkInsightsPaths           map[string]*NetworkInsightsPath   `json:"networkInsightsPaths,omitempty"`
+	ManagedPrefixLists             map[string]*ManagedPrefixList     `json:"managedPrefixLists,omitempty"`
+	EbsEncryptionByDefault         bool                              `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess            bool                              `json:"serialConsoleAccess"`
 	AccountID                      string                            `json:"accountID"`
 	Region                         string                            `json:"region"`
 	FreePrivateIPs                 []string                          `json:"freePrivateIPs,omitempty"`
@@ -98,6 +109,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		VpcPeeringConnections:          b.vpcPeeringConnections,
 		ByoipCidrs:                     b.byoipCidrs,
 		DedicatedHosts:                 b.dedicatedHosts,
+		VpnGateways:                    b.vpnGateways,
+		CustomerGateways:               b.customerGateways,
+		Ipams:                          b.ipams,
+		IpamPools:                      b.ipamPools,
+		IpamPoolAllocations:            b.ipamPoolAllocations,
+		CarrierGateways:                b.carrierGateways,
+		Fleets:                         b.fleets,
+		NetworkInsightsPaths:           b.networkInsightsPaths,
+		ManagedPrefixLists:             b.managedPrefixLists,
+		EbsEncryptionByDefault:         b.ebsEncryptionByDefault,
+		SerialConsoleAccess:            b.serialConsoleAccess,
 		FreePrivateIPs:                 b.freePrivateIPs,
 		AccountID:                      b.AccountID,
 		Region:                         b.Region,
@@ -162,6 +184,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.vpcPeeringConnections = snap.VpcPeeringConnections
 	b.byoipCidrs = snap.ByoipCidrs
 	b.dedicatedHosts = snap.DedicatedHosts
+	b.vpnGateways = snap.VpnGateways
+	b.customerGateways = snap.CustomerGateways
+	b.ipams = snap.Ipams
+	b.ipamPools = snap.IpamPools
+	b.ipamPoolAllocations = snap.IpamPoolAllocations
+	b.carrierGateways = snap.CarrierGateways
+	b.fleets = snap.Fleets
+	b.networkInsightsPaths = snap.NetworkInsightsPaths
+	b.managedPrefixLists = snap.ManagedPrefixLists
+	b.ebsEncryptionByDefault = snap.EbsEncryptionByDefault
+	b.serialConsoleAccess = snap.SerialConsoleAccess
 	b.freePrivateIPs = snap.FreePrivateIPs
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
@@ -320,6 +353,46 @@ func (s *backendSnapshot) initNewOpsMaps() {
 
 	if s.DedicatedHosts == nil {
 		s.DedicatedHosts = make(map[string]*Host)
+	}
+
+	s.initAppendixMaps()
+}
+
+func (s *backendSnapshot) initAppendixMaps() {
+	if s.VpnGateways == nil {
+		s.VpnGateways = make(map[string]*VpnGateway)
+	}
+
+	if s.CustomerGateways == nil {
+		s.CustomerGateways = make(map[string]*CustomerGateway)
+	}
+
+	if s.Ipams == nil {
+		s.Ipams = make(map[string]*Ipam)
+	}
+
+	if s.IpamPools == nil {
+		s.IpamPools = make(map[string]*IpamPool)
+	}
+
+	if s.IpamPoolAllocations == nil {
+		s.IpamPoolAllocations = make(map[string]*IpamPoolAllocation)
+	}
+
+	if s.CarrierGateways == nil {
+		s.CarrierGateways = make(map[string]*CarrierGateway)
+	}
+
+	if s.Fleets == nil {
+		s.Fleets = make(map[string]*Fleet)
+	}
+
+	if s.NetworkInsightsPaths == nil {
+		s.NetworkInsightsPaths = make(map[string]*NetworkInsightsPath)
+	}
+
+	if s.ManagedPrefixLists == nil {
+		s.ManagedPrefixLists = make(map[string]*ManagedPrefixList)
 	}
 }
 

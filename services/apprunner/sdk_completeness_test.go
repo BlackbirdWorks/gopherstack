@@ -18,34 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := apprunner.NewInMemoryBackend("000000000000", "us-east-1")
 	h := apprunner.NewHandler(backend)
 
-	// Operations not yet implemented.
-	notImplemented := []string{
-		"AssociateCustomDomain",
-		"CreateAutoScalingConfiguration",
-		"CreateConnection",
-		"CreateObservabilityConfiguration",
-		"CreateVpcConnector",
-		"CreateVpcIngressConnection",
-		"DeleteAutoScalingConfiguration",
-		"DeleteConnection",
-		"DeleteObservabilityConfiguration",
-		"DeleteVpcConnector",
-		"DeleteVpcIngressConnection",
-		"DescribeAutoScalingConfiguration",
-		"DescribeCustomDomains",
-		"DescribeObservabilityConfiguration",
-		"DescribeVpcConnector",
-		"DescribeVpcIngressConnection",
-		"DisassociateCustomDomain",
-		"ListAutoScalingConfigurations",
-		"ListConnections",
-		"ListObservabilityConfigurations",
-		"ListServicesForAutoScalingConfiguration",
-		"ListVpcConnectors",
-		"ListVpcIngressConnections",
-		"UpdateDefaultAutoScalingConfiguration",
-		"UpdateVpcIngressConnection",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &apprunnersdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

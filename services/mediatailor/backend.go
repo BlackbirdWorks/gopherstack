@@ -192,8 +192,13 @@ type InMemoryBackend struct {
 	mu                     *lockmetrics.RWMutex
 	playbackConfigurations map[string]*storedPlaybackConfiguration
 	channels               map[string]*storedChannel
+	channelPolicies        map[string]string
 	sourceLocations        map[string]*storedSourceLocation
 	vodSources             map[string]*storedVodSource
+	liveSources            map[string]*LiveSource
+	prefetchSchedules      map[string]*PrefetchSchedule
+	programs               map[string]*Program
+	functions              map[string]*Function
 	tags                   map[string]map[string]string
 	accountID              string
 	region                 string
@@ -205,8 +210,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:                     lockmetrics.New("mediatailor"),
 		playbackConfigurations: make(map[string]*storedPlaybackConfiguration),
 		channels:               make(map[string]*storedChannel),
+		channelPolicies:        make(map[string]string),
 		sourceLocations:        make(map[string]*storedSourceLocation),
 		vodSources:             make(map[string]*storedVodSource),
+		liveSources:            make(map[string]*LiveSource),
+		prefetchSchedules:      make(map[string]*PrefetchSchedule),
+		programs:               make(map[string]*Program),
+		functions:              make(map[string]*Function),
 		tags:                   make(map[string]map[string]string),
 		accountID:              accountID,
 		region:                 region,
@@ -226,8 +236,13 @@ func (b *InMemoryBackend) Reset() {
 
 	b.playbackConfigurations = make(map[string]*storedPlaybackConfiguration)
 	b.channels = make(map[string]*storedChannel)
+	b.channelPolicies = make(map[string]string)
 	b.sourceLocations = make(map[string]*storedSourceLocation)
 	b.vodSources = make(map[string]*storedVodSource)
+	b.liveSources = make(map[string]*LiveSource)
+	b.prefetchSchedules = make(map[string]*PrefetchSchedule)
+	b.programs = make(map[string]*Program)
+	b.functions = make(map[string]*Function)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -907,27 +922,49 @@ func (b *InMemoryBackend) CreateLiveSource(
 	httpPackageConfigurations []HTTPPackageConfiguration,
 	tags map[string]string,
 ) (*LiveSource, error) {
-	b.mu.RLock("CreateLiveSource")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CreateLiveSource")
+	defer b.mu.Unlock()
 
 	if _, exists := b.sourceLocations[sourceLocationName]; !exists {
 		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, sourceLocationName)
 	}
 
+	key := sourceLocationName + "/" + liveSourceName
+	if _, exists := b.liveSources[key]; exists {
+		return nil, fmt.Errorf("%w: live source %s already exists", ErrConflict, liveSourceName)
+	}
+
 	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
 	copy(cfgs, httpPackageConfigurations)
 
-	return &LiveSource{
+	lsARN := fmt.Sprintf(
+		"arn:aws:mediatailor:%s:%s:sourceLocation/%s/liveSource/%s",
+		b.region, b.accountID, sourceLocationName, liveSourceName,
+	)
+	ls := &LiveSource{
 		Tags:                      copyTags(tags),
+		ARN:                       lsARN,
 		SourceLocationName:        sourceLocationName,
 		LiveSourceName:            liveSourceName,
 		HTTPPackageConfigurations: cfgs,
-	}, nil
+	}
+	b.liveSources[key] = ls
+
+	return ls, nil
 }
 
 // DescribeLiveSource returns a live source by name.
 func (b *InMemoryBackend) DescribeLiveSource(sourceLocationName, liveSourceName string) (*LiveSource, error) {
-	return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	b.mu.RLock("DescribeLiveSource")
+	defer b.mu.RUnlock()
+
+	key := sourceLocationName + "/" + liveSourceName
+	ls, ok := b.liveSources[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	}
+
+	return ls, nil
 }
 
 // UpdateLiveSource updates a live source.
@@ -935,36 +972,111 @@ func (b *InMemoryBackend) UpdateLiveSource(
 	sourceLocationName, liveSourceName string,
 	httpPackageConfigurations []HTTPPackageConfiguration,
 ) (*LiveSource, error) {
-	return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	b.mu.Lock("UpdateLiveSource")
+	defer b.mu.Unlock()
+
+	key := sourceLocationName + "/" + liveSourceName
+	ls, ok := b.liveSources[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	}
+
+	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
+	copy(cfgs, httpPackageConfigurations)
+	ls.HTTPPackageConfigurations = cfgs
+
+	return ls, nil
 }
 
 // DeleteLiveSource deletes a live source.
 func (b *InMemoryBackend) DeleteLiveSource(sourceLocationName, liveSourceName string) error {
-	return fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	b.mu.Lock("DeleteLiveSource")
+	defer b.mu.Unlock()
+
+	key := sourceLocationName + "/" + liveSourceName
+	if _, ok := b.liveSources[key]; !ok {
+		return fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
+	}
+
+	delete(b.liveSources, key)
+
+	return nil
 }
 
 // ListLiveSources returns live sources for a source location.
-func (b *InMemoryBackend) ListLiveSources(sourceLocationName string, maxResults int, nextToken string) ([]*LiveSourceSummary, string, error) {
-	return nil, "", nil
+func (b *InMemoryBackend) ListLiveSources(
+	sourceLocationName string, maxResults int, nextToken string,
+) ([]*LiveSourceSummary, string, error) {
+	b.mu.RLock("ListLiveSources")
+	defer b.mu.RUnlock()
+
+	var out []*LiveSourceSummary
+	for _, ls := range b.liveSources {
+		if ls.SourceLocationName != sourceLocationName {
+			continue
+		}
+
+		out = append(out, &LiveSourceSummary{
+			Tags:               copyTags(ls.Tags),
+			SourceLocationName: ls.SourceLocationName,
+			LiveSourceName:     ls.LiveSourceName,
+			ARN:                ls.ARN,
+		})
+	}
+
+	return out, "", nil
 }
 
 // --- PrefetchSchedule operations ---
 
 // CreatePrefetchSchedule creates a prefetch schedule.
 func (b *InMemoryBackend) CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error) {
-	return &PrefetchSchedule{
+	b.mu.Lock("CreatePrefetchSchedule")
+	defer b.mu.Unlock()
+
+	if _, ok := b.playbackConfigurations[playbackConfigName]; !ok {
+		return nil, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
+	}
+
+	psARN := fmt.Sprintf(
+		"arn:aws:mediatailor:%s:%s:prefetchSchedule/%s/%s",
+		b.region, b.accountID, playbackConfigName, name,
+	)
+	ps := &PrefetchSchedule{
+		ARN:                       psARN,
 		Name:                      name,
 		PlaybackConfigurationName: playbackConfigName,
-	}, nil
+	}
+	b.prefetchSchedules[playbackConfigName+"/"+name] = ps
+
+	return ps, nil
 }
 
 // GetPrefetchSchedule returns a prefetch schedule.
 func (b *InMemoryBackend) GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error) {
-	return nil, fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
+	b.mu.RLock("GetPrefetchSchedule")
+	defer b.mu.RUnlock()
+
+	ps, ok := b.prefetchSchedules[playbackConfigName+"/"+name]
+	if !ok {
+		return nil, fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
+	}
+
+	return ps, nil
 }
 
 // DeletePrefetchSchedule deletes a prefetch schedule.
 func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string) error {
+	b.mu.Lock("DeletePrefetchSchedule")
+	defer b.mu.Unlock()
+
+	key := playbackConfigName + "/" + name
+	if _, ok := b.prefetchSchedules[key]; !ok {
+		return fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
+	}
+
+	delete(b.prefetchSchedules, key)
+
 	return nil
 }
 
@@ -974,7 +1086,17 @@ func (b *InMemoryBackend) ListPrefetchSchedules(
 	maxResults int,
 	nextToken string,
 ) ([]*PrefetchSchedule, string, error) {
-	return nil, "", nil
+	b.mu.RLock("ListPrefetchSchedules")
+	defer b.mu.RUnlock()
+
+	var out []*PrefetchSchedule
+	for _, ps := range b.prefetchSchedules {
+		if ps.PlaybackConfigurationName == playbackConfigName {
+			out = append(out, ps)
+		}
+	}
+
+	return out, "", nil
 }
 
 // --- Program operations ---
@@ -984,35 +1106,69 @@ func (b *InMemoryBackend) CreateProgram(
 	channelName, programName, sourceLocationName, vodSourceName, liveSourceName string,
 	tags map[string]string,
 ) (*Program, error) {
-	b.mu.RLock("CreateProgram")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CreateProgram")
+	defer b.mu.Unlock()
 
 	if _, ok := b.channels[channelName]; !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
-	return &Program{
+	progARN := fmt.Sprintf(
+		"arn:aws:mediatailor:%s:%s:channel/%s/program/%s",
+		b.region, b.accountID, channelName, programName,
+	)
+	prog := &Program{
 		Tags:               copyTags(tags),
+		ARN:                progARN,
 		ChannelName:        channelName,
 		ProgramName:        programName,
 		SourceLocationName: sourceLocationName,
 		VodSourceName:      vodSourceName,
 		LiveSourceName:     liveSourceName,
-	}, nil
+	}
+	b.programs[channelName+"/"+programName] = prog
+
+	return prog, nil
 }
 
 // DescribeProgram returns a program.
 func (b *InMemoryBackend) DescribeProgram(channelName, programName string) (*Program, error) {
-	return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	b.mu.RLock("DescribeProgram")
+	defer b.mu.RUnlock()
+
+	prog, ok := b.programs[channelName+"/"+programName]
+	if !ok {
+		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	}
+
+	return prog, nil
 }
 
 // UpdateProgram updates a program.
 func (b *InMemoryBackend) UpdateProgram(channelName, programName string) (*Program, error) {
-	return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	b.mu.RLock("UpdateProgram")
+	defer b.mu.RUnlock()
+
+	prog, ok := b.programs[channelName+"/"+programName]
+	if !ok {
+		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	}
+
+	return prog, nil
 }
 
 // DeleteProgram deletes a program.
 func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
+	b.mu.Lock("DeleteProgram")
+	defer b.mu.Unlock()
+
+	key := channelName + "/" + programName
+	if _, ok := b.programs[key]; !ok {
+		return fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	}
+
+	delete(b.programs, key)
+
 	return nil
 }
 
@@ -1025,23 +1181,42 @@ func (b *InMemoryBackend) GetChannelSchedule(channelName string, maxResults int,
 
 // PutChannelPolicy sets a policy on a channel.
 func (b *InMemoryBackend) PutChannelPolicy(channelName, policy string) error {
-	b.mu.RLock("PutChannelPolicy")
-	defer b.mu.RUnlock()
+	b.mu.Lock("PutChannelPolicy")
+	defer b.mu.Unlock()
 
 	if _, ok := b.channels[channelName]; !ok {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
+
+	b.channelPolicies[channelName] = policy
 
 	return nil
 }
 
 // GetChannelPolicy returns a channel policy.
 func (b *InMemoryBackend) GetChannelPolicy(channelName string) (string, error) {
-	return "", nil
+	b.mu.RLock("GetChannelPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelName]; !ok {
+		return "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	policy, ok := b.channelPolicies[channelName]
+	if !ok {
+		return "", fmt.Errorf("%w: no policy for channel %s", ErrNotFound, channelName)
+	}
+
+	return policy, nil
 }
 
 // DeleteChannelPolicy deletes a channel policy.
 func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
+	b.mu.Lock("DeleteChannelPolicy")
+	defer b.mu.Unlock()
+
+	delete(b.channelPolicies, channelName)
+
 	return nil
 }
 
@@ -1049,25 +1224,67 @@ func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
 
 // PutFunction creates or updates a function.
 func (b *InMemoryBackend) PutFunction(functionID, functionType, description string, tags map[string]string) (*Function, error) {
-	return &Function{
+	if functionType == "" {
+		return nil, fmt.Errorf("%w: FunctionType is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutFunction")
+	defer b.mu.Unlock()
+
+	arn := fmt.Sprintf("arn:aws:mediatailor:%s:%s:function/%s", b.region, b.accountID, functionID)
+	fn := &Function{
 		Tags:         copyTags(tags),
 		FunctionID:   functionID,
 		FunctionType: functionType,
+		ARN:          arn,
 		Description:  description,
-	}, nil
+	}
+	b.functions[functionID] = fn
+
+	return fn, nil
 }
 
 // GetFunction returns a function by ID.
 func (b *InMemoryBackend) GetFunction(functionID string) (*Function, error) {
-	return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	b.mu.RLock("GetFunction")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions[functionID]
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	return fn, nil
 }
 
 // DeleteFunction deletes a function.
 func (b *InMemoryBackend) DeleteFunction(functionID string) error {
+	b.mu.Lock("DeleteFunction")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionID]; !ok {
+		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
+	}
+
+	delete(b.functions, functionID)
+
 	return nil
 }
 
 // ListFunctions returns all functions.
 func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*FunctionSummary, string, error) {
-	return nil, "", nil
+	b.mu.RLock("ListFunctions")
+	defer b.mu.RUnlock()
+
+	out := make([]*FunctionSummary, 0, len(b.functions))
+	for _, fn := range b.functions {
+		out = append(out, &FunctionSummary{
+			FunctionID:   fn.FunctionID,
+			FunctionType: fn.FunctionType,
+			ARN:          fn.ARN,
+			Tags:         copyTags(fn.Tags),
+		})
+	}
+
+	return out, "", nil
 }
