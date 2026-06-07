@@ -1,6 +1,7 @@
 package firehose_test
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -94,7 +95,7 @@ func newFirehoseBackend(t *testing.T) *firehose.InMemoryBackend {
 func totalRecords(t *testing.T, b *firehose.InMemoryBackend, streamName string) int64 {
 	t.Helper()
 
-	stream, err := b.DescribeDeliveryStream(streamName)
+	stream, err := b.DescribeDeliveryStream(context.TODO(), streamName)
 	if err != nil {
 		return 0
 	}
@@ -112,7 +113,7 @@ func TestFirehose_KinesisSource_PollerDeliversSingleRecord(t *testing.T) {
 	b.SetKinesisBackend(kinesis)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name:               "poll-stream",
 		DeliveryStreamType: "KinesisStreamAsSource",
 		Source: &firehose.SourceDescription{
@@ -141,7 +142,7 @@ func TestFirehose_KinesisSource_PollerDeliversManyRecords(t *testing.T) {
 	b.SetKinesisBackend(kinesis)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/multi-stream"
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name:               "multi-poll-stream",
 		DeliveryStreamType: "KinesisStreamAsSource",
 		Source: &firehose.SourceDescription{
@@ -168,7 +169,7 @@ func TestFirehose_KinesisSource_DeleteStopsPoller(t *testing.T) {
 	b.SetKinesisBackend(kinesis)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/stop-stream"
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name:               "stop-poll-stream",
 		DeliveryStreamType: "KinesisStreamAsSource",
 		Source: &firehose.SourceDescription{
@@ -182,11 +183,11 @@ func TestFirehose_KinesisSource_DeleteStopsPoller(t *testing.T) {
 	// Wait a bit then delete.
 	time.Sleep(50 * time.Millisecond)
 
-	err = b.DeleteDeliveryStream("stop-poll-stream")
+	err = b.DeleteDeliveryStream(context.TODO(), "stop-poll-stream")
 	require.NoError(t, err)
 
 	// Verify stream is gone and no panic.
-	_, err = b.DescribeDeliveryStream("stop-poll-stream")
+	_, err = b.DescribeDeliveryStream(context.TODO(), "stop-poll-stream")
 	assert.Error(t, err)
 }
 
@@ -197,7 +198,7 @@ func TestFirehose_KinesisSource_NoBackendDoesNotStart(t *testing.T) {
 	// no kinesis backend wired
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/no-backend"
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name:               "no-backend-stream",
 		DeliveryStreamType: "KinesisStreamAsSource",
 		Source: &firehose.SourceDescription{
@@ -220,12 +221,12 @@ func TestFirehose_KinesisSource_DirectPutUnaffected(t *testing.T) {
 	b.SetKinesisBackend(kinesis)
 
 	// Direct-put stream should work as before; no poller started.
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "direct-put-stream",
 	})
 	require.NoError(t, err)
 
-	err = b.PutRecord("direct-put-stream", []byte("hello"))
+	err = b.PutRecord(context.TODO(), "direct-put-stream", []byte("hello"))
 	require.NoError(t, err)
 
 	// Metrics are copied (not cleared) by streamCopy so TotalRecords is reliable.
@@ -240,7 +241,7 @@ func TestFirehose_KinesisSource_ListShardsError_NoBlock(t *testing.T) {
 	b.SetKinesisBackend(kinesis)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/error-stream"
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name:               "error-stream",
 		DeliveryStreamType: "KinesisStreamAsSource",
 		Source: &firehose.SourceDescription{

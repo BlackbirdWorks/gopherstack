@@ -106,7 +106,7 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 			srv := newCaptureServer(t, http.StatusOK)
 			b := newTestBackend(t)
 
-			stream, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+			stream, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 				Name: "http-test-stream",
 				HTTPEndpointDestination: &firehose.HTTPEndpointDestinationDescription{
 					EndpointConfiguration: &firehose.HTTPEndpointConfiguration{
@@ -123,7 +123,7 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, rec := range tt.records {
-				putErr := b.PutRecord(stream.Name, []byte(rec))
+				putErr := b.PutRecord(context.TODO(), stream.Name, []byte(rec))
 				require.NoError(t, putErr)
 			}
 
@@ -198,7 +198,7 @@ func TestFirehose_OpenSearch_Delivery(t *testing.T) {
 			srv := newCaptureServer(t, http.StatusOK)
 			b := newTestBackend(t)
 
-			stream, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+			stream, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 				Name: "opensearch-test-stream",
 				OpenSearchDestination: &firehose.OpenSearchDestinationDescription{
 					ClusterEndpoint: srv.srv.URL,
@@ -213,7 +213,7 @@ func TestFirehose_OpenSearch_Delivery(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, rec := range tt.records {
-				putErr := b.PutRecord(stream.Name, []byte(rec))
+				putErr := b.PutRecord(context.TODO(), stream.Name, []byte(rec))
 				require.NoError(t, putErr)
 			}
 
@@ -279,7 +279,7 @@ func TestFirehose_Splunk_Delivery(t *testing.T) {
 			srv := newCaptureServer(t, http.StatusOK)
 			b := newTestBackend(t)
 
-			stream, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+			stream, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 				Name: "splunk-test-stream",
 				SplunkDestination: &firehose.SplunkDestinationDescription{
 					HECEndpoint:     srv.srv.URL,
@@ -291,7 +291,7 @@ func TestFirehose_Splunk_Delivery(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, rec := range tt.records {
-				putErr := b.PutRecord(stream.Name, []byte(rec))
+				putErr := b.PutRecord(context.TODO(), stream.Name, []byte(rec))
 				require.NoError(t, putErr)
 			}
 

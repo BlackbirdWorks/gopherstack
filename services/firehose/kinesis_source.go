@@ -16,21 +16,21 @@ const (
 )
 
 // launchKinesisPoller starts one goroutine per shard for the given Kinesis source stream.
-// It stores the cancel func in b.pollerCancel[streamName] so DeleteDeliveryStream can stop it.
-func (b *InMemoryBackend) launchKinesisPoller(firehoseStream, kinesisStreamARN string) {
+// It stores the cancel func in b.pollerCancel[region][streamName] so DeleteDeliveryStream can stop it.
+func (b *InMemoryBackend) launchKinesisPoller(region, firehoseStream, kinesisStreamARN string) {
 	ctx, cancel := context.WithCancel(b.svcCtx)
 
 	b.mu.Lock("launchKinesisPoller")
-	b.pollerCancel[firehoseStream] = cancel
+	b.pollerStore(region)[firehoseStream] = cancel
 	b.mu.Unlock()
 
-	go b.pollKinesisStream(ctx, firehoseStream, kinesisStreamARN)
+	go b.pollKinesisStream(ctx, region, firehoseStream, kinesisStreamARN)
 }
 
 // pollKinesisStream lists shards and starts a per-shard polling loop.
 func (b *InMemoryBackend) pollKinesisStream(
 	ctx context.Context,
-	firehoseStream, kinesisStreamARN string,
+	region, firehoseStream, kinesisStreamARN string,
 ) {
 	streamName := kinesisStreamNameFromARN(kinesisStreamARN)
 	if streamName == "" {
@@ -40,26 +40,26 @@ func (b *InMemoryBackend) pollKinesisStream(
 	shards, err := b.kinesisBackend.ListShards(streamName)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: ListShards failed",
-			"stream", firehoseStream, "kinesis", streamName, "error", err)
+			"region", region, "stream", firehoseStream, "kinesis", streamName, "error", err)
 
 		return
 	}
 
 	for _, shardID := range shards {
 		sid := shardID
-		go b.pollKinesisShard(ctx, firehoseStream, streamName, sid)
+		go b.pollKinesisShard(ctx, region, firehoseStream, streamName, sid)
 	}
 }
 
 // pollKinesisShard reads records from a single Kinesis shard and injects them into the Firehose stream.
 func (b *InMemoryBackend) pollKinesisShard(
 	ctx context.Context,
-	firehoseStream, kinesisStream, shardID string,
+	region, firehoseStream, kinesisStream, shardID string,
 ) {
 	iter, err := b.kinesisBackend.GetShardIterator(kinesisStream, shardID)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: GetShardIterator failed",
-			"stream", firehoseStream, "shard", shardID, "error", err)
+			"region", region, "stream", firehoseStream, "shard", shardID, "error", err)
 
 		return
 	}
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) pollKinesisShard(
 		records, nextIter, getErr := b.kinesisBackend.GetRecords(iter, kinesisPollerBatchLimit)
 		if getErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: GetRecords failed",
-				"stream", firehoseStream, "shard", shardID, "error", getErr)
+				"region", region, "stream", firehoseStream, "shard", shardID, "error", getErr)
 
 			if waitOrDone(ctx, kinesisPollerInterval) {
 				return
@@ -82,9 +82,9 @@ func (b *InMemoryBackend) pollKinesisShard(
 		}
 
 		for _, rec := range records {
-			if injectErr := b.injectKinesisRecord(firehoseStream, rec); injectErr != nil {
+			if injectErr := b.injectKinesisRecord(region, firehoseStream, rec); injectErr != nil {
 				logger.Load(ctx).WarnContext(ctx, "firehose kinesis poller: inject failed",
-					"stream", firehoseStream, "error", injectErr)
+					"region", region, "stream", firehoseStream, "error", injectErr)
 			}
 		}
 
@@ -121,13 +121,14 @@ func waitOrDone(ctx context.Context, d time.Duration) bool {
 
 // injectKinesisRecord appends a record to a KinesisStreamAsSource stream, bypassing the
 // DirectPut type guard that PutRecord enforces.
-func (b *InMemoryBackend) injectKinesisRecord(streamName string, data []byte) error {
+func (b *InMemoryBackend) injectKinesisRecord(region, streamName string, data []byte) error {
 	b.mu.Lock("injectKinesisRecord")
 	defer b.mu.Unlock()
 
-	s, ok := b.streams[streamName]
+	streams := b.regionStore(region)
+	s, ok := streams[streamName]
 	if !ok {
-		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
+		return fmt.Errorf("%w: stream %s not found in region %s", ErrNotFound, streamName, region)
 	}
 
 	s.Records = append(s.Records, data)

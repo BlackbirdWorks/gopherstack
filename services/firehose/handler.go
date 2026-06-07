@@ -525,7 +525,7 @@ func buildSourceDescription(
 }
 
 func (h *Handler) handleCreateDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *createDeliveryStreamInput,
 ) (*createDeliveryStreamOutput, error) {
 	if err := validateTags(in.Tags); err != nil {
@@ -538,7 +538,7 @@ func (h *Handler) handleCreateDeliveryStream(
 		rawS3 = in.S3DestinationConfiguration
 	}
 
-	s, err := h.Backend.CreateDeliveryStream(CreateDeliveryStreamInput{
+	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
 		Name:                    in.DeliveryStreamName,
 		DeliveryStreamType:      in.DeliveryStreamType,
 		S3Destination:           buildS3DestinationDescription(rawS3),
@@ -558,7 +558,7 @@ func (h *Handler) handleCreateDeliveryStream(
 			tagMap[t.Key] = t.Value
 		}
 
-		_ = h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap)
+		_ = h.Backend.TagDeliveryStream(ctx, in.DeliveryStreamName, tagMap)
 	}
 
 	return &createDeliveryStreamOutput{DeliveryStreamARN: s.ARN}, nil
@@ -567,10 +567,10 @@ func (h *Handler) handleCreateDeliveryStream(
 type deleteDeliveryStreamOutput struct{}
 
 func (h *Handler) handleDeleteDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *deliveryStreamNameInput,
 ) (*deleteDeliveryStreamOutput, error) {
-	if err := h.Backend.DeleteDeliveryStream(in.DeliveryStreamName); err != nil {
+	if err := h.Backend.DeleteDeliveryStream(ctx, in.DeliveryStreamName); err != nil {
 		return nil, err
 	}
 
@@ -604,10 +604,10 @@ type describeDeliveryStreamOutput struct {
 }
 
 func (h *Handler) handleDescribeDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *describeDeliveryStreamInput,
 ) (*describeDeliveryStreamOutput, error) {
-	s, err := h.Backend.DescribeDeliveryStream(in.DeliveryStreamName)
+	s, err := h.Backend.DescribeDeliveryStream(ctx, in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
@@ -663,10 +663,10 @@ type listDeliveryStreamsOutput struct {
 }
 
 func (h *Handler) handleListDeliveryStreams(
-	_ context.Context,
+	ctx context.Context,
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
-	names := h.Backend.ListDeliveryStreams()
+	names := h.Backend.ListDeliveryStreams(ctx)
 
 	// Apply ExclusiveStartDeliveryStreamName cursor.
 	if in.ExclusiveStartDeliveryStreamName != "" {
@@ -714,13 +714,13 @@ type putRecordOutput struct {
 	RecordID string `json:"RecordId"`
 }
 
-func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
+func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
 	data, err := base64.StdEncoding.DecodeString(in.Record.Data)
 	if err != nil {
 		data = []byte(in.Record.Data)
 	}
 
-	if putErr := h.Backend.PutRecord(in.DeliveryStreamName, data); putErr != nil {
+	if putErr := h.Backend.PutRecord(ctx, in.DeliveryStreamName, data); putErr != nil {
 		return nil, putErr
 	}
 
@@ -738,7 +738,7 @@ type putRecordBatchOutput struct {
 }
 
 func (h *Handler) handlePutRecordBatch(
-	_ context.Context,
+	ctx context.Context,
 	in *handlePutRecordBatchInput,
 ) (*putRecordBatchOutput, error) {
 	records := make([][]byte, 0, len(in.Records))
@@ -751,7 +751,7 @@ func (h *Handler) handlePutRecordBatch(
 		records = append(records, data)
 	}
 
-	failedCount, err := h.Backend.PutRecordBatch(in.DeliveryStreamName, records)
+	failedCount, err := h.Backend.PutRecordBatch(ctx, in.DeliveryStreamName, records)
 	if err != nil {
 		return nil, err
 	}
@@ -774,10 +774,10 @@ type listTagsForDeliveryStreamOutput struct {
 }
 
 func (h *Handler) handleListTagsForDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForDeliveryStreamInput,
 ) (*listTagsForDeliveryStreamOutput, error) {
-	tagMap, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
+	tagMap, err := h.Backend.ListTagsForDeliveryStream(ctx, in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
@@ -829,7 +829,7 @@ type tagDeliveryStreamInput struct {
 type tagDeliveryStreamOutput struct{}
 
 func (h *Handler) handleTagDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *tagDeliveryStreamInput,
 ) (*tagDeliveryStreamOutput, error) {
 	if err := validateTags(in.Tags); err != nil {
@@ -841,7 +841,7 @@ func (h *Handler) handleTagDeliveryStream(
 		tagMap[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap); err != nil {
+	if err := h.Backend.TagDeliveryStream(ctx, in.DeliveryStreamName, tagMap); err != nil {
 		return nil, err
 	}
 
@@ -856,10 +856,10 @@ type untagDeliveryStreamInput struct {
 type untagDeliveryStreamOutput struct{}
 
 func (h *Handler) handleUntagDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *untagDeliveryStreamInput,
 ) (*untagDeliveryStreamOutput, error) {
-	if err := h.Backend.UntagDeliveryStream(in.DeliveryStreamName, in.TagKeys); err != nil {
+	if err := h.Backend.UntagDeliveryStream(ctx, in.DeliveryStreamName, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -877,7 +877,7 @@ type updateDestinationInput struct {
 type updateDestinationOutput struct{}
 
 func (h *Handler) handleUpdateDestination(
-	_ context.Context,
+	ctx context.Context,
 	in *updateDestinationInput,
 ) (*updateDestinationOutput, error) {
 	raw := in.ExtendedS3DestinationUpdate
@@ -887,7 +887,7 @@ func (h *Handler) handleUpdateDestination(
 
 	dest := buildS3DestinationDescription(raw)
 
-	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
+	if err := h.Backend.UpdateDestination(ctx, in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
 		return nil, err
 	}
 

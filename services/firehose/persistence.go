@@ -7,9 +7,9 @@ import (
 )
 
 type backendSnapshot struct {
-	Streams   map[string]*DeliveryStream `json:"streams"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
+	Streams   map[string]map[string]*DeliveryStream `json:"streams"`
+	AccountID string                                `json:"accountID"`
+	Region    string                                `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -49,25 +49,29 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	// Close Tags on any streams that are being replaced to prevent
 	// Prometheus registry leaks.
-	for _, s := range b.streams {
-		if s.Tags != nil {
-			s.Tags.Close()
+	for _, streams := range b.streams {
+		for _, s := range streams {
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
 		}
 	}
 
 	if snap.Streams == nil {
-		snap.Streams = make(map[string]*DeliveryStream)
+		snap.Streams = make(map[string]map[string]*DeliveryStream)
 	}
 
 	now := time.Now()
-	for _, s := range snap.Streams {
-		s.lastFlush = now
+	for _, streams := range snap.Streams {
+		for _, s := range streams {
+			s.lastFlush = now
 
-		// Recalculate bufferSizeBytes because it is not persisted (unexported field).
-		// Without this, size-based flush thresholds would never fire after a restore.
-		s.bufferSizeBytes = 0
-		for _, rec := range s.Records {
-			s.bufferSizeBytes += len(rec)
+			// Recalculate bufferSizeBytes because it is not persisted (unexported field).
+			// Without this, size-based flush thresholds would never fire after a restore.
+			s.bufferSizeBytes = 0
+			for _, rec := range s.Records {
+				s.bufferSizeBytes += len(rec)
+			}
 		}
 	}
 
