@@ -63,14 +63,14 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 
 	return map[string]appendixHandlerFn{
 		// ---- Folders ----
-		opCreateFolder:               withID("FolderId"),
-		opDescribeFolder:             withNested("Folder", "FolderId"),
-		opUpdateFolder:               withID("FolderId"),
-		opDeleteFolder:               withID("FolderId"),
-		opListFolders:                withList("FolderSummaryList"),
-		opSearchFolders:              withList("FolderSummaryList"),
-		opDescribeFolderPermissions:  withIDAndPerms("FolderId"),
-		opUpdateFolderPermissions:    withIDAndPerms("FolderId"),
+		opCreateFolder:                withID("FolderId"),
+		opDescribeFolder:              withNested("Folder", "FolderId"),
+		opUpdateFolder:                withID("FolderId"),
+		opDeleteFolder:                withID("FolderId"),
+		opListFolders:                 withList("FolderSummaryList"),
+		opSearchFolders:               withList("FolderSummaryList"),
+		opDescribeFolderPermissions:   withIDAndPerms("FolderId"),
+		opUpdateFolderPermissions:     withIDAndPerms("FolderId"),
 		opDescribeFolderResolvedPerms: withIDAndPerms("FolderId"),
 		opCreateFolderMembership: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"FolderMember": map[string]any{}})
@@ -80,49 +80,49 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opListFoldersForResource: withList("Folders"),
 
 		// ---- Templates ----
-		opCreateTemplate:            withID("TemplateId"),
-		opDescribeTemplate:          withNested("Template", "TemplateId"),
-		opUpdateTemplate:            withID("TemplateId"),
-		opDeleteTemplate:            withID("TemplateId"),
-		opListTemplates:             withList("TemplateSummaryList"),
-		opListTemplateVersions:      withList("TemplateVersionSummaryList"),
+		opCreateTemplate:             withID("TemplateId"),
+		opDescribeTemplate:           withNested("Template", "TemplateId"),
+		opUpdateTemplate:             withID("TemplateId"),
+		opDeleteTemplate:             withID("TemplateId"),
+		opListTemplates:              withList("TemplateSummaryList"),
+		opListTemplateVersions:       withList("TemplateVersionSummaryList"),
 		opDescribeTemplateDefinition: withID("TemplateId"),
-		opDescribeTemplatePerms:     withIDAndPerms("TemplateId"),
-		opUpdateTemplatePerms:       withIDAndPerms("TemplateId"),
-		opCreateTemplateAlias:       withAlias("TemplateAlias"),
-		opDescribeTemplateAlias:     withAlias("TemplateAlias"),
-		opUpdateTemplateAlias:       withAlias("TemplateAlias"),
-		opDeleteTemplateAlias:       withID("TemplateId"),
-		opListTemplateAliases:       withList("TemplateAliasList"),
+		opDescribeTemplatePerms:      withIDAndPerms("TemplateId"),
+		opUpdateTemplatePerms:        withIDAndPerms("TemplateId"),
+		opCreateTemplateAlias:        withAlias("TemplateAlias"),
+		opDescribeTemplateAlias:      withAlias("TemplateAlias"),
+		opUpdateTemplateAlias:        withAlias("TemplateAlias"),
+		opDeleteTemplateAlias:        withID("TemplateId"),
+		opListTemplateAliases:        withList("TemplateAliasList"),
 
 		// ---- Themes ----
-		opCreateTheme:           withID("ThemeId"),
-		opDescribeTheme:         withNested("Theme", "ThemeId"),
-		opUpdateTheme:           withID("ThemeId"),
-		opDeleteTheme:           withID("ThemeId"),
-		opListThemes:            withList("ThemeSummaryList"),
-		opListThemeVersions:     withList("ThemeVersionSummaryList"),
-		opDescribeThemePerms:    withIDAndPerms("ThemeId"),
-		opUpdateThemePerms:      withIDAndPerms("ThemeId"),
-		opCreateThemeAlias:      withAlias("ThemeAlias"),
-		opDescribeThemeAlias:    withAlias("ThemeAlias"),
-		opUpdateThemeAlias:      withAlias("ThemeAlias"),
-		opDeleteThemeAlias:      withID("ThemeId"),
-		opListThemeAliases:      withList("ThemeAliasList"),
+		opCreateTheme:        withID("ThemeId"),
+		opDescribeTheme:      withNested("Theme", "ThemeId"),
+		opUpdateTheme:        withID("ThemeId"),
+		opDeleteTheme:        withID("ThemeId"),
+		opListThemes:         withList("ThemeSummaryList"),
+		opListThemeVersions:  withList("ThemeVersionSummaryList"),
+		opDescribeThemePerms: withIDAndPerms("ThemeId"),
+		opUpdateThemePerms:   withIDAndPerms("ThemeId"),
+		opCreateThemeAlias:   withAlias("ThemeAlias"),
+		opDescribeThemeAlias: withAlias("ThemeAlias"),
+		opUpdateThemeAlias:   withAlias("ThemeAlias"),
+		opDeleteThemeAlias:   withID("ThemeId"),
+		opListThemeAliases:   withList("ThemeAliasList"),
 
 		// ---- Topics ----
 		opCreateTopic: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"TopicId": "new-topic"})
 		},
-		opDescribeTopic:              withID("TopicId"),
-		opUpdateTopic:                withID("TopicId"),
-		opDeleteTopic:                withID("TopicId"),
-		opListTopics:                 withList("TopicsSummaries"),
-		opSearchTopics:               withList("TopicsSummaries"),
-		opDescribeTopicPerms:         withIDAndPerms("TopicId"),
-		opUpdateTopicPerms:           withIDAndPerms("TopicId"),
-		opDescribeTopicRefresh:       withID("TopicId"),
-		opCreateTopicRefreshSchedule: withID("TopicId"),
+		opDescribeTopic:                withID("TopicId"),
+		opUpdateTopic:                  withID("TopicId"),
+		opDeleteTopic:                  withID("TopicId"),
+		opListTopics:                   withList("TopicsSummaries"),
+		opSearchTopics:                 withList("TopicsSummaries"),
+		opDescribeTopicPerms:           withIDAndPerms("TopicId"),
+		opUpdateTopicPerms:             withIDAndPerms("TopicId"),
+		opDescribeTopicRefresh:         withID("TopicId"),
+		opCreateTopicRefreshSchedule:   withID("TopicId"),
 		opDescribeTopicRefreshSchedule: withID("TopicId"),
 		opUpdateTopicRefreshSchedule:   withID("TopicId"),
 		opDeleteTopicRefreshSchedule:   withID("TopicId"),
@@ -149,10 +149,10 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opDescribeIAMPolicyAssignment: func(_, subID string) map[string]any {
 			return reqID(map[string]any{"IAMPolicyAssignment": map[string]any{"AssignmentName": subID}})
 		},
-		opUpdateIAMPolicyAssignment:         withSubID("AssignmentName"),
-		opDeleteIAMPolicyAssignment:         withSubID("AssignmentName"),
-		opListIAMPolicyAssignments:          withList("IAMPolicyAssignments"),
-		opListIAMPolicyAssignmentsForUser:   withList("IAMPolicyAssignments"),
+		opUpdateIAMPolicyAssignment:       withSubID("AssignmentName"),
+		opDeleteIAMPolicyAssignment:       withSubID("AssignmentName"),
+		opListIAMPolicyAssignments:        withList("IAMPolicyAssignments"),
+		opListIAMPolicyAssignmentsForUser: withList("IAMPolicyAssignments"),
 
 		// ---- Custom Permissions ----
 		opCreateCustomPermissions: func(_, _ string) map[string]any {
@@ -186,11 +186,11 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opDeleteUserCustomPermission: noContent,
 
 		// ---- Dashboard Extras ----
-		opDescribeDashboardDefinition: withID("DashboardId"),
-		opDescribeDashboardPerms:      withIDAndPerms("DashboardId"),
-		opUpdateDashboardPerms:        withIDAndPerms("DashboardId"),
+		opDescribeDashboardDefinition:     withID("DashboardId"),
+		opDescribeDashboardPerms:          withIDAndPerms("DashboardId"),
+		opUpdateDashboardPerms:            withIDAndPerms("DashboardId"),
 		opUpdateDashboardPublishedVersion: withID("DashboardId"),
-		opUpdateDashboardLinks:           withID("DashboardId"),
+		opUpdateDashboardLinks:            withID("DashboardId"),
 		opStartDashboardSnapshotJob: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"SnapshotJobId": "snap1"})
 		},
@@ -213,18 +213,18 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opUpdateAnalysisPerms:        withIDAndPerms("AnalysisId"),
 
 		// ---- Data Set Extras ----
-		opDescribeDataSetPerms:           withIDAndPerms("DataSetId"),
-		opUpdateDataSetPerms:             withIDAndPerms("DataSetId"),
+		opDescribeDataSetPerms: withIDAndPerms("DataSetId"),
+		opUpdateDataSetPerms:   withIDAndPerms("DataSetId"),
 		opCreateRefreshSchedule: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"ScheduleId": "sched1"})
 		},
 		opDescribeRefreshSchedule: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"RefreshSchedule": map[string]any{}})
 		},
-		opUpdateRefreshSchedule:           withSubID("ScheduleId"),
-		opDeleteRefreshSchedule:           noContent,
-		opListRefreshSchedules:            withList("RefreshSchedules"),
-		opPutDataSetRefreshProperties:     noContent,
+		opUpdateRefreshSchedule:       withSubID("ScheduleId"),
+		opDeleteRefreshSchedule:       noContent,
+		opListRefreshSchedules:        withList("RefreshSchedules"),
+		opPutDataSetRefreshProperties: noContent,
 		opDescribeDataSetRefreshProps: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"DataSetRefreshProperties": map[string]any{}})
 		},
@@ -235,11 +235,11 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opUpdateDataSourcePerms:   withIDAndPerms("DataSourceId"),
 
 		// ---- Brands ----
-		opCreateBrand:  withID("BrandId"),
+		opCreateBrand:   withID("BrandId"),
 		opDescribeBrand: withNested("Brand", "BrandId"),
-		opUpdateBrand:  withID("BrandId"),
-		opDeleteBrand:  withID("BrandId"),
-		opListBrands:   withList("Brands"),
+		opUpdateBrand:   withID("BrandId"),
+		opDeleteBrand:   withID("BrandId"),
+		opListBrands:    withList("Brands"),
 		opDescribeBrandAssignment: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
 		},
@@ -266,30 +266,30 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opListOAuthClientApps:  withList("OAuthClientApplications"),
 
 		// ---- Action Connectors ----
-		opCreateActionConnector:       noContent,
-		opDescribeActionConnector:     noContent,
-		opUpdateActionConnector:       noContent,
-		opDeleteActionConnector:       noContent,
-		opListActionConnectors:        noContent,
-		opSearchActionConnectors:      noContent,
+		opCreateActionConnector:        noContent,
+		opDescribeActionConnector:      noContent,
+		opUpdateActionConnector:        noContent,
+		opDeleteActionConnector:        noContent,
+		opListActionConnectors:         noContent,
+		opSearchActionConnectors:       noContent,
 		opDescribeActionConnectorPerms: noContent,
-		opUpdateActionConnectorPerms:  noContent,
+		opUpdateActionConnectorPerms:   noContent,
 
 		// ---- Identity Propagation ----
-		opListIdentityPropagationConfigs:   noContent,
-		opUpdateIdentityPropagationConfig:  noContent,
-		opDeleteIdentityPropagationConfig:  noContent,
+		opListIdentityPropagationConfigs:  noContent,
+		opUpdateIdentityPropagationConfig: noContent,
+		opDeleteIdentityPropagationConfig: noContent,
 
 		// ---- Asset Bundle ----
-		opStartAssetBundleExportJob:   noContent,
+		opStartAssetBundleExportJob:    noContent,
 		opDescribeAssetBundleExportJob: noContent,
-		opListAssetBundleExportJobs:   noContent,
-		opStartAssetBundleImportJob:   noContent,
+		opListAssetBundleExportJobs:    noContent,
+		opStartAssetBundleImportJob:    noContent,
 		opDescribeAssetBundleImportJob: noContent,
-		opListAssetBundleImportJobs:   noContent,
+		opListAssetBundleImportJobs:    noContent,
 
 		// ---- Automation ----
-		opStartAutomationJob:   noContent,
+		opStartAutomationJob:    noContent,
 		opDescribeAutomationJob: noContent,
 
 		// ---- Account Customization ----
@@ -385,11 +385,11 @@ func buildAppendixOps() map[string]appendixHandlerFn {
 		opSearchDataSources: withList("DataSources"),
 
 		// ---- Flows ----
-		opListFlows:        noContent,
-		opSearchFlows:      noContent,
-		opGetFlowMetadata:  noContent,
+		opListFlows:          noContent,
+		opSearchFlows:        noContent,
+		opGetFlowMetadata:    noContent,
 		opGetFlowPermissions: noContent,
-		opUpdateFlowPerms:  noContent,
+		opUpdateFlowPerms:    noContent,
 
 		// ---- Namespace Self-Upgrade ----
 		opDescribeSelfUpgradeConfig: noContent,
@@ -861,7 +861,7 @@ func classifyOAuthAppPaths(method string, segs []string, n int) (string, string)
 		case http.MethodPut:
 			return opUpdateOAuthClientApp, id
 		case http.MethodDelete:
-				return opDeleteOAuthClientApp, id
+			return opDeleteOAuthClientApp, id
 		}
 	}
 

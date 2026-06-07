@@ -259,6 +259,7 @@ func (b *InMemoryBackend) DescribeFileSystemAliases(
 		for i, a := range all {
 			if a == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1360,9 +1361,10 @@ func (b *InMemoryBackend) s3AccessPointARN(name string) string {
 func paginate(n, maxResults int, nextToken string, keyFn func(int) string) (int, int, string) {
 	start := 0
 	if nextToken != "" {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if keyFn(i) == nextToken {
 				start = i
+
 				break
 			}
 		}

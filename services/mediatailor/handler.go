@@ -33,6 +33,11 @@ const (
 	keyItems              = "Items"
 	keyArn                = "Arn"
 	keySourceLocationName = "SourceLocationName"
+	keyName               = "Name"
+	keyChannelName        = "ChannelName"
+	keySourceGroup        = "SourceGroup"
+	keyVodSourceName      = "VodSourceName"
+	keyLiveSourceName     = "LiveSourceName"
 
 	splitTwo   = 2
 	splitThree = 3
@@ -300,8 +305,10 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 		opListAlerts: func() error { return h.handleListAlerts(c) },
 
-		opConfigureLogsForChannel:               func() error { return h.handleConfigureLogsForChannel(c, body) },
-		opConfigureLogsForPlaybackConfiguration: func() error { return h.handleConfigureLogsForPlaybackConfiguration(c, body) },
+		opConfigureLogsForChannel: func() error { return h.handleConfigureLogsForChannel(c, body) },
+		opConfigureLogsForPlaybackConfiguration: func() error {
+			return h.handleConfigureLogsForPlaybackConfiguration(c, body)
+		},
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -334,8 +341,8 @@ func classifyPath(method, path string) (string, string, string) {
 		return op, res, ""
 	}
 
-	if op, res, ok := classifyConfigureLogsPath(method, path); ok {
-		return op, res, ""
+	if op, ok := classifyConfigureLogsPath(method, path); ok {
+		return op, "", ""
 	}
 
 	if path == pathAlerts && method == http.MethodGet {
@@ -465,7 +472,8 @@ func classifySourceLocationPath(method, path string) (string, string, string, bo
 		return "", "", "", false
 	}
 
-	// format: {slName} | {slName}/vodSources | {slName}/liveSources | {slName}/vodSource/{name} | {slName}/liveSource/{name}
+	// format: {slName} | {slName}/vodSources | {slName}/liveSources |
+	//         {slName}/vodSource/{name} | {slName}/liveSource/{name}
 	parts := strings.SplitN(after, "/", splitThree)
 	slName := parts[0]
 
@@ -593,24 +601,24 @@ func classifyFunctionPath(method, path string) (string, string, bool) {
 }
 
 // classifyConfigureLogsPath handles /configureLogs/channel and /configureLogs/playbackConfiguration.
-func classifyConfigureLogsPath(method, path string) (string, string, bool) {
+func classifyConfigureLogsPath(method, path string) (string, bool) {
 	if method != http.MethodPut {
-		return "", "", false
+		return "", false
 	}
 
 	suffix, ok := strings.CutPrefix(path, pathConfigureLogs)
 	if !ok {
-		return "", "", false
+		return "", false
 	}
 
 	switch suffix {
 	case "channel":
-		return opConfigureLogsForChannel, "", true
+		return opConfigureLogsForChannel, true
 	case "playbackConfiguration":
-		return opConfigureLogsForPlaybackConfiguration, "", true
+		return opConfigureLogsForPlaybackConfiguration, true
 	}
 
-	return "", "", false
+	return "", false
 }
 
 func classifyTagPath(method string) string {
@@ -646,7 +654,7 @@ func respondErr(c *echo.Context, err error) error {
 // --- PlaybackConfiguration handlers ---
 
 func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body[keyName].(string)
 	adsURL, _ := body["AdDecisionServerUrl"].(string)
 	videoURL, _ := body["VideoContentSourceUrl"].(string)
 	tags := extractTags(body)
@@ -685,7 +693,7 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"Name":                     s.Name,
+			keyName:                    s.Name,
 			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
 			"AdDecisionServerUrl":      s.AdDecisionServerURL,
 			"VideoContentSourceUrl":    s.VideoContentSourceURL,
@@ -703,7 +711,7 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 
 func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	return map[string]any{
-		"Name":                                cfg.Name,
+		keyName:                               cfg.Name,
 		"PlaybackConfigurationArn":            cfg.PlaybackConfigurationARN,
 		"AdDecisionServerUrl":                 cfg.AdDecisionServerURL,
 		"VideoContentSourceUrl":               cfg.VideoContentSourceURL,
@@ -765,7 +773,7 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"ChannelName":  s.Name,
+			keyChannelName: s.Name,
 			keyArn:         s.ARN,
 			"PlaybackMode": s.PlaybackMode,
 			"ChannelState": s.ChannelState,
@@ -802,7 +810,7 @@ func toChannelOutput(ch *Channel) map[string]any {
 	for _, o := range ch.Outputs {
 		out := map[string]any{
 			"ManifestName": o.ManifestName,
-			"SourceGroup":  o.SourceGroup,
+			keySourceGroup: o.SourceGroup,
 		}
 		if o.HlsPlaylistSettings != nil {
 			out["HlsPlaylistSettings"] = map[string]any{
@@ -813,7 +821,7 @@ func toChannelOutput(ch *Channel) map[string]any {
 	}
 
 	return map[string]any{
-		"ChannelName":  ch.Name,
+		keyChannelName: ch.Name,
 		keyArn:         ch.ARN,
 		"PlaybackMode": ch.PlaybackMode,
 		"ChannelState": ch.ChannelState,
@@ -960,7 +968,7 @@ func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName strin
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"VodSourceName":       s.VodSourceName,
+			keyVodSourceName:      s.VodSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
 			keyTags:               nilToEmpty(s.Tags),
@@ -979,14 +987,14 @@ func toVodSourceOutput(vs *VodSource) map[string]any {
 	cfgs := make([]map[string]any, 0, len(vs.HTTPPackageConfigurations))
 	for _, cfg := range vs.HTTPPackageConfigurations {
 		cfgs = append(cfgs, map[string]any{
-			"Path":        cfg.Path,
-			"SourceGroup": cfg.SourceGroup,
-			"Type":        cfg.Type,
+			"Path":         cfg.Path,
+			keySourceGroup: cfg.SourceGroup,
+			"Type":         cfg.Type,
 		})
 	}
 
 	return map[string]any{
-		"VodSourceName":             vs.VodSourceName,
+		keyVodSourceName:            vs.VodSourceName,
 		keySourceLocationName:       vs.SourceLocationName,
 		keyArn:                      vs.ARN,
 		"HttpPackageConfigurations": cfgs,
@@ -1070,7 +1078,7 @@ func extractOutputs(body map[string]any) []OutputItem {
 
 		out := OutputItem{
 			ManifestName: stringField(m, "ManifestName"),
-			SourceGroup:  stringField(m, "SourceGroup"),
+			SourceGroup:  stringField(m, keySourceGroup),
 		}
 
 		if hls, hlsOk := m["HlsPlaylistSettings"].(map[string]any); hlsOk {
@@ -1102,7 +1110,7 @@ func extractHTTPPackageConfigurations(body map[string]any) []HTTPPackageConfigur
 
 		cfgs = append(cfgs, HTTPPackageConfiguration{
 			Path:        stringField(m, "Path"),
-			SourceGroup: stringField(m, "SourceGroup"),
+			SourceGroup: stringField(m, keySourceGroup),
 			Type:        stringField(m, "Type"),
 		})
 	}
@@ -1183,7 +1191,7 @@ func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName stri
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"LiveSourceName":      s.LiveSourceName,
+			keyLiveSourceName:     s.LiveSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
 			keyTags:               nilToEmpty(s.Tags),
@@ -1202,14 +1210,14 @@ func toLiveSourceOutput(ls *LiveSource) map[string]any {
 	cfgs := make([]map[string]any, 0, len(ls.HTTPPackageConfigurations))
 	for _, cfg := range ls.HTTPPackageConfigurations {
 		cfgs = append(cfgs, map[string]any{
-			"Path":        cfg.Path,
-			"SourceGroup": cfg.SourceGroup,
-			"Type":        cfg.Type,
+			"Path":         cfg.Path,
+			keySourceGroup: cfg.SourceGroup,
+			"Type":         cfg.Type,
 		})
 	}
 
 	return map[string]any{
-		"LiveSourceName":            ls.LiveSourceName,
+		keyLiveSourceName:           ls.LiveSourceName,
 		keySourceLocationName:       ls.SourceLocationName,
 		keyArn:                      ls.ARN,
 		"HttpPackageConfigurations": cfgs,
@@ -1267,7 +1275,7 @@ func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigNam
 func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
 	return map[string]any{
 		keyArn:                      ps.ARN,
-		"Name":                      ps.Name,
+		keyName:                     ps.Name,
 		"PlaybackConfigurationName": ps.PlaybackConfigurationName,
 	}
 }
@@ -1280,8 +1288,8 @@ func (h *Handler) handleCreateProgram(
 	body map[string]any,
 ) error {
 	sourceLocationName, _ := body["SourceLocationName"].(string)
-	vodSourceName, _ := body["VodSourceName"].(string)
-	liveSourceName, _ := body["LiveSourceName"].(string)
+	vodSourceName, _ := body[keyVodSourceName].(string)
+	liveSourceName, _ := body[keyLiveSourceName].(string)
 	tags := extractTags(body)
 
 	prog, err := h.Backend.CreateProgram(
@@ -1334,9 +1342,9 @@ func (h *Handler) handleGetChannelSchedule(c *echo.Context, channelName string) 
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, map[string]any{
-			keyArn:        e.ARN,
-			"ChannelName": e.ChannelName,
-			"ProgramName": e.ProgramName,
+			keyArn:         e.ARN,
+			keyChannelName: e.ChannelName,
+			"ProgramName":  e.ProgramName,
 		})
 	}
 
@@ -1351,11 +1359,11 @@ func (h *Handler) handleGetChannelSchedule(c *echo.Context, channelName string) 
 func toProgramOutput(prog *Program) map[string]any {
 	return map[string]any{
 		keyArn:               prog.ARN,
-		"ChannelName":        prog.ChannelName,
+		keyChannelName:       prog.ChannelName,
 		"ProgramName":        prog.ProgramName,
 		"SourceLocationName": prog.SourceLocationName,
-		"VodSourceName":      prog.VodSourceName,
-		"LiveSourceName":     prog.LiveSourceName,
+		keyVodSourceName:     prog.VodSourceName,
+		keyLiveSourceName:    prog.LiveSourceName,
 		keyTags:              nilToEmpty(prog.Tags),
 	}
 }
@@ -1464,7 +1472,7 @@ func (h *Handler) handleListAlerts(c *echo.Context) error {
 // --- Logs handlers ---
 
 func (h *Handler) handleConfigureLogsForChannel(c *echo.Context, body map[string]any) error {
-	channelName, _ := body["ChannelName"].(string)
+	channelName, _ := body[keyChannelName].(string)
 	logTypes := extractStringSlice(body, "LogTypes")
 
 	name, types, err := h.Backend.ConfigureLogsForChannel(channelName, logTypes)
@@ -1473,8 +1481,8 @@ func (h *Handler) handleConfigureLogsForChannel(c *echo.Context, body map[string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ChannelName": name,
-		"LogTypes":    types,
+		keyChannelName: name,
+		"LogTypes":     types,
 	})
 }
 

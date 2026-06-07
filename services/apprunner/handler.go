@@ -798,7 +798,7 @@ type listAutoScalingConfigurationsInput struct {
 }
 
 type listAutoScalingConfigurationsOutput struct {
-	AutoScalingConfigurationSummaryList []autoScalingConfigurationSummaryOutput `json:"AutoScalingConfigurationSummaryList"`
+	AutoScalingConfigurationSummaryList []autoScalingConfigurationSummaryOutput `json:"AutoScalingConfigurationSummaryList"` //nolint:golines
 	NextToken                           string                                  `json:"NextToken,omitempty"`
 }
 
@@ -1144,7 +1144,7 @@ type observabilityConfigurationSummaryOutput struct {
 }
 
 type listObservabilityConfigurationsOutput struct {
-	ObservabilityConfigurationSummaryList []observabilityConfigurationSummaryOutput `json:"ObservabilityConfigurationSummaryList"`
+	ObservabilityConfigurationSummaryList []observabilityConfigurationSummaryOutput `json:"ObservabilityConfigurationSummaryList"` //nolint:golines
 	NextToken                             string                                    `json:"NextToken,omitempty"`
 }
 
@@ -1323,8 +1323,8 @@ func (h *Handler) handleListVpcConnectors(
 // --- VpcIngressConnection handler types and methods ---
 
 type ingressVpcConfigurationInput struct {
-	VpcId         string `json:"VpcId"`
-	VpcEndpointId string `json:"VpcEndpointId"`
+	VpcID         string `json:"VpcId"`
+	VpcEndpointID string `json:"VpcEndpointId"`
 }
 
 type createVpcIngressConnectionInput struct {
@@ -1335,15 +1335,15 @@ type createVpcIngressConnectionInput struct {
 }
 
 type ingressVpcConfigurationOutput struct {
-	VpcId         string `json:"VpcId"`
-	VpcEndpointId string `json:"VpcEndpointId"`
+	VpcID         string `json:"VpcId"`
+	VpcEndpointID string `json:"VpcEndpointId"`
 }
 
 type vpcIngressConnectionOutput struct {
 	VpcIngressConnectionArn  string                        `json:"VpcIngressConnectionArn"`
 	VpcIngressConnectionName string                        `json:"VpcIngressConnectionName"`
 	ServiceArn               string                        `json:"ServiceArn"`
-	AccountId                string                        `json:"AccountId"`
+	AccountID                string                        `json:"AccountId"`
 	DomainName               string                        `json:"DomainName"`
 	Status                   string                        `json:"Status"`
 	IngressVpcConfiguration  ingressVpcConfigurationOutput `json:"IngressVpcConfiguration"`
@@ -1359,12 +1359,12 @@ func toVpcIngressConnectionOutput(v *VpcIngressConnection) vpcIngressConnectionO
 		VpcIngressConnectionArn:  v.VpcIngressConnectionArn,
 		VpcIngressConnectionName: v.VpcIngressConnectionName,
 		ServiceArn:               v.ServiceArn,
-		AccountId:                v.AccountID,
+		AccountID:                v.AccountID,
 		DomainName:               v.DomainName,
 		Status:                   v.Status,
 		IngressVpcConfiguration: ingressVpcConfigurationOutput{
-			VpcId:         v.VpcID,
-			VpcEndpointId: v.VpcEndpointID,
+			VpcID:         v.VpcID,
+			VpcEndpointID: v.VpcEndpointID,
 		},
 		CreatedAt: v.CreatedAt.Unix(),
 	}
@@ -1384,8 +1384,8 @@ func (h *Handler) handleCreateVpcIngressConnection(
 
 	var vpcID, vpcEndpointID string
 	if in.IngressVpcConfiguration != nil {
-		vpcID = in.IngressVpcConfiguration.VpcId
-		vpcEndpointID = in.IngressVpcConfiguration.VpcEndpointId
+		vpcID = in.IngressVpcConfiguration.VpcID
+		vpcEndpointID = in.IngressVpcConfiguration.VpcEndpointID
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1518,8 +1518,8 @@ func (h *Handler) handleUpdateVpcIngressConnection(
 
 	var vpcID, vpcEndpointID string
 	if in.IngressVpcConfiguration != nil {
-		vpcID = in.IngressVpcConfiguration.VpcId
-		vpcEndpointID = in.IngressVpcConfiguration.VpcEndpointId
+		vpcID = in.IngressVpcConfiguration.VpcID
+		vpcEndpointID = in.IngressVpcConfiguration.VpcEndpointID
 	}
 
 	vic, err := h.Backend.UpdateVpcIngressConnection(in.VpcIngressConnectionArn, vpcID, vpcEndpointID)

@@ -1722,7 +1722,7 @@ func (h *Handler) handleCreateLocationHdfs(
 
 	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
 	for i, n := range in.NameNodes {
-		nameNodes[i] = HdfsNameNode{Hostname: n.Hostname, Port: n.Port}
+		nameNodes[i] = HdfsNameNode(n)
 	}
 
 	var qopCfg *QopConfiguration
@@ -1804,7 +1804,7 @@ func (h *Handler) handleDescribeLocationHdfs(
 
 	nodes := make([]hdfsNameNodeOutput, len(l.NameNodes))
 	for i, n := range l.NameNodes {
-		nodes[i] = hdfsNameNodeOutput{Hostname: n.Hostname, Port: n.Port}
+		nodes[i] = hdfsNameNodeOutput(n)
 	}
 
 	out.NameNodes = nodes
@@ -1847,7 +1847,7 @@ func (h *Handler) handleUpdateLocationHdfs(
 
 	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
 	for i, n := range in.NameNodes {
-		nameNodes[i] = HdfsNameNode{Hostname: n.Hostname, Port: n.Port}
+		nameNodes[i] = HdfsNameNode(n)
 	}
 
 	var qopCfg *QopConfiguration

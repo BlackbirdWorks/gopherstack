@@ -1548,7 +1548,8 @@ func classifyDashboardPaths(method string, segs []string, n int) (string, string
 		}
 	case nSegsSubSubRes:
 		// /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}/result
-		if seg(segs, segSubRes) == pathSegSnapshotJobs && seg(segs, segSubSubRes) == pathSegResult && method == http.MethodGet {
+		if seg(segs, segSubRes) == pathSegSnapshotJobs && seg(segs, segSubSubRes) == pathSegResult &&
+			method == http.MethodGet {
 			return opDescribeDashboardSnapshotJobResult, seg(segs, segSubResID)
 		}
 	}

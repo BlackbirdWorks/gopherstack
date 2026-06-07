@@ -912,7 +912,7 @@ func (b *InMemoryBackend) CreateAutoScalingConfiguration(
 	defer b.mu.Unlock()
 
 	revisions := b.asgByName[name]
-	revision := int32(len(revisions) + 1)
+	revision := int32(len(revisions) + 1) //nolint:gosec // revision count is always small
 	id := newID()
 	asgArn := b.asgARN(name, revision, id)
 	now := time.Now().UTC()
@@ -1191,7 +1191,7 @@ func (b *InMemoryBackend) CreateObservabilityConfiguration(
 	defer b.mu.Unlock()
 
 	revisions := b.obsByName[name]
-	revision := int32(len(revisions) + 1)
+	revision := int32(len(revisions) + 1) //nolint:gosec // revision count is always small
 	id := newID()
 	obsArn := b.obsARN(name, revision, id)
 	now := time.Now().UTC()
@@ -1616,6 +1616,7 @@ func (b *InMemoryBackend) DisassociateCustomDomain(serviceArn, domainName string
 		if d.DomainName == domainName {
 			cp := d.toCustomDomain()
 			b.customDomains[serviceArn] = append(domains[:i], domains[i+1:]...)
+
 			return &cp, nil
 		}
 	}
