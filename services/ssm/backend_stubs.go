@@ -1,6 +1,7 @@
 package ssm
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"strconv"
@@ -771,85 +772,99 @@ type UpdateServiceSettingInput struct {
 }
 
 // DeleteActivation removes a stored activation by ID.
-func (b *InMemoryBackend) DeleteActivation(input *DeleteActivationInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteActivation(ctx context.Context, input *DeleteActivationInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteActivation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.activations[input.ActivationID]; !exists {
+	activations := b.activationsStore(region)
+	if _, exists := activations[input.ActivationID]; !exists {
 		return nil, ErrActivationNotFound
 	}
 
-	delete(b.activations, input.ActivationID)
-	delete(b.miscResourceTags, input.ActivationID)
+	delete(activations, input.ActivationID)
+	delete(b.miscResourceTagsStore(region), input.ActivationID)
 
 	return &StubOutput{}, nil
 }
 
 // DeleteAssociation removes a stored association by ID.
-func (b *InMemoryBackend) DeleteAssociation(input *DeleteAssociationInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, input *DeleteAssociationInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteAssociation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.associations[input.AssociationID]; !exists {
+	associations := b.associationsStore(region)
+	if _, exists := associations[input.AssociationID]; !exists {
 		return nil, ErrAssociationNotFound
 	}
 
-	delete(b.associations, input.AssociationID)
+	delete(associations, input.AssociationID)
 
 	return &StubOutput{}, nil
 }
 
 // DeregisterPatchBaselineForPatchGroup removes a patch group association.
 func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
+	ctx context.Context,
 	input *DeregisterPatchBaselineForPatchGroupInput,
 ) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeregisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
 
-	delete(b.patchGroupToBaseline, input.PatchGroup)
+	delete(b.patchGroupToBaselineStore(region), input.PatchGroup)
 
 	return &StubOutput{}, nil
 }
 
 // DeregisterTargetFromMaintenanceWindow removes a target from a maintenance window.
 func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
+	ctx context.Context,
 	input *DeregisterTargetFromMaintenanceWindowInput,
 ) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeregisterTargetFromMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindowTargets[input.WindowTargetID]; !exists {
+	targets := b.maintenanceWindowTargetsStore(region)
+	if _, exists := targets[input.WindowTargetID]; !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(b.maintenanceWindowTargets, input.WindowTargetID)
+	delete(targets, input.WindowTargetID)
 
 	return &StubOutput{}, nil
 }
 
 // DeregisterTaskFromMaintenanceWindow removes a task from a maintenance window.
 func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
+	ctx context.Context,
 	input *DeregisterTaskFromMaintenanceWindowInput,
 ) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeregisterTaskFromMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindowTasks[input.WindowTaskID]; !exists {
+	tasks := b.maintenanceWindowTasksStore(region)
+	if _, exists := tasks[input.WindowTaskID]; !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(b.maintenanceWindowTasks, input.WindowTaskID)
+	delete(tasks, input.WindowTaskID)
 
 	return &StubOutput{}, nil
 }
 
 // DescribeActivations lists stored activations.
-func (b *InMemoryBackend) DescribeActivations(_ *DescribeActivationsInput) (*DescribeActivationsOutput, error) {
+func (b *InMemoryBackend) DescribeActivations(ctx context.Context, _ *DescribeActivationsInput) (*DescribeActivationsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeActivations")
 	defer b.mu.RUnlock()
 
-	list := make([]Activation, 0, len(b.activations))
-	for _, a := range b.activations {
+	activations := b.activationsStore(region)
+	list := make([]Activation, 0, len(activations))
+	for _, a := range activations {
 		list = append(list, a)
 	}
 
@@ -857,11 +872,12 @@ func (b *InMemoryBackend) DescribeActivations(_ *DescribeActivationsInput) (*Des
 }
 
 // DescribeAssociation retrieves an association by name or ID.
-func (b *InMemoryBackend) DescribeAssociation(input *DescribeAssociationInput) (*DescribeAssociationOutput, error) {
+func (b *InMemoryBackend) DescribeAssociation(ctx context.Context, input *DescribeAssociationInput) (*DescribeAssociationOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeAssociation")
 	defer b.mu.RUnlock()
 
-	for _, assoc := range b.associations {
+	for _, assoc := range b.associationsStore(region) {
 		if (input.AssociationID != "" && assoc.AssociationID == input.AssociationID) ||
 			(input.Name != "" && assoc.Name == input.Name && (input.InstanceID == "" || assoc.InstanceID == input.InstanceID)) {
 			return &DescribeAssociationOutput{AssociationDescription: assoc}, nil
@@ -873,6 +889,7 @@ func (b *InMemoryBackend) DescribeAssociation(input *DescribeAssociationInput) (
 
 // DescribeAvailablePatches is a stub implementation.
 func (b *InMemoryBackend) DescribeAvailablePatches(
+	_ context.Context,
 	_ *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
 	return &DescribeAvailablePatchesOutput{}, nil
@@ -880,6 +897,7 @@ func (b *InMemoryBackend) DescribeAvailablePatches(
 
 // DescribeInstancePatchStatesForPatchGroup is a stub implementation.
 func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
+	_ context.Context,
 	_ *DescribeInstancePatchStatesForPatchGroupInput,
 ) (*DescribeInstancePatchStatesForPatchGroupOutput, error) {
 	return &DescribeInstancePatchStatesForPatchGroupOutput{}, nil
@@ -887,6 +905,7 @@ func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
 
 // DescribeInstancePatches is a stub implementation.
 func (b *InMemoryBackend) DescribeInstancePatches(
+	_ context.Context,
 	_ *DescribeInstancePatchesInput,
 ) (*DescribeInstancePatchesOutput, error) {
 	return &DescribeInstancePatchesOutput{}, nil
@@ -894,6 +913,7 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 
 // DescribeInstanceProperties is a stub implementation.
 func (b *InMemoryBackend) DescribeInstanceProperties(
+	_ context.Context,
 	_ *DescribeInstancePropertiesInput,
 ) (*DescribeInstancePropertiesOutput, error) {
 	return &DescribeInstancePropertiesOutput{}, nil
@@ -901,13 +921,15 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 
 // DescribeMaintenanceWindowTargets lists targets registered with a maintenance window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowTargets(
+	ctx context.Context,
 	input *DescribeMaintenanceWindowTargetsInput,
 ) (*DescribeMaintenanceWindowTargetsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeMaintenanceWindowTargets")
 	defer b.mu.RUnlock()
 
 	var targets []MaintenanceWindowTarget
-	for _, t := range b.maintenanceWindowTargets {
+	for _, t := range b.maintenanceWindowTargetsStore(region) {
 		if t.WindowID == input.WindowID {
 			targets = append(targets, t)
 		}
@@ -922,13 +944,15 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTargets(
 
 // DescribeMaintenanceWindowTasks lists tasks registered with a maintenance window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
+	ctx context.Context,
 	input *DescribeMaintenanceWindowTasksInput,
 ) (*DescribeMaintenanceWindowTasksOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeMaintenanceWindowTasks")
 	defer b.mu.RUnlock()
 
 	var tasks []MaintenanceWindowTask
-	for _, t := range b.maintenanceWindowTasks {
+	for _, t := range b.maintenanceWindowTasksStore(region) {
 		if t.WindowID == input.WindowID {
 			tasks = append(tasks, t)
 		}
@@ -943,13 +967,16 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
 
 // DescribeMaintenanceWindows lists maintenance windows.
 func (b *InMemoryBackend) DescribeMaintenanceWindows(
+	ctx context.Context,
 	input *DescribeMaintenanceWindowsInput,
 ) (*DescribeMaintenanceWindowsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeMaintenanceWindows")
 	defer b.mu.RUnlock()
 
-	all := make([]MaintenanceWindowIdentity, 0, len(b.maintenanceWindows))
-	for _, mw := range b.maintenanceWindows {
+	mws := b.maintenanceWindowsStore(region)
+	all := make([]MaintenanceWindowIdentity, 0, len(mws))
+	for _, mw := range mws {
 		all = append(all, MaintenanceWindowIdentity{
 			WindowID:    mw.WindowID,
 			Name:        mw.Name,
@@ -1015,12 +1042,14 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 }
 
 // DescribeOpsItems lists OpsItems.
-func (b *InMemoryBackend) DescribeOpsItems(input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error) {
+func (b *InMemoryBackend) DescribeOpsItems(ctx context.Context, input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeOpsItems")
 	defer b.mu.RUnlock()
 
-	all := make([]OpsItemSummary, 0, len(b.opsItems))
-	for _, item := range b.opsItems {
+	items := b.opsItemsStore(region)
+	all := make([]OpsItemSummary, 0, len(items))
+	for _, item := range items {
 		if !opsItemMatchesFilters(item, input.OpsItemFilters) {
 			continue
 		}
@@ -1092,13 +1121,16 @@ func patchBaselineMatchesFilters(bl PatchBaseline, filters []PatchBaselineFilter
 
 // DescribePatchBaselines lists patch baselines with optional OS and name filters.
 func (b *InMemoryBackend) DescribePatchBaselines(
+	ctx context.Context,
 	input *DescribePatchBaselinesInput,
 ) (*DescribePatchBaselinesOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribePatchBaselines")
 	defer b.mu.RUnlock()
 
-	all := make([]PatchBaselineIdentity, 0, len(b.patchBaselines))
-	for _, bl := range b.patchBaselines {
+	baselines := b.patchBaselinesStore(region)
+	all := make([]PatchBaselineIdentity, 0, len(baselines))
+	for _, bl := range baselines {
 		if !patchBaselineMatchesFilters(bl, input.Filters) {
 			continue
 		}
@@ -1141,11 +1173,12 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 }
 
 // GetMaintenanceWindow retrieves a maintenance window by ID.
-func (b *InMemoryBackend) GetMaintenanceWindow(input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error) {
+func (b *InMemoryBackend) GetMaintenanceWindow(ctx context.Context, input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindow")
 	defer b.mu.RUnlock()
 
-	mw, exists := b.maintenanceWindows[input.WindowID]
+	mw, exists := b.maintenanceWindowsStore(region)[input.WindowID]
 	if !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
@@ -1154,11 +1187,12 @@ func (b *InMemoryBackend) GetMaintenanceWindow(input *GetMaintenanceWindowInput)
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
-func (b *InMemoryBackend) GetOpsItem(input *GetOpsItemInput) (*GetOpsItemOutput, error) {
+func (b *InMemoryBackend) GetOpsItem(ctx context.Context, input *GetOpsItemInput) (*GetOpsItemOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetOpsItem")
 	defer b.mu.RUnlock()
 
-	item, exists := b.opsItems[input.OpsItemID]
+	item, exists := b.opsItemsStore(region)[input.OpsItemID]
 	if !exists {
 		return nil, ErrOpsItemNotFound
 	}
@@ -1167,11 +1201,12 @@ func (b *InMemoryBackend) GetOpsItem(input *GetOpsItemInput) (*GetOpsItemOutput,
 }
 
 // GetOpsMetadata retrieves OpsMetadata by ARN.
-func (b *InMemoryBackend) GetOpsMetadata(input *GetOpsMetadataInput) (*GetOpsMetadataOutput, error) {
+func (b *InMemoryBackend) GetOpsMetadata(ctx context.Context, input *GetOpsMetadataInput) (*GetOpsMetadataOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetOpsMetadata")
 	defer b.mu.RUnlock()
 
-	meta, exists := b.opsMetadata[input.OpsMetadataArn]
+	meta, exists := b.opsMetadataStore(region)[input.OpsMetadataArn]
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
@@ -1180,11 +1215,12 @@ func (b *InMemoryBackend) GetOpsMetadata(input *GetOpsMetadataInput) (*GetOpsMet
 }
 
 // GetPatchBaseline retrieves a patch baseline by ID.
-func (b *InMemoryBackend) GetPatchBaseline(input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error) {
+func (b *InMemoryBackend) GetPatchBaseline(ctx context.Context, input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetPatchBaseline")
 	defer b.mu.RUnlock()
 
-	bl, exists := b.patchBaselines[input.BaselineID]
+	bl, exists := b.patchBaselinesStore(region)[input.BaselineID]
 	if !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
@@ -1193,12 +1229,14 @@ func (b *InMemoryBackend) GetPatchBaseline(input *GetPatchBaselineInput) (*GetPa
 }
 
 // ListAssociations lists all stored associations.
-func (b *InMemoryBackend) ListAssociations(_ *ListAssociationsInput) (*ListAssociationsOutput, error) {
+func (b *InMemoryBackend) ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListAssociations")
 	defer b.mu.RUnlock()
 
-	list := make([]Association, 0, len(b.associations))
-	for _, a := range b.associations {
+	associations := b.associationsStore(region)
+	list := make([]Association, 0, len(associations))
+	for _, a := range associations {
 		list = append(list, a)
 	}
 
@@ -1207,16 +1245,18 @@ func (b *InMemoryBackend) ListAssociations(_ *ListAssociationsInput) (*ListAssoc
 
 // RegisterPatchBaselineForPatchGroup associates a baseline with a patch group.
 func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
+	ctx context.Context,
 	input *RegisterPatchBaselineForPatchGroupInput,
 ) (*RegisterPatchBaselineForPatchGroupOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("RegisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
+	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
 
-	b.patchGroupToBaseline[input.PatchGroup] = input.BaselineID
+	b.patchGroupToBaselineStore(region)[input.PatchGroup] = input.BaselineID
 
 	return &RegisterPatchBaselineForPatchGroupOutput{
 		BaselineID: input.BaselineID,
@@ -1226,12 +1266,14 @@ func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
 
 // RegisterTargetWithMaintenanceWindow registers a target with a maintenance window.
 func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
+	ctx context.Context,
 	input *RegisterTargetWithMaintenanceWindowInput,
 ) (*RegisterTargetWithMaintenanceWindowOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("RegisterTargetWithMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
+	if _, exists := b.maintenanceWindowsStore(region)[input.WindowID]; !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
@@ -1246,19 +1288,21 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		Name:           input.Name,
 	}
 
-	b.maintenanceWindowTargets[targetID] = target
+	b.maintenanceWindowTargetsStore(region)[targetID] = target
 
 	return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: targetID}, nil
 }
 
 // RegisterTaskWithMaintenanceWindow registers a task with a maintenance window.
 func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
+	ctx context.Context,
 	input *RegisterTaskWithMaintenanceWindowInput,
 ) (*RegisterTaskWithMaintenanceWindowOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
+	if _, exists := b.maintenanceWindowsStore(region)[input.WindowID]; !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
@@ -1276,13 +1320,14 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		MaxErrors:      input.MaxErrors,
 	}
 
-	b.maintenanceWindowTasks[taskID] = task
+	b.maintenanceWindowTasksStore(region)[taskID] = task
 
 	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
 }
 
 // StartSession creates a new SSM Session Manager session.
-func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionOutput, error) {
+func (b *InMemoryBackend) StartSession(ctx context.Context, input *StartSessionInput) (*StartSessionOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
 
@@ -1309,7 +1354,7 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 		}
 	}
 
-	b.sessions[sessionID] = sess
+	b.sessionsStore(region)[sessionID] = sess
 
 	return &StartSessionOutput{
 		SessionID:  sessionID,
@@ -1319,28 +1364,32 @@ func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionO
 }
 
 // TerminateSession terminates an active SSM session.
-func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*TerminateSessionOutput, error) {
+func (b *InMemoryBackend) TerminateSession(ctx context.Context, input *TerminateSessionInput) (*TerminateSessionOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("TerminateSession")
 	defer b.mu.Unlock()
 
-	sess, exists := b.sessions[input.SessionID]
+	sessions := b.sessionsStore(region)
+	sess, exists := sessions[input.SessionID]
 	if !exists {
 		return &TerminateSessionOutput{SessionID: input.SessionID}, nil
 	}
 
 	sess.Status = sessionStatusTerminated
 	sess.EndDate = UnixTimeFloat(timeNow())
-	b.sessions[input.SessionID] = sess
+	sessions[input.SessionID] = sess
 
 	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
 }
 
 // UpdateAssociation updates an existing association.
-func (b *InMemoryBackend) UpdateAssociation(input *UpdateAssociationInput) (*UpdateAssociationOutput, error) {
+func (b *InMemoryBackend) UpdateAssociation(ctx context.Context, input *UpdateAssociationInput) (*UpdateAssociationOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociation")
 	defer b.mu.Unlock()
 
-	assoc, exists := b.associations[input.AssociationID]
+	associations := b.associationsStore(region)
+	assoc, exists := associations[input.AssociationID]
 	if !exists {
 		return nil, ErrAssociationNotFound
 	}
@@ -1362,19 +1411,22 @@ func (b *InMemoryBackend) UpdateAssociation(input *UpdateAssociationInput) (*Upd
 	}
 
 	assoc.LastUpdateAssociationDate = UnixTimeFloat(timeNow())
-	b.associations[input.AssociationID] = assoc
+	associations[input.AssociationID] = assoc
 
 	return &UpdateAssociationOutput{AssociationDescription: assoc}, nil
 }
 
 // UpdateMaintenanceWindow updates a maintenance window.
 func (b *InMemoryBackend) UpdateMaintenanceWindow(
+	ctx context.Context,
 	input *UpdateMaintenanceWindowInput,
 ) (*UpdateMaintenanceWindowOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	mw, exists := b.maintenanceWindows[input.WindowID]
+	windows := b.maintenanceWindowsStore(region)
+	mw, exists := windows[input.WindowID]
 	if !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
@@ -1404,17 +1456,19 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	}
 
 	mw.ModifiedDate = UnixTimeFloat(timeNow())
-	b.maintenanceWindows[input.WindowID] = mw
+	windows[input.WindowID] = mw
 
 	return &UpdateMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
 }
 
 // UpdateOpsItem updates an OpsItem including OperationalData.
-func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateOpsItem(ctx context.Context, input *UpdateOpsItemInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateOpsItem")
 	defer b.mu.Unlock()
 
-	item, exists := b.opsItems[input.OpsItemID]
+	items := b.opsItemsStore(region)
+	item, exists := items[input.OpsItemID]
 	if !exists {
 		return nil, ErrOpsItemNotFound
 	}
@@ -1448,10 +1502,10 @@ func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput,
 	}
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
-	b.opsItems[input.OpsItemID] = item
+	items[input.OpsItemID] = item
 
 	// Record an event for the update.
-	b.opsItemEvents = append(b.opsItemEvents, OpsItemEventSummary{
+	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
 		OpsItemID: input.OpsItemID,
 		EventID:   "event-update-" + input.OpsItemID,
 	})
@@ -1460,11 +1514,13 @@ func (b *InMemoryBackend) UpdateOpsItem(input *UpdateOpsItemInput) (*StubOutput,
 }
 
 // UpdateOpsMetadata updates OpsMetadata.
-func (b *InMemoryBackend) UpdateOpsMetadata(input *UpdateOpsMetadataInput) (*UpdateOpsMetadataOutput, error) {
+func (b *InMemoryBackend) UpdateOpsMetadata(ctx context.Context, input *UpdateOpsMetadataInput) (*UpdateOpsMetadataOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateOpsMetadata")
 	defer b.mu.Unlock()
 
-	meta, exists := b.opsMetadata[input.OpsMetadataArn]
+	opsMetadata := b.opsMetadataStore(region)
+	meta, exists := opsMetadata[input.OpsMetadataArn]
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
@@ -1478,17 +1534,19 @@ func (b *InMemoryBackend) UpdateOpsMetadata(input *UpdateOpsMetadataInput) (*Upd
 	}
 
 	meta.LastModifiedDate = UnixTimeFloat(timeNow())
-	b.opsMetadata[input.OpsMetadataArn] = meta
+	opsMetadata[input.OpsMetadataArn] = meta
 
 	return &UpdateOpsMetadataOutput{OpsMetadataArn: input.OpsMetadataArn}, nil
 }
 
 // UpdatePatchBaseline updates a patch baseline.
-func (b *InMemoryBackend) UpdatePatchBaseline(input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error) {
+func (b *InMemoryBackend) UpdatePatchBaseline(ctx context.Context, input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdatePatchBaseline")
 	defer b.mu.Unlock()
 
-	bl, exists := b.patchBaselines[input.BaselineID]
+	baselines := b.patchBaselinesStore(region)
+	bl, exists := baselines[input.BaselineID]
 	if !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
@@ -1514,7 +1572,7 @@ func (b *InMemoryBackend) UpdatePatchBaseline(input *UpdatePatchBaselineInput) (
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())
-	b.patchBaselines[input.BaselineID] = bl
+	baselines[input.BaselineID] = bl
 
 	return &UpdatePatchBaselineOutput{PatchBaseline: bl}, nil
 }

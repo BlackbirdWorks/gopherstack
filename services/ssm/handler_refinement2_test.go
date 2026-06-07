@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -534,7 +535,7 @@ func TestRefinement2_GenerateCode(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			// Create an activation to get a code
-			out, err := b.CreateActivation(&ssm.CreateActivationInput{
+			out, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 				IamRole: "arn:aws:iam::123:role/test",
 			})
 			require.NoError(t, err)
@@ -658,13 +659,13 @@ func TestRefinement2_PersistenceWithNewFields(t *testing.T) {
 
 			b1 := ssm.NewInMemoryBackend()
 
-			_, err := b1.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+			_, err := b1.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 				ResourceID: tt.resourceID,
 			})
 			require.NoError(t, err)
 
 			// Duplicate should fail
-			_, err = b1.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+			_, err = b1.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 				ResourceID: tt.resourceID,
 			})
 			require.Error(t, err)
@@ -676,7 +677,7 @@ func TestRefinement2_PersistenceWithNewFields(t *testing.T) {
 			require.NoError(t, b2.Restore(snap))
 
 			// After restore, duplicate should still fail
-			_, err = b2.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+			_, err = b2.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 				ResourceID: tt.resourceID,
 			})
 			require.Error(t, err)
@@ -747,10 +748,10 @@ func TestRefinement2_ResetClearsNewFields(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 
-			_, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
+			_, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
 			require.NoError(t, err)
 
-			err = b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+			err = b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 				ResourceType: "Activation",
 				ResourceID:   "act-1",
 				Tags:         []ssm.Tag{{Key: "K", Value: "V"}},
@@ -760,7 +761,7 @@ func TestRefinement2_ResetClearsNewFields(t *testing.T) {
 			b.Reset()
 
 			// After reset, creating the same resource ID should succeed
-			_, err = b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
+			_, err = b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
 			require.NoError(t, err)
 
 			_ = tt.name
@@ -783,7 +784,7 @@ func TestRefinement2_InternalTimestamp(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			out, err := b.CreateActivation(&ssm.CreateActivationInput{
+			out, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 				IamRole: "arn:aws:iam::123:role/test",
 			})
 			require.NoError(t, err)

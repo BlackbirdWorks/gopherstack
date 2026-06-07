@@ -4,6 +4,7 @@ package ssm_test
 // branches to push total coverage above 90%.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -164,7 +165,7 @@ func TestPutParameter_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.PutParameter(&tt.input)
+			_, err := b.PutParameter(context.TODO(), &tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errIs != nil {
@@ -211,20 +212,20 @@ func TestListCommands_Filtered(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			// Create a document for commands
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:    "AWS-RunShellScript",
 				Content: `{"schemaVersion":"2.2"}`,
 			})
 			// AWS-RunShellScript is a default doc, error is expected
 			_ = err
 
-			out1, err := b.SendCommand(&ssm.SendCommandInput{
+			out1, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 				DocumentName: "AWS-RunShellScript",
 				InstanceIDs:  []string{"i-1111"},
 			})
 			require.NoError(t, err)
 
-			_, err = b.SendCommand(&ssm.SendCommandInput{
+			_, err = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 				DocumentName: "AWS-RunShellScript",
 				InstanceIDs:  []string{"i-2222"},
 			})
@@ -239,7 +240,7 @@ func TestListCommands_Filtered(t *testing.T) {
 				CommandID:  cmdID,
 				MaxResults: tt.maxResults,
 			}
-			listOut, err := b.ListCommands(listInput)
+			listOut, err := b.ListCommands(context.TODO(), listInput)
 			require.NoError(t, err)
 			assert.Len(t, listOut.Commands, tt.wantCount)
 		})
@@ -272,13 +273,13 @@ func TestListCommandInvocations_Filtered(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			out, err := b.SendCommand(&ssm.SendCommandInput{
+			out, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 				DocumentName: "AWS-RunShellScript",
 				InstanceIDs:  []string{"i-1111", "i-2222"},
 			})
 			require.NoError(t, err)
 
-			listOut, err := b.ListCommandInvocations(&ssm.ListCommandInvocationsInput{
+			listOut, err := b.ListCommandInvocations(context.TODO(), &ssm.ListCommandInvocationsInput{
 				CommandID:  out.Command.CommandID,
 				InstanceID: tt.instanceID,
 			})
@@ -337,13 +338,13 @@ func TestDocumentMatchesFilters(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:    "TestDoc",
 				Content: `{"schemaVersion":"2.2"}`,
 			})
 			require.NoError(t, err)
 
-			out, err := b.ListDocuments(&ssm.ListDocumentsInput{
+			out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{
 				Filters: tt.filters,
 			})
 			require.NoError(t, err)
@@ -378,7 +379,7 @@ func TestCopyAssocTargets(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			// CreateAssociationBatch exercises copyAssocTargets internally
-			out, err := b.CreateAssociationBatch(&ssm.CreateAssociationBatchInput{
+			out, err := b.CreateAssociationBatch(context.TODO(), &ssm.CreateAssociationBatchInput{
 				Entries: []ssm.CreateAssociationBatchRequestEntry{
 					{
 						Name:    "AWS-RunShellScript",
@@ -459,7 +460,7 @@ func TestCreateMaintenanceWindow_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateMaintenanceWindow(&tt.input)
+			_, err := b.CreateMaintenanceWindow(context.TODO(), &tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -510,7 +511,7 @@ func TestCreateOpsItem_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateOpsItem(&tt.input)
+			_, err := b.CreateOpsItem(context.TODO(), &tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrValidationException)
@@ -574,7 +575,7 @@ func TestCreatePatchBaseline_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			out, err := b.CreatePatchBaseline(&tt.input)
+			out, err := b.CreatePatchBaseline(context.TODO(), &tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -591,7 +592,7 @@ func TestDeleteActivation_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, err := b.DeleteActivation(&ssm.DeleteActivationInput{ActivationID: "nonexistent"})
+	_, err := b.DeleteActivation(context.TODO(), &ssm.DeleteActivationInput{ActivationID: "nonexistent"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ssm.ErrActivationNotFound)
 }
@@ -601,7 +602,7 @@ func TestDeleteAssociation_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, err := b.DeleteAssociation(&ssm.DeleteAssociationInput{AssociationID: "nonexistent"})
+	_, err := b.DeleteAssociation(context.TODO(), &ssm.DeleteAssociationInput{AssociationID: "nonexistent"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ssm.ErrAssociationNotFound)
 }
@@ -649,14 +650,14 @@ func TestUpdateAssociation(t *testing.T) {
 
 			if !tt.wantErr {
 				// Create an association first
-				out, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+				out, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 					Name: "AWS-RunShellScript",
 				})
 				require.NoError(t, err)
 				tt.update.AssociationID = out.AssociationDescription.AssociationID
 			}
 
-			_, err := b.UpdateAssociation(&tt.update)
+			_, err := b.UpdateAssociation(context.TODO(), &tt.update)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrAssociationNotFound)
@@ -710,7 +711,7 @@ func TestUpdateMaintenanceWindow(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 
 			if !tt.wantErr {
-				out, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+				out, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 					Name:     "my-window",
 					Duration: 4,
 					Cutoff:   1,
@@ -720,7 +721,7 @@ func TestUpdateMaintenanceWindow(t *testing.T) {
 				tt.update.WindowID = out.WindowID
 			}
 
-			_, err := b.UpdateMaintenanceWindow(&tt.update)
+			_, err := b.UpdateMaintenanceWindow(context.TODO(), &tt.update)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrMaintenanceWindowNotFound)
@@ -771,7 +772,7 @@ func TestUpdateOpsItem_Branches(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 
 			if !tt.wantErr {
-				out, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+				out, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 					Title:  "Initial Title",
 					Source: "test",
 				})
@@ -779,7 +780,7 @@ func TestUpdateOpsItem_Branches(t *testing.T) {
 				tt.update.OpsItemID = out.OpsItemID
 			}
 
-			_, err := b.UpdateOpsItem(&tt.update)
+			_, err := b.UpdateOpsItem(context.TODO(), &tt.update)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrOpsItemNotFound)
@@ -839,13 +840,13 @@ func TestPatchBaselineMatchesFilters(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+			_, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 				Name:            "my-baseline",
 				OperatingSystem: "AMAZON_LINUX",
 			})
 			require.NoError(t, err)
 
-			out, err := b.DescribePatchBaselines(&ssm.DescribePatchBaselinesInput{
+			out, err := b.DescribePatchBaselines(context.TODO(), &ssm.DescribePatchBaselinesInput{
 				Filters: tt.filters,
 			})
 			require.NoError(t, err)
@@ -903,18 +904,18 @@ func TestOpsItemMatchesFilters(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+			_, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 				Title:  "Alpha Issue",
 				Source: "source-a",
 			})
 			require.NoError(t, err)
-			_, err = b.CreateOpsItem(&ssm.CreateOpsItemInput{
+			_, err = b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 				Title:  "Beta Issue",
 				Source: "source-b",
 			})
 			require.NoError(t, err)
 
-			out, err := b.DescribeOpsItems(&ssm.DescribeOpsItemsInput{
+			out, err := b.DescribeOpsItems(context.TODO(), &ssm.DescribeOpsItemsInput{
 				OpsItemFilters: tt.filters,
 			})
 			require.NoError(t, err)
@@ -928,12 +929,12 @@ func TestClassifySSMErrorExtended(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		action       string
-		body         string
-		setup        func(b *ssm.InMemoryBackend)
-		wantCode     int
-		wantErrType  string
+		name        string
+		action      string
+		body        string
+		setup       func(b *ssm.InMemoryBackend)
+		wantCode    int
+		wantErrType string
 	}{
 		{
 			name:        "activation_not_found_via_delete",
@@ -977,7 +978,7 @@ func TestClassifySSMErrorExtended(t *testing.T) {
 			wantCode:    http.StatusBadRequest,
 			wantErrType: "OpsMetadataAlreadyExistsException",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+				_, _ = b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 					ResourceID: "my-resource",
 				})
 			},
@@ -1039,13 +1040,13 @@ func TestGetDocumentVersion(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:    "TestVersionDoc",
 				Content: `{"schemaVersion":"2.2"}`,
 			})
 			require.NoError(t, err)
 
-			_, err = b.GetDocument(&ssm.GetDocumentInput{
+			_, err = b.GetDocument(context.TODO(), &ssm.GetDocumentInput{
 				Name:            "TestVersionDoc",
 				DocumentVersion: tt.documentVersion,
 			})
@@ -1094,23 +1095,23 @@ func TestListDocumentVersions_Pagination(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:    "PagDoc",
 				Content: `{"schemaVersion":"2.2","v":"1"}`,
 			})
 			require.NoError(t, err)
-			_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+			_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 				Name:    "PagDoc",
 				Content: `{"schemaVersion":"2.2","v":"2"}`,
 			})
 			require.NoError(t, err)
-			_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+			_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 				Name:    "PagDoc",
 				Content: `{"schemaVersion":"2.2","v":"3"}`,
 			})
 			require.NoError(t, err)
 
-			out, err := b.ListDocumentVersions(&ssm.ListDocumentVersionsInput{
+			out, err := b.ListDocumentVersions(context.TODO(), &ssm.ListDocumentVersionsInput{
 				Name:       "PagDoc",
 				MaxResults: tt.maxResults,
 				NextToken:  tt.nextToken,
@@ -1150,7 +1151,7 @@ func TestAddTagsToResource_NonParameter(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			err := b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+			err := b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 				ResourceType: tt.resourceType,
 				ResourceID:   "my-resource",
 				Tags:         []ssm.Tag{{Key: "k", Value: "v"}},
@@ -1160,7 +1161,7 @@ func TestAddTagsToResource_NonParameter(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				// Verify list tags works for non-parameter
-				out, err2 := b.ListTagsForResource(&ssm.ListTagsForResourceInput{
+				out, err2 := b.ListTagsForResource(context.TODO(), &ssm.ListTagsForResourceInput{
 					ResourceType: tt.resourceType,
 					ResourceID:   "my-resource",
 				})
@@ -1177,7 +1178,7 @@ func TestRemoveTagsFromResource_NonParameter(t *testing.T) {
 
 	b := ssm.NewInMemoryBackend()
 	// Add tags first
-	err := b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+	err := b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 		ResourceType: "MaintenanceWindow",
 		ResourceID:   "mw-1234",
 		Tags:         []ssm.Tag{{Key: "k1", Value: "v1"}, {Key: "k2", Value: "v2"}},
@@ -1185,7 +1186,7 @@ func TestRemoveTagsFromResource_NonParameter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove one tag
-	err = b.RemoveTagsFromResource(&ssm.RemoveTagsFromResourceInput{
+	err = b.RemoveTagsFromResource(context.TODO(), &ssm.RemoveTagsFromResourceInput{
 		ResourceType: "MaintenanceWindow",
 		ResourceID:   "mw-1234",
 		TagKeys:      []string{"k1"},
@@ -1193,7 +1194,7 @@ func TestRemoveTagsFromResource_NonParameter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove from non-existent resource (should not error)
-	err = b.RemoveTagsFromResource(&ssm.RemoveTagsFromResourceInput{
+	err = b.RemoveTagsFromResource(context.TODO(), &ssm.RemoveTagsFromResourceInput{
 		ResourceType: "MaintenanceWindow",
 		ResourceID:   "mw-nonexistent",
 		TagKeys:      []string{"k1"},
@@ -1227,11 +1228,11 @@ func TestGetParameterHistory_Pagination(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v1"})
-			_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v2", Overwrite: true})
-			_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v3", Overwrite: true})
+			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v1"})
+			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v2", Overwrite: true})
+			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v3", Overwrite: true})
 
-			out, err := b.GetParameterHistory(&ssm.GetParameterHistoryInput{
+			out, err := b.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 				Name:      "/paged",
 				NextToken: tt.nextToken,
 			})
@@ -1266,7 +1267,7 @@ func TestHandlerReset(t *testing.T) {
 		{
 			name: "reset_clears_parameters",
 			setup: func(_ *ssm.Handler, b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 					Name: "/before-reset", Type: "String", Value: "v",
 				})
 			},
@@ -1284,7 +1285,7 @@ func TestHandlerReset(t *testing.T) {
 			h, b := newTestHandler(t)
 			tt.setup(h, b)
 			h.Reset()
-			assert.Empty(t, b.ListAll())
+			assert.Empty(t, b.ListAll(context.TODO()))
 		})
 	}
 }
@@ -1330,13 +1331,13 @@ func TestUpdateDocument_Version(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:    "UpdDoc",
 				Content: `{"schemaVersion":"2.2"}`,
 			})
 			require.NoError(t, err)
 
-			_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+			_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 				Name:            "UpdDoc",
 				Content:         `{"schemaVersion":"2.2","v":"2"}`,
 				DocumentVersion: tt.documentVersion,
@@ -1398,7 +1399,7 @@ func TestCreateActivation_WithTags(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.CreateActivation(&tt.input)
+			_, err := b.CreateActivation(context.TODO(), &tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1413,7 +1414,7 @@ func TestCreateMaintenanceWindow_WithTags(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	out, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	out, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "tagged-window",
 		Duration: 4,
 		Cutoff:   1,
@@ -1429,7 +1430,7 @@ func TestListCommands_EmptyWithPagination(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	out, err := b.ListCommands(&ssm.ListCommandsInput{
+	out, err := b.ListCommands(context.TODO(), &ssm.ListCommandsInput{
 		NextToken: "999",
 	})
 	require.NoError(t, err)
@@ -1441,7 +1442,7 @@ func TestListCommandInvocations_EmptyPagination(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	out, err := b.ListCommandInvocations(&ssm.ListCommandInvocationsInput{
+	out, err := b.ListCommandInvocations(context.TODO(), &ssm.ListCommandInvocationsInput{
 		NextToken: "999",
 	})
 	require.NoError(t, err)
@@ -1453,9 +1454,9 @@ func TestGetParametersByPath_StartBeyondEnd(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/app/x", Type: "String", Value: "v"})
+	_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/x", Type: "String", Value: "v"})
 
-	out, err := b.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := b.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path:      "/app",
 		Recursive: true,
 		NextToken: "999",
@@ -1492,7 +1493,7 @@ func TestListDocuments_Pagination(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			// There are already 2 default docs
-			out, err := b.ListDocuments(&ssm.ListDocumentsInput{
+			out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{
 				MaxResults: tt.maxResults,
 				NextToken:  tt.nextToken,
 			})

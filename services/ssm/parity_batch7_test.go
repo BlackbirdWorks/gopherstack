@@ -3,6 +3,7 @@ package ssm_test
 // parity_batch7_test.go — §3 Single-service B (#21 SSM SecureString KMS)
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func TestSSMSecureStringKMS_EncryptedAtRest(t *testing.T) {
 	ssmBackend, keyID := newSSMWithKMS(t)
 
 	// PutParameter — value should be KMS-encrypted.
-	_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+	_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/test/secret",
 		Type:  "SecureString",
 		Value: "my-plaintext-password",
@@ -69,7 +70,7 @@ func TestSSMSecureStringKMS_EncryptedAtRest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read without decryption — must not be plaintext.
-	raw, err := ssmBackend.GetParameter(&ssm.GetParameterInput{
+	raw, err := ssmBackend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name:           "/test/secret",
 		WithDecryption: false,
 	})
@@ -82,7 +83,7 @@ func TestSSMSecureStringKMS_DecryptOnGet(t *testing.T) {
 
 	ssmBackend, keyID := newSSMWithKMS(t)
 
-	_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+	_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/test/db-pass",
 		Type:  "SecureString",
 		Value: "super-secret-db-password",
@@ -90,7 +91,7 @@ func TestSSMSecureStringKMS_DecryptOnGet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := ssmBackend.GetParameter(&ssm.GetParameterInput{
+	out, err := ssmBackend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name:           "/test/db-pass",
 		WithDecryption: true,
 	})
@@ -114,7 +115,7 @@ func TestSSMSecureStringKMS_MultipleParams(t *testing.T) {
 	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, tt := range tests {
-		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+		_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:  tt.pname,
 			Type:  "SecureString",
 			Value: tt.keyValue,
@@ -124,7 +125,7 @@ func TestSSMSecureStringKMS_MultipleParams(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		out, err := ssmBackend.GetParameter(&ssm.GetParameterInput{
+		out, err := ssmBackend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 			Name:           tt.pname,
 			WithDecryption: true,
 		})
@@ -142,7 +143,7 @@ func TestSSMSecureStringKMS_GetParameters(t *testing.T) {
 		{"/batch/x", "val-x"},
 		{"/batch/y", "val-y"},
 	} {
-		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+		_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:  p.name,
 			Type:  "SecureString",
 			Value: p.val,
@@ -151,7 +152,7 @@ func TestSSMSecureStringKMS_GetParameters(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := ssmBackend.GetParameters(&ssm.GetParametersInput{
+	out, err := ssmBackend.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names:          []string{"/batch/x", "/batch/y"},
 		WithDecryption: true,
 	})
@@ -174,7 +175,7 @@ func TestSSMSecureStringKMS_GetParametersByPath(t *testing.T) {
 		{"/path/a", "v-a"},
 		{"/path/b", "v-b"},
 	} {
-		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+		_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:  p.name,
 			Type:  "SecureString",
 			Value: p.val,
@@ -183,7 +184,7 @@ func TestSSMSecureStringKMS_GetParametersByPath(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := ssmBackend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := ssmBackend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path:           "/path/",
 		WithDecryption: true,
 	})
@@ -203,7 +204,7 @@ func TestSSMSecureStringKMS_History(t *testing.T) {
 	ssmBackend, keyID := newSSMWithKMS(t)
 
 	for _, v := range []string{"v1", "v2"} {
-		_, err := ssmBackend.PutParameter(&ssm.PutParameterInput{
+		_, err := ssmBackend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:      "/hist/key",
 			Type:      "SecureString",
 			Value:     v,
@@ -213,7 +214,7 @@ func TestSSMSecureStringKMS_History(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	hist, err := ssmBackend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	hist, err := ssmBackend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name:           "/hist/key",
 		WithDecryption: true,
 	})
@@ -233,14 +234,14 @@ func TestSSMSecureStringKMS_MockFallback(t *testing.T) {
 	// Without KMS wired, SSM uses built-in mock cipher.
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.PutParameter(&ssm.PutParameterInput{
+	_, err := backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/no-kms/secret",
 		Type:  "SecureString",
 		Value: "mock-plaintext",
 	})
 	require.NoError(t, err)
 
-	out, err := backend.GetParameter(&ssm.GetParameterInput{
+	out, err := backend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name:           "/no-kms/secret",
 		WithDecryption: true,
 	})

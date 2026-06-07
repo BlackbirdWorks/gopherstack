@@ -22,7 +22,7 @@ func TestInMemoryBackend_HistoryCap(t *testing.T) {
 	// Insert MaxHistoryCap + 10 versions.
 	total := ssm.MaxHistoryCap + 10
 	for i := range total {
-		_, err := b.PutParameter(&ssm.PutParameterInput{
+		_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:      "/capped/param",
 			Type:      "String",
 			Value:     "v",
@@ -34,7 +34,7 @@ func TestInMemoryBackend_HistoryCap(t *testing.T) {
 	assert.Equal(t, ssm.MaxHistoryCap, b.HistoryLen("/capped/param"))
 
 	// The history returned should have MaxHistoryCap entries (newest first).
-	out, err := b.GetParameterHistory(&ssm.GetParameterHistoryInput{Name: "/capped/param"})
+	out, err := b.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{Name: "/capped/param"})
 	require.NoError(t, err)
 
 	// GetParameterHistory caps at 50 by default, so just verify the newest version is present.
@@ -61,13 +61,13 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 			paramName := "/delete/test-" + tt.name
 
-			_, err := b.PutParameter(&ssm.PutParameterInput{
+			_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  paramName,
 				Type:  "String",
 				Value: "hello",
 			})
 			require.NoError(t, err)
-			_, err = b.PutParameter(&ssm.PutParameterInput{
+			_, err = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:      paramName,
 				Type:      "String",
 				Value:     "world",
@@ -76,7 +76,7 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 			require.NoError(t, err)
 
 			// Add a tag so we can verify it gets cleaned up on delete.
-			err = b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+			err = b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 				ResourceType: "Parameter",
 				ResourceID:   paramName,
 				Tags:         []ssm.Tag{{Key: "env", Value: "test"}},
@@ -87,9 +87,9 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 			assert.True(t, b.HasTagEntry(paramName), "tag entry should exist before delete")
 
 			if tt.name == "single_delete" {
-				_, err = b.DeleteParameter(&ssm.DeleteParameterInput{Name: paramName})
+				_, err = b.DeleteParameter(context.TODO(), &ssm.DeleteParameterInput{Name: paramName})
 			} else {
-				_, err = b.DeleteParameters(&ssm.DeleteParametersInput{Names: []string{paramName}})
+				_, err = b.DeleteParameters(context.TODO(), &ssm.DeleteParametersInput{Names: []string{paramName}})
 			}
 
 			require.NoError(t, err)
@@ -97,14 +97,14 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 			assert.False(t, b.HasTagEntry(paramName), "tag entry should be removed after delete")
 
 			// Re-create the parameter and confirm no stale tags bleed through.
-			_, err = b.PutParameter(&ssm.PutParameterInput{
+			_, err = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  paramName,
 				Type:  "String",
 				Value: "fresh",
 			})
 			require.NoError(t, err)
 
-			tagsOut, err := b.ListTagsForResource(&ssm.ListTagsForResourceInput{
+			tagsOut, err := b.ListTagsForResource(context.TODO(), &ssm.ListTagsForResourceInput{
 				ResourceType: "Parameter",
 				ResourceID:   paramName,
 			})
@@ -122,13 +122,13 @@ func TestJanitor_SweepsExpiredCommands(t *testing.T) {
 	b := ssm.NewInMemoryBackend()
 
 	// AWS-RunShellScript is pre-registered as a default document.
-	out1, err := b.SendCommand(&ssm.SendCommandInput{
+	out1, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 		DocumentName: "AWS-RunShellScript",
 		InstanceIDs:  []string{"i-1111"},
 	})
 	require.NoError(t, err)
 
-	out2, err := b.SendCommand(&ssm.SendCommandInput{
+	out2, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 		DocumentName: "AWS-RunShellScript",
 		InstanceIDs:  []string{"i-2222"},
 	})
@@ -155,7 +155,7 @@ func TestJanitor_SweepsExpiredCommands(t *testing.T) {
 	assert.Equal(t, 1, b.CommandInvocationCount())
 
 	// The non-expired command must still exist.
-	listOut, err := b.ListCommands(&ssm.ListCommandsInput{CommandID: out2.Command.CommandID})
+	listOut, err := b.ListCommands(context.TODO(), &ssm.ListCommandsInput{CommandID: out2.Command.CommandID})
 	require.NoError(t, err)
 	require.Len(t, listOut.Commands, 1)
 }
@@ -183,14 +183,14 @@ func TestInMemoryBackend_ResetRestoresDefaultDocuments(t *testing.T) {
 	b := ssm.NewInMemoryBackend()
 
 	// Create a parameter and a user document to verify both are cleared by Reset.
-	_, err := b.PutParameter(&ssm.PutParameterInput{
+	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "my-param",
 		Value: "value",
 		Type:  "String",
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "MyUserDoc",
 		Content: "--- user",
 	})
@@ -200,15 +200,15 @@ func TestInMemoryBackend_ResetRestoresDefaultDocuments(t *testing.T) {
 	b.Reset()
 
 	// Parameter must be gone.
-	_, err = b.GetParameter(&ssm.GetParameterInput{Name: "my-param"})
+	_, err = b.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "my-param"})
 	require.Error(t, err)
 
 	// User document must be gone.
-	_, err = b.GetDocument(&ssm.GetDocumentInput{Name: "MyUserDoc"})
+	_, err = b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "MyUserDoc"})
 	require.Error(t, err)
 
 	// Default AWS document must still be present so SendCommand works.
-	_, err = b.SendCommand(&ssm.SendCommandInput{
+	_, err = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 		DocumentName: "AWS-RunShellScript",
 		InstanceIDs:  []string{"i-1234567890abcdef0"},
 	})
@@ -222,7 +222,7 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 
 	b := ssm.NewInMemoryBackend()
 
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "CapTestDoc",
 		Content: "--- init",
 	})
@@ -231,7 +231,7 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 	// Apply MaxDocumentVersionCap + 5 updates so the cap must evict old versions.
 	total := ssm.MaxDocumentVersionCap + 5
 	for i := range total {
-		_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+		_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 			Name:    "CapTestDoc",
 			Content: fmt.Sprintf("--- version: %d", i),
 		})
@@ -241,7 +241,7 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 	assert.Equal(t, ssm.MaxDocumentVersionCap, b.DocumentVersionCount("CapTestDoc"))
 
 	// The most recent version should be retrievable via ListDocumentVersions.
-	out, err := b.ListDocumentVersions(&ssm.ListDocumentVersionsInput{Name: "CapTestDoc"})
+	out, err := b.ListDocumentVersions(context.TODO(), &ssm.ListDocumentVersionsInput{Name: "CapTestDoc"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.DocumentVersions)
 }
@@ -309,7 +309,7 @@ func TestSSMJanitor_SweepOnce_EvictsExpiredCommands(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 
 			for range tt.expiredCount {
-				out, err := b.SendCommand(&ssm.SendCommandInput{
+				out, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 					DocumentName: "AWS-RunShellScript",
 					InstanceIDs:  []string{"i-1111"},
 				})
@@ -318,7 +318,7 @@ func TestSSMJanitor_SweepOnce_EvictsExpiredCommands(t *testing.T) {
 			}
 
 			for range tt.unexpiredCount {
-				_, err := b.SendCommand(&ssm.SendCommandInput{
+				_, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 					DocumentName: "AWS-RunShellScript",
 					InstanceIDs:  []string{"i-2222"},
 				})
