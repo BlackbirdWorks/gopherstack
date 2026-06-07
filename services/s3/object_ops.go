@@ -547,6 +547,12 @@ func (h *S3Handler) getObject(
 ) {
 	h.setOperation(ctx, "GetObject")
 
+	// If the bucket has an Object Lambda configuration, delegate to the lambda path.
+	if lambdaARN := h.objectLambdaARN(bucketName); lambdaARN != "" {
+		h.handleObjectLambdaGetObject(ctx, w, r, bucketName, key, lambdaARN)
+		return
+	}
+
 	if err := validateExpectedBucketOwner(r); err != nil {
 		WriteError(ctx, w, r, err)
 

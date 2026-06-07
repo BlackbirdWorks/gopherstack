@@ -33,14 +33,19 @@ const (
 	errEntityNotFoundCode = "EntityNotFoundException"
 	stateRunning          = "RUNNING"
 	stateStarting         = "STARTING"
+	stateReady            = "READY"
 	stateStopping         = "STOPPING"
 	stateStopped          = "STOPPED"
-	stateReady            = "READY"
 	stateSucceeded        = "SUCCEEDED"
-	stateAvailable        = "AVAILABLE"
-	stateDeleting         = "DELETING"
-	stateProvisioning     = "PROVISIONING"
-	stateActive           = "ACTIVE"
+
+	jobTransitionDelay     = 150 * time.Millisecond // STARTING→RUNNING
+	jobSucceededDelay      = 300 * time.Millisecond // RUNNING→SUCCEEDED
+	crawlerTransitionDelay = 200 * time.Millisecond // RUNNING→READY
+	reconcilerTickDivisor  = 5
+	stateAvailable         = "AVAILABLE"
+	stateDeleting          = "DELETING"
+	stateProvisioning      = "PROVISIONING"
+	stateActive            = "ACTIVE"
 
 	// maxNameLen is the maximum length (in characters) for Glue resource names.
 	// AWS enforces a 255-character limit for database, table, crawler, and job names.
@@ -380,13 +385,19 @@ type InMemoryBackend struct {
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
-	accountID                 string
-	region                    string
+
+	// lifecycle reconciler
+	jobRunReadyAt  map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
+	jobRunDoneAt   map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
+	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
+	stopCh         chan struct{}
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		databases:                 make(map[string]*Database),
 		tables:                    make(map[string]*Table),
 		crawlers:                  make(map[string]*Crawler),
@@ -432,6 +443,125 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
+		jobRunReadyAt:             make(map[string]map[string]time.Time),
+		jobRunDoneAt:              make(map[string]map[string]time.Time),
+		crawlerReadyAt:            make(map[string]time.Time),
+		stopCh:                    make(chan struct{}),
+	}
+
+	go b.runReconciler()
+
+	return b
+}
+
+// Close stops the background reconciler goroutine.
+func (b *InMemoryBackend) Close() {
+	select {
+	case <-b.stopCh:
+	default:
+		close(b.stopCh)
+	}
+}
+
+// runReconciler periodically transitions Glue job runs and crawlers.
+func (b *InMemoryBackend) runReconciler() {
+	ticker := time.NewTicker(jobTransitionDelay / reconcilerTickDivisor)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.mu.Lock("glueReconciler")
+			b.reconcileLocked()
+			b.mu.Unlock()
+		}
+	}
+}
+
+// advanceJobRunState applies STARTING→RUNNING and RUNNING→SUCCEEDED transitions for a
+// single run, consulting the readyMap and doneMap timing tables. Must be called with b.mu held.
+func advanceJobRunState(run *JobRun, readyMap, doneMap map[string]time.Time, now time.Time) {
+	if readyMap != nil {
+		if t, ok := readyMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateStarting {
+				run.JobRunState = stateRunning
+			}
+			delete(readyMap, run.ID)
+		}
+	}
+
+	if doneMap != nil {
+		if t, ok := doneMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateRunning {
+				run.JobRunState = stateSucceeded
+				run.CompletedOn = float64(now.Unix())
+				run.ExecutionTime = int(jobSucceededDelay.Seconds())
+			}
+			delete(doneMap, run.ID)
+		}
+	}
+}
+
+// reconcileLocked applies pending lifecycle transitions. Must be called with b.mu held.
+func (b *InMemoryBackend) reconcileLocked() {
+	now := time.Now()
+
+	// Job run transitions: STARTING→RUNNING, RUNNING→SUCCEEDED.
+	for jobName, runs := range b.jobRuns {
+		readyMap := b.jobRunReadyAt[jobName]
+		doneMap := b.jobRunDoneAt[jobName]
+
+		for _, run := range runs {
+			advanceJobRunState(run, readyMap, doneMap, now)
+		}
+	}
+
+	// Crawler transitions: RUNNING→READY, create catalog tables from S3 targets.
+	for name, readyAt := range b.crawlerReadyAt {
+		if now.After(readyAt) {
+			c, ok := b.crawlers[name]
+			if ok && c.State == stateRunning {
+				c.State = stateReady
+				c.LastUpdated = float64(now.Unix())
+				b.createCrawlerTablesLocked(c)
+			}
+
+			delete(b.crawlerReadyAt, name)
+		}
+	}
+}
+
+// createCrawlerTablesLocked creates a Glue table per S3 prefix in the crawler's targets.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) {
+	for _, s3t := range c.Targets.S3Targets {
+		path := strings.TrimPrefix(s3t.Path, "s3://")
+		// Extract prefix after bucket name.
+		var prefix string
+		if _, after, ok := strings.Cut(path, "/"); ok {
+			prefix = strings.Trim(after, "/")
+		}
+
+		if prefix == "" {
+			prefix = "default"
+		}
+
+		// Sanitize prefix for use as table name.
+		tableName := strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(prefix)
+		if tableName == "" {
+			tableName = "default"
+		}
+
+		key := c.DatabaseName + "|" + tableName
+		if _, exists := b.tables[key]; !exists {
+			b.tables[key] = &Table{
+				Name:         tableName,
+				DatabaseName: c.DatabaseName,
+				CreateTime:   float64(time.Now().Unix()),
+			}
+		}
 	}
 }
 
@@ -1713,18 +1843,31 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 		}
 	}
 
+	now := time.Now()
 	run := &JobRun{
 		ID: fmt.Sprintf(
 			"jr_%d_%04d",
-			time.Now().UnixNano(),
+			now.UnixNano(),
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
 		JobName:     jobName,
 		JobRunState: stateStarting,
-		StartedOn:   float64(time.Now().Unix()),
+		StartedOn:   float64(now.Unix()),
 		Arguments:   maps.Clone(arguments),
 	}
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
+
+	// Schedule STARTING→RUNNING→SUCCEEDED transitions.
+	if b.jobRunReadyAt[jobName] == nil {
+		b.jobRunReadyAt[jobName] = make(map[string]time.Time)
+	}
+
+	if b.jobRunDoneAt[jobName] == nil {
+		b.jobRunDoneAt[jobName] = make(map[string]time.Time)
+	}
+
+	b.jobRunReadyAt[jobName][run.ID] = now.Add(jobTransitionDelay)
+	b.jobRunDoneAt[jobName][run.ID] = now.Add(jobTransitionDelay + jobSucceededDelay)
 
 	bm := b.jobBookmarks[jobName]
 	if bm == nil {
@@ -1869,6 +2012,8 @@ func (b *InMemoryBackend) ResetJobBookmarkWithResult(jobName string) (*JobBookma
 // --- Crawler scheduling operations ---
 
 // StartCrawler sets a crawler's state to RUNNING (requires READY state).
+// A background reconciler transitions the crawler to READY after crawlerTransitionDelay,
+// creating Glue Catalog tables for each configured S3 prefix.
 func (b *InMemoryBackend) StartCrawler(name string) error {
 	b.mu.Lock("StartCrawler")
 	defer b.mu.Unlock()
@@ -1877,11 +2022,16 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	if !ok {
 		return ErrNotFound
 	}
+
 	if c.State == stateRunning || c.State == stateStopping {
 		return ErrCrawlerRunning
 	}
+
+	now := time.Now()
 	c.State = stateRunning
-	c.LastUpdated = float64(time.Now().Unix())
+	c.LastUpdated = float64(now.Unix())
+
+	b.crawlerReadyAt[name] = now.Add(crawlerTransitionDelay)
 
 	return nil
 }

@@ -36,6 +36,29 @@ type StorageBackend interface {
 	EnableProfile(id string) (*Profile, error)
 	DisableProfile(id string) (*Profile, error)
 
+	// CRL operations
+	ImportCrl(name string, crlData []byte, trustAnchorArn string, enabled bool, tags []TagEntry) (*Crl, error)
+	GetCrl(id string) (*Crl, error)
+	ListCrls(pageToken string, maxResults int) ([]*Crl, string, error)
+	UpdateCrl(id, name string, crlData []byte) (*Crl, error)
+	DeleteCrl(id string) (*Crl, error)
+	EnableCrl(id string) (*Crl, error)
+	DisableCrl(id string) (*Crl, error)
+
+	// Subject operations
+	GetSubject(id string) (*Subject, error)
+	ListSubjects(pageToken string, maxResults int) ([]*Subject, string, error)
+
+	// Attribute mapping operations
+	PutAttributeMapping(profileID, certificateField string, rules []MappingRule) (*Profile, error)
+	DeleteAttributeMapping(profileID, certificateField string, specifiers []string) (*Profile, error)
+	GetAttributeMappings(profileID string) []AttributeMapping
+
+	// Notification settings operations
+	PutNotificationSettings(trustAnchorID string, settings []NotificationSetting) (*TrustAnchor, error)
+	ResetNotificationSettings(trustAnchorID string, keys []NotificationSettingKey) (*TrustAnchor, error)
+	GetNotificationSettings(trustAnchorID string) []NotificationSetting
+
 	// Tag operations
 	TagResource(resourceARN string, tags []TagEntry) error
 	UntagResource(resourceARN string, tagKeys []string) error

@@ -18,32 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := accessanalyzer.NewHandler(backend)
 
-	// Operations not yet implemented — acknowledged but not supported.
-	notImplemented := []string{
-		"ApplyArchiveRule",
-		"CancelPolicyGeneration",
-		"CheckAccessNotGranted",
-		"CheckNoNewAccess",
-		"CheckNoPublicAccess",
-		"CreateAccessPreview",
-		"CreateServiceLinkedAnalyzer",
-		"DeleteServiceLinkedAnalyzer",
-		"GenerateFindingRecommendation",
-		"GetAccessPreview",
-		"GetAnalyzedResource",
-		"GetFindingRecommendation",
-		"GetFindingsStatistics",
-		"GetFindingV2",
-		"GetGeneratedPolicy",
-		"ListAccessPreviewFindings",
-		"ListAccessPreviews",
-		"ListAnalyzedResources",
-		"ListFindingsV2",
-		"ListPolicyGenerations",
-		"StartPolicyGeneration",
-		"UpdateAnalyzer",
-		"ValidatePolicy",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &aasdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

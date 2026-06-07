@@ -90,6 +90,100 @@ type StorageBackend interface {
 	// Describe entity (user, group, or resource by email or ID)
 	DescribeEntity(orgID, email string) (*EntityDescription, error)
 
+	// Availability configurations
+	CreateAvailabilityConfiguration(
+		orgID, domainName string,
+		ewsProvider *AvailabilityEwsProvider,
+		lambdaARN string,
+	) (*AvailabilityConfiguration, error)
+	DeleteAvailabilityConfiguration(orgID, domainName string) error
+	UpdateAvailabilityConfiguration(
+		orgID, domainName string,
+		ewsProvider *AvailabilityEwsProvider,
+		lambdaARN string,
+	) error
+	ListAvailabilityConfigurations(
+		orgID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*AvailabilityConfiguration, string, error)
+	TestAvailabilityConfiguration(orgID, domainName string) (bool, string, error)
+
+	// Mobile device access rules
+	CreateMobileDeviceAccessRule(orgID, name, effect, description string,
+		deviceModels, notDeviceModels, deviceTypes, notDeviceTypes,
+		deviceOperatingSystems, notDeviceOperatingSystems, deviceUserAgents, notDeviceUserAgents []string,
+	) (*MobileDeviceAccessRule, error)
+	DeleteMobileDeviceAccessRule(orgID, ruleID string) error
+	UpdateMobileDeviceAccessRule(orgID, ruleID, name, effect, description string,
+		deviceModels, notDeviceModels, deviceTypes, notDeviceTypes,
+		deviceOperatingSystems, notDeviceOperatingSystems, deviceUserAgents, notDeviceUserAgents []string,
+	) error
+	ListMobileDeviceAccessRules(orgID string) ([]*MobileDeviceAccessRule, error)
+	GetMobileDeviceAccessEffect(
+		orgID, deviceType, deviceModel, deviceOS, deviceUserAgent string,
+	) (string, []*MobileDeviceMatchedRule, error)
+
+	// Mobile device access overrides
+	PutMobileDeviceAccessOverride(orgID, userID, deviceID, effect, description string) error
+	DeleteMobileDeviceAccessOverride(orgID, userID, deviceID string) error
+	GetMobileDeviceAccessOverride(orgID, userID, deviceID string) (*MobileDeviceAccessOverride, error)
+	ListMobileDeviceAccessOverrides(
+		orgID, userID, deviceID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*MobileDeviceAccessOverride, string, error)
+
+	// Email monitoring configuration
+	PutEmailMonitoringConfiguration(orgID, roleARN, logGroupARN string) error
+	DeleteEmailMonitoringConfiguration(orgID string) error
+	DescribeEmailMonitoringConfiguration(orgID string) (*EmailMonitoringConfiguration, error)
+
+	// Inbound DMARC settings
+	PutInboundDmarcSettings(orgID string, enforced bool) error
+	DescribeInboundDmarcSettings(orgID string) (bool, error)
+
+	// Retention policies
+	PutRetentionPolicy(orgID, id, name, description string, folderConfigurations []*FolderConfiguration) error
+	DeleteRetentionPolicy(orgID, id string) error
+	GetDefaultRetentionPolicy(orgID string) (*RetentionPolicy, error)
+
+	// Mailbox export jobs
+	StartMailboxExportJob(
+		orgID, entityID, description, roleARN, kmsKeyARN, s3BucketName, s3Prefix string,
+	) (*MailboxExportJob, error)
+	CancelMailboxExportJob(orgID, jobID string) error
+	DescribeMailboxExportJob(orgID, jobID string) (*MailboxExportJob, error)
+	ListMailboxExportJobs(orgID string, maxResults int32, nextToken string) ([]*MailboxExportJob, string, error)
+
+	// Identity center applications
+	CreateIdentityCenterApplication(instanceARN, name string) (string, error)
+	DeleteIdentityCenterApplication(applicationARN string) error
+
+	// Identity provider configuration
+	PutIdentityProviderConfiguration(
+		orgID, authMode string,
+		identityCenterAppARN, identityCenterInstanceARN, patStatus string,
+		patLifetimeDays int32,
+	) error
+	DeleteIdentityProviderConfiguration(orgID string) error
+	DescribeIdentityProviderConfiguration(orgID string) (*IdentityProviderConfiguration, error)
+
+	// Personal access tokens
+	DeletePersonalAccessToken(orgID, tokenID string) error
+	GetPersonalAccessTokenMetadata(orgID, tokenID string) (*PersonalAccessToken, error)
+	ListPersonalAccessTokens(
+		orgID, userID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*PersonalAccessToken, string, error)
+
+	// Impersonation role effect
+	GetImpersonationRoleEffect(orgID, roleID, targetUser string) (string, string, []*ImpersonationMatchedRule, error)
+
+	// Assume impersonation role
+	AssumeImpersonationRole(orgID, roleID string) (string, int64, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -289,6 +383,122 @@ type EntityDescription struct {
 	Name     string
 	Type     string
 	State    string
+}
+
+// AvailabilityEwsProvider holds EWS availability provider credentials.
+type AvailabilityEwsProvider struct {
+	EwsEndpoint string
+	EwsUsername string
+	EwsPassword string
+}
+
+// AvailabilityConfiguration holds an availability provider config.
+type AvailabilityConfiguration struct {
+	DateCreated  time.Time
+	DateModified time.Time
+	DomainName   string
+	ProviderType string
+	EwsEndpoint  string
+	EwsUsername  string
+	LambdaARN    string
+}
+
+// MobileDeviceAccessRule holds a mobile device access rule.
+type MobileDeviceAccessRule struct {
+	DateCreated               time.Time
+	DateModified              time.Time
+	RuleID                    string
+	Name                      string
+	Effect                    string
+	Description               string
+	DeviceModels              []string
+	NotDeviceModels           []string
+	DeviceTypes               []string
+	NotDeviceTypes            []string
+	DeviceOperatingSystems    []string
+	NotDeviceOperatingSystems []string
+	DeviceUserAgents          []string
+	NotDeviceUserAgents       []string
+}
+
+// MobileDeviceMatchedRule is a matched rule summary.
+type MobileDeviceMatchedRule struct {
+	RuleID string
+	Name   string
+}
+
+// MobileDeviceAccessOverride holds a per-user per-device override.
+type MobileDeviceAccessOverride struct {
+	DateCreated  time.Time
+	DateModified time.Time
+	UserID       string
+	DeviceID     string
+	Effect       string
+	Description  string
+}
+
+// EmailMonitoringConfiguration holds email monitoring config.
+type EmailMonitoringConfiguration struct {
+	RoleARN     string
+	LogGroupARN string
+}
+
+// FolderConfiguration holds a retention policy folder config.
+type FolderConfiguration struct {
+	Name   string
+	Action string
+	Period *int32
+}
+
+// RetentionPolicy holds a retention policy.
+type RetentionPolicy struct {
+	ID                   string
+	Name                 string
+	Description          string
+	FolderConfigurations []*FolderConfiguration
+}
+
+// MailboxExportJob holds a mailbox export job.
+type MailboxExportJob struct {
+	JobID             string
+	EntityID          string
+	Description       string
+	RoleARN           string
+	KmsKeyARN         string
+	S3BucketName      string
+	S3Prefix          string
+	S3Path            string
+	EstimatedProgress int32
+	State             string
+	ErrorInfo         string
+	StartTime         time.Time
+	EndTime           time.Time
+}
+
+// IdentityProviderConfiguration holds IdP configuration.
+type IdentityProviderConfiguration struct {
+	AuthMode                  string
+	IdentityCenterAppARN      string
+	IdentityCenterInstanceARN string
+	PATStatus                 string
+	PATLifetimeDays           *int32
+}
+
+// PersonalAccessToken holds PAT metadata.
+type PersonalAccessToken struct {
+	TokenID      string
+	UserID       string
+	Name         string
+	DateCreated  time.Time
+	DateLastUsed time.Time
+	ExpiresTime  time.Time
+	Scopes       []string
+}
+
+// ImpersonationMatchedRule is a matched impersonation rule.
+type ImpersonationMatchedRule struct {
+	RuleID string
+	Name   string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

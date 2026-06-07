@@ -691,5 +691,5 @@ func TestAudit1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newAuditHandler(t)
-	assert.Equal(t, 13, inspector2.HandlerOpsLen(h))
+	assert.Equal(t, 75, inspector2.HandlerOpsLen(h))
 }

@@ -5,6 +5,7 @@ package elbv2
 import (
 	"fmt"
 	"maps"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -414,13 +415,23 @@ type RulePriority struct {
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
+// targetHealthKey builds a map key for a target in a target group.
+func targetHealthKey(id string, port int32) string {
+	return id + ":" + strconv.Itoa(int(port))
+}
+
+const targetHealthDelay = 200 * time.Millisecond
+
 type InMemoryBackend struct {
 	loadBalancers map[string]*LoadBalancer // keyed by ARN
 	targetGroups  map[string]*TargetGroup  // keyed by ARN
 	listeners     map[string]*Listener     // keyed by ARN
 	rules         map[string]*Rule         // keyed by ARN
 	trustStores   map[string]*TrustStore   // keyed by ARN
+	// lifecycle: tracks when initial targets become healthy.
+	targetReadyAt map[string]map[string]time.Time // tgArn → targetKey → readyAt
 	mu            *lockmetrics.RWMutex
+	stopCh        chan struct{}
 	accountID     string
 	region        string
 	ruleCounter   int // monotonically increasing counter for rule ARN generation
@@ -428,7 +439,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		loadBalancers: make(map[string]*LoadBalancer),
 		targetGroups:  make(map[string]*TargetGroup),
 		listeners:     make(map[string]*Listener),
@@ -437,7 +448,156 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:     accountID,
 		region:        region,
 		mu:            lockmetrics.New("elbv2"),
+		targetReadyAt: make(map[string]map[string]time.Time),
+		stopCh:        make(chan struct{}),
 	}
+
+	go b.runHealthReconciler()
+
+	return b
+}
+
+// Close stops the background health reconciler.
+func (b *InMemoryBackend) Close() {
+	select {
+	case <-b.stopCh:
+	default:
+		close(b.stopCh)
+	}
+}
+
+// runHealthReconciler transitions registered targets from initial to healthy.
+func (b *InMemoryBackend) runHealthReconciler() {
+	ticker := time.NewTicker(targetHealthDelay / 5) //nolint:mnd // 5 ticks per delay period
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.reconcileTargetHealth()
+		}
+	}
+}
+
+type pendingTarget struct {
+	tg        *TargetGroup
+	tgArn     string
+	targetKey string
+}
+
+type healthResult struct {
+	key   string
+	tgArn string
+	state string
+}
+
+// reconcileTargetHealth promotes initial targets to healthy (or probes HTTP targets).
+func (b *InMemoryBackend) reconcileTargetHealth() {
+	now := time.Now()
+
+	b.mu.RLock("reconcileTargetHealth-read")
+	pending := b.collectPendingTargets(now)
+	b.mu.RUnlock()
+
+	if len(pending) == 0 {
+		return
+	}
+
+	results := resolveTargetHealth(pending)
+
+	b.mu.Lock("reconcileTargetHealth-write")
+	b.applyHealthResults(results)
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) collectPendingTargets(now time.Time) []pendingTarget {
+	var pending []pendingTarget
+
+	for tgArn, readyMap := range b.targetReadyAt {
+		for key, readyAt := range readyMap {
+			if now.After(readyAt) {
+				if tg := b.targetGroups[tgArn]; tg != nil {
+					pending = append(pending, pendingTarget{tgArn: tgArn, targetKey: key, tg: tg})
+				}
+			}
+		}
+	}
+
+	return pending
+}
+
+func resolveTargetHealth(pending []pendingTarget) []healthResult {
+	results := make([]healthResult, 0, len(pending))
+
+	for _, p := range pending {
+		state := healthStateHealthy
+
+		if p.tg.HealthCheckProtocol == protoHTTP || p.tg.HealthCheckProtocol == protoHTTPS {
+			state = probeTargetHTTP(p.tg, p.targetKey)
+		}
+
+		results = append(results, healthResult{key: p.targetKey, tgArn: p.tgArn, state: state})
+	}
+
+	return results
+}
+
+func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
+	for _, r := range results {
+		tg, ok := b.targetGroups[r.tgArn]
+		if !ok {
+			continue
+		}
+
+		for i := range tg.Targets {
+			if targetHealthKey(tg.Targets[i].ID, tg.Targets[i].Port) == r.key {
+				if tg.Targets[i].HealthState == "initial" {
+					tg.Targets[i].HealthState = r.state
+					tg.Targets[i].HealthReason = ""
+				}
+			}
+		}
+
+		if rm := b.targetReadyAt[r.tgArn]; rm != nil {
+			delete(rm, r.key)
+		}
+	}
+}
+
+// probeTargetHTTP performs a real HTTP health check against the target.
+// Returns healthStateHealthy on 2xx, "unhealthy" otherwise. Falls back to healthStateHealthy on unreachable targets.
+func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
+	id := strings.SplitN(targetKey, ":", 2)[0] //nolint:mnd // key format: "id:port"
+
+	port := tg.HealthCheckPort
+	if port == "" || port == "traffic-port" {
+		port = strconv.Itoa(int(tg.Port))
+	}
+
+	path := tg.HealthCheckPath
+	if path == "" {
+		path = "/"
+	}
+
+	scheme := strings.ToLower(tg.HealthCheckProtocol)
+	url := scheme + "://" + id + ":" + port + path
+
+	client := &http.Client{Timeout: 2 * time.Second} //nolint:mnd // 2s probe timeout
+
+	resp, err := client.Get(url) //nolint:noctx // probe is fire-and-forget
+	if err != nil {
+		return healthStateHealthy // unreachable → treat as healthy in mock
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return healthStateHealthy
+	}
+
+	return "unhealthy"
 }
 
 // validatePort returns ErrInvalidParameter if port is not in the valid range 1-65535.
@@ -1390,12 +1550,20 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 		existing[t.ID+":"+strconv.Itoa(int(t.Port))] = true
 	}
 
+	now := time.Now()
+
 	for _, t := range targets {
-		key := t.ID + ":" + strconv.Itoa(int(t.Port))
+		key := targetHealthKey(t.ID, t.Port)
 		if !existing[key] {
 			if t.HealthState == "" {
 				t.HealthState = "initial"
 				t.HealthReason = "Elb.InitialHealthChecking"
+
+				if b.targetReadyAt[tgArn] == nil {
+					b.targetReadyAt[tgArn] = make(map[string]time.Time)
+				}
+
+				b.targetReadyAt[tgArn][key] = now.Add(targetHealthDelay)
 			}
 
 			tg.Targets = append(tg.Targets, t)
@@ -1448,7 +1616,7 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	for i, t := range tg.Targets {
 		state := t.HealthState
 		if state == "" {
-			state = "healthy"
+			state = healthStateHealthy
 		}
 
 		result[i] = TargetHealthDescription{
@@ -1485,18 +1653,19 @@ func (b *InMemoryBackend) SetTargetHealthState(tgArn, targetID string, port int3
 }
 
 const (
-	protoHTTP         = "HTTP"
-	protoHTTPS        = "HTTPS"
-	protoTLS          = "TLS"
-	lbTypeApplication = "application"
-	lbTypeNetwork     = "network"
-	lbTypeGateway     = "gateway"
-	targetTypeLambda  = "lambda"
-	priorityDefault   = "default"
-	maxNameLength     = 32
-	maxTagKeyLen      = 128
-	maxTagValueLen    = 256
-	maxTagsPerRes     = 50
+	healthStateHealthy = "healthy"
+	protoHTTP          = "HTTP"
+	protoHTTPS         = "HTTPS"
+	protoTLS           = "TLS"
+	lbTypeApplication  = "application"
+	lbTypeNetwork      = "network"
+	lbTypeGateway      = "gateway"
+	targetTypeLambda   = "lambda"
+	priorityDefault    = "default"
+	maxNameLength      = 32
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+	maxTagsPerRes      = 50
 
 	attrAccessLogsS3Enabled           = "access_logs.s3.enabled"
 	attrDeletionProtectionEnabled     = "deletion_protection.enabled"

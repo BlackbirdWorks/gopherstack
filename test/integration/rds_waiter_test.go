@@ -38,7 +38,9 @@ func TestIntegration_RDS_DBInstanceAvailableWaiter(t *testing.T) {
 		})
 	})
 
-	waiter := rdssdk.NewDBInstanceAvailableWaiter(client)
+	waiter := rdssdk.NewDBInstanceAvailableWaiter(client, func(o *rdssdk.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &rdssdk.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(id),
@@ -76,7 +78,9 @@ func TestIntegration_RDS_DBInstanceDeletedWaiter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waiter := rdssdk.NewDBInstanceDeletedWaiter(client)
+	waiter := rdssdk.NewDBInstanceDeletedWaiter(client, func(o *rdssdk.DBInstanceDeletedWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &rdssdk.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(id),

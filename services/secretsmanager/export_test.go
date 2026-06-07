@@ -40,3 +40,9 @@ func NextCronTime(expr string, from time.Time) (time.Time, bool) {
 func RotationDue(rules *RotationRulesType, now time.Time, base *float64) bool {
 	return rotationDue(rules, now, base)
 }
+
+// RunScheduledRotationsForTest exposes runScheduledRotations for deterministic testing.
+// Pass a time far enough in the future to ensure all due rotations fire.
+func (b *InMemoryBackend) RunScheduledRotationsForTest(now time.Time) {
+	b.runScheduledRotations(now)
+}

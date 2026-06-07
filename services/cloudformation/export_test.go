@@ -77,3 +77,33 @@ func (b *InMemoryBackend) ResourceCountForStack(stackID string) int {
 
 	return len(b.resources[stackID])
 }
+
+// ForceRemoveResource removes a resource from the stack's resource map, simulating
+// an out-of-band deletion for drift detection tests.
+func (b *InMemoryBackend) ForceRemoveResource(stackName, logicalID string) {
+	b.mu.Lock("ForceRemoveResource")
+	defer b.mu.Unlock()
+
+	stack, ok := b.stacks[stackName]
+	if !ok {
+		return
+	}
+
+	delete(b.resources[stack.StackID], logicalID)
+}
+
+// ForceModifyResourceProperties overwrites a resource's stored properties, simulating
+// an out-of-band modification for drift detection tests.
+func (b *InMemoryBackend) ForceModifyResourceProperties(stackName, logicalID string, props map[string]any) {
+	b.mu.Lock("ForceModifyResourceProperties")
+	defer b.mu.Unlock()
+
+	stack, ok := b.stacks[stackName]
+	if !ok {
+		return
+	}
+
+	if res, ok2 := b.resources[stack.StackID][logicalID]; ok2 {
+		res.Properties = props
+	}
+}

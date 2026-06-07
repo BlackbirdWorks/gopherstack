@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	statusDeployed = "Deployed"
+	statusDeployed   = "Deployed"
+	statusInProgress = "InProgress"
 
 	// maxInvalidationPaths is the AWS limit on paths per invalidation batch.
 	maxInvalidationPaths = 3000
@@ -521,13 +522,17 @@ type InMemoryBackend struct {
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
 	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
+	// lifecycle: tracks when InProgress invalidations become Completed.
+	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
+	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
+	stopCh                    chan struct{}
+	accountID                 string
+	region                    string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		distributions:                       make(map[string]*Distribution),
 		distributionARNs:                    make(map[string]string),
 		distributionCallerRefs:              make(map[string]string),
@@ -577,9 +582,74 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tenantInvalidations:                 make(map[string][]*Invalidation),
 		keyValueStoreData:                   make(map[string]map[string]string),
 		keyValueDataETags:                   make(map[string]string),
+		invalidationReadyAt:                 make(map[string]map[string]time.Time),
+		tenantInvalidationReadyAt:           make(map[string]map[string]time.Time),
+		stopCh:                              make(chan struct{}),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
 		region:                              region,
+	}
+
+	go b.runInvalidationReconciler()
+
+	return b
+}
+
+// Close stops the background reconciler goroutine.
+func (b *InMemoryBackend) Close() {
+	select {
+	case <-b.stopCh:
+	default:
+		close(b.stopCh)
+	}
+}
+
+// runInvalidationReconciler transitions InProgress invalidations to Completed.
+func (b *InMemoryBackend) runInvalidationReconciler() {
+	const tick = 20 * time.Millisecond
+
+	timer := time.NewTicker(tick)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case <-timer.C:
+			b.mu.Lock("invalidationReconciler")
+			b.reconcileInvalidationsLocked()
+			b.mu.Unlock()
+		}
+	}
+}
+
+// reconcileInvalidationsLocked completes ready invalidations. Must hold b.mu.
+func (b *InMemoryBackend) reconcileInvalidationsLocked() {
+	now := time.Now()
+
+	for distID, invMap := range b.invalidationReadyAt {
+		reconcileInvMap(invMap, b.invalidations[distID], now)
+	}
+
+	for tenantID, invMap := range b.tenantInvalidationReadyAt {
+		reconcileInvMap(invMap, b.tenantInvalidations[tenantID], now)
+	}
+}
+
+// reconcileInvMap marks ready InProgress invalidations as Completed and removes them from readyAt.
+func reconcileInvMap(invMap map[string]time.Time, invs []*Invalidation, now time.Time) {
+	for invID, readyAt := range invMap {
+		if !now.After(readyAt) {
+			continue
+		}
+
+		for _, inv := range invs {
+			if inv.ID == invID && inv.Status == statusInProgress {
+				inv.Status = "Completed"
+			}
+		}
+
+		delete(invMap, invID)
 	}
 }
 
@@ -977,14 +1047,24 @@ func (b *InMemoryBackend) CreateInvalidation(
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
+	const invalidationDelay = 100 * time.Millisecond
+
+	now := time.Now().UTC()
 	inv := &Invalidation{
 		ID:         generateID(),
-		Status:     "InProgress",
-		CreateTime: time.Now().UTC(),
+		Status:     statusInProgress,
+		CreateTime: now,
 		Paths:      append([]string(nil), paths...),
 		CallerRef:  callerRef,
 	}
 	b.invalidations[distributionID] = append(b.invalidations[distributionID], inv)
+
+	if b.invalidationReadyAt[distributionID] == nil {
+		b.invalidationReadyAt[distributionID] = make(map[string]time.Time)
+	}
+
+	b.invalidationReadyAt[distributionID][inv.ID] = now.Add(invalidationDelay)
+
 	cp := *inv
 	cp.Paths = append([]string(nil), inv.Paths...)
 

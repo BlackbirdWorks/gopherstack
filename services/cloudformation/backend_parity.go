@@ -126,8 +126,8 @@ func (b *InMemoryBackend) SimulateDrift(stackName string) error {
 }
 
 // DescribeStackResourceDrifts returns drift information for all resources in a stack.
-// Resources marked DRIFTED via SimulateDrift are returned with DRIFTED status;
-// all others are IN_SYNC.
+// Uses per-resource drift statuses from DetectStackDrift when available;
+// falls back to the legacy SimulateDrift DRIFTED flag for backward compatibility.
 func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error) {
 	b.mu.RLock("DescribeStackResourceDrifts")
 	defer b.mu.RUnlock()
@@ -137,13 +137,19 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 		return nil, ErrStackNotFound
 	}
 
-	// Check if there is a DRIFTED detection for this stack.
-	drifted := false
-	for _, det := range b.driftDetections {
-		if det.StackID == stack.StackID && det.StackDriftStatus == driftStatusDrifted {
-			drifted = true
+	// Use per-resource drift statuses if populated by DetectStackDrift.
+	perResourceStatuses := b.resourceDriftStatus[stack.StackID]
 
-			break
+	// Legacy SimulateDrift fallback: if any detection has DRIFTED status and
+	// no per-resource data exists, mark all as DRIFTED.
+	legacyDrifted := false
+	if len(perResourceStatuses) == 0 {
+		for _, det := range b.driftDetections {
+			if det.StackID == stack.StackID && det.StackDriftStatus == driftStatusDrifted {
+				legacyDrifted = true
+
+				break
+			}
 		}
 	}
 
@@ -151,7 +157,11 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	drifts := make([]StackResourceDrift, 0, len(resMap))
 	for _, res := range resMap {
 		status := driftStatusInSync
-		if drifted {
+		if len(perResourceStatuses) > 0 {
+			if s, ok2 := perResourceStatuses[res.LogicalID]; ok2 {
+				status = s
+			}
+		} else if legacyDrifted {
 			status = driftStatusDrifted
 		}
 		drifts = append(drifts, StackResourceDrift{

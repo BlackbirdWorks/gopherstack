@@ -442,10 +442,16 @@ type ReplicationConfiguration struct {
 
 // ReplicationRule is a single replication rule within a ReplicationConfiguration.
 type ReplicationRule struct {
-	Destination ReplicationDestination `xml:"Destination"`
-	ID          string                 `xml:"ID,omitempty"`
-	Prefix      string                 `xml:"Prefix,omitempty"`
-	Status      string                 `xml:"Status"`
+	Destination             ReplicationDestination  `xml:"Destination"`
+	DeleteMarkerReplication DeleteMarkerReplication `xml:"DeleteMarkerReplication"`
+	ID                      string                  `xml:"ID,omitempty"`
+	Prefix                  string                  `xml:"Prefix,omitempty"`
+	Status                  string                  `xml:"Status"`
+}
+
+// DeleteMarkerReplication controls whether delete markers are replicated.
+type DeleteMarkerReplication struct {
+	Status string `xml:"Status"`
 }
 
 // ReplicationDestination specifies the destination bucket for replication.

@@ -18,44 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := workmail.NewInMemoryBackend("000000000000", "us-east-1")
 	h := workmail.NewHandler(backend)
 
-	notImplemented := []string{
-		"AssumeImpersonationRole",
-		"CancelMailboxExportJob",
-		"CreateAvailabilityConfiguration",
-		"CreateIdentityCenterApplication",
-		"CreateMobileDeviceAccessRule",
-		"DeleteAvailabilityConfiguration",
-		"DeleteEmailMonitoringConfiguration",
-		"DeleteIdentityCenterApplication",
-		"DeleteIdentityProviderConfiguration",
-		"DeleteMobileDeviceAccessOverride",
-		"DeleteMobileDeviceAccessRule",
-		"DeletePersonalAccessToken",
-		"DeleteRetentionPolicy",
-		"DescribeEmailMonitoringConfiguration",
-		"DescribeIdentityProviderConfiguration",
-		"DescribeInboundDmarcSettings",
-		"DescribeMailboxExportJob",
-		"GetDefaultRetentionPolicy",
-		"GetImpersonationRoleEffect",
-		"GetMobileDeviceAccessEffect",
-		"GetMobileDeviceAccessOverride",
-		"GetPersonalAccessTokenMetadata",
-		"ListAvailabilityConfigurations",
-		"ListMailboxExportJobs",
-		"ListMobileDeviceAccessOverrides",
-		"ListMobileDeviceAccessRules",
-		"ListPersonalAccessTokens",
-		"PutEmailMonitoringConfiguration",
-		"PutIdentityProviderConfiguration",
-		"PutInboundDmarcSettings",
-		"PutMobileDeviceAccessOverride",
-		"PutRetentionPolicy",
-		"StartMailboxExportJob",
-		"TestAvailabilityConfiguration",
-		"UpdateAvailabilityConfiguration",
-		"UpdateMobileDeviceAccessRule",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &workmailsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

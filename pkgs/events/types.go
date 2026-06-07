@@ -90,12 +90,15 @@ func (e *ObjectDeletedEvent) EventType() string {
 // SNSPublishedEvent is emitted whenever a message is published to an SNS topic.
 // Listeners (e.g. SQS) can subscribe to deliver the message to the appropriate endpoints.
 type SNSPublishedEvent struct {
-	Attributes    map[string]SNSMessageAttributeSnapshot
-	TopicARN      string
-	MessageID     string
-	Message       string
-	Subject       string
-	Subscriptions []SNSSubscriptionSnapshot
+	Attributes     map[string]SNSMessageAttributeSnapshot
+	TopicARN       string
+	MessageID      string
+	Message        string
+	Subject        string
+	Timestamp      string // RFC3339 timestamp fixed at publish time (used for signing)
+	Signature      string // base64 RSA-SHA1 signature of canonical notification string
+	SigningCertURL string // URL where the signing certificate PEM can be retrieved
+	Subscriptions  []SNSSubscriptionSnapshot
 }
 
 // SNSSubscriptionSnapshot holds subscription metadata at publish time.

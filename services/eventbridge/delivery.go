@@ -53,6 +53,13 @@ type ECSTaskRunner interface {
 	RunTask(ctx context.Context, clusterARN string, payload []byte) error
 }
 
+// StepFunctionsExecutor can start a Step Functions state machine execution.
+type StepFunctionsExecutor interface {
+	// StartExecution starts an execution of the state machine identified by stateMachineARN.
+	// The name may be empty (the backend will generate one). input is a JSON string.
+	StartExecution(stateMachineARN, name, input string) error
+}
+
 // DeliveryTargets holds optional service references for event fan-out.
 type DeliveryTargets struct {
 	Lambda          LambdaInvoker
@@ -61,6 +68,7 @@ type DeliveryTargets struct {
 	KinesisFirehose KinesisFirehosePublisher
 	KinesisStream   KinesisStreamPublisher
 	ECS             ECSTaskRunner
+	StepFunctions   StepFunctionsExecutor
 }
 
 // deliverEvents fan-outs events to matching rule targets.
@@ -88,8 +96,9 @@ func (b *InMemoryBackend) deliverEvents(
 			busName = defaultEventBusName
 		}
 
+		busKey := ebBusKey(region, busName)
 		eventEnvelope := buildEventEnvelope(entry)
-		rules := indexedRulesForEvent(busRuleIndex[busName], entry.Source, entry.DetailType)
+		rules := indexedRulesForEvent(busRuleIndex[busKey], entry.Source, entry.DetailType)
 		for _, rule := range rules {
 			if rule.State != "ENABLED" {
 				continue
@@ -110,7 +119,7 @@ func (b *InMemoryBackend) deliverEvents(
 			// Deliver to all targets for this rule. Each target gets its own
 			// bounded context so a hung downstream service cannot block the
 			// goroutine beyond the configured timeout.
-			key := b.targetKey(busName, rule.Name)
+			key := b.targetKey(region, busName, rule.Name)
 			var wg sync.WaitGroup
 			for _, t := range busTargets[key] {
 				target := t
@@ -373,6 +382,8 @@ func deliverToTarget(
 		return deliverToKinesisStream(ctx, dt.KinesisStream, targetARN, payload)
 	case isECSARN(targetARN):
 		return deliverToECS(ctx, dt.ECS, targetARN, payload)
+	case isStateMachineARN(targetARN):
+		return deliverToStepFunctions(ctx, dt.StepFunctions, targetARN, payload)
 	default:
 		logger.Load(ctx).
 			WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
@@ -699,4 +710,27 @@ func isKinesisStreamARN(arn string) bool {
 // isECSARN returns true if the ARN identifies an ECS cluster or task.
 func isECSARN(arn string) bool {
 	return strings.Contains(arn, ":ecs:")
+}
+
+// isStateMachineARN returns true if the ARN identifies a Step Functions state machine.
+func isStateMachineARN(arn string) bool {
+	return strings.Contains(arn, ":states:") && strings.Contains(arn, ":stateMachine:")
+}
+
+func deliverToStepFunctions(
+	ctx context.Context,
+	svc StepFunctionsExecutor,
+	arn, payload string,
+) bool {
+	if svc == nil {
+		return false
+	}
+	if err := svc.StartExecution(arn, "", payload); err != nil {
+		logger.Load(ctx).
+			WarnContext(ctx, "EventBridge failed to start Step Functions execution", "arn", arn, "error", err)
+
+		return true
+	}
+
+	return false
 }

@@ -537,5 +537,5 @@ func TestWorkSpaces_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 15, workspaces.HandlerOpsLen(h))
+	assert.Equal(t, 91, workspaces.HandlerOpsLen(h))
 }

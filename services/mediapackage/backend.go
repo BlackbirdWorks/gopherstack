@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -19,8 +20,11 @@ const (
 
 	originationAllow = "ALLOW"
 
+	harvestJobStatusSucceeded = "SUCCEEDED"
+
 	resourceTypeChannel        = "channels"
 	resourceTypeOriginEndpoint = "origin_endpoints"
+	resourceTypeHarvestJob     = "harvest_jobs"
 )
 
 // ErrNotFound is returned when a resource does not exist.
@@ -106,9 +110,51 @@ func (e *storedOriginEndpoint) toOriginEndpoint() *OriginEndpoint {
 	}
 }
 
+type storedS3Destination struct {
+	BucketName  string `json:"bucketName"`
+	ManifestKey string `json:"manifestKey"`
+	RoleArn     string `json:"roleArn"`
+}
+
+type storedHarvestJob struct {
+	S3Destination    *storedS3Destination `json:"s3Destination"`
+	ARN              string               `json:"arn"`
+	ChannelID        string               `json:"channelId"`
+	CreatedAt        string               `json:"createdAt"`
+	EndTime          string               `json:"endTime"`
+	ID               string               `json:"id"`
+	OriginEndpointID string               `json:"originEndpointId"`
+	StartTime        string               `json:"startTime"`
+	Status           string               `json:"status"`
+}
+
+func (j *storedHarvestJob) toHarvestJob() *HarvestJob {
+	var dest *S3Destination
+	if j.S3Destination != nil {
+		dest = &S3Destination{
+			BucketName:  j.S3Destination.BucketName,
+			ManifestKey: j.S3Destination.ManifestKey,
+			RoleArn:     j.S3Destination.RoleArn,
+		}
+	}
+
+	return &HarvestJob{
+		ARN:              j.ARN,
+		ChannelID:        j.ChannelID,
+		CreatedAt:        j.CreatedAt,
+		EndTime:          j.EndTime,
+		ID:               j.ID,
+		OriginEndpointID: j.OriginEndpointID,
+		S3Destination:    dest,
+		StartTime:        j.StartTime,
+		Status:           j.Status,
+	}
+}
+
 type snapshot struct {
 	Channels        map[string]*storedChannel        `json:"channels"`
 	OriginEndpoints map[string]*storedOriginEndpoint `json:"originEndpoints"`
+	HarvestJobs     map[string]*storedHarvestJob     `json:"harvestJobs"`
 	Tags            map[string]map[string]string     `json:"tags"`
 	AccountID       string                           `json:"accountId"`
 	Region          string                           `json:"region"`
@@ -119,6 +165,7 @@ type InMemoryBackend struct {
 	mu              *lockmetrics.RWMutex
 	channels        map[string]*storedChannel
 	originEndpoints map[string]*storedOriginEndpoint
+	harvestJobs     map[string]*storedHarvestJob
 	tags            map[string]map[string]string
 	accountID       string
 	region          string
@@ -130,6 +177,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:              lockmetrics.New("mediapackage"),
 		channels:        make(map[string]*storedChannel),
 		originEndpoints: make(map[string]*storedOriginEndpoint),
+		harvestJobs:     make(map[string]*storedHarvestJob),
 		tags:            make(map[string]map[string]string),
 		accountID:       accountID,
 		region:          region,
@@ -149,6 +197,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.channels = make(map[string]*storedChannel)
 	b.originEndpoints = make(map[string]*storedOriginEndpoint)
+	b.harvestJobs = make(map[string]*storedHarvestJob)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -162,6 +211,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:          b.region,
 		Channels:        b.channels,
 		OriginEndpoints: b.originEndpoints,
+		HarvestJobs:     b.harvestJobs,
 		Tags:            b.tags,
 	}
 
@@ -184,6 +234,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.region = snap.Region
 	b.channels = snap.Channels
 	b.originEndpoints = snap.OriginEndpoints
+	b.harvestJobs = snap.HarvestJobs
 	b.tags = snap.Tags
 
 	return nil
@@ -195,6 +246,10 @@ func (b *InMemoryBackend) buildChannelARN(id string) string {
 
 func (b *InMemoryBackend) buildOriginEndpointARN(id string) string {
 	return arn.Build("mediapackage", b.region, b.accountID, resourceTypeOriginEndpoint+"/"+id)
+}
+
+func (b *InMemoryBackend) buildHarvestJobARN(id string) string {
+	return arn.Build("mediapackage", b.region, b.accountID, resourceTypeHarvestJob+"/"+id)
 }
 
 func newIngestEndpoints(channelID string) []storedIngestEndpoint {
@@ -519,6 +574,138 @@ func (b *InMemoryBackend) ListOriginEndpoints(
 	}
 
 	return endpoints, p.Next, nil
+}
+
+// RotateIngestEndpointCredentials rotates credentials for a specific ingest endpoint.
+func (b *InMemoryBackend) RotateIngestEndpointCredentials(channelID, ingestEndpointID string) (*Channel, error) {
+	b.mu.Lock("RotateIngestEndpointCredentials")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, channelID)
+	}
+
+	found := false
+
+	for i, ep := range ch.IngestEndpoints {
+		if ep.ID == ingestEndpointID {
+			ch.IngestEndpoints[i].Username = uuid.NewString()
+			ch.IngestEndpoints[i].Password = uuid.NewString()
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, fmt.Errorf(
+			"%w: ingest endpoint %q not found in channel %q",
+			ErrNotFound,
+			ingestEndpointID,
+			channelID,
+		)
+	}
+
+	return ch.toChannel(), nil
+}
+
+// CreateHarvestJob creates a new harvest job record.
+func (b *InMemoryBackend) CreateHarvestJob(
+	id, originEndpointID, startTime, endTime string,
+	s3Dest S3Destination,
+) (*HarvestJob, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrInvalidParameter)
+	}
+
+	if originEndpointID == "" {
+		return nil, fmt.Errorf("%w: OriginEndpointId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateHarvestJob")
+	defer b.mu.Unlock()
+
+	if _, exists := b.harvestJobs[id]; exists {
+		return nil, fmt.Errorf("%w: harvest job %q already exists", ErrConflict, id)
+	}
+
+	ep, ok := b.originEndpoints[originEndpointID]
+	if !ok {
+		return nil, fmt.Errorf("%w: origin endpoint %q not found", ErrNotFound, originEndpointID)
+	}
+
+	job := &storedHarvestJob{
+		ARN:              b.buildHarvestJobARN(id),
+		ChannelID:        ep.ChannelID,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+		EndTime:          endTime,
+		ID:               id,
+		OriginEndpointID: originEndpointID,
+		S3Destination: &storedS3Destination{
+			BucketName:  s3Dest.BucketName,
+			ManifestKey: s3Dest.ManifestKey,
+			RoleArn:     s3Dest.RoleArn,
+		},
+		StartTime: startTime,
+		Status:    harvestJobStatusSucceeded,
+	}
+
+	b.harvestJobs[id] = job
+
+	return job.toHarvestJob(), nil
+}
+
+// DescribeHarvestJob returns a harvest job by ID.
+func (b *InMemoryBackend) DescribeHarvestJob(id string) (*HarvestJob, error) {
+	b.mu.RLock("DescribeHarvestJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.harvestJobs[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: harvest job %q not found", ErrNotFound, id)
+	}
+
+	return job.toHarvestJob(), nil
+}
+
+// ListHarvestJobs returns a paginated list of harvest jobs, optionally filtered by channel or status.
+func (b *InMemoryBackend) ListHarvestJobs(
+	includeChannelID, includeStatus string,
+	maxResults int,
+	nextToken string,
+) ([]*HarvestJob, string, error) {
+	b.mu.RLock("ListHarvestJobs")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.harvestJobs))
+	for id, job := range b.harvestJobs {
+		if includeChannelID != "" && job.ChannelID != includeChannelID {
+			continue
+		}
+
+		if includeStatus != "" && job.Status != includeStatus {
+			continue
+		}
+
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	all := make([]*storedHarvestJob, 0, len(ids))
+	for _, id := range ids {
+		all = append(all, b.harvestJobs[id])
+	}
+
+	p := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	jobs := make([]*HarvestJob, 0, len(p.Data))
+	for _, job := range p.Data {
+		jobs = append(jobs, job.toHarvestJob())
+	}
+
+	return jobs, p.Next, nil
 }
 
 // TagResource adds or updates tags on a resource.

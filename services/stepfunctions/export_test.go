@@ -2,6 +2,9 @@ package stepfunctions
 
 import "slices"
 
+// RegionContextKeyForTest exposes regionContextKey for use in external test packages.
+type RegionContextKeyForTest = regionContextKey
+
 // MaxHistoryEventsForTest exposes the maxHistoryEvents cap for use in external test packages.
 const MaxHistoryEventsForTest = maxHistoryEvents
 
