@@ -40,60 +40,60 @@ func (s *Scheduler) ProcessTickForTest(ctx context.Context, tick time.Time, last
 	s.processTick(ctx, tick, lastFired)
 }
 
-// APIDestinationCount returns the number of API destinations in the backend.
+// APIDestinationCount returns the number of API destinations in the backend (default region).
 func (b *InMemoryBackend) APIDestinationCount() int {
 	b.mu.RLock("APIDestinationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.apiDestinations)
+	return len(b.apiDestinationsStore(b.region))
 }
 
-// ArchiveCount returns the number of archives in the backend.
+// ArchiveCount returns the number of archives in the backend (default region).
 func (b *InMemoryBackend) ArchiveCount() int {
 	b.mu.RLock("ArchiveCount")
 	defer b.mu.RUnlock()
 
-	return len(b.archives)
+	return len(b.archivesStore(b.region))
 }
 
-// ConnectionCount returns the number of connections in the backend.
+// ConnectionCount returns the number of connections in the backend (default region).
 func (b *InMemoryBackend) ConnectionCount() int {
 	b.mu.RLock("ConnectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.connections)
+	return len(b.connectionsStore(b.region))
 }
 
-// EndpointCount returns the number of endpoints in the backend.
+// EndpointCount returns the number of endpoints in the backend (default region).
 func (b *InMemoryBackend) EndpointCount() int {
 	b.mu.RLock("EndpointCount")
 	defer b.mu.RUnlock()
 
-	return len(b.endpoints)
+	return len(b.endpointsStore(b.region))
 }
 
-// EventSourceCount returns the number of event sources in the backend.
+// EventSourceCount returns the number of event sources in the backend (default region).
 func (b *InMemoryBackend) EventSourceCount() int {
 	b.mu.RLock("EventSourceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.eventSources)
+	return len(b.eventSourcesStore(b.region))
 }
 
-// ReplayCount returns the number of replays in the backend.
+// ReplayCount returns the number of replays in the backend (default region).
 func (b *InMemoryBackend) ReplayCount() int {
 	b.mu.RLock("ReplayCount")
 	defer b.mu.RUnlock()
 
-	return len(b.replays)
+	return len(b.replaysStore(b.region))
 }
 
-// PartnerSourceCount returns the number of partner event sources in the backend.
+// PartnerSourceCount returns the number of partner event sources in the backend (default region).
 func (b *InMemoryBackend) PartnerSourceCount() int {
 	b.mu.RLock("PartnerSourceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.partnerSources)
+	return len(b.partnerSourcesStore(b.region))
 }
 
 // HandlerOpsLen returns the number of pre-built handler operations.
@@ -118,12 +118,12 @@ func (j *ArchiveJanitor) SetNow(now time.Time) {
 	j.now = func() time.Time { return now }
 }
 
-// ArchivedEventCount returns the number of archived events for a given archive name.
+// ArchivedEventCount returns the number of archived events for a given archive name (default region).
 func (b *InMemoryBackend) ArchivedEventCount(archiveName string) int {
 	b.mu.RLock("ArchivedEventCount")
 	defer b.mu.RUnlock()
 
-	return len(b.archivedEvents[archiveName])
+	return len(b.archivedEventsStore(b.region)[archiveName])
 }
 
 // SetArchiveCreationTimeForTest overrides an archive creation time.
@@ -131,7 +131,8 @@ func (b *InMemoryBackend) SetArchiveCreationTimeForTest(name string, creationTim
 	b.mu.Lock("SetArchiveCreationTimeForTest")
 	defer b.mu.Unlock()
 
-	archive, exists := b.archives[name]
+	store := b.archivesStore(b.region)
+	archive, exists := store[name]
 	if !exists {
 		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
 	}

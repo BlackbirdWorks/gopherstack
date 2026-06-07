@@ -1026,6 +1026,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 	workerSem := b.workerSem
 	svcCtx := b.ctx
 	delivTimeout := b.deliveryTimeout
+	region := getRegionFromContext(ctx, b.region)
 	b.mu.Unlock()
 
 	// Trigger async fan-out delivery after releasing the lock.
@@ -1043,7 +1044,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 			case <-svcCtx.Done():
 				return
 			}
-			b.deliverEvents(svcCtx, entriesCopy, dtCopy, delivTimeout)
+			b.deliverEvents(svcCtx, region, entriesCopy, dtCopy, delivTimeout)
 		})
 	}
 
@@ -2102,7 +2103,7 @@ func (b *InMemoryBackend) scheduleReplayWorker(
 		}
 
 		if dt != nil && len(eventsToReplay) > 0 {
-			b.deliverEvents(ctx, eventsToReplay, *dt, delivTimeout)
+			b.deliverEvents(ctx, region, eventsToReplay, *dt, delivTimeout)
 		}
 
 		b.mu.Lock("StartReplay-complete")

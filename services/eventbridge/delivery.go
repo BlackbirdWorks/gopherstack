@@ -75,6 +75,7 @@ type DeliveryTargets struct {
 // It runs asynchronously and does not block PutEvents.
 func (b *InMemoryBackend) deliverEvents(
 	ctx context.Context,
+	region string,
 	entries []EventEntry,
 	targets DeliveryTargets,
 	timeout time.Duration,
@@ -83,11 +84,12 @@ func (b *InMemoryBackend) deliverEvents(
 	// Deep copy rules and targets within the lock so concurrent mutations to the
 	// inner maps (PutRule/DeleteRule/PutTargets/RemoveTargets) cannot race with
 	// the iteration below.
-	busRules := deepCopyBusRules(b.rules)
-	busRuleIndex := deepCopyRuleIndex(b.ruleIndex, busRules)
-	busTargets := deepCopyBusTargets(b.targets)
+	rules := b.rulesStore(region)
+	targetsStore := b.targetsStore(region)
+	busRules := deepCopyBusRules(rules)
+	busRuleIndex := deepCopyRuleIndex(b.ruleIndexStore(region), busRules)
+	busTargets := deepCopyBusTargets(targetsStore)
 	accountID := b.accountID
-	region := b.region
 	b.mu.RUnlock()
 
 	for _, entry := range entries {
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) deliverEvents(
 			busName = defaultEventBusName
 		}
 
-		busKey := ebBusKey(region, busName)
+		busKey := ebBusKey(busName)
 		eventEnvelope := buildEventEnvelope(entry)
 		rules := indexedRulesForEvent(busRuleIndex[busKey], entry.Source, entry.DetailType)
 		for _, rule := range rules {
@@ -119,7 +121,7 @@ func (b *InMemoryBackend) deliverEvents(
 			// Deliver to all targets for this rule. Each target gets its own
 			// bounded context so a hung downstream service cannot block the
 			// goroutine beyond the configured timeout.
-			key := b.targetKey(region, busName, rule.Name)
+			key := b.targetKey(busName, rule.Name)
 			var wg sync.WaitGroup
 			for _, t := range busTargets[key] {
 				target := t

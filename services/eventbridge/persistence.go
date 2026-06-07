@@ -9,19 +9,19 @@ import (
 )
 
 type backendSnapshot struct {
-	Buses           map[string]*EventBus           `json:"buses"`
-	Rules           map[string]map[string]*Rule    `json:"rules"`
-	Targets         map[string]map[string]*Target  `json:"targets"`
-	EventSources    map[string]*EventSource        `json:"eventSources,omitempty"`
-	Replays         map[string]*Replay             `json:"replays,omitempty"`
-	APIDestinations map[string]*APIDestination     `json:"apiDestinations,omitempty"`
-	Archives        map[string]*Archive            `json:"archives,omitempty"`
-	Connections     map[string]*Connection         `json:"connections,omitempty"`
-	Endpoints       map[string]*Endpoint           `json:"endpoints,omitempty"`
-	PartnerSources  map[string]*PartnerEventSource `json:"partnerSources,omitempty"`
-	AccountID       string                         `json:"accountID"`
-	Region          string                         `json:"region"`
-	EventLog        []EventLogEntry                `json:"eventLog"`
+	Buses           map[string]map[string]*EventBus           `json:"buses"`
+	Rules           map[string]map[string]map[string]*Rule    `json:"rules"`
+	Targets         map[string]map[string]map[string]*Target  `json:"targets"`
+	EventSources    map[string]map[string]*EventSource        `json:"eventSources,omitempty"`
+	Replays         map[string]map[string]*Replay             `json:"replays,omitempty"`
+	APIDestinations map[string]map[string]*APIDestination     `json:"apiDestinations,omitempty"`
+	Archives        map[string]map[string]*Archive            `json:"archives,omitempty"`
+	Connections     map[string]map[string]*Connection         `json:"connections,omitempty"`
+	Endpoints       map[string]map[string]*Endpoint           `json:"endpoints,omitempty"`
+	PartnerSources  map[string]map[string]*PartnerEventSource `json:"partnerSources,omitempty"`
+	AccountID       string                                    `json:"accountID"`
+	Region          string                                    `json:"region"`
+	EventLog        []EventLogEntry                           `json:"eventLog"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventLog = snap.EventLog
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
+	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.patternCache = sync.Map{}
 
 	if err := b.rebuildRuleIndexesLocked(); err != nil {
@@ -96,48 +96,50 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 func ensureBackendSnapshotMaps(snap *backendSnapshot) {
 	if snap.Buses == nil {
-		snap.Buses = make(map[string]*EventBus)
+		snap.Buses = make(map[string]map[string]*EventBus)
 	}
 	if snap.Rules == nil {
-		snap.Rules = make(map[string]map[string]*Rule)
+		snap.Rules = make(map[string]map[string]map[string]*Rule)
 	}
 	if snap.Targets == nil {
-		snap.Targets = make(map[string]map[string]*Target)
+		snap.Targets = make(map[string]map[string]map[string]*Target)
 	}
 	if snap.EventSources == nil {
-		snap.EventSources = make(map[string]*EventSource)
+		snap.EventSources = make(map[string]map[string]*EventSource)
 	}
 	if snap.Replays == nil {
-		snap.Replays = make(map[string]*Replay)
+		snap.Replays = make(map[string]map[string]*Replay)
 	}
 	if snap.APIDestinations == nil {
-		snap.APIDestinations = make(map[string]*APIDestination)
+		snap.APIDestinations = make(map[string]map[string]*APIDestination)
 	}
 	if snap.Archives == nil {
-		snap.Archives = make(map[string]*Archive)
+		snap.Archives = make(map[string]map[string]*Archive)
 	}
 	if snap.Connections == nil {
-		snap.Connections = make(map[string]*Connection)
+		snap.Connections = make(map[string]map[string]*Connection)
 	}
 	if snap.Endpoints == nil {
-		snap.Endpoints = make(map[string]*Endpoint)
+		snap.Endpoints = make(map[string]map[string]*Endpoint)
 	}
 	if snap.PartnerSources == nil {
-		snap.PartnerSources = make(map[string]*PartnerEventSource)
+		snap.PartnerSources = make(map[string]map[string]*PartnerEventSource)
 	}
 }
 
 func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
-	for busKey, busRules := range b.rules {
-		for _, rule := range busRules {
-			if rule.EventPattern != "" {
-				compiled, err := b.getOrCompilePattern(rule.EventPattern)
-				if err != nil {
-					return err
+	for region, regRules := range b.rules {
+		for busKey, busRules := range regRules {
+			for _, rule := range busRules {
+				if rule.EventPattern != "" {
+					compiled, err := b.getOrCompilePattern(rule.EventPattern)
+					if err != nil {
+						return err
+					}
+					rule.compiledPattern = compiled
 				}
-				rule.compiledPattern = compiled
+				b.addRuleToIndex(region, busKey, rule)
 			}
-			b.addRuleToIndex(busKey, rule)
 		}
 	}
 
