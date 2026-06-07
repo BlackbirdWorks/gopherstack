@@ -60,13 +60,13 @@ type backendSnapshot struct {
 	Fleets                         map[string]*Fleet                 `json:"fleets,omitempty"`
 	NetworkInsightsPaths           map[string]*NetworkInsightsPath   `json:"networkInsightsPaths,omitempty"`
 	ManagedPrefixLists             map[string]*ManagedPrefixList     `json:"managedPrefixLists,omitempty"`
-	EbsEncryptionByDefault         bool                              `json:"ebsEncryptionByDefault"`
-	SerialConsoleAccess            bool                              `json:"serialConsoleAccess"`
 	AccountID                      string                            `json:"accountID"`
 	Region                         string                            `json:"region"`
 	FreePrivateIPs                 []string                          `json:"freePrivateIPs,omitempty"`
 	NextPrivateIPIndex             int                               `json:"nextPrivateIPIndex"`
 	NextElasticIPIndex             int                               `json:"nextElasticIPIndex"`
+	EbsEncryptionByDefault         bool                              `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess            bool                              `json:"serialConsoleAccess"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -151,6 +151,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.restoreCoreFields(&snap)
+	b.restoreExtendedFields(&snap)
+	b.rebuildSecondaryIndexesLocked()
+
+	return nil
+}
+
+// restoreCoreFields copies the core map/bool/scalar fields from snap into b.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreCoreFields(snap *backendSnapshot) {
 	b.instances = snap.Instances
 	b.securityGroups = snap.SecurityGroups
 	b.vpcs = snap.VPCs
@@ -174,6 +184,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.flowLogs = snap.FlowLogs
 	b.dhcpOptionSets = snap.DhcpOptionSets
 	b.tags = snap.Tags
+}
+
+// restoreExtendedFields copies extended/appendix fields from snap into b.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.addressTransfers = snap.AddressTransfers
 	b.capacityReservations = snap.CapacityReservations
 	b.reservedInstancesExchanges = snap.ReservedInstancesExchanges
@@ -200,9 +215,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex
 	b.nextElasticIPIndex = snap.NextElasticIPIndex
-	b.rebuildSecondaryIndexesLocked()
-
-	return nil
 }
 
 // initMissingMaps ensures all map fields in the snapshot are non-nil.

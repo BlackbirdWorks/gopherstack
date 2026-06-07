@@ -1008,7 +1008,7 @@ func (b *InMemoryBackend) DeleteLiveSource(sourceLocationName, liveSourceName st
 
 // ListLiveSources returns live sources for a source location.
 func (b *InMemoryBackend) ListLiveSources(
-	sourceLocationName string, maxResults int, nextToken string,
+	sourceLocationName string, _ int, _ string,
 ) ([]*LiveSourceSummary, string, error) {
 	b.mu.RLock("ListLiveSources")
 	defer b.mu.RUnlock()
@@ -1086,8 +1086,8 @@ func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string
 // ListPrefetchSchedules returns prefetch schedules for a playback configuration.
 func (b *InMemoryBackend) ListPrefetchSchedules(
 	playbackConfigName string,
-	maxResults int,
-	nextToken string,
+	_ int,
+	_ string,
 ) ([]*PrefetchSchedule, string, error) {
 	b.mu.RLock("ListPrefetchSchedules")
 	defer b.mu.RUnlock()
@@ -1177,7 +1177,7 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 
 // GetChannelSchedule returns the schedule for a channel.
 func (b *InMemoryBackend) GetChannelSchedule(
-	channelName string, maxResults int, nextToken string,
+	channelName string, _ int, _ string,
 ) ([]*ProgramScheduleEntry, string, error) {
 	b.mu.RLock("GetChannelSchedule")
 	defer b.mu.RUnlock()
@@ -1296,7 +1296,7 @@ func (b *InMemoryBackend) DeleteFunction(functionID string) error {
 }
 
 // ListFunctions returns all functions.
-func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*FunctionSummary, string, error) {
+func (b *InMemoryBackend) ListFunctions(_ int, _ string) ([]*FunctionSummary, string, error) {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 

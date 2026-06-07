@@ -166,7 +166,7 @@ type storedHdfsNameNode struct {
 
 type storedQopConfig struct {
 	DataTransferProtection string `json:"dataTransferProtection,omitempty"`
-	RpcProtection          string `json:"rpcProtection,omitempty"`
+	RPCProtection          string `json:"rpcProtection,omitempty"`
 }
 
 type storedHdfsConfig struct {
@@ -1781,7 +1781,7 @@ func (b *InMemoryBackend) CreateLocationHdfs(
 	if qopConfig != nil {
 		cfg.QopConfiguration = &storedQopConfig{
 			DataTransferProtection: qopConfig.DataTransferProtection,
-			RpcProtection:          qopConfig.RpcProtection,
+			RPCProtection:          qopConfig.RPCProtection,
 		}
 	}
 
@@ -1841,7 +1841,7 @@ func (b *InMemoryBackend) DescribeLocationHdfs(locationArn string) (*LocationHdf
 		if l.Hdfs.QopConfiguration != nil {
 			out.QopConfiguration = &QopConfiguration{
 				DataTransferProtection: l.Hdfs.QopConfiguration.DataTransferProtection,
-				RpcProtection:          l.Hdfs.QopConfiguration.RpcProtection,
+				RPCProtection:          l.Hdfs.QopConfiguration.RPCProtection,
 			}
 		}
 	}
@@ -1929,7 +1929,7 @@ func (b *InMemoryBackend) UpdateLocationHdfs(
 	if qopConfig != nil {
 		l.Hdfs.QopConfiguration = &storedQopConfig{
 			DataTransferProtection: qopConfig.DataTransferProtection,
-			RpcProtection:          qopConfig.RpcProtection,
+			RPCProtection:          qopConfig.RPCProtection,
 		}
 	}
 

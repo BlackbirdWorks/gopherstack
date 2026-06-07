@@ -44,54 +44,128 @@ type StorageBackend interface {
 	UpdateTaskExecution(taskExecutionArn string) error
 
 	// Location operations (Azure Blob)
-	CreateLocationAzureBlob(containerURL, subdirectory, blobType, accessTier string, sasConfig *SasConfiguration, agentArns []string, tags map[string]string) (*Location, error)
+	CreateLocationAzureBlob(
+		containerURL, subdirectory, blobType, accessTier string,
+		sasConfig *SasConfiguration,
+		agentArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationAzureBlob(locationArn string) (*LocationAzureBlob, error)
-	UpdateLocationAzureBlob(locationArn, containerURL, subdirectory, blobType, accessTier string, sasConfig *SasConfiguration, agentArns []string) error
+	UpdateLocationAzureBlob(
+		locationArn, containerURL, subdirectory, blobType, accessTier string,
+		sasConfig *SasConfiguration,
+		agentArns []string,
+	) error
 
 	// Location operations (EFS)
-	CreateLocationEfs(efsFilesystemArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string, ec2Config *Ec2Config, tags map[string]string) (*Location, error)
+	CreateLocationEfs(
+		efsFilesystemArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string,
+		ec2Config *Ec2Config,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationEfs(locationArn string) (*LocationEfs, error)
-	UpdateLocationEfs(locationArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string, ec2Config *Ec2Config) error
+	UpdateLocationEfs(
+		locationArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string,
+		ec2Config *Ec2Config,
+	) error
 
 	// Location operations (FSx Lustre)
-	CreateLocationFsxLustre(fsxFilesystemArn, subdirectory string, securityGroupArns []string, tags map[string]string) (*Location, error)
+	CreateLocationFsxLustre(
+		fsxFilesystemArn, subdirectory string,
+		securityGroupArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationFsxLustre(locationArn string) (*LocationFsxLustre, error)
 	UpdateLocationFsxLustre(locationArn, subdirectory string) error
 
 	// Location operations (FSx ONTAP)
-	CreateLocationFsxOntap(storageVirtualMachineArn, subdirectory string, protocol *FsxProtocol, securityGroupArns []string, tags map[string]string) (*Location, error)
+	CreateLocationFsxOntap(
+		storageVirtualMachineArn, subdirectory string,
+		protocol *FsxProtocol,
+		securityGroupArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationFsxOntap(locationArn string) (*LocationFsxOntap, error)
 	UpdateLocationFsxOntap(locationArn, subdirectory string, protocol *FsxProtocol) error
 
 	// Location operations (FSx OpenZFS)
-	CreateLocationFsxOpenZfs(fsxFilesystemArn, subdirectory string, protocol *FsxProtocol, securityGroupArns []string, tags map[string]string) (*Location, error)
+	CreateLocationFsxOpenZfs(
+		fsxFilesystemArn, subdirectory string,
+		protocol *FsxProtocol,
+		securityGroupArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationFsxOpenZfs(locationArn string) (*LocationFsxOpenZfs, error)
 	UpdateLocationFsxOpenZfs(locationArn, subdirectory string, protocol *FsxProtocol) error
 
 	// Location operations (FSx Windows)
-	CreateLocationFsxWindows(fsxFilesystemArn, subdirectory, domain, user, password string, securityGroupArns []string, tags map[string]string) (*Location, error)
+	CreateLocationFsxWindows(
+		fsxFilesystemArn, subdirectory, domain, user, password string,
+		securityGroupArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationFsxWindows(locationArn string) (*LocationFsxWindows, error)
 	UpdateLocationFsxWindows(locationArn, subdirectory, domain, user, password string) error
 
 	// Location operations (HDFS)
-	CreateLocationHdfs(subdirectory, authenticationType, simpleUser string, kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string, nameNodes []HdfsNameNode, blockSize int64, replicationFactor int32, qopConfig *QopConfiguration, agentArns []string, tags map[string]string) (*Location, error)
+	CreateLocationHdfs(
+		subdirectory, authenticationType, simpleUser string,
+		kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string,
+		nameNodes []HdfsNameNode,
+		blockSize int64,
+		replicationFactor int32,
+		qopConfig *QopConfiguration,
+		agentArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationHdfs(locationArn string) (*LocationHdfs, error)
-	UpdateLocationHdfs(locationArn, subdirectory, authenticationType, simpleUser string, kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string, nameNodes []HdfsNameNode, blockSize int64, replicationFactor int32, qopConfig *QopConfiguration, agentArns []string) error
+	UpdateLocationHdfs(
+		locationArn, subdirectory, authenticationType, simpleUser string,
+		kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string,
+		nameNodes []HdfsNameNode,
+		blockSize int64,
+		replicationFactor int32,
+		qopConfig *QopConfiguration,
+		agentArns []string,
+	) error
 
 	// Location operations (NFS)
-	CreateLocationNfs(serverHostname, subdirectory string, mountOptions *MountOptions, agentArns []string, tags map[string]string) (*Location, error)
+	CreateLocationNfs(
+		serverHostname, subdirectory string,
+		mountOptions *MountOptions,
+		agentArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationNfs(locationArn string) (*LocationNfs, error)
 	UpdateLocationNfs(locationArn, subdirectory string, mountOptions *MountOptions, agentArns []string) error
 
 	// Location operations (Object Storage)
-	CreateLocationObjectStorage(serverHostname, serverProtocol, bucketName, subdirectory, accessKey, secretKey string, serverPort int32, agentArns []string, tags map[string]string) (*Location, error)
+	CreateLocationObjectStorage(
+		serverHostname, serverProtocol, bucketName, subdirectory, accessKey, secretKey string,
+		serverPort int32,
+		agentArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationObjectStorage(locationArn string) (*LocationObjectStorage, error)
-	UpdateLocationObjectStorage(locationArn, serverProtocol, subdirectory, accessKey, secretKey string, serverPort int32, agentArns []string) error
+	UpdateLocationObjectStorage(
+		locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
+		serverPort int32,
+		agentArns []string,
+	) error
 
 	// Location operations (SMB)
-	CreateLocationSmb(serverHostname, subdirectory, domain, user, password string, mountOptions *MountOptions, agentArns []string, tags map[string]string) (*Location, error)
+	CreateLocationSmb(
+		serverHostname, subdirectory, domain, user, password string,
+		mountOptions *MountOptions,
+		agentArns []string,
+		tags map[string]string,
+	) (*Location, error)
 	DescribeLocationSmb(locationArn string) (*LocationSmb, error)
-	UpdateLocationSmb(locationArn, subdirectory, domain, user, password string, mountOptions *MountOptions, agentArns []string) error
+	UpdateLocationSmb(
+		locationArn, subdirectory, domain, user, password string,
+		mountOptions *MountOptions,
+		agentArns []string,
+	) error
 
 	// Tag operations
 	TagResource(resourceArn string, tags map[string]string) error
@@ -314,7 +388,7 @@ type HdfsNameNode struct {
 // QopConfiguration holds HDFS QOP configuration.
 type QopConfiguration struct {
 	DataTransferProtection string
-	RpcProtection          string
+	RPCProtection          string
 }
 
 // LocationHdfs is a DataSync HDFS location with full details.
