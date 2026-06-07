@@ -25,11 +25,11 @@ func TestStepFunctionsRegionIsolation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		createFn   func(b *stepfunctions.InMemoryBackend, ctx context.Context) error
-		listFn     func(b *stepfunctions.InMemoryBackend, ctx context.Context) (int, error)
-		regionA    string
-		regionB    string
+		name     string
+		createFn func(b *stepfunctions.InMemoryBackend, ctx context.Context) error
+		listFn   func(b *stepfunctions.InMemoryBackend, ctx context.Context) (int, error)
+		regionA  string
+		regionB  string
 	}{
 		{
 			name:    "state_machine_isolated_by_region",

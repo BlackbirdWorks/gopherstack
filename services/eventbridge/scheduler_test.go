@@ -33,7 +33,7 @@ func TestScheduler(t *testing.T) {
 			check: func(t *testing.T, backend *eventbridge.InMemoryBackend) {
 				t.Helper()
 				require.Eventually(t, func() bool {
-					for _, entry := range backend.GetEventLog(context.Background(), ) {
+					for _, entry := range backend.GetEventLog(context.Background()) {
 						if entry.Source == "aws.events" {
 							return true
 						}
@@ -56,7 +56,7 @@ func TestScheduler(t *testing.T) {
 				t.Helper()
 				// Wait for the context to expire and then a little more to confirm no events fired.
 				time.Sleep(300 * time.Millisecond)
-				for _, e := range backend.GetEventLog(context.Background(), ) {
+				for _, e := range backend.GetEventLog(context.Background()) {
 					assert.NotEqual(t, "aws.events", e.Source, "disabled rule should not fire events")
 				}
 			},

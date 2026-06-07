@@ -522,7 +522,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			rules, next, err := h.Backend.ListRules(ctx, 
+			rules, next, err := h.Backend.ListRules(ctx,
 				input.EventBusName,
 				input.NamePrefix,
 				input.NextToken,
@@ -614,7 +614,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			targets, next, err := h.Backend.ListTargetsByRule(ctx, 
+			targets, next, err := h.Backend.ListTargetsByRule(ctx,
 				input.Rule,
 				input.EventBusName,
 				input.NextToken,
@@ -1472,7 +1472,7 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			names, next, err := h.Backend.ListRuleNamesByTarget(ctx, 
+			names, next, err := h.Backend.ListRuleNamesByTarget(ctx,
 				input.TargetArn,
 				input.EventBusName,
 				input.NextToken,
@@ -1752,7 +1752,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSchema(ctx, 
+			return h.Backend.DescribeSchema(ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1767,7 +1767,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			schemas, next, err := h.Backend.ListSchemas(ctx, 
+			schemas, next, err := h.Backend.ListSchemas(ctx,
 				input.RegistryName,
 				input.SchemaNamePrefix,
 				input.NextToken,
@@ -1790,7 +1790,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			schemas, next, err := h.Backend.SearchSchemas(ctx, 
+			schemas, next, err := h.Backend.SearchSchemas(ctx,
 				input.RegistryName,
 				input.Keywords,
 				input.NextToken,
@@ -1826,7 +1826,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			versions, next, err := h.Backend.ListSchemaVersions(ctx, 
+			versions, next, err := h.Backend.ListSchemaVersions(ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.NextToken,
@@ -1850,7 +1850,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSchemaVersion(ctx, 
+			return h.Backend.DescribeSchemaVersion(ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1866,7 +1866,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteSchemaVersion(ctx, 
+			return &struct{}{}, h.Backend.DeleteSchemaVersion(ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1932,7 +1932,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			src, err := h.Backend.GetCodeBindingSource(ctx, 
+			src, err := h.Backend.GetCodeBindingSource(ctx,
 				input.RegistryName, input.SchemaName, input.Language, input.SchemaVersion,
 			)
 			if err != nil {

@@ -507,7 +507,7 @@ func TestBackend_Reset(t *testing.T) {
 			_, err = b.StartExecution(sm.StateMachineArn, "exec-1", `{}`)
 			require.NoError(t, err)
 
-			_, err = b.CreateActivity(context.Background(), "reset-act-" + tt.name)
+			_, err = b.CreateActivity(context.Background(), "reset-act-"+tt.name)
 			require.NoError(t, err)
 
 			// Reset.
@@ -567,7 +567,7 @@ func TestBackend_ListActivities_Pagination(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for i := range tt.count {
-				_, err := b.CreateActivity(context.Background(), "pag-act-" + tt.name + "-" + strconv.Itoa(i))
+				_, err := b.CreateActivity(context.Background(), "pag-act-"+tt.name+"-"+strconv.Itoa(i))
 				require.NoError(t, err)
 			}
 

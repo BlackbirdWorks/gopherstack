@@ -415,7 +415,7 @@ func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "task-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "task-act-"+tt.name)
 			require.NoError(t, err)
 
 			resultCh := make(chan string, 1)
@@ -478,7 +478,7 @@ func TestActivity_GetActivityTaskAndSendFailure(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "fail-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "fail-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeErrCh := make(chan error, 1)
@@ -530,7 +530,7 @@ func TestActivity_GetActivityTask_Timeout(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "timeout-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "timeout-act-"+tt.name)
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
@@ -576,7 +576,7 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "cancel-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "cancel-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
@@ -645,7 +645,7 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity(context.Background(), "delete-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "delete-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeCtx, cancelInvoke := context.WithCancel(t.Context())

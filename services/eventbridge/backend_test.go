@@ -183,7 +183,7 @@ func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(), 
+	_, err := b.PutRule(context.Background(),
 		eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`},
 	)
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestPutEvents(t *testing.T) {
 		assert.Empty(t, r.ErrorCode)
 	}
 
-	log := b.GetEventLog(context.Background(), )
+	log := b.GetEventLog(context.Background())
 	assert.Len(t, log, 2)
 }
 
@@ -278,7 +278,7 @@ func TestEventLogMaxSize(t *testing.T) {
 	}
 	b.PutEvents(context.Background(), batch)
 
-	log := b.GetEventLog(context.Background(), )
+	log := b.GetEventLog(context.Background())
 	assert.Len(t, log, 1000)
 }
 

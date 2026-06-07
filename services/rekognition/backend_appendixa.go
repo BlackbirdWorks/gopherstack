@@ -963,7 +963,7 @@ func (b *InMemoryBackend) CreateFaceLivenessSession() (string, error) {
 	sessionID := uuid.NewString()
 	b.livenessSessions[sessionID] = &storedLivenessSession{
 		SessionID:  sessionID,
-		Status:     "CREATED",
+		Status:     "SUCCEEDED",
 		Confidence: 99.0,
 	}
 

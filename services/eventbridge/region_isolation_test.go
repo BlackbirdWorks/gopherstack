@@ -17,11 +17,11 @@ func TestRegionIsolation_EventBus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		createRegion  string
-		listRegion    string
-		busName       string
-		wantVisible   bool
+		name         string
+		createRegion string
+		listRegion   string
+		busName      string
+		wantVisible  bool
 	}{
 		{
 			name:         "bus created in us-east-1 is visible from us-east-1",
@@ -103,11 +103,11 @@ func TestRegionIsolation_Rules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		ruleRegion   string
-		listRegion   string
-		ruleName     string
-		wantVisible  bool
+		name        string
+		ruleRegion  string
+		listRegion  string
+		ruleName    string
+		wantVisible bool
 	}{
 		{
 			name:        "rule in us-east-1 visible from us-east-1",

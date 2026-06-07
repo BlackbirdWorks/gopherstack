@@ -1871,7 +1871,7 @@ func TestAudit_TestEventPattern_Match(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	matched, err := b.TestEventPattern(context.Background(), 
+	matched, err := b.TestEventPattern(context.Background(),
 		`{"source":["myapp"],"detail-type":["OrderPlaced"]}`,
 		`{"source":"myapp","detail-type":"OrderPlaced","detail":{}}`,
 	)
@@ -1883,7 +1883,7 @@ func TestAudit_TestEventPattern_NoMatch(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	matched, err := b.TestEventPattern(context.Background(), 
+	matched, err := b.TestEventPattern(context.Background(),
 		`{"source":["myapp"]}`,
 		`{"source":"other","detail-type":"T","detail":{}}`,
 	)

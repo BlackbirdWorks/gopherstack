@@ -835,7 +835,7 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 }
 
 // PutTargets adds or updates targets for a rule.
-func (b *InMemoryBackend) PutTargets(ctx context.Context, 
+func (b *InMemoryBackend) PutTargets(ctx context.Context,
 	ruleName, eventBusName string,
 	targets []Target,
 ) ([]FailedEntry, error) {
@@ -1051,7 +1051,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 }
 
 // GetEventLog returns a copy of the current event log.
-func (b *InMemoryBackend) GetEventLog(ctx context.Context, ) []EventLogEntry {
+func (b *InMemoryBackend) GetEventLog(ctx context.Context) []EventLogEntry {
 	b.mu.RLock("GetEventLog")
 	defer b.mu.RUnlock()
 
@@ -1168,7 +1168,7 @@ func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string
 }
 
 // CreatePartnerEventSource creates a new partner event source.
-func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context, 
+func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 	name, account string,
 ) (*PartnerEventSource, error) {
 	if name == "" {
@@ -1238,7 +1238,7 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 }
 
 // CreateAPIDestination creates a new API destination.
-func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context, 
+func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 	input CreateAPIDestinationInput,
 ) (*APIDestination, error) {
 	if input.Name == "" {
@@ -1588,7 +1588,7 @@ func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (
 }
 
 // ListConnections returns connections optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListConnections(ctx context.Context, 
+func (b *InMemoryBackend) ListConnections(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]Connection, string, error) {
 	b.mu.RLock("ListConnections")
@@ -1750,7 +1750,7 @@ func (b *InMemoryBackend) DescribeAPIDestination(ctx context.Context, name strin
 }
 
 // ListAPIDestinations returns API destinations optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context, 
+func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]APIDestination, string, error) {
 	b.mu.RLock("ListAPIDestinations")
@@ -1771,7 +1771,7 @@ func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context,
 }
 
 // UpdateAPIDestination updates an existing API destination.
-func (b *InMemoryBackend) UpdateAPIDestination(ctx context.Context, 
+func (b *InMemoryBackend) UpdateAPIDestination(ctx context.Context,
 	input UpdateAPIDestinationInput,
 ) (*APIDestination, error) {
 	if input.Name == "" {
@@ -1828,7 +1828,7 @@ func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) 
 }
 
 // ListEventSources returns event sources optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEventSources(ctx context.Context, 
+func (b *InMemoryBackend) ListEventSources(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]EventSource, string, error) {
 	b.mu.RLock("ListEventSources")
@@ -1886,7 +1886,7 @@ func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name str
 }
 
 // ListPartnerEventSources returns partner event sources optionally filtered by name prefix.
-func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context, 
+func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]PartnerEventSource, string, error) {
 	b.mu.RLock("ListPartnerEventSources")
@@ -2864,7 +2864,7 @@ func (b *InMemoryBackend) DescribeRegistry(ctx context.Context, registryName str
 }
 
 // ListRegistries returns schema registries optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRegistries(ctx context.Context, 
+func (b *InMemoryBackend) ListRegistries(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]SchemaRegistry, string, error) {
 	b.mu.RLock("ListRegistries")
@@ -3028,7 +3028,7 @@ func (b *InMemoryBackend) DeleteSchema(ctx context.Context, registryName, schema
 }
 
 // DescribeSchema returns the current (or requested version of) a schema.
-func (b *InMemoryBackend) DescribeSchema(ctx context.Context, 
+func (b *InMemoryBackend) DescribeSchema(ctx context.Context,
 	registryName, schemaName, schemaVersion string,
 ) (*Schema, error) {
 	if registryName == "" {
@@ -3081,7 +3081,7 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context,
 }
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
-func (b *InMemoryBackend) ListSchemas(ctx context.Context, 
+func (b *InMemoryBackend) ListSchemas(ctx context.Context,
 	registryName, namePrefix, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3110,7 +3110,7 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context,
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
-func (b *InMemoryBackend) SearchSchemas(ctx context.Context, 
+func (b *InMemoryBackend) SearchSchemas(ctx context.Context,
 	registryName, keywords, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3211,7 +3211,7 @@ func (b *InMemoryBackend) UpdateSchema(ctx context.Context, input UpdateSchemaIn
 }
 
 // ListSchemaVersions returns all versions of a schema.
-func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, 
+func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context,
 	registryName, schemaName, nextToken string,
 ) ([]SchemaVersion, string, error) {
 	if registryName == "" {
@@ -3252,7 +3252,7 @@ func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context,
 }
 
 // DescribeSchemaVersion returns a specific schema version.
-func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context, 
+func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context,
 	registryName, schemaName, schemaVersion string,
 ) (*SchemaVersion, error) {
 	if registryName == "" {
@@ -3290,7 +3290,7 @@ func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context,
 
 // DeleteSchemaVersion deletes a specific version of a schema.
 // AWS rejects deletion of the last remaining version (BadRequestException).
-func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context, 
+func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context,
 	registryName, schemaName, schemaVersion string,
 ) error {
 	if registryName == "" {
@@ -3447,7 +3447,7 @@ func (b *InMemoryBackend) PutCodeBinding(ctx context.Context, input PutCodeBindi
 }
 
 // DescribeCodeBinding returns the status of a code binding.
-func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context, 
+func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context,
 	input DescribeCodeBindingInput,
 ) (*CodeBinding, error) {
 	if input.RegistryName == "" {
@@ -3478,7 +3478,7 @@ func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context,
 }
 
 // ListCodeBindings returns all code bindings for a given schema (optionally filtered by version).
-func (b *InMemoryBackend) ListCodeBindings(ctx context.Context, 
+func (b *InMemoryBackend) ListCodeBindings(ctx context.Context,
 	input ListCodeBindingsInput,
 ) ([]CodeBinding, string, error) {
 	if input.RegistryName == "" {
@@ -3516,7 +3516,7 @@ func (b *InMemoryBackend) ListCodeBindings(ctx context.Context,
 
 // GetCodeBindingSource returns placeholder source code for a generated code binding.
 // Real source generation is out of scope for in-process emulation.
-func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context, 
+func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context,
 	registryName, schemaName, language, schemaVersion string,
 ) (string, error) {
 	if registryName == "" {
