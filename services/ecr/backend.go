@@ -435,6 +435,14 @@ func (b *InMemoryBackend) ProxyEndpoint() string {
 	return b.endpoint
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string {
+	b.mu.RLock("Region")
+	defer b.mu.RUnlock()
+
+	return b.region
+}
+
 // AccountID returns the AWS account ID associated with this registry.
 func (b *InMemoryBackend) AccountID() string {
 	b.mu.RLock("AccountID")
