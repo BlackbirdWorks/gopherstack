@@ -2,9 +2,11 @@
 package databrew
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -214,10 +216,31 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
+
+	// svcCtx is the service lifecycle context. Delayed lifecycle goroutines
+	// (e.g. job run state transitions) select on its Done channel so they exit
+	// promptly on Shutdown instead of leaking or mutating state after Reset.
+	svcCtx context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-// NewInMemoryBackend creates a new in-memory DataBrew backend.
+// NewInMemoryBackend creates a new in-memory DataBrew backend with a background
+// lifecycle context.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory DataBrew backend whose
+// delayed lifecycle goroutines are tied to svcCtx. When svcCtx (or the backend's
+// Shutdown) is cancelled, in-flight transition goroutines exit promptly.
+// If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(svcCtx)
+
 	return &InMemoryBackend{
 		datasets:  make(map[string]*Dataset),
 		recipes:   make(map[string]*Recipe),
@@ -229,6 +252,45 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:        lockmetrics.New("databrew"),
 		accountID: accountID,
 		region:    region,
+		svcCtx:    ctx,
+		cancel:    cancel,
+	}
+}
+
+// runDelayed schedules fn to run after delay on a tracked goroutine. The
+// goroutine exits without invoking fn if the backend's lifecycle context is
+// cancelled (Shutdown) before the delay elapses, preventing leaks and
+// post-Shutdown state mutation.
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		select {
+		case <-b.svcCtx.Done():
+			return
+		case <-time.After(delay):
+		}
+		fn()
+	}()
+}
+
+// Shutdown cancels the backend's lifecycle context and waits for in-flight
+// delayed goroutines to finish, bounded by ctx. After Shutdown the backend
+// no longer schedules state transitions.
+func (b *InMemoryBackend) Shutdown(ctx context.Context) {
+	if b.cancel != nil {
+		b.cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 
@@ -682,18 +744,34 @@ func (b *InMemoryBackend) StartJobRun(jobName string) (*JobRun, error) {
 
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
 
-	go func() {
-		time.Sleep(jobRunTransitionDelay)
+	b.runDelayed(jobRunTransitionDelay, func() {
 		b.mu.Lock("StartJobRun.transition")
 		defer b.mu.Unlock()
+		// Re-check the run still exists: Reset may have cleared jobRuns while
+		// the transition was pending, in which case there is nothing to update.
+		if !b.jobRunExists(jobName, run.RunID) {
+			return
+		}
 		run.State = "SUCCEEDED"
 		run.CompletedOn = float64(time.Now().Unix())
 		run.ExecutionTime = jobRunDefaultExecTime
-	}()
+	})
 
 	cp := *run
 
 	return &cp, nil
+}
+
+// jobRunExists reports whether a run with runID still exists for jobName.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) jobRunExists(jobName, runID string) bool {
+	for _, r := range b.jobRuns[jobName] {
+		if r.RunID == runID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (b *InMemoryBackend) ListJobRuns(jobName string, maxResults int, nextToken string) ([]*JobRun, string, error) {
