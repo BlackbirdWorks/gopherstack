@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -363,7 +364,7 @@ func TestBackend_CreateStack_DynamicRefs_SSM(t *testing.T) {
 		{
 			name: "ssm_ref_resolved",
 			setupSSM: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{
+				_, _ = b.PutParameter(context.Background(), &ssm.PutParameterInput{
 					Name:  "/app/queue-name",
 					Type:  "String",
 					Value: "my-resolved-queue",
@@ -385,7 +386,7 @@ func TestBackend_CreateStack_DynamicRefs_SSM(t *testing.T) {
 		{
 			name: "ssm_secure_ref_resolved",
 			setupSSM: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{
+				_, _ = b.PutParameter(context.Background(), &ssm.PutParameterInput{
 					Name:  "/app/secret-param",
 					Type:  ssm.SecureStringType,
 					Value: "super-secret-value",
@@ -587,13 +588,13 @@ func TestNewDynamicRefResolver_RealSSM(t *testing.T) {
 	t.Parallel()
 
 	ssmBackend := ssm.NewInMemoryBackend()
-	_, _ = ssmBackend.PutParameter(&ssm.PutParameterInput{
+	_, _ = ssmBackend.PutParameter(context.Background(), &ssm.PutParameterInput{
 		Name:  "/test/param",
 		Type:  "String",
 		Value: "hello",
 	})
 
-	_, _ = ssmBackend.PutParameter(&ssm.PutParameterInput{
+	_, _ = ssmBackend.PutParameter(context.Background(), &ssm.PutParameterInput{
 		Name:  "/test/secure",
 		Type:  ssm.SecureStringType,
 		Value: "secret-val",

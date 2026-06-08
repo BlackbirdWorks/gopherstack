@@ -1,6 +1,7 @@
 package mediastore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -91,33 +93,40 @@ const (
 )
 
 // StorageBackend is the interface for the MediaStore in-memory backend.
+//
+// All methods take a context.Context whose resolved AWS region (stored under
+// regionContextKey) partitions state: containers created in one region are
+// invisible to every other region.
 type StorageBackend interface {
-	CreateContainer(region, accountID, name string, tags map[string]string) (*Container, error)
-	DeleteContainer(name string) error
-	DescribeContainer(name string) (*Container, error)
-	ListContainers(nextToken string, maxResults int) ([]*Container, string, error)
-	PutContainerPolicy(name, policy string) error
-	GetContainerPolicy(name string) (string, error)
-	DeleteContainerPolicy(name string) error
-	PutCorsPolicy(name string, rules []CorsRule) error
-	GetCorsPolicy(name string) ([]CorsRule, error)
-	DeleteCorsPolicy(name string) error
-	PutLifecyclePolicy(name, policy string) error
-	GetLifecyclePolicy(name string) (string, error)
-	DeleteLifecyclePolicy(name string) error
-	PutMetricPolicy(name string, policy MetricPolicy) error
-	GetMetricPolicy(name string) (MetricPolicy, error)
-	DeleteMetricPolicy(name string) error
-	StartAccessLogging(name string) error
-	StopAccessLogging(name string) error
-	TagResource(resourceARN string, tags map[string]string) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	ListTagsForResource(resourceARN string) (map[string]string, error)
+	CreateContainer(ctx context.Context, accountID, name string, tags map[string]string) (*Container, error)
+	DeleteContainer(ctx context.Context, name string) error
+	DescribeContainer(ctx context.Context, name string) (*Container, error)
+	ListContainers(ctx context.Context, nextToken string, maxResults int) ([]*Container, string, error)
+	PutContainerPolicy(ctx context.Context, name, policy string) error
+	GetContainerPolicy(ctx context.Context, name string) (string, error)
+	DeleteContainerPolicy(ctx context.Context, name string) error
+	PutCorsPolicy(ctx context.Context, name string, rules []CorsRule) error
+	GetCorsPolicy(ctx context.Context, name string) ([]CorsRule, error)
+	DeleteCorsPolicy(ctx context.Context, name string) error
+	PutLifecyclePolicy(ctx context.Context, name, policy string) error
+	GetLifecyclePolicy(ctx context.Context, name string) (string, error)
+	DeleteLifecyclePolicy(ctx context.Context, name string) error
+	PutMetricPolicy(ctx context.Context, name string, policy MetricPolicy) error
+	GetMetricPolicy(ctx context.Context, name string) (MetricPolicy, error)
+	DeleteMetricPolicy(ctx context.Context, name string) error
+	StartAccessLogging(ctx context.Context, name string) error
+	StopAccessLogging(ctx context.Context, name string) error
+	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
+	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// State is partitioned by region: containers[region][name] gives the container
+// stored under name within that region.
 type InMemoryBackend struct {
-	containers       map[string]*Container
+	containers       map[string]map[string]*Container
 	mu               *lockmetrics.RWMutex
 	paginationSecret string
 }
@@ -125,10 +134,32 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers:       make(map[string]*Container),
+		containers:       make(map[string]map[string]*Container),
 		paginationSecret: uuid.NewString(),
 		mu:               lockmetrics.New("mediastore"),
 	}
+}
+
+// regionFromContext resolves the AWS region for the current request from ctx,
+// falling back to the default region when none is present.
+func regionFromContext(ctx context.Context) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return config.DefaultRegion
+}
+
+// containerStore returns the per-region container map for region, creating it
+// on first use. Callers must already hold b.mu (write lock).
+func (b *InMemoryBackend) containerStore(region string) map[string]*Container {
+	store, ok := b.containers[region]
+	if !ok {
+		store = make(map[string]*Container)
+		b.containers[region] = store
+	}
+
+	return store
 }
 
 // validateContainerName returns an error if the container name is invalid.
@@ -161,19 +192,24 @@ func containerEndpoint(name, region string) string {
 	return fmt.Sprintf(defaultEndpointFormat, name, region)
 }
 
-// CreateContainer creates a new MediaStore container.
+// CreateContainer creates a new MediaStore container in the ctx region.
 func (b *InMemoryBackend) CreateContainer(
-	region, accountID, name string,
+	ctx context.Context,
+	accountID, name string,
 	tags map[string]string,
 ) (*Container, error) {
 	if err := validateContainerName(name); err != nil {
 		return nil, err
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
-	if _, exists := b.containers[name]; exists {
+	store := b.containerStore(region)
+
+	if _, exists := store[name]; exists {
 		return nil, ErrContainerAlreadyExists
 	}
 
@@ -191,31 +227,37 @@ func (b *InMemoryBackend) CreateContainer(
 		Tags:         t,
 	}
 
-	b.containers[name] = c
+	store[name] = c
 
 	return copyContainer(c), nil
 }
 
-// DeleteContainer removes a container.
-func (b *InMemoryBackend) DeleteContainer(name string) error {
+// DeleteContainer removes a container from the ctx region.
+func (b *InMemoryBackend) DeleteContainer(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
-	if _, exists := b.containers[name]; !exists {
+	store := b.containerStore(region)
+
+	if _, exists := store[name]; !exists {
 		return ErrContainerNotFound
 	}
 
-	delete(b.containers, name)
+	delete(store, name)
 
 	return nil
 }
 
-// DescribeContainer returns details about a container.
-func (b *InMemoryBackend) DescribeContainer(name string) (*Container, error) {
+// DescribeContainer returns details about a container in the ctx region.
+func (b *InMemoryBackend) DescribeContainer(ctx context.Context, name string) (*Container, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("DescribeContainer")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return nil, ErrContainerNotFound
 	}
@@ -223,17 +265,22 @@ func (b *InMemoryBackend) DescribeContainer(name string) (*Container, error) {
 	return copyContainer(c), nil
 }
 
-// ListContainers returns paginated containers sorted by name.
+// ListContainers returns paginated containers in the ctx region sorted by name.
 func (b *InMemoryBackend) ListContainers(
+	ctx context.Context,
 	nextToken string,
 	maxResults int,
 ) ([]*Container, string, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()
 
-	all := make([]*Container, 0, len(b.containers))
+	store := b.containers[region]
 
-	for _, c := range b.containers {
+	all := make([]*Container, 0, len(store))
+
+	for _, c := range store {
 		all = append(all, copyContainer(c))
 	}
 
@@ -247,15 +294,17 @@ func (b *InMemoryBackend) ListContainers(
 }
 
 // PutContainerPolicy stores a container access policy.
-func (b *InMemoryBackend) PutContainerPolicy(name, policy string) error {
+func (b *InMemoryBackend) PutContainerPolicy(ctx context.Context, name, policy string) error {
 	if !json.Valid([]byte(policy)) {
 		return ErrInvalidPolicy
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("PutContainerPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -266,11 +315,13 @@ func (b *InMemoryBackend) PutContainerPolicy(name, policy string) error {
 }
 
 // GetContainerPolicy retrieves the container access policy.
-func (b *InMemoryBackend) GetContainerPolicy(name string) (string, error) {
+func (b *InMemoryBackend) GetContainerPolicy(ctx context.Context, name string) (string, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("GetContainerPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return "", ErrContainerNotFound
 	}
@@ -283,11 +334,13 @@ func (b *InMemoryBackend) GetContainerPolicy(name string) (string, error) {
 }
 
 // DeleteContainerPolicy removes the container access policy.
-func (b *InMemoryBackend) DeleteContainerPolicy(name string) error {
+func (b *InMemoryBackend) DeleteContainerPolicy(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("DeleteContainerPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -298,17 +351,19 @@ func (b *InMemoryBackend) DeleteContainerPolicy(name string) error {
 }
 
 // PutCorsPolicy stores a CORS policy for a container.
-func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
+func (b *InMemoryBackend) PutCorsPolicy(ctx context.Context, name string, rules []CorsRule) error {
 	for _, r := range rules {
 		if len(r.AllowedOrigins) == 0 || len(r.AllowedHeaders) == 0 {
 			return ErrCorsRuleInvalid
 		}
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("PutCorsPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -325,11 +380,13 @@ func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
 }
 
 // GetCorsPolicy retrieves the CORS policy for a container.
-func (b *InMemoryBackend) GetCorsPolicy(name string) ([]CorsRule, error) {
+func (b *InMemoryBackend) GetCorsPolicy(ctx context.Context, name string) ([]CorsRule, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("GetCorsPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return nil, ErrContainerNotFound
 	}
@@ -347,11 +404,13 @@ func (b *InMemoryBackend) GetCorsPolicy(name string) ([]CorsRule, error) {
 }
 
 // DeleteCorsPolicy removes the CORS policy from a container.
-func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
+func (b *InMemoryBackend) DeleteCorsPolicy(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("DeleteCorsPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -362,15 +421,17 @@ func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
 }
 
 // PutLifecyclePolicy stores a lifecycle policy for a container.
-func (b *InMemoryBackend) PutLifecyclePolicy(name, policy string) error {
+func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, name, policy string) error {
 	if !json.Valid([]byte(policy)) {
 		return ErrInvalidPolicy
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -381,11 +442,13 @@ func (b *InMemoryBackend) PutLifecyclePolicy(name, policy string) error {
 }
 
 // GetLifecyclePolicy retrieves the lifecycle policy for a container.
-func (b *InMemoryBackend) GetLifecyclePolicy(name string) (string, error) {
+func (b *InMemoryBackend) GetLifecyclePolicy(ctx context.Context, name string) (string, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return "", ErrContainerNotFound
 	}
@@ -398,11 +461,13 @@ func (b *InMemoryBackend) GetLifecyclePolicy(name string) (string, error) {
 }
 
 // DeleteLifecyclePolicy removes the lifecycle policy from a container.
-func (b *InMemoryBackend) DeleteLifecyclePolicy(name string) error {
+func (b *InMemoryBackend) DeleteLifecyclePolicy(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -413,7 +478,7 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(name string) error {
 }
 
 // PutMetricPolicy stores a metric policy for a container.
-func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) error {
+func (b *InMemoryBackend) PutMetricPolicy(ctx context.Context, name string, policy MetricPolicy) error {
 	if policy.ContainerLevelMetrics != "ENABLED" && policy.ContainerLevelMetrics != "DISABLED" {
 		return ErrInvalidMetricPolicy
 	}
@@ -422,10 +487,12 @@ func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) erro
 		return ErrTooManyMetricRules
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("PutMetricPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -437,11 +504,13 @@ func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) erro
 }
 
 // GetMetricPolicy retrieves the metric policy for a container.
-func (b *InMemoryBackend) GetMetricPolicy(name string) (MetricPolicy, error) {
+func (b *InMemoryBackend) GetMetricPolicy(ctx context.Context, name string) (MetricPolicy, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("GetMetricPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return MetricPolicy{}, ErrContainerNotFound
 	}
@@ -454,11 +523,13 @@ func (b *InMemoryBackend) GetMetricPolicy(name string) (MetricPolicy, error) {
 }
 
 // DeleteMetricPolicy removes the metric policy from a container.
-func (b *InMemoryBackend) DeleteMetricPolicy(name string) error {
+func (b *InMemoryBackend) DeleteMetricPolicy(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("DeleteMetricPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -469,11 +540,13 @@ func (b *InMemoryBackend) DeleteMetricPolicy(name string) error {
 }
 
 // StartAccessLogging enables access logging for a container.
-func (b *InMemoryBackend) StartAccessLogging(name string) error {
+func (b *InMemoryBackend) StartAccessLogging(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("StartAccessLogging")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -484,11 +557,13 @@ func (b *InMemoryBackend) StartAccessLogging(name string) error {
 }
 
 // StopAccessLogging disables access logging for a container.
-func (b *InMemoryBackend) StopAccessLogging(name string) error {
+func (b *InMemoryBackend) StopAccessLogging(ctx context.Context, name string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("StopAccessLogging")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
+	c, exists := b.containers[region][name]
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -499,18 +574,20 @@ func (b *InMemoryBackend) StopAccessLogging(name string) error {
 }
 
 // TagResource adds or updates tags on a container identified by ARN.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
 	for k := range tags {
 		if k == "" {
 			return ErrEmptyTagKey
 		}
 	}
 
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[name]
+	c, ok := b.containers[region][name]
 	if !ok {
 		return ErrContainerNotFound
 	}
@@ -525,12 +602,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 }
 
 // UntagResource removes tags from a container identified by ARN.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+	region := regionFromContext(ctx)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[name]
+	c, ok := b.containers[region][name]
 	if !ok {
 		return ErrContainerNotFound
 	}
@@ -543,12 +622,17 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 }
 
 // ListTagsForResource returns tags for a container identified by ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	ctx context.Context,
+	resourceARN string,
+) (map[string]string, error) {
+	region := regionFromContext(ctx)
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[name]
+	c, ok := b.containers[region][name]
 	if !ok {
 		return nil, ErrContainerNotFound
 	}

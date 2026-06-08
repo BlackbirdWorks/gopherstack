@@ -22,6 +22,8 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 
 const errCodeDoesNotExist = "DoesNotExistException"
 
+type regionContextKey struct{}
+
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend
@@ -278,17 +280,23 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler is the Echo HTTP handler for SSM operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		ctx := c.Request().Context()
+		region := httputils.ExtractRegionFromRequest(c.Request(), config.DefaultRegion)
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"SSM", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(_ context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, action, body)
+			},
 			h.handleError,
 		)
 	}
 }
 
-type ssmActionFn func([]byte) (any, error)
+type ssmActionFn func(context.Context, []byte) (any, error)
 
 func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 	ops := h.ssmParameterOps()
@@ -303,224 +311,224 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 
 func (h *Handler) ssmParameterOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"PutParameter": func(b []byte) (any, error) {
+		"PutParameter": func(ctx context.Context, b []byte) (any, error) {
 			var input PutParameterInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutParameter(&input)
+			return h.Backend.PutParameter(ctx, &input)
 		},
-		"GetParameter": func(b []byte) (any, error) {
+		"GetParameter": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParameterInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetParameter(&input)
+			return h.Backend.GetParameter(ctx, &input)
 		},
-		"GetParameters": func(b []byte) (any, error) {
+		"GetParameters": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParametersInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetParameters(&input)
+			return h.Backend.GetParameters(ctx, &input)
 		},
-		"GetParameterHistory": func(b []byte) (any, error) {
+		"GetParameterHistory": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParameterHistoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetParameterHistory(&input)
+			return h.Backend.GetParameterHistory(ctx, &input)
 		},
-		"DeleteParameter": func(b []byte) (any, error) {
+		"DeleteParameter": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteParameterInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteParameter(&input)
+			return h.Backend.DeleteParameter(ctx, &input)
 		},
-		"DeleteParameters": func(b []byte) (any, error) {
+		"DeleteParameters": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteParametersInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteParameters(&input)
+			return h.Backend.DeleteParameters(ctx, &input)
 		},
-		"GetParametersByPath": func(b []byte) (any, error) {
+		"GetParametersByPath": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParametersByPathInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetParametersByPath(&input)
+			return h.Backend.GetParametersByPath(ctx, &input)
 		},
-		"DescribeParameters": func(b []byte) (any, error) {
+		"DescribeParameters": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeParametersInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeParameters(&input)
+			return h.Backend.DescribeParameters(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"AddTagsToResource": func(b []byte) (any, error) {
+		"AddTagsToResource": func(ctx context.Context, b []byte) (any, error) {
 			var input AddTagsToResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.AddTagsToResource(&input)
+			return struct{}{}, h.Backend.AddTagsToResource(ctx, &input)
 		},
-		"RemoveTagsFromResource": func(b []byte) (any, error) {
+		"RemoveTagsFromResource": func(ctx context.Context, b []byte) (any, error) {
 			var input RemoveTagsFromResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.RemoveTagsFromResource(&input)
+			return struct{}{}, h.Backend.RemoveTagsFromResource(ctx, &input)
 		},
-		"ListTagsForResource": func(b []byte) (any, error) {
+		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) {
 			var input ListTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListTagsForResource(&input)
+			return h.Backend.ListTagsForResource(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) ssmDocumentOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CreateDocument": func(b []byte) (any, error) {
+		"CreateDocument": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateDocumentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateDocument(&input)
+			return h.Backend.CreateDocument(ctx, &input)
 		},
-		"GetDocument": func(b []byte) (any, error) {
+		"GetDocument": func(ctx context.Context, b []byte) (any, error) {
 			var input GetDocumentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetDocument(&input)
+			return h.Backend.GetDocument(ctx, &input)
 		},
-		"DescribeDocument": func(b []byte) (any, error) {
+		"DescribeDocument": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeDocumentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeDocument(&input)
+			return h.Backend.DescribeDocument(ctx, &input)
 		},
-		"ListDocuments": func(b []byte) (any, error) {
+		"ListDocuments": func(ctx context.Context, b []byte) (any, error) {
 			var input ListDocumentsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListDocuments(&input)
+			return h.Backend.ListDocuments(ctx, &input)
 		},
-		"UpdateDocument": func(b []byte) (any, error) {
+		"UpdateDocument": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateDocumentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateDocument(&input)
+			return h.Backend.UpdateDocument(ctx, &input)
 		},
-		"DeleteDocument": func(b []byte) (any, error) {
+		"DeleteDocument": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteDocumentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteDocument(&input)
+			return h.Backend.DeleteDocument(ctx, &input)
 		},
-		"DescribeDocumentPermission": func(b []byte) (any, error) {
+		"DescribeDocumentPermission": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeDocumentPermissionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeDocumentPermission(&input)
+			return h.Backend.DescribeDocumentPermission(ctx, &input)
 		},
-		"ModifyDocumentPermission": func(b []byte) (any, error) {
+		"ModifyDocumentPermission": func(ctx context.Context, b []byte) (any, error) {
 			var input ModifyDocumentPermissionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ModifyDocumentPermission(&input)
+			return h.Backend.ModifyDocumentPermission(ctx, &input)
 		},
-		"ListDocumentVersions": func(b []byte) (any, error) {
+		"ListDocumentVersions": func(ctx context.Context, b []byte) (any, error) {
 			var input ListDocumentVersionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListDocumentVersions(&input)
+			return h.Backend.ListDocumentVersions(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"SendCommand": func(b []byte) (any, error) {
+		"SendCommand": func(ctx context.Context, b []byte) (any, error) {
 			var input SendCommandInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.SendCommand(&input)
+			return h.Backend.SendCommand(ctx, &input)
 		},
-		"ListCommands": func(b []byte) (any, error) {
+		"ListCommands": func(ctx context.Context, b []byte) (any, error) {
 			var input ListCommandsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListCommands(&input)
+			return h.Backend.ListCommands(ctx, &input)
 		},
-		"GetCommandInvocation": func(b []byte) (any, error) {
+		"GetCommandInvocation": func(ctx context.Context, b []byte) (any, error) {
 			var input GetCommandInvocationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetCommandInvocation(&input)
+			return h.Backend.GetCommandInvocation(ctx, &input)
 		},
-		"ListCommandInvocations": func(b []byte) (any, error) {
+		"ListCommandInvocations": func(ctx context.Context, b []byte) (any, error) {
 			var input ListCommandInvocationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListCommandInvocations(&input)
+			return h.Backend.ListCommandInvocations(ctx, &input)
 		},
 	}
 }
 
 // dispatch routes the operation to the appropriate handler.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
 
-	response, err := fn(body)
+	response, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -612,85 +620,85 @@ func (h *Handler) Reset() {
 
 func (h *Handler) ssmNewOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CancelCommand": func(b []byte) (any, error) {
+		"CancelCommand": func(ctx context.Context, b []byte) (any, error) {
 			var input CancelCommandInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CancelCommand(&input)
+			return h.Backend.CancelCommand(ctx, &input)
 		},
-		"CancelMaintenanceWindowExecution": func(b []byte) (any, error) {
+		"CancelMaintenanceWindowExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input CancelMaintenanceWindowExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CancelMaintenanceWindowExecution(&input)
+			return h.Backend.CancelMaintenanceWindowExecution(ctx, &input)
 		},
-		"CreateActivation": func(b []byte) (any, error) {
+		"CreateActivation": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateActivationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateActivation(&input)
+			return h.Backend.CreateActivation(ctx, &input)
 		},
-		"CreateAssociation": func(b []byte) (any, error) {
+		"CreateAssociation": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateAssociationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateAssociation(&input)
+			return h.Backend.CreateAssociation(ctx, &input)
 		},
-		"CreateAssociationBatch": func(b []byte) (any, error) {
+		"CreateAssociationBatch": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateAssociationBatchInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateAssociationBatch(&input)
+			return h.Backend.CreateAssociationBatch(ctx, &input)
 		},
-		"CreateMaintenanceWindow": func(b []byte) (any, error) {
+		"CreateMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateMaintenanceWindow(&input)
+			return h.Backend.CreateMaintenanceWindow(ctx, &input)
 		},
-		"CreateOpsItem": func(b []byte) (any, error) {
+		"CreateOpsItem": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateOpsItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateOpsItem(&input)
+			return h.Backend.CreateOpsItem(ctx, &input)
 		},
-		"CreateOpsMetadata": func(b []byte) (any, error) {
+		"CreateOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateOpsMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateOpsMetadata(&input)
+			return h.Backend.CreateOpsMetadata(ctx, &input)
 		},
-		"CreatePatchBaseline": func(b []byte) (any, error) {
+		"CreatePatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input CreatePatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreatePatchBaseline(&input)
+			return h.Backend.CreatePatchBaseline(ctx, &input)
 		},
-		"AssociateOpsItemRelatedItem": func(b []byte) (any, error) {
+		"AssociateOpsItemRelatedItem": func(ctx context.Context, b []byte) (any, error) {
 			var input AssociateOpsItemRelatedItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.AssociateOpsItemRelatedItem(&input)
+			return h.Backend.AssociateOpsItemRelatedItem(ctx, &input)
 		},
 	}
 }

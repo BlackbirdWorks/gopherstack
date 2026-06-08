@@ -41,6 +41,55 @@ type StorageBackend interface {
 	DeleteVodSource(sourceLocationName, vodSourceName string) error
 	ListVodSources(sourceLocationName string, maxResults int, nextToken string) ([]*VodSourceSummary, string, error)
 
+	// LiveSource
+	CreateLiveSource(
+		sourceLocationName, liveSourceName string,
+		httpPackageConfigurations []HTTPPackageConfiguration,
+		tags map[string]string,
+	) (*LiveSource, error)
+	DescribeLiveSource(sourceLocationName, liveSourceName string) (*LiveSource, error)
+	UpdateLiveSource(
+		sourceLocationName, liveSourceName string,
+		httpPackageConfigurations []HTTPPackageConfiguration,
+	) (*LiveSource, error)
+	DeleteLiveSource(sourceLocationName, liveSourceName string) error
+	ListLiveSources(sourceLocationName string, maxResults int, nextToken string) ([]*LiveSourceSummary, string, error)
+
+	// PrefetchSchedule
+	CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
+	GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
+	DeletePrefetchSchedule(playbackConfigName, name string) error
+	ListPrefetchSchedules(
+		playbackConfigName string,
+		maxResults int,
+		nextToken string,
+	) ([]*PrefetchSchedule, string, error)
+
+	// Program
+	CreateProgram(
+		channelName, programName, sourceLocationName, vodSourceName, liveSourceName string,
+		tags map[string]string,
+	) (*Program, error)
+	DescribeProgram(channelName, programName string) (*Program, error)
+	UpdateProgram(channelName, programName string) (*Program, error)
+	DeleteProgram(channelName, programName string) error
+	GetChannelSchedule(channelName string, maxResults int, nextToken string) ([]*ProgramScheduleEntry, string, error)
+
+	// ChannelPolicy
+	PutChannelPolicy(channelName, policy string) error
+	GetChannelPolicy(channelName string) (string, error)
+	DeleteChannelPolicy(channelName string) error
+
+	// Function
+	PutFunction(functionID, functionType, description string, tags map[string]string) (*Function, error)
+	GetFunction(functionID string) (*Function, error)
+	DeleteFunction(functionID string) error
+	ListFunctions(maxResults int, nextToken string) ([]*FunctionSummary, string, error)
+
+	// Logs
+	ConfigureLogsForChannel(channelName string, logTypes []string) (string, []string, error)
+	ConfigureLogsForPlaybackConfiguration(playbackConfigName string, percentEnabled int) (string, int, error)
+
 	// Tags
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	TagResource(resourceARN string, tags map[string]string) error
@@ -146,6 +195,66 @@ type HTTPPackageConfiguration struct {
 	Path        string `json:"path"`
 	SourceGroup string `json:"sourceGroup"`
 	Type        string `json:"type"`
+}
+
+// LiveSource represents a MediaTailor live source.
+// Tags first, strings before slice: reduces GC pointer scan.
+type LiveSource struct {
+	Tags                      map[string]string
+	ARN                       string
+	SourceLocationName        string
+	LiveSourceName            string
+	HTTPPackageConfigurations []HTTPPackageConfiguration
+}
+
+// LiveSourceSummary is a live source in a list response.
+type LiveSourceSummary struct {
+	Tags               map[string]string
+	SourceLocationName string
+	LiveSourceName     string
+	ARN                string
+}
+
+// PrefetchSchedule represents a MediaTailor prefetch schedule.
+type PrefetchSchedule struct {
+	ARN                       string
+	Name                      string
+	PlaybackConfigurationName string
+}
+
+// Program represents a MediaTailor program within a channel.
+type Program struct {
+	Tags               map[string]string
+	ARN                string
+	ChannelName        string
+	ProgramName        string
+	SourceLocationName string
+	VodSourceName      string
+	LiveSourceName     string
+}
+
+// ProgramScheduleEntry is a program as returned in a channel schedule.
+type ProgramScheduleEntry struct {
+	ARN         string
+	ChannelName string
+	ProgramName string
+}
+
+// Function represents a MediaTailor function.
+type Function struct {
+	Tags         map[string]string
+	FunctionID   string
+	FunctionType string
+	ARN          string
+	Description  string
+}
+
+// FunctionSummary is a function in a list response.
+type FunctionSummary struct {
+	Tags         map[string]string
+	FunctionID   string
+	FunctionType string
+	ARN          string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

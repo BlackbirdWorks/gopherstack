@@ -748,7 +748,7 @@ func TestECR_Backend_SetEndpoint(t *testing.T) {
 
 	backend.SetEndpoint("localhost:9000")
 
-	repo, err := backend.CreateRepository("my-repo", "", false, "", "")
+	repo, err := backend.CreateRepository(context.Background(), "my-repo", "", false, "", "")
 	require.NoError(t, err)
 	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
 }
@@ -1677,10 +1677,10 @@ func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) {
 	t.Parallel()
 
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	_, err := backend.CreateRepository("copy-repo", "", false, "", "")
+	_, err := backend.CreateRepository(context.Background(), "copy-repo", "", false, "", "")
 	require.NoError(t, err)
 
-	img, err := backend.PutImage("copy-repo", ecr.Image{
+	img, err := backend.PutImage(context.Background(), "copy-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "latest"},
 	})
@@ -1688,7 +1688,7 @@ func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) {
 	img.ImageStatus = "CORRUPTED"
 	img.ImageID.ImageTag = "changed"
 
-	stored, err := backend.DescribeImages("copy-repo", []ecr.ImageIdentifier{{ImageDigest: img.ImageDigest}})
+	stored, err := backend.DescribeImages(context.Background(), "copy-repo", []ecr.ImageIdentifier{{ImageDigest: img.ImageDigest}})
 	require.NoError(t, err)
 	require.Len(t, stored, 1)
 	assert.Equal(t, "ACTIVE", stored[0].ImageStatus)

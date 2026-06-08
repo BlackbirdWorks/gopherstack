@@ -60,7 +60,7 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantContains: []string{
 				"RunInstancesResponse",
 				"<instanceId>i-",
-				"running",
+				"pending",
 			},
 		},
 		{
@@ -306,12 +306,12 @@ func TestEC2Handler_TerminateInstances(t *testing.T) {
 	require.NoError(t, err)
 	instanceID := runResp.InstancesSet.Items[0].InstanceID
 
-	// Terminate.
+	// Terminate — AWS state machine returns shutting-down as CurrentState immediately.
 	termRec := postForm(t, h,
 		"Action=TerminateInstances&Version=2016-11-15&InstanceId.1="+instanceID)
 	assert.Equal(t, http.StatusOK, termRec.Code)
 	assert.Contains(t, termRec.Body.String(), "TerminateInstancesResponse")
-	assert.Contains(t, termRec.Body.String(), "terminated")
+	assert.Contains(t, termRec.Body.String(), "shutting-down")
 }
 
 func TestEC2Handler_SecurityGroupCRUD(t *testing.T) {
@@ -649,7 +649,8 @@ func TestInMemoryBackend_DescribeInstances_FilterByState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, instances, 1)
 
-	// Describe running instances.
+	// Describe running instances (tick lifecycle so pending → running).
+	bk.TickLifecycleForTest()
 	running := bk.DescribeInstances(nil, "running")
 	assert.Len(t, running, 1)
 

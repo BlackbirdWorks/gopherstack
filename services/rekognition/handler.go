@@ -95,7 +95,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
+	ops := map[string]service.JSONOpFunc{
 		"CreateCollection":        service.WrapOp(h.handleCreateCollection),
 		"DeleteCollection":        service.WrapOp(h.handleDeleteCollection),
 		"DescribeCollection":      service.WrapOp(h.handleDescribeCollection),
@@ -116,6 +116,12 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"UntagResource":           service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
 	}
+
+	for k, v := range h.appendixAOps() {
+		ops[k] = v
+	}
+
+	return ops
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {

@@ -15,3 +15,11 @@ func OriginEndpointCount(b *InMemoryBackend) int {
 
 	return len(b.originEndpoints)
 }
+
+// HarvestJobCount returns the number of stored harvest jobs.
+func HarvestJobCount(b *InMemoryBackend) int {
+	b.mu.RLock("HarvestJobCount")
+	defer b.mu.RUnlock()
+
+	return len(b.harvestJobs)
+}

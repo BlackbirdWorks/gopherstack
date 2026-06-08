@@ -1,6 +1,7 @@
 package ssm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -37,16 +38,19 @@ const (
 // It fails if the document or the requested version does not exist.
 // Returns a no-op success when Name or DocumentVersion is empty (legacy stub compat).
 func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
+	ctx context.Context,
 	input *UpdateDocumentDefaultVersionInput,
 ) (*UpdateDocumentDefaultVersionOutput, error) {
 	if input.Name == "" || input.DocumentVersion == "" {
 		return &UpdateDocumentDefaultVersionOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateDocumentDefaultVersion")
 	defer b.mu.Unlock()
 
-	doc, exists := b.documents[input.Name]
+	docs := b.documentsStore(region)
+	doc, exists := docs[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
@@ -54,7 +58,8 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	// Verify the requested version exists in documentVersions.
 	found := false
 
-	for _, dv := range b.documentVersions[input.Name] {
+	docVersions := b.documentVersionsStore(region)
+	for _, dv := range docVersions[input.Name] {
 		if dv.DocumentVersion == input.DocumentVersion {
 			found = true
 
@@ -68,15 +73,15 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	}
 
 	doc.DefaultVersion = input.DocumentVersion
-	b.documents[input.Name] = doc
+	docs[input.Name] = doc
 
 	// Also mark the version entry.
-	versions := b.documentVersions[input.Name]
+	versions := docVersions[input.Name]
 	for i := range versions {
 		versions[i].IsDefaultVersion = versions[i].DocumentVersion == input.DocumentVersion
 	}
 
-	b.documentVersions[input.Name] = versions
+	docVersions[input.Name] = versions
 
 	return &UpdateDocumentDefaultVersionOutput{
 		Description: &DocumentDefaultVersionDescription{
@@ -90,15 +95,16 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 // This is a lightweight implementation that acknowledges the request and
 // returns success without modifying stored state (the AWS API is complex
 // and review state is not tracked in this in-memory implementation).
-func (b *InMemoryBackend) UpdateDocumentMetadata(input *UpdateDocumentMetadataInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateDocumentMetadata(ctx context.Context, input *UpdateDocumentMetadataInput) (*StubOutput, error) {
 	if input.Name == "" {
 		return &StubOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("UpdateDocumentMetadata")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.documents[input.Name]; !exists {
+	if _, exists := b.documentsStore(region)[input.Name]; !exists {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
 
@@ -109,6 +115,7 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(input *UpdateDocumentMetadataIn
 // The in-memory backend does not track document review history; this returns
 // a well-formed empty response consistent with the stateless stub approach.
 func (b *InMemoryBackend) ListDocumentMetadataHistory(
+	ctx context.Context,
 	input *ListDocumentMetadataHistoryInput,
 ) (*ListDocumentMetadataHistoryOutput, error) {
 	if input.Name == "" {
@@ -119,10 +126,11 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 		}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("ListDocumentMetadataHistory")
 	defer b.mu.RUnlock()
 
-	doc, exists := b.documents[input.Name]
+	doc, exists := b.documentsStore(region)[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
@@ -142,7 +150,7 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 
 // PutInventory stores inventory items for an instance.
 // It fails if InstanceId is empty AND Items are provided.
-func (b *InMemoryBackend) PutInventory(input *PutInventoryInput) (*StubOutput, error) {
+func (b *InMemoryBackend) PutInventory(ctx context.Context, input *PutInventoryInput) (*StubOutput, error) {
 	if input.InstanceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrValidationException)
 	}
@@ -151,10 +159,12 @@ func (b *InMemoryBackend) PutInventory(input *PutInventoryInput) (*StubOutput, e
 		return &StubOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.Lock("PutInventory")
 	defer b.mu.Unlock()
 
-	existing := b.inventory[input.InstanceID]
+	store := b.inventoryStore(region)
+	existing := store[input.InstanceID]
 
 	// Merge by TypeName: replace existing entries of the same type.
 	typeMap := make(map[string]InventoryItem, len(existing))
@@ -171,18 +181,20 @@ func (b *InMemoryBackend) PutInventory(input *PutInventoryInput) (*StubOutput, e
 		merged = append(merged, item)
 	}
 
-	b.inventory[input.InstanceID] = merged
+	store[input.InstanceID] = merged
 
 	return &StubOutput{}, nil
 }
 
 // GetInventory returns stored inventory entities across all instances.
-func (b *InMemoryBackend) GetInventory(input *GetInventoryInput) (*GetInventoryOutput, error) {
+func (b *InMemoryBackend) GetInventory(ctx context.Context, input *GetInventoryInput) (*GetInventoryOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetInventory")
 	defer b.mu.RUnlock()
 
-	entities := make([]InventoryResultEntity, 0, len(b.inventory))
-	for instanceID, items := range b.inventory {
+	store := b.inventoryStore(region)
+	entities := make([]InventoryResultEntity, 0, len(store))
+	for instanceID, items := range store {
 		data := make(map[string]InventoryTypeData, len(items))
 		for _, item := range items {
 			data[item.TypeName] = InventoryTypeData{
@@ -230,7 +242,7 @@ func (b *InMemoryBackend) GetInventory(input *GetInventoryInput) (*GetInventoryO
 
 // GetInventorySchema returns the built-in AWS SSM inventory schema types.
 // When TypeName is provided, only schemas matching that prefix are returned.
-func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
+func (b *InMemoryBackend) GetInventorySchema(_ context.Context, input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
 	all := []InventorySchemaItem{
 		{TypeName: "AWS:Application", Version: inventorySchemaV11},
 		{TypeName: "AWS:AWSComponent", Version: inventorySchemaV10},
@@ -269,12 +281,14 @@ func (b *InMemoryBackend) GetInventorySchema(input *GetInventorySchemaInput) (*G
 
 // ListInventoryEntries returns stored inventory entries for an instance and type.
 func (b *InMemoryBackend) ListInventoryEntries(
+	ctx context.Context,
 	input *ListInventoryEntriesInput,
 ) (*ListInventoryEntriesOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListInventoryEntries")
 	defer b.mu.RUnlock()
 
-	items, exists := b.inventory[input.InstanceID]
+	items, exists := b.inventoryStore(region)[input.InstanceID]
 	if !exists {
 		return &ListInventoryEntriesOutput{
 			InstanceID: input.InstanceID,
@@ -305,11 +319,13 @@ func (b *InMemoryBackend) ListInventoryEntries(
 }
 
 // DeleteInventory removes all inventory for the given TypeName across all instances.
-func (b *InMemoryBackend) DeleteInventory(input *DeleteInventoryInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteInventory(ctx context.Context, input *DeleteInventoryInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteInventory")
 	defer b.mu.Unlock()
 
-	for instanceID, items := range b.inventory {
+	store := b.inventoryStore(region)
+	for instanceID, items := range store {
 		filtered := items[:0]
 		for _, item := range items {
 			if item.TypeName != input.TypeName {
@@ -318,9 +334,9 @@ func (b *InMemoryBackend) DeleteInventory(input *DeleteInventoryInput) (*StubOut
 		}
 
 		if len(filtered) == 0 {
-			delete(b.inventory, instanceID)
+			delete(store, instanceID)
 		} else {
-			b.inventory[instanceID] = filtered
+			store[instanceID] = filtered
 		}
 	}
 
@@ -330,6 +346,7 @@ func (b *InMemoryBackend) DeleteInventory(input *DeleteInventoryInput) (*StubOut
 // DescribeInventoryDeletions returns an empty list.
 // The in-memory backend does not track deletion jobs.
 func (b *InMemoryBackend) DescribeInventoryDeletions(
+	_ context.Context,
 	_ *DescribeInventoryDeletionsInput,
 ) (*DescribeInventoryDeletionsOutput, error) {
 	return &DescribeInventoryDeletionsOutput{
@@ -343,7 +360,7 @@ func (b *InMemoryBackend) DescribeInventoryDeletions(
 
 // PutComplianceItems stores compliance items for a resource.
 // It fails if ResourceID is empty AND Items are provided.
-func (b *InMemoryBackend) PutComplianceItems(input *PutComplianceItemsInput) (*StubOutput, error) {
+func (b *InMemoryBackend) PutComplianceItems(ctx context.Context, input *PutComplianceItemsInput) (*StubOutput, error) {
 	if input.ResourceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
 	}
@@ -352,6 +369,7 @@ func (b *InMemoryBackend) PutComplianceItems(input *PutComplianceItemsInput) (*S
 		return &StubOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.Lock("PutComplianceItems")
 	defer b.mu.Unlock()
 
@@ -369,21 +387,23 @@ func (b *InMemoryBackend) PutComplianceItems(input *PutComplianceItemsInput) (*S
 		newItems = append(newItems, ci)
 	}
 
-	b.compliance[input.ResourceID] = newItems
+	b.complianceStore(region)[input.ResourceID] = newItems
 
 	return &StubOutput{}, nil
 }
 
 // ListComplianceItems returns stored compliance items, optionally filtered by ResourceId/ResourceType.
 func (b *InMemoryBackend) ListComplianceItems(
+	ctx context.Context,
 	input *ListComplianceItemsInput,
 ) (*ListComplianceItemsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListComplianceItems")
 	defer b.mu.RUnlock()
 
 	var all []ComplianceItem
 
-	for _, items := range b.compliance {
+	for _, items := range b.complianceStore(region) {
 		for _, item := range items {
 			if input.ResourceID != "" && item.ResourceID != input.ResourceID {
 				continue
@@ -406,8 +426,10 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 // ListComplianceSummaries aggregates stored compliance items by ComplianceType.
 func (b *InMemoryBackend) ListComplianceSummaries(
+	ctx context.Context,
 	_ *ListComplianceSummariesInput,
 ) (*ListComplianceSummariesOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListComplianceSummaries")
 	defer b.mu.RUnlock()
 
@@ -419,7 +441,7 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 
 	tallies := make(map[string]*tally)
 
-	for _, items := range b.compliance {
+	for _, items := range b.complianceStore(region) {
 		for _, item := range items {
 			ct := item.ComplianceType
 			if ct == "" {
@@ -457,14 +479,17 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 // ListResourceComplianceSummaries returns per-resource compliance summaries
 // derived from stored compliance items.
 func (b *InMemoryBackend) ListResourceComplianceSummaries(
+	ctx context.Context,
 	_ *ListResourceComplianceSummariesInput,
 ) (*ListResourceComplianceSummariesOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListResourceComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	summaries := make([]any, 0, len(b.compliance))
+	store := b.complianceStore(region)
+	summaries := make([]any, 0, len(store))
 
-	for resourceID, items := range b.compliance {
+	for resourceID, items := range store {
 		if len(items) == 0 {
 			continue
 		}
@@ -510,8 +535,10 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 // GetDefaultPatchBaseline returns the baseline registered for "default" or a
 // hard-coded fallback baseline ID.
 func (b *InMemoryBackend) GetDefaultPatchBaseline(
+	ctx context.Context,
 	input *GetDefaultPatchBaselineInput,
 ) (*GetDefaultPatchBaselineOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetDefaultPatchBaseline")
 	defer b.mu.RUnlock()
 
@@ -520,7 +547,7 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 		key = "default-" + input.OperatingSystem
 	}
 
-	if id, ok := b.patchGroupToBaseline[key]; ok {
+	if id, ok := b.patchGroupToBaselineStore(region)[key]; ok {
 		return &GetDefaultPatchBaselineOutput{
 			BaselineID:      id,
 			OperatingSystem: input.OperatingSystem,
@@ -537,16 +564,18 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 // GetPatchBaselineForPatchGroup looks up the baseline for a given patch group.
 // Returns an empty result when PatchGroup is empty (stub compat).
 func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
+	ctx context.Context,
 	input *GetPatchBaselineForPatchGroupInput,
 ) (*GetPatchBaselineForPatchBaselineOutput, error) {
 	if input.PatchGroup == "" {
 		return &GetPatchBaselineForPatchBaselineOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("GetPatchBaselineForPatchGroup")
 	defer b.mu.RUnlock()
 
-	id, ok := b.patchGroupToBaseline[input.PatchGroup]
+	id, ok := b.patchGroupToBaselineStore(region)[input.PatchGroup]
 	if !ok {
 		return nil, fmt.Errorf("%w: patch group %q not found", ErrPatchBaselineNotFound, input.PatchGroup)
 	}
@@ -561,24 +590,27 @@ func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
 // RegisterDefaultPatchBaseline sets the default patch baseline.
 // Returns success with an empty BaselineID when the input is empty (stub compat).
 func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
+	ctx context.Context,
 	input *RegisterDefaultPatchBaselineInput,
 ) (*RegisterDefaultPatchBaselineOutput, error) {
 	if input.BaselineID == "" {
 		return &RegisterDefaultPatchBaselineOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.Lock("RegisterDefaultPatchBaseline")
 	defer b.mu.Unlock()
 
-	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
+	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
 		return nil, fmt.Errorf("%w: baseline %q not found", ErrPatchBaselineNotFound, input.BaselineID)
 	}
 
-	b.patchGroupToBaseline["default"] = input.BaselineID
+	store := b.patchGroupToBaselineStore(region)
+	store["default"] = input.BaselineID
 
 	// Also store per-OS key when the baseline has a known OperatingSystem.
-	if bl, ok := b.patchBaselines[input.BaselineID]; ok && bl.OperatingSystem != "" {
-		b.patchGroupToBaseline["default-"+bl.OperatingSystem] = input.BaselineID
+	if bl, ok := b.patchBaselinesStore(region)[input.BaselineID]; ok && bl.OperatingSystem != "" {
+		store["default-"+bl.OperatingSystem] = input.BaselineID
 	}
 
 	return &RegisterDefaultPatchBaselineOutput{BaselineID: input.BaselineID}, nil
@@ -586,16 +618,19 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 
 // DeletePatchBaseline removes a patch baseline by ID.
 func (b *InMemoryBackend) DeletePatchBaseline(
+	ctx context.Context,
 	input *DeletePatchBaselineInput,
 ) (*DeletePatchBaselineOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeletePatchBaseline")
 	defer b.mu.Unlock()
 
-	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
+	store := b.patchBaselinesStore(region)
+	if _, exists := store[input.BaselineID]; !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
 
-	delete(b.patchBaselines, input.BaselineID)
+	delete(store, input.BaselineID)
 
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }
@@ -603,6 +638,7 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 // DescribePatchGroupState returns zeroed counts for a patch group.
 // The in-memory backend does not track per-instance patch state.
 func (b *InMemoryBackend) DescribePatchGroupState(
+	_ context.Context,
 	_ *DescribePatchGroupStateInput,
 ) (*DescribePatchGroupStateOutput, error) {
 	return &DescribePatchGroupStateOutput{}, nil
@@ -610,16 +646,20 @@ func (b *InMemoryBackend) DescribePatchGroupState(
 
 // DescribePatchGroups lists the patch group to baseline mappings.
 func (b *InMemoryBackend) DescribePatchGroups(
+	ctx context.Context,
 	input *DescribePatchGroupsInput,
 ) (*DescribePatchGroupsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribePatchGroups")
 	defer b.mu.RUnlock()
 
-	mappings := make([]PatchGroupPatchBaselineMapping, 0, len(b.patchGroupToBaseline))
+	store := b.patchGroupToBaselineStore(region)
+	mappings := make([]PatchGroupPatchBaselineMapping, 0, len(store))
 
-	for group, baselineID := range b.patchGroupToBaseline {
+	patchBaselines := b.patchBaselinesStore(region)
+	for group, baselineID := range store {
 		identity := PatchBaselineIdentity{BaselineID: baselineID}
-		if bl, ok := b.patchBaselines[baselineID]; ok {
+		if bl, ok := patchBaselines[baselineID]; ok {
 			identity.BaselineName = bl.Name
 			identity.OperatingSystem = bl.OperatingSystem
 			identity.Description = bl.Description
@@ -662,6 +702,7 @@ func (b *InMemoryBackend) DescribePatchGroups(
 // DescribePatchProperties returns an empty property list.
 // The in-memory backend does not maintain patch metadata.
 func (b *InMemoryBackend) DescribePatchProperties(
+	_ context.Context,
 	_ *DescribePatchPropertiesInput,
 ) (*DescribePatchPropertiesOutput, error) {
 	return &DescribePatchPropertiesOutput{
@@ -673,6 +714,7 @@ func (b *InMemoryBackend) DescribePatchProperties(
 // The in-memory backend does not maintain patch catalogue data.
 // Returns an empty list when BaselineID is empty (stub compat).
 func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
+	ctx context.Context,
 	input *DescribeEffectivePatchesForPatchBaselineInput,
 ) (*DescribeEffectivePatchesForPatchBaselineOutput, error) {
 	if input.BaselineID == "" {
@@ -681,10 +723,11 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 		}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeEffectivePatchesForPatchBaseline")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
+	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
 		return nil, fmt.Errorf("%w: baseline %q not found", ErrPatchBaselineNotFound, input.BaselineID)
 	}
 
@@ -696,6 +739,7 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 // GetDeployablePatchSnapshotForInstance returns a stub snapshot ID.
 // The in-memory backend generates a synthetic snapshot URL.
 func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
+	_ context.Context,
 	input *GetDeployablePatchSnapshotForInstanceInput,
 ) (*GetDeployablePatchSnapshotForInstanceOutput, error) {
 	snapshotID := input.SnapshotID
@@ -716,16 +760,19 @@ func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
 
 // DeleteMaintenanceWindow removes a maintenance window by ID.
 func (b *InMemoryBackend) DeleteMaintenanceWindow(
+	ctx context.Context,
 	input *DeleteMaintenanceWindowInput,
 ) (*DeleteMaintenanceWindowOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
+	store := b.maintenanceWindowsStore(region)
+	if _, exists := store[input.WindowID]; !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(b.maintenanceWindows, input.WindowID)
+	delete(store, input.WindowID)
 
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil
 }
@@ -733,16 +780,18 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 // GetMaintenanceWindowTask retrieves a task by WindowId and WindowTaskId.
 // Returns an empty task when WindowTaskID is empty (stub compat).
 func (b *InMemoryBackend) GetMaintenanceWindowTask(
+	ctx context.Context,
 	input *GetMaintenanceWindowTaskInput,
 ) (*GetMaintenanceWindowTaskOutput, error) {
 	if input.WindowTaskID == "" {
 		return &GetMaintenanceWindowTaskOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindowTask")
 	defer b.mu.RUnlock()
 
-	task, exists := b.maintenanceWindowTasks[input.WindowTaskID]
+	task, exists := b.maintenanceWindowTasksStore(region)[input.WindowTaskID]
 	if !exists || task.WindowID != input.WindowID {
 		return nil, ErrMaintenanceWindowNotFound
 	}
@@ -753,14 +802,16 @@ func (b *InMemoryBackend) GetMaintenanceWindowTask(
 // DescribeMaintenanceWindowsForTarget returns windows that have registered targets
 // matching the given resource type and target key/value filters.
 func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
+	ctx context.Context,
 	input *DescribeMaintenanceWindowsForTargetInput,
 ) (*DescribeMaintenanceWindowsForTargetOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeMaintenanceWindowsForTarget")
 	defer b.mu.RUnlock()
 
 	matchedWindowIDs := make(map[string]struct{})
 
-	for _, windowTarget := range b.maintenanceWindowTargets {
+	for _, windowTarget := range b.maintenanceWindowTargetsStore(region) {
 		if input.ResourceType != "" && windowTarget.ResourceType != input.ResourceType {
 			continue
 		}
@@ -770,9 +821,10 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 		}
 	}
 
+	maintenanceWindows := b.maintenanceWindowsStore(region)
 	identities := make([]MaintenanceWindowIdentity, 0, len(matchedWindowIDs))
 	for windowID := range matchedWindowIDs {
-		if mw, ok := b.maintenanceWindows[windowID]; ok {
+		if mw, ok := maintenanceWindows[windowID]; ok {
 			identities = append(identities, MaintenanceWindowIdentity{
 				WindowID:    mw.WindowID,
 				Name:        mw.Name,
@@ -813,12 +865,15 @@ func windowTargetMatchesFilters(registered []WindowTarget, requested []WindowTar
 // UpdateMaintenanceWindowTarget updates target fields.
 // Returns an empty response when the target is not found (stub compat for empty ID).
 func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
+	ctx context.Context,
 	input *UpdateMaintenanceWindowTargetInput,
 ) (*UpdateMaintenanceWindowTargetOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateMaintenanceWindowTarget")
 	defer b.mu.Unlock()
 
-	target, exists := b.maintenanceWindowTargets[input.WindowTargetID]
+	store := b.maintenanceWindowTargetsStore(region)
+	target, exists := store[input.WindowTargetID]
 	if !exists || target.WindowID != input.WindowID {
 		// Return a no-op success rather than error to preserve stub compat for
 		// callers that send non-existent IDs (e.g. the simple stub coverage test).
@@ -844,7 +899,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 		target.Targets = input.Targets
 	}
 
-	b.maintenanceWindowTargets[input.WindowTargetID] = target
+	store[input.WindowTargetID] = target
 
 	return &UpdateMaintenanceWindowTargetOutput{
 		WindowID:       target.WindowID,
@@ -859,12 +914,15 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 // UpdateMaintenanceWindowTask updates task fields.
 // Returns a no-op success when the task is not found (stub compat for non-existent IDs).
 func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
+	ctx context.Context,
 	input *UpdateMaintenanceWindowTaskInput,
 ) (*UpdateMaintenanceWindowTaskOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateMaintenanceWindowTask")
 	defer b.mu.Unlock()
 
-	task, exists := b.maintenanceWindowTasks[input.WindowTaskID]
+	store := b.maintenanceWindowTasksStore(region)
+	task, exists := store[input.WindowTaskID]
 	if !exists || task.WindowID != input.WindowID {
 		return &UpdateMaintenanceWindowTaskOutput{
 			WindowID:     input.WindowID,
@@ -900,7 +958,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.MaxErrors = input.MaxErrors
 	}
 
-	b.maintenanceWindowTasks[input.WindowTaskID] = task
+	store[input.WindowTaskID] = task
 
 	return &UpdateMaintenanceWindowTaskOutput{
 		WindowID:       task.WindowID,
@@ -920,16 +978,18 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 // ---------------------------------------------------------------------------
 
 // DeleteOpsItem removes an OpsItem by ID.
-func (b *InMemoryBackend) DeleteOpsItem(input *DeleteOpsItemInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteOpsItem(ctx context.Context, input *DeleteOpsItemInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsItem")
 	defer b.mu.Unlock()
 
-	if _, exists := b.opsItems[input.OpsItemID]; !exists {
+	opsItems := b.opsItemsStore(region)
+	if _, exists := opsItems[input.OpsItemID]; !exists {
 		return nil, ErrOpsItemNotFound
 	}
 
-	delete(b.opsItems, input.OpsItemID)
-	delete(b.opsItemRelatedItems, input.OpsItemID)
+	delete(opsItems, input.OpsItemID)
+	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
 	return &StubOutput{}, nil
 }
@@ -937,16 +997,19 @@ func (b *InMemoryBackend) DeleteOpsItem(input *DeleteOpsItemInput) (*StubOutput,
 // DisassociateOpsItemRelatedItem removes a related item from an OpsItem.
 // Returns success if the OpsItem does not exist (stub compat for empty ID).
 func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
+	ctx context.Context,
 	input *DisassociateOpsItemRelatedItemInput,
 ) (*StubOutput, error) {
 	if input.OpsItemID == "" {
 		return &StubOutput{}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.Lock("DisassociateOpsItemRelatedItem")
 	defer b.mu.Unlock()
 
-	items, exists := b.opsItemRelatedItems[input.OpsItemID]
+	store := b.opsItemRelatedItemsStore(region)
+	items, exists := store[input.OpsItemID]
 	if !exists {
 		// No-op if OpsItem doesn't have any related items.
 		return &StubOutput{}, nil
@@ -959,24 +1022,27 @@ func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 		}
 	}
 
-	b.opsItemRelatedItems[input.OpsItemID] = filtered
+	store[input.OpsItemID] = filtered
 
 	return &StubOutput{}, nil
 }
 
 // ListOpsItemRelatedItems returns stored related items for an OpsItem.
 func (b *InMemoryBackend) ListOpsItemRelatedItems(
+	ctx context.Context,
 	input *ListOpsItemRelatedItemsInput,
 ) (*ListOpsItemRelatedItemsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListOpsItemRelatedItems")
 	defer b.mu.RUnlock()
 
 	var all []OpsItemRelatedItem
 
+	store := b.opsItemRelatedItemsStore(region)
 	if input.OpsItemID != "" {
-		all = append(all, b.opsItemRelatedItems[input.OpsItemID]...)
+		all = append(all, store[input.OpsItemID]...)
 	} else {
-		for _, items := range b.opsItemRelatedItems {
+		for _, items := range store {
 			all = append(all, items...)
 		}
 	}
@@ -990,14 +1056,17 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 
 // ListOpsItemEvents returns tracked events for OpsItems, optionally filtered by OpsItemID.
 func (b *InMemoryBackend) ListOpsItemEvents(
+	ctx context.Context,
 	input *ListOpsItemEventsInput,
 ) (*ListOpsItemEventsOutput, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListOpsItemEvents")
 	defer b.mu.RUnlock()
 
 	var summaries []OpsItemEventSummary
 
-	for _, event := range b.opsItemEvents {
+	events := b.opsItemEventsStore(region)
+	for _, event := range events {
 		if input.OpsItemID != "" && event.OpsItemID != input.OpsItemID {
 			continue
 		}
@@ -1013,17 +1082,19 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 }
 
 // DeleteOpsMetadata removes OpsMetadata by ARN.
-func (b *InMemoryBackend) DeleteOpsMetadata(input *DeleteOpsMetadataInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteOpsMetadata(ctx context.Context, input *DeleteOpsMetadataInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsMetadata")
 	defer b.mu.Unlock()
 
-	meta, exists := b.opsMetadata[input.OpsMetadataArn]
+	opsMetadata := b.opsMetadataStore(region)
+	meta, exists := opsMetadata[input.OpsMetadataArn]
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
 
-	delete(b.resourceIDToOpsMetadataArn, meta.ResourceID)
-	delete(b.opsMetadata, input.OpsMetadataArn)
+	delete(b.resourceIDToOpsMetadataArnStore(region), meta.ResourceID)
+	delete(opsMetadata, input.OpsMetadataArn)
 
 	return &StubOutput{}, nil
 }

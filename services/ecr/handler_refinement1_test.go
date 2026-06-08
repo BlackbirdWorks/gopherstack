@@ -2,6 +2,7 @@ package ecr_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -231,7 +232,7 @@ func TestRefinement1_SortedDescribeRepositories(t *testing.T) {
 				})
 			}
 
-			repos, err := b.DescribeRepositories(nil)
+			repos, err := b.DescribeRepositories(context.Background(), nil)
 			require.NoError(t, err)
 
 			got := make([]string, 0, len(repos))
@@ -273,10 +274,10 @@ func TestRefinement1_TagResource(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			err := b.TagResource(tt.arn, tt.tags)
+			err := b.TagResource(context.Background(), tt.arn, tt.tags)
 			require.NoError(t, err)
 
-			got, err := b.ListTagsForResource(tt.arn)
+			got, err := b.ListTagsForResource(context.Background(), tt.arn)
 			require.NoError(t, err)
 			assert.Len(t, got, tt.wantLen)
 
@@ -319,10 +320,10 @@ func TestRefinement1_UntagResource(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			require.NoError(t, b.TagResource(tt.arn, tt.initialTags))
-			require.NoError(t, b.UntagResource(tt.arn, tt.removeKeys))
+			require.NoError(t, b.TagResource(context.Background(), tt.arn, tt.initialTags))
+			require.NoError(t, b.UntagResource(context.Background(), tt.arn, tt.removeKeys))
 
-			got, err := b.ListTagsForResource(tt.arn)
+			got, err := b.ListTagsForResource(context.Background(), tt.arn)
 			require.NoError(t, err)
 			assert.Len(t, got, tt.wantLen)
 		})
@@ -463,17 +464,17 @@ func TestRefinement1_DeleteRepository_Cascade(t *testing.T) {
 				RepositoryARN:  tt.arn,
 			})
 			b.AddLifecyclePolicyInternal(tt.repoName, `{"rules":[]}`)
-			require.NoError(t, b.TagResource(tt.arn, map[string]string{"env": "prod"}))
+			require.NoError(t, b.TagResource(context.Background(), tt.arn, map[string]string{"env": "prod"}))
 
 			assert.Equal(t, 1, b.LifecyclePolicyCount())
 
-			_, err := b.DeleteRepository(tt.repoName)
+			_, err := b.DeleteRepository(context.Background(), tt.repoName)
 			require.NoError(t, err)
 
 			assert.Equal(t, 0, b.RepositoryCount())
 			assert.Equal(t, 0, b.LifecyclePolicyCount())
 
-			tags, err := b.ListTagsForResource(tt.arn)
+			tags, err := b.ListTagsForResource(context.Background(), tt.arn)
 			require.NoError(t, err)
 			assert.Empty(t, tags)
 		})
@@ -697,7 +698,7 @@ func TestRefinement1_Repository_ImageTagMutability(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			repo, err := b.CreateRepository(tt.repoName, tt.imageTagMutability, false, "", "")
+			repo, err := b.CreateRepository(context.Background(), tt.repoName, tt.imageTagMutability, false, "", "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantMutability, repo.ImageTagMutability)
 		})
@@ -805,7 +806,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b1 := newRefinementBackend()
-			require.NoError(t, b1.TagResource(tt.arn, tt.tags))
+			require.NoError(t, b1.TagResource(context.Background(), tt.arn, tt.tags))
 
 			snap := b1.Snapshot()
 			require.NotNil(t, snap)
@@ -813,7 +814,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			b2 := newRefinementBackend()
 			require.NoError(t, b2.Restore(snap))
 
-			got, err := b2.ListTagsForResource(tt.arn)
+			got, err := b2.ListTagsForResource(context.Background(), tt.arn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.tags, got)
 		})

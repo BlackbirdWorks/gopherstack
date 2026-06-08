@@ -19,8 +19,8 @@ func TestELBDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.ELBHandler.Backend.CreateLoadBalancer(elbbackend.CreateLoadBalancerInput{
-		LoadBalancerName: "e2e-test-lb",
-		Scheme:           "internet-facing",
+		LoadBalancerName:  "e2e-test-lb",
+		Scheme:            "internet-facing",
 		AvailabilityZones: []string{"us-east-1a"},
 		Listeners: []elbbackend.Listener{
 			{

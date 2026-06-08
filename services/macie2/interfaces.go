@@ -10,6 +10,113 @@ type StorageBackend interface {
 	DisableMacie() error
 	UpdateMacieSession(frequency, status string) error
 
+	// Classification job operations
+	CreateClassificationJob(
+		name, description, jobType, clientToken string,
+		s3JobDefinition, scheduleFrequency map[string]any,
+		tags map[string]string,
+		samplingPercentage int32,
+		initialRun bool,
+	) (string, error)
+	DescribeClassificationJob(jobID string) (*ClassificationJob, error)
+	ListClassificationJobs(
+		filterCriteria map[string]any,
+		maxResults int,
+		nextToken string,
+	) ([]*ClassificationJobSummary, string, error)
+	UpdateClassificationJob(jobID, status string) error
+
+	// Member operations
+	CreateMember(accountID, email string, tags map[string]string) error
+	GetMember(accountID string) (*Member, error)
+	DeleteMember(accountID string) error
+	ListMembers(onlyAssociated bool) ([]*Member, error)
+	DisassociateMember(accountID string) error
+	UpdateMemberSession(accountID, status string) error
+
+	// Invitation operations
+	CreateInvitations(accountIDs []string, message string, disableEmail bool) ([]UnprocessedAccount, error)
+	AcceptInvitation(administratorAccountID, invitationID string) error
+	DeclineInvitations(accountIDs []string) ([]UnprocessedAccount, error)
+	DeleteInvitations(accountIDs []string) ([]UnprocessedAccount, error)
+	GetInvitationsCount() (int64, error)
+	ListInvitations() ([]*Invitation, error)
+
+	// Administrator / master account operations
+	GetAdministratorAccount() (*AdministratorAccount, error)
+	GetMasterAccount() (*AdministratorAccount, error)
+	DisassociateFromAdministratorAccount() error
+	DisassociateFromMasterAccount() error
+
+	// Organization admin operations
+	EnableOrganizationAdminAccount(accountID string) error
+	DisableOrganizationAdminAccount(accountID string) error
+	ListOrganizationAdminAccounts() ([]*OrgAdminAccount, error)
+
+	// Organization configuration
+	DescribeOrganizationConfiguration() (*OrgConfig, error)
+	UpdateOrganizationConfiguration(autoEnable bool) error
+
+	// Automated discovery operations
+	GetAutomatedDiscoveryConfiguration() (*AutoDiscoveryConfig, error)
+	UpdateAutomatedDiscoveryConfiguration(autoEnableMembers, status string) error
+	ListAutomatedDiscoveryAccounts() ([]*AutoDiscoveryAccount, error)
+	BatchUpdateAutomatedDiscoveryAccounts(updates []AutoDiscoveryAccountUpdate) error
+
+	// Bucket operations
+	DescribeBuckets(criteria map[string]any) ([]map[string]any, error)
+	GetBucketStatistics(accountID string) (map[string]any, error)
+
+	// Batch custom data identifier
+	BatchGetCustomDataIdentifiers(ids []string) ([]*CustomDataIdentifier, error)
+
+	// Classification export configuration
+	GetClassificationExportConfiguration() (*ClassificationExportConfig, error)
+	PutClassificationExportConfiguration(cfg *ClassificationExportConfig) error
+
+	// Classification scope operations
+	GetClassificationScope(scopeID string) (*ClassificationScope, error)
+	ListClassificationScopes() ([]*ClassificationScopeSummary, error)
+	UpdateClassificationScope(scopeID string, s3 *ClassificationScopeS3) error
+
+	// Findings publication configuration
+	GetFindingsPublicationConfiguration() (*FindingsPublicationConfig, error)
+	PutFindingsPublicationConfiguration(cfg *FindingsPublicationConfig) error
+
+	// Resource profile operations
+	GetResourceProfile(resourceARN string) (*ResourceProfile, error)
+	UpdateResourceProfile(resourceARN string, sensitivityScore int32) error
+	ListResourceProfileArtifacts(resourceARN string) ([]ResourceProfileArtifact, error)
+	ListResourceProfileDetections(resourceARN string) ([]ResourceProfileDetection, error)
+	UpdateResourceProfileDetections(resourceARN string, suppressDataIdentifiers []map[string]any) error
+
+	// Reveal configuration
+	GetRevealConfiguration() (*RevealConfiguration, error)
+	UpdateRevealConfiguration(kmsKeyID, status string) error
+
+	// Sensitive data occurrences
+	GetSensitiveDataOccurrences(findingID string) (map[string]any, error)
+	GetSensitiveDataOccurrencesAvailability(findingID string) (string, error)
+
+	// Sensitivity inspection template operations
+	GetSensitivityInspectionTemplate(templateID string) (*SensitivityInspectionTemplate, error)
+	ListSensitivityInspectionTemplates() ([]*SensitivityInspectionTemplateSummary, error)
+	UpdateSensitivityInspectionTemplate(templateID, name, description string, excludes, includes map[string]any) error
+
+	// Usage operations
+	GetUsageStatistics(
+		filterBy []map[string]any,
+		maxResults int,
+		nextToken, sortBy string,
+	) ([]UsageRecord, string, error)
+	GetUsageTotals(currencyCode string) ([]UsageTotal, error)
+
+	// Managed data identifiers
+	ListManagedDataIdentifiers() ([]ManagedDataIdentifier, error)
+
+	// Search resources
+	SearchResources(bucketCriteria map[string]any, maxResults int, nextToken string) ([]map[string]any, string, error)
+
 	// Allow list operations
 	CreateAllowList(
 		name, description string,
@@ -199,6 +306,241 @@ type Severity struct {
 type FindingStatisticsGroup struct {
 	GroupKey string `json:"groupKey"`
 	Count    int64  `json:"count"`
+}
+
+// --- Appendix A types ---
+
+// ClassificationJob represents a Macie classification job.
+type ClassificationJob struct { //nolint:govet // fieldalignment: readability over padding
+	Tags               map[string]string `json:"tags,omitempty"`
+	S3JobDefinition    map[string]any    `json:"s3JobDefinition,omitempty"`
+	ScheduleFrequency  map[string]any    `json:"scheduleFrequency,omitempty"`
+	LastRunTime        *time.Time        `json:"lastRunTime,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	ClientToken        string            `json:"clientToken,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	JobID              string            `json:"jobId"`
+	JobStatus          string            `json:"jobStatus"`
+	JobType            string            `json:"jobType"`
+	Name               string            `json:"name"`
+	SamplingPercentage int32             `json:"samplingPercentage"`
+	InitialRun         bool              `json:"initialRun"`
+}
+
+// ClassificationJobSummary is the list-view of a classification job.
+type ClassificationJobSummary struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	LastRunTime *time.Time        `json:"lastRunTime,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	Description string            `json:"description,omitempty"`
+	JobID       string            `json:"jobId"`
+	JobStatus   string            `json:"jobStatus"`
+	JobType     string            `json:"jobType"`
+	Name        string            `json:"name"`
+}
+
+// Member represents a Macie member account.
+type Member struct { //nolint:govet // fieldalignment: readability over padding
+	Tags                   map[string]string `json:"tags,omitempty"`
+	InvitedAt              time.Time         `json:"invitedAt"`
+	UpdatedAt              time.Time         `json:"updatedAt"`
+	AccountID              string            `json:"accountId"`
+	AdministratorAccountID string            `json:"administratorAccountId,omitempty"`
+	Email                  string            `json:"email"`
+	MasteredBy             string            `json:"masteredBy,omitempty"`
+	RelationshipStatus     string            `json:"relationshipStatus"`
+}
+
+// Invitation represents a Macie invitation.
+type Invitation struct {
+	AccountID          string    `json:"accountId"`
+	InvitationID       string    `json:"invitationId"`
+	InvitedAt          time.Time `json:"invitedAt"`
+	RelationshipStatus string    `json:"relationshipStatus"`
+}
+
+// UnprocessedAccount describes an account that could not be processed.
+type UnprocessedAccount struct {
+	AccountID    string `json:"accountId"`
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// AdministratorAccount represents the administrator account relationship.
+type AdministratorAccount struct {
+	AccountID          string    `json:"accountId"`
+	InvitationID       string    `json:"invitationId"`
+	InvitedAt          time.Time `json:"invitedAt"`
+	RelationshipStatus string    `json:"relationshipStatus"`
+}
+
+// OrgAdminAccount represents an organization admin account.
+type OrgAdminAccount struct {
+	AccountID string `json:"accountId"`
+	Status    string `json:"status"`
+}
+
+// OrgConfig holds organization-level Macie configuration.
+type OrgConfig struct {
+	Features               []map[string]any `json:"features,omitempty"`
+	DataSources            map[string]any   `json:"dataSources,omitempty"`
+	AutoEnable             bool             `json:"autoEnable"`
+	MaxAccountLimitReached bool             `json:"maxAccountLimitReached"`
+}
+
+// AutoDiscoveryConfig holds automated discovery configuration.
+type AutoDiscoveryConfig struct {
+	AutoEnableOrganizationMembers string `json:"autoEnableOrganizationMembers,omitempty"`
+	Status                        string `json:"status"`
+}
+
+// AutoDiscoveryAccount holds automated discovery status for an account.
+type AutoDiscoveryAccount struct {
+	AccountID string `json:"accountId"`
+	Email     string `json:"email,omitempty"`
+	Status    string `json:"status"`
+}
+
+// AutoDiscoveryAccountUpdate is a requested status change for an account.
+type AutoDiscoveryAccountUpdate struct {
+	AccountID string `json:"accountId"`
+	Status    string `json:"status"`
+}
+
+// ClassificationExportConfig holds classification result export configuration.
+type ClassificationExportConfig struct {
+	S3Destination *ClassificationExportS3Dest `json:"s3Destination,omitempty"`
+}
+
+// ClassificationExportS3Dest holds S3 destination details.
+type ClassificationExportS3Dest struct {
+	BucketName string `json:"bucketName"`
+	KeyPrefix  string `json:"keyPrefix,omitempty"`
+	KmsKeyArn  string `json:"kmsKeyArn,omitempty"`
+}
+
+// ClassificationScope represents a classification scope resource.
+type ClassificationScope struct { //nolint:govet // fieldalignment: readability over padding
+	Tags      map[string]string      `json:"tags,omitempty"`
+	S3        *ClassificationScopeS3 `json:"s3,omitempty"`
+	CreatedAt time.Time              `json:"createdAt"`
+	UpdatedAt time.Time              `json:"updatedAt"`
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+}
+
+// ClassificationScopeS3 holds S3 exclusion criteria.
+type ClassificationScopeS3 struct {
+	Excludes map[string]any `json:"excludes,omitempty"`
+}
+
+// ClassificationScopeSummary is the list-view of a classification scope.
+type ClassificationScopeSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// FindingsPublicationConfig holds findings publication configuration.
+type FindingsPublicationConfig struct {
+	SecurityHubConfiguration      *SecurityHubConfig `json:"securityHubConfiguration,omitempty"`
+	ClientToken                   string             `json:"clientToken,omitempty"`
+	PublishClassificationFindings bool               `json:"publishClassificationFindings"`
+	PublishPolicyFindings         bool               `json:"publishPolicyFindings"`
+}
+
+// SecurityHubConfig holds Security Hub integration settings.
+type SecurityHubConfig struct {
+	PublishClassificationFindings bool `json:"publishClassificationFindings"`
+	PublishPolicyFindings         bool `json:"publishPolicyFindings"`
+}
+
+// ResourceProfile holds sensitivity profile data for a bucket.
+type ResourceProfile struct { //nolint:govet // fieldalignment: readability over padding
+	Statistics               *ResourceStatistics `json:"statistics,omitempty"`
+	ResourceArn              string              `json:"resourceArn"`
+	SensitivityScore         int32               `json:"sensitivityScore"`
+	SensitivityScoreOverride bool                `json:"sensitivityScoreOverride"`
+}
+
+// ResourceStatistics holds classification result counts for a bucket.
+type ResourceStatistics struct {
+	TotalBytesClassified               int64      `json:"totalBytesClassified"`
+	TotalDetections                    int64      `json:"totalDetections"`
+	TotalDetectionsWithoutSuppression  int64      `json:"totalDetectionsWithoutSuppression"`
+	TotalItemsClassified               int64      `json:"totalItemsClassified"`
+	TotalItemsSkipped                  int64      `json:"totalItemsSkipped"`
+	TotalItemsSkippedInvalidEncryption int64      `json:"totalItemsSkippedInvalidEncryption"`
+	TotalItemsSkippedInvalidKms        int64      `json:"totalItemsSkippedInvalidKms"`
+	TotalItemsSkippedPermissionError   int64      `json:"totalItemsSkippedPermissionError"`
+	LastRunErroredAt                   *time.Time `json:"lastRunErroredAt,omitempty"`
+	LastRunAt                          *time.Time `json:"lastRunAt,omitempty"`
+}
+
+// ResourceProfileArtifact is a single artifact in a resource profile.
+type ResourceProfileArtifact struct {
+	Arn       string `json:"arn"`
+	Sensitive bool   `json:"sensitive"`
+	Type      string `json:"type,omitempty"`
+}
+
+// ResourceProfileDetection is a data identifier detection result.
+type ResourceProfileDetection struct {
+	Arn        string `json:"arn,omitempty"`
+	Count      int64  `json:"count"`
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Suppressed bool   `json:"suppressed"`
+	Type       string `json:"type,omitempty"`
+}
+
+// RevealConfiguration holds sensitive data reveal configuration.
+type RevealConfiguration struct {
+	KmsKeyID string `json:"kmsKeyId,omitempty"`
+	Status   string `json:"status"`
+}
+
+// SensitivityInspectionTemplate holds template configuration.
+type SensitivityInspectionTemplate struct { //nolint:govet // fieldalignment: readability over padding
+	Excludes    map[string]any `json:"excludes,omitempty"`
+	Includes    map[string]any `json:"includes,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+}
+
+// SensitivityInspectionTemplateSummary is the list-view of a template.
+type SensitivityInspectionTemplateSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// UsageRecord holds usage data for a single account.
+type UsageRecord struct {
+	AccountID                            string           `json:"accountId"`
+	AutomatedDiscoveryFreeTrialStartDate *time.Time       `json:"automatedDiscoveryFreeTrialStartDate,omitempty"`
+	FreeTrialStartDate                   *time.Time       `json:"freeTrialStartDate,omitempty"`
+	Usage                                []UsageByAccount `json:"usage,omitempty"`
+}
+
+// UsageByAccount holds usage data for one type.
+type UsageByAccount struct {
+	Currency      string         `json:"currency,omitempty"`
+	EstimatedCost string         `json:"estimatedCost,omitempty"`
+	ServiceLimit  map[string]any `json:"serviceLimit,omitempty"`
+	Type          string         `json:"type,omitempty"`
+}
+
+// UsageTotal holds aggregated usage totals.
+type UsageTotal struct {
+	Currency      string `json:"currency,omitempty"`
+	EstimatedCost string `json:"estimatedCost,omitempty"`
+	Type          string `json:"type,omitempty"`
+}
+
+// ManagedDataIdentifier describes a built-in Macie data identifier.
+type ManagedDataIdentifier struct {
+	Category string `json:"category"`
+	ID       string `json:"id"`
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

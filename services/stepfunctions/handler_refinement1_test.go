@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -97,7 +98,7 @@ func TestRefinement1_StateMachineCount(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	assert.Equal(t, 0, b.StateMachineCount())
 
-	_, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.StateMachineCount())
 }
@@ -107,7 +108,7 @@ func TestRefinement1_ExecutionCount(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, b.ExecutionCount())
@@ -124,7 +125,7 @@ func TestRefinement1_ActivityCount(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	assert.Equal(t, 0, b.ActivityCount())
 
-	_, err := b.CreateActivity("my-activity")
+	_, err := b.CreateActivity(context.Background(), "my-activity")
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.ActivityCount())
 }
@@ -213,7 +214,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(b)
 
-	_, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.StateMachineCount())
 
@@ -227,11 +228,11 @@ func TestRefinement1_CreateStateMachineAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
 	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
-	_, err = b.CreateStateMachine("sm1", altDef, "arn:role", "STANDARD")
+	_, err = b.CreateStateMachine(context.Background(), "sm1", altDef, "arn:role", "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
@@ -261,7 +262,7 @@ func TestRefinement1_UpdateStateMachineInvalidDefinition(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
 	_, err = b.UpdateStateMachine(sm.StateMachineArn, `{"StartAt":"Missing"}`, "")
@@ -274,10 +275,10 @@ func TestRefinement1_ActivityAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateActivity("my-act")
+	_, err := b.CreateActivity(context.Background(), "my-act")
 	require.NoError(t, err)
 
-	_, err = b.CreateActivity("my-act")
+	_, err = b.CreateActivity(context.Background(), "my-act")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrActivityAlreadyExists)
 }
@@ -306,7 +307,7 @@ func TestRefinement1_CreateStateMachineDefaultType(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("sm1", validPassDef, "arn:role", "")
+	sm, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "")
 	require.NoError(t, err)
 	assert.Equal(t, "STANDARD", sm.Type)
 }

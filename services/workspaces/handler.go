@@ -106,7 +106,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
+	base := map[string]service.JSONOpFunc{
 		"CreateWorkspaces":                   service.WrapOp(h.handleCreateWorkspaces),
 		"DescribeWorkspaces":                 service.WrapOp(h.handleDescribeWorkspaces),
 		"DescribeWorkspacesConnectionStatus": service.WrapOp(h.handleDescribeWorkspacesConnectionStatus),
@@ -123,6 +123,12 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeWorkspaceBundles":           service.WrapOp(h.handleDescribeWorkspaceBundles),
 		"DescribeWorkspaceDirectories":       service.WrapOp(h.handleDescribeWorkspaceDirectories),
 	}
+
+	for k, v := range h.buildAppendixAOps() {
+		base[k] = v
+	}
+
+	return base
 }
 
 // tagItem represents a key/value tag pair in AWS API requests.

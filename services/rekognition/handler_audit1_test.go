@@ -551,7 +551,7 @@ func TestRekognition_UnknownOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "DetectFaces", map[string]any{})
+	rec := doRequest(t, h, "NotAnOperation", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any

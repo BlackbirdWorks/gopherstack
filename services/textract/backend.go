@@ -1,11 +1,13 @@
 package textract
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"maps"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -404,10 +406,32 @@ type InMemoryBackend struct {
 	region                 string
 	maxJobs                int
 	asyncJobDelay          time.Duration // how long before async jobs transition to SUCCEEDED
+
+	// svcCtx is the service lifecycle context. Delayed job-completion
+	// goroutines observe it so they are cancelled on server shutdown rather
+	// than firing after the backend has been discarded.
+	svcCtx context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
+// context. Prefer [NewInMemoryBackendWithContext] when a service context is
+// available so delayed job completions are cancelled on shutdown.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose delayed
+// job-completion goroutines are tied to svcCtx, so they are cancelled when the
+// service shuts down. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(svcCtx)
+
 	return &InMemoryBackend{
 		jobs:                   make(map[string]*DocumentJob),
 		expenseJobs:            make(map[string]*ExpenseJob),
@@ -421,6 +445,48 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:                 region,
 		maxJobs:                maxJobHistory,
 		asyncJobDelay:          defaultAsyncJobDelay,
+		svcCtx:                 ctx,
+		cancel:                 cancel,
+	}
+}
+
+// runDelayed runs fn after delay, unless the backend's lifecycle context is
+// cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
+// can wait for it. A zero delay fires fn promptly (time.After(0) is immediate).
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
+	b.wg.Add(1)
+
+	go func() {
+		defer b.wg.Done()
+
+		select {
+		case <-b.svcCtx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		fn()
+	}()
+}
+
+// Shutdown cancels in-flight delayed job completions and waits for their
+// goroutines to exit, bounded by ctx. It implements the service shutdown
+// contract used by the handler.
+func (b *InMemoryBackend) Shutdown(ctx context.Context) {
+	if b.cancel != nil {
+		b.cancel()
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 
@@ -1193,16 +1259,14 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 	b.mu.Unlock()
 
 	// Transition to SUCCEEDED after a short delay.
-	go func() {
-		time.Sleep(b.asyncJobDelay)
-
+	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartDocumentAnalysis-complete")
 		defer b.mu.Unlock()
 
 		if j, ok := b.jobs[jobID]; ok {
 			j.JobStatus = jobStatusSucceeded
 		}
-	}()
+	})
 
 	b.mu.RLock("StartDocumentAnalysis-read")
 	result := cloneJob(b.jobs[jobID])
@@ -1280,16 +1344,14 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 	b.mu.Unlock()
 
-	go func() {
-		time.Sleep(b.asyncJobDelay)
-
+	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartDocumentTextDetection-complete")
 		defer b.mu.Unlock()
 
 		if j, ok := b.jobs[jobID]; ok {
 			j.JobStatus = jobStatusSucceeded
 		}
-	}()
+	})
 
 	b.mu.RLock("StartDocumentTextDetection-read")
 	result := cloneJob(b.jobs[jobID])
@@ -1605,16 +1667,14 @@ func (b *InMemoryBackend) StartExpenseAnalysis(documentURI string) (*ExpenseJob,
 
 	b.mu.Unlock()
 
-	go func() {
-		time.Sleep(b.asyncJobDelay)
-
+	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartExpenseAnalysis-complete")
 		defer b.mu.Unlock()
 
 		if j, ok := b.expenseJobs[jobID]; ok {
 			j.JobStatus = jobStatusSucceeded
 		}
-	}()
+	})
 
 	b.mu.RLock("StartExpenseAnalysis-read")
 	result := cloneExpenseJob(b.expenseJobs[jobID])
@@ -1662,16 +1722,14 @@ func (b *InMemoryBackend) StartLendingAnalysis(_ string) (*LendingJob, error) {
 
 	b.mu.Unlock()
 
-	go func() {
-		time.Sleep(b.asyncJobDelay)
-
+	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartLendingAnalysis-complete")
 		defer b.mu.Unlock()
 
 		if j, ok := b.lendingJobs[jobID]; ok {
 			j.JobStatus = jobStatusSucceeded
 		}
-	}()
+	})
 
 	b.mu.RLock("StartLendingAnalysis-read")
 	result := cloneLendingJob(b.lendingJobs[jobID])
@@ -2011,9 +2069,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 	b.mu.Unlock()
 
 	// Transition to ACTIVE after a short delay.
-	go func() {
-		time.Sleep(b.asyncJobDelay)
-
+	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("CreateAdapterVersion-complete")
 		defer b.mu.Unlock()
 
@@ -2021,7 +2077,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 		if stored, ok2 := b.adapterVersions[key]; ok2 {
 			stored.Status = adapterVersionActive
 		}
-	}()
+	})
 
 	b.mu.RLock("CreateAdapterVersion-read")
 	result := cloneAdapterVersion(b.adapterVersions[adapterVersionKey(adapterID, version)])

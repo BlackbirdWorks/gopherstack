@@ -1,6 +1,7 @@
 package mediastore_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -49,11 +50,11 @@ func TestInMemoryBackend_CreateContainer(t *testing.T) {
 			b := newBackend()
 
 			if errors.Is(tt.errSentinel, awserr.ErrAlreadyExists) {
-				_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 				require.NoError(t, err)
 			}
 
-			c, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+			c, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -103,11 +104,11 @@ func TestInMemoryBackend_DeleteContainer(t *testing.T) {
 			b := newBackend()
 
 			if tt.createFirst {
-				_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 				require.NoError(t, err)
 			}
 
-			err := b.DeleteContainer(tt.container)
+			err := b.DeleteContainer(context.Background(), tt.container)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -118,7 +119,7 @@ func TestInMemoryBackend_DeleteContainer(t *testing.T) {
 
 			require.NoError(t, err)
 
-			_, err = b.DescribeContainer(tt.container)
+			_, err = b.DescribeContainer(context.Background(), tt.container)
 			require.Error(t, err)
 		})
 	}
@@ -155,11 +156,11 @@ func TestInMemoryBackend_DescribeContainer(t *testing.T) {
 			b := newBackend()
 
 			if tt.createFirst {
-				_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 				require.NoError(t, err)
 			}
 
-			c, err := b.DescribeContainer(tt.container)
+			c, err := b.DescribeContainer(context.Background(), tt.container)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -201,11 +202,11 @@ func TestInMemoryBackend_ListContainers(t *testing.T) {
 			b := newBackend()
 
 			for i := range tt.createN {
-				_, err := b.CreateContainer(testRegion, testAccountID, fmt.Sprintf("container-%d", i), nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, fmt.Sprintf("container-%d", i), nil)
 				require.NoError(t, err)
 			}
 
-			containers, _, err := b.ListContainers("", 0)
+			containers, _, err := b.ListContainers(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Len(t, containers, tt.wantCount)
 		})
@@ -251,16 +252,16 @@ func TestInMemoryBackend_ContainerPolicy(t *testing.T) {
 			b := newBackend()
 
 			if tt.createFirst {
-				_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 				require.NoError(t, err)
 			}
 
 			if tt.policy != "" {
-				err := b.PutContainerPolicy(tt.container, tt.policy)
+				err := b.PutContainerPolicy(context.Background(), tt.container, tt.policy)
 				require.NoError(t, err)
 			}
 
-			policy, err := b.GetContainerPolicy(tt.container)
+			policy, err := b.GetContainerPolicy(context.Background(), tt.container)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -309,23 +310,23 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+			_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 			require.NoError(t, err)
 
-			c, descErr := b.DescribeContainer(tt.container)
+			c, descErr := b.DescribeContainer(context.Background(), tt.container)
 			require.NoError(t, descErr)
 
 			if len(tt.tags) > 0 {
-				err = b.TagResource(c.ARN, tt.tags)
+				err = b.TagResource(context.Background(), c.ARN, tt.tags)
 				require.NoError(t, err)
 			}
 
 			if len(tt.removeKeys) > 0 {
-				err = b.UntagResource(c.ARN, tt.removeKeys)
+				err = b.UntagResource(context.Background(), c.ARN, tt.removeKeys)
 				require.NoError(t, err)
 			}
 
-			tags, err := b.ListTagsForResource(c.ARN)
+			tags, err := b.ListTagsForResource(context.Background(), c.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTags, tags)
 		})
@@ -361,17 +362,17 @@ func TestInMemoryBackend_AccessLogging(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+			_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 			require.NoError(t, err)
 
 			if tt.start {
-				require.NoError(t, b.StartAccessLogging(tt.container))
+				require.NoError(t, b.StartAccessLogging(context.Background(), tt.container))
 			} else {
-				require.NoError(t, b.StartAccessLogging(tt.container))
-				require.NoError(t, b.StopAccessLogging(tt.container))
+				require.NoError(t, b.StartAccessLogging(context.Background(), tt.container))
+				require.NoError(t, b.StopAccessLogging(context.Background(), tt.container))
 			}
 
-			c, err := b.DescribeContainer(tt.container)
+			c, err := b.DescribeContainer(context.Background(), tt.container)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantEnabled, c.AccessLoggingEnabled)
 		})
@@ -393,10 +394,10 @@ func TestInMemoryBackend_DescribeContainer_ReturnsCopy(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateContainer(testRegion, testAccountID, "copy-test", map[string]string{"k": "v"})
+			_, err := b.CreateContainer(context.Background(), testAccountID, "copy-test", map[string]string{"k": "v"})
 			require.NoError(t, err)
 
-			c, err := b.DescribeContainer("copy-test")
+			c, err := b.DescribeContainer(context.Background(), "copy-test")
 			require.NoError(t, err)
 
 			// Mutate the returned copy.
@@ -404,7 +405,7 @@ func TestInMemoryBackend_DescribeContainer_ReturnsCopy(t *testing.T) {
 			c.Status = "MUTATED"
 
 			// Backend state must be unchanged.
-			c2, err := b.DescribeContainer("copy-test")
+			c2, err := b.DescribeContainer(context.Background(), "copy-test")
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", c2.Status)
 			_, hasInjected := c2.Tags["injected"]
@@ -428,10 +429,15 @@ func TestInMemoryBackend_ListContainers_ReturnsCopies(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateContainer(testRegion, testAccountID, "list-copy-a", map[string]string{"key": "val"})
+			_, err := b.CreateContainer(
+				context.Background(),
+				testAccountID,
+				"list-copy-a",
+				map[string]string{"key": "val"},
+			)
 			require.NoError(t, err)
 
-			all, _, err := b.ListContainers("", 0)
+			all, _, err := b.ListContainers(context.Background(), "", 0)
 			require.NoError(t, err)
 			require.Len(t, all, 1)
 
@@ -439,7 +445,7 @@ func TestInMemoryBackend_ListContainers_ReturnsCopies(t *testing.T) {
 			all[0].Tags["injected"] = "evil"
 
 			// Backend state must be unchanged.
-			all2, _, err := b.ListContainers("", 0)
+			all2, _, err := b.ListContainers(context.Background(), "", 0)
 			require.NoError(t, err)
 			require.Len(t, all2, 1)
 			_, hasInjected := all2[0].Tags["injected"]
@@ -477,7 +483,7 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 			container: "no-metric",
 			setup: func(t *testing.T, b *mediastore.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateContainer(testRegion, testAccountID, "no-metric", nil)
+				_, err := b.CreateContainer(context.Background(), testAccountID, "no-metric", nil)
 				require.NoError(t, err)
 			},
 			wantErr:     true,
@@ -496,27 +502,27 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 			}
 
 			if tt.wantErr {
-				_, err := b.GetMetricPolicy(tt.container)
+				_, err := b.GetMetricPolicy(context.Background(), tt.container)
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.errSentinel)
 
 				return
 			}
 
-			_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+			_, err := b.CreateContainer(context.Background(), testAccountID, tt.container, nil)
 			require.NoError(t, err)
 
-			err = b.PutMetricPolicy(tt.container, tt.policy)
+			err = b.PutMetricPolicy(context.Background(), tt.container, tt.policy)
 			require.NoError(t, err)
 
-			got, err := b.GetMetricPolicy(tt.container)
+			got, err := b.GetMetricPolicy(context.Background(), tt.container)
 			require.NoError(t, err)
 			assert.Equal(t, tt.policy.ContainerLevelMetrics, got.ContainerLevelMetrics)
 
-			err = b.DeleteMetricPolicy(tt.container)
+			err = b.DeleteMetricPolicy(context.Background(), tt.container)
 			require.NoError(t, err)
 
-			_, err = b.GetMetricPolicy(tt.container)
+			_, err = b.GetMetricPolicy(context.Background(), tt.container)
 			require.Error(t, err)
 		})
 	}
@@ -537,7 +543,7 @@ func TestInMemoryBackend_CreateContainer_ReturnsCopy(t *testing.T) {
 
 			b := newBackend()
 
-			c, err := b.CreateContainer(testRegion, testAccountID, "create-copy", map[string]string{"k": "v"})
+			c, err := b.CreateContainer(context.Background(), testAccountID, "create-copy", map[string]string{"k": "v"})
 			require.NoError(t, err)
 
 			// Mutate the returned copy.
@@ -549,7 +555,7 @@ func TestInMemoryBackend_CreateContainer_ReturnsCopy(t *testing.T) {
 			}
 
 			// Backend state must be unchanged.
-			c2, err := b.DescribeContainer("create-copy")
+			c2, err := b.DescribeContainer(context.Background(), "create-copy")
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", c2.Status)
 			_, hasInjected := c2.Tags["injected"]

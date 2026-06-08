@@ -74,7 +74,7 @@ func TestHistoryEventCap(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("cap-sm", exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "cap-sm", exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "cap-exec", "{}")
@@ -125,7 +125,7 @@ func TestDeleteStateMachine_TombstoneOnlyRunning(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine("tomb-sm", exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "tomb-sm", exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "tomb-exec", "{}")
@@ -206,6 +206,7 @@ func TestUpdateStateMachine(t *testing.T) {
 			var smARN string
 			if !errors.Is(tt.errIs, stepfunctions.ErrStateMachineDoesNotExist) {
 				sm, smErr := b.CreateStateMachine(
+					context.Background(),
 					"update-sm", exprPassDef,
 					"arn:aws:iam::123456789012:role/original", "STANDARD",
 				)
@@ -297,7 +298,7 @@ func TestStartSyncExecution(t *testing.T) {
 
 			var smARN string
 			if !errors.Is(tt.errIs, stepfunctions.ErrStateMachineDoesNotExist) {
-				sm, smErr := b.CreateStateMachine("sync-sm-"+tt.name, tt.definition, "arn:role", tt.smType)
+				sm, smErr := b.CreateStateMachine(context.Background(), "sync-sm-"+tt.name, tt.definition, "arn:role", tt.smType)
 				require.NoError(t, smErr)
 				smARN = sm.StateMachineArn
 			} else {
@@ -359,14 +360,14 @@ func TestActivity_CreateDescribeDelete(t *testing.T) {
 
 			b := newSFBackend()
 
-			a, err := b.CreateActivity(tt.actName)
+			a, err := b.CreateActivity(context.Background(), tt.actName)
 			require.NoError(t, err)
 			assert.Equal(t, tt.actName, a.Name)
 			assert.Contains(t, a.ActivityArn, ":activity:"+tt.actName)
 			assert.Greater(t, a.CreationDate, float64(0))
 
 			if tt.duplicate {
-				_, err = b.CreateActivity(tt.actName)
+				_, err = b.CreateActivity(context.Background(), tt.actName)
 				require.ErrorIs(t, err, tt.wantErr)
 
 				return
@@ -414,7 +415,7 @@ func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity("task-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "task-act-"+tt.name)
 			require.NoError(t, err)
 
 			resultCh := make(chan string, 1)
@@ -477,7 +478,7 @@ func TestActivity_GetActivityTaskAndSendFailure(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity("fail-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "fail-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeErrCh := make(chan error, 1)
@@ -529,7 +530,7 @@ func TestActivity_GetActivityTask_Timeout(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity("timeout-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "timeout-act-"+tt.name)
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
@@ -575,7 +576,7 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity("cancel-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "cancel-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
@@ -644,7 +645,7 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			a, err := b.CreateActivity("delete-act-" + tt.name)
+			a, err := b.CreateActivity(context.Background(), "delete-act-"+tt.name)
 			require.NoError(t, err)
 
 			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
@@ -736,7 +737,7 @@ func TestStartExecution_WaitForTaskToken(t *testing.T) {
 			sqsMock := &mockStepFunctionsSQS{}
 			b.SetSQSIntegration(sqsMock)
 
-			sm, err := b.CreateStateMachine("wait-token-sm-"+tt.name, def, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "wait-token-sm-"+tt.name, def, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "wait-token-exec-"+tt.name, `{}`)

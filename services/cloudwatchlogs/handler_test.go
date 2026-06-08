@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -1486,7 +1487,7 @@ func TestHandler_PutSubscriptionFilter_Validation(t *testing.T) {
 	e := echo.New()
 	backend := cloudwatchlogs.NewInMemoryBackend()
 	h := cloudwatchlogs.NewHandler(backend)
-	_, _ = backend.CreateLogGroup("/grp", "", "")
+	_, _ = backend.CreateLogGroup(context.Background(), "/grp", "", "")
 
 	tests := []struct {
 		name     string
@@ -1885,7 +1886,7 @@ func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
 	require.NoError(t, fresh.Restore(snap))
 
 	// Verify log groups are empty (representative check).
-	groups, _, err := fresh.DescribeLogGroups("", "", 100)
+	groups, _, err := fresh.DescribeLogGroups(context.Background(), "", "", 100)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }

@@ -41,6 +41,21 @@ var (
 	ErrTagInvalid = awserr.New("BadRequest", awserr.ErrInvalidParameter)
 	// ErrTagLimitExceeded is returned when the 50-tag-per-resource limit is exceeded.
 	ErrTagLimitExceeded = awserr.New("ServiceLimitExceeded", awserr.ErrInvalidParameter)
+
+	// ErrSnapshotNotFound is returned when a snapshot does not exist.
+	ErrSnapshotNotFound = awserr.New("SnapshotNotFound", awserr.ErrNotFound)
+	// ErrStorageVirtualMachineNotFound is returned when an SVM does not exist.
+	ErrStorageVirtualMachineNotFound = awserr.New("StorageVirtualMachineNotFound", awserr.ErrNotFound)
+	// ErrVolumeNotFound is returned when a volume does not exist.
+	ErrVolumeNotFound = awserr.New("VolumeNotFound", awserr.ErrNotFound)
+	// ErrFileCacheNotFound is returned when a file cache does not exist.
+	ErrFileCacheNotFound = awserr.New("FileCacheNotFound", awserr.ErrNotFound)
+	// ErrDataRepositoryAssociationNotFound is returned when a DRA does not exist.
+	ErrDataRepositoryAssociationNotFound = awserr.New("DataRepositoryAssociationNotFound", awserr.ErrNotFound)
+	// ErrDataRepositoryTaskNotFound is returned when a DRT does not exist.
+	ErrDataRepositoryTaskNotFound = awserr.New("DataRepositoryTaskNotFound", awserr.ErrNotFound)
+	// ErrS3AccessPointNotFound is returned when an S3 access point does not exist.
+	ErrS3AccessPointNotFound = awserr.New("InvalidRequest", awserr.ErrNotFound)
 )
 
 // storedFileSystem is the persisted form of a FileSystem.
@@ -103,30 +118,57 @@ func (b *storedBackup) toBackup(fs *storedFileSystem) *Backup {
 
 // snapshot holds serializable backend state.
 type snapshot struct {
-	FileSystems map[string]*storedFileSystem `json:"fileSystems"`
-	Backups     map[string]*storedBackup     `json:"backups"`
-	Tags        map[string]map[string]string `json:"tags"`
+	FileSystems            map[string]*storedFileSystem            `json:"fileSystems"`
+	Backups                map[string]*storedBackup                `json:"backups"`
+	Tags                   map[string]map[string]string            `json:"tags"`
+	Aliases                map[string][]string                     `json:"aliases"`
+	DataRepositoryAssocs   map[string]*storedDataRepositoryAssoc   `json:"dataRepositoryAssocs"`
+	DataRepositoryTasks    map[string]*storedDataRepositoryTask    `json:"dataRepositoryTasks"`
+	FileCaches             map[string]*storedFileCache             `json:"fileCaches"`
+	Snapshots              map[string]*storedSnapshot              `json:"snapshots"`
+	StorageVirtualMachines map[string]*storedStorageVirtualMachine `json:"storageVirtualMachines"`
+	Volumes                map[string]*storedVolume                `json:"volumes"`
+	S3AccessPoints         map[string]*storedS3AccessPoint         `json:"s3AccessPoints"`
+	SharedVpcEnabled       string                                  `json:"sharedVpcEnabled"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	fileSystems map[string]*storedFileSystem // fileSystemID → fs
-	backups     map[string]*storedBackup     // backupID → backup
-	tags        map[string]map[string]string // resourceARN → tags
-	accountID   string
-	region      string
+	mu                     *lockmetrics.RWMutex
+	fileSystems            map[string]*storedFileSystem            // fileSystemID → fs
+	backups                map[string]*storedBackup                // backupID → backup
+	tags                   map[string]map[string]string            // resourceARN → tags
+	aliases                map[string][]string                     // fileSystemID → []alias name
+	dataRepositoryAssocs   map[string]*storedDataRepositoryAssoc   // associationID → assoc
+	dataRepositoryTasks    map[string]*storedDataRepositoryTask    // taskID → task
+	fileCaches             map[string]*storedFileCache             // fileCacheID → cache
+	snapshots              map[string]*storedSnapshot              // snapshotID → snapshot
+	storageVirtualMachines map[string]*storedStorageVirtualMachine // svmID → svm
+	volumes                map[string]*storedVolume                // volumeID → volume
+	s3AccessPoints         map[string]*storedS3AccessPoint         // name → access point
+	sharedVpcEnabled       string
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.New("fsx"),
-		fileSystems: make(map[string]*storedFileSystem),
-		backups:     make(map[string]*storedBackup),
-		tags:        make(map[string]map[string]string),
-		accountID:   accountID,
-		region:      region,
+		mu:                     lockmetrics.New("fsx"),
+		fileSystems:            make(map[string]*storedFileSystem),
+		backups:                make(map[string]*storedBackup),
+		tags:                   make(map[string]map[string]string),
+		aliases:                make(map[string][]string),
+		dataRepositoryAssocs:   make(map[string]*storedDataRepositoryAssoc),
+		dataRepositoryTasks:    make(map[string]*storedDataRepositoryTask),
+		fileCaches:             make(map[string]*storedFileCache),
+		snapshots:              make(map[string]*storedSnapshot),
+		storageVirtualMachines: make(map[string]*storedStorageVirtualMachine),
+		volumes:                make(map[string]*storedVolume),
+		s3AccessPoints:         make(map[string]*storedS3AccessPoint),
+		sharedVpcEnabled:       "false",
+		accountID:              accountID,
+		region:                 region,
 	}
 }
 
@@ -144,6 +186,15 @@ func (b *InMemoryBackend) Reset() {
 	b.fileSystems = make(map[string]*storedFileSystem)
 	b.backups = make(map[string]*storedBackup)
 	b.tags = make(map[string]map[string]string)
+	b.aliases = make(map[string][]string)
+	b.dataRepositoryAssocs = make(map[string]*storedDataRepositoryAssoc)
+	b.dataRepositoryTasks = make(map[string]*storedDataRepositoryTask)
+	b.fileCaches = make(map[string]*storedFileCache)
+	b.snapshots = make(map[string]*storedSnapshot)
+	b.storageVirtualMachines = make(map[string]*storedStorageVirtualMachine)
+	b.volumes = make(map[string]*storedVolume)
+	b.s3AccessPoints = make(map[string]*storedS3AccessPoint)
+	b.sharedVpcEnabled = "false"
 }
 
 // Snapshot serializes backend state to JSON.
@@ -152,9 +203,18 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	data, _ := json.Marshal(snapshot{
-		FileSystems: b.fileSystems,
-		Backups:     b.backups,
-		Tags:        b.tags,
+		FileSystems:            b.fileSystems,
+		Backups:                b.backups,
+		Tags:                   b.tags,
+		Aliases:                b.aliases,
+		DataRepositoryAssocs:   b.dataRepositoryAssocs,
+		DataRepositoryTasks:    b.dataRepositoryTasks,
+		FileCaches:             b.fileCaches,
+		Snapshots:              b.snapshots,
+		StorageVirtualMachines: b.storageVirtualMachines,
+		Volumes:                b.volumes,
+		S3AccessPoints:         b.s3AccessPoints,
+		SharedVpcEnabled:       b.sharedVpcEnabled,
 	})
 
 	return data
@@ -173,6 +233,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.fileSystems = s.FileSystems
 	b.backups = s.Backups
 	b.tags = s.Tags
+	b.aliases = s.Aliases
+	b.dataRepositoryAssocs = s.DataRepositoryAssocs
+	b.dataRepositoryTasks = s.DataRepositoryTasks
+	b.fileCaches = s.FileCaches
+	b.snapshots = s.Snapshots
+	b.storageVirtualMachines = s.StorageVirtualMachines
+	b.volumes = s.Volumes
+	b.s3AccessPoints = s.S3AccessPoints
+	b.sharedVpcEnabled = s.SharedVpcEnabled
 
 	return nil
 }
@@ -510,6 +579,53 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 	return fs.toFileSystem(), nil
 }
 
+// copyBackupInput holds parameters for CopyBackup.
+type copyBackupInput struct {
+	SourceBackupID string `json:"SourceBackupId"`
+	Tags           []Tag  `json:"Tags,omitempty"`
+}
+
+// CopyBackup creates a copy of an existing backup.
+func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CopyBackup")
+	defer b.mu.Unlock()
+
+	src, ok := b.backups[input.SourceBackupID]
+	if !ok {
+		return nil, ErrBackupNotFound
+	}
+
+	id := "backup-" + uuid.New().String()[:17]
+	arn := b.backupARN(id)
+	now := time.Now().UTC()
+
+	tags := tagsSliceToMap(input.Tags)
+
+	bk := &storedBackup{
+		BackupID:     id,
+		BackupType:   src.BackupType,
+		CreationTime: now,
+		Lifecycle:    lifecycleAvailable,
+		ResourceARN:  arn,
+		Tags:         tags,
+		FileSystemID: src.FileSystemID,
+	}
+
+	b.backups[id] = bk
+	b.tags[arn] = tags
+
+	var fs *storedFileSystem
+	if src.FileSystemID != "" {
+		fs = b.fileSystems[src.FileSystemID]
+	}
+
+	return bk.toBackup(fs), nil
+}
+
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	if err := validateTags(tags); err != nil {
@@ -575,7 +691,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	return tagsMapToSlice(b.tags[resourceARN]), nil
 }
 
-// arnExists checks whether a resource ARN belongs to a known file system or backup.
+// arnExists checks whether a resource ARN belongs to any known FSx resource.
 func (b *InMemoryBackend) arnExists(resourceARN string) bool {
 	for _, fs := range b.fileSystems {
 		if fs.ResourceARN == resourceARN {
@@ -585,6 +701,42 @@ func (b *InMemoryBackend) arnExists(resourceARN string) bool {
 
 	for _, bk := range b.backups {
 		if bk.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, fc := range b.fileCaches {
+		if fc.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, sn := range b.snapshots {
+		if sn.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, svm := range b.storageVirtualMachines {
+		if svm.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, v := range b.volumes {
+		if v.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, a := range b.dataRepositoryAssocs {
+		if a.ResourceARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, ap := range b.s3AccessPoints {
+		if ap.ResourceARN == resourceARN {
 			return true
 		}
 	}

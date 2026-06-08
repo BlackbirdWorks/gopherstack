@@ -64,6 +64,21 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// Shutdown implements service.Shutdowner. It cancels pending lifecycle-transition
+// goroutines (training/processing/transform jobs, endpoints, notebooks, pipeline
+// executions advancing through statuses) and waits for in-flight ones to drain,
+// bounded by ctx, so no goroutines leak on server shutdown.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.Backend == nil {
+		return
+	}
+
+	h.Backend.Shutdown(ctx)
+}
+
+// Ensure Handler implements service.Shutdowner at compile time.
+var _ service.Shutdowner = (*Handler)(nil)
+
 // GetSupportedOperations returns the list of supported SageMaker operations.
 //
 //nolint:funlen

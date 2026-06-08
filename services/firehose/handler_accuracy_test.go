@@ -1,6 +1,7 @@
 package firehose_test
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -516,7 +517,7 @@ func TestAccuracy_S3Key_IncludesUUIDSuffix(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetS3Backend(s3mock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "key-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::my-bucket",
@@ -524,7 +525,7 @@ func TestAccuracy_S3Key_IncludesUUIDSuffix(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.PutRecord("key-stream", []byte("hello"))
+	err = b.PutRecord(context.TODO(), "key-stream", []byte("hello"))
 	require.NoError(t, err)
 
 	b.FlushAll(t.Context())
@@ -642,10 +643,10 @@ func TestAccuracy_ErrValidation_Exported(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "s"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s"})
 	require.NoError(t, err)
 
-	err = b.PutRecord("s", []byte{})
+	err = b.PutRecord(context.TODO(), "s", []byte{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, firehose.ErrValidation)
 }

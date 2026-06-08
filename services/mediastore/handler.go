@@ -1,6 +1,7 @@
 package mediastore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -45,6 +46,10 @@ const (
 	opMSUntagResource         = "UntagResource"
 	opMSListTagsForResource   = "ListTagsForResource"
 )
+
+// regionContextKey is the context key under which the resolved AWS region for
+// the current request is stored.
+type regionContextKey struct{}
 
 // Handler is the HTTP handler for the AWS Elemental MediaStore JSON 1.1 API.
 type Handler struct {
@@ -156,7 +161,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for MediaStore requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		log := logger.Load(ctx)
 
 		target := c.Request().Header.Get("X-Amz-Target")
@@ -229,7 +237,7 @@ func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
 
 	tags := tagsFromSlice(req.Tags)
 
-	container, err := h.Backend.CreateContainer(h.DefaultRegion, h.AccountID, req.ContainerName, tags)
+	container, err := h.Backend.CreateContainer(c.Request().Context(), h.AccountID, req.ContainerName, tags)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -250,7 +258,7 @@ func (h *Handler) handleDeleteContainer(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.DeleteContainer(req.ContainerName); err != nil {
+	if err := h.Backend.DeleteContainer(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -268,7 +276,7 @@ func (h *Handler) handleDescribeContainer(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	container, err := h.Backend.DescribeContainer(req.ContainerName)
+	container, err := h.Backend.DescribeContainer(c.Request().Context(), req.ContainerName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -285,7 +293,7 @@ func (h *Handler) handleListContainers(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	containers, nextToken, err := h.Backend.ListContainers(req.NextToken, req.MaxResults)
+	containers, nextToken, err := h.Backend.ListContainers(c.Request().Context(), req.NextToken, req.MaxResults)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -315,7 +323,7 @@ func (h *Handler) handlePutContainerPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.PutContainerPolicy(req.ContainerName, req.Policy); err != nil {
+	if err := h.Backend.PutContainerPolicy(c.Request().Context(), req.ContainerName, req.Policy); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -333,7 +341,7 @@ func (h *Handler) handleGetContainerPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	policy, err := h.Backend.GetContainerPolicy(req.ContainerName)
+	policy, err := h.Backend.GetContainerPolicy(c.Request().Context(), req.ContainerName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -352,7 +360,7 @@ func (h *Handler) handleDeleteContainerPolicy(c *echo.Context, body []byte) erro
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.DeleteContainerPolicy(req.ContainerName); err != nil {
+	if err := h.Backend.DeleteContainerPolicy(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -370,7 +378,7 @@ func (h *Handler) handlePutCorsPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.PutCorsPolicy(req.ContainerName, req.CorsPolicy); err != nil {
+	if err := h.Backend.PutCorsPolicy(c.Request().Context(), req.ContainerName, req.CorsPolicy); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -388,7 +396,7 @@ func (h *Handler) handleGetCorsPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	rules, err := h.Backend.GetCorsPolicy(req.ContainerName)
+	rules, err := h.Backend.GetCorsPolicy(c.Request().Context(), req.ContainerName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -407,7 +415,7 @@ func (h *Handler) handleDeleteCorsPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.DeleteCorsPolicy(req.ContainerName); err != nil {
+	if err := h.Backend.DeleteCorsPolicy(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -425,7 +433,7 @@ func (h *Handler) handlePutLifecyclePolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.PutLifecyclePolicy(req.ContainerName, req.LifecyclePolicy); err != nil {
+	if err := h.Backend.PutLifecyclePolicy(c.Request().Context(), req.ContainerName, req.LifecyclePolicy); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -443,7 +451,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	policy, err := h.Backend.GetLifecyclePolicy(req.ContainerName)
+	policy, err := h.Backend.GetLifecyclePolicy(c.Request().Context(), req.ContainerName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -462,7 +470,7 @@ func (h *Handler) handleDeleteLifecyclePolicy(c *echo.Context, body []byte) erro
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.DeleteLifecyclePolicy(req.ContainerName); err != nil {
+	if err := h.Backend.DeleteLifecyclePolicy(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -480,7 +488,7 @@ func (h *Handler) handlePutMetricPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.PutMetricPolicy(req.ContainerName, req.MetricPolicy); err != nil {
+	if err := h.Backend.PutMetricPolicy(c.Request().Context(), req.ContainerName, req.MetricPolicy); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -498,7 +506,7 @@ func (h *Handler) handleGetMetricPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	policy, err := h.Backend.GetMetricPolicy(req.ContainerName)
+	policy, err := h.Backend.GetMetricPolicy(c.Request().Context(), req.ContainerName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -517,7 +525,7 @@ func (h *Handler) handleDeleteMetricPolicy(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.DeleteMetricPolicy(req.ContainerName); err != nil {
+	if err := h.Backend.DeleteMetricPolicy(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -535,7 +543,7 @@ func (h *Handler) handleStartAccessLogging(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.StartAccessLogging(req.ContainerName); err != nil {
+	if err := h.Backend.StartAccessLogging(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -553,7 +561,7 @@ func (h *Handler) handleStopAccessLogging(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
-	if err := h.Backend.StopAccessLogging(req.ContainerName); err != nil {
+	if err := h.Backend.StopAccessLogging(c.Request().Context(), req.ContainerName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -573,7 +581,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 
 	tags := tagsFromSlice(req.Tags)
 
-	if err := h.Backend.TagResource(req.Resource, tags); err != nil {
+	if err := h.Backend.TagResource(c.Request().Context(), req.Resource, tags); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -591,7 +599,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Resource is required")
 	}
 
-	if err := h.Backend.UntagResource(req.Resource, req.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(c.Request().Context(), req.Resource, req.TagKeys); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -609,7 +617,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Resource is required")
 	}
 
-	tags, err := h.Backend.ListTagsForResource(req.Resource)
+	tags, err := h.Backend.ListTagsForResource(c.Request().Context(), req.Resource)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

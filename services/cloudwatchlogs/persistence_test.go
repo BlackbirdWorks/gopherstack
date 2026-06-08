@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) string {
-				_, err := b.CreateLogGroup("test-group", "", "")
+				_, err := b.CreateLogGroup(context.Background(), "test-group", "", "")
 				if err != nil {
 					return ""
 				}
@@ -30,7 +31,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, id string) {
 				t.Helper()
 
-				groups, _, err := b.DescribeLogGroups("", "", 100)
+				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 100)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				assert.Equal(t, id, groups[0].LogGroupName)
@@ -42,7 +43,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, _ string) {
 				t.Helper()
 
-				groups, _, err := b.DescribeLogGroups("", "", 100)
+				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 100)
 				require.NoError(t, err)
 				assert.Empty(t, groups)
 			},
@@ -50,11 +51,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_subscription_filters",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) string {
-				_, err := b.CreateLogGroup("sub-grp", "", "")
+				_, err := b.CreateLogGroup(context.Background(), "sub-grp", "", "")
 				if err != nil {
 					return ""
 				}
-				_ = b.PutSubscriptionFilter(
+				_ = b.PutSubscriptionFilter(context.Background(),
 					"sub-grp", "my-filter", "ERROR",
 					"arn:aws:lambda:us-east-1:123456789012:function:target",
 					"", "",
@@ -65,7 +66,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, id string) {
 				t.Helper()
 
-				filters, _, err := b.DescribeSubscriptionFilters(id, "", "", 100)
+				filters, _, err := b.DescribeSubscriptionFilters(context.Background(), id, "", "", 100)
 				require.NoError(t, err)
 				require.Len(t, filters, 1)
 				assert.Equal(t, "my-filter", filters[0].FilterName)
@@ -105,7 +106,7 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("tagged-group", "", "")
+	_, err := b.CreateLogGroup(context.Background(), "tagged-group", "", "")
 	require.NoError(t, err)
 
 	h := cloudwatchlogs.NewHandler(b)
@@ -122,7 +123,7 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	require.NoError(t, h2.Restore(snap))
 
 	// Log group should be present in the restored backend.
-	groups, _, gErr := b2.DescribeLogGroups("", "", 100)
+	groups, _, gErr := b2.DescribeLogGroups(context.Background(), "", "", 100)
 	require.NoError(t, gErr)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "tagged-group", groups[0].LogGroupName)
@@ -137,7 +138,7 @@ func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("g", "", "")
+	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
 	require.NoError(t, err)
 
 	// Original handler has a tag.
@@ -146,7 +147,7 @@ func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
 
 	// Snapshot a second handler that has no tags.
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err = b2.CreateLogGroup("g", "", "")
+	_, err = b2.CreateLogGroup(context.Background(), "g", "", "")
 	require.NoError(t, err)
 	h2 := cloudwatchlogs.NewHandler(b2)
 	snap := h2.Snapshot()
@@ -171,9 +172,9 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, err := b.CreateLogGroup("ret-grp", "", "")
+	_, err := b.CreateLogGroup(context.Background(), "ret-grp", "", "")
 	require.NoError(t, err)
-	require.NoError(t, b.SetRetentionPolicy("ret-grp", func() *int32 {
+	require.NoError(t, b.SetRetentionPolicy(context.Background(), "ret-grp", func() *int32 {
 		v := int32(14)
 
 		return &v
@@ -185,7 +186,7 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	groups, _, err := b2.DescribeLogGroups("", "", 100)
+	groups, _, err := b2.DescribeLogGroups(context.Background(), "", "", 100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	require.NotNil(t, groups[0].RetentionInDays)
@@ -322,9 +323,9 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "metric_filters_survive",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLogGroup("/grp", "", "")
+				_, err := b.CreateLogGroup(context.Background(), "/grp", "", "")
 				require.NoError(t, err)
-				err = b.PutMetricFilter("/grp", "my-filter", "ERROR",
+				err = b.PutMetricFilter(context.Background(), "/grp", "my-filter", "ERROR",
 					[]cloudwatchlogs.MetricTransformation{{
 						MetricName: "ErrCount", MetricNamespace: "App", MetricValue: "1",
 					}})
@@ -332,7 +333,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				filters, _, err := b.DescribeMetricFilters("/grp", "", "", "", "", 50)
+				filters, _, err := b.DescribeMetricFilters(context.Background(), "/grp", "", "", "", "", 50)
 				require.NoError(t, err)
 				require.Len(t, filters, 1)
 				assert.Equal(t, "my-filter", filters[0].FilterName)

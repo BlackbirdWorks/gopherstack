@@ -80,19 +80,19 @@ func TestCloudWatchLogsJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 
 	b := cloudwatchlogs.NewInMemoryBackend()
 
-	_, err := b.CreateLogGroup("test-group", "", "")
+	_, err := b.CreateLogGroup(context.Background(), "test-group", "", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateLogStream("test-group", "test-stream")
+	_, err = b.CreateLogStream(context.Background(), "test-group", "test-stream")
 	require.NoError(t, err)
 
 	// Set a 1-day retention policy.
 	days := int32(1)
-	require.NoError(t, b.SetRetentionPolicy("test-group", &days))
+	require.NoError(t, b.SetRetentionPolicy(context.Background(), "test-group", &days))
 
 	// Put an event with a timestamp 2 days in the past (should be swept).
 	oldTimestampMs := time.Now().Add(-48 * time.Hour).UnixMilli()
-	_, err = b.PutLogEvents("test-group", "test-stream", "", []cloudwatchlogs.InputLogEvent{
+	_, err = b.PutLogEvents(context.Background(), "test-group", "test-stream", "", []cloudwatchlogs.InputLogEvent{
 		{Timestamp: oldTimestampMs, Message: "old event"},
 	})
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestCloudWatchLogsJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 
 	j.SweepOnce(t.Context())
 
-	events, _, _, err := b.GetLogEvents("test-group", "test-stream", nil, nil, 100, "", true)
+	events, _, _, err := b.GetLogEvents(context.Background(), "test-group", "test-stream", nil, nil, 100, "", true)
 	require.NoError(t, err)
 	assert.Empty(t, events, "old events should have been swept")
 }
@@ -167,17 +167,17 @@ func TestCloudWatchLogsJanitor_SweepOnce_RespectsContext(t *testing.T) {
 
 			b := cloudwatchlogs.NewInMemoryBackend()
 
-			_, err := b.CreateLogGroup("test-group", "", "")
+			_, err := b.CreateLogGroup(context.Background(), "test-group", "", "")
 			require.NoError(t, err)
 
-			_, err = b.CreateLogStream("test-group", "test-stream")
+			_, err = b.CreateLogStream(context.Background(), "test-group", "test-stream")
 			require.NoError(t, err)
 
 			days := int32(1)
-			require.NoError(t, b.SetRetentionPolicy("test-group", &days))
+			require.NoError(t, b.SetRetentionPolicy(context.Background(), "test-group", &days))
 
 			oldTimestampMs := time.Now().Add(-48 * time.Hour).UnixMilli()
-			_, err = b.PutLogEvents("test-group", "test-stream", "", []cloudwatchlogs.InputLogEvent{
+			_, err = b.PutLogEvents(context.Background(), "test-group", "test-stream", "", []cloudwatchlogs.InputLogEvent{
 				{Timestamp: oldTimestampMs, Message: "old event"},
 			})
 			require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestCloudWatchLogsJanitor_SweepOnce_RespectsContext(t *testing.T) {
 
 			j.SweepOnce(ctx)
 
-			events, _, _, getErr := b.GetLogEvents("test-group", "test-stream", nil, nil, 100, "", true)
+			events, _, _, getErr := b.GetLogEvents(context.Background(), "test-group", "test-stream", nil, nil, 100, "", true)
 			require.NoError(t, getErr)
 			assert.Len(t, events, tt.wantEvents)
 		})

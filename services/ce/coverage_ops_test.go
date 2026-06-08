@@ -683,3 +683,91 @@ func TestCoverage_BackendGetReservationPurchaseRecommendations_PaymentOptions(t 
 		})
 	}
 }
+
+// TestCoverage_GetTags_WithTagKey exercises GetTagValues backend path.
+func TestCoverage_GetTags_WithTagKey(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	rec := doRequest(t, h, "GetTags", map[string]any{
+		"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+		"TagKey":     "Environment",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Tags []string `json:"Tags"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.NotNil(t, out.Tags)
+}
+
+// TestCoverage_GetCostAndUsage_GroupByDimensions exercises extractGroupKeys branches.
+func TestCoverage_GetCostAndUsage_GroupByDimensions(t *testing.T) {
+	t.Parallel()
+
+	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT", "TAG$Env"}
+
+	for _, dim := range dimensions {
+		dim := dim
+		t.Run(dim, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+			rec := doRequest(t, h, "GetCostAndUsage", map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2026-03-01", "End": "2026-04-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+				"GroupBy": []map[string]string{
+					{"Type": "DIMENSION", "Key": dim},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				ResultsByTime []map[string]any `json:"ResultsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out.ResultsByTime)
+		})
+	}
+}
+
+// TestCoverage_GetCostAndUsage_AlternateMetrics exercises getMetricValue branches.
+func TestCoverage_GetCostAndUsage_AlternateMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		metric string
+	}{
+		{name: "unblended_cost", metric: "UnblendedCost"},
+		{name: "amortized_cost", metric: "AmortizedCost"},
+		{name: "net_amortized_cost", metric: "NetAmortizedCost"},
+		{name: "net_unblended_cost", metric: "NetUnblendedCost"},
+		{name: "usage_quantity", metric: "UsageQuantity"},
+		{name: "normalized_usage", metric: "NormalizedUsageAmount"},
+		{name: "unknown_metric", metric: "UnknownMetric"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+			rec := doRequest(t, h, "GetCostAndUsage", map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2026-03-01", "End": "2026-04-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{tt.metric},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				ResultsByTime []map[string]any `json:"ResultsByTime"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotEmpty(t, out.ResultsByTime)
+		})
+	}
+}

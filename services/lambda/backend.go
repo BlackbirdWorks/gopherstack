@@ -456,6 +456,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		MaximumRetryAttempts:                input.MaximumRetryAttempts,
 		ParallelizationFactor:               input.ParallelizationFactor,
 		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
+		FunctionResponseTypes:               input.FunctionResponseTypes,
 	}
 
 	b.eventSourceMappings[id] = m
@@ -3983,7 +3984,7 @@ func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappi
 	}
 }
 
-// applyESMSourceFields applies source-access, topics, and queues from input.
+// applyESMSourceFields applies source-access, topics, queues, and response types from input.
 func applyESMSourceFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
 	if len(input.SourceAccessConfigurations) > 0 {
 		esm.SourceAccessConfigurations = input.SourceAccessConfigurations
@@ -3995,6 +3996,10 @@ func applyESMSourceFields(esm *EventSourceMapping, input *UpdateEventSourceMappi
 
 	if len(input.Queues) > 0 {
 		esm.Queues = input.Queues
+	}
+
+	if len(input.FunctionResponseTypes) > 0 {
+		esm.FunctionResponseTypes = input.FunctionResponseTypes
 	}
 }
 

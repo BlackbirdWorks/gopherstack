@@ -116,6 +116,16 @@ func (h *Handler) Name() string                        { return "DataBrew" }
 func (h *Handler) Reset()                              { h.Backend.Reset() }
 func (h *Handler) StartWorker(_ context.Context) error { return nil }
 
+// Shutdown implements service.Shutdowner. It cancels in-flight job run
+// transition goroutines and waits for them to drain, bounded by ctx.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if b, ok := h.Backend.(interface{ Shutdown(context.Context) }); ok {
+		b.Shutdown(ctx)
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opCreateDataset, opDescribeDataset, opListDatasets, opUpdateDataset, opDeleteDataset,

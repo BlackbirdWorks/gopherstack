@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -41,7 +42,7 @@ func TestSSMBackend_DecryptValue_InvalidCiphertext(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 
 			// First put a valid SecureString parameter
-			_, err := b.PutParameter(&ssm.PutParameterInput{
+			_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  "/corrupted/" + tt.name,
 				Type:  ssm.SecureStringType,
 				Value: "original",
@@ -49,7 +50,7 @@ func TestSSMBackend_DecryptValue_InvalidCiphertext(t *testing.T) {
 			require.NoError(t, err)
 
 			// Overwrite with corrupted ciphertext by put with overwrite
-			_, err = b.PutParameter(&ssm.PutParameterInput{
+			_, err = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:      "/corrupted/" + tt.name,
 				Type:      ssm.SecureStringType,
 				Value:     "original2",
@@ -58,7 +59,7 @@ func TestSSMBackend_DecryptValue_InvalidCiphertext(t *testing.T) {
 			require.NoError(t, err)
 
 			// GetParameters with decryption should work for valid data
-			out, err := b.GetParameters(&ssm.GetParametersInput{
+			out, err := b.GetParameters(context.TODO(), &ssm.GetParametersInput{
 				Names:          []string{"/corrupted/" + tt.name},
 				WithDecryption: true,
 			})
@@ -74,13 +75,13 @@ func TestSSMBackend_GetParameters_MissingParam(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, _ = b.PutParameter(&ssm.PutParameterInput{
+	_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/exists",
 		Type:  "String",
 		Value: "val",
 	})
 
-	out, err := b.GetParameters(&ssm.GetParametersInput{
+	out, err := b.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names: []string{"/exists", "/does-not-exist"},
 	})
 	require.NoError(t, err)
@@ -96,13 +97,13 @@ func TestSSMBackend_GetParameters_WithDecryption(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, _ = b.PutParameter(&ssm.PutParameterInput{
+	_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/secure-param",
 		Type:  ssm.SecureStringType,
 		Value: "mysecret",
 	})
 
-	out, err := b.GetParameters(&ssm.GetParametersInput{
+	out, err := b.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names:          []string{"/secure-param"},
 		WithDecryption: true,
 	})
@@ -117,7 +118,7 @@ func TestSSMBackend_DeleteParameter_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, err := b.DeleteParameter(&ssm.DeleteParameterInput{Name: "/nonexistent"})
+	_, err := b.DeleteParameter(context.TODO(), &ssm.DeleteParameterInput{Name: "/nonexistent"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, ssm.ErrParameterNotFound)
 }
@@ -128,16 +129,16 @@ func TestSSMBackend_DeleteParameter_Success(t *testing.T) {
 	t.Parallel()
 
 	b := ssm.NewInMemoryBackend()
-	_, _ = b.PutParameter(&ssm.PutParameterInput{
+	_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/to-delete",
 		Type:  "String",
 		Value: "val",
 	})
 
-	_, err := b.DeleteParameter(&ssm.DeleteParameterInput{Name: "/to-delete"})
+	_, err := b.DeleteParameter(context.TODO(), &ssm.DeleteParameterInput{Name: "/to-delete"})
 	require.NoError(t, err)
 
-	_, err = b.GetParameter(&ssm.GetParameterInput{Name: "/to-delete"})
+	_, err = b.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "/to-delete"})
 	require.ErrorIs(t, err, ssm.ErrParameterNotFound)
 }
 
@@ -236,7 +237,7 @@ func TestSSMHandler_DeleteParameter(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 					Name:  "/delete-me",
 					Type:  "String",
 					Value: "val",
@@ -282,8 +283,8 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 		{
 			name: "all_found",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/p1", Type: "String", Value: "v1"})
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/p2", Type: "String", Value: "v2"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/p1", Type: "String", Value: "v1"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/p2", Type: "String", Value: "v2"})
 			},
 			body:     `{"Names":["/p1","/p2"]}`,
 			wantCode: http.StatusOK,
@@ -299,7 +300,7 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 		{
 			name: "partial_miss",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/present", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/present", Type: "String", Value: "v"})
 			},
 			body:     `{"Names":["/present","/absent"]}`,
 			wantCode: http.StatusOK,
@@ -316,7 +317,7 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 		{
 			name: "with_decryption_secure_string",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 					Name:  "/secure",
 					Type:  ssm.SecureStringType,
 					Value: "topsecret",
@@ -365,12 +366,12 @@ func TestSSMHandler_SnapshotRestore_Delegation(t *testing.T) {
 		{
 			name: "snapshot_and_restore_via_handler",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/snap-param", Type: "String", Value: "snap-value"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/snap-param", Type: "String", Value: "snap-value"})
 			},
 			check: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
 
-				out, err := b.GetParameter(&ssm.GetParameterInput{Name: "/snap-param"})
+				out, err := b.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "/snap-param"})
 				require.NoError(t, err)
 				assert.Equal(t, "snap-value", out.Parameter.Value)
 			},
@@ -380,7 +381,7 @@ func TestSSMHandler_SnapshotRestore_Delegation(t *testing.T) {
 			setup: func(_ *ssm.InMemoryBackend) {},
 			check: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
-				assert.Empty(t, b.ListAll())
+				assert.Empty(t, b.ListAll(context.TODO()))
 			},
 		},
 	}
@@ -423,7 +424,7 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend()
-			_, err := b.PutParameter(&ssm.PutParameterInput{
+			_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  "/encrypt/" + tt.name,
 				Type:  ssm.SecureStringType,
 				Value: tt.plaintext,
@@ -431,7 +432,7 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			// Without decryption - should get encrypted value
-			outNoDecrypt, err := b.GetParameter(&ssm.GetParameterInput{
+			outNoDecrypt, err := b.GetParameter(context.TODO(), &ssm.GetParameterInput{
 				Name:           "/encrypt/" + tt.name,
 				WithDecryption: false,
 			})
@@ -440,7 +441,7 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 				"value should be encrypted when WithDecryption is false")
 
 			// With decryption - should get original
-			outDecrypt, err := b.GetParameter(&ssm.GetParameterInput{
+			outDecrypt, err := b.GetParameter(context.TODO(), &ssm.GetParameterInput{
 				Name:           "/encrypt/" + tt.name,
 				WithDecryption: true,
 			})
@@ -490,7 +491,7 @@ type testInvalidBackend struct {
 
 var errSimulatedInternal = errors.New("simulated internal error")
 
-func (b *testInvalidBackend) PutParameter(_ *ssm.PutParameterInput) (*ssm.PutParameterOutput, error) {
+func (b *testInvalidBackend) PutParameter(_ context.Context, _ *ssm.PutParameterInput) (*ssm.PutParameterOutput, error) {
 	return nil, errSimulatedInternal
 }
 
@@ -525,7 +526,7 @@ func TestSSMHandler_HandlerSnapshotRestore(t *testing.T) {
 		{
 			name: "with_data",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/h-snap", Type: "String", Value: "hval"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/h-snap", Type: "String", Value: "hval"})
 			},
 		},
 		{
@@ -550,7 +551,7 @@ func TestSSMHandler_HandlerSnapshotRestore(t *testing.T) {
 			require.NoError(t, freshH.Restore(snap))
 
 			if tt.name == "with_data" {
-				out, err := freshBackend.GetParameter(&ssm.GetParameterInput{Name: "/h-snap"})
+				out, err := freshBackend.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "/h-snap"})
 				require.NoError(t, err)
 				assert.Equal(t, "hval", out.Parameter.Value)
 			}
@@ -574,7 +575,7 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "GetParameterHistory_success",
 			action: "GetParameterHistory",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/hist-param", Type: "String", Value: "v1"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/hist-param", Type: "String", Value: "v1"})
 			},
 			body:     `{"Name":"/hist-param"}`,
 			wantCode: http.StatusOK,
@@ -589,7 +590,7 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "DeleteParameters_success",
 			action: "DeleteParameters",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/del-p1", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/del-p1", Type: "String", Value: "v"})
 			},
 			body:     `{"Names":["/del-p1","/del-missing"]}`,
 			wantCode: http.StatusOK,
@@ -598,7 +599,7 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "GetParametersByPath_success",
 			action: "GetParametersByPath",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/app/config", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/config", Type: "String", Value: "v"})
 			},
 			body:     `{"Path":"/app","Recursive":true}`,
 			wantCode: http.StatusOK,
@@ -613,7 +614,7 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "DescribeParameters_success",
 			action: "DescribeParameters",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(&ssm.PutParameterInput{Name: "/desc-param", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/desc-param", Type: "String", Value: "v"})
 			},
 			body:     `{}`,
 			wantCode: http.StatusOK,

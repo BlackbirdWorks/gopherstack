@@ -313,14 +313,13 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 	cp := *cluster
 	b.mu.Unlock()
 
-	go func() {
-		time.Sleep(instanceTransitionDelay)
+	b.runDelayed(instanceTransitionDelay, func() {
 		b.mu.Lock("RebootDBCluster-complete")
 		if c, ok := b.clusters[clusterID]; ok && c.Status == "rebooting" {
 			c.Status = instanceStatusAvailable
 		}
 		b.mu.Unlock()
-	}()
+	})
 
 	return &cp, nil
 }

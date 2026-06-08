@@ -37,6 +37,9 @@ const (
 	unknownActionName = "Unknown"
 )
 
+// regionContextKey is used to store the AWS region in request context.
+type regionContextKey struct{}
+
 var (
 	errUnknownAction  = errors.New("UnknownOperationException")
 	errInvalidRequest = errors.New("InvalidParameterException")
@@ -252,8 +255,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"ECR", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,
@@ -486,7 +493,7 @@ type createRepositoryOutput struct {
 }
 
 func (h *Handler) handleCreateRepository(
-	_ context.Context,
+	ctx context.Context,
 	in *createRepositoryInput,
 ) (*createRepositoryOutput, error) {
 	scanOnPush := false
@@ -502,7 +509,7 @@ func (h *Handler) handleCreateRepository(
 	}
 
 	repo, err := h.Backend.CreateRepository(
-		in.RepositoryName, in.ImageTagMutability, scanOnPush, encryptionType, kmsKey,
+		ctx, in.RepositoryName, in.ImageTagMutability, scanOnPush, encryptionType, kmsKey,
 	)
 	if err != nil {
 		return nil, err
@@ -514,7 +521,7 @@ func (h *Handler) handleCreateRepository(
 			tagMap[t.Key] = t.Value
 		}
 
-		if tagErr := h.Backend.TagResource(repo.RepositoryARN, tagMap); tagErr != nil {
+		if tagErr := h.Backend.TagResource(ctx, repo.RepositoryARN, tagMap); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -535,10 +542,10 @@ type describeRepositoriesOutput struct {
 }
 
 func (h *Handler) handleDescribeRepositories(
-	_ context.Context,
+	ctx context.Context,
 	in *describeRepositoriesInput,
 ) (*describeRepositoriesOutput, error) {
-	repos, err := h.Backend.DescribeRepositories(in.RepositoryNames)
+	repos, err := h.Backend.DescribeRepositories(ctx, in.RepositoryNames)
 	if err != nil {
 		return nil, err
 	}
@@ -585,19 +592,19 @@ type deleteRepositoryOutput struct {
 }
 
 func (h *Handler) handleDeleteRepository(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteRepositoryInput,
 ) (*deleteRepositoryOutput, error) {
 	// Real AWS requires force=true to delete repositories containing images.
 	if !in.Force {
-		imgs, descErr := h.Backend.DescribeImages(in.RepositoryName, nil)
+		imgs, descErr := h.Backend.DescribeImages(ctx, in.RepositoryName, nil)
 		if descErr == nil && len(imgs) > 0 {
 			return nil, fmt.Errorf("%w: %s contains images; set force=true to override",
 				ErrRepositoryNotEmpty, in.RepositoryName)
 		}
 	}
 
-	repo, err := h.Backend.DeleteRepository(in.RepositoryName)
+	repo, err := h.Backend.DeleteRepository(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
 	}
@@ -674,10 +681,10 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +704,7 @@ type tagResourceInput struct {
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
 	tagMap := make(map[string]string, len(in.Tags))
@@ -705,7 +712,7 @@ func (h *Handler) handleTagResource(
 		tagMap[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagResource(in.ResourceArn, tagMap); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceArn, tagMap); err != nil {
 		return nil, err
 	}
 
@@ -721,10 +728,10 @@ type untagResourceInput struct {
 type untagResourceOutput struct{}
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
-	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -744,10 +751,10 @@ type batchCheckLayerAvailabilityOutput struct {
 }
 
 func (h *Handler) handleBatchCheckLayerAvailability(
-	_ context.Context,
+	ctx context.Context,
 	in *batchCheckLayerAvailabilityInput,
 ) (*batchCheckLayerAvailabilityOutput, error) {
-	layers, failures, err := h.Backend.BatchCheckLayerAvailability(in.RepositoryName, in.LayerDigests)
+	layers, failures, err := h.Backend.BatchCheckLayerAvailability(ctx, in.RepositoryName, in.LayerDigests)
 	if err != nil {
 		return nil, err
 	}
@@ -776,10 +783,10 @@ type batchDeleteImageOutput struct {
 }
 
 func (h *Handler) handleBatchDeleteImage(
-	_ context.Context,
+	ctx context.Context,
 	in *batchDeleteImageInput,
 ) (*batchDeleteImageOutput, error) {
-	deleted, failures, err := h.Backend.BatchDeleteImage(in.RepositoryName, in.ImageIDs)
+	deleted, failures, err := h.Backend.BatchDeleteImage(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -808,10 +815,10 @@ type batchGetImageOutput struct {
 }
 
 func (h *Handler) handleBatchGetImage(
-	_ context.Context,
+	ctx context.Context,
 	in *batchGetImageInput,
 ) (*batchGetImageOutput, error) {
-	imgs, failures, err := h.Backend.BatchGetImage(in.RepositoryName, in.ImageIDs)
+	imgs, failures, err := h.Backend.BatchGetImage(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -878,10 +885,10 @@ func toImageDetailView(img Image) imageDetailView {
 }
 
 func (h *Handler) handleDescribeImages(
-	_ context.Context,
+	ctx context.Context,
 	in *describeImagesInput,
 ) (*describeImagesOutput, error) {
-	imgs, err := h.Backend.DescribeImages(in.RepositoryName, in.ImageIDs)
+	imgs, err := h.Backend.DescribeImages(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -930,13 +937,13 @@ type listImagesOutput struct {
 	ImageIDs  []ImageIdentifier `json:"imageIds"`
 }
 
-func (h *Handler) handleListImages(_ context.Context, in *listImagesInput) (*listImagesOutput, error) {
+func (h *Handler) handleListImages(ctx context.Context, in *listImagesInput) (*listImagesOutput, error) {
 	tagStatusFilter := ""
 	if in.Filter != nil {
 		tagStatusFilter = in.Filter.TagStatus
 	}
 
-	imageIDs, err := h.Backend.ListImages(in.RepositoryName, tagStatusFilter)
+	imageIDs, err := h.Backend.ListImages(ctx, in.RepositoryName, tagStatusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -978,10 +985,10 @@ type batchGetRepositoryScanningConfigurationOutput struct {
 }
 
 func (h *Handler) handleBatchGetRepositoryScanningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *batchGetRepositoryScanningConfigurationInput,
 ) (*batchGetRepositoryScanningConfigurationOutput, error) {
-	configs, failures, err := h.Backend.BatchGetRepositoryScanningConfiguration(in.RepositoryNames)
+	configs, failures, err := h.Backend.BatchGetRepositoryScanningConfiguration(ctx, in.RepositoryNames)
 	if err != nil {
 		return nil, err
 	}
@@ -1009,10 +1016,10 @@ type completeLayerUploadInput struct {
 }
 
 func (h *Handler) handleCompleteLayerUpload(
-	_ context.Context,
+	ctx context.Context,
 	in *completeLayerUploadInput,
 ) (*CompleteLayerUploadResult, error) {
-	result, err := h.Backend.CompleteLayerUpload(in.RepositoryName, in.UploadID, in.LayerDigests)
+	result, err := h.Backend.CompleteLayerUpload(ctx, in.RepositoryName, in.UploadID, in.LayerDigests)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,10 +1039,10 @@ type getDownloadURLForLayerOutput struct {
 }
 
 func (h *Handler) handleGetDownloadURLForLayer(
-	_ context.Context,
+	ctx context.Context,
 	in *getDownloadURLForLayerInput,
 ) (*getDownloadURLForLayerOutput, error) {
-	url, err := h.Backend.GetDownloadURLForLayer(in.RepositoryName, in.LayerDigest)
+	url, err := h.Backend.GetDownloadURLForLayer(ctx, in.RepositoryName, in.LayerDigest)
 	if err != nil {
 		return nil, err
 	}
@@ -1054,10 +1061,10 @@ type initiateLayerUploadOutput struct {
 }
 
 func (h *Handler) handleInitiateLayerUpload(
-	_ context.Context,
+	ctx context.Context,
 	in *initiateLayerUploadInput,
 ) (*initiateLayerUploadOutput, error) {
-	result, err := h.Backend.InitiateLayerUpload(in.RepositoryName)
+	result, err := h.Backend.InitiateLayerUpload(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
 	}
@@ -1075,10 +1082,11 @@ type uploadLayerPartInput struct {
 }
 
 func (h *Handler) handleUploadLayerPart(
-	_ context.Context,
+	ctx context.Context,
 	in *uploadLayerPartInput,
 ) (*LayerUploadPartResult, error) {
 	return h.Backend.UploadLayerPart(
+		ctx,
 		in.RepositoryName,
 		in.UploadID,
 		in.PartFirstByte,
@@ -1110,10 +1118,11 @@ type createPullThroughCacheRuleOutput struct {
 }
 
 func (h *Handler) handleCreatePullThroughCacheRule(
-	_ context.Context,
+	ctx context.Context,
 	in *createPullThroughCacheRuleInput,
 ) (*createPullThroughCacheRuleOutput, error) {
 	rule, err := h.Backend.CreatePullThroughCacheRule(
+		ctx,
 		in.EcrRepositoryPrefix,
 		in.UpstreamRegistryURL,
 		in.CredentialArn,
@@ -1147,10 +1156,10 @@ type describePullThroughCacheRulesOutput struct {
 }
 
 func (h *Handler) handleDescribePullThroughCacheRules(
-	_ context.Context,
+	ctx context.Context,
 	in *describePullThroughCacheRulesInput,
 ) (*describePullThroughCacheRulesOutput, error) {
-	rules, err := h.Backend.DescribePullThroughCacheRules(in.EcrRepositoryPrefixes)
+	rules, err := h.Backend.DescribePullThroughCacheRules(ctx, in.EcrRepositoryPrefixes)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,12 +1216,12 @@ type repositoryCreationTemplateView struct {
 }
 
 func (h *Handler) handleCreateRepositoryCreationTemplate(
-	_ context.Context,
+	ctx context.Context,
 	in *repositoryCreationTemplateInput,
 ) (*createRepositoryCreationTemplateOutput, error) {
 	req := repositoryCreationTemplateFromInput(in)
 
-	tmpl, err := h.Backend.CreateRepositoryCreationTemplate(req)
+	tmpl, err := h.Backend.CreateRepositoryCreationTemplate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1225,10 +1234,10 @@ type deleteRepositoryCreationTemplateInput struct {
 }
 
 func (h *Handler) handleDeleteRepositoryCreationTemplate(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteRepositoryCreationTemplateInput,
 ) (*createRepositoryCreationTemplateOutput, error) {
-	tmpl, err := h.Backend.DeleteRepositoryCreationTemplate(in.Prefix)
+	tmpl, err := h.Backend.DeleteRepositoryCreationTemplate(ctx, in.Prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -1246,10 +1255,10 @@ type describeRepositoryCreationTemplatesOutput struct {
 }
 
 func (h *Handler) handleDescribeRepositoryCreationTemplates(
-	_ context.Context,
+	ctx context.Context,
 	in *describeRepositoryCreationTemplatesInput,
 ) (*describeRepositoryCreationTemplatesOutput, error) {
-	tmpls, err := h.Backend.DescribeRepositoryCreationTemplates(in.Prefixes)
+	tmpls, err := h.Backend.DescribeRepositoryCreationTemplates(ctx, in.Prefixes)
 	if err != nil {
 		return nil, err
 	}
@@ -1266,10 +1275,10 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 }
 
 func (h *Handler) handleUpdateRepositoryCreationTemplate(
-	_ context.Context,
+	ctx context.Context,
 	in *repositoryCreationTemplateInput,
 ) (*createRepositoryCreationTemplateOutput, error) {
-	tmpl, err := h.Backend.UpdateRepositoryCreationTemplate(repositoryCreationTemplateFromInput(in))
+	tmpl, err := h.Backend.UpdateRepositoryCreationTemplate(ctx, repositoryCreationTemplateFromInput(in))
 	if err != nil {
 		return nil, err
 	}
@@ -1362,10 +1371,10 @@ type deleteLifecyclePolicyInput struct {
 }
 
 func (h *Handler) handleDeleteLifecyclePolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteLifecyclePolicyInput,
 ) (*LifecyclePolicyResult, error) {
-	return h.Backend.DeleteLifecyclePolicy(in.RepositoryName)
+	return h.Backend.DeleteLifecyclePolicy(ctx, in.RepositoryName)
 }
 
 type getLifecyclePolicyInput struct {
@@ -1374,17 +1383,17 @@ type getLifecyclePolicyInput struct {
 }
 
 func (h *Handler) handleGetLifecyclePolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getLifecyclePolicyInput,
 ) (*LifecyclePolicyResult, error) {
-	return h.Backend.GetLifecyclePolicy(in.RepositoryName)
+	return h.Backend.GetLifecyclePolicy(ctx, in.RepositoryName)
 }
 
 func (h *Handler) handleGetLifecyclePolicyPreview(
-	_ context.Context,
+	ctx context.Context,
 	in *getLifecyclePolicyInput,
 ) (*LifecyclePolicyPreviewResult, error) {
-	return h.Backend.GetLifecyclePolicyPreview(in.RepositoryName)
+	return h.Backend.GetLifecyclePolicyPreview(ctx, in.RepositoryName)
 }
 
 // deletePullThroughCacheRuleInput is the request body for DeletePullThroughCacheRule.
@@ -1401,10 +1410,10 @@ type deletePullThroughCacheRuleOutput struct {
 }
 
 func (h *Handler) handleDeletePullThroughCacheRule(
-	_ context.Context,
+	ctx context.Context,
 	in *deletePullThroughCacheRuleInput,
 ) (*deletePullThroughCacheRuleOutput, error) {
-	rule, err := h.Backend.DeletePullThroughCacheRule(in.EcrRepositoryPrefix)
+	rule, err := h.Backend.DeletePullThroughCacheRule(ctx, in.EcrRepositoryPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -1425,10 +1434,10 @@ type updatePullThroughCacheRuleInput struct {
 }
 
 func (h *Handler) handleUpdatePullThroughCacheRule(
-	_ context.Context,
+	ctx context.Context,
 	in *updatePullThroughCacheRuleInput,
 ) (*createPullThroughCacheRuleOutput, error) {
-	rule, err := h.Backend.UpdatePullThroughCacheRule(in.EcrRepositoryPrefix, in.CredentialArn, in.CustomRoleArn)
+	rule, err := h.Backend.UpdatePullThroughCacheRule(ctx, in.EcrRepositoryPrefix, in.CredentialArn, in.CustomRoleArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1452,36 +1461,36 @@ type validatePullThroughCacheRuleInput struct {
 }
 
 func (h *Handler) handleValidatePullThroughCacheRule(
-	_ context.Context,
+	ctx context.Context,
 	in *validatePullThroughCacheRuleInput,
 ) (*ValidatePullThroughCacheRuleResult, error) {
-	return h.Backend.ValidatePullThroughCacheRule(in.EcrRepositoryPrefix)
+	return h.Backend.ValidatePullThroughCacheRule(ctx, in.EcrRepositoryPrefix)
 }
 
 // deleteRegistryPolicyInput is the (empty) request body for DeleteRegistryPolicy.
 type deleteRegistryPolicyInput struct{}
 
 func (h *Handler) handleDeleteRegistryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	_ *deleteRegistryPolicyInput,
 ) (*RegistryPolicyResult, error) {
-	return h.Backend.DeleteRegistryPolicy()
+	return h.Backend.DeleteRegistryPolicy(ctx)
 }
 
 type emptyInput struct{}
 
 func (h *Handler) handleDescribeRegistry(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*RegistryDescription, error) {
-	return h.Backend.DescribeRegistry()
+	return h.Backend.DescribeRegistry(ctx)
 }
 
 func (h *Handler) handleGetRegistryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*RegistryPolicyResult, error) {
-	return h.Backend.GetRegistryPolicy()
+	return h.Backend.GetRegistryPolicy(ctx)
 }
 
 type getRegistryScanningConfigurationOutput struct {
@@ -1490,10 +1499,10 @@ type getRegistryScanningConfigurationOutput struct {
 }
 
 func (h *Handler) handleGetRegistryScanningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*getRegistryScanningConfigurationOutput, error) {
-	settings, err := h.Backend.GetRegistryScanningConfiguration()
+	settings, err := h.Backend.GetRegistryScanningConfiguration(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1509,17 +1518,17 @@ type putLifecyclePolicyInput struct {
 }
 
 func (h *Handler) handlePutLifecyclePolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putLifecyclePolicyInput,
 ) (*LifecyclePolicyResult, error) {
-	return h.Backend.PutLifecyclePolicy(in.RepositoryName, in.LifecyclePolicyText)
+	return h.Backend.PutLifecyclePolicy(ctx, in.RepositoryName, in.LifecyclePolicyText)
 }
 
 func (h *Handler) handleStartLifecyclePolicyPreview(
-	_ context.Context,
+	ctx context.Context,
 	in *putLifecyclePolicyInput,
 ) (*LifecyclePolicyPreviewResult, error) {
-	return h.Backend.StartLifecyclePolicyPreview(in.RepositoryName, in.LifecyclePolicyText)
+	return h.Backend.StartLifecyclePolicyPreview(ctx, in.RepositoryName, in.LifecyclePolicyText)
 }
 
 // putRegistryPolicyInput is the request body for PutRegistryPolicy.
@@ -1528,17 +1537,17 @@ type putRegistryPolicyInput struct {
 }
 
 func (h *Handler) handlePutRegistryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putRegistryPolicyInput,
 ) (*RegistryPolicyResult, error) {
-	return h.Backend.PutRegistryPolicy(in.PolicyText)
+	return h.Backend.PutRegistryPolicy(ctx, in.PolicyText)
 }
 
 func (h *Handler) handlePutRegistryScanningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *RegistryScanningSettings,
 ) (*getRegistryScanningConfigurationOutput, error) {
-	settings, err := h.Backend.PutRegistryScanningConfiguration(in)
+	settings, err := h.Backend.PutRegistryScanningConfiguration(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -1551,10 +1560,10 @@ type replicationConfigurationInput struct {
 }
 
 func (h *Handler) handlePutReplicationConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *replicationConfigurationInput,
 ) (*replicationConfigurationInput, error) {
-	cfg, err := h.Backend.PutReplicationConfiguration(in.ReplicationConfiguration)
+	cfg, err := h.Backend.PutReplicationConfiguration(ctx, in.ReplicationConfiguration)
 	if err != nil {
 		return nil, err
 	}
@@ -1567,10 +1576,10 @@ type signingConfigurationInput struct {
 }
 
 func (h *Handler) handleGetSigningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*signingConfigurationInput, error) {
-	settings, err := h.Backend.GetSigningConfiguration()
+	settings, err := h.Backend.GetSigningConfiguration(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1579,10 +1588,10 @@ func (h *Handler) handleGetSigningConfiguration(
 }
 
 func (h *Handler) handlePutSigningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *signingConfigurationInput,
 ) (*signingConfigurationInput, error) {
-	settings, err := h.Backend.PutSigningConfiguration(in.SigningConfiguration)
+	settings, err := h.Backend.PutSigningConfiguration(ctx, in.SigningConfiguration)
 	if err != nil {
 		return nil, err
 	}
@@ -1591,10 +1600,10 @@ func (h *Handler) handlePutSigningConfiguration(
 }
 
 func (h *Handler) handleDeleteSigningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*signingConfigurationInput, error) {
-	settings, err := h.Backend.DeleteSigningConfiguration()
+	settings, err := h.Backend.DeleteSigningConfiguration(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1622,10 +1631,10 @@ type scanStatusView struct {
 }
 
 func (h *Handler) handleDescribeImageScanFindings(
-	_ context.Context,
+	ctx context.Context,
 	in *imageInput,
 ) (*describeImageScanFindingsOutput, error) {
-	findings, err := h.Backend.DescribeImageScanFindings(in.RepositoryName, in.ImageID)
+	findings, err := h.Backend.DescribeImageScanFindings(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -1650,10 +1659,10 @@ type startImageScanOutput struct {
 }
 
 func (h *Handler) handleStartImageScan(
-	_ context.Context,
+	ctx context.Context,
 	in *imageInput,
 ) (*startImageScanOutput, error) {
-	result, err := h.Backend.StartImageScan(in.RepositoryName, in.ImageID)
+	result, err := h.Backend.StartImageScan(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -1677,10 +1686,10 @@ type describeImageSigningStatusOutput struct {
 }
 
 func (h *Handler) handleDescribeImageSigningStatus(
-	_ context.Context,
+	ctx context.Context,
 	in *imageInput,
 ) (*describeImageSigningStatusOutput, error) {
-	result, err := h.Backend.DescribeImageSigningStatus(in.RepositoryName, in.ImageID)
+	result, err := h.Backend.DescribeImageSigningStatus(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -1708,10 +1717,10 @@ type imageReplicationStatus struct {
 }
 
 func (h *Handler) handleDescribeImageReplicationStatus(
-	_ context.Context,
+	ctx context.Context,
 	in *imageInput,
 ) (*describeImageReplicationStatusOutput, error) {
-	result, err := h.Backend.DescribeImageReplicationStatus(in.RepositoryName, in.ImageID)
+	result, err := h.Backend.DescribeImageReplicationStatus(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -1736,8 +1745,8 @@ type putImageOutput struct {
 	Image *Image `json:"image"`
 }
 
-func (h *Handler) handlePutImage(_ context.Context, in *putImageInput) (*putImageOutput, error) {
-	img, err := h.Backend.PutImage(in.RepositoryName, Image{
+func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putImageOutput, error) {
+	img, err := h.Backend.PutImage(ctx, in.RepositoryName, Image{
 		ImageDigest:            in.ImageDigest,
 		ImageManifest:          in.ImageManifest,
 		ImageManifestMediaType: in.ImageManifestMediaType,
@@ -1768,10 +1777,11 @@ type putImageScanningConfigurationOutput struct {
 }
 
 func (h *Handler) handlePutImageScanningConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *putImageScanningConfigurationInput,
 ) (*putImageScanningConfigurationOutput, error) {
 	cfg, err := h.Backend.PutImageScanningConfiguration(
+		ctx,
 		in.RepositoryName,
 		in.ImageScanningConfiguration.ScanOnPush,
 	)
@@ -1800,7 +1810,7 @@ type putImageTagMutabilityOutput struct {
 }
 
 func (h *Handler) handlePutImageTagMutability(
-	_ context.Context,
+	ctx context.Context,
 	in *putImageTagMutabilityInput,
 ) (*putImageTagMutabilityOutput, error) {
 	filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
@@ -1808,7 +1818,7 @@ func (h *Handler) handlePutImageTagMutability(
 		filters = append(filters, ImageTagMutabilityExclusionFilter(filter))
 	}
 
-	repo, err := h.Backend.PutImageTagMutability(in.RepositoryName, in.ImageTagMutability, filters)
+	repo, err := h.Backend.PutImageTagMutability(ctx, in.RepositoryName, in.ImageTagMutability, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1834,10 +1844,10 @@ type listImageReferrersOutput struct {
 }
 
 func (h *Handler) handleListImageReferrers(
-	_ context.Context,
+	ctx context.Context,
 	in *listImageReferrersInput,
 ) (*listImageReferrersOutput, error) {
-	referrers, err := h.Backend.ListImageReferrers(in.RepositoryName, in.SubjectID)
+	referrers, err := h.Backend.ListImageReferrers(ctx, in.RepositoryName, in.SubjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1853,10 +1863,10 @@ type updateImageStorageClassInput struct {
 }
 
 func (h *Handler) handleUpdateImageStorageClass(
-	_ context.Context,
+	ctx context.Context,
 	in *updateImageStorageClassInput,
 ) (*ImageStorageClassResult, error) {
-	return h.Backend.UpdateImageStorageClass(in.RepositoryName, in.ImageID, in.TargetStorageClass)
+	return h.Backend.UpdateImageStorageClass(ctx, in.RepositoryName, in.ImageID, in.TargetStorageClass)
 }
 
 type accountSettingInput struct {
@@ -1865,10 +1875,10 @@ type accountSettingInput struct {
 }
 
 func (h *Handler) handleGetAccountSetting(
-	_ context.Context,
+	ctx context.Context,
 	in *accountSettingInput,
 ) (*accountSettingInput, error) {
-	value, err := h.Backend.GetAccountSetting(in.Name)
+	value, err := h.Backend.GetAccountSetting(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1877,10 +1887,10 @@ func (h *Handler) handleGetAccountSetting(
 }
 
 func (h *Handler) handlePutAccountSetting(
-	_ context.Context,
+	ctx context.Context,
 	in *accountSettingInput,
 ) (*accountSettingInput, error) {
-	value, err := h.Backend.PutAccountSetting(in.Name, in.Value)
+	value, err := h.Backend.PutAccountSetting(ctx, in.Name, in.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -1898,10 +1908,10 @@ type registerPullTimeUpdateExclusionOutput struct {
 }
 
 func (h *Handler) handleRegisterPullTimeUpdateExclusion(
-	_ context.Context,
+	ctx context.Context,
 	in *pullTimeUpdateExclusionInput,
 ) (*registerPullTimeUpdateExclusionOutput, error) {
-	exclusion, err := h.Backend.RegisterPullTimeUpdateExclusion(in.PrincipalArn)
+	exclusion, err := h.Backend.RegisterPullTimeUpdateExclusion(ctx, in.PrincipalArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1913,10 +1923,10 @@ func (h *Handler) handleRegisterPullTimeUpdateExclusion(
 }
 
 func (h *Handler) handleDeregisterPullTimeUpdateExclusion(
-	_ context.Context,
+	ctx context.Context,
 	in *pullTimeUpdateExclusionInput,
 ) (*registerPullTimeUpdateExclusionOutput, error) {
-	exclusion, err := h.Backend.DeregisterPullTimeUpdateExclusion(in.PrincipalArn)
+	exclusion, err := h.Backend.DeregisterPullTimeUpdateExclusion(ctx, in.PrincipalArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1932,10 +1942,10 @@ type listPullTimeUpdateExclusionsOutput struct {
 }
 
 func (h *Handler) handleListPullTimeUpdateExclusions(
-	_ context.Context,
+	ctx context.Context,
 	_ *emptyInput,
 ) (*listPullTimeUpdateExclusionsOutput, error) {
-	exclusions, err := h.Backend.ListPullTimeUpdateExclusions()
+	exclusions, err := h.Backend.ListPullTimeUpdateExclusions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1956,22 +1966,22 @@ type repositoryPolicyInput struct {
 }
 
 func (h *Handler) handleGetRepositoryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
-	return h.Backend.GetRepositoryPolicy(in.RepositoryName)
+	return h.Backend.GetRepositoryPolicy(ctx, in.RepositoryName)
 }
 
 func (h *Handler) handleSetRepositoryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
-	return h.Backend.SetRepositoryPolicy(in.RepositoryName, in.PolicyText)
+	return h.Backend.SetRepositoryPolicy(ctx, in.RepositoryName, in.PolicyText)
 }
 
 func (h *Handler) handleDeleteRepositoryPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
-	return h.Backend.DeleteRepositoryPolicy(in.RepositoryName)
+	return h.Backend.DeleteRepositoryPolicy(ctx, in.RepositoryName)
 }

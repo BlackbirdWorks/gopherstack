@@ -885,7 +885,7 @@ func (h *S3Handler) listObjectVersions(
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass: "STANDARD",
+			StorageClass: storageStandard,
 		})
 	}
 

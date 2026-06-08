@@ -86,8 +86,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the janitor worker and waits for it to exit.
+// Shutdown stops the janitor worker and the rotation scheduler, waiting for the
+// janitor to exit.
 func (h *Handler) Shutdown(ctx context.Context) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.StopRotationScheduler()
+	}
+
 	h.janitorMu.Lock()
 	cancel := h.janitorCancel
 	done := h.janitorDone
@@ -120,9 +125,15 @@ func (h *Handler) buildOps() {
 	h.ops = table
 }
 
-// SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
+// SetLambdaInvoker sets the Lambda invoker used for RotateSecret. It is stored
+// on both the handler (for HTTP-triggered rotations) and the backend (for
+// scheduled rotations triggered by the rotation scheduler goroutine).
 func (h *Handler) SetLambdaInvoker(invoker LambdaInvoker) {
 	h.lambdaInvoker = invoker
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.SetLambdaInvoker(invoker)
+	}
 }
 
 // Name returns the service name.
@@ -525,6 +536,8 @@ func extractFunctionNameFromARN(arn string) string {
 }
 
 // rotateSecret performs RotateSecret, optionally invoking a rotation Lambda for each step.
+// The backend creates a new AWSPENDING version; this function promotes it to AWSCURRENT
+// after all Lambda steps succeed (or immediately if no Lambda ARN is configured).
 func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
 	out, err := h.Backend.RotateSecret(input)
 	if err != nil {
@@ -532,15 +545,37 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
+		// No Lambda ARN, or no invoker wired — backend already promoted to AWSCURRENT.
 		return out, nil
 	}
 
-	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
+	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
+	if err = h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
+		return nil, err
+	}
 
+	// Promote AWSPENDING → AWSCURRENT after all Lambda steps succeed.
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if finishErr := b.FinishRotation(input.SecretID, out.VersionID); finishErr != nil {
+			return nil, finishErr
+		}
+	}
+
+	return out, nil
+}
+
+// invokeLambdaRotationSteps calls each rotation step in order via the Lambda invoker.
+func (h *Handler) invokeLambdaRotationSteps(
+	ctx context.Context,
+	input *RotateSecretInput,
+	out *RotateSecretOutput,
+) error {
 	token := input.ClientRequestToken
 	if token == "" {
 		token = out.VersionID
 	}
+
+	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
 
 	for _, step := range rotationSteps {
 		event, marshalErr := json.Marshal(map[string]string{
@@ -549,20 +584,21 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 			"Step":               step,
 		})
 		if marshalErr != nil {
-			return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+			return fmt.Errorf("rotation event marshal: %w", marshalErr)
 		}
 
 		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
-			ctx,
-			functionName,
-			"RequestResponse",
-			event,
+			ctx, functionName, "RequestResponse", event,
 		); invokeErr != nil {
-			return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+			if b, ok := h.Backend.(*InMemoryBackend); ok {
+				_ = b.AbortRotation(input.SecretID, out.VersionID)
+			}
+
+			return fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
 		}
 	}
 
-	return out, nil
+	return nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

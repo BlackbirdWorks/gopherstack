@@ -295,9 +295,8 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 		}
 
 		prev := inst.State
-		// AWS state machine: stopped → pending → running.
-		// The mock completes this transition immediately.
-		inst.State = StateRunning
+		// AWS state machine: stopped → pending → running (reconciler advances pending→running).
+		inst.State = StatePending
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -322,9 +321,10 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
-		if inst.State != StateRunning {
+		// AWS allows stopping instances in running or pending states.
+		if inst.State != StateRunning && inst.State != StatePending {
 			return nil, fmt.Errorf(
-				"%w: instance %s is in state %s, expected running",
+				"%w: instance %s is in state %s, cannot stop",
 				ErrInvalidInstanceState,
 				id,
 				inst.State.Name,
@@ -332,9 +332,8 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 		}
 
 		prev := inst.State
-		// AWS state machine: running → stopping → stopped.
-		// The mock completes this transition immediately.
-		inst.State = StateStopped
+		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
+		inst.State = StateStopping
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,

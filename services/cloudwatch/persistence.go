@@ -115,6 +115,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// #60: recompute running total from restored metrics.
+	total := 0
+	for _, nsMap := range b.metrics {
+		total += len(nsMap)
+	}
+
+	b.totalMetrics = total
+
 	return nil
 }
 

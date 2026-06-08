@@ -55,6 +55,7 @@ func TestJanitor_SweepOnce(t *testing.T) {
 			instanceID := insts[0].ID
 			_, termErr := b.TerminateInstances([]string{instanceID})
 			require.NoError(t, termErr)
+			b.TickLifecycleForTest() // shutting-down → terminated
 
 			if tt.instanceOld {
 				b.SetInstanceTerminatedAtForTest(instanceID, time.Now().Add(-2*time.Hour))
