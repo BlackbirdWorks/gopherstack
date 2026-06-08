@@ -110,6 +110,8 @@ type InMemoryBackend struct {
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
+	schedulerStop      chan struct{}
+	schedulerStopOnce  sync.Once
 }
 
 // SetLambdaInvoker stores the Lambda invoker on the backend. The rotation
@@ -133,6 +135,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:             region,
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
+		schedulerStop:      make(chan struct{}),
 	}
 }
 
@@ -2231,9 +2234,25 @@ func (b *InMemoryBackend) rotationSchedulerLoop() {
 	ticker := time.NewTicker(rotationSchedulerInterval)
 	defer ticker.Stop()
 
-	for now := range ticker.C {
-		b.runScheduledRotations(now)
+	for {
+		select {
+		case <-b.schedulerStop:
+			return
+		case now := <-ticker.C:
+			b.runScheduledRotations(now)
+		}
 	}
+}
+
+// StopRotationScheduler signals the rotation scheduler goroutine to exit. It is
+// idempotent and safe to call even if the scheduler was never started: closing
+// the stop channel simply has no observer in that case.
+func (b *InMemoryBackend) StopRotationScheduler() {
+	if b.schedulerStop == nil {
+		return
+	}
+
+	b.schedulerStopOnce.Do(func() { close(b.schedulerStop) })
 }
 
 func (b *InMemoryBackend) runScheduledRotations(now time.Time) {

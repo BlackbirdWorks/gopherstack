@@ -86,8 +86,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the janitor worker and waits for it to exit.
+// Shutdown stops the janitor worker and the rotation scheduler, waiting for the
+// janitor to exit.
 func (h *Handler) Shutdown(ctx context.Context) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.StopRotationScheduler()
+	}
+
 	h.janitorMu.Lock()
 	cancel := h.janitorCancel
 	done := h.janitorDone
