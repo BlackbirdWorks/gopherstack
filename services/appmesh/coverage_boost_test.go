@@ -52,9 +52,9 @@ func TestBackend_Reset(t *testing.T) { //nolint:paralleltest // existing issue.
 // ─── ErrIs ──────────────────────────────────────────────────────────────────── //nolint:godot // existing issue.
 func TestErrIs(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
+		name     string
 		err      error
 		sentinel error
-		name     string
 		want     bool
 	}{
 		{name: "matching sentinel", err: appmesh.ErrMeshNotFound, sentinel: appmesh.ErrMeshNotFound, want: true},
@@ -89,33 +89,33 @@ func TestErrIs(t *testing.T) { //nolint:paralleltest // existing issue.
 // ─── Backend Update operations (0% coverage) ───────────────────────────────── //nolint:godot // existing issue.
 func TestBackend_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		wantErr  error
-		setup    func(b *appmesh.InMemoryBackend)
-		name     string
-		meshName string
-		vrName   string
-		wantNil  bool
+		name      string
+		meshName  string
+		vrName    string
+		setup     func(b *appmesh.InMemoryBackend)
+		wantErr   error
+		wantNil   bool
 	}{
 		{
-			name:     "mesh not found",
+			name:    "mesh not found",
 			meshName: "no-mesh",
 			vrName:   "vr1",
 			setup:    func(b *appmesh.InMemoryBackend) {}, //nolint:revive // existing issue.
 			wantErr:  appmesh.ErrMeshNotFound,
 		},
 		{
-			name:     "virtual router not found",
+			name:    "virtual router not found",
 			meshName: "m1",
-			vrName:   "no-vr",
+			vrName:  "no-vr",
 			setup: func(b *appmesh.InMemoryBackend) {
 				_, _ = b.CreateMesh("m1", nil, nil)
 			},
 			wantErr: appmesh.ErrVirtualRouterNotFound,
 		},
 		{
-			name:     "success",
+			name:    "success",
 			meshName: "m1",
-			vrName:   "vr1",
+			vrName:  "vr1",
 			setup: func(b *appmesh.InMemoryBackend) {
 				_, _ = b.CreateMesh("m1", nil, nil)
 				_, _ = b.CreateVirtualRouter("m1", "vr1", nil, nil)
@@ -131,7 +131,6 @@ func TestBackend_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // ex
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
-
 				return
 			}
 			require.NoError(t, err)
@@ -142,12 +141,12 @@ func TestBackend_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // ex
 
 func TestBackend_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		wantErr   error
-		setup     func(b *appmesh.InMemoryBackend)
 		name      string
 		meshName  string
 		vrName    string
 		routeName string
+		setup     func(b *appmesh.InMemoryBackend)
+		wantErr   error
 	}{
 		{
 			name:      "mesh not found",
@@ -198,7 +197,6 @@ func TestBackend_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing i
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
-
 				return
 			}
 			require.NoError(t, err)
@@ -210,11 +208,11 @@ func TestBackend_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing i
 
 func TestBackend_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		wantErr  error
-		setup    func(b *appmesh.InMemoryBackend)
 		name     string
 		meshName string
 		vsName   string
+		setup    func(b *appmesh.InMemoryBackend)
+		wantErr  error
 	}{
 		{
 			name:     "mesh not found",
@@ -250,7 +248,6 @@ func TestBackend_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // e
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
-
 				return
 			}
 			require.NoError(t, err)
@@ -261,11 +258,11 @@ func TestBackend_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // e
 
 func TestBackend_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		wantErr  error
-		setup    func(b *appmesh.InMemoryBackend)
 		name     string
 		meshName string
 		vgName   string
+		setup    func(b *appmesh.InMemoryBackend)
+		wantErr  error
 	}{
 		{
 			name:     "mesh not found",
@@ -301,7 +298,6 @@ func TestBackend_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // e
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
-
 				return
 			}
 			require.NoError(t, err)
@@ -312,12 +308,12 @@ func TestBackend_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // e
 
 func TestBackend_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		wantErr   error
-		setup     func(b *appmesh.InMemoryBackend)
 		name      string
 		meshName  string
 		vgName    string
 		routeName string
+		setup     func(b *appmesh.InMemoryBackend)
+		wantErr   error
 	}{
 		{
 			name:      "mesh not found",
@@ -368,7 +364,6 @@ func TestBackend_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // exi
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
-
 				return
 			}
 			require.NoError(t, err)
@@ -382,10 +377,10 @@ func TestBackend_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // exi
 func TestBackend_PaginationViaListMeshes(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
 		name       string
-		nextToken  string
 		meshNames  []string
-		wantCount  int
 		maxResults int32
+		nextToken  string
+		wantCount  int
 		wantNext   bool
 	}{
 		{
@@ -514,13 +509,13 @@ func TestBackend_ArnLookupAllResourceTypes(t *testing.T) { //nolint:paralleltest
 // ─── HTTP handler Update operations (0% coverage) ──────────────────────────── //nolint:godot // existing issue.
 func TestAppMesh_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		meshName   string
 		vrName     string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "success",
@@ -577,14 +572,14 @@ func TestAppMesh_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // ex
 
 func TestAppMesh_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		meshName   string
 		vrName     string
 		routeName  string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "success",
@@ -643,13 +638,13 @@ func TestAppMesh_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing i
 
 func TestAppMesh_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		meshName   string
 		vsName     string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "success",
@@ -690,13 +685,13 @@ func TestAppMesh_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // e
 
 func TestAppMesh_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		meshName   string
 		vgName     string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "success",
@@ -737,14 +732,14 @@ func TestAppMesh_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // e
 
 func TestAppMesh_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		meshName   string
 		vgName     string
 		routeName  string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "success",
@@ -865,66 +860,26 @@ func TestAppMesh_ExtractOperation(t *testing.T) { //nolint:paralleltest // exist
 		{"DeleteRoute", http.MethodDelete, "/v20190125/meshes/m1/virtualRouter/vr1/routes/r1", "DeleteRoute"},
 		{"CreateVirtualService", http.MethodPut, "/v20190125/meshes/m1/virtualServices", "CreateVirtualService"},
 		{"ListVirtualServices", http.MethodGet, "/v20190125/meshes/m1/virtualServices", "ListVirtualServices"},
-		{
-			"DescribeVirtualService",
-			http.MethodGet,
-			"/v20190125/meshes/m1/virtualServices/vs1",
-			"DescribeVirtualService",
-		},
+		{"DescribeVirtualService", http.MethodGet, "/v20190125/meshes/m1/virtualServices/vs1", "DescribeVirtualService"},
 		{"UpdateVirtualService", http.MethodPut, "/v20190125/meshes/m1/virtualServices/vs1", "UpdateVirtualService"},
 		{"DeleteVirtualService", http.MethodDelete, "/v20190125/meshes/m1/virtualServices/vs1", "DeleteVirtualService"},
 		{"CreateVirtualGateway", http.MethodPut, "/v20190125/meshes/m1/virtualGateways", "CreateVirtualGateway"},
 		{"ListVirtualGateways", http.MethodGet, "/v20190125/meshes/m1/virtualGateways", "ListVirtualGateways"},
-		{
-			"DescribeVirtualGateway",
-			http.MethodGet,
-			"/v20190125/meshes/m1/virtualGateways/gw1",
-			"DescribeVirtualGateway",
-		},
+		{"DescribeVirtualGateway", http.MethodGet, "/v20190125/meshes/m1/virtualGateways/gw1", "DescribeVirtualGateway"},
 		{"UpdateVirtualGateway", http.MethodPut, "/v20190125/meshes/m1/virtualGateways/gw1", "UpdateVirtualGateway"},
 		{"DeleteVirtualGateway", http.MethodDelete, "/v20190125/meshes/m1/virtualGateways/gw1", "DeleteVirtualGateway"},
-		{
-			"CreateGatewayRoute",
-			http.MethodPut,
-			"/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes",
-			"CreateGatewayRoute",
-		},
-		{
-			"ListGatewayRoutes",
-			http.MethodGet,
-			"/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes",
-			"ListGatewayRoutes",
-		},
-		{
-			"DescribeGatewayRoute",
-			http.MethodGet,
-			"/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1",
-			"DescribeGatewayRoute",
-		},
-		{
-			"UpdateGatewayRoute",
-			http.MethodPut,
-			"/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1",
-			"UpdateGatewayRoute",
-		},
-		{
-			"DeleteGatewayRoute",
-			http.MethodDelete,
-			"/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1",
-			"DeleteGatewayRoute",
-		},
+		{"CreateGatewayRoute", http.MethodPut, "/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes", "CreateGatewayRoute"},
+		{"ListGatewayRoutes", http.MethodGet, "/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes", "ListGatewayRoutes"},
+		{"DescribeGatewayRoute", http.MethodGet, "/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1", "DescribeGatewayRoute"},
+		{"UpdateGatewayRoute", http.MethodPut, "/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1", "UpdateGatewayRoute"},
+		{"DeleteGatewayRoute", http.MethodDelete, "/v20190125/meshes/m1/virtualGateway/gw1/gatewayRoutes/gr1", "DeleteGatewayRoute"},
 		{"TagResource", http.MethodPut, "/v20190125/tag", "TagResource"},
 		{"UntagResource", http.MethodPut, "/v20190125/untag", "UntagResource"},
 		{"ListTagsForResource", http.MethodGet, "/v20190125/tags", "ListTagsForResource"},
 		{"unknown path", http.MethodGet, "/v20190125/unknown", "Unknown"},
 		{"root path", http.MethodGet, "/v20190125/", "Unknown"},
 		{"virtualRouter no routes seg", http.MethodGet, "/v20190125/meshes/m1/virtualRouter/vr1/notroutes", "Unknown"},
-		{
-			"virtualGateway no gatewayRoutes seg",
-			http.MethodGet,
-			"/v20190125/meshes/m1/virtualGateway/gw1/not",
-			"Unknown",
-		},
+		{"virtualGateway no gatewayRoutes seg", http.MethodGet, "/v20190125/meshes/m1/virtualGateway/gw1/not", "Unknown"},
 		{"unknown method on meshes collection", http.MethodDelete, "/v20190125/meshes", "Unknown"},
 		{"unknown method on mesh single", http.MethodPost, "/v20190125/meshes/m1", "Unknown"},
 	}
@@ -939,9 +894,9 @@ func TestAppMesh_ExtractOperation(t *testing.T) { //nolint:paralleltest // exist
 
 func TestAppMesh_ExtractResource(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		name string
-		path string
-		want string
+		name   string
+		path   string
+		want   string
 	}{
 		{"mesh name extracted", "/v20190125/meshes/my-mesh", "my-mesh"},
 		{"collection path no name", "/v20190125/meshes", ""},
@@ -1003,13 +958,13 @@ func TestAppMesh_UnknownPaths(t *testing.T) { //nolint:paralleltest // existing 
 // ─── Duplicate / conflict errors for all resource types ────────────────────── //nolint:godot // existing issue.
 func TestAppMesh_DuplicateCreateErrors(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		body       any
-		setup      func(h *appmesh.Handler)
 		name       string
+		setup      func(h *appmesh.Handler)
 		method     string
 		path       string
-		wantCode   string
+		body       any
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name: "duplicate virtual node",

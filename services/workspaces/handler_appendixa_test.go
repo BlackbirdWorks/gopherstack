@@ -3,7 +3,6 @@ package workspaces_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
@@ -18,7 +17,7 @@ func newTestHandlerWithBackend(
 	b := workspaces.NewInMemoryBackend("111122223333", "us-east-1")
 	h := workspaces.NewHandler(b)
 
-	return h, b
+	return h
 }
 
 func decodeJSON(t *testing.T, body []byte, dst any) {

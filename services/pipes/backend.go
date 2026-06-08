@@ -988,7 +988,7 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	b.pipeARNIndex[pipeARN] = in.Name
 
 	cp := clonePipe(p)
-	b.runDelayed(stateTransitionDelay, func() {
+	b.runDelayed( func() {
 		b.completeCreateTransition(in.Name, in.DesiredState)
 	})
 
@@ -1228,7 +1228,7 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	b.runDelayed(stateTransitionDelay, func() {
+	b.runDelayed( func() {
 		b.completeUpdateTransition(name, prevDesiredState)
 	})
 
@@ -1260,7 +1260,7 @@ func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	b.runDelayed(stateTransitionDelay, func() {
+	b.runDelayed( func() {
 		b.completeDeleteTransition(name)
 	})
 
@@ -1299,7 +1299,7 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to RUNNING asynchronously.
-	b.runDelayed(stateTransitionDelay, func() {
+	b.runDelayed( func() {
 		b.completeStartTransition(name)
 	})
 
@@ -1338,7 +1338,7 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to STOPPED asynchronously.
-	b.runDelayed(stateTransitionDelay, func() {
+	b.runDelayed( func() {
 		b.completeStopTransition(name)
 	})
 

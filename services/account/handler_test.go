@@ -405,7 +405,7 @@ func TestBackend_Reset(t *testing.T) {
 	b.Reset()
 
 	_, err = b.GetAlternateContact(account.ContactTypeBilling)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestBackend_DeleteAlternateContact_NotFound(t *testing.T) {
@@ -413,7 +413,7 @@ func TestBackend_DeleteAlternateContact_NotFound(t *testing.T) {
 
 	b := account.NewInMemoryBackend("000000000000", "us-east-1")
 	err := b.DeleteAlternateContact(account.ContactTypeBilling)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestBackend_PutContactInformation_Get(t *testing.T) {

@@ -131,7 +131,7 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 
 			if tc.badJSON {
 				err = b.Restore([]byte("not json"))
-				assert.Error(t, err)
+				require.Error(t, err)
 
 				return
 			}

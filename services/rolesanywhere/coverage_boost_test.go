@@ -24,7 +24,6 @@ import (
 func newTestHandler(t *testing.T) *rolesanywhere.Handler {
 	t.Helper()
 	b := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
-
 	return rolesanywhere.NewHandler(b)
 }
 
@@ -160,18 +159,8 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"GET /trustanchor/id → GetTrustAnchor", http.MethodGet, "/trustanchor/abc", "GetTrustAnchor"},
 		{"DELETE /trustanchor/id → DeleteTrustAnchor", http.MethodDelete, "/trustanchor/abc", "DeleteTrustAnchor"},
 		{"PATCH /trustanchor/id → UpdateTrustAnchor", http.MethodPatch, "/trustanchor/abc", "UpdateTrustAnchor"},
-		{
-			"POST /trustanchor/id/enable → EnableTrustAnchor",
-			http.MethodPost,
-			"/trustanchor/abc/enable",
-			"EnableTrustAnchor",
-		},
-		{
-			"POST /trustanchor/id/disable → DisableTrustAnchor",
-			http.MethodPost,
-			"/trustanchor/abc/disable",
-			"DisableTrustAnchor",
-		},
+		{"POST /trustanchor/id/enable → EnableTrustAnchor", http.MethodPost, "/trustanchor/abc/enable", "EnableTrustAnchor"},
+		{"POST /trustanchor/id/disable → DisableTrustAnchor", http.MethodPost, "/trustanchor/abc/disable", "DisableTrustAnchor"},
 		{"GET /profiles → ListProfiles", http.MethodGet, "/profiles", "ListProfiles"},
 		{"POST /profiles → CreateProfile", http.MethodPost, "/profiles", "CreateProfile"},
 		{"GET /profile/id → GetProfile", http.MethodGet, "/profile/abc", "GetProfile"},
@@ -188,38 +177,13 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"POST /crl/id/disable → DisableCrl", http.MethodPost, "/crl/abc/disable", "DisableCrl"},
 		{"GET /subjects → ListSubjects", http.MethodGet, "/subjects", "ListSubjects"},
 		{"GET /subject/id → GetSubject", http.MethodGet, "/subject/abc", "GetSubject"},
-		{
-			"PUT /profiles/id/mappings → PutAttributeMapping",
-			http.MethodPut,
-			"/profiles/abc/mappings",
-			"PutAttributeMapping",
-		},
-		{
-			"DELETE /profiles/id/mappings → DeleteAttributeMapping",
-			http.MethodDelete,
-			"/profiles/abc/mappings",
-			"DeleteAttributeMapping",
-		},
-		{
-			"PATCH /put-notifications-settings → PutNotificationSettings",
-			http.MethodPatch,
-			"/put-notifications-settings",
-			"PutNotificationSettings",
-		},
-		{
-			"PATCH /reset-notifications-settings → ResetNotificationSettings",
-			http.MethodPatch,
-			"/reset-notifications-settings",
-			"ResetNotificationSettings",
-		},
+		{"PUT /profiles/id/mappings → PutAttributeMapping", http.MethodPut, "/profiles/abc/mappings", "PutAttributeMapping"},
+		{"DELETE /profiles/id/mappings → DeleteAttributeMapping", http.MethodDelete, "/profiles/abc/mappings", "DeleteAttributeMapping"},
+		{"PATCH /put-notifications-settings → PutNotificationSettings", http.MethodPatch, "/put-notifications-settings", "PutNotificationSettings"},
+		{"PATCH /reset-notifications-settings → ResetNotificationSettings", http.MethodPatch, "/reset-notifications-settings", "ResetNotificationSettings"},
 		{"POST /TagResource → TagResource", http.MethodPost, "/TagResource", "TagResource"},
 		{"POST /UntagResource → UntagResource", http.MethodPost, "/UntagResource", "UntagResource"},
-		{
-			"GET /ListTagsForResource → ListTagsForResource",
-			http.MethodGet,
-			"/ListTagsForResource",
-			"ListTagsForResource",
-		},
+		{"GET /ListTagsForResource → ListTagsForResource", http.MethodGet, "/ListTagsForResource", "ListTagsForResource"},
 		{"unknown path → Unknown", http.MethodGet, "/unknown-path", "Unknown"},
 		{"wrong method on TagResource → Unknown", http.MethodGet, "/TagResource", "Unknown"},
 	}
@@ -301,8 +265,8 @@ func TestHandler_TrustAnchor_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody map[string]any
 		name       string
+		createBody map[string]any
 		wantCreate int
 		wantGet    int
 	}{
@@ -409,10 +373,10 @@ func TestHandler_TrustAnchor_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
 		name       string
 		method     string
 		path       string
+		body       any
 		wantStatus int
 	}{
 		{
@@ -510,7 +474,7 @@ func TestHandler_ListTrustAnchors_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			for i := range 3 {
+			for i := 0; i < 3; i++ {
 				doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
 					"name":   "anchor-page-" + string(rune('a'+i)),
 					"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
@@ -532,8 +496,8 @@ func TestHandler_Profile_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody map[string]any
 		name       string
+		createBody map[string]any
 		wantCreate int
 	}{
 		{
@@ -601,10 +565,10 @@ func TestHandler_Profile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
 		name       string
 		method     string
 		path       string
+		body       any
 		wantStatus int
 	}{
 		{
@@ -713,8 +677,8 @@ func TestHandler_CRL_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody map[string]any
 		name       string
+		createBody map[string]any
 		wantCreate int
 	}{
 		{
@@ -778,10 +742,10 @@ func TestHandler_CRL_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
 		name       string
 		method     string
 		path       string
+		body       any
 		wantStatus int
 	}{
 		{
@@ -978,11 +942,7 @@ func TestHandler_AttributeMapping_InvalidJSON(t *testing.T) {
 
 			h := newTestHandler(t)
 			e := echo.New()
-			req := httptest.NewRequest(
-				http.MethodPut,
-				"/profiles/some-id/mappings",
-				bytes.NewReader([]byte(`{invalid`)),
-			)
+			req := httptest.NewRequest(http.MethodPut, "/profiles/some-id/mappings", bytes.NewReader([]byte(`{invalid`)))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -996,10 +956,10 @@ func TestHandler_AttributeMapping_ProfileNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
 		name       string
 		method     string
 		path       string
+		body       any
 		wantStatus int
 	}{
 		{
@@ -1116,9 +1076,9 @@ func TestHandler_NotificationSettings_TrustAnchorNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       any
 		name       string
 		path       string
+		body       any
 		wantStatus int
 	}{
 		{
@@ -1440,10 +1400,10 @@ func TestBackend_TagResource_Upsert(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantValues map[string]string
 		name       string
 		initial    []rolesanywhere.TagEntry
 		updates    []rolesanywhere.TagEntry
+		wantValues map[string]string
 	}{
 		{
 			name:    "update existing key preserves other keys",
@@ -1492,13 +1452,13 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		requireIP         *bool
-		dur               *int32
 		name              string
 		newName           string
-		sessionPolicy     string
 		roleArns          []string
 		managedPolicyArns []string
+		sessionPolicy     string
+		requireIP         *bool
+		dur               *int32
 	}{
 		{
 			name:              "update all fields",
@@ -1518,15 +1478,7 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 			b := newBackend(t)
 			p, _ := b.CreateProfile("base-profile", []string{"arn:aws:iam::123:role/OldRole"}, nil, nil, nil, "", false)
 
-			updated, err := b.UpdateProfile(
-				p.ProfileID,
-				tt.newName,
-				tt.roleArns,
-				tt.dur,
-				tt.managedPolicyArns,
-				tt.sessionPolicy,
-				tt.requireIP,
-			)
+			updated, err := b.UpdateProfile(p.ProfileID, tt.newName, tt.roleArns, tt.dur, tt.managedPolicyArns, tt.sessionPolicy, tt.requireIP)
 			require.NoError(t, err)
 			assert.Equal(t, tt.newName, updated.Name)
 			assert.Equal(t, tt.roleArns, updated.RoleArns)
@@ -1565,8 +1517,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		ctx     *service.AppContext
 		name    string
+		ctx     *service.AppContext
 		wantErr bool
 	}{
 		{

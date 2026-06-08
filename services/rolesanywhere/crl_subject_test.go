@@ -139,8 +139,8 @@ func TestCrl_NotFound(t *testing.T) {
 	b := newBackend(t)
 
 	tests := []struct {
-		run  func() error
 		name string
+		run  func() error
 	}{
 		{name: "GetCrl", run: func() error {
 			_, err := b.GetCrl("no-such-id")
