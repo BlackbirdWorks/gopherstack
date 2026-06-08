@@ -157,18 +157,9 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 	b.transformJobs[opts.TransformJobName] = tj
 	b.transformJobARNIndex[jobARN] = opts.TransformJobName
 
-	ctx := b.lifecycleCtx
-	go func() {
-		timer := time.NewTimer(transformJobCompletionDelay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		b.applyTransformJobCompletion(ctx, opts.TransformJobName)
-	}()
+	b.runDelayed(b.lifecycleCtx, transformJobCompletionDelay, func() {
+		b.applyTransformJobCompletion(context.Background(), opts.TransformJobName)
+	})
 
 	return cloneTransformJob(tj), nil
 }
@@ -222,23 +213,14 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 	tj.TransformJobStatus = pipelineStatusStopping
 	tj.LastModifiedTime = time.Now()
 
-	ctx := b.lifecycleCtx
-	go func() {
-		timer := time.NewTimer(transformJobStoppingDelay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
+	b.runDelayed(b.lifecycleCtx, transformJobStoppingDelay, func() {
 		b.mu.Lock("StopTransformJob.goroutine")
 		defer b.mu.Unlock()
 		if tj2, found := b.transformJobs[name]; found && tj2.TransformJobStatus == pipelineStatusStopping {
 			tj2.TransformJobStatus = "Stopped"
 			tj2.LastModifiedTime = time.Now()
 		}
-	}()
+	})
 
 	return nil
 }

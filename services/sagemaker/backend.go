@@ -8,6 +8,7 @@ import (
 	"maps"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -472,16 +473,34 @@ type InMemoryBackend struct {
 	inferenceComponents          map[string]*InferenceComponent              // key: componentName
 	clusterSchedulerConfigs      map[string]*ClusterSchedulerConfig          // key: configName
 	computeQuotas                map[string]*ComputeQuota                    // key: quotaName
+	lifecycleParent              context.Context
 	lifecycleCtx                 context.Context
 	lifecycleCancel              context.CancelFunc
 	mu                           *lockmetrics.RWMutex
 	accountID                    string
 	region                       string
+	wg                           sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new in-memory SageMaker backend whose
+// lifecycle goroutines (status-transition simulators) are children of svcCtx, so
+// they are cancelled when the service shuts down rather than leaking. If svcCtx is
+// nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	b := &InMemoryBackend{
+		lifecycleParent:              svcCtx,
 		models:                       make(map[string]*Model),
 		endpointConfigs:              make(map[string]*EndpointConfig),
 		endpoints:                    make(map[string]*Endpoint),
