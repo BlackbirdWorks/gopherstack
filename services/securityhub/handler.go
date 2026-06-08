@@ -90,6 +90,100 @@ const (
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 
+	// Members
+	opCreateMembers       = "CreateMembers"
+	opDeleteMembers       = "DeleteMembers"
+	opGetMembers          = "GetMembers"
+	opInviteMembers       = "InviteMembers"
+	opListMembers         = "ListMembers"
+	opDisassociateMembers = "DisassociateMembers"
+
+	// Invitations / Admin
+	opAcceptAdministratorInvitation        = "AcceptAdministratorInvitation"
+	opAcceptInvitation                     = "AcceptInvitation"
+	opDeclineInvitations                   = "DeclineInvitations"
+	opDeleteInvitations                    = "DeleteInvitations"
+	opGetInvitationsCount                  = "GetInvitationsCount"
+	opListInvitations                      = "ListInvitations"
+	opGetAdministratorAccount              = "GetAdministratorAccount"
+	opGetMasterAccount                     = "GetMasterAccount"
+	opDisassociateFromAdministratorAccount = "DisassociateFromAdministratorAccount"
+	opDisassociateFromMasterAccount        = "DisassociateFromMasterAccount"
+
+	// Organization
+	opDescribeOrganizationConfiguration = "DescribeOrganizationConfiguration"
+	opUpdateOrganizationConfiguration   = "UpdateOrganizationConfiguration"
+	opEnableOrganizationAdminAccount    = "EnableOrganizationAdminAccount"
+	opDisableOrganizationAdminAccount   = "DisableOrganizationAdminAccount"
+	opListOrganizationAdminAccounts     = "ListOrganizationAdminAccounts"
+
+	// Finding Aggregator
+	opCreateFindingAggregator = "CreateFindingAggregator"
+	opGetFindingAggregator    = "GetFindingAggregator"
+	opListFindingAggregators  = "ListFindingAggregators"
+	opUpdateFindingAggregator = "UpdateFindingAggregator"
+	opDeleteFindingAggregator = "DeleteFindingAggregator"
+
+	// Configuration Policy
+	opCreateConfigurationPolicy               = "CreateConfigurationPolicy"
+	opGetConfigurationPolicy                  = "GetConfigurationPolicy"
+	opUpdateConfigurationPolicy               = "UpdateConfigurationPolicy"
+	opDeleteConfigurationPolicy               = "DeleteConfigurationPolicy"
+	opListConfigurationPolicies               = "ListConfigurationPolicies"
+	opGetConfigurationPolicyAssociation       = "GetConfigurationPolicyAssociation"
+	opListConfigurationPolicyAssociations     = "ListConfigurationPolicyAssociations"
+	opStartConfigurationPolicyAssociation     = "StartConfigurationPolicyAssociation"
+	opStartConfigurationPolicyDisassociation  = "StartConfigurationPolicyDisassociation"
+	opBatchGetConfigurationPolicyAssociations = "BatchGetConfigurationPolicyAssociations"
+
+	// Hub V2
+	opEnableSecurityHubV2   = "EnableSecurityHubV2"
+	opDisableSecurityHubV2  = "DisableSecurityHubV2"
+	opDescribeSecurityHubV2 = "DescribeSecurityHubV2"
+
+	// Aggregator V2
+	opCreateAggregatorV2 = "CreateAggregatorV2"
+	opGetAggregatorV2    = "GetAggregatorV2"
+	opListAggregatorsV2  = "ListAggregatorsV2"
+	opUpdateAggregatorV2 = "UpdateAggregatorV2"
+	opDeleteAggregatorV2 = "DeleteAggregatorV2"
+
+	// Automation Rules V2
+	opCreateAutomationRuleV2 = "CreateAutomationRuleV2"
+	opGetAutomationRuleV2    = "GetAutomationRuleV2"
+	opListAutomationRulesV2  = "ListAutomationRulesV2"
+	opUpdateAutomationRuleV2 = "UpdateAutomationRuleV2"
+	opDeleteAutomationRuleV2 = "DeleteAutomationRuleV2"
+
+	// Connectors V2
+	opCreateConnectorV2   = "CreateConnectorV2"
+	opGetConnectorV2      = "GetConnectorV2"
+	opListConnectorsV2    = "ListConnectorsV2"
+	opUpdateConnectorV2   = "UpdateConnectorV2"
+	opDeleteConnectorV2   = "DeleteConnectorV2"
+	opRegisterConnectorV2 = "RegisterConnectorV2"
+
+	// Tickets V2
+	opCreateTicketV2 = "CreateTicketV2"
+
+	// Findings V2
+	opGetFindingsV2          = "GetFindingsV2"
+	opBatchUpdateFindingsV2  = "BatchUpdateFindingsV2"
+	opGetFindingStatisticsV2 = "GetFindingStatisticsV2"
+	opGetFindingsTrendsV2    = "GetFindingsTrendsV2"
+
+	// Resources V2
+	opGetResourcesV2           = "GetResourcesV2"
+	opGetResourcesStatisticsV2 = "GetResourcesStatisticsV2"
+	opGetResourcesTrendsV2     = "GetResourcesTrendsV2"
+
+	// Products V2
+	opDescribeProductsV2 = "DescribeProductsV2"
+
+	// Recommended Policy V2
+	opGenerateRecommendedPolicyV2 = "GenerateRecommendedPolicyV2"
+	opGetRecommendedPolicyV2      = "GetRecommendedPolicyV2"
+
 	opUnknown = "Unknown"
 )
 
@@ -155,6 +249,86 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListTagsForResource,
 		opTagResource,
 		opUntagResource,
+		// Members
+		opCreateMembers,
+		opDeleteMembers,
+		opGetMembers,
+		opInviteMembers,
+		opListMembers,
+		opDisassociateMembers,
+		// Invitations / Admin
+		opAcceptAdministratorInvitation,
+		opAcceptInvitation,
+		opDeclineInvitations,
+		opDeleteInvitations,
+		opGetInvitationsCount,
+		opListInvitations,
+		opGetAdministratorAccount,
+		opGetMasterAccount,
+		opDisassociateFromAdministratorAccount,
+		opDisassociateFromMasterAccount,
+		// Organization
+		opDescribeOrganizationConfiguration,
+		opUpdateOrganizationConfiguration,
+		opEnableOrganizationAdminAccount,
+		opDisableOrganizationAdminAccount,
+		opListOrganizationAdminAccounts,
+		// Finding Aggregator
+		opCreateFindingAggregator,
+		opGetFindingAggregator,
+		opListFindingAggregators,
+		opUpdateFindingAggregator,
+		opDeleteFindingAggregator,
+		// Configuration Policy
+		opCreateConfigurationPolicy,
+		opGetConfigurationPolicy,
+		opUpdateConfigurationPolicy,
+		opDeleteConfigurationPolicy,
+		opListConfigurationPolicies,
+		opGetConfigurationPolicyAssociation,
+		opListConfigurationPolicyAssociations,
+		opStartConfigurationPolicyAssociation,
+		opStartConfigurationPolicyDisassociation,
+		opBatchGetConfigurationPolicyAssociations,
+		// Hub V2
+		opEnableSecurityHubV2,
+		opDisableSecurityHubV2,
+		opDescribeSecurityHubV2,
+		// Aggregator V2
+		opCreateAggregatorV2,
+		opGetAggregatorV2,
+		opListAggregatorsV2,
+		opUpdateAggregatorV2,
+		opDeleteAggregatorV2,
+		// Automation Rules V2
+		opCreateAutomationRuleV2,
+		opGetAutomationRuleV2,
+		opListAutomationRulesV2,
+		opUpdateAutomationRuleV2,
+		opDeleteAutomationRuleV2,
+		// Connectors V2
+		opCreateConnectorV2,
+		opGetConnectorV2,
+		opListConnectorsV2,
+		opUpdateConnectorV2,
+		opDeleteConnectorV2,
+		opRegisterConnectorV2,
+		// Tickets V2
+		opCreateTicketV2,
+		// Findings V2
+		opGetFindingsV2,
+		opBatchUpdateFindingsV2,
+		opGetFindingStatisticsV2,
+		opGetFindingsTrendsV2,
+		// Resources V2
+		opGetResourcesV2,
+		opGetResourcesStatisticsV2,
+		opGetResourcesTrendsV2,
+		// Products V2
+		opDescribeProductsV2,
+		// Recommended Policy V2
+		opGenerateRecommendedPolicyV2,
+		opGetRecommendedPolicyV2,
 	}
 }
 
@@ -184,6 +358,24 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/automationrules") ||
 			strings.HasPrefix(path, "/findingHistory") ||
 			strings.HasPrefix(path, "/hubv2") ||
+			strings.HasPrefix(path, "/members") ||
+			strings.HasPrefix(path, "/invitations") ||
+			strings.HasPrefix(path, "/administrator") ||
+			strings.HasPrefix(path, "/master") ||
+			strings.HasPrefix(path, "/organization") ||
+			strings.HasPrefix(path, "/findingAggregator") ||
+			strings.HasPrefix(path, "/configurationPolicy") ||
+			strings.HasPrefix(path, "/configurationPolicyAssociation") ||
+			strings.HasPrefix(path, "/aggregatorv2") ||
+			strings.HasPrefix(path, "/automationrulesv2") ||
+			strings.HasPrefix(path, "/connectorsv2") ||
+			strings.HasPrefix(path, "/ticketsv2") ||
+			strings.HasPrefix(path, "/findingsv2") ||
+			strings.HasPrefix(path, "/findingsTrendsv2") ||
+			strings.HasPrefix(path, "/resourcesv2") ||
+			strings.HasPrefix(path, "/resourcesTrendsv2") ||
+			strings.HasPrefix(path, "/productsV2") ||
+			strings.HasPrefix(path, "/recommendedPolicyV2") ||
 			path == pathAccounts ||
 			strings.HasPrefix(path, "/products") {
 			return true
@@ -309,6 +501,86 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opListTagsForResource: func() error { return h.handleListTagsForResource(c, resource) },
 		opTagResource:         func() error { return h.handleTagResource(c, resource, body) },
 		opUntagResource:       func() error { return h.handleUntagResource(c, resource) },
+		// Members
+		opCreateMembers:       func() error { return h.handleCreateMembers(c, body) },
+		opDeleteMembers:       func() error { return h.handleDeleteMembers(c, body) },
+		opGetMembers:          func() error { return h.handleGetMembers(c, body) },
+		opInviteMembers:       func() error { return h.handleInviteMembers(c, body) },
+		opListMembers:         func() error { return h.handleListMembers(c) },
+		opDisassociateMembers: func() error { return h.handleDisassociateMembers(c, body) },
+		// Invitations / Admin
+		opAcceptAdministratorInvitation:        func() error { return h.handleAcceptAdministratorInvitation(c, body) },
+		opAcceptInvitation:                     func() error { return h.handleAcceptInvitation(c, body) },
+		opDeclineInvitations:                   func() error { return h.handleDeclineInvitations(c, body) },
+		opDeleteInvitations:                    func() error { return h.handleDeleteInvitations(c, body) },
+		opGetInvitationsCount:                  func() error { return h.handleGetInvitationsCount(c) },
+		opListInvitations:                      func() error { return h.handleListInvitations(c) },
+		opGetAdministratorAccount:              func() error { return h.handleGetAdministratorAccount(c) },
+		opGetMasterAccount:                     func() error { return h.handleGetMasterAccount(c) },
+		opDisassociateFromAdministratorAccount: func() error { return h.handleDisassociateFromAdministratorAccount(c) },
+		opDisassociateFromMasterAccount:        func() error { return h.handleDisassociateFromMasterAccount(c) },
+		// Organization
+		opDescribeOrganizationConfiguration: func() error { return h.handleDescribeOrganizationConfiguration(c) },
+		opUpdateOrganizationConfiguration:   func() error { return h.handleUpdateOrganizationConfiguration(c, body) },
+		opEnableOrganizationAdminAccount:    func() error { return h.handleEnableOrganizationAdminAccount(c, body) },
+		opDisableOrganizationAdminAccount:   func() error { return h.handleDisableOrganizationAdminAccount(c, body) },
+		opListOrganizationAdminAccounts:     func() error { return h.handleListOrganizationAdminAccounts(c) },
+		// Finding Aggregator
+		opCreateFindingAggregator: func() error { return h.handleCreateFindingAggregator(c, body) },
+		opGetFindingAggregator:    func() error { return h.handleGetFindingAggregator(c, resource) },
+		opListFindingAggregators:  func() error { return h.handleListFindingAggregators(c) },
+		opUpdateFindingAggregator: func() error { return h.handleUpdateFindingAggregator(c, body) },
+		opDeleteFindingAggregator: func() error { return h.handleDeleteFindingAggregator(c, resource) },
+		// Configuration Policy
+		opCreateConfigurationPolicy:               func() error { return h.handleCreateConfigurationPolicy(c, body) },
+		opGetConfigurationPolicy:                  func() error { return h.handleGetConfigurationPolicy(c, resource) },
+		opUpdateConfigurationPolicy:               func() error { return h.handleUpdateConfigurationPolicy(c, resource, body) },
+		opDeleteConfigurationPolicy:               func() error { return h.handleDeleteConfigurationPolicy(c, resource) },
+		opListConfigurationPolicies:               func() error { return h.handleListConfigurationPolicies(c) },
+		opGetConfigurationPolicyAssociation:       func() error { return h.handleGetConfigurationPolicyAssociation(c, body) },
+		opListConfigurationPolicyAssociations:     func() error { return h.handleListConfigurationPolicyAssociations(c, body) },
+		opStartConfigurationPolicyAssociation:     func() error { return h.handleStartConfigurationPolicyAssociation(c, body) },
+		opStartConfigurationPolicyDisassociation:  func() error { return h.handleStartConfigurationPolicyDisassociation(c, body) },
+		opBatchGetConfigurationPolicyAssociations: func() error { return h.handleBatchGetConfigurationPolicyAssociations(c, body) },
+		// Hub V2
+		opEnableSecurityHubV2:   func() error { return h.handleEnableSecurityHubV2(c, body) },
+		opDisableSecurityHubV2:  func() error { return h.handleDisableSecurityHubV2(c) },
+		opDescribeSecurityHubV2: func() error { return h.handleDescribeSecurityHubV2(c) },
+		// Aggregator V2
+		opCreateAggregatorV2: func() error { return h.handleCreateAggregatorV2(c, body) },
+		opGetAggregatorV2:    func() error { return h.handleGetAggregatorV2(c, resource) },
+		opListAggregatorsV2:  func() error { return h.handleListAggregatorsV2(c) },
+		opUpdateAggregatorV2: func() error { return h.handleUpdateAggregatorV2(c, resource, body) },
+		opDeleteAggregatorV2: func() error { return h.handleDeleteAggregatorV2(c, resource) },
+		// Automation Rules V2
+		opCreateAutomationRuleV2: func() error { return h.handleCreateAutomationRuleV2(c, body) },
+		opGetAutomationRuleV2:    func() error { return h.handleGetAutomationRuleV2(c, resource) },
+		opListAutomationRulesV2:  func() error { return h.handleListAutomationRulesV2(c) },
+		opUpdateAutomationRuleV2: func() error { return h.handleUpdateAutomationRuleV2(c, resource, body) },
+		opDeleteAutomationRuleV2: func() error { return h.handleDeleteAutomationRuleV2(c, resource) },
+		// Connectors V2
+		opCreateConnectorV2:   func() error { return h.handleCreateConnectorV2(c, body) },
+		opGetConnectorV2:      func() error { return h.handleGetConnectorV2(c, resource) },
+		opListConnectorsV2:    func() error { return h.handleListConnectorsV2(c) },
+		opUpdateConnectorV2:   func() error { return h.handleUpdateConnectorV2(c, resource, body) },
+		opDeleteConnectorV2:   func() error { return h.handleDeleteConnectorV2(c, resource) },
+		opRegisterConnectorV2: func() error { return h.handleRegisterConnectorV2(c, body) },
+		// Tickets V2
+		opCreateTicketV2: func() error { return h.handleCreateTicketV2(c, body) },
+		// Findings V2
+		opGetFindingsV2:          func() error { return h.handleGetFindingsV2(c, body) },
+		opBatchUpdateFindingsV2:  func() error { return h.handleBatchUpdateFindingsV2(c, body) },
+		opGetFindingStatisticsV2: func() error { return h.handleGetFindingStatisticsV2(c, body) },
+		opGetFindingsTrendsV2:    func() error { return h.handleGetFindingsTrendsV2(c, body) },
+		// Resources V2
+		opGetResourcesV2:           func() error { return h.handleGetResourcesV2(c, body) },
+		opGetResourcesStatisticsV2: func() error { return h.handleGetResourcesStatisticsV2(c, body) },
+		opGetResourcesTrendsV2:     func() error { return h.handleGetResourcesTrendsV2(c, body) },
+		// Products V2
+		opDescribeProductsV2: func() error { return h.handleDescribeProductsV2(c) },
+		// Recommended Policy V2
+		opGenerateRecommendedPolicyV2: func() error { return h.handleGenerateRecommendedPolicyV2(c, resource, body) },
+		opGetRecommendedPolicyV2:      func() error { return h.handleGetRecommendedPolicyV2(c, resource) },
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -325,8 +597,15 @@ func classifyPath(method, path string) (string, string) {
 	switch {
 	case path == pathAccounts || strings.HasPrefix(path, pathAccounts+"/"):
 		return classifyHubPath(method, path)
-	case strings.HasPrefix(path, "/findings") || strings.HasPrefix(path, "/findingHistory"):
+	case strings.HasPrefix(path, "/hubv2"):
+		return classifyHubV2Path(method, path)
+	case strings.HasPrefix(path, "/findingHistory") ||
+		(strings.HasPrefix(path, "/findings") && !strings.HasPrefix(path, "/findingsv2") && !strings.HasPrefix(path, "/findingsTrendsv2") && !strings.HasPrefix(path, "/findingAggregator")):
 		return classifyFindingsPath(method, path)
+	case strings.HasPrefix(path, "/findingsv2") || strings.HasPrefix(path, "/findingsTrendsv2"):
+		return classifyFindingsV2Path(method, path)
+	case strings.HasPrefix(path, "/resourcesv2") || strings.HasPrefix(path, "/resourcesTrendsv2"):
+		return classifyResourcesV2Path(method, path)
 	case strings.HasPrefix(path, "/insights"):
 		return classifyInsightsPath(method, path)
 	case strings.HasPrefix(path, "/standards") ||
@@ -335,12 +614,40 @@ func classifyPath(method, path string) (string, string) {
 		return classifyStandardsPath(method, path)
 	case strings.HasPrefix(path, "/actionTargets"):
 		return classifyActionTargetsPath(method, path)
+	case strings.HasPrefix(path, "/productsV2"):
+		return classifyProductsV2Path(method, path)
 	case strings.HasPrefix(path, "/products") || strings.HasPrefix(path, "/productSubscriptions"):
 		return classifyProductsPath(method, path)
 	case strings.HasPrefix(path, "/securityControl"):
 		return classifySecurityControlsPath(method, path)
+	case strings.HasPrefix(path, "/automationrulesv2"):
+		return classifyAutomationRulesV2Path(method, path)
 	case strings.HasPrefix(path, "/automationrules"):
 		return classifyAutomationRulesPath(method, path)
+	case strings.HasPrefix(path, "/members"):
+		return classifyMembersPath(method, path)
+	case strings.HasPrefix(path, "/invitations"):
+		return classifyInvitationsPath(method, path)
+	case strings.HasPrefix(path, "/administrator"):
+		return classifyAdministratorPath(method, path)
+	case strings.HasPrefix(path, "/master"):
+		return classifyMasterPath(method, path)
+	case strings.HasPrefix(path, "/organization"):
+		return classifyOrganizationPath(method, path)
+	case strings.HasPrefix(path, "/findingAggregator"):
+		return classifyFindingAggregatorPath(method, path)
+	case strings.HasPrefix(path, "/configurationPolicyAssociation"):
+		return classifyConfigPolicyAssocPath(method, path)
+	case strings.HasPrefix(path, "/configurationPolicy"):
+		return classifyConfigPolicyPath(method, path)
+	case strings.HasPrefix(path, "/aggregatorv2"):
+		return classifyAggregatorV2Path(method, path)
+	case strings.HasPrefix(path, "/connectorsv2"):
+		return classifyConnectorsV2Path(method, path)
+	case strings.HasPrefix(path, "/ticketsv2"):
+		return classifyTicketsV2Path(method, path)
+	case strings.HasPrefix(path, "/recommendedPolicyV2"):
+		return classifyRecommendedPolicyV2Path(method, path)
 	case strings.HasPrefix(path, "/tags/"):
 		return classifyTagsPath(method, path)
 	}

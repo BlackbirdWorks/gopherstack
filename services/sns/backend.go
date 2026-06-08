@@ -50,8 +50,11 @@ const (
 )
 
 const (
-	protocolEmail = "email"
-	protocolHTTP  = "http"
+	messageTypeNotification = "Notification"
+	protocolLambda          = "lambda"
+	protocolFirehose        = "firehose"
+	protocolEmail           = "email"
+	protocolHTTP            = "http"
 	// attrPendingConfirmation is the SNS subscription attribute key whose
 	// value is "true" while a subscription awaits confirmation. The key uses
 	// the PascalCase attribute name returned by GetSubscriptionAttributes.
@@ -108,6 +111,9 @@ const (
 	// snsMaxConcurrentDeliveries caps the number of HTTP/HTTPS subscription
 	// deliveries that may run concurrently for a single Publish call.
 	snsMaxConcurrentDeliveries = 8
+
+	// snsLambdaInvocationType is the Lambda invocation type for SNS delivery (fire-and-forget).
+	snsLambdaInvocationType = "Event"
 
 	// maxDeliveryResponseBytes is the maximum number of bytes read from an HTTP
 	// delivery response body to prevent unbounded memory growth from large responses.
@@ -373,7 +379,7 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 		{"MessageId", msgID},
 		{"Timestamp", timestamp},
 		{topicArnKey, topicARN},
-		{"Type", "Notification"},
+		{"Type", messageTypeNotification},
 	}
 	if subject != "" {
 		fields = append(fields, field{"Subject", subject})
@@ -392,9 +398,22 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 	return sb.String()
 }
 
+// LambdaInvoker can invoke a Lambda function for SNS subscription delivery.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// FirehosePutter can put records to a Kinesis Firehose stream for SNS subscription delivery.
+type FirehosePutter interface {
+	// PutRecordBatch delivers a batch of records to the named delivery stream.
+	PutRecordBatch(streamName string, records [][]byte) (int, error)
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	lambdaBackend        LambdaInvoker
+	firehoseBackend      FirehosePutter
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -490,6 +509,22 @@ func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.
 	defer b.mu.Unlock()
 
 	b.emitter = emitter
+}
+
+// SetLambdaBackend wires the Lambda backend for SNS → Lambda subscription delivery.
+func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
+	b.mu.Lock("SetLambdaBackend")
+	defer b.mu.Unlock()
+
+	b.lambdaBackend = lambda
+}
+
+// SetFirehoseBackend wires the Firehose backend for SNS → Firehose subscription delivery.
+func (b *InMemoryBackend) SetFirehoseBackend(firehose FirehosePutter) {
+	b.mu.Lock("SetFirehoseBackend")
+	defer b.mu.Unlock()
+
+	b.firehoseBackend = firehose
 }
 
 // CreateTopic creates a new SNS topic using the backend's default region.
@@ -1653,13 +1688,23 @@ func (b *InMemoryBackend) emitPublishedEvent(
 		}
 	}
 
+	// Compute a fixed timestamp and RSA-SHA1 signature so SQS envelope
+	// delivery can include a verifiable Signature field per AWS spec.
+	ts := time.Now().UTC().Format(time.RFC3339)
+	canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
+	sig := b.signer.sign(canonical)
+	certURL := b.signer.certURL
+
 	_ = b.emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
-		TopicARN:      topicArn,
-		MessageID:     messageID,
-		Message:       message,
-		Subject:       subject,
-		Subscriptions: subs,
-		Attributes:    attrSnaps,
+		TopicARN:       topicArn,
+		MessageID:      messageID,
+		Message:        message,
+		Subject:        subject,
+		Subscriptions:  subs,
+		Attributes:     attrSnaps,
+		Timestamp:      ts,
+		Signature:      sig,
+		SigningCertURL: certURL,
 	})
 }
 
@@ -1721,6 +1766,16 @@ func (b *InMemoryBackend) Publish(
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
 	b.emitPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
+
+	ev := &events.SNSPublishedEvent{
+		TopicARN:      topicArn,
+		MessageID:     messageID,
+		Message:       message,
+		Subject:       subject,
+		Subscriptions: targets.subs,
+	}
+	b.deliverToLambdaSubscriptions(ev)
+	b.deliverToFirehoseSubscriptions(ev)
 
 	return messageID, nil
 }
@@ -2144,7 +2199,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		}
 
 		env := snsHTTPNotification{
-			Type:             "Notification",
+			Type:             messageTypeNotification,
 			MessageID:        d.messageID,
 			TopicArn:         d.topicARN,
 			Message:          d.body,
@@ -2176,7 +2231,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	req.Header.Set("Content-Type", "application/json")
 
 	// Add standard AWS SNS HTTP notification headers.
-	req.Header.Set("X-Amz-Sns-Message-Type", "Notification")
+	req.Header.Set("X-Amz-Sns-Message-Type", messageTypeNotification)
 	if d.messageID != "" {
 		req.Header.Set("X-Amz-Sns-Message-Id", d.messageID)
 	}

@@ -2425,6 +2425,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["DynamoDB"],
 	)
 
+	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
+	wireSSMKMS(byName["SSM"], byName["KMS"])
+
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
 
@@ -3054,12 +3057,60 @@ type s3EventBridgeAdapter struct {
 }
 
 func (a *s3EventBridgeAdapter) PublishS3Event(
-	_ context.Context,
+	ctx context.Context,
 	source, detailType, detail string,
 ) {
-	a.backend.PutEvents([]ebbackend.EventEntry{
+	a.backend.PutEvents(ctx, []ebbackend.EventEntry{
 		{Source: source, DetailType: detailType, Detail: detail},
 	})
+}
+
+// wireSSMKMS connects the SSM backend to the KMS backend so that SecureString
+// parameters whose KeyId is set are encrypted/decrypted using real KMS keys.
+func wireSSMKMS(ssmReg, kmsReg service.Registerable) {
+	ssmH, ok := ssmReg.(*ssmbackend.Handler)
+	if !ok {
+		return
+	}
+	ssmBk, ok := ssmH.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	ssmBk.WithKMS(&ssmKMSAdapter{backend: kmsBk})
+}
+
+// ssmKMSAdapter adapts kms.InMemoryBackend to ssm.KMSEncryptor.
+type ssmKMSAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, error) {
+	out, err := a.backend.Encrypt(&kmsbackend.EncryptInput{
+		KeyID:     keyID,
+		Plaintext: plaintext,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.CiphertextBlob, nil
+}
+
+func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
+	out, err := a.backend.Decrypt(&kmsbackend.DecryptInput{
+		CiphertextBlob: ciphertext,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.Plaintext, nil
 }
 
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
@@ -3304,18 +3355,37 @@ type ddbStreamsReaderAdapter struct {
 	backend *ddbbackend.InMemoryDB
 }
 
-// ddbStreamsShardID is the canonical shard ID used by the DynamoDB Streams in-memory backend.
-// It must match the value defined in services/dynamodb/streams_ops.go (streamShardID).
-const ddbStreamsShardID = "shardId-00000000000000000001-00000001"
+func (a *ddbStreamsReaderAdapter) DescribeStreamShards(streamARN string) ([]string, error) {
+	out, err := a.backend.DescribeStream(
+		context.Background(),
+		&awsddbstreams.DescribeStreamInput{StreamArn: aws.String(streamARN)},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if out.StreamDescription == nil {
+		return nil, nil
+	}
+
+	shardIDs := make([]string, 0, len(out.StreamDescription.Shards))
+	for _, s := range out.StreamDescription.Shards {
+		if s.ShardId != nil {
+			shardIDs = append(shardIDs, *s.ShardId)
+		}
+	}
+
+	return shardIDs, nil
+}
 
 func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(
-	streamARN, iteratorType string,
+	streamARN, shardID, iteratorType string,
 ) (string, error) {
 	out, err := a.backend.GetShardIterator(
 		context.Background(),
 		&awsddbstreams.GetShardIteratorInput{
 			StreamArn:         aws.String(streamARN),
-			ShardId:           aws.String(ddbStreamsShardID),
+			ShardId:           aws.String(shardID),
 			ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
 		},
 	)

@@ -18,29 +18,8 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := detective.NewInMemoryBackend("000000000000", "us-east-1")
 	h := detective.NewHandler(backend)
 
-	// Operations not yet implemented — invitation management, datasource packages,
-	// investigations, organization admin management, and member monitoring.
-	notImplemented := []string{
-		"AcceptInvitation",
-		"BatchGetGraphMemberDatasources",
-		"BatchGetMembershipDatasources",
-		"DescribeOrganizationConfiguration",
-		"DisableOrganizationAdminAccount",
-		"DisassociateMembership",
-		"EnableOrganizationAdminAccount",
-		"GetInvestigation",
-		"ListDatasourcePackages",
-		"ListIndicators",
-		"ListInvestigations",
-		"ListInvitations",
-		"ListOrganizationAdminAccounts",
-		"RejectInvitation",
-		"StartInvestigation",
-		"StartMonitoringMember",
-		"UpdateDatasourcePackages",
-		"UpdateInvestigationState",
-		"UpdateOrganizationConfiguration",
-	}
+	// All operations are implemented.
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &detectivesdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

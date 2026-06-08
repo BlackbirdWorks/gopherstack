@@ -139,42 +139,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	for _, qs := range snap.Queues {
-		if qs.DeduplicationIDs == nil {
-			qs.DeduplicationIDs = make(map[string]time.Time)
-		}
-
-		if qs.Attributes == nil {
-			qs.Attributes = make(map[string]string)
-		}
-
-		if qs.DeduplicationMsgIDs == nil {
-			qs.DeduplicationMsgIDs = make(map[string]string)
-		}
-
-		if qs.Permissions == nil {
-			qs.Permissions = make(map[string]*QueuePermissionEntry)
-		}
-
 		region := qs.Region
 		if region == "" {
 			region = b.effectiveRegion("")
 		}
 
-		b.queues[queueKey(region, qs.Name)] = &Queue{
-			DeduplicationIDs:    qs.DeduplicationIDs,
-			Attributes:          qs.Attributes,
-			Tags:                qs.Tags,
-			Permissions:         qs.Permissions,
-			messages:            qs.Messages,
-			inFlightMessages:    qs.InFlightMessages,
-			deduplicationMsgIDs: qs.DeduplicationMsgIDs,
-			Name:                qs.Name,
-			URL:                 qs.URL,
-			Region:              region,
-			MaxReceiveCount:     qs.MaxReceiveCount,
-			IsFIFO:              qs.IsFIFO,
-			notify:              make(chan struct{}),
-		}
+		b.queues[queueKey(region, qs.Name)] = restoreQueueFromSnapshot(qs, region)
 	}
 
 	// Restore terminal move task history. A no-op cancel function is used because
@@ -207,6 +177,57 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.region = snap.Region
 
 	return nil
+}
+
+// restoreQueueFromSnapshot rebuilds a Queue from its persisted snapshot.
+func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
+	if qs.DeduplicationIDs == nil {
+		qs.DeduplicationIDs = make(map[string]time.Time)
+	}
+
+	if qs.Attributes == nil {
+		qs.Attributes = make(map[string]string)
+	}
+
+	if qs.DeduplicationMsgIDs == nil {
+		qs.DeduplicationMsgIDs = make(map[string]string)
+	}
+
+	if qs.Permissions == nil {
+		qs.Permissions = make(map[string]*QueuePermissionEntry)
+	}
+
+	inFlightByHandle := make(map[string]*InFlightMessage, len(qs.InFlightMessages))
+	for _, inf := range qs.InFlightMessages {
+		inFlightByHandle[inf.ReceiptHandle] = inf
+	}
+
+	now := time.Now()
+	delayedCount := 0
+
+	for _, msg := range qs.Messages {
+		if now.Before(msg.VisibleAt) {
+			delayedCount++
+		}
+	}
+
+	return &Queue{
+		DeduplicationIDs:    qs.DeduplicationIDs,
+		Attributes:          qs.Attributes,
+		Tags:                qs.Tags,
+		Permissions:         qs.Permissions,
+		messages:            qs.Messages,
+		inFlightMessages:    qs.InFlightMessages,
+		inFlightByHandle:    inFlightByHandle,
+		deduplicationMsgIDs: qs.DeduplicationMsgIDs,
+		Name:                qs.Name,
+		URL:                 qs.URL,
+		Region:              region,
+		MaxReceiveCount:     qs.MaxReceiveCount,
+		IsFIFO:              qs.IsFIFO,
+		notify:              make(chan struct{}),
+		delayedCount:        delayedCount,
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

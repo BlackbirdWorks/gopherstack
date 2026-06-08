@@ -62,6 +62,7 @@ const (
 	ChecksumSHA1    = "SHA1"
 	ChecksumSHA256  = "SHA256"
 	storageStandard = "STANDARD"
+	statusEnabled   = "Enabled"
 
 	maxDeleteObjects = 1000
 )
@@ -76,7 +77,8 @@ type S3Handler struct {
 	janitor         *Janitor
 	DefaultRegion   string
 	Endpoint        string
-	notificationMu  sync.RWMutex
+	objectLambdaHandlerFields
+	notificationMu sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.

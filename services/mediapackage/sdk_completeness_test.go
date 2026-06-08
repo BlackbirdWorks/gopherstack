@@ -18,12 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := mediapackage.NewInMemoryBackend("000000000000", "us-east-1")
 	h := mediapackage.NewHandler(backend)
 
-	notImplemented := []string{
-		"CreateHarvestJob",
-		"DescribeHarvestJob",
-		"ListHarvestJobs",
-		"RotateIngestEndpointCredentials",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &mediapackagestk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

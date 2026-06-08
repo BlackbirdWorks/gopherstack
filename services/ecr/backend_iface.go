@@ -220,6 +220,9 @@ type Backend interface {
 	// Reset clears all backend state.
 	Reset()
 
+	// Region returns the AWS region this backend is configured for.
+	Region() string
+
 	// AccountID returns the AWS account ID associated with this registry.
 	AccountID() string
 }

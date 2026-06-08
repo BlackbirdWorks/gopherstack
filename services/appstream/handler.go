@@ -127,12 +127,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	})
 }
 
-func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, error) {
+func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, error) { //nolint:funlen
 	return map[string]func(context.Context, []byte) (any, error){
-		"CreateStack":          h.opCreateStack,
-		"DescribeStacks":       h.opDescribeStacks,
-		"UpdateStack":          h.opUpdateStack,
-		"DeleteStack":          h.opDeleteStack,
+		// Stack
+		"CreateStack":    h.opCreateStack,
+		"DescribeStacks": h.opDescribeStacks,
+		"UpdateStack":    h.opUpdateStack,
+		"DeleteStack":    h.opDeleteStack,
+
+		// Fleet
 		"CreateFleet":          h.opCreateFleet,
 		"DescribeFleets":       h.opDescribeFleets,
 		"UpdateFleet":          h.opUpdateFleet,
@@ -143,9 +146,115 @@ func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, erro
 		"DisassociateFleet":    h.opDisassociateFleet,
 		"ListAssociatedFleets": h.opListAssociatedFleets,
 		"ListAssociatedStacks": h.opListAssociatedStacks,
-		"TagResource":          h.opTagResource,
-		"UntagResource":        h.opUntagResource,
-		"ListTagsForResource":  h.opListTagsForResource,
+
+		// Tags
+		"TagResource":         h.opTagResource,
+		"UntagResource":       h.opUntagResource,
+		"ListTagsForResource": h.opListTagsForResource,
+
+		// AppBlock
+		"CreateAppBlock":    h.opCreateAppBlock,
+		"DeleteAppBlock":    h.opDeleteAppBlock,
+		"DescribeAppBlocks": h.opDescribeAppBlocks,
+
+		// AppBlockBuilder
+		"CreateAppBlockBuilder":             h.opCreateAppBlockBuilder,
+		"DeleteAppBlockBuilder":             h.opDeleteAppBlockBuilder,
+		"DescribeAppBlockBuilders":          h.opDescribeAppBlockBuilders,
+		"StartAppBlockBuilder":              h.opStartAppBlockBuilder,
+		"StopAppBlockBuilder":               h.opStopAppBlockBuilder,
+		"UpdateAppBlockBuilder":             h.opUpdateAppBlockBuilder,
+		"CreateAppBlockBuilderStreamingURL": h.opCreateAppBlockBuilderStreamingURL,
+
+		// AppBlockBuilder-AppBlock associations
+		"AssociateAppBlockBuilderAppBlock":            h.opAssociateAppBlockBuilderAppBlock,
+		"DisassociateAppBlockBuilderAppBlock":         h.opDisassociateAppBlockBuilderAppBlock,
+		"DescribeAppBlockBuilderAppBlockAssociations": h.opDescribeAppBlockBuilderAppBlockAssociations,
+
+		// Application
+		"CreateApplication":       h.opCreateApplication,
+		"DeleteApplication":       h.opDeleteApplication,
+		"DescribeApplications":    h.opDescribeApplications,
+		"UpdateApplication":       h.opUpdateApplication,
+		"DescribeAppLicenseUsage": h.opDescribeAppLicenseUsage,
+
+		// Application-Fleet associations
+		"AssociateApplicationFleet":            h.opAssociateApplicationFleet,
+		"DisassociateApplicationFleet":         h.opDisassociateApplicationFleet,
+		"DescribeApplicationFleetAssociations": h.opDescribeApplicationFleetAssociations,
+
+		// Entitlement
+		"CreateEntitlement":                      h.opCreateEntitlement,
+		"DeleteEntitlement":                      h.opDeleteEntitlement,
+		"DescribeEntitlements":                   h.opDescribeEntitlements,
+		"UpdateEntitlement":                      h.opUpdateEntitlement,
+		"AssociateApplicationToEntitlement":      h.opAssociateApplicationToEntitlement,
+		"DisassociateApplicationFromEntitlement": h.opDisassociateApplicationFromEntitlement,
+		"ListEntitledApplications":               h.opListEntitledApplications,
+
+		// DirectoryConfig
+		"CreateDirectoryConfig":    h.opCreateDirectoryConfig,
+		"DeleteDirectoryConfig":    h.opDeleteDirectoryConfig,
+		"DescribeDirectoryConfigs": h.opDescribeDirectoryConfigs,
+		"UpdateDirectoryConfig":    h.opUpdateDirectoryConfig,
+
+		// Image
+		"CopyImage":                h.opCopyImage,
+		"CreateImportedImage":      h.opCreateImportedImage,
+		"CreateUpdatedImage":       h.opCreateUpdatedImage,
+		"DeleteImage":              h.opDeleteImage,
+		"DescribeImages":           h.opDescribeImages,
+		"UpdateImagePermissions":   h.opUpdateImagePermissions,
+		"DeleteImagePermissions":   h.opDeleteImagePermissions,
+		"DescribeImagePermissions": h.opDescribeImagePermissions,
+
+		// ImageBuilder
+		"CreateImageBuilder":             h.opCreateImageBuilder,
+		"DeleteImageBuilder":             h.opDeleteImageBuilder,
+		"DescribeImageBuilders":          h.opDescribeImageBuilders,
+		"StartImageBuilder":              h.opStartImageBuilder,
+		"StopImageBuilder":               h.opStopImageBuilder,
+		"CreateImageBuilderStreamingURL": h.opCreateImageBuilderStreamingURL,
+
+		// Software associations
+		"AssociateSoftwareToImageBuilder":       h.opAssociateSoftwareToImageBuilder,
+		"DisassociateSoftwareFromImageBuilder":  h.opDisassociateSoftwareFromImageBuilder,
+		"DescribeSoftwareAssociations":          h.opDescribeSoftwareAssociations,
+		"StartSoftwareDeploymentToImageBuilder": h.opStartSoftwareDeploymentToImageBuilder,
+
+		// ExportImageTask
+		"CreateExportImageTask": h.opCreateExportImageTask,
+		"GetExportImageTask":    h.opGetExportImageTask,
+		"ListExportImageTasks":  h.opListExportImageTasks,
+
+		// UsageReport
+		"CreateUsageReportSubscription":    h.opCreateUsageReportSubscription,
+		"DeleteUsageReportSubscription":    h.opDeleteUsageReportSubscription,
+		"DescribeUsageReportSubscriptions": h.opDescribeUsageReportSubscriptions,
+
+		// Theme
+		"CreateThemeForStack":   h.opCreateThemeForStack,
+		"DeleteThemeForStack":   h.opDeleteThemeForStack,
+		"DescribeThemeForStack": h.opDescribeThemeForStack,
+		"UpdateThemeForStack":   h.opUpdateThemeForStack,
+
+		// User
+		"CreateUser":    h.opCreateUser,
+		"DeleteUser":    h.opDeleteUser,
+		"DescribeUsers": h.opDescribeUsers,
+		"DisableUser":   h.opDisableUser,
+		"EnableUser":    h.opEnableUser,
+
+		// UserStack associations
+		"BatchAssociateUserStack":       h.opBatchAssociateUserStack,
+		"BatchDisassociateUserStack":    h.opBatchDisassociateUserStack,
+		"DescribeUserStackAssociations": h.opDescribeUserStackAssociations,
+
+		// Session
+		"DescribeSessions":     h.opDescribeSessions,
+		"DrainSessionInstance": h.opDrainSessionInstance,
+		"ExpireSession":        h.opExpireSession,
+		"CreateStreamingURL":   h.opCreateStreamingURL,
 	}
 }
 

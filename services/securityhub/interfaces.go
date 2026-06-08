@@ -82,6 +82,126 @@ type StorageBackend interface {
 	UntagResource(resourceArn string, tagKeys []string) error
 	ListTagsForResource(resourceArn string) (map[string]string, error)
 
+	// Members
+	CreateMembers(accounts []map[string]any) ([]*Member, []map[string]any)
+	DeleteMembers(accountIDs []string) ([]string, []map[string]any)
+	GetMembers(accountIDs []string) ([]*Member, []map[string]any)
+	InviteMembers(accountIDs []string) []map[string]any
+	ListMembers(onlyAssociated bool, nextToken string, maxResults int) ([]*Member, string)
+	DisassociateMembers(accountIDs []string) error
+
+	// Invitations / Admin
+	AcceptAdministratorInvitation(administratorID, invitationID string) error
+	AcceptInvitation(masterID, invitationID string) error
+	DeclineInvitations(accountIDs []string) ([]map[string]any, []map[string]any)
+	DeleteInvitations(accountIDs []string) ([]map[string]any, []map[string]any)
+	GetInvitationsCount() int
+	ListInvitations(nextToken string, maxResults int) ([]*Invitation, string)
+	GetAdministratorAccount() (*AdminAccount, error)
+	GetMasterAccount() (*AdminAccount, error)
+	DisassociateFromAdministratorAccount() error
+	DisassociateFromMasterAccount() error
+
+	// Organization
+	DescribeOrganizationConfiguration() *OrgConfig
+	UpdateOrganizationConfiguration(autoEnable bool, autoEnableStandards string, orgConfigType string) error
+	EnableOrganizationAdminAccount(accountID string) error
+	DisableOrganizationAdminAccount(accountID string) error
+	ListOrganizationAdminAccounts(nextToken string, maxResults int) ([]*OrgAdminAccount, string)
+
+	// Finding Aggregator
+	CreateFindingAggregator(regionLinkingMode string, regions []string) (*FindingAggregator, error)
+	GetFindingAggregator(arn string) (*FindingAggregator, error)
+	ListFindingAggregators(nextToken string, maxResults int) ([]*FindingAggregator, string)
+	UpdateFindingAggregator(arn, regionLinkingMode string, regions []string) (*FindingAggregator, error)
+	DeleteFindingAggregator(arn string) error
+
+	// Configuration Policy
+	CreateConfigurationPolicy(
+		name, description string,
+		policy map[string]any,
+		tags map[string]string,
+	) (*ConfigurationPolicy, error)
+	GetConfigurationPolicy(identifier string) (*ConfigurationPolicy, error)
+	UpdateConfigurationPolicy(identifier, name, description string, policy map[string]any) (*ConfigurationPolicy, error)
+	DeleteConfigurationPolicy(identifier string) error
+	ListConfigurationPolicies(nextToken string, maxResults int) ([]*ConfigurationPolicy, string)
+	StartConfigurationPolicyAssociation(
+		configPolicyIdentifier, targetID, targetType string,
+	) (*ConfigurationPolicyAssociation, error)
+	StartConfigurationPolicyDisassociation(configPolicyIdentifier, targetID, targetType string) error
+	GetConfigurationPolicyAssociation(targetID, targetType string) (*ConfigurationPolicyAssociation, error)
+	ListConfigurationPolicyAssociations(
+		filterPolicyID, filterType, nextToken string,
+		maxResults int,
+	) ([]*ConfigurationPolicyAssociation, string)
+	BatchGetConfigurationPolicyAssociations(
+		requests []map[string]any,
+	) ([]*ConfigurationPolicyAssociation, []map[string]any)
+
+	// Hub V2
+	EnableSecurityHubV2(tags map[string]string) error
+	DisableSecurityHubV2() error
+	DescribeSecurityHubV2() (*HubV2, error)
+
+	// Aggregator V2
+	CreateAggregatorV2(regionLinkingMode string, regions []string) (*AggregatorV2, error)
+	GetAggregatorV2(arn string) (*AggregatorV2, error)
+	ListAggregatorsV2(nextToken string, maxResults int) ([]*AggregatorV2, string)
+	UpdateAggregatorV2(arn, regionLinkingMode string, regions []string) (*AggregatorV2, error)
+	DeleteAggregatorV2(arn string) error
+
+	// Automation Rules V2
+	CreateAutomationRuleV2(
+		ruleName, ruleStatus, description string,
+		criteria map[string]any,
+		actions []map[string]any,
+		ruleOrder float64,
+		isTerminal bool,
+		tags map[string]string,
+	) (*AutomationRuleV2, error)
+	GetAutomationRuleV2(identifier string) (*AutomationRuleV2, error)
+	ListAutomationRulesV2(nextToken string, maxResults int) ([]*AutomationRuleV2, string)
+	UpdateAutomationRuleV2(identifier string, updates map[string]any) (*AutomationRuleV2, error)
+	DeleteAutomationRuleV2(identifier string) error
+
+	// Connectors V2
+	CreateConnectorV2(name, description string, provider map[string]any, tags map[string]string) (*ConnectorV2, error)
+	GetConnectorV2(connectorID string) (*ConnectorV2, error)
+	ListConnectorsV2(nextToken string, maxResults int) ([]*ConnectorV2, string)
+	UpdateConnectorV2(connectorID, name, description string, provider map[string]any) (*ConnectorV2, error)
+	DeleteConnectorV2(connectorID string) error
+	RegisterConnectorV2(connectorID string, provider map[string]any) (*ConnectorV2, error)
+
+	// Tickets V2
+	CreateTicketV2(ticketConfig map[string]any, tags map[string]string) (*TicketV2, error)
+
+	// Findings V2
+	GetFindingsV2(
+		filters map[string]any,
+		sortCriteria []map[string]any,
+		nextToken string,
+		maxResults int,
+	) ([]map[string]any, string)
+	BatchUpdateFindingsV2(
+		findingIdentifiers []map[string]any,
+		updates map[string]any,
+	) ([]map[string]any, []map[string]any)
+	GetFindingStatisticsV2(groupByAttributes []string) []map[string]any
+	GetFindingsTrendsV2(groupByAttribute string, startTime, endTime string) []map[string]any
+
+	// Resources V2
+	GetResourcesV2(filters map[string]any, nextToken string, maxResults int) ([]map[string]any, string)
+	GetResourcesStatisticsV2(groupByAttributes []string) []map[string]any
+	GetResourcesTrendsV2(groupByAttribute string, startTime, endTime string) []map[string]any
+
+	// Products V2
+	DescribeProductsV2(nextToken string, maxResults int) ([]*Product, string)
+
+	// Recommended Policy V2
+	GenerateRecommendedPolicyV2(metadataUID string) (*RecommendedPolicyV2, error)
+	GetRecommendedPolicyV2(metadataUID string) (*RecommendedPolicyV2, error)
+
 	// Metadata
 	AccountID() string
 	Region() string

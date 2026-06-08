@@ -158,7 +158,7 @@ func TestRDSBackend_InstanceModifyTransitionAndDeletePublishesEvents(t *testing.
 
 			created, err := b.CreateDBInstance(instanceID, "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
 			require.NoError(t, err)
-			assert.Equal(t, "available", created.DBInstanceStatus)
+			assert.Equal(t, "creating", created.DBInstanceStatus)
 
 			modified, err := b.ModifyDBInstance(instanceID, "db.r5.large", 100, rds.DBInstanceOptions{})
 			require.NoError(t, err)

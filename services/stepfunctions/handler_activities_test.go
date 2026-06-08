@@ -501,25 +501,25 @@ func TestBackend_Reset(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			// Create some resources.
-			sm, err := b.CreateStateMachine("reset-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "reset-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			_, err = b.StartExecution(sm.StateMachineArn, "exec-1", `{}`)
 			require.NoError(t, err)
 
-			_, err = b.CreateActivity("reset-act-" + tt.name)
+			_, err = b.CreateActivity(context.Background(), "reset-act-"+tt.name)
 			require.NoError(t, err)
 
 			// Reset.
 			b.Reset()
 
 			// State machines should be gone.
-			sms, _, err := b.ListStateMachines("", 0)
+			sms, _, err := b.ListStateMachines(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Empty(t, sms)
 
 			// Activities should be gone.
-			acts, _, err := b.ListActivities("", 0)
+			acts, _, err := b.ListActivities(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Empty(t, acts)
 		})
@@ -567,11 +567,11 @@ func TestBackend_ListActivities_Pagination(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for i := range tt.count {
-				_, err := b.CreateActivity("pag-act-" + tt.name + "-" + strconv.Itoa(i))
+				_, err := b.CreateActivity(context.Background(), "pag-act-"+tt.name+"-"+strconv.Itoa(i))
 				require.NoError(t, err)
 			}
 
-			acts, next, err := b.ListActivities("", tt.maxResults)
+			acts, next, err := b.ListActivities(context.Background(), "", tt.maxResults)
 			require.NoError(t, err)
 			assert.Len(t, acts, tt.wantLen)
 
@@ -610,10 +610,10 @@ func TestHandler_Persistence_WithActivitiesAndTags(t *testing.T) {
 			origBk := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			origH := stepfunctions.NewHandler(origBk)
 
-			_, err := origBk.CreateActivity(tt.actName)
+			_, err := origBk.CreateActivity(context.Background(), tt.actName)
 			require.NoError(t, err)
 
-			sm, err := origBk.CreateStateMachine("persist-sm", exprPassDef, "arn:role", "STANDARD")
+			sm, err := origBk.CreateStateMachine(context.Background(), "persist-sm", exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			// Tag the SM via the helper.
@@ -628,7 +628,7 @@ func TestHandler_Persistence_WithActivitiesAndTags(t *testing.T) {
 			require.NoError(t, freshH.Restore(snap))
 
 			// Activity should be restored.
-			acts, _, err := freshBk.ListActivities("", 0)
+			acts, _, err := freshBk.ListActivities(context.Background(), "", 0)
 			require.NoError(t, err)
 			require.Len(t, acts, 1)
 			assert.Equal(t, tt.actName, acts[0].Name)
@@ -658,7 +658,7 @@ func TestHandler_Restore_LegacyFormat(t *testing.T) {
 			t.Parallel()
 
 			origBk := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			_, err := origBk.CreateStateMachine("legacy-sm", exprPassDef, "arn:role", "STANDARD")
+			_, err := origBk.CreateStateMachine(context.Background(), "legacy-sm", exprPassDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			// Take a backend-only snapshot (bypasses handler wrapper).
@@ -671,7 +671,7 @@ func TestHandler_Restore_LegacyFormat(t *testing.T) {
 			// Restore with raw backend snapshot — no handlerSnapshot wrapper.
 			require.NoError(t, freshH.Restore(legacySnap))
 
-			sms, _, err := freshBk.ListStateMachines("", 0)
+			sms, _, err := freshBk.ListStateMachines(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Len(t, sms, 1)
 			assert.Equal(t, "legacy-sm", sms[0].Name)

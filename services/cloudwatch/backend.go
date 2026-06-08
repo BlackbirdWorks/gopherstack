@@ -22,6 +22,7 @@ import (
 const (
 	statusTrainedInsufficient = "TRAINED_INSUFFICIENT_DATA"
 	metricDataStatusComplete  = "Complete"
+	statSum                   = "Sum"
 )
 
 const (
@@ -105,7 +106,12 @@ type SNSPublisher interface {
 
 // LambdaInvoker can invoke a Lambda function by ARN or name.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name string,
+		invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // StorageBackend is the interface for the CloudWatch in-memory store.
@@ -119,7 +125,10 @@ type StorageBackend interface {
 		statistics []string,
 		extendedStatistics []string,
 	) ([]Datapoint, error)
-	GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error)
+	GetMetricData(
+		queries []MetricDataQuery,
+		startTime, endTime time.Time,
+	) ([]MetricDataResult, error)
 	ListMetrics(
 		namespace, metricName string,
 		dimensions []Dimension,
@@ -147,7 +156,10 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[AlarmHistoryItem], error)
 	DeleteAlarms(alarmNames []string) error
-	SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason, stateReasonData string) error
+	SetAlarmState(
+		ctx context.Context,
+		alarmName, stateValue, stateReason, stateReasonData string,
+	) error
 	EnableAlarmActions(alarmNames []string) error
 	DisableAlarmActions(alarmNames []string) error
 	PutDashboard(name, body string) error
@@ -211,6 +223,9 @@ type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
+	// totalMetrics is the running count of distinct metric series across all
+	// namespaces, maintained on insert/delete to avoid O(namespaces) walks (#60).
+	totalMetrics int
 }
 
 // dashboardRecord holds dashboard body and metadata.
@@ -246,19 +261,28 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 
 // dimensionSetKey returns a stable string key for a slice of Dimensions,
 // sorting by Name so that dim order in caller input does not affect the key.
+// Uses a single strings.Builder to avoid intermediate slice + Join alloc (#60).
 func dimensionSetKey(dims []Dimension) string {
 	if len(dims) == 0 {
 		return ""
 	}
+
 	sorted := make([]Dimension, len(dims))
 	copy(sorted, dims)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
-	parts := make([]string, len(sorted))
+
+	var b strings.Builder
 	for i, d := range sorted {
-		parts[i] = d.Name + "=" + d.Value
+		if i > 0 {
+			b.WriteByte(',')
+		}
+
+		b.WriteString(d.Name)
+		b.WriteByte('=')
+		b.WriteString(d.Value)
 	}
 
-	return strings.Join(parts, ",")
+	return b.String()
 }
 
 // metricStorageKey returns the composite inner-map key for a metric series.
@@ -294,15 +318,11 @@ func dimsContainAll(stored, filter []Dimension) bool {
 	return true
 }
 
-// countTotalMetrics returns the total number of distinct metric time series across all namespaces.
+// countTotalMetrics returns the total number of distinct metric time series
+// across all namespaces. Uses the running counter (#60) maintained on insert.
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) countTotalMetrics() int {
-	total := 0
-	for _, nsMap := range b.metrics {
-		total += len(nsMap)
-	}
-
-	return total
+	return b.totalMetrics
 }
 
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.
@@ -321,10 +341,16 @@ func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
 
 // PutMetricData stores metric data points for the given namespace.
 // Returns a slice of UnprocessedMetricDatum for any entries that could not be stored.
-func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error) {
+func (b *InMemoryBackend) PutMetricData(
+	namespace string,
+	data []MetricDatum,
+) ([]UnprocessedMetricDatum, error) {
 	if len(data) > cwMaxMetricDataPerRequest {
-		return nil, fmt.Errorf("%w: PutMetricData accepts at most %d MetricDatum entries per request",
-			ErrValidation, cwMaxMetricDataPerRequest)
+		return nil, fmt.Errorf(
+			"%w: PutMetricData accepts at most %d MetricDatum entries per request",
+			ErrValidation,
+			cwMaxMetricDataPerRequest,
+		)
 	}
 
 	b.mu.Lock("PutMetricData")
@@ -389,6 +415,7 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) ([
 			copy(dims, d.Dimensions)
 			rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
 			b.metrics[namespace][key] = rec
+			b.totalMetrics++ // #60: maintain running total
 		}
 
 		rec.Points = append(rec.Points, d)
@@ -485,7 +512,9 @@ func (b *InMemoryBackend) SweepExpiredMetrics() {
 	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
 
 	for ns, nsMap := range b.metrics {
+		before := len(nsMap)
 		sweepMetricNamespace(nsMap, cutoff)
+		b.totalMetrics -= before - len(nsMap) // #60: maintain running total
 		if len(nsMap) == 0 {
 			delete(b.metrics, ns)
 		}
@@ -547,7 +576,11 @@ type metricBucket struct {
 }
 
 // populateBuckets groups metric data into period-aligned time buckets.
-func populateBuckets(all []MetricDatum, startTime, endTime time.Time, period int32) map[int64]*metricBucket {
+func populateBuckets(
+	all []MetricDatum,
+	startTime, endTime time.Time,
+	period int32,
+) map[int64]*metricBucket {
 	buckets := make(map[int64]*metricBucket)
 
 	for _, d := range all {
@@ -593,7 +626,7 @@ func buildDatapoint(bk *metricBucket, statSet map[string]bool) Datapoint {
 		dp.Average = &avg
 	}
 
-	if statSet["Sum"] {
+	if statSet[statSum] {
 		s := bk.sum
 		dp.Sum = &s
 	}
@@ -828,7 +861,10 @@ func reverseMetricDataResult(r *MetricDataResult) {
 
 // resolveMetricStat fetches and aggregates data for a single MetricStat query.
 // Caller must hold b.mu (at least read lock).
-func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTime time.Time) MetricDataResult {
+func (b *InMemoryBackend) resolveMetricStat(
+	q MetricDataQuery,
+	startTime, endTime time.Time,
+) MetricDataResult {
 	// Cross-account queries reference metrics from another AWS account.
 	// Return empty data gracefully — cross-account is not supported locally.
 	if q.AccountID != "" && q.AccountID != b.accountID {
@@ -910,7 +946,7 @@ func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTim
 // statValue extracts a single float value from a Datapoint based on the requested statistic.
 func statValue(dp Datapoint, stat string) float64 {
 	switch stat {
-	case "Sum":
+	case statSum:
 		if dp.Sum != nil {
 			return *dp.Sum
 		}
@@ -961,7 +997,10 @@ func (b *InMemoryBackend) ListMetrics(
 			}
 			dims := make([]Dimension, len(rec.Dimensions))
 			copy(dims, rec.Dimensions)
-			result = append(result, Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims})
+			result = append(
+				result,
+				Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims},
+			)
 		}
 	}
 
@@ -987,7 +1026,10 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 
 	// AWS validation: Statistic and ExtendedStatistic are mutually exclusive.
 	if alarm.Statistic != "" && alarm.ExtendedStatistic != "" {
-		return fmt.Errorf("%w: Statistic and ExtendedStatistic are mutually exclusive", ErrValidation)
+		return fmt.Errorf(
+			"%w: Statistic and ExtendedStatistic are mutually exclusive",
+			ErrValidation,
+		)
 	}
 
 	// AWS validation: DatapointsToAlarm must not exceed EvaluationPeriods.
@@ -1103,7 +1145,11 @@ func (b *InMemoryBackend) evalCompositeRule(rule string) string {
 // This function is always called while b.mu is held, so visited is accessed
 // single-threadedly and does not require additional synchronisation.
 // Caller must hold b.mu (at least read lock).
-func (b *InMemoryBackend) evalCompositeRuleDepth(rule string, visited map[string]bool, depth int) string {
+func (b *InMemoryBackend) evalCompositeRuleDepth(
+	rule string,
+	visited map[string]bool,
+	depth int,
+) string {
 	if depth > cwMaxCompositeEvalDepth {
 		return alarmStateInsufficientData
 	}
@@ -1148,7 +1194,12 @@ func (b *InMemoryBackend) DescribeAlarms(
 	includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]
 
 	metricResult := b.collectMetricAlarms(nameSet, alarmNamePrefix, stateValue, includeMetric)
-	compositeResult := b.collectCompositeAlarms(nameSet, alarmNamePrefix, stateValue, includeComposite)
+	compositeResult := b.collectCompositeAlarms(
+		nameSet,
+		alarmNamePrefix,
+		stateValue,
+		includeComposite,
+	)
 
 	// Apply a single combined page limit so MaxRecords constrains the total result set.
 	limit := maxRecords
@@ -1451,7 +1502,14 @@ func (b *InMemoryBackend) SetAlarmState(
 			actions = insuffActions
 		}
 
-		payload := b.buildAlarmActionPayload(alarmName, alarmDesc, alarmArn, oldState, stateValue, stateReason)
+		payload := b.buildAlarmActionPayload(
+			alarmName,
+			alarmDesc,
+			alarmArn,
+			oldState,
+			stateValue,
+			stateReason,
+		)
 		b.executeActions(ctx, actions, alarmName, payload, snsPub, lambdaInv)
 	}
 
@@ -1520,7 +1578,9 @@ func (b *InMemoryBackend) appendHistory(alarmName, alarmTypeName, itemType, summ
 }
 
 // stateChangeHistoryData builds a JSON string for a state-change history item.
-func (b *InMemoryBackend) stateChangeHistoryData(alarmName, oldState, newState, reason string) string {
+func (b *InMemoryBackend) stateChangeHistoryData(
+	alarmName, oldState, newState, reason string,
+) string {
 	data := map[string]string{
 		keyAlarmName:     alarmName,
 		"OldStateValue":  oldState,
@@ -1576,8 +1636,9 @@ func (b *InMemoryBackend) executeActions(
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			if lambdaInv != nil {
 				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
-					slog.Default().WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
-						"function_arn", action, "error", err)
+					slog.Default().
+						WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
+							"function_arn", action, "error", err)
 				}
 			}
 			// EC2 and Auto Scaling actions are stubbed (no-op).
@@ -1613,7 +1674,12 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 		ca.StateValue = newState
 		ca.StateReason = reason
 		ca.StateTransitionedTimestamp = time.Now().UTC()
-		summary := fmt.Sprintf("Composite alarm %q changed from %s to %s", ca.AlarmName, oldState, newState)
+		summary := fmt.Sprintf(
+			"Composite alarm %q changed from %s to %s",
+			ca.AlarmName,
+			oldState,
+			newState,
+		)
 		histData := b.stateChangeHistoryData(ca.AlarmName, oldState, newState, reason)
 		b.appendHistory(ca.AlarmName, "CompositeAlarm", historyTypeStateUpdate, summary, histData)
 
@@ -1676,7 +1742,9 @@ func (b *InMemoryBackend) GetDashboard(name string) (DashboardEntry, string, err
 }
 
 // ListDashboards returns a page of dashboard entries optionally filtered by name prefix.
-func (b *InMemoryBackend) ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error) {
+func (b *InMemoryBackend) ListDashboards(
+	prefix, nextToken string,
+) (page.Page[DashboardEntry], error) {
 	b.mu.RLock("ListDashboards")
 	defer b.mu.RUnlock()
 
@@ -1754,7 +1822,7 @@ func aggregateContributorPoint(
 		}
 		dimKeys[key] = keys
 	}
-	if strings.EqualFold(orderBy, "Sum") {
+	if strings.EqualFold(orderBy, statSum) {
 		dimSums[key] += pt.Sum
 	} else {
 		dimSums[key] += pt.Count
@@ -1782,7 +1850,11 @@ func aggregateContributorRecord(
 }
 
 // topNContributors converts aggregation maps to a sorted, capped contributor list.
-func topNContributors(dimSums map[string]float64, dimKeys map[string][]string, maxN int) []AlarmContributor {
+func topNContributors(
+	dimSums map[string]float64,
+	dimKeys map[string][]string,
+	maxN int,
+) []AlarmContributor {
 	type entry struct {
 		key string
 		sum float64
@@ -2187,7 +2259,12 @@ func (b *InMemoryBackend) DescribeAlarmContributors(
 		}
 	}
 
-	return page.New([]AlarmContributor{}, nextToken, 0, cwDefaultDescribeAlarmContributorsLimit), nil
+	return page.New(
+		[]AlarmContributor{},
+		nextToken,
+		0,
+		cwDefaultDescribeAlarmContributorsLimit,
+	), nil
 }
 
 // GetAlarmARNs returns the ARNs for the given alarm names (metric + composite).
@@ -2235,7 +2312,10 @@ func (b *InMemoryBackend) PutAnomalyDetector(detector *AnomalyDetector) error {
 }
 
 // ListMetricStreams returns a paginated list of all metric streams.
-func (b *InMemoryBackend) ListMetricStreams(nextToken string, maxResults int) (page.Page[MetricStream], error) {
+func (b *InMemoryBackend) ListMetricStreams(
+	nextToken string,
+	maxResults int,
+) (page.Page[MetricStream], error) {
 	b.mu.RLock("ListMetricStreams")
 	defer b.mu.RUnlock()
 
@@ -2357,4 +2437,219 @@ func (b *InMemoryBackend) DeleteMetricFilter(filterName, logGroupName string) er
 	delete(b.metricFilters, key)
 
 	return nil
+}
+
+// EvaluateAlarms evaluates all metric alarms against recent metric data and
+// transitions state (OK ↔ ALARM ↔ INSUFFICIENT_DATA) as appropriate. SNS and
+// Lambda alarm actions are fired on state change. Intended to be called
+// periodically by the Janitor.
+func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
+	// Snapshot alarms under a read-lock to avoid holding the lock during evaluation.
+	b.mu.RLock("EvaluateAlarms.snapshot")
+
+	type alarmSnap struct {
+		alarm MetricAlarm
+	}
+
+	var snaps []alarmSnap
+
+	for _, a := range b.alarms {
+		if a.MetricName == "" || a.Namespace == "" || a.Period <= 0 || a.EvaluationPeriods <= 0 {
+			continue
+		}
+
+		cp := *a
+		snaps = append(snaps, alarmSnap{alarm: cp})
+	}
+
+	b.mu.RUnlock()
+
+	for _, snap := range snaps {
+		newState := b.evaluateMetricAlarmState(snap.alarm, now)
+		if newState == snap.alarm.StateValue {
+			continue
+		}
+
+		var reason string
+		switch newState {
+		case alarmStateInsufficientData:
+			reason = "Insufficient Data: not enough datapoints to evaluate"
+		case alarmStateOK:
+			reason = "Threshold Crossed: datapoints within normal range"
+		default:
+			reason = fmt.Sprintf(
+				"Threshold Crossed: %d datapoints breached the threshold",
+				snap.alarm.DatapointsToAlarm,
+			)
+		}
+
+		// SetAlarmState acquires its own lock and fires SNS/Lambda actions.
+		_ = b.SetAlarmState(ctx, snap.alarm.AlarmName, newState, reason, "")
+	}
+}
+
+// evaluateMetricAlarmState computes the new state for a metric alarm.
+// It fetches the most recent EvaluationPeriods periods of data, counts
+// breaching periods applying TreatMissingData logic, and returns the resulting state.
+func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time) string {
+	periodDur := time.Duration(alarm.Period) * time.Second
+	evalPeriods := int(alarm.EvaluationPeriods)
+
+	endTime := now
+	startTime := now.Add(-periodDur * time.Duration(evalPeriods))
+
+	stats := []string{alarm.Statistic}
+	extStats := []string{}
+
+	if alarm.Statistic == "" && alarm.ExtendedStatistic != "" {
+		stats = nil
+		extStats = []string{alarm.ExtendedStatistic}
+	}
+
+	datapoints, err := b.GetMetricStatistics(
+		alarm.Namespace, alarm.MetricName, alarm.Dimensions,
+		startTime, endTime, alarm.Period, stats, extStats,
+	)
+	if err != nil {
+		return alarm.StateValue
+	}
+
+	bucketValues := buildBucketValues(
+		datapoints,
+		startTime,
+		periodDur,
+		evalPeriods,
+		alarm.Statistic,
+		alarm.ExtendedStatistic,
+	)
+
+	treatMissing := alarm.TreatMissingData
+	if treatMissing == "" {
+		treatMissing = "missing"
+	}
+
+	datapointsToAlarm := int(alarm.DatapointsToAlarm)
+	if datapointsToAlarm <= 0 {
+		datapointsToAlarm = evalPeriods
+	}
+
+	breachCount, evaluatedCount := countBreachingPeriods(
+		bucketValues,
+		evalPeriods,
+		treatMissing,
+		alarm.Threshold,
+		alarm.ComparisonOperator,
+	)
+
+	if breachCount >= datapointsToAlarm {
+		return alarmStateAlarm
+	}
+
+	if evaluatedCount < datapointsToAlarm && treatMissing == "missing" {
+		return alarmStateInsufficientData
+	}
+
+	return alarmStateOK
+}
+
+// buildBucketValues maps each datapoint into its evaluation-period bucket.
+func buildBucketValues(
+	datapoints []Datapoint,
+	startTime time.Time,
+	periodDur time.Duration,
+	evalPeriods int,
+	statistic, extStatistic string,
+) map[int]float64 {
+	bucketValues := make(map[int]float64, len(datapoints))
+
+	for _, dp := range datapoints {
+		idx := int(dp.Timestamp.Sub(startTime) / periodDur)
+
+		if idx < 0 || idx >= evalPeriods {
+			continue
+		}
+
+		if val := extractDatapointValue(dp, statistic, extStatistic); val != nil {
+			bucketValues[idx] = *val
+		}
+	}
+
+	return bucketValues
+}
+
+// countBreachingPeriods tallies breach and evaluated counts across all evaluation periods.
+func countBreachingPeriods(
+	bucketValues map[int]float64,
+	evalPeriods int,
+	treatMissing string,
+	threshold float64,
+	comparisonOperator string,
+) (int, int) {
+	var breachCount, evaluatedCount int
+
+	for i := range evalPeriods {
+		val, hasData := bucketValues[i]
+
+		if !hasData {
+			switch treatMissing {
+			case "breaching":
+				breachCount++
+				evaluatedCount++
+			case "notBreaching":
+				evaluatedCount++
+			}
+
+			continue
+		}
+
+		evaluatedCount++
+
+		if breachesThreshold(val, threshold, comparisonOperator) {
+			breachCount++
+		}
+	}
+
+	return breachCount, evaluatedCount
+}
+
+// extractDatapointValue extracts the relevant statistic value from a Datapoint.
+func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *float64 {
+	switch statistic {
+	case "Average":
+		return dp.Average
+	case statSum:
+		return dp.Sum
+	case "Minimum":
+		return dp.Minimum
+	case "Maximum":
+		return dp.Maximum
+	case "SampleCount":
+		return dp.SampleCount
+	}
+
+	if extendedStatistic != "" {
+		if v, ok := dp.ExtendedStatistics[extendedStatistic]; ok {
+			return &v
+		}
+	}
+
+	return nil
+}
+
+// breachesThreshold reports whether value breaches the threshold for the given operator.
+func breachesThreshold(value, threshold float64, op string) bool {
+	switch op {
+	case "GreaterThanThreshold":
+		return value > threshold
+	case "GreaterThanOrEqualToThreshold":
+		return value >= threshold
+	case "LessThanThreshold":
+		return value < threshold
+	case "LessThanOrEqualToThreshold":
+		return value <= threshold
+	case "LessThanLowerOrGreaterThanUpperThreshold":
+		return value < threshold
+	default:
+		return false
+	}
 }

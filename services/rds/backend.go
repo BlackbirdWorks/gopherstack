@@ -106,6 +106,7 @@ const (
 	defaultInstanceClass    = "db.t3.micro"
 	defaultAllocatedStorage = 20
 
+	instanceStatusCreating  = "creating"
 	instanceStatusModifying = "modifying"
 	instanceStatusDeleting  = "deleting"
 	instanceStatusAvailable = "available"
@@ -987,7 +988,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBClusterIdentifier:              opts.DBClusterIdentifier,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 instanceStatusAvailable,
+		DBInstanceStatus:                 instanceStatusCreating,
 		MasterUsername:                   masterUser,
 		DBName:                           dbName,
 		Endpoint:                         endpoint,

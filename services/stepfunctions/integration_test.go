@@ -460,7 +460,7 @@ func TestRecordTask_SucceededAndFailed(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			b.SetLambdaInvoker(tt.invoker)
 
-			sm, err := b.CreateStateMachine(tt.smName, lambdaTaskDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), tt.smName, lambdaTaskDef, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, tt.execName, `{}`)

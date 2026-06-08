@@ -4,6 +4,7 @@ package ssm_test
 // dispatch table, bringing SSM coverage above the 70% threshold.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -122,7 +123,7 @@ func TestStubOps_DeleteActivation(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create an activation first so we have a valid ID.
-	act, err := b.CreateActivation(&ssm.CreateActivationInput{
+	act, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 		IamRole:             "arn:aws:iam::123456789012:role/SSMRole",
 		DefaultInstanceName: "test-instance",
 		RegistrationLimit:   1,
@@ -141,7 +142,7 @@ func TestStubOps_DeleteAssociation(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create an association so we have a valid ID.
-	assoc, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+	assoc, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 		Name:       "AWS-RunShellScript",
 		InstanceID: "i-1234567890abcdef0",
 	})
@@ -160,7 +161,7 @@ func TestStubOps_DeleteMaintenanceWindow(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,
@@ -179,7 +180,7 @@ func TestStubOps_DeleteOpsItem(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:       "test-item",
 		Description: "test",
 		Source:      "test",
@@ -199,7 +200,7 @@ func TestStubOps_DeleteOpsMetadata(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	meta, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	meta, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0",
 	})
 	require.NoError(t, err)
@@ -215,7 +216,7 @@ func TestStubOps_DeletePatchBaseline(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	pb, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	pb, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "test-baseline",
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
@@ -232,7 +233,7 @@ func TestStubOps_DeleteResourceDataSync(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateResourceDataSync(&ssm.CreateResourceDataSyncInput{SyncName: "test-sync"})
+	_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{SyncName: "test-sync"})
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "DeleteResourceDataSync", `{"SyncName":"test-sync"}`)
@@ -289,7 +290,7 @@ func TestStubOps_DescribeAssociation(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	assoc, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+	assoc, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 		Name:       "AWS-RunShellScript",
 		InstanceID: "i-1234567890abcdef0",
 	})
@@ -344,7 +345,7 @@ func TestStubOps_GetMaintenanceWindow(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window-2",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,
@@ -363,7 +364,7 @@ func TestStubOps_GetOpsItem(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:       "test-item-2",
 		Description: "test",
 		Source:      "test",
@@ -383,7 +384,7 @@ func TestStubOps_GetOpsMetadata(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	meta, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	meta, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-abcdef0123456789",
 	})
 	require.NoError(t, err)
@@ -399,7 +400,7 @@ func TestStubOps_GetPatchBaseline(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	pb, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	pb, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "test-baseline-2",
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
@@ -416,7 +417,7 @@ func TestStubOps_UpdateAssociation(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	assoc, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+	assoc, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 		Name:       "AWS-RunShellScript",
 		InstanceID: "i-1234567890abcdef0",
 	})
@@ -435,7 +436,7 @@ func TestStubOps_UpdateMaintenanceWindow(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window-3",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,
@@ -482,7 +483,7 @@ func TestStubOps_UpdateOpsItem(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:       "test-item-3",
 		Description: "test",
 		Source:      "test",
@@ -502,7 +503,7 @@ func TestStubOps_UpdateOpsMetadata(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	meta, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	meta, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-update0123456789",
 	})
 	require.NoError(t, err)
@@ -518,7 +519,7 @@ func TestStubOps_UpdatePatchBaseline(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	pb, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	pb, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "test-baseline-3",
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
@@ -545,7 +546,7 @@ func TestSSMHandler_Reset(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.PutParameter(&ssm.PutParameterInput{
+	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "/test/reset-param",
 		Type:  "String",
 		Value: "value",
@@ -561,7 +562,7 @@ func TestStubOps_RegisterPatchBaselineForPatchGroup(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	pb, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	pb, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "test-baseline-4",
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
@@ -578,7 +579,7 @@ func TestStubOps_RegisterTargetWithMaintenanceWindow(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window-4",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,
@@ -603,7 +604,7 @@ func TestStubOps_RegisterTaskWithMaintenanceWindow(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window-5",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,

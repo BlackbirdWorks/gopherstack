@@ -7,10 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 )
 
 // TestEFSDashboard verifies the EFS dashboard UI renders file systems.

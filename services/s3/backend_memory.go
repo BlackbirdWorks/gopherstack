@@ -412,7 +412,11 @@ func (b *InMemoryBackend) PutObject(
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
 	// the version so GET can decrypt. ETag stays as MD5(plaintext) so
 	// existing checksum-based tests + SDK clients keep matching.
-	encryptedData, dek, nonce, encErr := encryptWithSSE(storedData, sseFromCtx, sseFromCtx.SSECKeyB64)
+	encryptedData, dek, nonce, encErr := encryptWithSSE(
+		storedData,
+		sseFromCtx,
+		sseFromCtx.SSECKeyB64,
+	)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -455,6 +459,9 @@ func (b *InMemoryBackend) PutObject(
 		"bucket", bucketName, "key", key,
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
+
+	// Async replication to configured destination buckets.
+	go b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
 
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
@@ -637,7 +644,14 @@ func (b *InMemoryBackend) GetObject(
 			// reject the request before reading the body.
 			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
 		}
-		decrypted, decErr := decryptWithSSE(dataToDecompress, sseAlg, sseCAlg, dek, nonce, sseFromCtx.SSECKeyB64)
+		decrypted, decErr := decryptWithSSE(
+			dataToDecompress,
+			sseAlg,
+			sseCAlg,
+			dek,
+			nonce,
+			sseFromCtx.SSECKeyB64,
+		)
 		if decErr != nil {
 			return nil, decErr
 		}
@@ -765,6 +779,11 @@ func (b *InMemoryBackend) HeadObject(
 		"versionId", aws.ToString(versionID),
 		"foundContentType", ver.ContentType)
 
+	sc := ver.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+
 	return &s3.HeadObjectOutput{
 		ContentLength:        aws.Int64(ver.Size),
 		ContentType:          aws.String(ver.ContentType),
@@ -779,6 +798,7 @@ func (b *InMemoryBackend) HeadObject(
 		ChecksumSHA1:         ver.ChecksumSHA1,
 		ChecksumSHA256:       ver.ChecksumSHA256,
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
+		StorageClass:         types.StorageClass(sc),
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
 		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
 		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
@@ -787,7 +807,7 @@ func (b *InMemoryBackend) HeadObject(
 }
 
 func (b *InMemoryBackend) DeleteObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.DeleteObjectInput,
 ) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -820,6 +840,11 @@ func (b *InMemoryBackend) DeleteObject(
 			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
 		}
 		b.mu.Unlock()
+	}
+
+	// Async delete-marker replication when versioning created a delete marker.
+	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+		go b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
 	}
 
 	return out, nil
@@ -1214,7 +1239,7 @@ func (b *InMemoryBackend) processListObjects(
 }
 
 func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject) []types.Object {
-	var contents []types.Object
+	contents := make([]types.Object, 0, len(objectSnapshots)) // #61: capacity hint
 	for _, obj := range objectSnapshots {
 		obj.mu.RLock("ListObjects")
 		latestID := obj.LatestVersionID
@@ -1335,6 +1360,7 @@ type versionSnapshot struct {
 	key          string
 	versionID    string
 	etag         string
+	storageClass string
 	size         int64
 	isLatest     bool
 	deleted      bool
@@ -1416,6 +1442,11 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 		}
 
 		for _, v := range obj.Versions {
+			sc := v.StorageClass
+			if sc == "" {
+				sc = storageStandard
+			}
+
 			snapshots = append(snapshots, versionSnapshot{
 				key:          v.Key,
 				versionID:    v.VersionID,
@@ -1424,6 +1455,7 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 				size:         v.Size,
 				isLatest:     v.IsLatest,
 				deleted:      v.Deleted,
+				storageClass: sc,
 			})
 		}
 	}
@@ -1534,7 +1566,7 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				LastModified: aws.Time(snap.lastModified),
 				ETag:         aws.String(snap.etag),
 				Size:         aws.Int64(snap.size),
-				StorageClass: types.ObjectVersionStorageClassStandard,
+				StorageClass: types.ObjectVersionStorageClass(snap.storageClass),
 				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
 			})
 		}
@@ -2138,7 +2170,11 @@ func (b *InMemoryBackend) commitMultipartObject(
 	var dek, nonce []byte
 	if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
 		var encErr error
-		storedBody, dek, nonce, encErr = encryptWithSSE(assembled.compressedData, sse, sse.SSECKeyB64)
+		storedBody, dek, nonce, encErr = encryptWithSSE(
+			assembled.compressedData,
+			sse,
+			sse.SSECKeyB64,
+		)
 		if encErr != nil {
 			bucket.mu.Unlock()
 

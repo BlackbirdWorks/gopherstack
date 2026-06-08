@@ -33,7 +33,7 @@ func TestScheduler(t *testing.T) {
 			check: func(t *testing.T, backend *eventbridge.InMemoryBackend) {
 				t.Helper()
 				require.Eventually(t, func() bool {
-					for _, entry := range backend.GetEventLog() {
+					for _, entry := range backend.GetEventLog(context.Background()) {
 						if entry.Source == "aws.events" {
 							return true
 						}
@@ -56,7 +56,7 @@ func TestScheduler(t *testing.T) {
 				t.Helper()
 				// Wait for the context to expire and then a little more to confirm no events fired.
 				time.Sleep(300 * time.Millisecond)
-				for _, e := range backend.GetEventLog() {
+				for _, e := range backend.GetEventLog(context.Background()) {
 					assert.NotEqual(t, "aws.events", e.Source, "disabled rule should not fire events")
 				}
 			},
@@ -89,7 +89,7 @@ func TestScheduler(t *testing.T) {
 
 			backend := eventbridge.NewInMemoryBackend()
 
-			_, err := backend.PutRule(tt.rule)
+			_, err := backend.PutRule(context.Background(), tt.rule)
 			require.NoError(t, err)
 
 			scheduler := eventbridge.NewScheduler(backend, 50*time.Millisecond)
@@ -153,7 +153,7 @@ func TestPutRule_ValidatesScheduleExpression(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackend()
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:               "rule",
 				ScheduleExpression: tt.expr,
 				State:              "ENABLED",

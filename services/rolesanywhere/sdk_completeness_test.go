@@ -18,22 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rolesanywhere.NewHandler(backend)
 
-	// Operations not yet implemented — CRL management, subject queries, attribute mappings.
-	notImplemented := []string{
-		"DeleteCrl",
-		"DisableCrl",
-		"EnableCrl",
-		"GetCrl",
-		"ImportCrl",
-		"ListCrls",
-		"UpdateCrl",
-		"GetSubject",
-		"ListSubjects",
-		"PutAttributeMapping",
-		"DeleteAttributeMapping",
-		"PutNotificationSettings",
-		"ResetNotificationSettings",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &rasdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

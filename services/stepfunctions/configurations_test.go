@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 		{
 			name: "set_both_configs",
 			setup: func(b *stepfunctions.InMemoryBackend) string {
-				sm, err := b.CreateStateMachine("sm-both", minimalDefinition, validRoleARN, "STANDARD")
+				sm, err := b.CreateStateMachine(context.Background(), "sm-both", minimalDefinition, validRoleARN, "STANDARD")
 				require.NoError(t, err)
 
 				return sm.StateMachineArn
@@ -41,7 +42,7 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 		{
 			name: "set_only_tracing",
 			setup: func(b *stepfunctions.InMemoryBackend) string {
-				sm, err := b.CreateStateMachine("sm-tracing", minimalDefinition, validRoleARN, "STANDARD")
+				sm, err := b.CreateStateMachine(context.Background(), "sm-tracing", minimalDefinition, validRoleARN, "STANDARD")
 				require.NoError(t, err)
 
 				return sm.StateMachineArn

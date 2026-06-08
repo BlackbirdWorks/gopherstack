@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -16,7 +17,8 @@ const (
 )
 
 // DetectStackDrift initiates drift detection for all resources in a stack.
-// The mock immediately marks detection as DETECTION_COMPLETE with IN_SYNC status.
+// It compares deployed resource state against the current template and returns
+// DRIFTED/MODIFIED/DELETED when divergence is found (#12).
 func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 	b.mu.Lock("DetectStackDrift")
 	defer b.mu.Unlock()
@@ -26,13 +28,26 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 		return "", ErrStackNotFound
 	}
 
+	resourceStatuses := b.compareStackResources(stack)
+
+	driftedCount := 0
+	overallStatus := driftStatusInSync
+	for _, status := range resourceStatuses {
+		if status != driftStatusInSync {
+			driftedCount++
+			overallStatus = driftStatusDrifted
+		}
+	}
+
+	b.resourceDriftStatus[stack.StackID] = resourceStatuses
+
 	detectionID := uuid.New().String()
 	b.driftDetections[detectionID] = &DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
-		StackDriftStatus:          driftStatusInSync,
+		StackDriftStatus:          overallStatus,
 		DetectionStatus:           detectionComplete,
-		DriftedStackResourceCount: 0,
+		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
 
@@ -40,7 +55,7 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 }
 
 // DetectStackResourceDrift initiates drift detection for a specific resource in a stack.
-// The mock immediately marks detection as DETECTION_COMPLETE with IN_SYNC status.
+// It compares the resource's deployed properties against the template (#12).
 func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (string, error) {
 	b.mu.Lock("DetectStackResourceDrift")
 	defer b.mu.Unlock()
@@ -54,17 +69,92 @@ func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (
 		return "", ErrResourceNotFound
 	}
 
+	resourceStatuses := b.compareStackResources(stack)
+	status, ok2 := resourceStatuses[logicalID]
+	if !ok2 {
+		status = driftStatusInSync
+	}
+
+	if b.resourceDriftStatus[stack.StackID] == nil {
+		b.resourceDriftStatus[stack.StackID] = make(map[string]string)
+	}
+	b.resourceDriftStatus[stack.StackID][logicalID] = status
+
+	overallStatus := driftStatusInSync
+	driftedCount := 0
+	if status != driftStatusInSync {
+		overallStatus = driftStatusDrifted
+		driftedCount = 1
+	}
+
 	detectionID := uuid.New().String()
 	b.driftDetections[detectionID] = &DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
-		StackDriftStatus:          driftStatusInSync,
+		StackDriftStatus:          overallStatus,
 		DetectionStatus:           detectionComplete,
-		DriftedStackResourceCount: 0,
+		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
 
 	return detectionID, nil
+}
+
+// compareStackResources compares deployed resources against the current template.
+// Returns a map of logicalID → drift status (IN_SYNC, MODIFIED, DELETED).
+// Must be called with b.mu held.
+func (b *InMemoryBackend) compareStackResources(stack *Stack) map[string]string {
+	statuses := make(map[string]string)
+
+	deployedResources := b.resources[stack.StackID]
+	if len(deployedResources) == 0 {
+		return statuses
+	}
+
+	tmpl, err := ParseTemplate(stack.TemplateBody)
+	if err != nil {
+		// If template can't be parsed, mark all as in-sync (best effort)
+		for logicalID := range deployedResources {
+			statuses[logicalID] = driftStatusInSync
+		}
+
+		return statuses
+	}
+
+	// Resources in deployed state but absent from template → DELETED
+	for logicalID := range deployedResources {
+		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
+			statuses[logicalID] = driftStatusDeleted
+		}
+	}
+
+	// Resources in template: compare stored properties
+	for logicalID, tmplRes := range tmpl.Resources {
+		deployedRes, deployed := deployedResources[logicalID]
+		if !deployed {
+			// In template but not deployed (shouldn't normally happen post-create)
+			continue
+		}
+
+		if propertiesDiffer(deployedRes.Properties, tmplRes.Properties) {
+			statuses[logicalID] = driftStatusModified
+		} else {
+			statuses[logicalID] = driftStatusInSync
+		}
+	}
+
+	return statuses
+}
+
+// propertiesDiffer reports whether two property maps differ using JSON serialization.
+func propertiesDiffer(a, b map[string]any) bool {
+	aBytes, err1 := json.Marshal(a)
+	bBytes, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	return string(aBytes) != string(bBytes)
 }
 
 // DescribeStackDriftDetectionStatus returns the status of a drift detection operation.

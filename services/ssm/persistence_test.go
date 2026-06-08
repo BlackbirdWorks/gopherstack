@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *ssm.InMemoryBackend) string {
-				_, err := b.PutParameter(&ssm.PutParameterInput{
+				_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 					Name:  "/test/param",
 					Value: "my-value",
 					Type:  "String",
@@ -34,7 +35,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ssm.InMemoryBackend, id string) {
 				t.Helper()
 
-				out, err := b.GetParameter(&ssm.GetParameterInput{Name: id})
+				out, err := b.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: id})
 				require.NoError(t, err)
 				assert.Equal(t, id, out.Parameter.Name)
 				assert.Equal(t, "my-value", out.Parameter.Value)
@@ -46,7 +47,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ssm.InMemoryBackend, _ string) {
 				t.Helper()
 
-				params := b.ListAll()
+				params := b.ListAll(context.TODO())
 				assert.Empty(t, params)
 			},
 		},

@@ -344,6 +344,7 @@ func (s *stubBackend) ListTagsForResource(_ string) (map[string]string, error) {
 }
 
 func (s *stubBackend) Reset()            {}
+func (s *stubBackend) Region() string    { return "us-east-1" }
 func (s *stubBackend) AccountID() string { return "000000000000" }
 
 // ---- tests --------------------------------------------------------------
