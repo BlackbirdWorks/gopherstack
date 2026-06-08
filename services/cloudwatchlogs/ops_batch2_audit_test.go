@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -151,11 +152,11 @@ func TestBatch2_SetRetentionPolicy_ZeroDays_BackendReturnsError(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatchlogs.NewInMemoryBackend()
-			_, err := b.CreateLogGroup("grp", "", "")
+			_, err := b.CreateLogGroup(context.Background(), "grp", "", "")
 			require.NoError(t, err)
 
 			days := tt.days
-			err = b.SetRetentionPolicy("grp", &days)
+			err = b.SetRetentionPolicy(context.Background(), "grp", &days)
 			require.ErrorIs(t, err, cloudwatchlogs.ErrValidation,
 				"days=%d must be rejected with ErrValidation", tt.days)
 		})

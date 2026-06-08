@@ -607,14 +607,33 @@ func TestRoute53Handler_Tags_UnsupportedMethod(t *testing.T) {
 // mockDNSRegistrar is a test double for route53.DNSRegistrar.
 type mockDNSRegistrar struct {
 	registered map[string]bool
+	records    map[string][]string // hostname → values
 }
 
-func (m *mockDNSRegistrar) Register(hostname string) {
-	m.registered[hostname] = true
+func (m *mockDNSRegistrar) RegisterRecord(hostname, _ string, values []string) {
+	fqdn := hostname
+	if len(fqdn) > 0 && fqdn[len(fqdn)-1] != '.' {
+		fqdn += "."
+	}
+	m.registered[fqdn] = true
+
+	if m.records == nil {
+		m.records = make(map[string][]string)
+	}
+
+	m.records[fqdn] = append(m.records[fqdn], values...)
 }
 
 func (m *mockDNSRegistrar) Deregister(hostname string) {
-	delete(m.registered, hostname)
+	fqdn := hostname
+	if len(fqdn) > 0 && fqdn[len(fqdn)-1] != '.' {
+		fqdn += "."
+	}
+	delete(m.registered, fqdn)
+
+	if m.records != nil {
+		delete(m.records, fqdn)
+	}
 }
 
 func TestHandler_IAMAction(t *testing.T) {

@@ -94,33 +94,90 @@ func (f *storedFleet) toFleet() *Fleet {
 }
 
 type backendSnapshot struct {
-	Stacks       map[string]*storedStack      `json:"stacks"`
-	Fleets       map[string]*storedFleet      `json:"fleets"`
-	Associations map[string]map[string]bool   `json:"associations"` // fleetName → set of stackNames
-	Tags         map[string]map[string]string `json:"tags"`
+	Stacks               map[string]*storedStack            `json:"stacks"`
+	Fleets               map[string]*storedFleet            `json:"fleets"`
+	Associations         map[string]map[string]bool         `json:"associations"`
+	Tags                 map[string]map[string]string       `json:"tags"`
+	AppBlocks            map[string]*storedAppBlock         `json:"appBlocks"`
+	AppBlockBuilders     map[string]*storedAppBlockBuilder  `json:"appBlockBuilders"`
+	AppBlockBuilderAssoc map[string]map[string]bool         `json:"appBlockBuilderAssoc"`
+	Applications         map[string]*storedApplication      `json:"applications"`
+	AppFleetAssoc        map[string]map[string]bool         `json:"appFleetAssoc"`
+	Entitlements         map[string]*storedEntitlement      `json:"entitlements"`
+	EntitlementApps      map[string]map[string]bool         `json:"entitlementApps"`
+	DirectoryConfigs     map[string]*storedDirectoryConfig  `json:"directoryConfigs"`
+	Images               map[string]*storedImage            `json:"images"`
+	ImagePermissions     map[string]*storedImagePermissions `json:"imagePermissions"`
+	ImageBuilders        map[string]*storedImageBuilder     `json:"imageBuilders"`
+	SoftwareAssoc        map[string]map[string]bool         `json:"softwareAssoc"`
+	ExportTasks          map[string]*storedExportImageTask  `json:"exportTasks"`
+	ExportTaskSeq        int                                `json:"exportTaskSeq"`
+	Users                map[string]*storedUser             `json:"users"`
+	UserStackAssoc       map[string]map[string]bool         `json:"userStackAssoc"`
+	Sessions             map[string]*storedSession          `json:"sessions"`
+	SessionSeq           int                                `json:"sessionSeq"`
+	UsageReport          *storedUsageReportSubscription     `json:"usageReport"`
+	Themes               map[string]*storedTheme            `json:"themes"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu           *lockmetrics.RWMutex
-	stacks       map[string]*storedStack      // name → stack
-	fleets       map[string]*storedFleet      // name → fleet
-	associations map[string]map[string]bool   // fleetName → set of stackNames
-	tags         map[string]map[string]string // ARN → tags
-	accountID    string
-	region       string
+	mu                   *lockmetrics.RWMutex
+	stacks               map[string]*storedStack
+	fleets               map[string]*storedFleet
+	associations         map[string]map[string]bool   // fleetName → set of stackNames
+	tags                 map[string]map[string]string // ARN → tags
+	appBlocks            map[string]*storedAppBlock
+	appBlockBuilders     map[string]*storedAppBlockBuilder
+	appBlockBuilderAssoc map[string]map[string]bool // builderName → set of appBlockNames
+	applications         map[string]*storedApplication
+	appFleetAssoc        map[string]map[string]bool    // appName → set of fleetNames
+	entitlements         map[string]*storedEntitlement // entitlementKey → entitlement
+	entitlementApps      map[string]map[string]bool    // entitlementKey → set of appIDs
+	directoryConfigs     map[string]*storedDirectoryConfig
+	images               map[string]*storedImage
+	imagePermissions     map[string]*storedImagePermissions
+	imageBuilders        map[string]*storedImageBuilder
+	softwareAssoc        map[string]map[string]bool // imageBuilderName → set of software
+	exportTasks          map[string]*storedExportImageTask
+	exportTaskSeq        int
+	users                map[string]*storedUser     // userKey → user
+	userStackAssoc       map[string]map[string]bool // userKey → set of stackNames
+	sessions             map[string]*storedSession
+	sessionSeq           int
+	usageReport          *storedUsageReportSubscription
+	themes               map[string]*storedTheme
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:           lockmetrics.New("appstream"),
-		stacks:       make(map[string]*storedStack),
-		fleets:       make(map[string]*storedFleet),
-		associations: make(map[string]map[string]bool),
-		tags:         make(map[string]map[string]string),
-		accountID:    accountID,
-		region:       region,
+		mu:                   lockmetrics.New("appstream"),
+		stacks:               make(map[string]*storedStack),
+		fleets:               make(map[string]*storedFleet),
+		associations:         make(map[string]map[string]bool),
+		tags:                 make(map[string]map[string]string),
+		appBlocks:            make(map[string]*storedAppBlock),
+		appBlockBuilders:     make(map[string]*storedAppBlockBuilder),
+		appBlockBuilderAssoc: make(map[string]map[string]bool),
+		applications:         make(map[string]*storedApplication),
+		appFleetAssoc:        make(map[string]map[string]bool),
+		entitlements:         make(map[string]*storedEntitlement),
+		entitlementApps:      make(map[string]map[string]bool),
+		directoryConfigs:     make(map[string]*storedDirectoryConfig),
+		images:               make(map[string]*storedImage),
+		imagePermissions:     make(map[string]*storedImagePermissions),
+		imageBuilders:        make(map[string]*storedImageBuilder),
+		softwareAssoc:        make(map[string]map[string]bool),
+		exportTasks:          make(map[string]*storedExportImageTask),
+		users:                make(map[string]*storedUser),
+		userStackAssoc:       make(map[string]map[string]bool),
+		sessions:             make(map[string]*storedSession),
+		themes:               make(map[string]*storedTheme),
+		accountID:            accountID,
+		region:               region,
 	}
 }
 
@@ -581,6 +638,26 @@ func (b *InMemoryBackend) Reset() {
 	b.fleets = make(map[string]*storedFleet)
 	b.associations = make(map[string]map[string]bool)
 	b.tags = make(map[string]map[string]string)
+	b.appBlocks = make(map[string]*storedAppBlock)
+	b.appBlockBuilders = make(map[string]*storedAppBlockBuilder)
+	b.appBlockBuilderAssoc = make(map[string]map[string]bool)
+	b.applications = make(map[string]*storedApplication)
+	b.appFleetAssoc = make(map[string]map[string]bool)
+	b.entitlements = make(map[string]*storedEntitlement)
+	b.entitlementApps = make(map[string]map[string]bool)
+	b.directoryConfigs = make(map[string]*storedDirectoryConfig)
+	b.images = make(map[string]*storedImage)
+	b.imagePermissions = make(map[string]*storedImagePermissions)
+	b.imageBuilders = make(map[string]*storedImageBuilder)
+	b.softwareAssoc = make(map[string]map[string]bool)
+	b.exportTasks = make(map[string]*storedExportImageTask)
+	b.exportTaskSeq = 0
+	b.users = make(map[string]*storedUser)
+	b.userStackAssoc = make(map[string]map[string]bool)
+	b.sessions = make(map[string]*storedSession)
+	b.sessionSeq = 0
+	b.usageReport = nil
+	b.themes = make(map[string]*storedTheme)
 }
 
 // Snapshot serializes backend state to JSON.
@@ -589,10 +666,30 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	data, _ := json.Marshal(backendSnapshot{
-		Stacks:       b.stacks,
-		Fleets:       b.fleets,
-		Associations: b.associations,
-		Tags:         b.tags,
+		Stacks:               b.stacks,
+		Fleets:               b.fleets,
+		Associations:         b.associations,
+		Tags:                 b.tags,
+		AppBlocks:            b.appBlocks,
+		AppBlockBuilders:     b.appBlockBuilders,
+		AppBlockBuilderAssoc: b.appBlockBuilderAssoc,
+		Applications:         b.applications,
+		AppFleetAssoc:        b.appFleetAssoc,
+		Entitlements:         b.entitlements,
+		EntitlementApps:      b.entitlementApps,
+		DirectoryConfigs:     b.directoryConfigs,
+		Images:               b.images,
+		ImagePermissions:     b.imagePermissions,
+		ImageBuilders:        b.imageBuilders,
+		SoftwareAssoc:        b.softwareAssoc,
+		ExportTasks:          b.exportTasks,
+		ExportTaskSeq:        b.exportTaskSeq,
+		Users:                b.users,
+		UserStackAssoc:       b.userStackAssoc,
+		Sessions:             b.sessions,
+		SessionSeq:           b.sessionSeq,
+		UsageReport:          b.usageReport,
+		Themes:               b.themes,
 	})
 
 	return data
@@ -608,29 +705,105 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	if snap.Stacks != nil {
-		b.stacks = snap.Stacks
-	} else {
-		b.stacks = make(map[string]*storedStack)
+	ifNilStack := func(m map[string]*storedStack) map[string]*storedStack {
+		if m != nil {
+			return m
+		}
+		return make(map[string]*storedStack)
+	}
+	ifNilFleet := func(m map[string]*storedFleet) map[string]*storedFleet {
+		if m != nil {
+			return m
+		}
+		return make(map[string]*storedFleet)
+	}
+	ifNilBool := func(m map[string]map[string]bool) map[string]map[string]bool {
+		if m != nil {
+			return m
+		}
+		return make(map[string]map[string]bool)
+	}
+	ifNilTags := func(m map[string]map[string]string) map[string]map[string]string {
+		if m != nil {
+			return m
+		}
+		return make(map[string]map[string]string)
 	}
 
-	if snap.Fleets != nil {
-		b.fleets = snap.Fleets
+	b.stacks = ifNilStack(snap.Stacks)
+	b.fleets = ifNilFleet(snap.Fleets)
+	b.associations = ifNilBool(snap.Associations)
+	b.tags = ifNilTags(snap.Tags)
+
+	if snap.AppBlocks != nil {
+		b.appBlocks = snap.AppBlocks
 	} else {
-		b.fleets = make(map[string]*storedFleet)
+		b.appBlocks = make(map[string]*storedAppBlock)
+	}
+	if snap.AppBlockBuilders != nil {
+		b.appBlockBuilders = snap.AppBlockBuilders
+	} else {
+		b.appBlockBuilders = make(map[string]*storedAppBlockBuilder)
+	}
+	b.appBlockBuilderAssoc = ifNilBool(snap.AppBlockBuilderAssoc)
+	if snap.Applications != nil {
+		b.applications = snap.Applications
+	} else {
+		b.applications = make(map[string]*storedApplication)
+	}
+	b.appFleetAssoc = ifNilBool(snap.AppFleetAssoc)
+	if snap.Entitlements != nil {
+		b.entitlements = snap.Entitlements
+	} else {
+		b.entitlements = make(map[string]*storedEntitlement)
+	}
+	b.entitlementApps = ifNilBool(snap.EntitlementApps)
+	if snap.DirectoryConfigs != nil {
+		b.directoryConfigs = snap.DirectoryConfigs
+	} else {
+		b.directoryConfigs = make(map[string]*storedDirectoryConfig)
+	}
+	if snap.Images != nil {
+		b.images = snap.Images
+	} else {
+		b.images = make(map[string]*storedImage)
+	}
+	if snap.ImagePermissions != nil {
+		b.imagePermissions = snap.ImagePermissions
+	} else {
+		b.imagePermissions = make(map[string]*storedImagePermissions)
+	}
+	if snap.ImageBuilders != nil {
+		b.imageBuilders = snap.ImageBuilders
+	} else {
+		b.imageBuilders = make(map[string]*storedImageBuilder)
+	}
+	b.softwareAssoc = ifNilBool(snap.SoftwareAssoc)
+	if snap.ExportTasks != nil {
+		b.exportTasks = snap.ExportTasks
+	} else {
+		b.exportTasks = make(map[string]*storedExportImageTask)
+	}
+	if snap.Users != nil {
+		b.users = snap.Users
+	} else {
+		b.users = make(map[string]*storedUser)
+	}
+	b.userStackAssoc = ifNilBool(snap.UserStackAssoc)
+	if snap.Sessions != nil {
+		b.sessions = snap.Sessions
+	} else {
+		b.sessions = make(map[string]*storedSession)
+	}
+	if snap.Themes != nil {
+		b.themes = snap.Themes
+	} else {
+		b.themes = make(map[string]*storedTheme)
 	}
 
-	if snap.Associations != nil {
-		b.associations = snap.Associations
-	} else {
-		b.associations = make(map[string]map[string]bool)
-	}
-
-	if snap.Tags != nil {
-		b.tags = snap.Tags
-	} else {
-		b.tags = make(map[string]map[string]string)
-	}
+	b.exportTaskSeq = snap.ExportTaskSeq
+	b.sessionSeq = snap.SessionSeq
+	b.usageReport = snap.UsageReport
 
 	return nil
 }

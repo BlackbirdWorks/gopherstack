@@ -231,7 +231,7 @@ func TestDelivery_SQS(t *testing.T) {
 			sqsMock := newMockSQSSender()
 			backend := setupDeliveryBackend(t, sqsMock, nil)
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         tt.ruleName,
 				EventPattern: tt.eventPattern,
 				State:        tt.ruleState,
@@ -243,10 +243,10 @@ func TestDelivery_SQS(t *testing.T) {
 				target.Input = tt.targetInput
 			}
 
-			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{target})
+			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{target})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			if tt.wantDelivered {
 				require.Eventually(t, func() bool {
@@ -302,19 +302,19 @@ func TestDelivery_Lambda(t *testing.T) {
 			lamMock := newMockLambdaInvoker()
 			backend := setupDeliveryBackend(t, nil, lamMock)
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         tt.ruleName,
 				EventPattern: tt.eventPattern,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
 				{ID: "t1", Arn: tt.lambdaARN},
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			require.Eventually(t, func() bool {
 				return len(lamMock.Invocations()) >= tt.wantInvocations
@@ -376,19 +376,19 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 			backend := setupDeliveryBackend(t, sqsMock, nil)
 			queueARN := "arn:aws:sqs:us-east-1:000000000000:envelope-queue-" + tt.name
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "envelope-rule-" + tt.name,
 				EventPattern: `{"source": ["test.service"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets("envelope-rule-"+tt.name, "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), "envelope-rule-"+tt.name, "default", []eventbridge.Target{
 				{ID: "t1", Arn: queueARN},
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			require.Eventually(t, func() bool {
 				return len(sqsMock.MessagesFor(queueARN)) > 0
@@ -418,20 +418,20 @@ func TestDelivery_SharedEventIDAcrossTargets(t *testing.T) {
 		}},
 	})
 
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
+	_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "shared-id-rule",
 		EventPattern: `{"source": ["shared.id.service"]}`,
 		State:        "ENABLED",
 	})
 	require.NoError(t, err)
 
-	_, err = backend.PutTargets("shared-id-rule", "default", []eventbridge.Target{
+	_, err = backend.PutTargets(context.Background(), "shared-id-rule", "default", []eventbridge.Target{
 		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-a"},
 		{ID: "t2", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-b"},
 	})
 	require.NoError(t, err)
 
-	backend.PutEvents([]eventbridge.EventEntry{
+	backend.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "shared.id.service", DetailType: "Evt", Detail: `{}`},
 	})
 
@@ -519,19 +519,19 @@ func TestDelivery_InputPath(t *testing.T) {
 			queueARN := "arn:aws:sqs:us-east-1:000000000000:path-queue-" + tt.name
 			ruleName := "path-rule-" + tt.name
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         ruleName,
 				EventPattern: `{"source": ["path.service"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets(ruleName, "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
 				{ID: "t1", Arn: queueARN, InputPath: tt.inputPath},
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			require.Eventually(t, func() bool {
 				return len(sqsMock.MessagesFor(queueARN)) > 0
@@ -625,19 +625,19 @@ func TestDelivery_InputTransformer(t *testing.T) {
 			queueARN := "arn:aws:sqs:us-east-1:000000000000:transform-queue-" + tt.name
 			ruleName := "transform-rule-" + tt.name
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         ruleName,
 				EventPattern: `{"source": ["transform.service", "order.service", "text.service"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets(ruleName, "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
 				{ID: "t1", Arn: queueARN, InputTransformer: tt.inputTransformer},
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			require.Eventually(t, func() bool {
 				return len(sqsMock.MessagesFor(queueARN)) > 0
@@ -706,19 +706,19 @@ func TestDelivery_SNS(t *testing.T) {
 				state = "DISABLED"
 			}
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         tt.ruleName,
 				EventPattern: tt.eventPattern,
 				State:        state,
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{
+			_, err = backend.PutTargets(context.Background(), tt.ruleName, "default", []eventbridge.Target{
 				{ID: "t1", Arn: tt.topicARN},
 			})
 			require.NoError(t, err)
 
-			backend.PutEvents(tt.events)
+			backend.PutEvents(context.Background(), tt.events)
 
 			if tt.wantDelivered {
 				require.Eventually(t, func() bool {
@@ -776,19 +776,19 @@ func TestDelivery_UnsupportedARN(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
 
-			_, err := backend.PutRule(eventbridge.PutRuleInput{
+			_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:         "warn-rule-" + tt.name,
 				EventPattern: `{"source": ["warn.test.service"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
-			_, err = backend.PutTargets("warn-rule-"+tt.name, "default", tt.targets)
+			_, err = backend.PutTargets(context.Background(), "warn-rule-"+tt.name, "default", tt.targets)
 			require.NoError(t, err)
 
 			// Should not panic even with no backend configured.
 			require.NotPanics(t, func() {
-				backend.PutEvents(tt.events)
+				backend.PutEvents(context.Background(), tt.events)
 			})
 		})
 	}

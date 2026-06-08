@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -69,16 +68,14 @@ func (b *InMemoryBackend) RetryPipelineExecution(execArn string) (*PipelineExecu
 	b.pipelineExecutions[newArn] = newExec
 
 	// Transition to Succeeded after a short delay.
-	go func() {
-		time.Sleep(retryTransitionDelay)
-
+	b.runDelayed(b.lifecycleCtx, retryTransitionDelay, func() {
 		b.mu.Lock("RetryPipelineExecution.goroutine")
 		defer b.mu.Unlock()
 
 		if exec, exists := b.pipelineExecutions[newArn]; exists {
 			exec.PipelineExecutionStatus = pipelineStatusSucceeded
 		}
-	}()
+	})
 
 	return clonePipelineExecution(newExec), nil
 }
@@ -101,20 +98,14 @@ func (b *InMemoryBackend) StopPipelineExecution(execArn string) (*PipelineExecut
 	cp := clonePipelineExecution(pe)
 
 	// Transition to Stopped after a short delay.
-	var once sync.Once
+	b.runDelayed(b.lifecycleCtx, stopTransitionDelay, func() {
+		b.mu.Lock("StopPipelineExecution.goroutine")
+		defer b.mu.Unlock()
 
-	go func() {
-		once.Do(func() {
-			time.Sleep(stopTransitionDelay)
-
-			b.mu.Lock("StopPipelineExecution.goroutine")
-			defer b.mu.Unlock()
-
-			if exec, exists := b.pipelineExecutions[execArn]; exists {
-				exec.PipelineExecutionStatus = pipelineStatusStopped
-			}
-		})
-	}()
+		if exec, exists := b.pipelineExecutions[execArn]; exists {
+			exec.PipelineExecutionStatus = pipelineStatusStopped
+		}
+	})
 
 	return cp, nil
 }

@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -139,31 +140,31 @@ func TestHandler_GetDocument_VersionedContent(t *testing.T) {
 
 	b := ssm.NewInMemoryBackend()
 
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{Name: "VerContent", Content: `{"v":1}`})
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "VerContent", Content: `{"v":1}`})
 	require.NoError(t, err)
 
-	_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{Name: "VerContent", Content: `{"v":2}`})
+	_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{Name: "VerContent", Content: `{"v":2}`})
 	require.NoError(t, err)
 
 	// Request version "1" — should return first content
-	out1, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "1"})
+	out1, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "1"})
 	require.NoError(t, err)
 	assert.Equal(t, `{"v":1}`, out1.Content)
 	assert.Equal(t, "1", out1.DocumentVersion)
 
 	// Request version "2" — should return second content
-	out2, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "2"})
+	out2, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "2"})
 	require.NoError(t, err)
 	assert.Equal(t, `{"v":2}`, out2.Content)
 	assert.Equal(t, "2", out2.DocumentVersion)
 
 	// $LATEST — should return the latest (version 2)
-	outLatest, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"})
+	outLatest, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"})
 	require.NoError(t, err)
 	assert.Equal(t, `{"v":2}`, outLatest.Content)
 
 	// Non-existent version — should return ErrInvalidDocumentVersion
-	_, err = b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "99"})
+	_, err = b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "99"})
 	require.ErrorIs(t, err, ssm.ErrInvalidDocumentVersion)
 }
 
@@ -760,7 +761,7 @@ func TestInMemoryBackend_DefaultDocuments(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	out, err := backend.ListDocuments(&ssm.ListDocumentsInput{})
+	out, err := backend.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(out.DocumentIdentifiers), 2)
 
@@ -778,19 +779,19 @@ func TestInMemoryBackend_DocumentVersioning(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "MyDoc",
 		Content: `{"v":1}`,
 	})
 	require.NoError(t, err)
 
-	_, err = backend.UpdateDocument(&ssm.UpdateDocumentInput{
+	_, err = backend.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 		Name:    "MyDoc",
 		Content: `{"v":2}`,
 	})
 	require.NoError(t, err)
 
-	verOut, err := backend.ListDocumentVersions(&ssm.ListDocumentVersionsInput{Name: "MyDoc"})
+	verOut, err := backend.ListDocumentVersions(context.TODO(), &ssm.ListDocumentVersionsInput{Name: "MyDoc"})
 	require.NoError(t, err)
 	require.Len(t, verOut.DocumentVersions, 2)
 	assert.Equal(t, "1", verOut.DocumentVersions[0].DocumentVersion)
@@ -802,20 +803,20 @@ func TestInMemoryBackend_DocumentPermissions(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "PermDoc",
 		Content: `{}`,
 	})
 	require.NoError(t, err)
 
-	_, err = backend.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
 		Name:            "PermDoc",
 		PermissionType:  "Share",
 		AccountIDsToAdd: []string{"111111111111", "222222222222"},
 	})
 	require.NoError(t, err)
 
-	permOut, err := backend.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+	permOut, err := backend.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
 		Name:           "PermDoc",
 		PermissionType: "Share",
 	})
@@ -823,14 +824,14 @@ func TestInMemoryBackend_DocumentPermissions(t *testing.T) {
 	assert.Len(t, permOut.AccountIDs, 2)
 	assert.Contains(t, permOut.AccountIDs, "111111111111")
 
-	_, err = backend.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
 		Name:               "PermDoc",
 		PermissionType:     "Share",
 		AccountIDsToRemove: []string{"111111111111"},
 	})
 	require.NoError(t, err)
 
-	permOut2, err := backend.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+	permOut2, err := backend.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
 		Name:           "PermDoc",
 		PermissionType: "Share",
 	})
@@ -844,20 +845,20 @@ func TestInMemoryBackend_DeleteDocumentCleansUp(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{Name: "ToDelete", Content: "{}"})
+	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "ToDelete", Content: "{}"})
 	require.NoError(t, err)
 
-	_, err = backend.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
 		Name:            "ToDelete",
 		PermissionType:  "Share",
 		AccountIDsToAdd: []string{"123456789012"},
 	})
 	require.NoError(t, err)
 
-	_, err = backend.DeleteDocument(&ssm.DeleteDocumentInput{Name: "ToDelete"})
+	_, err = backend.DeleteDocument(context.TODO(), &ssm.DeleteDocumentInput{Name: "ToDelete"})
 	require.NoError(t, err)
 
-	_, err = backend.GetDocument(&ssm.GetDocumentInput{Name: "ToDelete"})
+	_, err = backend.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "ToDelete"})
 	require.ErrorIs(t, err, ssm.ErrDocumentNotFound)
 }
 
@@ -875,23 +876,23 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 		{
 			name: "document_survives_round_trip",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.CreateDocument(&ssm.CreateDocumentInput{
+				_, _ = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 					Name:         "SnapDoc",
 					Content:      `{"v":1}`,
 					DocumentType: ssm.DocumentTypeCommand,
 				})
-				_, _ = b.UpdateDocument(&ssm.UpdateDocumentInput{Name: "SnapDoc", Content: `{"v":2}`})
+				_, _ = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{Name: "SnapDoc", Content: `{"v":2}`})
 			},
 			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
 
-				out, err := b.GetDocument(&ssm.GetDocumentInput{Name: "SnapDoc"})
+				out, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "SnapDoc"})
 				require.NoError(t, err)
 				assert.Equal(t, `{"v":2}`, out.Content)
 				assert.Equal(t, "2", out.DocumentVersion)
 
 				// Historic version content is also preserved
-				v1, err := b.GetDocument(&ssm.GetDocumentInput{Name: "SnapDoc", DocumentVersion: "1"})
+				v1, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "SnapDoc", DocumentVersion: "1"})
 				require.NoError(t, err)
 				assert.Equal(t, `{"v":1}`, v1.Content)
 			},
@@ -899,7 +900,7 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 		{
 			name: "command_survives_round_trip",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.SendCommand(&ssm.SendCommandInput{
+				_, _ = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
 					DocumentName: "AWS-RunShellScript",
 					InstanceIDs:  []string{"i-snap"},
 				})
@@ -907,11 +908,11 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
 
-				out, err := b.ListCommands(&ssm.ListCommandsInput{})
+				out, err := b.ListCommands(context.TODO(), &ssm.ListCommandsInput{})
 				require.NoError(t, err)
 				require.Len(t, out.Commands, 1)
 
-				inv, err := b.GetCommandInvocation(&ssm.GetCommandInvocationInput{
+				inv, err := b.GetCommandInvocation(context.TODO(), &ssm.GetCommandInvocationInput{
 					CommandID:  out.Commands[0].CommandID,
 					InstanceID: "i-snap",
 				})
@@ -929,7 +930,7 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 				oldSnap := `{"parameters":{},"history":{},"tags":{}}`
 				require.NoError(t, b.Restore([]byte(oldSnap)))
 
-				out, err := b.ListDocuments(&ssm.ListDocumentsInput{})
+				out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{})
 				require.NoError(t, err)
 
 				names := make([]string, 0, len(out.DocumentIdentifiers))
@@ -944,8 +945,8 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 		{
 			name: "permissions_survive_round_trip",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.CreateDocument(&ssm.CreateDocumentInput{Name: "PermSnap", Content: "{}"})
-				_, _ = b.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+				_, _ = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "PermSnap", Content: "{}"})
+				_, _ = b.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
 					Name:            "PermSnap",
 					PermissionType:  "Share",
 					AccountIDsToAdd: []string{"111111111111"},
@@ -954,7 +955,7 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
 
-				perm, err := b.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+				perm, err := b.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
 					Name:           "PermSnap",
 					PermissionType: "Share",
 				})

@@ -438,7 +438,7 @@ func cborDecodeDatum(m cbor.Map) MetricDatum {
 			Unit:              unit,
 			Timestamp:         ts,
 			Count:             cborFloat(ssMap, "SampleCount"),
-			Sum:               cborFloat(ssMap, "Sum"),
+			Sum:               cborFloat(ssMap, statSum),
 			Min:               cborFloat(ssMap, "Minimum"),
 			Max:               cborFloat(ssMap, "Maximum"),
 			Dimensions:        dims,
@@ -563,7 +563,7 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 		}
 
 		if dp.Sum != nil {
-			m["Sum"] = cbor.Float64(*dp.Sum)
+			m[statSum] = cbor.Float64(*dp.Sum)
 		}
 
 		if dp.Minimum != nil {
@@ -1939,8 +1939,8 @@ func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context)
 			keys = append(keys, cbor.String(k))
 		}
 		contributors = append(contributors, cbor.Map{
-			"Keys": keys,
-			"Sum":  cbor.Float64(contrib.Sum),
+			"Keys":  keys,
+			statSum: cbor.Float64(contrib.Sum),
 		})
 	}
 

@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -44,7 +45,7 @@ func TestRefinement1_Reset(t *testing.T) {
 				assert.Equal(t, 0, b.ReplayCount())
 				assert.Equal(t, 0, b.PartnerSourceCount())
 
-				buses, _, err := b.ListEventBuses("", "")
+				buses, _, err := b.ListEventBuses(context.Background(), "", "")
 				require.NoError(t, err)
 				assert.Len(t, buses, 1)
 				assert.Equal(t, "default", buses[0].Name)
@@ -74,7 +75,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	for range 5 {
 		b.Reset()
 
-		buses, _, err := b.ListEventBuses("", "")
+		buses, _, err := b.ListEventBuses(context.Background(), "", "")
 		require.NoError(t, err)
 		assert.Len(t, buses, 1)
 	}
@@ -237,7 +238,7 @@ func TestRefinement1_CreateAPIDestination_RequiresName(t *testing.T) {
 			t.Parallel()
 
 			b := eventbridge.NewInMemoryBackend()
-			_, err := b.CreateAPIDestination(tt.input)
+			_, err := b.CreateAPIDestination(context.Background(), tt.input)
 			require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 		})
 	}
@@ -255,10 +256,10 @@ func TestRefinement1_CreateAPIDestination_DuplicateRejected(t *testing.T) {
 		HTTPMethod:         "POST",
 	}
 
-	_, err := b.CreateAPIDestination(input)
+	_, err := b.CreateAPIDestination(context.Background(), input)
 	require.NoError(t, err)
 
-	_, err = b.CreateAPIDestination(input)
+	_, err = b.CreateAPIDestination(context.Background(), input)
 	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
 }
 
@@ -274,7 +275,7 @@ func TestRefinement1_CreateAPIDestination_RoundTrip(t *testing.T) {
 		HTTPMethod:         "POST",
 	}
 
-	dst, err := b.CreateAPIDestination(input)
+	dst, err := b.CreateAPIDestination(context.Background(), input)
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, dst.APIDestinationArn)
@@ -307,7 +308,7 @@ func TestRefinement1_CreateArchive_RequiresName(t *testing.T) {
 			t.Parallel()
 
 			b := eventbridge.NewInMemoryBackend()
-			_, err := b.CreateArchive(tt.input)
+			_, err := b.CreateArchive(context.Background(), tt.input)
 			require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 		})
 	}
@@ -323,7 +324,7 @@ func TestRefinement1_CreateArchive_RoundTrip(t *testing.T) {
 		EventSourceArn: "arn:aws:events:us-east-1:123:event-bus/default",
 	}
 
-	archive, err := b.CreateArchive(input)
+	archive, err := b.CreateArchive(context.Background(), input)
 	require.NoError(t, err)
 
 	assert.Equal(t, "my-archive", archive.ArchiveName)
@@ -338,7 +339,7 @@ func TestRefinement1_CreateConnection_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{AuthorizationType: "BASIC"})
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{AuthorizationType: "BASIC"})
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
@@ -347,7 +348,7 @@ func TestRefinement1_CreateConnection_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "my-conn",
 		AuthorizationType: "BASIC",
 	})
@@ -364,7 +365,7 @@ func TestRefinement1_CreateEndpoint_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.CreateEndpoint(eventbridge.CreateEndpointInput{})
+	_, err := b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{})
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
@@ -373,7 +374,7 @@ func TestRefinement1_CreateEndpoint_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	ep, err := b.CreateEndpoint(eventbridge.CreateEndpointInput{
+	ep, err := b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{
 		Name: "my-endpoint",
 	})
 	require.NoError(t, err)
@@ -390,7 +391,7 @@ func TestRefinement1_CreatePartnerEventSource_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	src, err := b.CreatePartnerEventSource("my-partner-source", "123456789012")
+	src, err := b.CreatePartnerEventSource(context.Background(), "my-partner-source", "123456789012")
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, src.Arn)
@@ -403,7 +404,7 @@ func TestRefinement1_CancelReplay_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.CancelReplay("no-such-replay")
+	_, err := b.CancelReplay(context.Background(), "no-such-replay")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -427,7 +428,7 @@ func TestRefinement1_CancelReplay_InvalidState(t *testing.T) {
 			b := eventbridge.NewInMemoryBackend()
 			b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: tt.state})
 
-			_, err := b.CancelReplay("r1")
+			_, err := b.CancelReplay(context.Background(), "r1")
 			require.ErrorIs(t, err, eventbridge.ErrInvalidState)
 		})
 	}
@@ -440,7 +441,7 @@ func TestRefinement1_CancelReplay_Running(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "RUNNING"})
 
-	replay, err := b.CancelReplay("r1")
+	replay, err := b.CancelReplay(context.Background(), "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "CANCELLING", replay.State)
 }
@@ -452,7 +453,7 @@ func TestRefinement1_CancelReplay_Starting(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "STARTING"})
 
-	replay, err := b.CancelReplay("r1")
+	replay, err := b.CancelReplay(context.Background(), "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "CANCELLING", replay.State)
 }
@@ -462,7 +463,7 @@ func TestRefinement1_ActivateEventSource_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	err := b.ActivateEventSource("no-such-source")
+	err := b.ActivateEventSource(context.Background(), "no-such-source")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -477,7 +478,7 @@ func TestRefinement1_ActivateEventSource_RoundTrip(t *testing.T) {
 		CreationTime: time.Now(),
 	})
 
-	err := b.ActivateEventSource("my-source")
+	err := b.ActivateEventSource(context.Background(), "my-source")
 	require.NoError(t, err)
 }
 
@@ -492,7 +493,7 @@ func TestRefinement1_DeactivateEventSource_RoundTrip(t *testing.T) {
 		CreationTime: time.Now(),
 	})
 
-	err := b.DeactivateEventSource("my-source")
+	err := b.DeactivateEventSource(context.Background(), "my-source")
 	require.NoError(t, err)
 }
 
@@ -501,13 +502,13 @@ func TestRefinement1_DeauthorizeConnection_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "my-conn",
 		AuthorizationType: "BASIC",
 	})
 	require.NoError(t, err)
 
-	conn, err := b.DeauthorizeConnection("my-conn")
+	conn, err := b.DeauthorizeConnection(context.Background(), "my-conn")
 	require.NoError(t, err)
 	assert.Equal(t, "DEAUTHORIZED", conn.ConnectionState)
 }
@@ -517,7 +518,7 @@ func TestRefinement1_DeauthorizeConnection_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.DeauthorizeConnection("no-such-conn")
+	_, err := b.DeauthorizeConnection(context.Background(), "no-such-conn")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -526,7 +527,7 @@ func TestRefinement1_DeleteAPIDestination_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	err := b.DeleteAPIDestination("no-such-dest")
+	err := b.DeleteAPIDestination(context.Background(), "no-such-dest")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -535,7 +536,7 @@ func TestRefinement1_DeleteAPIDestination_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	_, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 		Name:               "my-dest",
 		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
 		InvocationEndpoint: "https://x.com",
@@ -544,7 +545,7 @@ func TestRefinement1_DeleteAPIDestination_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.APIDestinationCount())
 
-	err = b.DeleteAPIDestination("my-dest")
+	err = b.DeleteAPIDestination(context.Background(), "my-dest")
 	require.NoError(t, err)
 	assert.Equal(t, 0, b.APIDestinationCount())
 }
@@ -629,7 +630,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 
 	// Seed all new resource types
-	_, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 		Name:               "d1",
 		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
 		InvocationEndpoint: "https://x.com",
@@ -637,19 +638,19 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateArchive(eventbridge.CreateArchiveInput{
+	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "a1",
 		EventSourceArn: "arn:aws:events:us-east-1:123:event-bus/default",
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err = b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "c1",
 		AuthorizationType: "BASIC",
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateEndpoint(eventbridge.CreateEndpointInput{Name: "e1"})
+	_, err = b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{Name: "e1"})
 	require.NoError(t, err)
 
 	b.AddEventSourceInternal(&eventbridge.EventSource{Name: "es1", State: "PENDING", CreationTime: time.Now()})
@@ -678,7 +679,7 @@ func TestRefinement1_CreateEndpoint_NonNilEventBuses(t *testing.T) {
 	t.Parallel()
 
 	b := eventbridge.NewInMemoryBackend()
-	ep, err := b.CreateEndpoint(eventbridge.CreateEndpointInput{Name: "e1"})
+	ep, err := b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{Name: "e1"})
 	require.NoError(t, err)
 	assert.NotNil(t, ep.EventBuses)
 }

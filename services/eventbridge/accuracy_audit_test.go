@@ -34,11 +34,11 @@ func TestAudit_CreateEventBus_EnforcesLimit(t *testing.T) {
 
 	const limit = 200
 	for i := range limit {
-		_, err := b.CreateEventBus(fmt.Sprintf("bus-%d", i), "")
+		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
 		require.NoError(t, err, "bus %d should be created", i)
 	}
 
-	_, err := b.CreateEventBus("bus-overflow", "")
+	_, err := b.CreateEventBus(context.Background(), "bus-overflow", "")
 	require.ErrorIs(t, err, eventbridge.ErrResourceLimitExceeded)
 }
 
@@ -48,7 +48,7 @@ func TestAudit_PutRule_EnforcesPerBusLimit(t *testing.T) {
 
 	const limit = 300
 	for i := range limit {
-		_, err := b.PutRule(eventbridge.PutRuleInput{
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 			Name:         fmt.Sprintf("rule-%d", i),
 			EventPattern: `{"source":["x"]}`,
 			State:        "ENABLED",
@@ -56,7 +56,7 @@ func TestAudit_PutRule_EnforcesPerBusLimit(t *testing.T) {
 		require.NoError(t, err, "rule %d should be created", i)
 	}
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "rule-overflow",
 		EventPattern: `{"source":["x"]}`,
 		State:        "ENABLED",
@@ -68,7 +68,7 @@ func TestAudit_PutRule_UpdateExistingDoesNotCountAgainstLimit(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "my-rule",
 		EventPattern: `{"source":["x"]}`,
 		State:        "ENABLED",
@@ -76,7 +76,7 @@ func TestAudit_PutRule_UpdateExistingDoesNotCountAgainstLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	for range 5 {
-		_, err = b.PutRule(eventbridge.PutRuleInput{
+		_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
 			Name:         "my-rule",
 			EventPattern: `{"source":["y"]}`,
 			State:        "ENABLED",
@@ -108,7 +108,7 @@ func TestAudit_PutRule_InvalidScheduleExpressionRejected(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:               "r",
 				ScheduleExpression: tt.expr,
 			})
@@ -133,7 +133,7 @@ func TestAudit_PutRule_ValidScheduleExpressionsAccepted(t *testing.T) {
 		t.Run(expr, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.PutRule(eventbridge.PutRuleInput{
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 				Name:               "r",
 				ScheduleExpression: expr,
 			})
@@ -150,14 +150,14 @@ func TestAudit_PutRule_ManagedByPreserved(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "managed-rule",
 		EventPattern: `{"source":["x"]}`,
 		ManagedBy:    "scheduler.amazonaws.com",
 	})
 	require.NoError(t, err)
 
-	rule, err := b.DescribeRule("managed-rule", "")
+	rule, err := b.DescribeRule(context.Background(), "managed-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "scheduler.amazonaws.com", rule.ManagedBy)
 }
@@ -170,13 +170,13 @@ func TestAudit_Target_RetryPolicyStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "r",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("r", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: "arn:aws:sqs:us-east-1:123456789012:my-queue",
@@ -188,7 +188,7 @@ func TestAudit_Target_RetryPolicyStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule("r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].RetryPolicy)
@@ -200,14 +200,14 @@ func TestAudit_Target_DeadLetterConfigStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "r",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
 	dlqARN := "arn:aws:sqs:us-east-1:123456789012:dlq"
-	_, err = b.PutTargets("r", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
 		{
 			ID:               "t1",
 			Arn:              "arn:aws:lambda:us-east-1:123456789012:function:fn",
@@ -216,7 +216,7 @@ func TestAudit_Target_DeadLetterConfigStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule("r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].DeadLetterConfig)
@@ -227,13 +227,13 @@ func TestAudit_Target_BatchParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "r",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("r", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: "arn:aws:batch:us-east-1:123456789012:job-queue/my-queue",
@@ -245,7 +245,7 @@ func TestAudit_Target_BatchParametersStored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	targets, _, err := b.ListTargetsByRule("r", "", "")
+	targets, _, err := b.ListTargetsByRule(context.Background(), "r", "", "")
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	require.NotNil(t, targets[0].BatchParameters)
@@ -260,14 +260,14 @@ func TestAudit_PutTargets_InputTransformerKeyValidation(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "r",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
 	// Valid keys accepted.
-	failed, err := b.PutTargets("r", "", []eventbridge.Target{
+	failed, err := b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: "arn:aws:sqs:us-east-1:123456789012:q",
@@ -285,7 +285,7 @@ func TestAudit_PutTargets_InputTransformerKeyValidation(t *testing.T) {
 	assert.Empty(t, failed)
 
 	// Invalid key (contains hyphen) — rejected via FailedEntry.
-	failed, err = b.PutTargets("r", "", []eventbridge.Target{
+	failed, err = b.PutTargets(context.Background(), "r", "", []eventbridge.Target{
 		{
 			ID:  "t2",
 			Arn: "arn:aws:sqs:us-east-1:123456789012:q",
@@ -310,14 +310,14 @@ func TestAudit_PutPermission_StoresStatement(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	err := b.PutPermission(eventbridge.PutPermissionInput{
+	err := b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
 		StatementID: "allow-account-123",
 		Action:      "events:PutEvents",
 		Principal:   "123456789013",
 	})
 	require.NoError(t, err)
 
-	policy, err := b.GetEventBusPolicy("")
+	policy, err := b.GetEventBusPolicy(context.Background(), "")
 	require.NoError(t, err)
 	assert.Contains(t, policy, "allow-account-123")
 }
@@ -326,20 +326,20 @@ func TestAudit_RemovePermission_RemovesStatement(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	require.NoError(t, b.PutPermission(eventbridge.PutPermissionInput{
+	require.NoError(t, b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
 		StatementID: "stmt-1",
 		Action:      "events:PutEvents",
 		Principal:   "111111111111",
 	}))
-	require.NoError(t, b.PutPermission(eventbridge.PutPermissionInput{
+	require.NoError(t, b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
 		StatementID: "stmt-2",
 		Action:      "events:PutEvents",
 		Principal:   "222222222222",
 	}))
 
-	require.NoError(t, b.RemovePermission(eventbridge.RemovePermissionInput{StatementID: "stmt-1"}))
+	require.NoError(t, b.RemovePermission(context.Background(), eventbridge.RemovePermissionInput{StatementID: "stmt-1"}))
 
-	policy, err := b.GetEventBusPolicy("")
+	policy, err := b.GetEventBusPolicy(context.Background(), "")
 	require.NoError(t, err)
 	assert.NotContains(t, policy, "stmt-1")
 	assert.Contains(t, policy, "stmt-2")
@@ -349,17 +349,17 @@ func TestAudit_RemovePermission_RemoveAll(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	require.NoError(t, b.PutPermission(eventbridge.PutPermissionInput{
+	require.NoError(t, b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
 		StatementID: "stmt-1",
 		Action:      "events:PutEvents",
 		Principal:   "111111111111",
 	}))
 
-	require.NoError(t, b.RemovePermission(eventbridge.RemovePermissionInput{
+	require.NoError(t, b.RemovePermission(context.Background(), eventbridge.RemovePermissionInput{
 		RemoveAllPermissions: true,
 	}))
 
-	policy, err := b.GetEventBusPolicy("")
+	policy, err := b.GetEventBusPolicy(context.Background(), "")
 	require.NoError(t, err)
 	assert.Empty(t, policy)
 }
@@ -368,7 +368,7 @@ func TestAudit_GetEventBusPolicy_BusNotFound(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.GetEventBusPolicy("nonexistent")
+	_, err := b.GetEventBusPolicy(context.Background(), "nonexistent")
 	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
 }
 
@@ -377,10 +377,10 @@ func TestAudit_PutEventBusPolicy_ReplacePolicy(t *testing.T) {
 	b := newBackend()
 
 	policyJSON := `[{"Sid":"s1","Effect":"Allow","Action":"events:PutEvents","Principal":"123"}]`
-	err := b.PutEventBusPolicy(eventbridge.PutEventBusPolicyInput{Policy: policyJSON})
+	err := b.PutEventBusPolicy(context.Background(), eventbridge.PutEventBusPolicyInput{Policy: policyJSON})
 	require.NoError(t, err)
 
-	policy, err := b.GetEventBusPolicy("")
+	policy, err := b.GetEventBusPolicy(context.Background(), "")
 	require.NoError(t, err)
 	assert.Contains(t, policy, "s1")
 }
@@ -389,7 +389,7 @@ func TestAudit_PutPermission_BusNotFound(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	err := b.PutPermission(eventbridge.PutPermissionInput{
+	err := b.PutPermission(context.Background(), eventbridge.PutPermissionInput{
 		EventBusName: "no-such-bus",
 		StatementID:  "s1",
 		Action:       "events:PutEvents",
@@ -406,7 +406,7 @@ func TestAudit_Pipe_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	pipe, err := b.CreatePipe(eventbridge.CreatePipeInput{
+	pipe, err := b.CreatePipe(context.Background(), eventbridge.CreatePipeInput{
 		Name:      "my-pipe",
 		SourceArn: "arn:aws:sqs:us-east-1:123456789012:source-queue",
 		TargetArn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
@@ -417,25 +417,25 @@ func TestAudit_Pipe_CRUD(t *testing.T) {
 	assert.NotEmpty(t, pipe.Arn)
 	assert.Equal(t, "CREATING", pipe.CurrentState)
 
-	described, err := b.DescribePipe("my-pipe")
+	described, err := b.DescribePipe(context.Background(), "my-pipe")
 	require.NoError(t, err)
 	assert.Equal(t, "my-pipe", described.Name)
 
-	pipes, _, err := b.ListPipes("", "")
+	pipes, _, err := b.ListPipes(context.Background(), "", "")
 	require.NoError(t, err)
 	require.Len(t, pipes, 1)
 
-	updated, err := b.UpdatePipe(eventbridge.UpdatePipeInput{
+	updated, err := b.UpdatePipe(context.Background(), eventbridge.UpdatePipeInput{
 		Name:        "my-pipe",
 		Description: "updated description",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", updated.Description)
 
-	err = b.DeletePipe("my-pipe")
+	err = b.DeletePipe(context.Background(), "my-pipe")
 	require.NoError(t, err)
 
-	_, err = b.DescribePipe("my-pipe")
+	_, err = b.DescribePipe(context.Background(), "my-pipe")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -456,7 +456,7 @@ func TestAudit_Pipe_CreateRejectsInvalidInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreatePipe(tt.input)
+			_, err := b.CreatePipe(context.Background(), tt.input)
 			require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 		})
 	}
@@ -473,10 +473,10 @@ func TestAudit_Pipe_DuplicateCreateFails(t *testing.T) {
 		RoleArn:   "arn:aws:iam::123456789012:role/r",
 	}
 
-	_, err := b.CreatePipe(input)
+	_, err := b.CreatePipe(context.Background(), input)
 	require.NoError(t, err)
 
-	_, err = b.CreatePipe(input)
+	_, err = b.CreatePipe(context.Background(), input)
 	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
 }
 
@@ -485,7 +485,7 @@ func TestAudit_Pipe_ListFiltersPrefix(t *testing.T) {
 	b := newBackend()
 
 	for _, name := range []string{"foo-1", "foo-2", "bar-1"} {
-		_, err := b.CreatePipe(eventbridge.CreatePipeInput{
+		_, err := b.CreatePipe(context.Background(), eventbridge.CreatePipeInput{
 			Name:      name,
 			SourceArn: "arn:aws:sqs:us-east-1:123456789012:q",
 			TargetArn: "arn:aws:lambda:us-east-1:123456789012:function:f",
@@ -494,7 +494,7 @@ func TestAudit_Pipe_ListFiltersPrefix(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	pipes, _, err := b.ListPipes("foo-", "")
+	pipes, _, err := b.ListPipes(context.Background(), "foo-", "")
 	require.NoError(t, err)
 	assert.Len(t, pipes, 2)
 }
@@ -503,7 +503,7 @@ func TestAudit_Pipe_DesiredStatePreserved(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePipe(eventbridge.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), eventbridge.CreatePipeInput{
 		Name:         "my-pipe",
 		SourceArn:    "arn:aws:sqs:us-east-1:123456789012:q",
 		TargetArn:    "arn:aws:lambda:us-east-1:123456789012:function:f",
@@ -512,7 +512,7 @@ func TestAudit_Pipe_DesiredStatePreserved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	p, err := b.DescribePipe("my-pipe")
+	p, err := b.DescribePipe(context.Background(), "my-pipe")
 	require.NoError(t, err)
 	assert.Equal(t, "STOPPED", p.DesiredState)
 }
@@ -525,18 +525,18 @@ func TestAudit_ArchiveJanitor_PrunesArchivedEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("my-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "my-bus", "")
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/my-bus"
-	_, err = b.CreateArchive(eventbridge.CreateArchiveInput{
+	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "my-archive",
 		EventSourceArn: busARN,
 		RetentionDays:  1,
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "test", DetailType: "Test", Detail: `{}`, EventBusName: "my-bus"},
 	})
 
@@ -548,7 +548,7 @@ func TestAudit_ArchiveJanitor_PrunesArchivedEvents(t *testing.T) {
 	janitor.SetNow(time.Now())
 	janitor.SweepOnce(context.Background())
 
-	_, err = b.DescribeArchive("my-archive")
+	_, err = b.DescribeArchive(context.Background(), "my-archive")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 
 	assert.Equal(t, 0, b.ArchivedEventCount("my-archive"))
@@ -558,11 +558,11 @@ func TestAudit_ArchiveJanitor_RetentionDaysZeroNeverExpires(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("bus2", "")
+	_, err := b.CreateEventBus(context.Background(), "bus2", "")
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/bus2"
-	_, err = b.CreateArchive(eventbridge.CreateArchiveInput{
+	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "forever-archive",
 		EventSourceArn: busARN,
 		RetentionDays:  0, // 0 = forever
@@ -576,7 +576,7 @@ func TestAudit_ArchiveJanitor_RetentionDaysZeroNeverExpires(t *testing.T) {
 	janitor.SetNow(time.Now())
 	janitor.SweepOnce(context.Background())
 
-	_, err = b.DescribeArchive("forever-archive")
+	_, err = b.DescribeArchive(context.Background(), "forever-archive")
 	require.NoError(t, err, "archive with RetentionDays=0 should never expire")
 }
 
@@ -595,7 +595,7 @@ func TestAudit_StartReplay_ValidatesDestination(t *testing.T) {
 		State:          "ACTIVE",
 	})
 
-	_, err := b.StartReplay(eventbridge.StartReplayInput{
+	_, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "replay-1",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/test-archive",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -620,7 +620,7 @@ func TestAudit_StartReplay_ValidDestinationAccepted(t *testing.T) {
 
 	defaultBusARN := "arn:aws:events:us-east-1:123456789012:event-bus/default"
 
-	replay, err := b.StartReplay(eventbridge.StartReplayInput{
+	replay, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "replay-2",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/test-archive",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -642,7 +642,7 @@ func TestAudit_StartReplay_NoDestinationAccepted(t *testing.T) {
 		State:          "ACTIVE",
 	})
 
-	replay, err := b.StartReplay(eventbridge.StartReplayInput{
+	replay, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "replay-3",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -706,13 +706,13 @@ func TestAudit_Delivery_DLQCalledOnFailure(t *testing.T) {
 	sender := &auditFailingSQSSender{delegate: dlqSink, failARN: targetARN}
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sender})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "rule",
 		EventPattern: `{"source":["dlq-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "rule", "", []eventbridge.Target{
 		{
 			ID:               "t1",
 			Arn:              targetARN,
@@ -724,7 +724,7 @@ func TestAudit_Delivery_DLQCalledOnFailure(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "dlq-test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -761,14 +761,14 @@ func TestAudit_Delivery_RetryPolicyZeroAttemptsNeverRetries(t *testing.T) {
 	counter := &auditCountingSQSSender{count: make(map[string]int)}
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "retry-rule",
 		EventPattern: `{"source":["retry-test"]}`,
 	})
 	require.NoError(t, err)
 
 	targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q"
-	_, err = b.PutTargets("retry-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "retry-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: targetARN,
@@ -779,7 +779,7 @@ func TestAudit_Delivery_RetryPolicyZeroAttemptsNeverRetries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "retry-test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -800,14 +800,14 @@ func TestAudit_Delivery_DefaultRetryAttempts(t *testing.T) {
 	counter := &auditCountingSQSSender{count: make(map[string]int)}
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: counter})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "default-retry-rule",
 		EventPattern: `{"source":["default-retry"]}`,
 	})
 	require.NoError(t, err)
 
 	targetARN := "arn:aws:sqs:us-east-1:123456789012:target-q2"
-	_, err = b.PutTargets("default-retry-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "default-retry-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: targetARN,
@@ -816,7 +816,7 @@ func TestAudit_Delivery_DefaultRetryAttempts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "default-retry", DetailType: "T", Detail: `{}`},
 	})
 
@@ -915,7 +915,7 @@ func TestAudit_Handler_ResourceLimitExceededMapsTo400(t *testing.T) {
 
 	// Create 200 buses directly.
 	for i := range 200 {
-		_, err := b.CreateEventBus(fmt.Sprintf("bus-%d", i), "")
+		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
 		require.NoError(t, err)
 	}
 
@@ -981,18 +981,18 @@ func TestAudit_Delivery_KinesisFirehose_DeliversEvent(t *testing.T) {
 	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/my-stream"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{KinesisFirehose: sink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "firehose-rule",
 		EventPattern: `{"source":["firehose-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("firehose-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "firehose-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: streamARN},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "firehose-test", DetailType: "T", Detail: `{"key":"val"}`},
 	})
 
@@ -1011,19 +1011,19 @@ func TestAudit_Delivery_KinesisFirehose_NilHandlerSkipsGracefully(t *testing.T) 
 	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/no-backend"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "firehose-nil-rule",
 		EventPattern: `{"source":["nil-firehose"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("firehose-nil-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "firehose-nil-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: streamARN},
 	})
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		b.PutEvents([]eventbridge.EventEntry{
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
 			{Source: "nil-firehose", DetailType: "T", Detail: `{}`},
 		})
 	})
@@ -1058,13 +1058,13 @@ func TestAudit_Delivery_KinesisFirehose_FailureSendsToDLQ(t *testing.T) {
 		SQS:             dlqSink,
 	})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "firehose-dlq-rule",
 		EventPattern: `{"source":["firehose-dlq-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("firehose-dlq-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "firehose-dlq-rule", "", []eventbridge.Target{
 		{
 			ID:               "t1",
 			Arn:              streamARN,
@@ -1074,7 +1074,7 @@ func TestAudit_Delivery_KinesisFirehose_FailureSendsToDLQ(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "firehose-dlq-test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -1119,18 +1119,18 @@ func TestAudit_Delivery_KinesisStream_DeliversEvent(t *testing.T) {
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{KinesisStream: sink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "kinesis-rule",
 		EventPattern: `{"source":["kinesis-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("kinesis-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "kinesis-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: streamARN},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "kinesis-test", DetailType: "T", Detail: `{"k":"v"}`},
 	})
 
@@ -1149,19 +1149,19 @@ func TestAudit_Delivery_KinesisStream_NilHandlerSkipsGracefully(t *testing.T) {
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/no-backend"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "kinesis-nil-rule",
 		EventPattern: `{"source":["nil-kinesis"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("kinesis-nil-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "kinesis-nil-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: streamARN},
 	})
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		b.PutEvents([]eventbridge.EventEntry{
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
 			{Source: "nil-kinesis", DetailType: "T", Detail: `{}`},
 		})
 	})
@@ -1196,13 +1196,13 @@ func TestAudit_Delivery_KinesisStream_FailureSendsToDLQ(t *testing.T) {
 		SQS:           dlqSink,
 	})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "kinesis-dlq-rule",
 		EventPattern: `{"source":["kinesis-dlq-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("kinesis-dlq-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "kinesis-dlq-rule", "", []eventbridge.Target{
 		{
 			ID:               "t1",
 			Arn:              streamARN,
@@ -1212,7 +1212,7 @@ func TestAudit_Delivery_KinesisStream_FailureSendsToDLQ(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "kinesis-dlq-test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -1253,18 +1253,18 @@ func TestAudit_Delivery_ECS_DeliversEvent(t *testing.T) {
 	clusterARN := "arn:aws:ecs:us-east-1:123456789012:cluster/my-cluster"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{ECS: sink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "ecs-rule",
 		EventPattern: `{"source":["ecs-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("ecs-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "ecs-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: clusterARN},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "ecs-test", DetailType: "T", Detail: `{"task":"data"}`},
 	})
 
@@ -1280,19 +1280,19 @@ func TestAudit_Delivery_ECS_NilHandlerSkipsGracefully(t *testing.T) {
 	clusterARN := "arn:aws:ecs:us-east-1:123456789012:cluster/no-backend"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "ecs-nil-rule",
 		EventPattern: `{"source":["nil-ecs"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("ecs-nil-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "ecs-nil-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: clusterARN},
 	})
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		b.PutEvents([]eventbridge.EventEntry{
+		b.PutEvents(context.Background(), []eventbridge.EventEntry{
 			{Source: "nil-ecs", DetailType: "T", Detail: `{}`},
 		})
 	})
@@ -1327,13 +1327,13 @@ func TestAudit_Delivery_ECS_FailureSendsToDLQ(t *testing.T) {
 		SQS: dlqSink,
 	})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "ecs-dlq-rule",
 		EventPattern: `{"source":["ecs-dlq-test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("ecs-dlq-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "ecs-dlq-rule", "", []eventbridge.Target{
 		{
 			ID:               "t1",
 			Arn:              clusterARN,
@@ -1343,7 +1343,7 @@ func TestAudit_Delivery_ECS_FailureSendsToDLQ(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "ecs-dlq-test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -1397,7 +1397,7 @@ func TestAudit_Tags_Rule(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "tagged-rule",
 		EventPattern: `{"source":["x"]}`,
 	})
@@ -1424,7 +1424,7 @@ func TestAudit_Tags_Connection(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "my-conn",
 		AuthorizationType: "BASIC",
 	})
@@ -1449,10 +1449,10 @@ func TestAudit_Tags_Archive(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus("tagged-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "tagged-bus", "")
 	require.NoError(t, err)
 
-	archive, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+	archive, err := b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "tagged-archive",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/tagged-bus",
 	})
@@ -1477,7 +1477,7 @@ func TestAudit_Tags_Pipe(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	pipe, err := b.CreatePipe(eventbridge.CreatePipeInput{
+	pipe, err := b.CreatePipe(context.Background(), eventbridge.CreatePipeInput{
 		Name:      "tagged-pipe",
 		SourceArn: "arn:aws:sqs:us-east-1:123456789012:source-q",
 		TargetArn: "arn:aws:lambda:us-east-1:123456789012:function:fn",
@@ -1510,7 +1510,7 @@ func TestAudit_Connection_AuthTypes(t *testing.T) {
 		t.Run(authType, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+			conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 				Name:              "conn-" + authType,
 				AuthorizationType: authType,
 			})
@@ -1525,7 +1525,7 @@ func TestAudit_Connection_AuthTypes(t *testing.T) {
 		t.Run("invalid-"+authType, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+			_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 				Name:              "conn-invalid",
 				AuthorizationType: authType,
 			})
@@ -1538,13 +1538,13 @@ func TestAudit_Connection_UpdateAuthType(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "my-conn",
 		AuthorizationType: "BASIC",
 	})
 	require.NoError(t, err)
 
-	updated, err := b.UpdateConnection(eventbridge.UpdateConnectionInput{
+	updated, err := b.UpdateConnection(context.Background(), eventbridge.UpdateConnectionInput{
 		Name:              "my-conn",
 		AuthorizationType: "API_KEY",
 	})
@@ -1556,13 +1556,13 @@ func TestAudit_Connection_DeauthorizeTransitionsState(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "deauth-conn",
 		AuthorizationType: "OAUTH_CLIENT_CREDENTIALS",
 	})
 	require.NoError(t, err)
 
-	conn, err := b.DeauthorizeConnection("deauth-conn")
+	conn, err := b.DeauthorizeConnection(context.Background(), "deauth-conn")
 	require.NoError(t, err)
 	assert.Equal(t, "DEAUTHORIZED", conn.ConnectionState)
 }
@@ -1575,13 +1575,13 @@ func TestAudit_APIDestination_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "api-dest-conn",
 		AuthorizationType: "API_KEY",
 	})
 	require.NoError(t, err)
 
-	dst, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+	dst, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 		Name:                         "my-api-dest",
 		ConnectionArn:                conn.ConnectionArn,
 		HTTPMethod:                   "POST",
@@ -1593,25 +1593,25 @@ func TestAudit_APIDestination_CRUD(t *testing.T) {
 	assert.Equal(t, "ACTIVE", dst.APIDestinationState)
 	assert.Equal(t, 300, dst.InvocationRateLimitPerSecond)
 
-	described, err := b.DescribeAPIDestination("my-api-dest")
+	described, err := b.DescribeAPIDestination(context.Background(), "my-api-dest")
 	require.NoError(t, err)
 	assert.Equal(t, "POST", described.HTTPMethod)
 
-	updated, err := b.UpdateAPIDestination(eventbridge.UpdateAPIDestinationInput{
+	updated, err := b.UpdateAPIDestination(context.Background(), eventbridge.UpdateAPIDestinationInput{
 		Name:       "my-api-dest",
 		HTTPMethod: "PUT",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "PUT", updated.HTTPMethod)
 
-	dsts, _, err := b.ListAPIDestinations("my-api-", "")
+	dsts, _, err := b.ListAPIDestinations(context.Background(), "my-api-", "")
 	require.NoError(t, err)
 	assert.Len(t, dsts, 1)
 
-	err = b.DeleteAPIDestination("my-api-dest")
+	err = b.DeleteAPIDestination(context.Background(), "my-api-dest")
 	require.NoError(t, err)
 
-	_, err = b.DescribeAPIDestination("my-api-dest")
+	_, err = b.DescribeAPIDestination(context.Background(), "my-api-dest")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -1623,7 +1623,7 @@ func TestAudit_APIDestination_InvalidHTTPMethod(t *testing.T) {
 		t.Run("invalid-"+method, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+			_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 				Name:               "dest",
 				ConnectionArn:      "arn:aws:events:us-east-1:123456789012:connection/c",
 				HTTPMethod:         method,
@@ -1638,19 +1638,19 @@ func TestAudit_APIDestination_ValidHTTPMethods(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name: "ref-conn", AuthorizationType: "BASIC",
 	})
 	require.NoError(t, err)
 
-	conn, _ := b.DescribeConnection("ref-conn")
+	conn, _ := b.DescribeConnection(context.Background(), "ref-conn")
 
 	valid := []string{"GET", "HEAD", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"}
 	for i, method := range valid {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 			bLocal := newBackend()
-			_, createErr := bLocal.CreateAPIDestination(eventbridge.CreateAPIDestinationInput{
+			_, createErr := bLocal.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 				Name:               fmt.Sprintf("dest-%d", i),
 				ConnectionArn:      conn.ConnectionArn,
 				HTTPMethod:         method,
@@ -1669,15 +1669,15 @@ func TestAudit_Endpoint_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("primary-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "primary-bus", "")
 	require.NoError(t, err)
-	_, err = b.CreateEventBus("secondary-bus", "")
+	_, err = b.CreateEventBus(context.Background(), "secondary-bus", "")
 	require.NoError(t, err)
 
 	primaryARN := "arn:aws:events:us-east-1:123456789012:event-bus/primary-bus"
 	secondaryARN := "arn:aws:events:us-west-2:123456789012:event-bus/secondary-bus"
 
-	ep, err := b.CreateEndpoint(eventbridge.CreateEndpointInput{
+	ep, err := b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{
 		Name: "my-endpoint",
 		RoutingConfig: &eventbridge.RoutingConfig{
 			FailoverConfig: &eventbridge.FailoverConfig{
@@ -1694,25 +1694,25 @@ func TestAudit_Endpoint_CRUD(t *testing.T) {
 	assert.NotEmpty(t, ep.EndpointURL)
 	assert.Len(t, ep.EventBuses, 2)
 
-	described, err := b.DescribeEndpoint("my-endpoint")
+	described, err := b.DescribeEndpoint(context.Background(), "my-endpoint")
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", described.ReplicationConfig.State)
 
-	updated, err := b.UpdateEndpoint(eventbridge.UpdateEndpointInput{
+	updated, err := b.UpdateEndpoint(context.Background(), eventbridge.UpdateEndpointInput{
 		Name:        "my-endpoint",
 		Description: "updated endpoint",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated endpoint", updated.Description)
 
-	eps, _, err := b.ListEndpoints("my-", "")
+	eps, _, err := b.ListEndpoints(context.Background(), "my-", "")
 	require.NoError(t, err)
 	assert.Len(t, eps, 1)
 
-	err = b.DeleteEndpoint("my-endpoint")
+	err = b.DeleteEndpoint(context.Background(), "my-endpoint")
 	require.NoError(t, err)
 
-	_, err = b.DescribeEndpoint("my-endpoint")
+	_, err = b.DescribeEndpoint(context.Background(), "my-endpoint")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -1724,21 +1724,21 @@ func TestAudit_EventSource_ActivateDeactivate(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePartnerEventSource("aws.partner/example.com/myapp", "123456789012")
+	_, err := b.CreatePartnerEventSource(context.Background(), "aws.partner/example.com/myapp", "123456789012")
 	require.NoError(t, err)
 
-	src, err := b.DescribePartnerEventSource("aws.partner/example.com/myapp")
+	src, err := b.DescribePartnerEventSource(context.Background(), "aws.partner/example.com/myapp")
 	require.NoError(t, err)
 	assert.Equal(t, "aws.partner/example.com/myapp", src.Name)
 
-	srcs, _, err := b.ListPartnerEventSources("aws.partner/", "")
+	srcs, _, err := b.ListPartnerEventSources(context.Background(), "aws.partner/", "")
 	require.NoError(t, err)
 	assert.Len(t, srcs, 1)
 
-	err = b.DeletePartnerEventSource("aws.partner/example.com/myapp")
+	err = b.DeletePartnerEventSource(context.Background(), "aws.partner/example.com/myapp")
 	require.NoError(t, err)
 
-	_, err = b.DescribePartnerEventSource("aws.partner/example.com/myapp")
+	_, err = b.DescribePartnerEventSource(context.Background(), "aws.partner/example.com/myapp")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -1754,7 +1754,7 @@ func TestAudit_EventSource_ActivateChangesState(t *testing.T) {
 		Account: "123456789012",
 	})
 
-	src, _, err := b.ListEventSources("", "")
+	src, _, err := b.ListEventSources(context.Background(), "", "")
 	require.NoError(t, err)
 	_ = src // verify list works without panic
 }
@@ -1772,7 +1772,7 @@ func TestAudit_PutPartnerEvents_RecordsResults(t *testing.T) {
 		{Source: "aws.partner/example.com/app", DetailType: "OrderPlaced", Detail: `{"orderId":"o1"}`},
 	}
 
-	results := b.PutPartnerEvents(entries)
+	results := b.PutPartnerEvents(context.Background(), entries)
 	assert.Len(t, results, 2)
 	for _, r := range results {
 		assert.Empty(t, r.ErrorCode)
@@ -1788,12 +1788,12 @@ func TestAudit_Archive_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("src-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "src-bus", "")
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/src-bus"
 
-	archive, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+	archive, err := b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "my-archive",
 		EventSourceArn: busARN,
 		RetentionDays:  7,
@@ -1803,11 +1803,11 @@ func TestAudit_Archive_CRUD(t *testing.T) {
 	assert.Equal(t, "my-archive", archive.ArchiveName)
 	assert.Equal(t, 7, archive.RetentionDays)
 
-	described, err := b.DescribeArchive("my-archive")
+	described, err := b.DescribeArchive(context.Background(), "my-archive")
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", described.State)
 
-	updated, err := b.UpdateArchive(eventbridge.UpdateArchiveInput{
+	updated, err := b.UpdateArchive(context.Background(), eventbridge.UpdateArchiveInput{
 		ArchiveName:   "my-archive",
 		Description:   "important events",
 		RetentionDays: 14,
@@ -1816,14 +1816,14 @@ func TestAudit_Archive_CRUD(t *testing.T) {
 	assert.Equal(t, 14, updated.RetentionDays)
 	assert.Equal(t, "important events", updated.Description)
 
-	archives, _, err := b.ListArchives("my-", "")
+	archives, _, err := b.ListArchives(context.Background(), "my-", "")
 	require.NoError(t, err)
 	assert.Len(t, archives, 1)
 
-	err = b.DeleteArchive("my-archive")
+	err = b.DeleteArchive(context.Background(), "my-archive")
 	require.NoError(t, err)
 
-	_, err = b.DescribeArchive("my-archive")
+	_, err = b.DescribeArchive(context.Background(), "my-archive")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -1832,7 +1832,7 @@ func TestAudit_Archive_RejectsLongName(t *testing.T) {
 	b := newBackend()
 
 	longName := strings.Repeat("a", 49)
-	_, err := b.CreateArchive(eventbridge.CreateArchiveInput{
+	_, err := b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    longName,
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
 	})
@@ -1843,18 +1843,18 @@ func TestAudit_Archive_CapturesMatchingEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("capture-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "capture-bus", "")
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/capture-bus"
-	_, err = b.CreateArchive(eventbridge.CreateArchiveInput{
+	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "capture-archive",
 		EventSourceArn: busARN,
 		EventPattern:   `{"source":["audit.app"]}`,
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "audit.app", DetailType: "T", Detail: `{}`, EventBusName: "capture-bus"},
 		{Source: "other.app", DetailType: "T", Detail: `{}`, EventBusName: "capture-bus"},
 	})
@@ -1871,7 +1871,7 @@ func TestAudit_TestEventPattern_Match(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	matched, err := b.TestEventPattern(
+	matched, err := b.TestEventPattern(context.Background(),
 		`{"source":["myapp"],"detail-type":["OrderPlaced"]}`,
 		`{"source":"myapp","detail-type":"OrderPlaced","detail":{}}`,
 	)
@@ -1883,7 +1883,7 @@ func TestAudit_TestEventPattern_NoMatch(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	matched, err := b.TestEventPattern(
+	matched, err := b.TestEventPattern(context.Background(),
 		`{"source":["myapp"]}`,
 		`{"source":"other","detail-type":"T","detail":{}}`,
 	)
@@ -1895,7 +1895,7 @@ func TestAudit_TestEventPattern_InvalidPattern(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.TestEventPattern("not-json", `{"source":"x"}`)
+	_, err := b.TestEventPattern(context.Background(), "not-json", `{"source":"x"}`)
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
@@ -1903,7 +1903,7 @@ func TestAudit_TestEventPattern_InvalidEvent(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.TestEventPattern(`{"source":["x"]}`, "not-json")
+	_, err := b.TestEventPattern(context.Background(), `{"source":["x"]}`, "not-json")
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
@@ -1918,23 +1918,23 @@ func TestAudit_ListRuleNamesByTarget(t *testing.T) {
 	targetARN := "arn:aws:lambda:us-east-1:123456789012:function:shared-fn"
 
 	for _, ruleName := range []string{"rule-a", "rule-b", "rule-c"} {
-		_, err := b.PutRule(eventbridge.PutRuleInput{
+		_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 			Name:         ruleName,
 			EventPattern: `{"source":["x"]}`,
 		})
 		require.NoError(t, err)
 	}
 
-	_, err := b.PutTargets("rule-a", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
+	_, err := b.PutTargets(context.Background(), "rule-a", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
 	require.NoError(t, err)
-	_, err = b.PutTargets("rule-c", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
+	_, err = b.PutTargets(context.Background(), "rule-c", "", []eventbridge.Target{{ID: "t1", Arn: targetARN}})
 	require.NoError(t, err)
-	_, err = b.PutTargets("rule-b", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "rule-b", "", []eventbridge.Target{
 		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:other-q"},
 	})
 	require.NoError(t, err)
 
-	names, _, err := b.ListRuleNamesByTarget(targetARN, "", "")
+	names, _, err := b.ListRuleNamesByTarget(context.Background(), targetARN, "", "")
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"rule-a", "rule-c"}, names)
 }
@@ -1949,7 +1949,7 @@ func TestAudit_PutEvents_BatchSizeLimit(t *testing.T) {
 
 	// Build one massive entry > 256KiB in detail.
 	bigDetail := strings.Repeat("x", 260*1024)
-	results := b.PutEvents([]eventbridge.EventEntry{
+	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: bigDetail},
 	})
 	require.Len(t, results, 1)
@@ -1962,7 +1962,7 @@ func TestAudit_PutEvents_MixedBatch(t *testing.T) {
 
 	// First entry is small (accepted), second is huge (rejected), third is small (accepted).
 	bigDetail := strings.Repeat("y", 260*1024)
-	results := b.PutEvents([]eventbridge.EventEntry{
+	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: `{}`},
 		{Source: "s", DetailType: "T", Detail: bigDetail},
 		{Source: "s", DetailType: "T", Detail: `{}`},
@@ -1977,7 +1977,7 @@ func TestAudit_PutEvents_DefaultBus(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	results := b.PutEvents([]eventbridge.EventEntry{
+	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "default.test", DetailType: "Ping", Detail: `{}`},
 	})
 	require.Len(t, results, 1)
@@ -1989,10 +1989,10 @@ func TestAudit_PutEvents_NamedBus(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("named-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "named-bus", "")
 	require.NoError(t, err)
 
-	results := b.PutEvents([]eventbridge.EventEntry{
+	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: `{}`, EventBusName: "named-bus"},
 	})
 	require.Len(t, results, 1)
@@ -2007,7 +2007,7 @@ func TestAudit_EventBus_DefaultAlwaysPresent(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	bus, err := b.DescribeEventBus("")
+	bus, err := b.DescribeEventBus(context.Background(), "")
 	require.NoError(t, err)
 	assert.Equal(t, "default", bus.Name)
 }
@@ -2016,7 +2016,7 @@ func TestAudit_EventBus_CannotDeleteDefault(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	err := b.DeleteEventBus("default")
+	err := b.DeleteEventBus(context.Background(), "default")
 	require.ErrorIs(t, err, eventbridge.ErrCannotDeleteDefaultBus)
 }
 
@@ -2024,10 +2024,10 @@ func TestAudit_EventBus_UpdateDescription(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("update-me", "original")
+	_, err := b.CreateEventBus(context.Background(), "update-me", "original")
 	require.NoError(t, err)
 
-	updated, err := b.UpdateEventBus(eventbridge.UpdateEventBusInput{
+	updated, err := b.UpdateEventBus(context.Background(), eventbridge.UpdateEventBusInput{
 		Name:        "update-me",
 		Description: "new description",
 	})
@@ -2040,11 +2040,11 @@ func TestAudit_EventBus_ListPagination(t *testing.T) {
 	b := newBackend()
 
 	for i := range 5 {
-		_, err := b.CreateEventBus(fmt.Sprintf("page-bus-%d", i), "")
+		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("page-bus-%d", i), "")
 		require.NoError(t, err)
 	}
 
-	buses, _, err := b.ListEventBuses("page-bus-", "")
+	buses, _, err := b.ListEventBuses(context.Background(), "page-bus-", "")
 	require.NoError(t, err)
 	assert.Len(t, buses, 5)
 }
@@ -2053,29 +2053,29 @@ func TestAudit_EventBus_DeleteCleansUpRulesAndTargets(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus("to-delete", "")
+	_, err := b.CreateEventBus(context.Background(), "to-delete", "")
 	require.NoError(t, err)
 
-	_, err = b.PutRule(eventbridge.PutRuleInput{
+	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "orphan-rule",
 		EventBusName: "to-delete",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("orphan-rule", "to-delete", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "orphan-rule", "to-delete", []eventbridge.Target{
 		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:q"},
 	})
 	require.NoError(t, err)
 
-	err = b.DeleteEventBus("to-delete")
+	err = b.DeleteEventBus(context.Background(), "to-delete")
 	require.NoError(t, err)
 
-	_, err = b.DescribeEventBus("to-delete")
+	_, err = b.DescribeEventBus(context.Background(), "to-delete")
 	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
 
 	// Rules on deleted bus should also be gone.
-	rules, _, err := b.ListRules("to-delete", "", "")
+	rules, _, err := b.ListRules(context.Background(), "to-delete", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, rules)
 }
@@ -2088,24 +2088,24 @@ func TestAudit_Rule_EnableDisable(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "toggle-rule",
 		EventPattern: `{"source":["x"]}`,
 		State:        "ENABLED",
 	})
 	require.NoError(t, err)
 
-	err = b.DisableRule("toggle-rule", "")
+	err = b.DisableRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 
-	rule, err := b.DescribeRule("toggle-rule", "")
+	rule, err := b.DescribeRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "DISABLED", rule.State)
 
-	err = b.EnableRule("toggle-rule", "")
+	err = b.EnableRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 
-	rule, err = b.DescribeRule("toggle-rule", "")
+	rule, err = b.DescribeRule(context.Background(), "toggle-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", rule.State)
 }
@@ -2114,7 +2114,7 @@ func TestAudit_Rule_NameTooLong(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         strings.Repeat("a", 65),
 		EventPattern: `{"source":["x"]}`,
 	})
@@ -2125,7 +2125,7 @@ func TestAudit_Rule_MutuallyExclusivePatternAndSchedule(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:               "bad-rule",
 		EventPattern:       `{"source":["x"]}`,
 		ScheduleExpression: "rate(1 minute)",
@@ -2137,7 +2137,7 @@ func TestAudit_Rule_RequiresPatternOrSchedule(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name: "empty-rule",
 	})
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
@@ -2147,13 +2147,13 @@ func TestAudit_Rule_DefaultStateIsEnabled(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "auto-enabled",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
-	rule, err := b.DescribeRule("auto-enabled", "")
+	rule, err := b.DescribeRule(context.Background(), "auto-enabled", "")
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", rule.State)
 }
@@ -2173,7 +2173,7 @@ func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
 		State:          "ACTIVE",
 	})
 
-	_, err := b.StartReplay(eventbridge.StartReplayInput{
+	_, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "my-replay",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -2183,13 +2183,13 @@ func TestAudit_Replay_CancelNonRunningFails(t *testing.T) {
 
 	// Wait for the background goroutine to finish the replay.
 	require.Eventually(t, func() bool {
-		r, descErr := b.DescribeReplay("my-replay")
+		r, descErr := b.DescribeReplay(context.Background(), "my-replay")
 
 		return descErr == nil && r.State == "COMPLETED"
 	}, 5*time.Second, 10*time.Millisecond)
 
 	// Cancelling a COMPLETED replay must fail.
-	_, err = b.CancelReplay("my-replay")
+	_, err = b.CancelReplay(context.Background(), "my-replay")
 	require.ErrorIs(t, err, eventbridge.ErrInvalidState)
 }
 
@@ -2204,7 +2204,7 @@ func TestAudit_Replay_DuplicateNameFails(t *testing.T) {
 		State:          "ACTIVE",
 	})
 
-	_, err := b.StartReplay(eventbridge.StartReplayInput{
+	_, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "dup-replay",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc2",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -2212,7 +2212,7 @@ func TestAudit_Replay_DuplicateNameFails(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.StartReplay(eventbridge.StartReplayInput{
+	_, err = b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 		ReplayName:     "dup-replay",
 		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc2",
 		EventStartTime: time.Now().Add(-time.Hour),
@@ -2233,7 +2233,7 @@ func TestAudit_Replay_ListWithPrefix(t *testing.T) {
 	})
 
 	for _, name := range []string{"prod-replay-1", "prod-replay-2", "dev-replay-1"} {
-		_, err := b.StartReplay(eventbridge.StartReplayInput{
+		_, err := b.StartReplay(context.Background(), eventbridge.StartReplayInput{
 			ReplayName:     name,
 			EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/arc3",
 			EventStartTime: time.Now().Add(-time.Hour),
@@ -2242,7 +2242,7 @@ func TestAudit_Replay_ListWithPrefix(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	replays, _, err := b.ListReplays("prod-", "")
+	replays, _, err := b.ListReplays(context.Background(), "prod-", "")
 	require.NoError(t, err)
 	assert.Len(t, replays, 2)
 }
@@ -2255,7 +2255,7 @@ func TestAudit_Targets_MaxTargetsPerRuleEnforced(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "limit-rule",
 		EventPattern: `{"source":["x"]}`,
 	})
@@ -2269,10 +2269,10 @@ func TestAudit_Targets_MaxTargetsPerRuleEnforced(t *testing.T) {
 		}
 	}
 
-	_, err = b.PutTargets("limit-rule", "", targets)
+	_, err = b.PutTargets(context.Background(), "limit-rule", "", targets)
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("limit-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "limit-rule", "", []eventbridge.Target{
 		{ID: "t-overflow", Arn: "arn:aws:sqs:us-east-1:123456789012:overflow"},
 	})
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
@@ -2286,18 +2286,18 @@ func TestAudit_Targets_InputOverridePayload(t *testing.T) {
 	queueARN := "arn:aws:sqs:us-east-1:123456789012:input-override-q"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "override-rule",
 		EventPattern: `{"source":["override.test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("override-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "override-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: queueARN, Input: `{"static":"payload"}`},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "override.test", DetailType: "T", Detail: `{"dynamic":"field"}`},
 	})
 
@@ -2318,18 +2318,18 @@ func TestAudit_Targets_InputPathExtractsField(t *testing.T) {
 	queueARN := "arn:aws:sqs:us-east-1:123456789012:input-path-q"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "path-rule",
 		EventPattern: `{"source":["path.test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("path-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "path-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: queueARN, InputPath: "$.source"},
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "path.test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -2349,13 +2349,13 @@ func TestAudit_Targets_InputTransformerApplied(t *testing.T) {
 	queueARN := "arn:aws:sqs:us-east-1:123456789012:transform-q"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "transform-rule",
 		EventPattern: `{"source":["transform.test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("transform-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "transform-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: queueARN,
@@ -2367,7 +2367,7 @@ func TestAudit_Targets_InputTransformerApplied(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "transform.test", DetailType: "T", Detail: `{}`},
 	})
 
@@ -2390,7 +2390,7 @@ func TestAudit_Handler_UpdateEventBus(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus("describable-bus", "old desc")
+	_, err := b.CreateEventBus(context.Background(), "describable-bus", "old desc")
 	require.NoError(t, err)
 
 	rec := auditMakeRequest(t, h, e, "UpdateEventBus", map[string]any{
@@ -2406,13 +2406,13 @@ func TestAudit_Handler_ListRuleNamesByTarget(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "h-rule",
 		EventPattern: `{"source":["x"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("h-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "h-rule", "", []eventbridge.Target{
 		{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:fn"},
 	})
 	require.NoError(t, err)
@@ -2449,7 +2449,7 @@ func TestAudit_Handler_DisableAndEnableRule(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "toggle-h-rule",
 		EventPattern: `{"source":["x"]}`,
 		State:        "ENABLED",
@@ -2469,7 +2469,7 @@ func TestAudit_Handler_ArchiveCRUD(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus("h-archive-bus", "")
+	_, err := b.CreateEventBus(context.Background(), "h-archive-bus", "")
 	require.NoError(t, err)
 
 	rec := auditMakeRequest(t, h, e, "CreateArchive", map[string]any{
@@ -2681,7 +2681,7 @@ func TestAudit_Connection_BasicAuthParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "basic-conn",
 		AuthorizationType: "BASIC",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2703,7 +2703,7 @@ func TestAudit_Connection_APIKeyAuthParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "apikey-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2725,7 +2725,7 @@ func TestAudit_Connection_OAuthParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "oauth-conn",
 		AuthorizationType: "OAUTH_CLIENT_CREDENTIALS",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2752,7 +2752,7 @@ func TestAudit_Connection_InvocationHTTPParametersStored(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	conn, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "http-param-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2792,7 +2792,7 @@ func TestAudit_Connection_UpdateAuthParameters(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateConnection(eventbridge.CreateConnectionInput{
+	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
 		Name:              "update-auth-conn",
 		AuthorizationType: "BASIC",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2804,7 +2804,7 @@ func TestAudit_Connection_UpdateAuthParameters(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	updated, err := b.UpdateConnection(eventbridge.UpdateConnectionInput{
+	updated, err := b.UpdateConnection(context.Background(), eventbridge.UpdateConnectionInput{
 		Name:              "update-auth-conn",
 		AuthorizationType: "API_KEY",
 		AuthParameters: &eventbridge.ConnectionAuthParameters{
@@ -2855,11 +2855,11 @@ func TestAudit_PartnerEventSource_CreatesEventSourceAsPending(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePartnerEventSource("aws.partner/example.com/app", "123456789012")
+	_, err := b.CreatePartnerEventSource(context.Background(), "aws.partner/example.com/app", "123456789012")
 	require.NoError(t, err)
 
 	// The partner source should show up in ListEventSources as PENDING.
-	sources, _, err := b.ListEventSources("aws.partner/", "")
+	sources, _, err := b.ListEventSources(context.Background(), "aws.partner/", "")
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 	assert.Equal(t, "aws.partner/example.com/app", sources[0].Name)
@@ -2870,19 +2870,19 @@ func TestAudit_PartnerEventSource_ActivateTransitionsToPending(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePartnerEventSource("aws.partner/saas.com/feed", "111111111111")
+	_, err := b.CreatePartnerEventSource(context.Background(), "aws.partner/saas.com/feed", "111111111111")
 	require.NoError(t, err)
 
 	// Event source should start as PENDING.
-	src, err := b.DescribeEventSource("aws.partner/saas.com/feed")
+	src, err := b.DescribeEventSource(context.Background(), "aws.partner/saas.com/feed")
 	require.NoError(t, err)
 	assert.Equal(t, "PENDING", src.State)
 
 	// Activate it → ACTIVE.
-	err = b.ActivateEventSource("aws.partner/saas.com/feed")
+	err = b.ActivateEventSource(context.Background(), "aws.partner/saas.com/feed")
 	require.NoError(t, err)
 
-	src, err = b.DescribeEventSource("aws.partner/saas.com/feed")
+	src, err = b.DescribeEventSource(context.Background(), "aws.partner/saas.com/feed")
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", src.State)
 }
@@ -2891,13 +2891,13 @@ func TestAudit_PartnerEventSource_DeactivateTransitionsToInactive(t *testing.T) 
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePartnerEventSource("aws.partner/saas.com/feed2", "222222222222")
+	_, err := b.CreatePartnerEventSource(context.Background(), "aws.partner/saas.com/feed2", "222222222222")
 	require.NoError(t, err)
 
-	require.NoError(t, b.ActivateEventSource("aws.partner/saas.com/feed2"))
-	require.NoError(t, b.DeactivateEventSource("aws.partner/saas.com/feed2"))
+	require.NoError(t, b.ActivateEventSource(context.Background(), "aws.partner/saas.com/feed2"))
+	require.NoError(t, b.DeactivateEventSource(context.Background(), "aws.partner/saas.com/feed2"))
 
-	src, err := b.DescribeEventSource("aws.partner/saas.com/feed2")
+	src, err := b.DescribeEventSource(context.Background(), "aws.partner/saas.com/feed2")
 	require.NoError(t, err)
 	assert.Equal(t, "INACTIVE", src.State)
 }
@@ -2906,15 +2906,15 @@ func TestAudit_PartnerEventSource_DeletePartnerSourceNotAffectEventSource(t *tes
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreatePartnerEventSource("aws.partner/example.com/gone", "333333333333")
+	_, err := b.CreatePartnerEventSource(context.Background(), "aws.partner/example.com/gone", "333333333333")
 	require.NoError(t, err)
 
 	// Partner source deletion should NOT remove the event source record.
-	err = b.DeletePartnerEventSource("aws.partner/example.com/gone")
+	err = b.DeletePartnerEventSource(context.Background(), "aws.partner/example.com/gone")
 	require.NoError(t, err)
 
 	// The event source persists for the customer.
-	_, err = b.DescribeEventSource("aws.partner/example.com/gone")
+	_, err = b.DescribeEventSource(context.Background(), "aws.partner/example.com/gone")
 	require.NoError(t, err)
 }
 
@@ -2926,7 +2926,7 @@ func TestAudit_SchemaRegistry_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	reg, err := b.CreateRegistry(eventbridge.CreateRegistryInput{
+	reg, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{
 		RegistryName: "my-registry",
 		Description:  "test registry",
 	})
@@ -2935,25 +2935,25 @@ func TestAudit_SchemaRegistry_CRUD(t *testing.T) {
 	assert.NotEmpty(t, reg.RegistryArn)
 	assert.Equal(t, "test registry", reg.Description)
 
-	described, err := b.DescribeRegistry("my-registry")
+	described, err := b.DescribeRegistry(context.Background(), "my-registry")
 	require.NoError(t, err)
 	assert.Equal(t, "my-registry", described.RegistryName)
 
-	updated, err := b.UpdateRegistry(eventbridge.UpdateRegistryInput{
+	updated, err := b.UpdateRegistry(context.Background(), eventbridge.UpdateRegistryInput{
 		RegistryName: "my-registry",
 		Description:  "updated description",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", updated.Description)
 
-	registries, _, err := b.ListRegistries("my-", "")
+	registries, _, err := b.ListRegistries(context.Background(), "my-", "")
 	require.NoError(t, err)
 	assert.Len(t, registries, 1)
 
-	err = b.DeleteRegistry("my-registry")
+	err = b.DeleteRegistry(context.Background(), "my-registry")
 	require.NoError(t, err)
 
-	_, err = b.DescribeRegistry("my-registry")
+	_, err = b.DescribeRegistry(context.Background(), "my-registry")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -2961,10 +2961,10 @@ func TestAudit_SchemaRegistry_DuplicateCreateFails(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
 	require.NoError(t, err)
 
-	_, err = b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
+	_, err = b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "dup-registry"})
 	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
 }
 
@@ -2972,13 +2972,13 @@ func TestAudit_SchemaRegistry_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.DescribeRegistry("no-such-registry")
+	_, err := b.DescribeRegistry(context.Background(), "no-such-registry")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 
-	err = b.DeleteRegistry("no-such-registry")
+	err = b.DeleteRegistry(context.Background(), "no-such-registry")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 
-	_, err = b.UpdateRegistry(eventbridge.UpdateRegistryInput{RegistryName: "no-such-registry"})
+	_, err = b.UpdateRegistry(context.Background(), eventbridge.UpdateRegistryInput{RegistryName: "no-such-registry"})
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -2990,11 +2990,11 @@ func TestAudit_Schema_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "schema-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "schema-reg"})
 	require.NoError(t, err)
 
 	content := `{"openapi":"3.0.0","info":{"title":"MySchema","version":"1.0"},"paths":{}}`
-	schema, err := b.CreateSchema(eventbridge.CreateSchemaInput{
+	schema, err := b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "schema-reg",
 		SchemaName:   "MySchema",
 		Type:         "OpenApi3",
@@ -3007,11 +3007,11 @@ func TestAudit_Schema_CRUD(t *testing.T) {
 	assert.Equal(t, content, schema.Content)
 	assert.NotEmpty(t, schema.SchemaArn)
 
-	described, err := b.DescribeSchema("schema-reg", "MySchema", "")
+	described, err := b.DescribeSchema(context.Background(), "schema-reg", "MySchema", "")
 	require.NoError(t, err)
 	assert.Equal(t, "MySchema", described.SchemaName)
 
-	updated, err := b.UpdateSchema(eventbridge.UpdateSchemaInput{
+	updated, err := b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "schema-reg",
 		SchemaName:   "MySchema",
 		Content:      `{"openapi":"3.0.0","info":{"title":"MySchema","version":"2.0"},"paths":{}}`,
@@ -3019,14 +3019,14 @@ func TestAudit_Schema_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2", updated.SchemaVersion)
 
-	schemas, _, err := b.ListSchemas("schema-reg", "", "")
+	schemas, _, err := b.ListSchemas(context.Background(), "schema-reg", "", "")
 	require.NoError(t, err)
 	assert.Len(t, schemas, 1)
 
-	err = b.DeleteSchema("schema-reg", "MySchema")
+	err = b.DeleteSchema(context.Background(), "schema-reg", "MySchema")
 	require.NoError(t, err)
 
-	_, err = b.DescribeSchema("schema-reg", "MySchema", "")
+	_, err = b.DescribeSchema(context.Background(), "schema-reg", "MySchema", "")
 	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }
 
@@ -3034,7 +3034,7 @@ func TestAudit_Schema_DuplicateCreateFails(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "dup-schema-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "dup-schema-reg"})
 	require.NoError(t, err)
 
 	input := eventbridge.CreateSchemaInput{
@@ -3044,10 +3044,10 @@ func TestAudit_Schema_DuplicateCreateFails(t *testing.T) {
 		Content:      `{}`,
 	}
 
-	_, err = b.CreateSchema(input)
+	_, err = b.CreateSchema(context.Background(), input)
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(input)
+	_, err = b.CreateSchema(context.Background(), input)
 	require.ErrorIs(t, err, eventbridge.ErrAlreadyExists)
 }
 
@@ -3055,10 +3055,10 @@ func TestAudit_Schema_RegistryDeleteCascadeSchemas(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "cascade-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "cascade-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "cascade-reg",
 		SchemaName:   "CascadedSchema",
 		Type:         "OpenApi3",
@@ -3066,11 +3066,11 @@ func TestAudit_Schema_RegistryDeleteCascadeSchemas(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.DeleteRegistry("cascade-reg")
+	err = b.DeleteRegistry(context.Background(), "cascade-reg")
 	require.NoError(t, err)
 
 	// Schema should no longer be accessible.
-	_, err = b.DescribeSchema("cascade-reg", "CascadedSchema", "")
+	_, err = b.DescribeSchema(context.Background(), "cascade-reg", "CascadedSchema", "")
 	require.Error(t, err)
 }
 
@@ -3078,11 +3078,11 @@ func TestAudit_Schema_SearchByKeyword(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "search-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "search-reg"})
 	require.NoError(t, err)
 
 	for _, name := range []string{"OrderSchema", "UserSchema", "PaymentSchema"} {
-		_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+		_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 			RegistryName: "search-reg",
 			SchemaName:   name,
 			Type:         "OpenApi3",
@@ -3091,7 +3091,7 @@ func TestAudit_Schema_SearchByKeyword(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	results, _, err := b.SearchSchemas("search-reg", "Order", "")
+	results, _, err := b.SearchSchemas(context.Background(), "search-reg", "Order", "")
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "OrderSchema", results[0].SchemaName)
@@ -3105,10 +3105,10 @@ func TestAudit_SchemaVersions_ListAndDescribe(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "ver-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "ver-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "ver-reg",
 		SchemaName:   "VersionedSchema",
 		Type:         "OpenApi3",
@@ -3116,27 +3116,27 @@ func TestAudit_SchemaVersions_ListAndDescribe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "ver-reg",
 		SchemaName:   "VersionedSchema",
 		Content:      `{"v":2}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "ver-reg",
 		SchemaName:   "VersionedSchema",
 		Content:      `{"v":3}`,
 	})
 	require.NoError(t, err)
 
-	versions, _, err := b.ListSchemaVersions("ver-reg", "VersionedSchema", "")
+	versions, _, err := b.ListSchemaVersions(context.Background(), "ver-reg", "VersionedSchema", "")
 	require.NoError(t, err)
 	assert.Len(t, versions, 3)
 	assert.Equal(t, "1", versions[0].SchemaVersion)
 	assert.Equal(t, "3", versions[2].SchemaVersion)
 
-	sv, err := b.DescribeSchemaVersion("ver-reg", "VersionedSchema", "2")
+	sv, err := b.DescribeSchemaVersion(context.Background(), "ver-reg", "VersionedSchema", "2")
 	require.NoError(t, err)
 	assert.Equal(t, "2", sv.SchemaVersion)
 	assert.Contains(t, sv.Content, `"v":2`)
@@ -3146,10 +3146,10 @@ func TestAudit_SchemaVersions_DeleteSpecificVersion(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "delver-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "delver-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "delver-reg",
 		SchemaName:   "DelSchema",
 		Type:         "OpenApi3",
@@ -3157,17 +3157,17 @@ func TestAudit_SchemaVersions_DeleteSpecificVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "delver-reg",
 		SchemaName:   "DelSchema",
 		Content:      `{"v":2}`,
 	})
 	require.NoError(t, err)
 
-	err = b.DeleteSchemaVersion("delver-reg", "DelSchema", "1")
+	err = b.DeleteSchemaVersion(context.Background(), "delver-reg", "DelSchema", "1")
 	require.NoError(t, err)
 
-	versions, _, err := b.ListSchemaVersions("delver-reg", "DelSchema", "")
+	versions, _, err := b.ListSchemaVersions(context.Background(), "delver-reg", "DelSchema", "")
 	require.NoError(t, err)
 	assert.Len(t, versions, 1)
 	assert.Equal(t, "2", versions[0].SchemaVersion)
@@ -3177,10 +3177,10 @@ func TestAudit_SchemaVersions_DescribeWithVersion(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "descver-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "descver-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "descver-reg",
 		SchemaName:   "S",
 		Type:         "OpenApi3",
@@ -3188,7 +3188,7 @@ func TestAudit_SchemaVersions_DescribeWithVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "descver-reg",
 		SchemaName:   "S",
 		Content:      `{"v":2}`,
@@ -3196,13 +3196,13 @@ func TestAudit_SchemaVersions_DescribeWithVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Describe with specific version.
-	sv, err := b.DescribeSchema("descver-reg", "S", "1")
+	sv, err := b.DescribeSchema(context.Background(), "descver-reg", "S", "1")
 	require.NoError(t, err)
 	assert.Equal(t, "1", sv.SchemaVersion)
 	assert.Contains(t, sv.Content, `"v":1`)
 
 	// Describe without version returns latest.
-	latest, err := b.DescribeSchema("descver-reg", "S", "")
+	latest, err := b.DescribeSchema(context.Background(), "descver-reg", "S", "")
 	require.NoError(t, err)
 	assert.Equal(t, "2", latest.SchemaVersion)
 }
@@ -3215,10 +3215,10 @@ func TestAudit_CodeBinding_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "cb-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "cb-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "cb-reg",
 		SchemaName:   "CBSchema",
 		Type:         "OpenApi3",
@@ -3226,7 +3226,7 @@ func TestAudit_CodeBinding_CRUD(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	binding, err := b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+	binding, err := b.PutCodeBinding(context.Background(), eventbridge.PutCodeBindingInput{
 		RegistryName: "cb-reg",
 		SchemaName:   "CBSchema",
 		Language:     "Python36",
@@ -3235,7 +3235,7 @@ func TestAudit_CodeBinding_CRUD(t *testing.T) {
 	assert.Equal(t, "Python36", binding.Language)
 	assert.Equal(t, "CREATE_COMPLETE", binding.Status)
 
-	described, err := b.DescribeCodeBinding(eventbridge.DescribeCodeBindingInput{
+	described, err := b.DescribeCodeBinding(context.Background(), eventbridge.DescribeCodeBindingInput{
 		RegistryName: "cb-reg",
 		SchemaName:   "CBSchema",
 		Language:     "Python36",
@@ -3243,14 +3243,14 @@ func TestAudit_CodeBinding_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Python36", described.Language)
 
-	_, err = b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+	_, err = b.PutCodeBinding(context.Background(), eventbridge.PutCodeBindingInput{
 		RegistryName: "cb-reg",
 		SchemaName:   "CBSchema",
 		Language:     "Java8",
 	})
 	require.NoError(t, err)
 
-	bindings, _, err := b.ListCodeBindings(eventbridge.ListCodeBindingsInput{
+	bindings, _, err := b.ListCodeBindings(context.Background(), eventbridge.ListCodeBindingsInput{
 		RegistryName: "cb-reg",
 		SchemaName:   "CBSchema",
 	})
@@ -3262,10 +3262,10 @@ func TestAudit_CodeBinding_GetSource(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "src-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "src-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "src-reg",
 		SchemaName:   "SrcSchema",
 		Type:         "OpenApi3",
@@ -3273,14 +3273,14 @@ func TestAudit_CodeBinding_GetSource(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutCodeBinding(eventbridge.PutCodeBindingInput{
+	_, err = b.PutCodeBinding(context.Background(), eventbridge.PutCodeBindingInput{
 		RegistryName: "src-reg",
 		SchemaName:   "SrcSchema",
 		Language:     "TypeScript3",
 	})
 	require.NoError(t, err)
 
-	src, err := b.GetCodeBindingSource("src-reg", "SrcSchema", "TypeScript3", "1")
+	src, err := b.GetCodeBindingSource(context.Background(), "src-reg", "SrcSchema", "TypeScript3", "1")
 	require.NoError(t, err)
 	assert.NotEmpty(t, src)
 }
@@ -3289,10 +3289,10 @@ func TestAudit_CodeBinding_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "nf-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "nf-reg"})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "nf-reg",
 		SchemaName:   "NFSchema",
 		Type:         "OpenApi3",
@@ -3300,7 +3300,7 @@ func TestAudit_CodeBinding_NotFoundErrors(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.DescribeCodeBinding(eventbridge.DescribeCodeBindingInput{
+	_, err = b.DescribeCodeBinding(context.Background(), eventbridge.DescribeCodeBindingInput{
 		RegistryName: "nf-reg",
 		SchemaName:   "NFSchema",
 		Language:     "Go1",
@@ -3312,7 +3312,7 @@ func TestAudit_GetDiscoveredSchema_ReturnsContent(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	content, err := b.GetDiscoveredSchema(eventbridge.GetDiscoveredSchemaInput{
+	content, err := b.GetDiscoveredSchema(context.Background(), eventbridge.GetDiscoveredSchemaInput{
 		Events: []string{`{"source":"myapp","detail-type":"OrderPlaced","detail":{"orderId":"o1"}}`},
 		Type:   "OpenApi3",
 	})
@@ -3324,7 +3324,7 @@ func TestAudit_GetDiscoveredSchema_RejectsEmptyEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.GetDiscoveredSchema(eventbridge.GetDiscoveredSchemaInput{
+	_, err := b.GetDiscoveredSchema(context.Background(), eventbridge.GetDiscoveredSchemaInput{
 		Events: []string{},
 		Type:   "OpenApi3",
 	})
@@ -3380,7 +3380,7 @@ func TestAudit_Handler_Schema_CRUD(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "h-schema-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "h-schema-reg"})
 	require.NoError(t, err)
 
 	rec := auditMakeRequest(t, h, e, "CreateSchema", map[string]any{
@@ -3451,9 +3451,9 @@ func TestAudit_Handler_CodeBinding_CRUD(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "h-cb-reg"})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "h-cb-reg"})
 	require.NoError(t, err)
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: "h-cb-reg",
 		SchemaName:   "h-cb-schema",
 		Type:         "OpenApi3",
@@ -3535,13 +3535,13 @@ func TestAudit_Targets_InputTransformer_ArrayIndexing(t *testing.T) {
 	queueARN := "arn:aws:sqs:us-east-1:123456789012:array-q"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "array-rule",
 		EventPattern: `{"source":["array.test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("array-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "array-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: queueARN,
@@ -3555,7 +3555,7 @@ func TestAudit_Targets_InputTransformer_ArrayIndexing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "array.test", DetailType: "T", Detail: `{"items":["alpha","beta","gamma"]}`},
 	})
 
@@ -3576,13 +3576,13 @@ func TestAudit_Targets_InputTransformer_NestedArrayIndex(t *testing.T) {
 	queueARN := "arn:aws:sqs:us-east-1:123456789012:nested-array-q"
 	b.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSink})
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "nested-array-rule",
 		EventPattern: `{"source":["nested.test"]}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutTargets("nested-array-rule", "", []eventbridge.Target{
+	_, err = b.PutTargets(context.Background(), "nested-array-rule", "", []eventbridge.Target{
 		{
 			ID:  "t1",
 			Arn: queueARN,
@@ -3596,7 +3596,7 @@ func TestAudit_Targets_InputTransformer_NestedArrayIndex(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	b.PutEvents([]eventbridge.EventEntry{
+	b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{
 			Source:     "nested.test",
 			DetailType: "T",

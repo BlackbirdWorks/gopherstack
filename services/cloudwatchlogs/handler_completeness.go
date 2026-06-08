@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -88,7 +89,7 @@ type deleteDataProtectionPolicyInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
-func (h *Handler) handleDeleteDataProtectionPolicy(body []byte) (any, error) {
+func (h *Handler) handleDeleteDataProtectionPolicy(ctx context.Context, body []byte) (any, error) {
 	var in deleteDataProtectionPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -107,7 +108,7 @@ type getDataProtectionPolicyInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
-func (h *Handler) handleGetDataProtectionPolicy(body []byte) (any, error) {
+func (h *Handler) handleGetDataProtectionPolicy(ctx context.Context, body []byte) (any, error) {
 	var in getDataProtectionPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -133,7 +134,7 @@ type putDataProtectionPolicyInput struct {
 	PolicyDocument     string `json:"policyDocument"`
 }
 
-func (h *Handler) handlePutDataProtectionPolicy(body []byte) (any, error) {
+func (h *Handler) handlePutDataProtectionPolicy(ctx context.Context, body []byte) (any, error) {
 	var in putDataProtectionPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -158,7 +159,7 @@ type putResourcePolicyInput struct {
 	PolicyDocument string `json:"policyDocument"`
 }
 
-func (h *Handler) handlePutResourcePolicy(body []byte) (any, error) {
+func (h *Handler) handlePutResourcePolicy(ctx context.Context, body []byte) (any, error) {
 	var in putResourcePolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -184,7 +185,7 @@ func (h *Handler) handlePutResourcePolicy(body []byte) (any, error) {
 	}}, nil
 }
 
-func (h *Handler) handleDescribeResourcePolicies(_ []byte) (any, error) {
+func (h *Handler) handleDescribeResourcePolicies(ctx context.Context, _ []byte) (any, error) {
 	if b := cwlBackend(h); b != nil {
 		policies := b.DescribeResourcePolicies()
 		out := make([]map[string]any, 0, len(policies))
@@ -205,7 +206,7 @@ type deleteResourcePolicyInput struct {
 	PolicyName string `json:"policyName"`
 }
 
-func (h *Handler) handleDeleteResourcePolicy(body []byte) (any, error) {
+func (h *Handler) handleDeleteResourcePolicy(ctx context.Context, body []byte) (any, error) {
 	var in deleteResourcePolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -231,7 +232,7 @@ type putDeliveryDestinationInputFull struct {
 	} `json:"deliveryDestinationConfiguration"`
 }
 
-func (h *Handler) handlePutDeliveryDestination(body []byte) (any, error) {
+func (h *Handler) handlePutDeliveryDestination(ctx context.Context, body []byte) (any, error) {
 	var in putDeliveryDestinationInputFull
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -257,7 +258,7 @@ type getDeliveryDestinationInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleGetDeliveryDestination(body []byte) (any, error) {
+func (h *Handler) handleGetDeliveryDestination(ctx context.Context, body []byte) (any, error) {
 	var in getDeliveryDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -279,7 +280,7 @@ func (h *Handler) handleGetDeliveryDestination(body []byte) (any, error) {
 	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
 }
 
-func (h *Handler) handleDescribeDeliveryDestinations(_ []byte) (any, error) {
+func (h *Handler) handleDescribeDeliveryDestinations(ctx context.Context, _ []byte) (any, error) {
 	if b := cwlBackend(h); b != nil {
 		dests := b.DescribeDeliveryDestinations()
 		out := make([]map[string]any, 0, len(dests))
@@ -297,7 +298,7 @@ type deleteDeliveryDestinationInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleDeleteDeliveryDestination(body []byte) (any, error) {
+func (h *Handler) handleDeleteDeliveryDestination(ctx context.Context, body []byte) (any, error) {
 	var in deleteDeliveryDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -317,7 +318,7 @@ type putDeliveryDestinationPolicyInput struct {
 	DeliveryDestinationPolicy string `json:"deliveryDestinationPolicy"`
 }
 
-func (h *Handler) handlePutDeliveryDestinationPolicy(body []byte) (any, error) {
+func (h *Handler) handlePutDeliveryDestinationPolicy(ctx context.Context, body []byte) (any, error) {
 	var in putDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -338,7 +339,7 @@ type getDeliveryDestinationPolicyInput struct {
 	DeliveryDestinationName string `json:"deliveryDestinationName"`
 }
 
-func (h *Handler) handleGetDeliveryDestinationPolicy(body []byte) (any, error) {
+func (h *Handler) handleGetDeliveryDestinationPolicy(ctx context.Context, body []byte) (any, error) {
 	var in getDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -360,7 +361,7 @@ type deleteDeliveryDestinationPolicyInput struct {
 	DeliveryDestinationName string `json:"deliveryDestinationName"`
 }
 
-func (h *Handler) handleDeleteDeliveryDestinationPolicy(body []byte) (any, error) {
+func (h *Handler) handleDeleteDeliveryDestinationPolicy(ctx context.Context, body []byte) (any, error) {
 	var in deleteDeliveryDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -384,7 +385,7 @@ type putDeliverySourceInput struct {
 	ResourceArns []string          `json:"resourceArns,omitempty"`
 }
 
-func (h *Handler) handlePutDeliverySource(body []byte) (any, error) {
+func (h *Handler) handlePutDeliverySource(ctx context.Context, body []byte) (any, error) {
 	var in putDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -409,7 +410,7 @@ type getDeliverySourceInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleGetDeliverySource(body []byte) (any, error) {
+func (h *Handler) handleGetDeliverySource(ctx context.Context, body []byte) (any, error) {
 	var in getDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -430,7 +431,7 @@ func (h *Handler) handleGetDeliverySource(body []byte) (any, error) {
 	return map[string]any{keyDeliverySource: map[string]any{}}, nil
 }
 
-func (h *Handler) handleDescribeDeliverySources(_ []byte) (any, error) {
+func (h *Handler) handleDescribeDeliverySources(ctx context.Context, _ []byte) (any, error) {
 	if b := cwlBackend(h); b != nil {
 		srcs := b.DescribeDeliverySources()
 		out := make([]map[string]any, 0, len(srcs))
@@ -448,7 +449,7 @@ type deleteDeliverySourceInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleDeleteDeliverySource(body []byte) (any, error) {
+func (h *Handler) handleDeleteDeliverySource(ctx context.Context, body []byte) (any, error) {
 	var in deleteDeliverySourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -471,7 +472,7 @@ type putDestinationInput struct {
 	RoleArn         string `json:"roleArn"`
 }
 
-func (h *Handler) handlePutDestination(body []byte) (any, error) {
+func (h *Handler) handlePutDestination(ctx context.Context, body []byte) (any, error) {
 	var in putDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -504,7 +505,7 @@ type putDestinationPolicyInput struct {
 	AccessPolicy    string `json:"accessPolicy"`
 }
 
-func (h *Handler) handlePutDestinationPolicy(body []byte) (any, error) {
+func (h *Handler) handlePutDestinationPolicy(ctx context.Context, body []byte) (any, error) {
 	var in putDestinationPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -523,7 +524,7 @@ type describeDestinationsInput struct {
 	DestinationNamePrefix string `json:"DestinationNamePrefix,omitempty"`
 }
 
-func (h *Handler) handleDescribeDestinations(body []byte) (any, error) {
+func (h *Handler) handleDescribeDestinations(ctx context.Context, body []byte) (any, error) {
 	var in describeDestinationsInput
 	_ = json.Unmarshal(body, &in)
 
@@ -549,7 +550,7 @@ type deleteDestinationInput struct {
 	DestinationName string `json:"destinationName"`
 }
 
-func (h *Handler) handleDeleteDestination(body []byte) (any, error) {
+func (h *Handler) handleDeleteDestination(ctx context.Context, body []byte) (any, error) {
 	var in deleteDestinationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -571,7 +572,7 @@ type putIndexPolicyInput struct {
 	PolicyDocument     string `json:"policyDocument"`
 }
 
-func (h *Handler) handlePutIndexPolicy(body []byte) (any, error) {
+func (h *Handler) handlePutIndexPolicy(ctx context.Context, body []byte) (any, error) {
 	var in putIndexPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -592,7 +593,7 @@ func (h *Handler) handlePutIndexPolicy(body []byte) (any, error) {
 	return map[string]any{"indexPolicy": map[string]any{}}, nil
 }
 
-func (h *Handler) handleDescribeIndexPolicies(_ []byte) (any, error) {
+func (h *Handler) handleDescribeIndexPolicies(ctx context.Context, _ []byte) (any, error) {
 	if b := cwlBackend(h); b != nil {
 		policies := b.DescribeIndexPolicies()
 		out := make([]map[string]any, 0, len(policies))
@@ -613,7 +614,7 @@ type deleteIndexPolicyInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
-func (h *Handler) handleDeleteIndexPolicy(body []byte) (any, error) {
+func (h *Handler) handleDeleteIndexPolicy(ctx context.Context, body []byte) (any, error) {
 	var in deleteIndexPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -635,7 +636,7 @@ type putTransformerInput struct {
 	TransformerConfig  []map[string]any `json:"transformerConfig"`
 }
 
-func (h *Handler) handlePutTransformer(body []byte) (any, error) {
+func (h *Handler) handlePutTransformer(ctx context.Context, body []byte) (any, error) {
 	var in putTransformerInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -654,7 +655,7 @@ type getTransformerInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
-func (h *Handler) handleGetTransformer(body []byte) (any, error) {
+func (h *Handler) handleGetTransformer(ctx context.Context, body []byte) (any, error) {
 	var in getTransformerInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -682,7 +683,7 @@ type deleteTransformerInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
-func (h *Handler) handleDeleteTransformer(body []byte) (any, error) {
+func (h *Handler) handleDeleteTransformer(ctx context.Context, body []byte) (any, error) {
 	var in deleteTransformerInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -704,7 +705,7 @@ type putIntegrationInput struct {
 	IntegrationType string `json:"integrationType"`
 }
 
-func (h *Handler) handlePutIntegration(body []byte) (any, error) {
+func (h *Handler) handlePutIntegration(ctx context.Context, body []byte) (any, error) {
 	var in putIntegrationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -732,7 +733,7 @@ type getIntegrationInput struct {
 	IntegrationName string `json:"integrationName"`
 }
 
-func (h *Handler) handleGetIntegration(body []byte) (any, error) {
+func (h *Handler) handleGetIntegration(ctx context.Context, body []byte) (any, error) {
 	var in getIntegrationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -758,7 +759,7 @@ func (h *Handler) handleGetIntegration(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListIntegrations(_ []byte) (any, error) {
+func (h *Handler) handleListIntegrations(ctx context.Context, _ []byte) (any, error) {
 	if b := cwlBackend(h); b != nil {
 		igs := b.ListIntegrations()
 		out := make([]map[string]any, 0, len(igs))
@@ -780,7 +781,7 @@ type deleteIntegrationInput struct {
 	IntegrationName string `json:"integrationName"`
 }
 
-func (h *Handler) handleDeleteIntegration(body []byte) (any, error) {
+func (h *Handler) handleDeleteIntegration(ctx context.Context, body []byte) (any, error) {
 	var in deleteIntegrationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -802,7 +803,7 @@ type putLogGroupDeletionProtectionInput struct {
 	DeletionProtected  bool   `json:"deletionProtected"`
 }
 
-func (h *Handler) handlePutLogGroupDeletionProtection(body []byte) (any, error) {
+func (h *Handler) handlePutLogGroupDeletionProtection(ctx context.Context, body []byte) (any, error) {
 	var in putLogGroupDeletionProtectionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -825,7 +826,7 @@ type updateDeliveryConfigurationInput struct {
 	RecordFields   []string `json:"recordFields,omitempty"`
 }
 
-func (h *Handler) handleUpdateDeliveryConfiguration(body []byte) (any, error) {
+func (h *Handler) handleUpdateDeliveryConfiguration(ctx context.Context, body []byte) (any, error) {
 	var in updateDeliveryConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
@@ -842,46 +843,46 @@ func (h *Handler) handleUpdateDeliveryConfiguration(body []byte) (any, error) {
 
 // ---- Stubs (no meaningful state to track) ----
 
-func (h *Handler) handleDescribeConfigurationTemplates(_ []byte) (any, error) {
+func (h *Handler) handleDescribeConfigurationTemplates(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"configurationTemplates": []any{}}, nil
 }
 
-func (h *Handler) handleDescribeFieldIndexes(_ []byte) (any, error) {
+func (h *Handler) handleDescribeFieldIndexes(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"fieldIndexes": []any{}}, nil
 }
 
-func (h *Handler) handleDescribeImportTaskBatches(_ []byte) (any, error) {
+func (h *Handler) handleDescribeImportTaskBatches(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"importTaskBatches": []any{}}, nil
 }
 
-func (h *Handler) handleDisassociateSourceFromS3TableIntegration(_ []byte) (any, error) {
+func (h *Handler) handleDisassociateSourceFromS3TableIntegration(ctx context.Context, _ []byte) (any, error) {
 	return struct{}{}, nil
 }
 
-func (h *Handler) handleGetLogFields(_ []byte) (any, error) {
+func (h *Handler) handleGetLogFields(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"logRecordPointer": "", "logRecord": map[string]any{}}, nil
 }
 
-func (h *Handler) handleGetLogObject(_ []byte) (any, error) {
+func (h *Handler) handleGetLogObject(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{}, nil
 }
 
-func (h *Handler) handleListAggregateLogGroupSummaries(_ []byte) (any, error) {
+func (h *Handler) handleListAggregateLogGroupSummaries(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"logGroupSummaries": []any{}}, nil
 }
 
-func (h *Handler) handleListSourcesForS3TableIntegration(_ []byte) (any, error) {
+func (h *Handler) handleListSourcesForS3TableIntegration(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"sources": []any{}}, nil
 }
 
-func (h *Handler) handlePutBearerTokenAuthentication(_ []byte) (any, error) {
+func (h *Handler) handlePutBearerTokenAuthentication(ctx context.Context, _ []byte) (any, error) {
 	return struct{}{}, nil
 }
 
-func (h *Handler) handleStartLiveTail(_ []byte) (any, error) {
+func (h *Handler) handleStartLiveTail(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"responseStream": map[string]any{}}, nil
 }
 
-func (h *Handler) handleTestTransformer(_ []byte) (any, error) {
+func (h *Handler) handleTestTransformer(ctx context.Context, _ []byte) (any, error) {
 	return map[string]any{"transformedLogs": []any{}}, nil
 }

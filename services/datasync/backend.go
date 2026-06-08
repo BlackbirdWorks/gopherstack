@@ -30,6 +30,17 @@ const (
 	defaultMaxResults = 100
 
 	arnSplitParts = 2
+
+	locationTypeAzureBlob     = "AZURE_BLOB"
+	locationTypeEFS           = "EFS"
+	locationTypeFsxLustre     = "FSX_LUSTRE"
+	locationTypeFsxOntap      = "FSX_ONTAP"
+	locationTypeFsxOpenZfs    = "FSX_OPENZFS"
+	locationTypeFsxWindows    = "FSX_WINDOWS"
+	locationTypeHDFS          = "HDFS"
+	locationTypeNFS           = "NFS"
+	locationTypeObjectStorage = "OBJECT_STORAGE"
+	locationTypeSMB           = "SMB"
 )
 
 var (
@@ -66,19 +77,150 @@ func (a *storedAgent) toAgent() Agent {
 // storedLocation holds a location with all fields.
 // CreationTime is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedLocation struct {
-	CreationTime   time.Time         `json:"creationTime"`
-	S3Config       *storedS3Config   `json:"s3Config,omitempty"`
-	Tags           map[string]string `json:"tags"`
-	LocationArn    string            `json:"locationArn"`
-	LocationURI    string            `json:"locationUri"`
-	S3BucketArn    string            `json:"s3BucketArn,omitempty"`
-	Subdirectory   string            `json:"subdirectory,omitempty"`
-	S3StorageClass string            `json:"s3StorageClass,omitempty"`
-	LocationType   string            `json:"locationType"`
+	CreationTime   time.Time                  `json:"creationTime"`
+	S3Config       *storedS3Config            `json:"s3Config,omitempty"`
+	AzureBlob      *storedAzureBlobConfig     `json:"azureBlob,omitempty"`
+	Efs            *storedEfsConfig           `json:"efs,omitempty"`
+	FsxLustre      *storedFsxLustreConfig     `json:"fsxLustre,omitempty"`
+	FsxOntap       *storedFsxOntapConfig      `json:"fsxOntap,omitempty"`
+	FsxOpenZfs     *storedFsxOpenZfsConfig    `json:"fsxOpenZfs,omitempty"`
+	FsxWindows     *storedFsxWindowsConfig    `json:"fsxWindows,omitempty"`
+	Hdfs           *storedHdfsConfig          `json:"hdfs,omitempty"`
+	Nfs            *storedNfsConfig           `json:"nfs,omitempty"`
+	ObjectStorage  *storedObjectStorageConfig `json:"objectStorage,omitempty"`
+	Smb            *storedSmbConfig           `json:"smb,omitempty"`
+	Tags           map[string]string          `json:"tags"`
+	LocationArn    string                     `json:"locationArn"`
+	LocationURI    string                     `json:"locationUri"`
+	S3BucketArn    string                     `json:"s3BucketArn,omitempty"`
+	Subdirectory   string                     `json:"subdirectory,omitempty"`
+	S3StorageClass string                     `json:"s3StorageClass,omitempty"`
+	LocationType   string                     `json:"locationType"`
 }
 
 type storedS3Config struct {
 	BucketAccessRoleArn string `json:"bucketAccessRoleArn"`
+}
+
+// --- Type-specific location config stored types ---
+
+type storedAzureBlobConfig struct {
+	SasToken     string   `json:"sasToken,omitempty"`
+	ContainerURL string   `json:"containerUrl"`
+	BlobType     string   `json:"blobType,omitempty"`
+	AccessTier   string   `json:"accessTier,omitempty"`
+	AgentArns    []string `json:"agentArns,omitempty"`
+}
+
+type storedEfsEc2Config struct {
+	SubnetArn         string   `json:"subnetArn"`
+	SecurityGroupArns []string `json:"securityGroupArns"`
+}
+
+type storedEfsConfig struct {
+	Ec2Config               *storedEfsEc2Config `json:"ec2Config,omitempty"`
+	EfsFilesystemArn        string              `json:"efsFilesystemArn"`
+	AccessPointArn          string              `json:"accessPointArn,omitempty"`
+	FileSystemAccessRoleArn string              `json:"fileSystemAccessRoleArn,omitempty"`
+	InTransitEncryption     string              `json:"inTransitEncryption,omitempty"`
+}
+
+type storedFsxLustreConfig struct {
+	FsxFilesystemArn  string   `json:"fsxFilesystemArn"`
+	SecurityGroupArns []string `json:"securityGroupArns,omitempty"`
+}
+
+type storedFsxMountOptions struct {
+	Version string `json:"version,omitempty"`
+}
+
+type storedFsxNfsProtocol struct {
+	MountOptions *storedFsxMountOptions `json:"mountOptions,omitempty"`
+}
+
+type storedFsxSmbProtocol struct {
+	MountOptions *storedFsxMountOptions `json:"mountOptions,omitempty"`
+	Domain       string                 `json:"domain,omitempty"`
+	Password     string                 `json:"password,omitempty"`
+	User         string                 `json:"user,omitempty"`
+}
+
+type storedFsxProtocol struct {
+	NFS *storedFsxNfsProtocol `json:"nfs,omitempty"`
+	SMB *storedFsxSmbProtocol `json:"smb,omitempty"`
+}
+
+type storedFsxOntapConfig struct {
+	Protocol                 *storedFsxProtocol `json:"protocol,omitempty"`
+	StorageVirtualMachineArn string             `json:"storageVirtualMachineArn"`
+	SecurityGroupArns        []string           `json:"securityGroupArns,omitempty"`
+}
+
+type storedFsxOpenZfsConfig struct {
+	Protocol          *storedFsxProtocol `json:"protocol,omitempty"`
+	FsxFilesystemArn  string             `json:"fsxFilesystemArn"`
+	SecurityGroupArns []string           `json:"securityGroupArns,omitempty"`
+}
+
+type storedFsxWindowsConfig struct {
+	FsxFilesystemArn  string   `json:"fsxFilesystemArn"`
+	Domain            string   `json:"domain,omitempty"`
+	User              string   `json:"user,omitempty"`
+	Password          string   `json:"password,omitempty"`
+	SecurityGroupArns []string `json:"securityGroupArns,omitempty"`
+}
+
+type storedHdfsNameNode struct {
+	Hostname string `json:"hostname"`
+	Port     int32  `json:"port"`
+}
+
+type storedQopConfig struct {
+	DataTransferProtection string `json:"dataTransferProtection,omitempty"`
+	RPCProtection          string `json:"rpcProtection,omitempty"`
+}
+
+type storedHdfsConfig struct {
+	QopConfiguration   *storedQopConfig     `json:"qopConfiguration,omitempty"`
+	KerberosPrincipal  string               `json:"kerberosPrincipal,omitempty"`
+	KerberosKeytab     string               `json:"kerberosKeytab,omitempty"`
+	KerberosKrb5Conf   string               `json:"kerberosKrb5Conf,omitempty"`
+	KmsKeyProviderURI  string               `json:"kmsKeyProviderUri,omitempty"`
+	AuthenticationType string               `json:"authenticationType,omitempty"`
+	SimpleUser         string               `json:"simpleUser,omitempty"`
+	NameNodes          []storedHdfsNameNode `json:"nameNodes"`
+	AgentArns          []string             `json:"agentArns,omitempty"`
+	BlockSize          int64                `json:"blockSize,omitempty"`
+	ReplicationFactor  int32                `json:"replicationFactor,omitempty"`
+}
+
+type storedMountOptions struct {
+	Version string `json:"version,omitempty"`
+}
+
+type storedNfsConfig struct {
+	MountOptions   *storedMountOptions `json:"mountOptions,omitempty"`
+	ServerHostname string              `json:"serverHostname"`
+	AgentArns      []string            `json:"agentArns,omitempty"`
+}
+
+type storedObjectStorageConfig struct {
+	ServerHostname string   `json:"serverHostname"`
+	BucketName     string   `json:"bucketName"`
+	AccessKey      string   `json:"accessKey,omitempty"`
+	SecretKey      string   `json:"secretKey,omitempty"`
+	ServerProtocol string   `json:"serverProtocol,omitempty"`
+	AgentArns      []string `json:"agentArns,omitempty"`
+	ServerPort     int32    `json:"serverPort,omitempty"`
+}
+
+type storedSmbConfig struct {
+	MountOptions   *storedMountOptions `json:"mountOptions,omitempty"`
+	ServerHostname string              `json:"serverHostname"`
+	Domain         string              `json:"domain,omitempty"`
+	User           string              `json:"user,omitempty"`
+	Password       string              `json:"password,omitempty"`
+	AgentArns      []string            `json:"agentArns,omitempty"`
 }
 
 func (l *storedLocation) toLocation() Location {
@@ -216,6 +358,19 @@ func (b *InMemoryBackend) executionARN(taskArn, id string) string {
 
 func newID() string {
 	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+}
+
+func (b *InMemoryBackend) storeLocation(l *storedLocation) Location {
+	b.locations[l.LocationArn] = l
+
+	if len(l.Tags) > 0 {
+		b.tags[l.LocationArn] = make(map[string]string)
+		maps.Copy(b.tags[l.LocationArn], l.Tags)
+	}
+
+	cp := l.toLocation()
+
+	return cp
 }
 
 // CreateAgent creates a new DataSync agent.
@@ -832,6 +987,1365 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.tags = snap.Tags
 	} else {
 		b.tags = make(map[string]map[string]string)
+	}
+
+	return nil
+}
+
+// UpdateLocationS3 updates an S3 location's subdirectory, storage class, and S3 config.
+func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config S3Config) error {
+	b.mu.Lock("UpdateLocationS3")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != "S3" {
+		return ErrNotFound
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		bucketName := extractBucketName(l.S3BucketArn)
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("s3://%s/%s", bucketName, sub)
+	}
+
+	l.S3StorageClass = s3StorageClass
+	l.S3Config = &storedS3Config{BucketAccessRoleArn: s3Config.BucketAccessRoleArn}
+
+	return nil
+}
+
+// UpdateTaskExecution updates a task execution (no-op: options are advisory only).
+func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string) error {
+	b.mu.RLock("UpdateTaskExecution")
+	defer b.mu.RUnlock()
+
+	taskArn := extractTaskArnFromExecution(taskExecutionArn)
+	if taskArn == "" {
+		return ErrNotFound
+	}
+
+	execMap, ok := b.executions[taskArn]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if _, ok = execMap[taskExecutionArn]; !ok {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// --- AzureBlob ---
+
+func (b *InMemoryBackend) CreateLocationAzureBlob(
+	containerURL, subdirectory, blobType, accessTier string,
+	sasConfig *SasConfiguration,
+	agentArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationAzureBlob")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("azure-blob://%s/%s", containerURL, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	cfg := &storedAzureBlobConfig{
+		ContainerURL: containerURL,
+		BlobType:     blobType,
+		AccessTier:   accessTier,
+		AgentArns:    agentArns,
+	}
+	if sasConfig != nil {
+		cfg.SasToken = sasConfig.Token
+	}
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeAzureBlob,
+		CreationTime: now,
+		Tags:         locationTags,
+		AzureBlob:    cfg,
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationAzureBlob(locationArn string) (*LocationAzureBlob, error) {
+	b.mu.RLock("DescribeLocationAzureBlob")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeAzureBlob {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationAzureBlob{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.AzureBlob != nil {
+		out.ContainerURL = l.AzureBlob.ContainerURL
+		out.BlobType = l.AzureBlob.BlobType
+		out.AccessTier = l.AzureBlob.AccessTier
+		out.AgentArns = l.AzureBlob.AgentArns
+
+		if l.AzureBlob.SasToken != "" {
+			out.SasConfiguration = &SasConfiguration{Token: l.AzureBlob.SasToken}
+		}
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationAzureBlob(
+	locationArn, containerURL, subdirectory, blobType, accessTier string,
+	sasConfig *SasConfiguration,
+	agentArns []string,
+) error {
+	b.mu.Lock("UpdateLocationAzureBlob")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeAzureBlob {
+		return ErrNotFound
+	}
+
+	if containerURL != "" {
+		l.AzureBlob.ContainerURL = containerURL
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		sub := strings.TrimPrefix(subdirectory, "/")
+		cu := l.AzureBlob.ContainerURL
+		l.LocationURI = fmt.Sprintf("azure-blob://%s/%s", cu, sub)
+	}
+
+	if blobType != "" {
+		l.AzureBlob.BlobType = blobType
+	}
+
+	if accessTier != "" {
+		l.AzureBlob.AccessTier = accessTier
+	}
+
+	if sasConfig != nil {
+		l.AzureBlob.SasToken = sasConfig.Token
+	}
+
+	if agentArns != nil {
+		l.AzureBlob.AgentArns = agentArns
+	}
+
+	return nil
+}
+
+// --- EFS ---
+
+func (b *InMemoryBackend) CreateLocationEfs(
+	efsFilesystemArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string,
+	ec2Config *Ec2Config,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationEfs")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	// EFS URI: efs://<filesystem-id>/<subdirectory>
+	fsID := efsFilesystemArn
+	if idx := strings.LastIndex(efsFilesystemArn, "/"); idx >= 0 {
+		fsID = efsFilesystemArn[idx+1:]
+	}
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("efs://%s/%s", fsID, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	cfg := &storedEfsConfig{
+		EfsFilesystemArn:        efsFilesystemArn,
+		AccessPointArn:          accessPointArn,
+		FileSystemAccessRoleArn: fileSystemAccessRoleArn,
+		InTransitEncryption:     inTransitEncryption,
+	}
+	if ec2Config != nil {
+		cfg.Ec2Config = &storedEfsEc2Config{
+			SubnetArn:         ec2Config.SubnetArn,
+			SecurityGroupArns: ec2Config.SecurityGroupArns,
+		}
+	}
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeEFS,
+		CreationTime: now,
+		Tags:         locationTags,
+		Efs:          cfg,
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationEfs(locationArn string) (*LocationEfs, error) {
+	b.mu.RLock("DescribeLocationEfs")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeEFS {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationEfs{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.Efs != nil {
+		out.EfsFilesystemArn = l.Efs.EfsFilesystemArn
+		out.AccessPointArn = l.Efs.AccessPointArn
+		out.FileSystemAccessRoleArn = l.Efs.FileSystemAccessRoleArn
+		out.InTransitEncryption = l.Efs.InTransitEncryption
+
+		if l.Efs.Ec2Config != nil {
+			out.Ec2Config = &Ec2Config{
+				SubnetArn:         l.Efs.Ec2Config.SubnetArn,
+				SecurityGroupArns: l.Efs.Ec2Config.SecurityGroupArns,
+			}
+		}
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationEfs(
+	locationArn, subdirectory, accessPointArn, fileSystemAccessRoleArn, inTransitEncryption string,
+	ec2Config *Ec2Config,
+) error {
+	b.mu.Lock("UpdateLocationEfs")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeEFS {
+		return ErrNotFound
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		fsID := l.Efs.EfsFilesystemArn
+		if idx := strings.LastIndex(fsID, "/"); idx >= 0 {
+			fsID = fsID[idx+1:]
+		}
+
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("efs://%s/%s", fsID, sub)
+	}
+
+	if l.Efs == nil {
+		l.Efs = &storedEfsConfig{}
+	}
+
+	if accessPointArn != "" {
+		l.Efs.AccessPointArn = accessPointArn
+	}
+
+	if fileSystemAccessRoleArn != "" {
+		l.Efs.FileSystemAccessRoleArn = fileSystemAccessRoleArn
+	}
+
+	if inTransitEncryption != "" {
+		l.Efs.InTransitEncryption = inTransitEncryption
+	}
+
+	if ec2Config != nil {
+		l.Efs.Ec2Config = &storedEfsEc2Config{
+			SubnetArn:         ec2Config.SubnetArn,
+			SecurityGroupArns: ec2Config.SecurityGroupArns,
+		}
+	}
+
+	return nil
+}
+
+// --- FsxLustre ---
+
+func (b *InMemoryBackend) CreateLocationFsxLustre(
+	fsxFilesystemArn, subdirectory string,
+	securityGroupArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationFsxLustre")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("lustre://%s/%s", fsxFilesystemArn, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeFsxLustre,
+		CreationTime: now,
+		Tags:         locationTags,
+		FsxLustre: &storedFsxLustreConfig{
+			FsxFilesystemArn:  fsxFilesystemArn,
+			SecurityGroupArns: securityGroupArns,
+		},
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationFsxLustre(locationArn string) (*LocationFsxLustre, error) {
+	b.mu.RLock("DescribeLocationFsxLustre")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxLustre {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationFsxLustre{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.FsxLustre != nil {
+		out.FsxFilesystemArn = l.FsxLustre.FsxFilesystemArn
+		out.SecurityGroupArns = l.FsxLustre.SecurityGroupArns
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationFsxLustre(locationArn, subdirectory string) error {
+	b.mu.Lock("UpdateLocationFsxLustre")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxLustre {
+		return ErrNotFound
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		fsArn := ""
+		if l.FsxLustre != nil {
+			fsArn = l.FsxLustre.FsxFilesystemArn
+		}
+
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("lustre://%s/%s", fsArn, sub)
+	}
+
+	return nil
+}
+
+// --- FsxOntap ---
+
+func toStoredFsxProtocol(p *FsxProtocol) *storedFsxProtocol {
+	if p == nil {
+		return nil
+	}
+
+	sp := &storedFsxProtocol{}
+
+	if p.NFS != nil {
+		sp.NFS = &storedFsxNfsProtocol{}
+		if p.NFS.MountOptions != nil {
+			sp.NFS.MountOptions = &storedFsxMountOptions{Version: p.NFS.MountOptions.Version}
+		}
+	}
+
+	if p.SMB != nil {
+		sp.SMB = &storedFsxSmbProtocol{
+			Domain:   p.SMB.Domain,
+			Password: p.SMB.Password,
+			User:     p.SMB.User,
+		}
+		if p.SMB.MountOptions != nil {
+			sp.SMB.MountOptions = &storedFsxMountOptions{Version: p.SMB.MountOptions.Version}
+		}
+	}
+
+	return sp
+}
+
+func fromStoredFsxProtocol(sp *storedFsxProtocol) *FsxProtocol {
+	if sp == nil {
+		return nil
+	}
+
+	p := &FsxProtocol{}
+
+	if sp.NFS != nil {
+		p.NFS = &FsxNfsProtocol{}
+		if sp.NFS.MountOptions != nil {
+			p.NFS.MountOptions = &MountOptions{Version: sp.NFS.MountOptions.Version}
+		}
+	}
+
+	if sp.SMB != nil {
+		p.SMB = &FsxSmbProtocol{
+			Domain:   sp.SMB.Domain,
+			Password: sp.SMB.Password,
+			User:     sp.SMB.User,
+		}
+		if sp.SMB.MountOptions != nil {
+			p.SMB.MountOptions = &MountOptions{Version: sp.SMB.MountOptions.Version}
+		}
+	}
+
+	return p
+}
+
+func (b *InMemoryBackend) CreateLocationFsxOntap(
+	storageVirtualMachineArn, subdirectory string,
+	protocol *FsxProtocol,
+	securityGroupArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationFsxOntap")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("ontap://%s/%s", storageVirtualMachineArn, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeFsxOntap,
+		CreationTime: now,
+		Tags:         locationTags,
+		FsxOntap: &storedFsxOntapConfig{
+			StorageVirtualMachineArn: storageVirtualMachineArn,
+			SecurityGroupArns:        securityGroupArns,
+			Protocol:                 toStoredFsxProtocol(protocol),
+		},
+	}
+
+	cp := b.storeLocation(l)
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationFsxOntap(locationArn string) (*LocationFsxOntap, error) {
+	b.mu.RLock("DescribeLocationFsxOntap")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxOntap {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationFsxOntap{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.FsxOntap != nil {
+		out.StorageVirtualMachineArn = l.FsxOntap.StorageVirtualMachineArn
+		out.SecurityGroupArns = l.FsxOntap.SecurityGroupArns
+		out.Protocol = fromStoredFsxProtocol(l.FsxOntap.Protocol)
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationFsxOntap(locationArn, subdirectory string, protocol *FsxProtocol) error {
+	b.mu.Lock("UpdateLocationFsxOntap")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxOntap {
+		return ErrNotFound
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		svm := ""
+		if l.FsxOntap != nil {
+			svm = l.FsxOntap.StorageVirtualMachineArn
+		}
+
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("ontap://%s/%s", svm, sub)
+	}
+
+	if protocol != nil && l.FsxOntap != nil {
+		l.FsxOntap.Protocol = toStoredFsxProtocol(protocol)
+	}
+
+	return nil
+}
+
+// --- FsxOpenZfs ---
+
+func (b *InMemoryBackend) CreateLocationFsxOpenZfs(
+	fsxFilesystemArn, subdirectory string,
+	protocol *FsxProtocol,
+	securityGroupArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationFsxOpenZfs")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("openzfs://%s/%s", fsxFilesystemArn, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeFsxOpenZfs,
+		CreationTime: now,
+		Tags:         locationTags,
+		FsxOpenZfs: &storedFsxOpenZfsConfig{
+			FsxFilesystemArn:  fsxFilesystemArn,
+			SecurityGroupArns: securityGroupArns,
+			Protocol:          toStoredFsxProtocol(protocol),
+		},
+	}
+
+	cp := b.storeLocation(l)
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationFsxOpenZfs(locationArn string) (*LocationFsxOpenZfs, error) {
+	b.mu.RLock("DescribeLocationFsxOpenZfs")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxOpenZfs {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationFsxOpenZfs{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.FsxOpenZfs != nil {
+		out.FsxFilesystemArn = l.FsxOpenZfs.FsxFilesystemArn
+		out.SecurityGroupArns = l.FsxOpenZfs.SecurityGroupArns
+		out.Protocol = fromStoredFsxProtocol(l.FsxOpenZfs.Protocol)
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationFsxOpenZfs(locationArn, subdirectory string, protocol *FsxProtocol) error {
+	b.mu.Lock("UpdateLocationFsxOpenZfs")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxOpenZfs {
+		return ErrNotFound
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		fsArn := ""
+		if l.FsxOpenZfs != nil {
+			fsArn = l.FsxOpenZfs.FsxFilesystemArn
+		}
+
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("openzfs://%s/%s", fsArn, sub)
+	}
+
+	if protocol != nil && l.FsxOpenZfs != nil {
+		l.FsxOpenZfs.Protocol = toStoredFsxProtocol(protocol)
+	}
+
+	return nil
+}
+
+// --- FsxWindows ---
+
+func (b *InMemoryBackend) CreateLocationFsxWindows(
+	fsxFilesystemArn, subdirectory, domain, user, password string,
+	securityGroupArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationFsxWindows")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("smb://%s/%s", fsxFilesystemArn, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeFsxWindows,
+		CreationTime: now,
+		Tags:         locationTags,
+		FsxWindows: &storedFsxWindowsConfig{
+			FsxFilesystemArn:  fsxFilesystemArn,
+			Domain:            domain,
+			User:              user,
+			Password:          password,
+			SecurityGroupArns: securityGroupArns,
+		},
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationFsxWindows(locationArn string) (*LocationFsxWindows, error) {
+	b.mu.RLock("DescribeLocationFsxWindows")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxWindows {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationFsxWindows{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.FsxWindows != nil {
+		out.FsxFilesystemArn = l.FsxWindows.FsxFilesystemArn
+		out.Domain = l.FsxWindows.Domain
+		out.User = l.FsxWindows.User
+		out.SecurityGroupArns = l.FsxWindows.SecurityGroupArns
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationFsxWindows(locationArn, subdirectory, domain, user, password string) error {
+	b.mu.Lock("UpdateLocationFsxWindows")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeFsxWindows {
+		return ErrNotFound
+	}
+
+	if l.FsxWindows == nil {
+		l.FsxWindows = &storedFsxWindowsConfig{}
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("smb://%s/%s", l.FsxWindows.FsxFilesystemArn, sub)
+	}
+
+	if domain != "" {
+		l.FsxWindows.Domain = domain
+	}
+
+	if user != "" {
+		l.FsxWindows.User = user
+	}
+
+	if password != "" {
+		l.FsxWindows.Password = password
+	}
+
+	return nil
+}
+
+// --- HDFS ---
+
+func (b *InMemoryBackend) CreateLocationHdfs(
+	subdirectory, authenticationType, simpleUser string,
+	kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string,
+	nameNodes []HdfsNameNode,
+	blockSize int64,
+	replicationFactor int32,
+	qopConfig *QopConfiguration,
+	agentArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationHdfs")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	host := "hdfs"
+	if len(nameNodes) > 0 {
+		host = fmt.Sprintf("%s:%d", nameNodes[0].Hostname, nameNodes[0].Port)
+	}
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("hdfs://%s/%s", host, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	storedNodes := make([]storedHdfsNameNode, len(nameNodes))
+	for i, n := range nameNodes {
+		storedNodes[i] = storedHdfsNameNode(n)
+	}
+
+	cfg := &storedHdfsConfig{
+		NameNodes:          storedNodes,
+		AuthenticationType: authenticationType,
+		SimpleUser:         simpleUser,
+		KerberosPrincipal:  kerberosPrincipal,
+		KerberosKeytab:     kerberosKeytab,
+		KerberosKrb5Conf:   kerberosKrb5Conf,
+		KmsKeyProviderURI:  kmsKeyProviderURI,
+		BlockSize:          blockSize,
+		ReplicationFactor:  replicationFactor,
+		AgentArns:          agentArns,
+	}
+
+	if qopConfig != nil {
+		cfg.QopConfiguration = &storedQopConfig{
+			DataTransferProtection: qopConfig.DataTransferProtection,
+			RPCProtection:          qopConfig.RPCProtection,
+		}
+	}
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeHDFS,
+		CreationTime: now,
+		Tags:         locationTags,
+		Hdfs:         cfg,
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationHdfs(locationArn string) (*LocationHdfs, error) {
+	b.mu.RLock("DescribeLocationHdfs")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeHDFS {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationHdfs{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.Hdfs != nil {
+		out.AuthenticationType = l.Hdfs.AuthenticationType
+		out.SimpleUser = l.Hdfs.SimpleUser
+		out.KerberosPrincipal = l.Hdfs.KerberosPrincipal
+		out.KmsKeyProviderURI = l.Hdfs.KmsKeyProviderURI
+		out.BlockSize = l.Hdfs.BlockSize
+		out.ReplicationFactor = l.Hdfs.ReplicationFactor
+		out.AgentArns = l.Hdfs.AgentArns
+
+		nodes := make([]HdfsNameNode, len(l.Hdfs.NameNodes))
+		for i, n := range l.Hdfs.NameNodes {
+			nodes[i] = HdfsNameNode(n)
+		}
+
+		out.NameNodes = nodes
+
+		if l.Hdfs.QopConfiguration != nil {
+			out.QopConfiguration = &QopConfiguration{
+				DataTransferProtection: l.Hdfs.QopConfiguration.DataTransferProtection,
+				RPCProtection:          l.Hdfs.QopConfiguration.RPCProtection,
+			}
+		}
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationHdfs(
+	locationArn, subdirectory, authenticationType, simpleUser string,
+	kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf, kmsKeyProviderURI string,
+	nameNodes []HdfsNameNode,
+	blockSize int64,
+	replicationFactor int32,
+	qopConfig *QopConfiguration,
+	agentArns []string,
+) error {
+	b.mu.Lock("UpdateLocationHdfs")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeHDFS {
+		return ErrNotFound
+	}
+
+	if l.Hdfs == nil {
+		l.Hdfs = &storedHdfsConfig{}
+	}
+
+	updateHdfsSubdirectory(l, subdirectory)
+	updateHdfsNameNodes(l.Hdfs, nameNodes)
+	updateHdfsScalarFields(
+		l.Hdfs,
+		authenticationType,
+		simpleUser,
+		kmsKeyProviderURI,
+		blockSize,
+		replicationFactor,
+		agentArns,
+	)
+	updateHdfsKerberosFields(l.Hdfs, kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf)
+
+	if qopConfig != nil {
+		l.Hdfs.QopConfiguration = &storedQopConfig{
+			DataTransferProtection: qopConfig.DataTransferProtection,
+			RPCProtection:          qopConfig.RPCProtection,
+		}
+	}
+
+	return nil
+}
+
+func updateHdfsSubdirectory(l *storedLocation, subdirectory string) {
+	if subdirectory == "" {
+		return
+	}
+
+	l.Subdirectory = subdirectory
+	host := "hdfs"
+	if len(l.Hdfs.NameNodes) > 0 {
+		host = fmt.Sprintf("%s:%d", l.Hdfs.NameNodes[0].Hostname, l.Hdfs.NameNodes[0].Port)
+	}
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	l.LocationURI = fmt.Sprintf("hdfs://%s/%s", host, sub)
+}
+
+func updateHdfsNameNodes(cfg *storedHdfsConfig, nameNodes []HdfsNameNode) {
+	if len(nameNodes) == 0 {
+		return
+	}
+
+	storedNodes := make([]storedHdfsNameNode, len(nameNodes))
+	for i, n := range nameNodes {
+		storedNodes[i] = storedHdfsNameNode(n)
+	}
+
+	cfg.NameNodes = storedNodes
+}
+
+func updateHdfsScalarFields(
+	cfg *storedHdfsConfig,
+	authenticationType, simpleUser, kmsKeyProviderURI string,
+	blockSize int64,
+	replicationFactor int32,
+	agentArns []string,
+) {
+	if authenticationType != "" {
+		cfg.AuthenticationType = authenticationType
+	}
+
+	if simpleUser != "" {
+		cfg.SimpleUser = simpleUser
+	}
+
+	if kmsKeyProviderURI != "" {
+		cfg.KmsKeyProviderURI = kmsKeyProviderURI
+	}
+
+	if blockSize > 0 {
+		cfg.BlockSize = blockSize
+	}
+
+	if replicationFactor > 0 {
+		cfg.ReplicationFactor = replicationFactor
+	}
+
+	if agentArns != nil {
+		cfg.AgentArns = agentArns
+	}
+}
+
+func updateHdfsKerberosFields(cfg *storedHdfsConfig, kerberosPrincipal, kerberosKeytab, kerberosKrb5Conf string) {
+	if kerberosPrincipal != "" {
+		cfg.KerberosPrincipal = kerberosPrincipal
+	}
+
+	if kerberosKeytab != "" {
+		cfg.KerberosKeytab = kerberosKeytab
+	}
+
+	if kerberosKrb5Conf != "" {
+		cfg.KerberosKrb5Conf = kerberosKrb5Conf
+	}
+}
+
+// --- NFS ---
+
+func (b *InMemoryBackend) CreateLocationNfs(
+	serverHostname, subdirectory string,
+	mountOptions *MountOptions,
+	agentArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationNfs")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("nfs://%s/%s", serverHostname, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	cfg := &storedNfsConfig{
+		ServerHostname: serverHostname,
+		AgentArns:      agentArns,
+	}
+
+	if mountOptions != nil {
+		cfg.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+	}
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeNFS,
+		CreationTime: now,
+		Tags:         locationTags,
+		Nfs:          cfg,
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationNfs(locationArn string) (*LocationNfs, error) {
+	b.mu.RLock("DescribeLocationNfs")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeNFS {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationNfs{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.Nfs != nil {
+		out.ServerHostname = l.Nfs.ServerHostname
+		out.AgentArns = l.Nfs.AgentArns
+
+		if l.Nfs.MountOptions != nil {
+			out.MountOptions = &MountOptions{Version: l.Nfs.MountOptions.Version}
+		}
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationNfs(
+	locationArn, subdirectory string,
+	mountOptions *MountOptions,
+	agentArns []string,
+) error {
+	b.mu.Lock("UpdateLocationNfs")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeNFS {
+		return ErrNotFound
+	}
+
+	if l.Nfs == nil {
+		l.Nfs = &storedNfsConfig{}
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("nfs://%s/%s", l.Nfs.ServerHostname, sub)
+	}
+
+	if mountOptions != nil {
+		l.Nfs.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+	}
+
+	if agentArns != nil {
+		l.Nfs.AgentArns = agentArns
+	}
+
+	return nil
+}
+
+// --- ObjectStorage ---
+
+func (b *InMemoryBackend) CreateLocationObjectStorage(
+	serverHostname, serverProtocol, bucketName, subdirectory, accessKey, secretKey string,
+	serverPort int32,
+	agentArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationObjectStorage")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("object-storage://%s/%s/%s", serverHostname, bucketName, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeObjectStorage,
+		CreationTime: now,
+		Tags:         locationTags,
+		ObjectStorage: &storedObjectStorageConfig{
+			ServerHostname: serverHostname,
+			ServerProtocol: serverProtocol,
+			BucketName:     bucketName,
+			AccessKey:      accessKey,
+			SecretKey:      secretKey,
+			ServerPort:     serverPort,
+			AgentArns:      agentArns,
+		},
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*LocationObjectStorage, error) {
+	b.mu.RLock("DescribeLocationObjectStorage")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeObjectStorage {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationObjectStorage{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.ObjectStorage != nil {
+		out.ServerHostname = l.ObjectStorage.ServerHostname
+		out.ServerProtocol = l.ObjectStorage.ServerProtocol
+		out.BucketName = l.ObjectStorage.BucketName
+		out.AccessKey = l.ObjectStorage.AccessKey
+		out.ServerPort = l.ObjectStorage.ServerPort
+		out.AgentArns = l.ObjectStorage.AgentArns
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationObjectStorage(
+	locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
+	serverPort int32,
+	agentArns []string,
+) error {
+	b.mu.Lock("UpdateLocationObjectStorage")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeObjectStorage {
+		return ErrNotFound
+	}
+
+	if l.ObjectStorage == nil {
+		l.ObjectStorage = &storedObjectStorageConfig{}
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf(
+			"object-storage://%s/%s/%s",
+			l.ObjectStorage.ServerHostname,
+			l.ObjectStorage.BucketName,
+			sub,
+		)
+	}
+
+	if serverProtocol != "" {
+		l.ObjectStorage.ServerProtocol = serverProtocol
+	}
+
+	if accessKey != "" {
+		l.ObjectStorage.AccessKey = accessKey
+	}
+
+	if secretKey != "" {
+		l.ObjectStorage.SecretKey = secretKey
+	}
+
+	if serverPort > 0 {
+		l.ObjectStorage.ServerPort = serverPort
+	}
+
+	if agentArns != nil {
+		l.ObjectStorage.AgentArns = agentArns
+	}
+
+	return nil
+}
+
+// --- SMB ---
+
+func (b *InMemoryBackend) CreateLocationSmb(
+	serverHostname, subdirectory, domain, user, password string,
+	mountOptions *MountOptions,
+	agentArns []string,
+	tags map[string]string,
+) (*Location, error) {
+	b.mu.Lock("CreateLocationSmb")
+	defer b.mu.Unlock()
+
+	id := newID()
+	locationArn := b.locationARN(id)
+	now := time.Now().UTC()
+
+	sub := strings.TrimPrefix(subdirectory, "/")
+	locationURI := fmt.Sprintf("smb://%s/%s", serverHostname, sub)
+
+	locationTags := make(map[string]string)
+	maps.Copy(locationTags, tags)
+
+	cfg := &storedSmbConfig{
+		ServerHostname: serverHostname,
+		Domain:         domain,
+		User:           user,
+		Password:       password,
+		AgentArns:      agentArns,
+	}
+
+	if mountOptions != nil {
+		cfg.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+	}
+
+	l := &storedLocation{
+		LocationArn:  locationArn,
+		LocationURI:  locationURI,
+		Subdirectory: subdirectory,
+		LocationType: locationTypeSMB,
+		CreationTime: now,
+		Tags:         locationTags,
+		Smb:          cfg,
+	}
+	b.locations[locationArn] = l
+
+	if len(locationTags) > 0 {
+		b.tags[locationArn] = make(map[string]string)
+		maps.Copy(b.tags[locationArn], locationTags)
+	}
+
+	cp := l.toLocation()
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb, error) {
+	b.mu.RLock("DescribeLocationSmb")
+	defer b.mu.RUnlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeSMB {
+		return nil, ErrNotFound
+	}
+
+	out := &LocationSmb{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		Subdirectory: l.Subdirectory,
+		CreationTime: l.CreationTime,
+	}
+
+	if l.Smb != nil {
+		out.ServerHostname = l.Smb.ServerHostname
+		out.Domain = l.Smb.Domain
+		out.User = l.Smb.User
+		out.AgentArns = l.Smb.AgentArns
+
+		if l.Smb.MountOptions != nil {
+			out.MountOptions = &MountOptions{Version: l.Smb.MountOptions.Version}
+		}
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) UpdateLocationSmb(
+	locationArn, subdirectory, domain, user, password string,
+	mountOptions *MountOptions,
+	agentArns []string,
+) error {
+	b.mu.Lock("UpdateLocationSmb")
+	defer b.mu.Unlock()
+
+	l, ok := b.locations[locationArn]
+	if !ok || l.LocationType != locationTypeSMB {
+		return ErrNotFound
+	}
+
+	if l.Smb == nil {
+		l.Smb = &storedSmbConfig{}
+	}
+
+	if subdirectory != "" {
+		l.Subdirectory = subdirectory
+		sub := strings.TrimPrefix(subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("smb://%s/%s", l.Smb.ServerHostname, sub)
+	}
+
+	if domain != "" {
+		l.Smb.Domain = domain
+	}
+
+	if user != "" {
+		l.Smb.User = user
+	}
+
+	if password != "" {
+		l.Smb.Password = password
+	}
+
+	if mountOptions != nil {
+		l.Smb.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+	}
+
+	if agentArns != nil {
+		l.Smb.AgentArns = agentArns
 	}
 
 	return nil

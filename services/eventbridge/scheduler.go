@@ -59,10 +59,12 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 	s.backend.mu.RLock("initLastFired")
 	defer s.backend.mu.RUnlock()
 
-	for _, busRules := range s.backend.rules {
-		for _, rule := range busRules {
-			if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
-				lastFired[rule.Arn] = now
+	for _, regRules := range s.backend.rules {
+		for _, busRules := range regRules {
+			for _, rule := range busRules {
+				if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
+					lastFired[rule.Arn] = now
+				}
 			}
 		}
 	}
@@ -74,16 +76,19 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 	type ruleInfo struct {
 		busName string
 		rule    Rule
+		region  string
 	}
 
 	var scheduled []ruleInfo
 	activeARNs := make(map[string]struct{})
-	for busName, busRules := range s.backend.rules {
-		for _, rule := range busRules {
-			if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
-				scheduled = append(scheduled, ruleInfo{rule: *rule, busName: busName})
+	for region, regRules := range s.backend.rules {
+		for busName, busRules := range regRules {
+			for _, rule := range busRules {
+				if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
+					scheduled = append(scheduled, ruleInfo{rule: *rule, busName: busName, region: region})
+				}
+				activeARNs[rule.Arn] = struct{}{}
 			}
-			activeARNs[rule.Arn] = struct{}{}
 		}
 	}
 	s.backend.mu.RUnlock()
@@ -116,7 +121,7 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 		// Fire the rule for each tick window that has passed.
 		next := expr.NextAfter(last)
 		if next.Before(tick) || next.Equal(tick) {
-			s.fireRule(ctx, rule, info.busName)
+			s.fireRule(ctx, rule, info.busName, info.region)
 			lastFired[rule.Arn] = tick
 			fired++
 		}
@@ -131,7 +136,7 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 }
 
 // fireRule synthesizes a scheduled event and calls PutEvents.
-func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName string) {
+func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName, region string) {
 	logger.Load(ctx).DebugContext(ctx, "EventBridge: firing scheduled rule", "rule", rule.Name, "bus", busName)
 
 	detail := `{"scheduled":true}`
@@ -150,5 +155,7 @@ func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName string) {
 		EventBusName: busName,
 	}
 
-	s.backend.PutEvents([]EventEntry{entry})
+	// Inject region into context for PutEvents.
+	ctx = context.WithValue(context.Background(), regionContextKey{}, region)
+	s.backend.PutEvents(ctx, []EventEntry{entry})
 }

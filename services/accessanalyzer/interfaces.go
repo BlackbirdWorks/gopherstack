@@ -8,6 +8,8 @@ type StorageBackend interface {
 	GetAnalyzer(name string) (*Analyzer, error)
 	ListAnalyzers(analyzerType string) ([]*Analyzer, error)
 	DeleteAnalyzer(name string) error
+	UpdateAnalyzer(name string) (*Analyzer, error)
+	CreateServiceLinkedAnalyzer(analyzerType AnalyzerType) (*Analyzer, error)
 
 	// Archive rule operations
 	CreateArchiveRule(analyzerName, ruleName string, filter map[string]FilterCriterion) (*ArchiveRule, error)
@@ -15,6 +17,7 @@ type StorageBackend interface {
 	ListArchiveRules(analyzerName string) ([]*ArchiveRule, error)
 	DeleteArchiveRule(analyzerName, ruleName string) error
 	UpdateArchiveRule(analyzerName, ruleName string, filter map[string]FilterCriterion) (*ArchiveRule, error)
+	ApplyArchiveRule(analyzerArn, ruleName string) error
 
 	// Finding operations
 	AddFinding(
@@ -32,9 +35,37 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*Finding, string, error)
 	UpdateFindings(analyzerName string, findingIDs []string, status FindingStatus) error
+	GetFindingV2(analyzerArn, findingID string) (*Finding, error)
+	ListFindingsV2(analyzerArn, status string, maxResults int, nextToken string) ([]*Finding, string, error)
+	GetFindingsStatistics(analyzerArn string) (map[string]int, error)
+
+	// Finding recommendations
+	GenerateFindingRecommendation(analyzerArn, findingID string) error
+	GetFindingRecommendation(analyzerArn, findingID string) (*FindingRecommendation, error)
+
+	// Analyzed resources
+	AddAnalyzedResource(analyzerArn, resourceArn, resourceType string, isPublic bool) (*AnalyzedResource, error)
+	GetAnalyzedResource(analyzerArn, resourceArn string) (*AnalyzedResource, error)
+	ListAnalyzedResources(
+		analyzerArn, resourceType string,
+		maxResults int,
+		nextToken string,
+	) ([]*AnalyzedResource, string, error)
 
 	// Scan
 	StartResourceScan(analyzerARN, resourceARN string) error
+
+	// Policy generation
+	StartPolicyGeneration(principalArn string) (*PolicyGeneration, error)
+	GetPolicyGeneration(jobID string) (*PolicyGeneration, error)
+	CancelPolicyGeneration(jobID string) error
+	ListPolicyGenerations(principalArn string) ([]*PolicyGeneration, error)
+
+	// Access previews
+	CreateAccessPreview(analyzerArn string) (*AccessPreview, error)
+	GetAccessPreview(accessPreviewID string) (*AccessPreview, error)
+	ListAccessPreviews(analyzerArn string) ([]*AccessPreview, error)
+	ListAccessPreviewFindings(accessPreviewID string, maxResults int, nextToken string) ([]*Finding, string, error)
 
 	// Tag operations
 	TagResource(resourceARN string, kv map[string]string) error

@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -137,7 +138,7 @@ func TestBatch2_ParameterLabels(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a parameter first
-	_, err := b.PutParameter(&ssm.PutParameterInput{Name: "/my/param", Value: "val", Type: "String"})
+	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/my/param", Value: "val", Type: "String"})
 	require.NoError(t, err)
 
 	// Label it
@@ -159,7 +160,7 @@ func TestBatch2_Sessions(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Start a session
-	sess, err := b.StartSession(&ssm.StartSessionInput{Target: "i-001"})
+	sess, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-001"})
 	require.NoError(t, err)
 
 	// DescribeSessions
@@ -184,7 +185,7 @@ func TestBatch2_OpsMetadata_List(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
+	_, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{ResourceID: "res-1"})
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListOpsMetadata", `{}`)
@@ -239,7 +240,7 @@ func TestBatch2_ListNodes(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create an activation so there's a node
-	_, err := b.CreateActivation(&ssm.CreateActivationInput{
+	_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 		IamRole:           "arn:aws:iam::000000000000:role/SSMRole",
 		RegistrationLimit: 1,
 	})
@@ -285,7 +286,7 @@ func TestBatch2_AssociationOps(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create association
-	assoc, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+	assoc, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 		Name:       "AWS-RunShellScript",
 		InstanceID: "i-001",
 	})

@@ -74,17 +74,23 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 
 	b.mu.Lock("SSMJanitor")
 
-	var expired []string
+	type expiredCmd struct {
+		region string
+		id     string
+	}
+	var expired []expiredCmd
 
-	for id, cmd := range b.commands {
-		if cmd.ExpiresAfter > 0 && cmd.ExpiresAfter < now {
-			expired = append(expired, id)
+	for region, commands := range b.commands {
+		for id, cmd := range commands {
+			if cmd.ExpiresAfter > 0 && cmd.ExpiresAfter < now {
+				expired = append(expired, expiredCmd{region: region, id: id})
+			}
 		}
 	}
 
-	for _, id := range expired {
-		delete(b.commands, id)
-		delete(b.commandInvocations, id)
+	for _, e := range expired {
+		delete(b.commands[e.region], e.id)
+		delete(b.commandInvocations[e.region], e.id)
 	}
 
 	b.mu.Unlock()

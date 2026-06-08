@@ -15,19 +15,29 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	pathChannels        = "/channels"
-	pathChannel         = "/channel/"
-	pathPlaybackConfig  = "/playbackConfiguration"
-	pathPlaybackConfigs = "/playbackConfigurations"
-	pathSourceLocations = "/sourceLocations"
-	pathSourceLocation  = "/sourceLocation/"
-	pathTags            = "/tags/"
+	pathChannels         = "/channels"
+	pathChannel          = "/channel/"
+	pathPlaybackConfig   = "/playbackConfiguration"
+	pathPlaybackConfigs  = "/playbackConfigurations"
+	pathSourceLocations  = "/sourceLocations"
+	pathSourceLocation   = "/sourceLocation/"
+	pathTags             = "/tags/"
+	pathPrefetchSchedule = "/prefetchSchedule/"
+	pathFunction         = "/function/"
+	pathFunctions        = "/functions"
+	pathAlerts           = "/alerts"
+	pathConfigureLogs    = "/configureLogs/"
 
 	keyMessage            = "Message"
 	keyTags               = "Tags"
 	keyItems              = "Items"
 	keyArn                = "Arn"
 	keySourceLocationName = "SourceLocationName"
+	keyName               = "Name"
+	keyChannelName        = "ChannelName"
+	keySourceGroup        = "SourceGroup"
+	keyVodSourceName      = "VodSourceName"
+	keyLiveSourceName     = "LiveSourceName"
 
 	splitTwo   = 2
 	splitThree = 3
@@ -62,6 +72,37 @@ const (
 	opListTagsForResource = "ListTagsForResource"
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
+
+	opCreateLiveSource   = "CreateLiveSource"
+	opDescribeLiveSource = "DescribeLiveSource"
+	opUpdateLiveSource   = "UpdateLiveSource"
+	opDeleteLiveSource   = "DeleteLiveSource"
+	opListLiveSources    = "ListLiveSources"
+
+	opCreatePrefetchSchedule = "CreatePrefetchSchedule"
+	opGetPrefetchSchedule    = "GetPrefetchSchedule"
+	opDeletePrefetchSchedule = "DeletePrefetchSchedule"
+	opListPrefetchSchedules  = "ListPrefetchSchedules"
+
+	opCreateProgram      = "CreateProgram"
+	opDescribeProgram    = "DescribeProgram"
+	opUpdateProgram      = "UpdateProgram"
+	opDeleteProgram      = "DeleteProgram"
+	opGetChannelSchedule = "GetChannelSchedule"
+
+	opPutChannelPolicy    = "PutChannelPolicy"
+	opGetChannelPolicy    = "GetChannelPolicy"
+	opDeleteChannelPolicy = "DeleteChannelPolicy"
+
+	opPutFunction    = "PutFunction"
+	opGetFunction    = "GetFunction"
+	opDeleteFunction = "DeleteFunction"
+	opListFunctions  = "ListFunctions"
+
+	opListAlerts = "ListAlerts"
+
+	opConfigureLogsForChannel               = "ConfigureLogsForChannel"
+	opConfigureLogsForPlaybackConfiguration = "ConfigureLogsForPlaybackConfiguration"
 )
 
 // Handler handles MediaTailor HTTP requests.
@@ -107,6 +148,30 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListTagsForResource,
 		opTagResource,
 		opUntagResource,
+		opCreateLiveSource,
+		opDescribeLiveSource,
+		opUpdateLiveSource,
+		opDeleteLiveSource,
+		opListLiveSources,
+		opCreatePrefetchSchedule,
+		opGetPrefetchSchedule,
+		opDeletePrefetchSchedule,
+		opListPrefetchSchedules,
+		opCreateProgram,
+		opDescribeProgram,
+		opUpdateProgram,
+		opDeleteProgram,
+		opGetChannelSchedule,
+		opPutChannelPolicy,
+		opGetChannelPolicy,
+		opDeleteChannelPolicy,
+		opPutFunction,
+		opGetFunction,
+		opDeleteFunction,
+		opListFunctions,
+		opListAlerts,
+		opConfigureLogsForChannel,
+		opConfigureLogsForPlaybackConfiguration,
 	}
 }
 
@@ -127,6 +192,11 @@ func isMediaTailorPath(path string) bool {
 		strings.HasPrefix(path, pathChannel) ||
 		path == pathSourceLocations ||
 		strings.HasPrefix(path, pathSourceLocation) ||
+		strings.HasPrefix(path, pathPrefetchSchedule) ||
+		path == pathFunctions ||
+		strings.HasPrefix(path, pathFunction) ||
+		path == pathAlerts ||
+		strings.HasPrefix(path, pathConfigureLogs) ||
 		isMediaTailorTagPath(path)
 }
 
@@ -206,6 +276,39 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opListTagsForResource: func() error { return h.handleListTagsForResource(c, resource) },
 		opTagResource:         func() error { return h.handleTagResource(c, resource, body) },
 		opUntagResource:       func() error { return h.handleUntagResource(c, resource) },
+
+		opCreateLiveSource:   func() error { return h.handleCreateLiveSource(c, resource, extra, body) },
+		opDescribeLiveSource: func() error { return h.handleDescribeLiveSource(c, resource, extra) },
+		opUpdateLiveSource:   func() error { return h.handleUpdateLiveSource(c, resource, extra, body) },
+		opDeleteLiveSource:   func() error { return h.handleDeleteLiveSource(c, resource, extra) },
+		opListLiveSources:    func() error { return h.handleListLiveSources(c, resource) },
+
+		opCreatePrefetchSchedule: func() error { return h.handleCreatePrefetchSchedule(c, resource, extra) },
+		opGetPrefetchSchedule:    func() error { return h.handleGetPrefetchSchedule(c, resource, extra) },
+		opDeletePrefetchSchedule: func() error { return h.handleDeletePrefetchSchedule(c, resource, extra) },
+		opListPrefetchSchedules:  func() error { return h.handleListPrefetchSchedules(c, resource) },
+
+		opCreateProgram:      func() error { return h.handleCreateProgram(c, resource, extra, body) },
+		opDescribeProgram:    func() error { return h.handleDescribeProgram(c, resource, extra) },
+		opUpdateProgram:      func() error { return h.handleUpdateProgram(c, resource, extra) },
+		opDeleteProgram:      func() error { return h.handleDeleteProgram(c, resource, extra) },
+		opGetChannelSchedule: func() error { return h.handleGetChannelSchedule(c, resource) },
+
+		opPutChannelPolicy:    func() error { return h.handlePutChannelPolicy(c, resource, body) },
+		opGetChannelPolicy:    func() error { return h.handleGetChannelPolicy(c, resource) },
+		opDeleteChannelPolicy: func() error { return h.handleDeleteChannelPolicy(c, resource) },
+
+		opPutFunction:    func() error { return h.handlePutFunction(c, resource, body) },
+		opGetFunction:    func() error { return h.handleGetFunction(c, resource) },
+		opDeleteFunction: func() error { return h.handleDeleteFunction(c, resource) },
+		opListFunctions:  func() error { return h.handleListFunctions(c) },
+
+		opListAlerts: func() error { return h.handleListAlerts(c) },
+
+		opConfigureLogsForChannel: func() error { return h.handleConfigureLogsForChannel(c, body) },
+		opConfigureLogsForPlaybackConfiguration: func() error {
+			return h.handleConfigureLogsForPlaybackConfiguration(c, body)
+		},
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -222,15 +325,31 @@ func classifyPath(method, path string) (string, string, string) {
 		return op, res, ""
 	}
 
-	if op, res, ok := classifyChannelPath(method, path); ok {
-		return op, res, ""
+	if op, res, extra, ok := classifyChannelPath(method, path); ok {
+		return op, res, extra
 	}
 
 	if op, res, extra, ok := classifySourceLocationPath(method, path); ok {
 		return op, res, extra
 	}
 
-	if tagARN, ok := strings.CutPrefix(path, pathTags); ok {
+	if op, res, extra, ok := classifyPrefetchSchedulePath(method, path); ok {
+		return op, res, extra
+	}
+
+	if op, res, ok := classifyFunctionPath(method, path); ok {
+		return op, res, ""
+	}
+
+	if op, ok := classifyConfigureLogsPath(method, path); ok {
+		return op, "", ""
+	}
+
+	if path == pathAlerts && method == http.MethodGet {
+		return opListAlerts, "", ""
+	}
+
+	if tagARN, ok := strings.CutPrefix(path, pathTags); ok && strings.Contains(tagARN, ":mediatailor:") {
 		return classifyTagPath(method), tagARN, ""
 	}
 
@@ -262,54 +381,84 @@ func classifyPlaybackConfigPath(method, path string) (string, string, bool) {
 	return "", "", false
 }
 
-func classifyChannelPath(method, path string) (string, string, bool) {
+func classifyChannelPath(method, path string) (string, string, string, bool) {
 	if path == pathChannels && method == http.MethodGet {
-		return opListChannels, "", true
+		return opListChannels, "", "", true
 	}
 
 	after, ok := strings.CutPrefix(path, pathChannel)
 	if !ok {
-		return "", "", false
+		return "", "", "", false
 	}
 
-	parts := strings.SplitN(after, "/", splitTwo)
+	parts := strings.SplitN(after, "/", splitThree)
 	channelName := parts[0]
 
 	if len(parts) == 1 {
 		return classifyChannelByMethod(method, channelName)
 	}
 
-	return classifyChannelSubPath(method, channelName, parts[1])
+	return classifyChannelSubPath(method, channelName, parts[1], strings.Join(parts[2:], "/"))
 }
 
-func classifyChannelByMethod(method, channelName string) (string, string, bool) {
+func classifyChannelByMethod(method, channelName string) (string, string, string, bool) {
 	switch method {
 	case http.MethodPost:
-		return opCreateChannel, channelName, true
+		return opCreateChannel, channelName, "", true
 	case http.MethodGet:
-		return opDescribeChannel, channelName, true
+		return opDescribeChannel, channelName, "", true
 	case http.MethodPut:
-		return opUpdateChannel, channelName, true
+		return opUpdateChannel, channelName, "", true
 	case http.MethodDelete:
-		return opDeleteChannel, channelName, true
+		return opDeleteChannel, channelName, "", true
 	}
 
-	return "", "", false
+	return "", "", "", false
 }
 
-func classifyChannelSubPath(method, channelName, suffix string) (string, string, bool) {
-	if method != http.MethodPut {
-		return "", "", false
+func classifyChannelSubPath(method, channelName, subKey, extra string) (string, string, string, bool) {
+	switch {
+	case subKey == "start" && method == http.MethodPut:
+		return opStartChannel, channelName, "", true
+	case subKey == "stop" && method == http.MethodPut:
+		return opStopChannel, channelName, "", true
+	case subKey == "schedule" && method == http.MethodGet:
+		return opGetChannelSchedule, channelName, "", true
+	case subKey == "policy":
+		return classifyChannelPolicyByMethod(method, channelName)
+	case subKey == "program" && extra != "" && !strings.Contains(extra, "/"):
+		return classifyProgramByMethod(method, channelName, extra)
 	}
 
-	switch suffix {
-	case "start":
-		return opStartChannel, channelName, true
-	case "stop":
-		return opStopChannel, channelName, true
+	return "", "", "", false
+}
+
+func classifyChannelPolicyByMethod(method, channelName string) (string, string, string, bool) {
+	switch method {
+	case http.MethodPut:
+		return opPutChannelPolicy, channelName, "", true
+	case http.MethodGet:
+		return opGetChannelPolicy, channelName, "", true
+	case http.MethodDelete:
+		return opDeleteChannelPolicy, channelName, "", true
 	}
 
-	return "", "", false
+	return "", "", "", false
+}
+
+func classifyProgramByMethod(method, channelName, programName string) (string, string, string, bool) {
+	switch method {
+	case http.MethodPost:
+		return opCreateProgram, channelName, programName, true
+	case http.MethodGet:
+		return opDescribeProgram, channelName, programName, true
+	case http.MethodPut:
+		return opUpdateProgram, channelName, programName, true
+	case http.MethodDelete:
+		return opDeleteProgram, channelName, programName, true
+	}
+
+	return "", "", "", false
 }
 
 // classifySourceLocationPath returns (op, sourceLocationName, secondaryName, ok).
@@ -323,7 +472,8 @@ func classifySourceLocationPath(method, path string) (string, string, string, bo
 		return "", "", "", false
 	}
 
-	// format: {sourceLocationName} or {sourceLocationName}/vodSource/{vodSourceName} or {sourceLocationName}/vodSources
+	// format: {slName} | {slName}/vodSources | {slName}/liveSources |
+	//         {slName}/vodSource/{name} | {slName}/liveSource/{name}
 	parts := strings.SplitN(after, "/", splitThree)
 	slName := parts[0]
 
@@ -334,9 +484,17 @@ func classifySourceLocationPath(method, path string) (string, string, string, bo
 		if parts[1] == "vodSources" && method == http.MethodGet {
 			return opListVodSources, slName, "", true
 		}
+
+		if parts[1] == "liveSources" && method == http.MethodGet {
+			return opListLiveSources, slName, "", true
+		}
 	case splitThree:
 		if parts[1] == "vodSource" {
 			return classifyVodSourceByMethod(method, slName, parts[2])
+		}
+
+		if parts[1] == "liveSource" {
+			return classifyLiveSourceByMethod(method, slName, parts[2])
 		}
 	}
 
@@ -373,6 +531,96 @@ func classifyVodSourceByMethod(method, slName, vodName string) (string, string, 
 	return "", "", "", false
 }
 
+func classifyLiveSourceByMethod(method, slName, lsName string) (string, string, string, bool) {
+	switch method {
+	case http.MethodPost:
+		return opCreateLiveSource, slName, lsName, true
+	case http.MethodGet:
+		return opDescribeLiveSource, slName, lsName, true
+	case http.MethodPut:
+		return opUpdateLiveSource, slName, lsName, true
+	case http.MethodDelete:
+		return opDeleteLiveSource, slName, lsName, true
+	}
+
+	return "", "", "", false
+}
+
+// classifyPrefetchSchedulePath handles /prefetchSchedule/{pc} and /prefetchSchedule/{pc}/{name}.
+func classifyPrefetchSchedulePath(method, path string) (string, string, string, bool) {
+	after, ok := strings.CutPrefix(path, pathPrefetchSchedule)
+	if !ok {
+		return "", "", "", false
+	}
+
+	parts := strings.SplitN(after, "/", splitTwo)
+	pcName := parts[0]
+
+	if len(parts) == 1 {
+		if method == http.MethodGet {
+			return opListPrefetchSchedules, pcName, "", true
+		}
+
+		return "", "", "", false
+	}
+
+	scheduleName := parts[1]
+	switch method {
+	case http.MethodPost:
+		return opCreatePrefetchSchedule, pcName, scheduleName, true
+	case http.MethodGet:
+		return opGetPrefetchSchedule, pcName, scheduleName, true
+	case http.MethodDelete:
+		return opDeletePrefetchSchedule, pcName, scheduleName, true
+	}
+
+	return "", "", "", false
+}
+
+// classifyFunctionPath handles /function/{id} and /functions.
+func classifyFunctionPath(method, path string) (string, string, bool) {
+	if path == pathFunctions && method == http.MethodGet {
+		return opListFunctions, "", true
+	}
+
+	fnID, ok := strings.CutPrefix(path, pathFunction)
+	if !ok || strings.Contains(fnID, "/") {
+		return "", "", false
+	}
+
+	switch method {
+	case http.MethodPut:
+		return opPutFunction, fnID, true
+	case http.MethodGet:
+		return opGetFunction, fnID, true
+	case http.MethodDelete:
+		return opDeleteFunction, fnID, true
+	}
+
+	return "", "", false
+}
+
+// classifyConfigureLogsPath handles /configureLogs/channel and /configureLogs/playbackConfiguration.
+func classifyConfigureLogsPath(method, path string) (string, bool) {
+	if method != http.MethodPut {
+		return "", false
+	}
+
+	suffix, ok := strings.CutPrefix(path, pathConfigureLogs)
+	if !ok {
+		return "", false
+	}
+
+	switch suffix {
+	case "channel":
+		return opConfigureLogsForChannel, true
+	case "playbackConfiguration":
+		return opConfigureLogsForPlaybackConfiguration, true
+	}
+
+	return "", false
+}
+
 func classifyTagPath(method string) string {
 	switch method {
 	case http.MethodGet:
@@ -406,7 +654,7 @@ func respondErr(c *echo.Context, err error) error {
 // --- PlaybackConfiguration handlers ---
 
 func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body[keyName].(string)
 	adsURL, _ := body["AdDecisionServerUrl"].(string)
 	videoURL, _ := body["VideoContentSourceUrl"].(string)
 	tags := extractTags(body)
@@ -445,7 +693,7 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"Name":                     s.Name,
+			keyName:                    s.Name,
 			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
 			"AdDecisionServerUrl":      s.AdDecisionServerURL,
 			"VideoContentSourceUrl":    s.VideoContentSourceURL,
@@ -463,7 +711,7 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 
 func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	return map[string]any{
-		"Name":                                cfg.Name,
+		keyName:                               cfg.Name,
 		"PlaybackConfigurationArn":            cfg.PlaybackConfigurationARN,
 		"AdDecisionServerUrl":                 cfg.AdDecisionServerURL,
 		"VideoContentSourceUrl":               cfg.VideoContentSourceURL,
@@ -525,7 +773,7 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"ChannelName":  s.Name,
+			keyChannelName: s.Name,
 			keyArn:         s.ARN,
 			"PlaybackMode": s.PlaybackMode,
 			"ChannelState": s.ChannelState,
@@ -562,7 +810,7 @@ func toChannelOutput(ch *Channel) map[string]any {
 	for _, o := range ch.Outputs {
 		out := map[string]any{
 			"ManifestName": o.ManifestName,
-			"SourceGroup":  o.SourceGroup,
+			keySourceGroup: o.SourceGroup,
 		}
 		if o.HlsPlaylistSettings != nil {
 			out["HlsPlaylistSettings"] = map[string]any{
@@ -573,7 +821,7 @@ func toChannelOutput(ch *Channel) map[string]any {
 	}
 
 	return map[string]any{
-		"ChannelName":  ch.Name,
+		keyChannelName: ch.Name,
 		keyArn:         ch.ARN,
 		"PlaybackMode": ch.PlaybackMode,
 		"ChannelState": ch.ChannelState,
@@ -720,7 +968,7 @@ func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName strin
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"VodSourceName":       s.VodSourceName,
+			keyVodSourceName:      s.VodSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
 			keyTags:               nilToEmpty(s.Tags),
@@ -739,14 +987,14 @@ func toVodSourceOutput(vs *VodSource) map[string]any {
 	cfgs := make([]map[string]any, 0, len(vs.HTTPPackageConfigurations))
 	for _, cfg := range vs.HTTPPackageConfigurations {
 		cfgs = append(cfgs, map[string]any{
-			"Path":        cfg.Path,
-			"SourceGroup": cfg.SourceGroup,
-			"Type":        cfg.Type,
+			"Path":         cfg.Path,
+			keySourceGroup: cfg.SourceGroup,
+			"Type":         cfg.Type,
 		})
 	}
 
 	return map[string]any{
-		"VodSourceName":             vs.VodSourceName,
+		keyVodSourceName:            vs.VodSourceName,
 		keySourceLocationName:       vs.SourceLocationName,
 		keyArn:                      vs.ARN,
 		"HttpPackageConfigurations": cfgs,
@@ -830,7 +1078,7 @@ func extractOutputs(body map[string]any) []OutputItem {
 
 		out := OutputItem{
 			ManifestName: stringField(m, "ManifestName"),
-			SourceGroup:  stringField(m, "SourceGroup"),
+			SourceGroup:  stringField(m, keySourceGroup),
 		}
 
 		if hls, hlsOk := m["HlsPlaylistSettings"].(map[string]any); hlsOk {
@@ -862,7 +1110,7 @@ func extractHTTPPackageConfigurations(body map[string]any) []HTTPPackageConfigur
 
 		cfgs = append(cfgs, HTTPPackageConfiguration{
 			Path:        stringField(m, "Path"),
-			SourceGroup: stringField(m, "SourceGroup"),
+			SourceGroup: stringField(m, keySourceGroup),
 			Type:        stringField(m, "Type"),
 		})
 	}
@@ -882,4 +1130,390 @@ func nilToEmpty(m map[string]string) map[string]string {
 	}
 
 	return m
+}
+
+// --- LiveSource handlers ---
+
+func (h *Handler) handleCreateLiveSource(
+	c *echo.Context,
+	sourceLocationName, liveSourceName string,
+	body map[string]any,
+) error {
+	cfgs := extractHTTPPackageConfigurations(body)
+	tags := extractTags(body)
+
+	ls, err := h.Backend.CreateLiveSource(sourceLocationName, liveSourceName, cfgs, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toLiveSourceOutput(ls))
+}
+
+func (h *Handler) handleDescribeLiveSource(c *echo.Context, sourceLocationName, liveSourceName string) error {
+	ls, err := h.Backend.DescribeLiveSource(sourceLocationName, liveSourceName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toLiveSourceOutput(ls))
+}
+
+func (h *Handler) handleUpdateLiveSource(
+	c *echo.Context,
+	sourceLocationName, liveSourceName string,
+	body map[string]any,
+) error {
+	cfgs := extractHTTPPackageConfigurations(body)
+
+	ls, err := h.Backend.UpdateLiveSource(sourceLocationName, liveSourceName, cfgs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toLiveSourceOutput(ls))
+}
+
+func (h *Handler) handleDeleteLiveSource(c *echo.Context, sourceLocationName, liveSourceName string) error {
+	if err := h.Backend.DeleteLiveSource(sourceLocationName, liveSourceName); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName string) error {
+	summaries, nextToken, err := h.Backend.ListLiveSources(sourceLocationName, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			keyLiveSourceName:     s.LiveSourceName,
+			keySourceLocationName: s.SourceLocationName,
+			keyArn:                s.ARN,
+			keyTags:               nilToEmpty(s.Tags),
+		})
+	}
+
+	resp := map[string]any{keyItems: out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func toLiveSourceOutput(ls *LiveSource) map[string]any {
+	cfgs := make([]map[string]any, 0, len(ls.HTTPPackageConfigurations))
+	for _, cfg := range ls.HTTPPackageConfigurations {
+		cfgs = append(cfgs, map[string]any{
+			"Path":         cfg.Path,
+			keySourceGroup: cfg.SourceGroup,
+			"Type":         cfg.Type,
+		})
+	}
+
+	return map[string]any{
+		keyLiveSourceName:           ls.LiveSourceName,
+		keySourceLocationName:       ls.SourceLocationName,
+		keyArn:                      ls.ARN,
+		"HttpPackageConfigurations": cfgs,
+		keyTags:                     nilToEmpty(ls.Tags),
+	}
+}
+
+// --- PrefetchSchedule handlers ---
+
+func (h *Handler) handleCreatePrefetchSchedule(c *echo.Context, playbackConfigName, name string) error {
+	ps, err := h.Backend.CreatePrefetchSchedule(playbackConfigName, name)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toPrefetchScheduleOutput(ps))
+}
+
+func (h *Handler) handleGetPrefetchSchedule(c *echo.Context, playbackConfigName, name string) error {
+	ps, err := h.Backend.GetPrefetchSchedule(playbackConfigName, name)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toPrefetchScheduleOutput(ps))
+}
+
+func (h *Handler) handleDeletePrefetchSchedule(c *echo.Context, playbackConfigName, name string) error {
+	if err := h.Backend.DeletePrefetchSchedule(playbackConfigName, name); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string) error {
+	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(playbackConfigName, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(schedules))
+	for _, ps := range schedules {
+		out = append(out, toPrefetchScheduleOutput(ps))
+	}
+
+	resp := map[string]any{keyItems: out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
+	return map[string]any{
+		keyArn:                      ps.ARN,
+		keyName:                     ps.Name,
+		"PlaybackConfigurationName": ps.PlaybackConfigurationName,
+	}
+}
+
+// --- Program handlers ---
+
+func (h *Handler) handleCreateProgram(
+	c *echo.Context,
+	channelName, programName string,
+	body map[string]any,
+) error {
+	sourceLocationName, _ := body["SourceLocationName"].(string)
+	vodSourceName, _ := body[keyVodSourceName].(string)
+	liveSourceName, _ := body[keyLiveSourceName].(string)
+	tags := extractTags(body)
+
+	prog, err := h.Backend.CreateProgram(
+		channelName,
+		programName,
+		sourceLocationName,
+		vodSourceName,
+		liveSourceName,
+		tags,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toProgramOutput(prog))
+}
+
+func (h *Handler) handleDescribeProgram(c *echo.Context, channelName, programName string) error {
+	prog, err := h.Backend.DescribeProgram(channelName, programName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toProgramOutput(prog))
+}
+
+func (h *Handler) handleUpdateProgram(c *echo.Context, channelName, programName string) error {
+	prog, err := h.Backend.UpdateProgram(channelName, programName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toProgramOutput(prog))
+}
+
+func (h *Handler) handleDeleteProgram(c *echo.Context, channelName, programName string) error {
+	if err := h.Backend.DeleteProgram(channelName, programName); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleGetChannelSchedule(c *echo.Context, channelName string) error {
+	entries, nextToken, err := h.Backend.GetChannelSchedule(channelName, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]any{
+			keyArn:         e.ARN,
+			keyChannelName: e.ChannelName,
+			"ProgramName":  e.ProgramName,
+		})
+	}
+
+	resp := map[string]any{keyItems: out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func toProgramOutput(prog *Program) map[string]any {
+	return map[string]any{
+		keyArn:               prog.ARN,
+		keyChannelName:       prog.ChannelName,
+		"ProgramName":        prog.ProgramName,
+		"SourceLocationName": prog.SourceLocationName,
+		keyVodSourceName:     prog.VodSourceName,
+		keyLiveSourceName:    prog.LiveSourceName,
+		keyTags:              nilToEmpty(prog.Tags),
+	}
+}
+
+// --- ChannelPolicy handlers ---
+
+func (h *Handler) handlePutChannelPolicy(c *echo.Context, channelName string, body map[string]any) error {
+	policy, _ := body["Policy"].(string)
+
+	if err := h.Backend.PutChannelPolicy(channelName, policy); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleGetChannelPolicy(c *echo.Context, channelName string) error {
+	policy, err := h.Backend.GetChannelPolicy(channelName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Policy": policy})
+}
+
+func (h *Handler) handleDeleteChannelPolicy(c *echo.Context, channelName string) error {
+	if err := h.Backend.DeleteChannelPolicy(channelName); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- Function handlers ---
+
+func (h *Handler) handlePutFunction(c *echo.Context, functionID string, body map[string]any) error {
+	functionType, _ := body["FunctionType"].(string)
+	description, _ := body["Description"].(string)
+	tags := extractTags(body)
+
+	fn, err := h.Backend.PutFunction(functionID, functionType, description, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toFunctionOutput(fn))
+}
+
+func (h *Handler) handleGetFunction(c *echo.Context, functionID string) error {
+	fn, err := h.Backend.GetFunction(functionID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toFunctionOutput(fn))
+}
+
+func (h *Handler) handleDeleteFunction(c *echo.Context, functionID string) error {
+	if err := h.Backend.DeleteFunction(functionID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListFunctions(c *echo.Context) error {
+	summaries, nextToken, err := h.Backend.ListFunctions(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			"FunctionId":   s.FunctionID,
+			"FunctionType": s.FunctionType,
+			keyArn:         s.ARN,
+			keyTags:        nilToEmpty(s.Tags),
+		})
+	}
+
+	resp := map[string]any{keyItems: out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func toFunctionOutput(fn *Function) map[string]any {
+	return map[string]any{
+		"FunctionId":   fn.FunctionID,
+		"FunctionType": fn.FunctionType,
+		keyArn:         fn.ARN,
+		"Description":  fn.Description,
+		keyTags:        nilToEmpty(fn.Tags),
+	}
+}
+
+// --- Alerts handler ---
+
+func (h *Handler) handleListAlerts(c *echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]any{keyItems: []map[string]any{}})
+}
+
+// --- Logs handlers ---
+
+func (h *Handler) handleConfigureLogsForChannel(c *echo.Context, body map[string]any) error {
+	channelName, _ := body[keyChannelName].(string)
+	logTypes := extractStringSlice(body, "LogTypes")
+
+	name, types, err := h.Backend.ConfigureLogsForChannel(channelName, logTypes)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyChannelName: name,
+		"LogTypes":     types,
+	})
+}
+
+func (h *Handler) handleConfigureLogsForPlaybackConfiguration(c *echo.Context, body map[string]any) error {
+	playbackConfigName, _ := body["PlaybackConfigurationName"].(string)
+	pct, _ := body["PercentEnabled"].(float64)
+	percentEnabled := int(pct)
+
+	name, percent, err := h.Backend.ConfigureLogsForPlaybackConfiguration(playbackConfigName, percentEnabled)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"PlaybackConfigurationName": name,
+		"PercentEnabled":            percent,
+	})
+}
+
+func extractStringSlice(body map[string]any, key string) []string {
+	raw, _ := body[key].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			result = append(result, s)
+		}
+	}
+
+	return result
 }

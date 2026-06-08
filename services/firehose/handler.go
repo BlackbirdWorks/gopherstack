@@ -153,8 +153,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"Firehose", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,
@@ -266,8 +270,8 @@ type httpEndpointConfigurationInput struct {
 	AccessKey string `json:"AccessKey"`
 }
 
-// kinesisStreamSourceConfigurationInput holds Kinesis stream source config.
-type kinesisStreamSourceConfigurationInput struct {
+// kinesisStreamSrcInput holds Kinesis stream source config.
+type kinesisStreamSrcInput struct {
 	KinesisStreamARN string `json:"KinesisStreamARN"`
 	RoleARN          string `json:"RoleARN"`
 }
@@ -288,18 +292,60 @@ type redshiftDestinationInput struct {
 	ClusterJDBCURL          string                   `json:"ClusterJDBCURL"`
 	RoleARN                 string                   `json:"RoleARN"`
 	S3BackupMode            string                   `json:"S3BackupMode"`
+	DataTableName           string                   `json:"DataTableName"`
+	DataTableColumns        string                   `json:"DataTableColumns"`
+	CopyOptions             string                   `json:"CopyOptions"`
+	Username                string                   `json:"Username"`
+}
+
+// openSearchDestinationInput holds the OpenSearch destination configuration.
+type openSearchDestinationInput struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	BufferingHints           *BufferingHints           `json:"BufferingHints"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration    *s3BackupInput            `json:"S3BackupConfiguration"`
+	DomainARN                string                    `json:"DomainARN"`
+	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
+	IndexName                string                    `json:"IndexName"`
+	TypeName                 string                    `json:"TypeName"`
+	IndexRotationPeriod      string                    `json:"IndexRotationPeriod"`
+	S3BackupMode             string                    `json:"S3BackupMode"`
+	RoleARN                  string                    `json:"RoleARN"`
+}
+
+// splunkDestinationInput holds the Splunk HEC destination configuration.
+type splunkDestinationInput struct {
+	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	RetryOptions                      *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3BackupConfiguration             *s3BackupInput            `json:"S3BackupConfiguration"`
+	HECEndpoint                       string                    `json:"HECEndpoint"`
+	HECEndpointType                   string                    `json:"HECEndpointType"`
+	HECToken                          string                    `json:"HECToken"`
+	S3BackupMode                      string                    `json:"S3BackupMode"`
+	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds"`
+}
+
+// aosDeliveryField holds the AmazonOpenSearch field separately so its long name
+// does not drive gofmt alignment in createDeliveryStreamInput. Embedding keeps
+// JSON marshaling transparent.
+type aosDeliveryField struct {
+	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
 }
 
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration           *s3DestinationInput                    `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration   *s3DestinationInput                    `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput          `json:"HTTPEndpointDestinationConfiguration"` //nolint:lll // AWS field name
-	KinesisStreamSourceConfiguration     *kinesisStreamSourceConfigurationInput `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration               *mskSourceConfigurationInput           `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration     *redshiftDestinationInput              `json:"RedshiftDestinationConfiguration"`
-	DeliveryStreamName                   string                                 `json:"DeliveryStreamName"`
-	DeliveryStreamType                   string                                 `json:"DeliveryStreamType"`
-	Tags                                 []svcTags.KV                           `json:"Tags"`
+	aosDeliveryField
+	S3DestinationConfiguration           *s3DestinationInput           `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration   *s3DestinationInput           `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
+	KinesisStreamSourceConfiguration     *kinesisStreamSrcInput        `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration               *mskSourceConfigurationInput  `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration     *redshiftDestinationInput     `json:"RedshiftDestinationConfiguration"`
+	SplunkDestinationConfiguration       *splunkDestinationInput       `json:"SplunkDestinationConfiguration"`
+	DeliveryStreamName                   string                        `json:"DeliveryStreamName"`
+	DeliveryStreamType                   string                        `json:"DeliveryStreamType"`
+	Tags                                 []svcTags.KV                  `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -375,10 +421,65 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 		S3BackupMode:            rs.S3BackupMode,
 		ProcessingConfiguration: rs.ProcessingConfiguration,
 		RetryOptions:            rs.RetryOptions,
+		DataTableName:           rs.DataTableName,
+		DataTableColumns:        rs.DataTableColumns,
+		CopyOptions:             rs.CopyOptions,
+		Username:                rs.Username,
 	}
 
 	if rs.S3BackupConfiguration != nil {
 		dest.S3BackupDescription = buildS3BackupDescription(rs.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildOpenSearchDestination converts openSearchDestinationInput to the backend type.
+func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDestinationDescription {
+	if os == nil {
+		return nil
+	}
+
+	dest := &OpenSearchDestinationDescription{
+		DomainARN:                os.DomainARN,
+		ClusterEndpoint:          os.ClusterEndpoint,
+		IndexName:                os.IndexName,
+		TypeName:                 os.TypeName,
+		IndexRotationPeriod:      os.IndexRotationPeriod,
+		S3BackupMode:             os.S3BackupMode,
+		RoleARN:                  os.RoleARN,
+		ProcessingConfiguration:  os.ProcessingConfiguration,
+		BufferingHints:           os.BufferingHints,
+		RetryOptions:             os.RetryOptions,
+		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
+	}
+
+	if os.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(os.S3BackupConfiguration)
+	}
+
+	return dest
+}
+
+// buildSplunkDestination converts splunkDestinationInput to the backend type.
+func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescription {
+	if sp == nil {
+		return nil
+	}
+
+	dest := &SplunkDestinationDescription{
+		HECEndpoint:                       sp.HECEndpoint,
+		HECEndpointType:                   sp.HECEndpointType,
+		HECToken:                          sp.HECToken,
+		S3BackupMode:                      sp.S3BackupMode,
+		HECAcknowledgmentTimeoutInSeconds: sp.HECAcknowledgmentTimeoutInSeconds,
+		ProcessingConfiguration:           sp.ProcessingConfiguration,
+		RetryOptions:                      sp.RetryOptions,
+		CloudWatchLoggingOptions:          sp.CloudWatchLoggingOptions,
+	}
+
+	if sp.S3BackupConfiguration != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(sp.S3BackupConfiguration)
 	}
 
 	return dest
@@ -401,7 +502,7 @@ func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 
 // buildSourceDescription converts source config inputs to the backend type.
 func buildSourceDescription(
-	ks *kinesisStreamSourceConfigurationInput,
+	ks *kinesisStreamSrcInput,
 	msk *mskSourceConfigurationInput,
 ) *SourceDescription {
 	if ks != nil {
@@ -428,7 +529,7 @@ func buildSourceDescription(
 }
 
 func (h *Handler) handleCreateDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *createDeliveryStreamInput,
 ) (*createDeliveryStreamOutput, error) {
 	if err := validateTags(in.Tags); err != nil {
@@ -441,12 +542,14 @@ func (h *Handler) handleCreateDeliveryStream(
 		rawS3 = in.S3DestinationConfiguration
 	}
 
-	s, err := h.Backend.CreateDeliveryStream(CreateDeliveryStreamInput{
+	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
 		Name:                    in.DeliveryStreamName,
 		DeliveryStreamType:      in.DeliveryStreamType,
 		S3Destination:           buildS3DestinationDescription(rawS3),
 		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
 		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationConfiguration),
+		OpenSearchDestination:   buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationConfiguration),
+		SplunkDestination:       buildSplunkDestination(in.SplunkDestinationConfiguration),
 		Source:                  buildSourceDescription(in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration),
 	})
 	if err != nil {
@@ -459,7 +562,7 @@ func (h *Handler) handleCreateDeliveryStream(
 			tagMap[t.Key] = t.Value
 		}
 
-		_ = h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap)
+		_ = h.Backend.TagDeliveryStream(ctx, in.DeliveryStreamName, tagMap)
 	}
 
 	return &createDeliveryStreamOutput{DeliveryStreamARN: s.ARN}, nil
@@ -468,10 +571,10 @@ func (h *Handler) handleCreateDeliveryStream(
 type deleteDeliveryStreamOutput struct{}
 
 func (h *Handler) handleDeleteDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *deliveryStreamNameInput,
 ) (*deleteDeliveryStreamOutput, error) {
-	if err := h.Backend.DeleteDeliveryStream(in.DeliveryStreamName); err != nil {
+	if err := h.Backend.DeleteDeliveryStream(ctx, in.DeliveryStreamName); err != nil {
 		return nil, err
 	}
 
@@ -505,10 +608,10 @@ type describeDeliveryStreamOutput struct {
 }
 
 func (h *Handler) handleDescribeDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *describeDeliveryStreamInput,
 ) (*describeDeliveryStreamOutput, error) {
-	s, err := h.Backend.DescribeDeliveryStream(in.DeliveryStreamName)
+	s, err := h.Backend.DescribeDeliveryStream(ctx, in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
@@ -564,10 +667,10 @@ type listDeliveryStreamsOutput struct {
 }
 
 func (h *Handler) handleListDeliveryStreams(
-	_ context.Context,
+	ctx context.Context,
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
-	names := h.Backend.ListDeliveryStreams()
+	names := h.Backend.ListDeliveryStreams(ctx)
 
 	// Apply ExclusiveStartDeliveryStreamName cursor.
 	if in.ExclusiveStartDeliveryStreamName != "" {
@@ -615,13 +718,13 @@ type putRecordOutput struct {
 	RecordID string `json:"RecordId"`
 }
 
-func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
+func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
 	data, err := base64.StdEncoding.DecodeString(in.Record.Data)
 	if err != nil {
 		data = []byte(in.Record.Data)
 	}
 
-	if putErr := h.Backend.PutRecord(in.DeliveryStreamName, data); putErr != nil {
+	if putErr := h.Backend.PutRecord(ctx, in.DeliveryStreamName, data); putErr != nil {
 		return nil, putErr
 	}
 
@@ -639,7 +742,7 @@ type putRecordBatchOutput struct {
 }
 
 func (h *Handler) handlePutRecordBatch(
-	_ context.Context,
+	ctx context.Context,
 	in *handlePutRecordBatchInput,
 ) (*putRecordBatchOutput, error) {
 	records := make([][]byte, 0, len(in.Records))
@@ -652,7 +755,7 @@ func (h *Handler) handlePutRecordBatch(
 		records = append(records, data)
 	}
 
-	failedCount, err := h.Backend.PutRecordBatch(in.DeliveryStreamName, records)
+	failedCount, err := h.Backend.PutRecordBatch(ctx, in.DeliveryStreamName, records)
 	if err != nil {
 		return nil, err
 	}
@@ -675,10 +778,10 @@ type listTagsForDeliveryStreamOutput struct {
 }
 
 func (h *Handler) handleListTagsForDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForDeliveryStreamInput,
 ) (*listTagsForDeliveryStreamOutput, error) {
-	tagMap, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
+	tagMap, err := h.Backend.ListTagsForDeliveryStream(ctx, in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
@@ -730,7 +833,7 @@ type tagDeliveryStreamInput struct {
 type tagDeliveryStreamOutput struct{}
 
 func (h *Handler) handleTagDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *tagDeliveryStreamInput,
 ) (*tagDeliveryStreamOutput, error) {
 	if err := validateTags(in.Tags); err != nil {
@@ -742,7 +845,7 @@ func (h *Handler) handleTagDeliveryStream(
 		tagMap[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap); err != nil {
+	if err := h.Backend.TagDeliveryStream(ctx, in.DeliveryStreamName, tagMap); err != nil {
 		return nil, err
 	}
 
@@ -757,10 +860,10 @@ type untagDeliveryStreamInput struct {
 type untagDeliveryStreamOutput struct{}
 
 func (h *Handler) handleUntagDeliveryStream(
-	_ context.Context,
+	ctx context.Context,
 	in *untagDeliveryStreamInput,
 ) (*untagDeliveryStreamOutput, error) {
-	if err := h.Backend.UntagDeliveryStream(in.DeliveryStreamName, in.TagKeys); err != nil {
+	if err := h.Backend.UntagDeliveryStream(ctx, in.DeliveryStreamName, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -778,7 +881,7 @@ type updateDestinationInput struct {
 type updateDestinationOutput struct{}
 
 func (h *Handler) handleUpdateDestination(
-	_ context.Context,
+	ctx context.Context,
 	in *updateDestinationInput,
 ) (*updateDestinationOutput, error) {
 	raw := in.ExtendedS3DestinationUpdate
@@ -788,7 +891,7 @@ func (h *Handler) handleUpdateDestination(
 
 	dest := buildS3DestinationDescription(raw)
 
-	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
+	if err := h.Backend.UpdateDestination(ctx, in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
 		return nil, err
 	}
 

@@ -17,6 +17,7 @@ package ssm_test
 //     body; AWS returns AssociationDoesNotExist.
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestBatch2Ops_GetAutomationExecution_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.GetAutomationExecution(&ssm.GetAutomationExecutionInput{
+			_, err := b.GetAutomationExecution(context.TODO(), &ssm.GetAutomationExecutionInput{
 				AutomationExecutionID: tt.execID,
 			})
 			require.ErrorIs(t, err, ssm.ErrAutomationExecutionNotFound,
@@ -83,13 +84,13 @@ func TestBatch2Ops_GetAutomationExecution_RoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			out, err := b.StartAutomationExecution(&ssm.StartAutomationExecutionInput{
+			out, err := b.StartAutomationExecution(context.TODO(), &ssm.StartAutomationExecutionInput{
 				DocumentName: tt.docID,
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, out.AutomationExecutionID)
 
-			got, err := b.GetAutomationExecution(&ssm.GetAutomationExecutionInput{
+			got, err := b.GetAutomationExecution(context.TODO(), &ssm.GetAutomationExecutionInput{
 				AutomationExecutionID: out.AutomationExecutionID,
 			})
 			require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestBatch2Ops_DeleteResourceDataSync_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.DeleteResourceDataSync(&ssm.DeleteResourceDataSyncInput{
+			_, err := b.DeleteResourceDataSync(context.TODO(), &ssm.DeleteResourceDataSyncInput{
 				SyncName: tt.syncName,
 			})
 			require.ErrorIs(t, err, ssm.ErrResourceDataSyncNotFound,
@@ -193,19 +194,19 @@ func TestBatch2Ops_DeleteResourceDataSync_RoundTrip(t *testing.T) {
 
 			b := newBackend(t)
 
-			_, err := b.CreateResourceDataSync(&ssm.CreateResourceDataSyncInput{
+			_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{
 				SyncName: tt.syncName,
 				SyncType: tt.syncType,
 			})
 			require.NoError(t, err)
 
-			_, err = b.DeleteResourceDataSync(&ssm.DeleteResourceDataSyncInput{
+			_, err = b.DeleteResourceDataSync(context.TODO(), &ssm.DeleteResourceDataSyncInput{
 				SyncName: tt.syncName,
 			})
 			require.NoError(t, err)
 
 			// Second delete must fail.
-			_, err = b.DeleteResourceDataSync(&ssm.DeleteResourceDataSyncInput{
+			_, err = b.DeleteResourceDataSync(context.TODO(), &ssm.DeleteResourceDataSyncInput{
 				SyncName: tt.syncName,
 			})
 			require.ErrorIs(t, err, ssm.ErrResourceDataSyncNotFound,
@@ -265,7 +266,7 @@ func TestBatch2Ops_LabelParameterVersion_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.LabelParameterVersion(&ssm.LabelParameterVersionInput{
+			_, err := b.LabelParameterVersion(context.TODO(), &ssm.LabelParameterVersionInput{
 				Name:   tt.paramName,
 				Labels: []string{"test-label"},
 			})
@@ -298,14 +299,14 @@ func TestBatch2Ops_LabelParameterVersion_RoundTrip(t *testing.T) {
 
 			b := newBackend(t)
 
-			_, err := b.PutParameter(&ssm.PutParameterInput{
+			_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  "/test/label-param",
 				Value: "myvalue",
 				Type:  "String",
 			})
 			require.NoError(t, err)
 
-			out, err := b.LabelParameterVersion(&ssm.LabelParameterVersionInput{
+			out, err := b.LabelParameterVersion(context.TODO(), &ssm.LabelParameterVersionInput{
 				Name:   "/test/label-param",
 				Labels: tt.labels,
 			})
@@ -370,7 +371,7 @@ func TestBatch2Ops_UpdateAssociationStatus_NotFound(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.UpdateAssociationStatus(&ssm.UpdateAssociationStatusInput{
+			_, err := b.UpdateAssociationStatus(context.TODO(), &ssm.UpdateAssociationStatusInput{
 				InstanceID: tt.instanceID,
 				Name:       tt.assocName,
 				AssociationStatus: ssm.AssociationStatusValue{
@@ -406,13 +407,13 @@ func TestBatch2Ops_UpdateAssociationStatus_RoundTrip(t *testing.T) {
 
 			b := newBackend(t)
 
-			assocOut, err := b.CreateAssociation(&ssm.CreateAssociationInput{
+			assocOut, err := b.CreateAssociation(context.TODO(), &ssm.CreateAssociationInput{
 				Name:       "AWS-RunShellScript",
 				InstanceID: "i-abc123",
 			})
 			require.NoError(t, err)
 
-			out, err := b.UpdateAssociationStatus(&ssm.UpdateAssociationStatusInput{
+			out, err := b.UpdateAssociationStatus(context.TODO(), &ssm.UpdateAssociationStatusInput{
 				InstanceID: "i-abc123",
 				Name:       "AWS-RunShellScript",
 				AssociationStatus: ssm.AssociationStatusValue{

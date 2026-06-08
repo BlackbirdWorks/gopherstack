@@ -18,32 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
 	h := mediatailor.NewHandler(backend)
 
-	notImplemented := []string{
-		"ConfigureLogsForChannel",
-		"ConfigureLogsForPlaybackConfiguration",
-		"CreateLiveSource",
-		"CreatePrefetchSchedule",
-		"CreateProgram",
-		"DeleteChannelPolicy",
-		"DeleteFunction",
-		"DeleteLiveSource",
-		"DeletePrefetchSchedule",
-		"DeleteProgram",
-		"DescribeLiveSource",
-		"DescribeProgram",
-		"GetChannelPolicy",
-		"GetChannelSchedule",
-		"GetFunction",
-		"GetPrefetchSchedule",
-		"ListAlerts",
-		"ListFunctions",
-		"ListLiveSources",
-		"ListPrefetchSchedules",
-		"PutChannelPolicy",
-		"PutFunction",
-		"UpdateLiveSource",
-		"UpdateProgram",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &mediatailorsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

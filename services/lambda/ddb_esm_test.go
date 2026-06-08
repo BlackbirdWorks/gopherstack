@@ -59,7 +59,10 @@ func TestLambda_IsDynamoDBStreamARN(t *testing.T) {
 }
 
 // fakeDDBStreamsReader is a test DynamoDBStreamsReader for unit tests.
+// By default it exposes a single shard ("shard-0001") so existing single-shard
+// tests continue to work without modification.
 type fakeDDBStreamsReader struct {
+	shardIDs     []string // defaults to ["shard-0001"] if nil
 	getIterErr   error
 	getRecErr    error
 	records      []lambda.DynamoDBStreamRecord
@@ -68,7 +71,18 @@ type fakeDDBStreamsReader struct {
 	mu           sync.Mutex
 }
 
-func (f *fakeDDBStreamsReader) GetStreamShardIterator(_, _ string) (string, error) {
+func (f *fakeDDBStreamsReader) DescribeStreamShards(_ string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.shardIDs != nil {
+		return f.shardIDs, nil
+	}
+
+	return []string{"shard-0001"}, nil
+}
+
+func (f *fakeDDBStreamsReader) GetStreamShardIterator(_, _, _ string) (string, error) {
 	f.mu.Lock()
 	f.iterCalls++
 	f.mu.Unlock()
@@ -373,4 +387,125 @@ func TestLambda_ESM_ShardIteratorCleanup(t *testing.T) {
 	// Second poll: the stale iterator entry should be swept.
 	lambda.PollOnce(t.Context(), poller)
 	assert.Equal(t, 0, lambda.ShardIteratorsLen(poller), "iterator should be swept after ESM deletion")
+}
+
+// TestLambda_DDB_Poller_MultiShard tests that the poller iterates all shards returned by
+// DescribeStreamShards and produces one Lambda invocation per shard that has records.
+func TestLambda_DDB_Poller_MultiShard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		recordsPerShard map[string][]lambda.DynamoDBStreamRecord
+		name            string
+		shardIDs        []string
+		wantInvocations int
+	}{
+		{
+			name:     "TwoShards_BothHaveRecords_TwoInvocations",
+			shardIDs: []string{"shard-0001", "shard-0002"},
+			recordsPerShard: map[string][]lambda.DynamoDBStreamRecord{
+				"shard-0001": {{EventID: "e1", EventName: "INSERT", SequenceNumber: "1"}},
+				"shard-0002": {{EventID: "e2", EventName: "MODIFY", SequenceNumber: "2"}},
+			},
+			wantInvocations: 2,
+		},
+		{
+			name:     "ThreeShards_OneEmpty_TwoInvocations",
+			shardIDs: []string{"shard-A", "shard-B", "shard-C"},
+			recordsPerShard: map[string][]lambda.DynamoDBStreamRecord{
+				"shard-A": {{EventID: "eA", EventName: "INSERT", SequenceNumber: "10"}},
+				"shard-B": nil, // no records
+				"shard-C": {{EventID: "eC", EventName: "REMOVE", SequenceNumber: "30"}},
+			},
+			wantInvocations: 2,
+		},
+		{
+			name:     "SingleShard_MatchesLegacyBehaviour",
+			shardIDs: []string{"shard-0001"},
+			recordsPerShard: map[string][]lambda.DynamoDBStreamRecord{
+				"shard-0001": {{EventID: "ex", EventName: "INSERT", SequenceNumber: "99"}},
+			},
+			wantInvocations: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newRealHandler(t)
+
+			streamARN := "arn:aws:dynamodb:us-east-1:000000000000:table/multi-shard/stream/2024-01-01T00:00:00.000"
+
+			require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "multi-fn"}))
+			_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+				EventSourceARN:   streamARN,
+				FunctionName:     "multi-fn",
+				StartingPosition: "TRIM_HORIZON",
+				BatchSize:        10,
+				Enabled:          true,
+			})
+			require.NoError(t, err)
+
+			wr := &multiShardReader{
+				shardIDs:  tt.shardIDs,
+				recordMap: tt.recordsPerShard,
+				seen:      map[string]bool{},
+			}
+
+			poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+			lambda.SetDynamoDBStreamsReaderOnPoller(poller, wr)
+
+			var invMu sync.Mutex
+			var invocations int
+
+			lambda.SetDDBInvoker(poller, func(_ context.Context, _ string, _ []byte) error {
+				invMu.Lock()
+				invocations++
+				invMu.Unlock()
+
+				return nil
+			})
+
+			lambda.PollOnce(t.Context(), poller)
+
+			invMu.Lock()
+			got := invocations
+			invMu.Unlock()
+
+			assert.Equal(t, tt.wantInvocations, got)
+		})
+	}
+}
+
+// multiShardReader implements DynamoDBStreamsReader with per-shard records, for multi-shard tests.
+type multiShardReader struct {
+	recordMap map[string][]lambda.DynamoDBStreamRecord
+	seen      map[string]bool
+	shardIDs  []string
+	mu        sync.Mutex
+}
+
+func (w *multiShardReader) DescribeStreamShards(_ string) ([]string, error) {
+	return w.shardIDs, nil
+}
+
+func (w *multiShardReader) GetStreamShardIterator(_, shardID, _ string) (string, error) {
+	return "iter:" + shardID, nil
+}
+
+func (w *multiShardReader) GetStreamRecords(iter string, _ int) ([]lambda.DynamoDBStreamRecord, string, error) {
+	// Extract shard ID from the iterator token "iter:<shardID>".
+	shardID := iter[len("iter:"):]
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.seen[shardID] {
+		return nil, "iter:" + shardID + ":done", nil
+	}
+
+	w.seen[shardID] = true
+
+	return w.recordMap[shardID], "iter:" + shardID + ":done", nil
 }

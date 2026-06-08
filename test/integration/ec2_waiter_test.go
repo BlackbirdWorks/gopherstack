@@ -40,7 +40,9 @@ func TestIntegration_EC2_InstanceRunningWaiter(t *testing.T) {
 	// Verify the instance state is running
 	assert.Equal(t, ec2types.InstanceStateNameRunning, out.Instances[0].State.Name)
 
-	waiter := ec2sdk.NewInstanceRunningWaiter(client)
+	waiter := ec2sdk.NewInstanceRunningWaiter(client, func(o *ec2sdk.InstanceRunningWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
@@ -82,7 +84,9 @@ func TestIntegration_EC2_InstanceStoppedWaiter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waiter := ec2sdk.NewInstanceStoppedWaiter(client)
+	waiter := ec2sdk.NewInstanceStoppedWaiter(client, func(o *ec2sdk.InstanceStoppedWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
@@ -118,7 +122,9 @@ func TestIntegration_EC2_InstanceTerminatedWaiter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waiter := ec2sdk.NewInstanceTerminatedWaiter(client)
+	waiter := ec2sdk.NewInstanceTerminatedWaiter(client, func(o *ec2sdk.InstanceTerminatedWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},

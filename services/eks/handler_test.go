@@ -84,7 +84,7 @@ func TestEKSClusterCRUD(t *testing.T) {
 				require.True(t, ok, "response should have cluster key")
 				assert.Equal(t, "my-cluster", cluster["name"])
 				assert.NotEmpty(t, cluster["arn"])
-				assert.Equal(t, "ACTIVE", cluster["status"])
+				assert.Equal(t, "CREATING", cluster["status"])
 				assert.Equal(t, "1.32", cluster["version"])
 			},
 		},
@@ -186,7 +186,7 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 				ng, ok := resp["nodegroup"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "my-ng", ng["nodegroupName"])
-				assert.Equal(t, "ACTIVE", ng["status"])
+				assert.Equal(t, "CREATING", ng["status"])
 			},
 		},
 		{

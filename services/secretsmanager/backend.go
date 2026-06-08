@@ -1,6 +1,7 @@
 package secretsmanager
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -105,9 +106,18 @@ type InMemoryBackend struct {
 	replicationConfigs map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
+	lambdaInvoker      LambdaInvoker
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
+	schedulerStop      chan struct{}
+	schedulerStopOnce  sync.Once
+}
+
+// SetLambdaInvoker stores the Lambda invoker on the backend. The rotation
+// scheduler uses it to invoke Lambda steps for scheduled rotations.
+func (b *InMemoryBackend) SetLambdaInvoker(invoker LambdaInvoker) {
+	b.lambdaInvoker = invoker
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -125,6 +135,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:             region,
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
+		schedulerStop:      make(chan struct{}),
 	}
 }
 
@@ -1194,6 +1205,13 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		return nil, err
 	}
 
+	// Promote immediately when no Lambda invoker is wired (stub/direct-backend usage).
+	// When a Lambda ARN is set AND a Lambda invoker is configured, the handler or
+	// scheduler will call FinishRotation after invoking the four rotation steps.
+	if input.RotationLambdaARN == "" || b.lambdaInvoker == nil {
+		b.finishRotationLocked(secret, versionID)
+	}
+
 	return &RotateSecretOutput{
 		ARN:       secret.ARN,
 		Name:      secret.Name,
@@ -1201,15 +1219,18 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	}, nil
 }
 
+// rotateSecretLocked creates a new secret version with the AWSPENDING staging label.
+// Callers MUST follow up with finishRotationLocked (to promote to AWSCURRENT) or
+// abortRotationLocked (to discard the pending version). Must be called with b.mu held.
 func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
 	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
 	if currentVer == nil {
 		return "", ErrVersionNotFound
 	}
 
-	// When a rotation Lambda ARN is configured, simulate the Lambda lifecycle by
-	// generating a fresh secret value (UUID string) as the new AWSCURRENT version.
-	// Without a Lambda ARN, preserve the existing secret value.
+	// When a rotation Lambda ARN is configured, generate a fresh secret value.
+	// The Lambda lifecycle (createSecret/setSecret/testSecret/finishSecret) will
+	// validate and promote the value. Without a Lambda ARN, preserve the existing value.
 	newSecretString := currentVer.SecretString
 	newSecretBinary := currentVer.SecretBinary
 
@@ -1227,7 +1248,19 @@ func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
 		CreatedDate:   UnixTimeFloat(b.now()),
 	}
 	secret.Versions[versionID] = newVer
-	b.rotateStagingLabels(secret)
+
+	return versionID, nil
+}
+
+// finishRotationLocked promotes the AWSPENDING version identified by versionID to
+// AWSCURRENT, moving the old AWSCURRENT to AWSPREVIOUS. Must be called with b.mu held.
+func (b *InMemoryBackend) finishRotationLocked(secret *Secret, versionID string) {
+	newVer, ok := secret.Versions[versionID]
+	if !ok {
+		return
+	}
+
+	b.rotateStagingLabels(secret) // AWSCURRENT → AWSPREVIOUS, drops old AWSPREVIOUS
 	newVer.StagingLabels = []string{StagingLabelCurrent}
 	secret.CurrentVersionID = versionID
 	secret.RotationEnabled = true
@@ -1236,8 +1269,68 @@ func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
 	secret.LastRotatedDate = &now
 	pruneVersions(secret)
 	b.syncReplicationStatusLocked(secret)
+}
 
-	return versionID, nil
+// abortRotationLocked removes the AWSPENDING version, cancelling an in-progress rotation.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) abortRotationLocked(secret *Secret, versionID string) {
+	delete(secret.Versions, versionID)
+}
+
+// FinishRotation promotes the AWSPENDING version to AWSCURRENT. Called by the
+// handler after all Lambda rotation steps succeed.
+func (b *InMemoryBackend) FinishRotation(secretID, versionID string) error {
+	b.mu.Lock("FinishRotation")
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(secretID)
+	secret, ok := b.secrets[id]
+
+	if !ok || secret.DeletedDate != nil {
+		return ErrSecretNotFound
+	}
+
+	b.finishRotationLocked(secret, versionID)
+
+	return nil
+}
+
+// AbortRotation removes the AWSPENDING version, aborting an in-progress rotation.
+// Called by the handler when a Lambda rotation step fails.
+func (b *InMemoryBackend) AbortRotation(secretID, versionID string) error {
+	b.mu.Lock("AbortRotation")
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(secretID)
+	secret, ok := b.secrets[id]
+
+	if !ok || secret.DeletedDate != nil {
+		return ErrSecretNotFound
+	}
+
+	b.abortRotationLocked(secret, versionID)
+
+	return nil
+}
+
+// runLambdaRotationSteps invokes the four Lambda rotation steps (createSecret,
+// setSecret, testSecret, finishSecret) for the given secret and version token.
+func (b *InMemoryBackend) runLambdaRotationSteps(ctx context.Context, lambdaARN, secretID, token string) error {
+	fnName := extractFunctionNameFromARN(lambdaARN)
+
+	for _, step := range rotationSteps {
+		event, _ := json.Marshal(map[string]string{
+			"SecretId":           secretID,
+			"ClientRequestToken": token,
+			"Step":               step,
+		})
+
+		if _, _, err := b.lambdaInvoker.InvokeFunction(ctx, fnName, "RequestResponse", event); err != nil {
+			return fmt.Errorf("rotation Lambda step %q failed: %w", step, err)
+		}
+	}
+
+	return nil
 }
 
 func cloneRotationRules(rules *RotationRulesType) *RotationRulesType {
@@ -2141,16 +2234,39 @@ func (b *InMemoryBackend) rotationSchedulerLoop() {
 	ticker := time.NewTicker(rotationSchedulerInterval)
 	defer ticker.Stop()
 
-	for now := range ticker.C {
-		b.runScheduledRotations(now)
+	for {
+		select {
+		case <-b.schedulerStop:
+			return
+		case now := <-ticker.C:
+			b.runScheduledRotations(now)
+		}
 	}
 }
 
-func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
-	b.mu.Lock("rotationScheduler")
-	defer b.mu.Unlock()
+// StopRotationScheduler signals the rotation scheduler goroutine to exit. It is
+// idempotent and safe to call even if the scheduler was never started: closing
+// the stop channel simply has no observer in that case.
+func (b *InMemoryBackend) StopRotationScheduler() {
+	if b.schedulerStop == nil {
+		return
+	}
 
-	for _, secret := range b.secrets {
+	b.schedulerStopOnce.Do(func() { close(b.schedulerStop) })
+}
+
+func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
+	type pendingRotation struct {
+		secretID  string
+		versionID string
+		lambdaARN string
+	}
+
+	// Phase 1: create AWSPENDING versions while holding the lock.
+	b.mu.Lock("rotationScheduler")
+	var pending []pendingRotation
+
+	for id, secret := range b.secrets {
 		if secret.DeletedDate != nil || !secret.RotationEnabled || secret.RotationRules == nil {
 			continue
 		}
@@ -2164,7 +2280,32 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 			continue
 		}
 
-		_, _ = b.rotateSecretLocked(secret)
+		versionID, err := b.rotateSecretLocked(secret)
+		if err != nil {
+			continue
+		}
+
+		lambdaARN := secret.RotationLambdaARN
+		if b.lambdaInvoker == nil || lambdaARN == "" {
+			// No Lambda configured — promote immediately while still locked.
+			b.finishRotationLocked(secret, versionID)
+
+			continue
+		}
+
+		pending = append(pending, pendingRotation{secretID: id, versionID: versionID, lambdaARN: lambdaARN})
+	}
+
+	b.mu.Unlock()
+
+	// Phase 2: invoke Lambda WITHOUT holding the lock, then promote or abort.
+	for _, p := range pending {
+		lambdaErr := b.runLambdaRotationSteps(context.Background(), p.lambdaARN, p.secretID, p.versionID)
+		if lambdaErr != nil {
+			_ = b.AbortRotation(p.secretID, p.versionID)
+		} else {
+			_ = b.FinishRotation(p.secretID, p.versionID)
+		}
 	}
 }
 

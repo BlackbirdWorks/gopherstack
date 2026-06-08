@@ -194,8 +194,9 @@ type CidrRoutingConfig struct {
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+// RegisterRecord stores the actual record value (IP for A/AAAA, hostname for CNAME/ALIAS).
 type DNSRegistrar interface {
-	Register(hostname string)
+	RegisterRecord(hostname, recordType string, values []string)
 	Deregister(hostname string)
 }
 
@@ -515,7 +516,8 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	// Deregister all DNS records before deletion.
 	if b.dns != nil {
 		for _, rrs := range zd.records {
-			if rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME {
+			if rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME || rrs.Type == recordTypeAAAA ||
+				rrs.AliasTarget != nil {
 				b.dns.Deregister(rrs.Name)
 			}
 		}
@@ -897,10 +899,86 @@ func validateChange(zd *zoneData, ch Change) error {
 	return nil
 }
 
+// dnsOp represents a pending DNS registration to apply after record mutation.
+type dnsOp struct {
+	name       string
+	recordType string
+	values     []string
+}
+
+// collectDNSRegisterOp returns a dnsOp (non-nil) if rrs requires DNS registration,
+// or nil when no DNS side-effect is needed.
+func collectDNSRegisterOp(rrs ResourceRecordSet) *dnsOp {
+	switch rrs.Type {
+	case recordTypeA, recordTypeAAAA:
+		vals := make([]string, 0, len(rrs.Records))
+		for _, r := range rrs.Records {
+			vals = append(vals, r.Value)
+		}
+		if rrs.AliasTarget != nil {
+			vals = append(vals, strings.TrimSuffix(rrs.AliasTarget.DNSName, "."))
+		}
+		if len(vals) > 0 {
+			return &dnsOp{name: rrs.Name, recordType: rrs.Type, values: vals}
+		}
+	case recordTypeCNAME:
+		vals := make([]string, 0, len(rrs.Records))
+		for _, r := range rrs.Records {
+			vals = append(vals, r.Value)
+		}
+		if rrs.AliasTarget != nil {
+			vals = append(vals, strings.TrimSuffix(rrs.AliasTarget.DNSName, "."))
+		}
+		if len(vals) > 0 {
+			return &dnsOp{name: rrs.Name, recordType: "CNAME", values: vals}
+		}
+	default:
+		if rrs.AliasTarget != nil {
+			return &dnsOp{
+				name:       rrs.Name,
+				recordType: "ALIAS",
+				values:     []string{strings.TrimSuffix(rrs.AliasTarget.DNSName, ".")},
+			}
+		}
+	}
+
+	return nil
+}
+
+// applyChange mutates zd for one Change, collecting DNS ops into toRegister/toDeregister.
+// Returns an error only for unknown actions.
+func applyChange(zd *zoneData, ch Change, toRegister *[]dnsOp, toDeregister *[]string, hasDNS bool) error {
+	rrs := ch.ResourceRecordSet
+	key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
+
+	switch ch.Action {
+	case ChangeActionCreate, ChangeActionUpsert:
+		cp := rrs
+		zd.records[key] = &cp
+
+		if hasDNS {
+			if op := collectDNSRegisterOp(rrs); op != nil {
+				*toRegister = append(*toRegister, *op)
+			}
+		}
+
+	case ChangeActionDelete:
+		delete(zd.records, key)
+
+		if hasDNS &&
+			(rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME || rrs.Type == recordTypeAAAA || rrs.AliasTarget != nil) {
+			*toDeregister = append(*toDeregister, rrs.Name)
+		}
+
+	default:
+		return fmt.Errorf("%w: unknown action %q", ErrInvalidAction, ch.Action)
+	}
+
+	return nil
+}
+
 // ChangeResourceRecordSets applies a batch of record set changes atomically.
 // All changes are validated before any mutation is applied.
-//
-//nolint:cyclop // handles multiple action types and failure modes in a single batch loop
 func (b *InMemoryBackend) ChangeResourceRecordSets(
 	zoneID string,
 	changes []Change,
@@ -932,36 +1010,18 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 	}
 
 	// All valid — apply.
-	var toRegister, toDeregister []string
+	var toRegister []dnsOp
+	var toDeregister []string
 
 	for _, ch := range normalised {
-		rrs := ch.ResourceRecordSet
-		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
-
-		switch ch.Action {
-		case ChangeActionCreate, ChangeActionUpsert:
-			cp := rrs
-			zd.records[key] = &cp
-
-			if b.dns != nil && (rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME) {
-				toRegister = append(toRegister, rrs.Name)
-			}
-
-		case ChangeActionDelete:
-			delete(zd.records, key)
-
-			if b.dns != nil && (rrs.Type == recordTypeA || rrs.Type == recordTypeCNAME) {
-				toDeregister = append(toDeregister, rrs.Name)
-			}
-
-		default:
-			return "", fmt.Errorf("%w: unknown action %q", ErrInvalidAction, ch.Action)
+		if err := applyChange(zd, ch, &toRegister, &toDeregister, b.dns != nil); err != nil {
+			return "", err
 		}
 	}
 
 	// Register/deregister outside the record mutation loop.
-	for _, name := range toRegister {
-		b.dns.Register(name)
+	for _, op := range toRegister {
+		b.dns.RegisterRecord(op.name, op.recordType, op.values)
 	}
 
 	for _, name := range toDeregister {

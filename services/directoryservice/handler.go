@@ -69,6 +69,10 @@ func NewHandler(b StorageBackend) *Handler {
 		opListTagsForResource:    h.handleListTagsForResource,
 	}
 
+	for op, fn := range h.appendixAOps() {
+		h.dispatch[op] = fn
+	}
+
 	return h
 }
 
@@ -80,7 +84,7 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	base := []string{
 		opCreateDirectory,
 		opCreateMicrosoftAD,
 		opDeleteDirectory,
@@ -98,6 +102,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opRemoveTagsFromResource,
 		opListTagsForResource,
 	}
+
+	return append(base, appendixAOpsNames()...)
 }
 
 // RouteMatcher returns a matcher that accepts DirectoryService requests by X-Amz-Target header.

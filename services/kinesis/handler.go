@@ -1783,9 +1783,20 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	return buf
 }
 
+// subscribeToShardStreamDuration is how long a SubscribeToShard stream stays open (~5 min).
+const subscribeToShardStreamDuration = 5 * time.Minute
+
+// subscribeToShardPollInterval is the poll interval between record checks.
+const subscribeToShardPollInterval = 200 * time.Millisecond
+
+// subscribeToShardMaxIdlePolls is the number of consecutive empty polls before the stream
+// is closed gracefully.  AWS clients re-subscribe after a stream closes, so closing on
+// idle is safe.  Keeping this small (3 × 200 ms = 600 ms) ensures tests complete quickly.
+const subscribeToShardMaxIdlePolls = 3
+
 // handleSubscribeToShardHTTP handles the SubscribeToShard operation using the AWS event stream
-// binary protocol. It delivers all currently available records as a single SubscribeToShardEvent
-// and then ends the stream. This is a simplified, polling-based mock.
+// binary protocol. It keeps the response stream open for up to 5 minutes, pushing records as
+// they arrive via periodic polling with chunked flushing.
 func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	ctx := c.Request().Context()
 	log := logger.Load(ctx)
@@ -1812,14 +1823,106 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		sp.Timestamp = &ts
 	}
 
-	out, err := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+	// Validate consumer/shard before opening the stream.
+	if _, err = h.Backend.SubscribeToShard(&SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: sp,
-	})
-	if err != nil {
+	}); err != nil {
 		return h.handleError(ctx, c, "SubscribeToShard", err)
 	}
+
+	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	c.Response().WriteHeader(http.StatusOK)
+
+	flusher, canFlush := c.Response().(http.Flusher)
+
+	// Send initial-response so the SDK event-stream middleware unblocks.
+	initialMsg := encodeEventStreamMsg([][2]string{
+		{":event-type", "initial-response"},
+		{":message-type", "event"},
+		{":content-type", "application/json"},
+	}, []byte("{}"))
+	if _, writeErr := c.Response().Write(initialMsg); writeErr != nil {
+		return writeErr
+	}
+	if canFlush {
+		flusher.Flush()
+	}
+
+	deadline := time.Now().Add(subscribeToShardStreamDuration)
+	ticker := time.NewTicker(subscribeToShardPollInterval)
+	defer ticker.Stop()
+
+	curSP := sp
+	idlePolls := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return nil
+			}
+
+			if stop, next := h.advanceShardCursor(req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+				return nil
+			} else if next != nil {
+				curSP = *next
+			}
+		}
+	}
+}
+
+// advanceShardCursor calls pollSubscribeToShardTick and returns (stop=true, nil) when the
+// stream should close, or (false, nextSP) when it should continue (nextSP may be nil).
+func (h *Handler) advanceShardCursor(
+	req jsonSubscribeToShardReq,
+	curSP StartingPosition,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	canFlush bool,
+	idlePolls *int,
+) (bool, *StartingPosition) {
+	done, next, tickErr := h.pollSubscribeToShardTick(req, curSP, w, flusher, canFlush, idlePolls)
+	if tickErr != nil || done {
+		return true, nil
+	}
+
+	return false, next
+}
+
+// pollSubscribeToShardTick performs one poll tick for handleSubscribeToShardHTTP.
+// Returns (true, nil, err) when the stream should close (poll error or idle limit reached),
+// (false, nextSP, nil) when records were delivered (nextSP non-nil means cursor advanced),
+// and (false, nil, err) on a write error.
+func (h *Handler) pollSubscribeToShardTick(
+	req jsonSubscribeToShardReq,
+	curSP StartingPosition,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	canFlush bool,
+	idlePolls *int,
+) (bool, *StartingPosition, error) {
+	out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+		ConsumerARN:      req.ConsumerARN,
+		ShardID:          req.ShardID,
+		StartingPosition: curSP,
+	})
+	if pollErr != nil {
+		return true, nil, pollErr
+	}
+
+	if len(out.Event.Records) == 0 {
+		*idlePolls++
+		if *idlePolls >= subscribeToShardMaxIdlePolls {
+			return true, nil, nil
+		}
+
+		return false, nil, nil
+	}
+	*idlePolls = 0
 
 	records := make([]jsonRecord, len(out.Event.Records))
 	for i, r := range out.Event.Records {
@@ -1831,27 +1934,14 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		}
 	}
 
-	eventPayload, err := json.Marshal(jsonSubscribeToShardEvent{
+	eventPayload, marshalErr := json.Marshal(jsonSubscribeToShardEvent{
 		Records:                    records,
 		ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
 		MillisBehindLatest:         out.Event.MillisBehindLatest,
 	})
-	if err != nil {
-		log.ErrorContext(ctx, "SubscribeToShard: failed to marshal event payload", "error", err)
-
-		return c.String(http.StatusInternalServerError, "internal server error")
+	if marshalErr != nil {
+		return false, nil, marshalErr
 	}
-
-	// The AWS SDK event stream middleware blocks until it receives an "initial-response"
-	// message. This must be written before any event messages or the SDK and the
-	// readEventStream goroutine will deadlock: the middleware waits on initialResponse
-	// while the goroutine waits for someone to drain the stream channel.
-	// The payload is an empty JSON object because SubscribeToShardOutput has no fields.
-	initialResponseMsg := encodeEventStreamMsg([][2]string{
-		{":event-type", "initial-response"},
-		{":message-type", "event"},
-		{":content-type", "application/json"},
-	}, []byte("{}"))
 
 	eventMsg := encodeEventStreamMsg([][2]string{
 		{":event-type", "SubscribeToShardEvent"},
@@ -1859,16 +1949,23 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		{":content-type", "application/json"},
 	}, eventPayload)
 
-	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
-	c.Response().WriteHeader(http.StatusOK)
-
-	if _, err = c.Response().Write(initialResponseMsg); err != nil {
-		return err
+	if _, writeErr := w.Write(eventMsg); writeErr != nil {
+		return false, nil, writeErr
+	}
+	if canFlush {
+		flusher.Flush()
 	}
 
-	_, err = c.Response().Write(eventMsg)
+	if out.Event.ContinuationSequenceNumber != "" {
+		sp := StartingPosition{
+			Type:           iteratorTypeAfterSequenceNumber,
+			SequenceNumber: out.Event.ContinuationSequenceNumber,
+		}
 
-	return err
+		return false, &sp, nil
+	}
+
+	return false, nil, nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

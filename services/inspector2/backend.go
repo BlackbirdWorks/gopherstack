@@ -119,6 +119,7 @@ type InMemoryBackend struct { //nolint:govet // fieldalignment: bool before poin
 	mu        *lockmetrics.RWMutex
 	filters   map[string]*Filter
 	tags      map[string]map[string]string
+	ax        *appendixAState
 	config    Configuration
 	enabled   bool
 	accountID string
@@ -131,6 +132,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:      lockmetrics.New("inspector2"),
 		filters: make(map[string]*Filter),
 		tags:    make(map[string]map[string]string),
+		ax:      newAppendixAState(),
 		config: Configuration{
 			Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
 			EcrRescanDuration: ecrRescanDurationLifetime,

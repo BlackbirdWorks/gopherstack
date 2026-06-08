@@ -526,6 +526,7 @@ func (rc *ResourceCreator) deleteECSService(arn string) error {
 // ---- ECR ----
 
 func (rc *ResourceCreator) createECRRepository(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -539,7 +540,7 @@ func (rc *ResourceCreator) createECRRepository(
 		name = strings.ToLower(logicalID)
 	}
 
-	repo, err := rc.backends.ECR.Backend.CreateRepository(name, "", false, "", "")
+	repo, err := rc.backends.ECR.Backend.CreateRepository(ctx, name, "", false, "", "")
 	if err != nil {
 		return "", fmt.Errorf("create ECR repository %s: %w", name, err)
 	}
@@ -547,14 +548,14 @@ func (rc *ResourceCreator) createECRRepository(
 	return repo.RepositoryARN, nil
 }
 
-func (rc *ResourceCreator) deleteECRRepository(arn string) error {
+func (rc *ResourceCreator) deleteECRRepository(ctx context.Context, arn string) error {
 	if rc.backends.ECR == nil {
 		return nil
 	}
 
 	name := resourceNameFromARN(arn)
 
-	_, err := rc.backends.ECR.Backend.DeleteRepository(name)
+	_, err := rc.backends.ECR.Backend.DeleteRepository(ctx, name)
 
 	return err
 }
@@ -792,6 +793,7 @@ func (rc *ResourceCreator) deleteOpenSearchDomain(arn string) error {
 // ---- Firehose ----
 
 func (rc *ResourceCreator) createFirehoseDeliveryStream(
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -805,7 +807,7 @@ func (rc *ResourceCreator) createFirehoseDeliveryStream(
 		name = logicalID
 	}
 
-	stream, err := rc.backends.Firehose.Backend.CreateDeliveryStream(firehosebackend.CreateDeliveryStreamInput{
+	stream, err := rc.backends.Firehose.Backend.CreateDeliveryStream(ctx, firehosebackend.CreateDeliveryStreamInput{
 		Name: name,
 	})
 	if err != nil {
@@ -815,7 +817,7 @@ func (rc *ResourceCreator) createFirehoseDeliveryStream(
 	return stream.ARN, nil
 }
 
-func (rc *ResourceCreator) deleteFirehoseDeliveryStream(arn string) error {
+func (rc *ResourceCreator) deleteFirehoseDeliveryStream(ctx context.Context, arn string) error {
 	if rc.backends.Firehose == nil {
 		return nil
 	}
@@ -823,7 +825,7 @@ func (rc *ResourceCreator) deleteFirehoseDeliveryStream(arn string) error {
 	// Extract stream name from ARN: arn:aws:firehose:{region}:{account}:deliverystream/{name}
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.Firehose.Backend.DeleteDeliveryStream(name)
+	return rc.backends.Firehose.Backend.DeleteDeliveryStream(ctx, name)
 }
 
 // ---- Route53Resolver ----

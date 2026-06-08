@@ -51,11 +51,22 @@ type backendSnapshot struct {
 	VpcPeeringConnections          map[string]*VpcPeeringConnection  `json:"vpcPeeringConnections,omitempty"`
 	ByoipCidrs                     map[string]*ByoipCidr             `json:"byoipCidrs,omitempty"`
 	DedicatedHosts                 map[string]*Host                  `json:"dedicatedHosts,omitempty"`
+	VpnGateways                    map[string]*VpnGateway            `json:"vpnGateways,omitempty"`
+	CustomerGateways               map[string]*CustomerGateway       `json:"customerGateways,omitempty"`
+	Ipams                          map[string]*Ipam                  `json:"ipams,omitempty"`
+	IpamPools                      map[string]*IpamPool              `json:"ipamPools,omitempty"`
+	IpamPoolAllocations            map[string]*IpamPoolAllocation    `json:"ipamPoolAllocations,omitempty"`
+	CarrierGateways                map[string]*CarrierGateway        `json:"carrierGateways,omitempty"`
+	Fleets                         map[string]*Fleet                 `json:"fleets,omitempty"`
+	NetworkInsightsPaths           map[string]*NetworkInsightsPath   `json:"networkInsightsPaths,omitempty"`
+	ManagedPrefixLists             map[string]*ManagedPrefixList     `json:"managedPrefixLists,omitempty"`
 	AccountID                      string                            `json:"accountID"`
 	Region                         string                            `json:"region"`
 	FreePrivateIPs                 []string                          `json:"freePrivateIPs,omitempty"`
 	NextPrivateIPIndex             int                               `json:"nextPrivateIPIndex"`
 	NextElasticIPIndex             int                               `json:"nextElasticIPIndex"`
+	EbsEncryptionByDefault         bool                              `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess            bool                              `json:"serialConsoleAccess"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -98,6 +109,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		VpcPeeringConnections:          b.vpcPeeringConnections,
 		ByoipCidrs:                     b.byoipCidrs,
 		DedicatedHosts:                 b.dedicatedHosts,
+		VpnGateways:                    b.vpnGateways,
+		CustomerGateways:               b.customerGateways,
+		Ipams:                          b.ipams,
+		IpamPools:                      b.ipamPools,
+		IpamPoolAllocations:            b.ipamPoolAllocations,
+		CarrierGateways:                b.carrierGateways,
+		Fleets:                         b.fleets,
+		NetworkInsightsPaths:           b.networkInsightsPaths,
+		ManagedPrefixLists:             b.managedPrefixLists,
+		EbsEncryptionByDefault:         b.ebsEncryptionByDefault,
+		SerialConsoleAccess:            b.serialConsoleAccess,
 		FreePrivateIPs:                 b.freePrivateIPs,
 		AccountID:                      b.AccountID,
 		Region:                         b.Region,
@@ -129,6 +151,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.restoreCoreFields(&snap)
+	b.restoreExtendedFields(&snap)
+	b.rebuildSecondaryIndexesLocked()
+
+	return nil
+}
+
+// restoreCoreFields copies the core map/bool/scalar fields from snap into b.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreCoreFields(snap *backendSnapshot) {
 	b.instances = snap.Instances
 	b.securityGroups = snap.SecurityGroups
 	b.vpcs = snap.VPCs
@@ -152,6 +184,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.flowLogs = snap.FlowLogs
 	b.dhcpOptionSets = snap.DhcpOptionSets
 	b.tags = snap.Tags
+}
+
+// restoreExtendedFields copies extended/appendix fields from snap into b.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) restoreExtendedFields(snap *backendSnapshot) {
 	b.addressTransfers = snap.AddressTransfers
 	b.capacityReservations = snap.CapacityReservations
 	b.reservedInstancesExchanges = snap.ReservedInstancesExchanges
@@ -162,14 +199,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.vpcPeeringConnections = snap.VpcPeeringConnections
 	b.byoipCidrs = snap.ByoipCidrs
 	b.dedicatedHosts = snap.DedicatedHosts
+	b.vpnGateways = snap.VpnGateways
+	b.customerGateways = snap.CustomerGateways
+	b.ipams = snap.Ipams
+	b.ipamPools = snap.IpamPools
+	b.ipamPoolAllocations = snap.IpamPoolAllocations
+	b.carrierGateways = snap.CarrierGateways
+	b.fleets = snap.Fleets
+	b.networkInsightsPaths = snap.NetworkInsightsPaths
+	b.managedPrefixLists = snap.ManagedPrefixLists
+	b.ebsEncryptionByDefault = snap.EbsEncryptionByDefault
+	b.serialConsoleAccess = snap.SerialConsoleAccess
 	b.freePrivateIPs = snap.FreePrivateIPs
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex
 	b.nextElasticIPIndex = snap.NextElasticIPIndex
-	b.rebuildSecondaryIndexesLocked()
-
-	return nil
 }
 
 // initMissingMaps ensures all map fields in the snapshot are non-nil.
@@ -240,42 +285,23 @@ func (s *backendSnapshot) initCoreMaps() {
 	}
 }
 
+// initMapIfNil initialises m to an empty map if it is nil.
+func initMapIfNil[K comparable, V any](m *map[K]V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+}
+
 func (s *backendSnapshot) initDeepDiveMaps() {
-	if s.Images == nil {
-		s.Images = make(map[string]*AMIStub)
-	}
-
-	if s.ImageUsageReports == nil {
-		s.ImageUsageReports = make(map[string]*ImageUsageReport)
-	}
-
-	if s.LaunchTemplates == nil {
-		s.LaunchTemplates = make(map[string]*LaunchTemplate)
-	}
-
-	if s.VpcEndpoints == nil {
-		s.VpcEndpoints = make(map[string]*VpcEndpoint)
-	}
-
-	if s.Snapshots == nil {
-		s.Snapshots = make(map[string]*Snapshot)
-	}
-
-	if s.NetworkACLs == nil {
-		s.NetworkACLs = make(map[string]*StoredNetworkACL)
-	}
-
-	if s.TransitGateways == nil {
-		s.TransitGateways = make(map[string]*TransitGateway)
-	}
-
-	if s.FlowLogs == nil {
-		s.FlowLogs = make(map[string]*FlowLog)
-	}
-
-	if s.DhcpOptionSets == nil {
-		s.DhcpOptionSets = make(map[string]*DhcpOptions)
-	}
+	initMapIfNil(&s.Images)
+	initMapIfNil(&s.ImageUsageReports)
+	initMapIfNil(&s.LaunchTemplates)
+	initMapIfNil(&s.VpcEndpoints)
+	initMapIfNil(&s.Snapshots)
+	initMapIfNil(&s.NetworkACLs)
+	initMapIfNil(&s.TransitGateways)
+	initMapIfNil(&s.FlowLogs)
+	initMapIfNil(&s.DhcpOptionSets)
 }
 
 // initNewOpsMaps initialises the map fields added for the new Accept/Advertise/Allocate operations.
@@ -321,6 +347,20 @@ func (s *backendSnapshot) initNewOpsMaps() {
 	if s.DedicatedHosts == nil {
 		s.DedicatedHosts = make(map[string]*Host)
 	}
+
+	s.initAppendixMaps()
+}
+
+func (s *backendSnapshot) initAppendixMaps() {
+	initMapIfNil(&s.VpnGateways)
+	initMapIfNil(&s.CustomerGateways)
+	initMapIfNil(&s.Ipams)
+	initMapIfNil(&s.IpamPools)
+	initMapIfNil(&s.IpamPoolAllocations)
+	initMapIfNil(&s.CarrierGateways)
+	initMapIfNil(&s.Fleets)
+	initMapIfNil(&s.NetworkInsightsPaths)
+	initMapIfNil(&s.ManagedPrefixLists)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
