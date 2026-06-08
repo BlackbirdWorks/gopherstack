@@ -48,6 +48,18 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// Shutdown implements service.Shutdowner. It cancels any in-flight delayed
+// async-job completion goroutines and waits for them to exit (bounded by ctx)
+// so they cannot mutate backend state after the process begins shutting down.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Shutdown(ctx)
+	}
+}
+
+// Ensure Handler implements service.Shutdowner at compile time.
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "Textract" }
 
