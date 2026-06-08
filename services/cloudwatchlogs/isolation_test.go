@@ -10,7 +10,7 @@ import (
 
 func TestCloudWatchLogsRegionIsolation(t *testing.T) {
 	backend := NewInMemoryBackend()
-	
+
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")
 

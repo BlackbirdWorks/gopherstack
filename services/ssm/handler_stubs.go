@@ -1,907 +1,910 @@
 package ssm
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // handler_stubs.go wires the 123 stub backend methods into the HTTP dispatch table.
 
 //nolint:funlen,gocognit,gocyclo,cyclop // This function is intentionally long — it registers all stub operations.
 func (h *Handler) ssmStubOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CreateResourceDataSync": func(b []byte) (any, error) {
+		"CreateResourceDataSync": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateResourceDataSyncInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateResourceDataSync(&input)
+			return h.Backend.CreateResourceDataSync(ctx, &input)
 		},
-		"DeleteActivation": func(b []byte) (any, error) {
+		"DeleteActivation": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteActivationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteActivation(&input)
+			return h.Backend.DeleteActivation(ctx, &input)
 		},
-		"DeleteAssociation": func(b []byte) (any, error) {
+		"DeleteAssociation": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteAssociationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteAssociation(&input)
+			return h.Backend.DeleteAssociation(ctx, &input)
 		},
-		"DeleteInventory": func(b []byte) (any, error) {
+		"DeleteInventory": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteInventoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteInventory(&input)
+			return h.Backend.DeleteInventory(ctx, &input)
 		},
-		"DeleteMaintenanceWindow": func(b []byte) (any, error) {
+		"DeleteMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteMaintenanceWindow(&input)
+			return h.Backend.DeleteMaintenanceWindow(ctx, &input)
 		},
-		"DeleteOpsItem": func(b []byte) (any, error) {
+		"DeleteOpsItem": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteOpsItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteOpsItem(&input)
+			return h.Backend.DeleteOpsItem(ctx, &input)
 		},
-		"DeleteOpsMetadata": func(b []byte) (any, error) {
+		"DeleteOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteOpsMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteOpsMetadata(&input)
+			return h.Backend.DeleteOpsMetadata(ctx, &input)
 		},
-		"DeletePatchBaseline": func(b []byte) (any, error) {
+		"DeletePatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input DeletePatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeletePatchBaseline(&input)
+			return h.Backend.DeletePatchBaseline(ctx, &input)
 		},
-		"DeleteResourceDataSync": func(b []byte) (any, error) {
+		"DeleteResourceDataSync": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteResourceDataSyncInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteResourceDataSync(&input)
+			return h.Backend.DeleteResourceDataSync(ctx, &input)
 		},
-		"DeleteResourcePolicy": func(b []byte) (any, error) {
+		"DeleteResourcePolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteResourcePolicy(&input)
+			return h.Backend.DeleteResourcePolicy(ctx, &input)
 		},
-		"DeregisterManagedInstance": func(b []byte) (any, error) {
+		"DeregisterManagedInstance": func(ctx context.Context, b []byte) (any, error) {
 			var input DeregisterManagedInstanceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeregisterManagedInstance(&input)
+			return h.Backend.DeregisterManagedInstance(ctx, &input)
 		},
-		"DeregisterPatchBaselineForPatchGroup": func(b []byte) (any, error) {
+		"DeregisterPatchBaselineForPatchGroup": func(ctx context.Context, b []byte) (any, error) {
 			var input DeregisterPatchBaselineForPatchGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeregisterPatchBaselineForPatchGroup(&input)
+			return h.Backend.DeregisterPatchBaselineForPatchGroup(ctx, &input)
 		},
-		"DeregisterTargetFromMaintenanceWindow": func(b []byte) (any, error) {
+		"DeregisterTargetFromMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input DeregisterTargetFromMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeregisterTargetFromMaintenanceWindow(&input)
+			return h.Backend.DeregisterTargetFromMaintenanceWindow(ctx, &input)
 		},
-		"DeregisterTaskFromMaintenanceWindow": func(b []byte) (any, error) {
+		"DeregisterTaskFromMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input DeregisterTaskFromMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeregisterTaskFromMaintenanceWindow(&input)
+			return h.Backend.DeregisterTaskFromMaintenanceWindow(ctx, &input)
 		},
-		"DescribeActivations": func(b []byte) (any, error) {
+		"DescribeActivations": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeActivationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeActivations(&input)
+			return h.Backend.DescribeActivations(ctx, &input)
 		},
-		"DescribeAssociation": func(b []byte) (any, error) {
+		"DescribeAssociation": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAssociationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAssociation(&input)
+			return h.Backend.DescribeAssociation(ctx, &input)
 		},
-		"DescribeAssociationExecutionTargets": func(b []byte) (any, error) {
+		"DescribeAssociationExecutionTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAssociationExecutionTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAssociationExecutionTargets(&input)
+			return h.Backend.DescribeAssociationExecutionTargets(ctx, &input)
 		},
-		"DescribeAssociationExecutions": func(b []byte) (any, error) {
+		"DescribeAssociationExecutions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAssociationExecutionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAssociationExecutions(&input)
+			return h.Backend.DescribeAssociationExecutions(ctx, &input)
 		},
-		"DescribeAutomationExecutions": func(b []byte) (any, error) {
+		"DescribeAutomationExecutions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAutomationExecutionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAutomationExecutions(&input)
+			return h.Backend.DescribeAutomationExecutions(ctx, &input)
 		},
-		"DescribeAutomationStepExecutions": func(b []byte) (any, error) {
+		"DescribeAutomationStepExecutions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAutomationStepExecutionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAutomationStepExecutions(&input)
+			return h.Backend.DescribeAutomationStepExecutions(ctx, &input)
 		},
-		"DescribeAvailablePatches": func(b []byte) (any, error) {
+		"DescribeAvailablePatches": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeAvailablePatchesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAvailablePatches(&input)
+			return h.Backend.DescribeAvailablePatches(ctx, &input)
 		},
-		"DescribeEffectiveInstanceAssociations": func(b []byte) (any, error) {
+		"DescribeEffectiveInstanceAssociations": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeEffectiveInstanceAssociationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeEffectiveInstanceAssociations(&input)
+			return h.Backend.DescribeEffectiveInstanceAssociations(ctx, &input)
 		},
-		"DescribeEffectivePatchesForPatchBaseline": func(b []byte) (any, error) {
+		"DescribeEffectivePatchesForPatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeEffectivePatchesForPatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeEffectivePatchesForPatchBaseline(&input)
+			return h.Backend.DescribeEffectivePatchesForPatchBaseline(ctx, &input)
 		},
-		"DescribeInstanceAssociationsStatus": func(b []byte) (any, error) {
+		"DescribeInstanceAssociationsStatus": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstanceAssociationsStatusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstanceAssociationsStatus(&input)
+			return h.Backend.DescribeInstanceAssociationsStatus(ctx, &input)
 		},
-		"DescribeInstanceInformation": func(b []byte) (any, error) {
+		"DescribeInstanceInformation": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstanceInformationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstanceInformation(&input)
+			return h.Backend.DescribeInstanceInformation(ctx, &input)
 		},
-		"DescribeInstancePatchStates": func(b []byte) (any, error) {
+		"DescribeInstancePatchStates": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstancePatchStatesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstancePatchStates(&input)
+			return h.Backend.DescribeInstancePatchStates(ctx, &input)
 		},
-		"DescribeInstancePatchStatesForPatchGroup": func(b []byte) (any, error) {
+		"DescribeInstancePatchStatesForPatchGroup": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstancePatchStatesForPatchGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstancePatchStatesForPatchGroup(&input)
+			return h.Backend.DescribeInstancePatchStatesForPatchGroup(ctx, &input)
 		},
-		"DescribeInstancePatches": func(b []byte) (any, error) {
+		"DescribeInstancePatches": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstancePatchesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstancePatches(&input)
+			return h.Backend.DescribeInstancePatches(ctx, &input)
 		},
-		"DescribeInstanceProperties": func(b []byte) (any, error) {
+		"DescribeInstanceProperties": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInstancePropertiesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInstanceProperties(&input)
+			return h.Backend.DescribeInstanceProperties(ctx, &input)
 		},
-		"DescribeInventoryDeletions": func(b []byte) (any, error) {
+		"DescribeInventoryDeletions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeInventoryDeletionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeInventoryDeletions(&input)
+			return h.Backend.DescribeInventoryDeletions(ctx, &input)
 		},
-		"DescribeMaintenanceWindowExecutionTaskInvocations": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowExecutionTaskInvocations": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowExecutionTaskInvocationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowExecutionTaskInvocations(&input)
+			return h.Backend.DescribeMaintenanceWindowExecutionTaskInvocations(ctx, &input)
 		},
-		"DescribeMaintenanceWindowExecutionTasks": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowExecutionTasks": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowExecutionTasksInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowExecutionTasks(&input)
+			return h.Backend.DescribeMaintenanceWindowExecutionTasks(ctx, &input)
 		},
-		"DescribeMaintenanceWindowExecutions": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowExecutions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowExecutionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowExecutions(&input)
+			return h.Backend.DescribeMaintenanceWindowExecutions(ctx, &input)
 		},
-		"DescribeMaintenanceWindowSchedule": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowSchedule": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowScheduleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowSchedule(&input)
+			return h.Backend.DescribeMaintenanceWindowSchedule(ctx, &input)
 		},
-		"DescribeMaintenanceWindowTargets": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowTargets(&input)
+			return h.Backend.DescribeMaintenanceWindowTargets(ctx, &input)
 		},
-		"DescribeMaintenanceWindowTasks": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowTasks": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowTasksInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowTasks(&input)
+			return h.Backend.DescribeMaintenanceWindowTasks(ctx, &input)
 		},
-		"DescribeMaintenanceWindows": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindows": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindows(&input)
+			return h.Backend.DescribeMaintenanceWindows(ctx, &input)
 		},
-		"DescribeMaintenanceWindowsForTarget": func(b []byte) (any, error) {
+		"DescribeMaintenanceWindowsForTarget": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeMaintenanceWindowsForTargetInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeMaintenanceWindowsForTarget(&input)
+			return h.Backend.DescribeMaintenanceWindowsForTarget(ctx, &input)
 		},
-		"DescribeOpsItems": func(b []byte) (any, error) {
+		"DescribeOpsItems": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeOpsItemsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeOpsItems(&input)
+			return h.Backend.DescribeOpsItems(ctx, &input)
 		},
-		"DescribePatchBaselines": func(b []byte) (any, error) {
+		"DescribePatchBaselines": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribePatchBaselinesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribePatchBaselines(&input)
+			return h.Backend.DescribePatchBaselines(ctx, &input)
 		},
-		"DescribePatchGroupState": func(b []byte) (any, error) {
+		"DescribePatchGroupState": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribePatchGroupStateInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribePatchGroupState(&input)
+			return h.Backend.DescribePatchGroupState(ctx, &input)
 		},
-		"DescribePatchGroups": func(b []byte) (any, error) {
+		"DescribePatchGroups": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribePatchGroupsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribePatchGroups(&input)
+			return h.Backend.DescribePatchGroups(ctx, &input)
 		},
-		"DescribePatchProperties": func(b []byte) (any, error) {
+		"DescribePatchProperties": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribePatchPropertiesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribePatchProperties(&input)
+			return h.Backend.DescribePatchProperties(ctx, &input)
 		},
-		"DescribeSessions": func(b []byte) (any, error) {
+		"DescribeSessions": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeSessionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSessions(&input)
+			return h.Backend.DescribeSessions(ctx, &input)
 		},
-		"DisassociateOpsItemRelatedItem": func(b []byte) (any, error) {
+		"DisassociateOpsItemRelatedItem": func(ctx context.Context, b []byte) (any, error) {
 			var input DisassociateOpsItemRelatedItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DisassociateOpsItemRelatedItem(&input)
+			return h.Backend.DisassociateOpsItemRelatedItem(ctx, &input)
 		},
-		"GetAccessToken": func(b []byte) (any, error) {
+		"GetAccessToken": func(ctx context.Context, b []byte) (any, error) {
 			var input GetAccessTokenInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetAccessToken(&input)
+			return h.Backend.GetAccessToken(ctx, &input)
 		},
-		"GetAutomationExecution": func(b []byte) (any, error) {
+		"GetAutomationExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input GetAutomationExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetAutomationExecution(&input)
+			return h.Backend.GetAutomationExecution(ctx, &input)
 		},
-		"GetCalendarState": func(b []byte) (any, error) {
+		"GetCalendarState": func(ctx context.Context, b []byte) (any, error) {
 			var input GetCalendarStateInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetCalendarState(&input)
+			return h.Backend.GetCalendarState(ctx, &input)
 		},
-		"GetConnectionStatus": func(b []byte) (any, error) {
+		"GetConnectionStatus": func(ctx context.Context, b []byte) (any, error) {
 			var input GetConnectionStatusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetConnectionStatus(&input)
+			return h.Backend.GetConnectionStatus(ctx, &input)
 		},
-		"GetDefaultPatchBaseline": func(b []byte) (any, error) {
+		"GetDefaultPatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input GetDefaultPatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetDefaultPatchBaseline(&input)
+			return h.Backend.GetDefaultPatchBaseline(ctx, &input)
 		},
-		"GetDeployablePatchSnapshotForInstance": func(b []byte) (any, error) {
+		"GetDeployablePatchSnapshotForInstance": func(ctx context.Context, b []byte) (any, error) {
 			var input GetDeployablePatchSnapshotForInstanceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetDeployablePatchSnapshotForInstance(&input)
+			return h.Backend.GetDeployablePatchSnapshotForInstance(ctx, &input)
 		},
-		"GetExecutionPreview": func(b []byte) (any, error) {
+		"GetExecutionPreview": func(ctx context.Context, b []byte) (any, error) {
 			var input GetExecutionPreviewInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetExecutionPreview(&input)
+			return h.Backend.GetExecutionPreview(ctx, &input)
 		},
-		"GetInventory": func(b []byte) (any, error) {
+		"GetInventory": func(ctx context.Context, b []byte) (any, error) {
 			var input GetInventoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetInventory(&input)
+			return h.Backend.GetInventory(ctx, &input)
 		},
-		"GetInventorySchema": func(b []byte) (any, error) {
+		"GetInventorySchema": func(ctx context.Context, b []byte) (any, error) {
 			var input GetInventorySchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetInventorySchema(&input)
+			return h.Backend.GetInventorySchema(ctx, &input)
 		},
-		"GetMaintenanceWindow": func(b []byte) (any, error) {
+		"GetMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input GetMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetMaintenanceWindow(&input)
+			return h.Backend.GetMaintenanceWindow(ctx, &input)
 		},
-		"GetMaintenanceWindowExecution": func(b []byte) (any, error) {
+		"GetMaintenanceWindowExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input GetMaintenanceWindowExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetMaintenanceWindowExecution(&input)
+			return h.Backend.GetMaintenanceWindowExecution(ctx, &input)
 		},
-		"GetMaintenanceWindowExecutionTask": func(b []byte) (any, error) {
+		"GetMaintenanceWindowExecutionTask": func(ctx context.Context, b []byte) (any, error) {
 			var input GetMaintenanceWindowExecutionTaskInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetMaintenanceWindowExecutionTask(&input)
+			return h.Backend.GetMaintenanceWindowExecutionTask(ctx, &input)
 		},
-		"GetMaintenanceWindowExecutionTaskInvocation": func(b []byte) (any, error) {
+		"GetMaintenanceWindowExecutionTaskInvocation": func(ctx context.Context, b []byte) (any, error) {
 			var input GetMaintenanceWindowExecutionTaskInvocationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetMaintenanceWindowExecutionTaskInvocation(&input)
+			return h.Backend.GetMaintenanceWindowExecutionTaskInvocation(ctx, &input)
 		},
-		"GetMaintenanceWindowTask": func(b []byte) (any, error) {
+		"GetMaintenanceWindowTask": func(ctx context.Context, b []byte) (any, error) {
 			var input GetMaintenanceWindowTaskInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetMaintenanceWindowTask(&input)
+			return h.Backend.GetMaintenanceWindowTask(ctx, &input)
 		},
-		"GetOpsItem": func(b []byte) (any, error) {
+		"GetOpsItem": func(ctx context.Context, b []byte) (any, error) {
 			var input GetOpsItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetOpsItem(&input)
+			return h.Backend.GetOpsItem(ctx, &input)
 		},
-		"GetOpsMetadata": func(b []byte) (any, error) {
+		"GetOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input GetOpsMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetOpsMetadata(&input)
+			return h.Backend.GetOpsMetadata(ctx, &input)
 		},
-		"GetOpsSummary": func(b []byte) (any, error) {
+		"GetOpsSummary": func(ctx context.Context, b []byte) (any, error) {
 			var input GetOpsSummaryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetOpsSummary(&input)
+			return h.Backend.GetOpsSummary(ctx, &input)
 		},
-		"GetPatchBaseline": func(b []byte) (any, error) {
+		"GetPatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input GetPatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetPatchBaseline(&input)
+			return h.Backend.GetPatchBaseline(ctx, &input)
 		},
-		"GetPatchBaselineForPatchGroup": func(b []byte) (any, error) {
+		"GetPatchBaselineForPatchGroup": func(ctx context.Context, b []byte) (any, error) {
 			var input GetPatchBaselineForPatchGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetPatchBaselineForPatchGroup(&input)
+			return h.Backend.GetPatchBaselineForPatchGroup(ctx, &input)
 		},
-		"GetResourcePolicies": func(b []byte) (any, error) {
+		"GetResourcePolicies": func(ctx context.Context, b []byte) (any, error) {
 			var input GetResourcePoliciesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetResourcePolicies(&input)
+			return h.Backend.GetResourcePolicies(ctx, &input)
 		},
-		"GetServiceSetting": func(b []byte) (any, error) {
+		"GetServiceSetting": func(ctx context.Context, b []byte) (any, error) {
 			var input GetServiceSettingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetServiceSetting(&input)
+			return h.Backend.GetServiceSetting(ctx, &input)
 		},
-		"LabelParameterVersion": func(b []byte) (any, error) {
+		"LabelParameterVersion": func(ctx context.Context, b []byte) (any, error) {
 			var input LabelParameterVersionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.LabelParameterVersion(&input)
+			return h.Backend.LabelParameterVersion(ctx, &input)
 		},
-		"ListAssociationVersions": func(b []byte) (any, error) {
+		"ListAssociationVersions": func(ctx context.Context, b []byte) (any, error) {
 			var input ListAssociationVersionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListAssociationVersions(&input)
+			return h.Backend.ListAssociationVersions(ctx, &input)
 		},
-		"ListAssociations": func(b []byte) (any, error) {
+		"ListAssociations": func(ctx context.Context, b []byte) (any, error) {
 			var input ListAssociationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListAssociations(&input)
+			return h.Backend.ListAssociations(ctx, &input)
 		},
-		"ListComplianceItems": func(b []byte) (any, error) {
+		"ListComplianceItems": func(ctx context.Context, b []byte) (any, error) {
 			var input ListComplianceItemsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListComplianceItems(&input)
+			return h.Backend.ListComplianceItems(ctx, &input)
 		},
-		"ListComplianceSummaries": func(b []byte) (any, error) {
+		"ListComplianceSummaries": func(ctx context.Context, b []byte) (any, error) {
 			var input ListComplianceSummariesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListComplianceSummaries(&input)
+			return h.Backend.ListComplianceSummaries(ctx, &input)
 		},
-		"ListDocumentMetadataHistory": func(b []byte) (any, error) {
+		"ListDocumentMetadataHistory": func(ctx context.Context, b []byte) (any, error) {
 			var input ListDocumentMetadataHistoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListDocumentMetadataHistory(&input)
+			return h.Backend.ListDocumentMetadataHistory(ctx, &input)
 		},
-		"ListInventoryEntries": func(b []byte) (any, error) {
+		"ListInventoryEntries": func(ctx context.Context, b []byte) (any, error) {
 			var input ListInventoryEntriesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListInventoryEntries(&input)
+			return h.Backend.ListInventoryEntries(ctx, &input)
 		},
-		"ListNodes": func(b []byte) (any, error) {
+		"ListNodes": func(ctx context.Context, b []byte) (any, error) {
 			var input ListNodesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListNodes(&input)
+			return h.Backend.ListNodes(ctx, &input)
 		},
-		"ListNodesSummary": func(b []byte) (any, error) {
+		"ListNodesSummary": func(ctx context.Context, b []byte) (any, error) {
 			var input ListNodesSummaryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListNodesSummary(&input)
+			return h.Backend.ListNodesSummary(ctx, &input)
 		},
-		"ListOpsItemEvents": func(b []byte) (any, error) {
+		"ListOpsItemEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input ListOpsItemEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListOpsItemEvents(&input)
+			return h.Backend.ListOpsItemEvents(ctx, &input)
 		},
-		"ListOpsItemRelatedItems": func(b []byte) (any, error) {
+		"ListOpsItemRelatedItems": func(ctx context.Context, b []byte) (any, error) {
 			var input ListOpsItemRelatedItemsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListOpsItemRelatedItems(&input)
+			return h.Backend.ListOpsItemRelatedItems(ctx, &input)
 		},
-		"ListOpsMetadata": func(b []byte) (any, error) {
+		"ListOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input ListOpsMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListOpsMetadata(&input)
+			return h.Backend.ListOpsMetadata(ctx, &input)
 		},
-		"ListResourceComplianceSummaries": func(b []byte) (any, error) {
+		"ListResourceComplianceSummaries": func(ctx context.Context, b []byte) (any, error) {
 			var input ListResourceComplianceSummariesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListResourceComplianceSummaries(&input)
+			return h.Backend.ListResourceComplianceSummaries(ctx, &input)
 		},
-		"ListResourceDataSync": func(b []byte) (any, error) {
+		"ListResourceDataSync": func(ctx context.Context, b []byte) (any, error) {
 			var input ListResourceDataSyncInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListResourceDataSync(&input)
+			return h.Backend.ListResourceDataSync(ctx, &input)
 		},
-		"PutComplianceItems": func(b []byte) (any, error) {
+		"PutComplianceItems": func(ctx context.Context, b []byte) (any, error) {
 			var input PutComplianceItemsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutComplianceItems(&input)
+			return h.Backend.PutComplianceItems(ctx, &input)
 		},
-		"PutInventory": func(b []byte) (any, error) {
+		"PutInventory": func(ctx context.Context, b []byte) (any, error) {
 			var input PutInventoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutInventory(&input)
+			return h.Backend.PutInventory(ctx, &input)
 		},
-		"PutResourcePolicy": func(b []byte) (any, error) {
+		"PutResourcePolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input PutResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutResourcePolicy(&input)
+			return h.Backend.PutResourcePolicy(ctx, &input)
 		},
-		"RegisterDefaultPatchBaseline": func(b []byte) (any, error) {
+		"RegisterDefaultPatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input RegisterDefaultPatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RegisterDefaultPatchBaseline(&input)
+			return h.Backend.RegisterDefaultPatchBaseline(ctx, &input)
 		},
-		"RegisterPatchBaselineForPatchGroup": func(b []byte) (any, error) {
+		"RegisterPatchBaselineForPatchGroup": func(ctx context.Context, b []byte) (any, error) {
 			var input RegisterPatchBaselineForPatchGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RegisterPatchBaselineForPatchGroup(&input)
+			return h.Backend.RegisterPatchBaselineForPatchGroup(ctx, &input)
 		},
-		"RegisterTargetWithMaintenanceWindow": func(b []byte) (any, error) {
+		"RegisterTargetWithMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input RegisterTargetWithMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RegisterTargetWithMaintenanceWindow(&input)
+			return h.Backend.RegisterTargetWithMaintenanceWindow(ctx, &input)
 		},
-		"RegisterTaskWithMaintenanceWindow": func(b []byte) (any, error) {
+		"RegisterTaskWithMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input RegisterTaskWithMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RegisterTaskWithMaintenanceWindow(&input)
+			return h.Backend.RegisterTaskWithMaintenanceWindow(ctx, &input)
 		},
-		"ResetServiceSetting": func(b []byte) (any, error) {
+		"ResetServiceSetting": func(ctx context.Context, b []byte) (any, error) {
 			var input ResetServiceSettingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ResetServiceSetting(&input)
+			return h.Backend.ResetServiceSetting(ctx, &input)
 		},
-		"ResumeSession": func(b []byte) (any, error) {
+		"ResumeSession": func(ctx context.Context, b []byte) (any, error) {
 			var input ResumeSessionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ResumeSession(&input)
+			return h.Backend.ResumeSession(ctx, &input)
 		},
-		"SendAutomationSignal": func(b []byte) (any, error) {
+		"SendAutomationSignal": func(ctx context.Context, b []byte) (any, error) {
 			var input SendAutomationSignalInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.SendAutomationSignal(&input)
+			return h.Backend.SendAutomationSignal(ctx, &input)
 		},
-		"StartAccessRequest": func(b []byte) (any, error) {
+		"StartAccessRequest": func(ctx context.Context, b []byte) (any, error) {
 			var input StartAccessRequestInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartAccessRequest(&input)
+			return h.Backend.StartAccessRequest(ctx, &input)
 		},
-		"StartAssociationsOnce": func(b []byte) (any, error) {
+		"StartAssociationsOnce": func(ctx context.Context, b []byte) (any, error) {
 			var input StartAssociationsOnceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartAssociationsOnce(&input)
+			return h.Backend.StartAssociationsOnce(ctx, &input)
 		},
-		"StartAutomationExecution": func(b []byte) (any, error) {
+		"StartAutomationExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input StartAutomationExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartAutomationExecution(&input)
+			return h.Backend.StartAutomationExecution(ctx, &input)
 		},
-		"StartChangeRequestExecution": func(b []byte) (any, error) {
+		"StartChangeRequestExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input StartChangeRequestExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartChangeRequestExecution(&input)
+			return h.Backend.StartChangeRequestExecution(ctx, &input)
 		},
-		"StartExecutionPreview": func(b []byte) (any, error) {
+		"StartExecutionPreview": func(ctx context.Context, b []byte) (any, error) {
 			var input StartExecutionPreviewInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartExecutionPreview(&input)
+			return h.Backend.StartExecutionPreview(ctx, &input)
 		},
-		"StartSession": func(b []byte) (any, error) {
+		"StartSession": func(ctx context.Context, b []byte) (any, error) {
 			var input StartSessionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StartSession(&input)
+			return h.Backend.StartSession(ctx, &input)
 		},
-		"StopAutomationExecution": func(b []byte) (any, error) {
+		"StopAutomationExecution": func(ctx context.Context, b []byte) (any, error) {
 			var input StopAutomationExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StopAutomationExecution(&input)
+			return h.Backend.StopAutomationExecution(ctx, &input)
 		},
-		"TerminateSession": func(b []byte) (any, error) {
+		"TerminateSession": func(ctx context.Context, b []byte) (any, error) {
 			var input TerminateSessionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.TerminateSession(&input)
+			return h.Backend.TerminateSession(ctx, &input)
 		},
-		"UnlabelParameterVersion": func(b []byte) (any, error) {
+		"UnlabelParameterVersion": func(ctx context.Context, b []byte) (any, error) {
 			var input UnlabelParameterVersionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UnlabelParameterVersion(&input)
+			return h.Backend.UnlabelParameterVersion(ctx, &input)
 		},
-		"UpdateAssociation": func(b []byte) (any, error) {
+		"UpdateAssociation": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateAssociationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateAssociation(&input)
+			return h.Backend.UpdateAssociation(ctx, &input)
 		},
-		"UpdateAssociationStatus": func(b []byte) (any, error) {
+		"UpdateAssociationStatus": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateAssociationStatusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateAssociationStatus(&input)
+			return h.Backend.UpdateAssociationStatus(ctx, &input)
 		},
-		"UpdateDocumentDefaultVersion": func(b []byte) (any, error) {
+		"UpdateDocumentDefaultVersion": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateDocumentDefaultVersionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateDocumentDefaultVersion(&input)
+			return h.Backend.UpdateDocumentDefaultVersion(ctx, &input)
 		},
-		"UpdateDocumentMetadata": func(b []byte) (any, error) {
+		"UpdateDocumentMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateDocumentMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateDocumentMetadata(&input)
+			return h.Backend.UpdateDocumentMetadata(ctx, &input)
 		},
-		"UpdateMaintenanceWindow": func(b []byte) (any, error) {
+		"UpdateMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateMaintenanceWindowInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateMaintenanceWindow(&input)
+			return h.Backend.UpdateMaintenanceWindow(ctx, &input)
 		},
-		"UpdateMaintenanceWindowTarget": func(b []byte) (any, error) {
+		"UpdateMaintenanceWindowTarget": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateMaintenanceWindowTargetInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateMaintenanceWindowTarget(&input)
+			return h.Backend.UpdateMaintenanceWindowTarget(ctx, &input)
 		},
-		"UpdateMaintenanceWindowTask": func(b []byte) (any, error) {
+		"UpdateMaintenanceWindowTask": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateMaintenanceWindowTaskInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateMaintenanceWindowTask(&input)
+			return h.Backend.UpdateMaintenanceWindowTask(ctx, &input)
 		},
-		"UpdateManagedInstanceRole": func(b []byte) (any, error) {
+		"UpdateManagedInstanceRole": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateManagedInstanceRoleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateManagedInstanceRole(&input)
+			return h.Backend.UpdateManagedInstanceRole(ctx, &input)
 		},
-		"UpdateOpsItem": func(b []byte) (any, error) {
+		"UpdateOpsItem": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateOpsItemInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateOpsItem(&input)
+			return h.Backend.UpdateOpsItem(ctx, &input)
 		},
-		"UpdateOpsMetadata": func(b []byte) (any, error) {
+		"UpdateOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateOpsMetadataInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateOpsMetadata(&input)
+			return h.Backend.UpdateOpsMetadata(ctx, &input)
 		},
-		"UpdatePatchBaseline": func(b []byte) (any, error) {
+		"UpdatePatchBaseline": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdatePatchBaselineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdatePatchBaseline(&input)
+			return h.Backend.UpdatePatchBaseline(ctx, &input)
 		},
-		"UpdateResourceDataSync": func(b []byte) (any, error) {
+		"UpdateResourceDataSync": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateResourceDataSyncInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateResourceDataSync(&input)
+			return h.Backend.UpdateResourceDataSync(ctx, &input)
 		},
-		"UpdateServiceSetting": func(b []byte) (any, error) {
+		"UpdateServiceSetting": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateServiceSettingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateServiceSetting(&input)
+			return h.Backend.UpdateServiceSetting(ctx, &input)
 		},
 	}
 }

@@ -35,7 +35,8 @@ const (
 // --- ResourceDataSync ---
 
 // CreateResourceDataSync stores a new resource data sync configuration.
-func (b *InMemoryBackend) CreateResourceDataSync(input *CreateResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) CreateResourceDataSync(ctx context.Context, input *CreateResourceDataSyncInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("CreateResourceDataSync")
 	defer b.mu.Unlock()
 
@@ -44,11 +45,12 @@ func (b *InMemoryBackend) CreateResourceDataSync(input *CreateResourceDataSyncIn
 		syncName = "default-sync"
 	}
 
-	if _, exists := b.resourceDataSyncs[syncName]; exists {
+	syncs := b.resourceDataSyncsStore(region)
+	if _, exists := syncs[syncName]; exists {
 		return nil, ErrResourceDataSyncExists
 	}
 
-	b.resourceDataSyncs[syncName] = &ResourceDataSync{
+	syncs[syncName] = &ResourceDataSync{
 		SyncName:        syncName,
 		SyncType:        input.SyncType,
 		LastStatus:      "InProgress",
@@ -60,7 +62,8 @@ func (b *InMemoryBackend) CreateResourceDataSync(input *CreateResourceDataSyncIn
 }
 
 // DeleteResourceDataSync removes a resource data sync by name.
-func (b *InMemoryBackend) DeleteResourceDataSync(input *DeleteResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteResourceDataSync(ctx context.Context, input *DeleteResourceDataSyncInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourceDataSync")
 	defer b.mu.Unlock()
 
@@ -68,22 +71,25 @@ func (b *InMemoryBackend) DeleteResourceDataSync(input *DeleteResourceDataSyncIn
 		return &StubOutput{}, nil
 	}
 
-	if _, exists := b.resourceDataSyncs[input.SyncName]; !exists {
+	syncs := b.resourceDataSyncsStore(region)
+	if _, exists := syncs[input.SyncName]; !exists {
 		return nil, fmt.Errorf("%w: %q", ErrResourceDataSyncNotFound, input.SyncName)
 	}
 
-	delete(b.resourceDataSyncs, input.SyncName)
+	delete(syncs, input.SyncName)
 
 	return &StubOutput{}, nil
 }
 
 // ListResourceDataSync returns all resource data syncs.
-func (b *InMemoryBackend) ListResourceDataSync(_ *ListResourceDataSyncInput) (*ListResourceDataSyncOutputFull, error) {
+func (b *InMemoryBackend) ListResourceDataSync(ctx context.Context, _ *ListResourceDataSyncInput) (*ListResourceDataSyncOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListResourceDataSync")
 	defer b.mu.RUnlock()
 
-	items := make([]ResourceDataSync, 0, len(b.resourceDataSyncs))
-	for _, s := range b.resourceDataSyncs {
+	syncs := b.resourceDataSyncsStore(region)
+	items := make([]ResourceDataSync, 0, len(syncs))
+	for _, s := range syncs {
 		items = append(items, *s)
 	}
 
@@ -95,7 +101,8 @@ func (b *InMemoryBackend) ListResourceDataSync(_ *ListResourceDataSyncInput) (*L
 }
 
 // UpdateResourceDataSync updates an existing resource data sync.
-func (b *InMemoryBackend) UpdateResourceDataSync(input *UpdateResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateResourceDataSync(ctx context.Context, input *UpdateResourceDataSyncInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateResourceDataSync")
 	defer b.mu.Unlock()
 
@@ -103,7 +110,7 @@ func (b *InMemoryBackend) UpdateResourceDataSync(input *UpdateResourceDataSyncIn
 		return &StubOutput{}, nil
 	}
 
-	if sync, exists := b.resourceDataSyncs[input.SyncName]; exists {
+	if sync, exists := b.resourceDataSyncsStore(region)[input.SyncName]; exists {
 		sync.LastSyncTime = time.Now().UTC()
 	}
 
@@ -114,27 +121,31 @@ func (b *InMemoryBackend) UpdateResourceDataSync(input *UpdateResourceDataSyncIn
 
 // DeregisterManagedInstance removes the activation associated with a managed instance ID.
 // The InstanceID field is treated as the ActivationID in this in-memory implementation.
-func (b *InMemoryBackend) DeregisterManagedInstance(input *DeregisterManagedInstanceInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeregisterManagedInstance(ctx context.Context, input *DeregisterManagedInstanceInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeregisterManagedInstance")
 	defer b.mu.Unlock()
 
 	// Try to match by ActivationID (InstanceID in the request maps to ActivationID here).
-	if _, exists := b.activations[input.InstanceID]; exists {
-		delete(b.activations, input.InstanceID)
-		delete(b.miscResourceTags, input.InstanceID)
+	activations := b.activationsStore(region)
+	if _, exists := activations[input.InstanceID]; exists {
+		delete(activations, input.InstanceID)
+		delete(b.miscResourceTagsStore(region), input.InstanceID)
 	}
 
 	return &StubOutput{}, nil
 }
 
 // UpdateManagedInstanceRole updates the IAM role for a managed instance's activation.
-func (b *InMemoryBackend) UpdateManagedInstanceRole(input *UpdateManagedInstanceRoleInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateManagedInstanceRole(ctx context.Context, input *UpdateManagedInstanceRoleInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateManagedInstanceRole")
 	defer b.mu.Unlock()
 
-	if act, exists := b.activations[input.InstanceID]; exists {
+	activations := b.activationsStore(region)
+	if act, exists := activations[input.InstanceID]; exists {
 		act.IamRole = input.IamRole
-		b.activations[input.InstanceID] = act
+		activations[input.InstanceID] = act
 	}
 
 	return &StubOutput{}, nil
@@ -143,12 +154,14 @@ func (b *InMemoryBackend) UpdateManagedInstanceRole(input *UpdateManagedInstance
 // --- Session Manager ---
 
 // DescribeSessions returns sessions from the in-memory store.
-func (b *InMemoryBackend) DescribeSessions(input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeSessions(ctx context.Context, input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeSessions")
 	defer b.mu.RUnlock()
 
-	list := make([]Session, 0, len(b.sessions))
-	for _, s := range b.sessions {
+	sessions := b.sessionsStore(region)
+	list := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
 		if input.State == "" || s.Status == input.State {
 			list = append(list, s)
 		}
@@ -162,14 +175,15 @@ func (b *InMemoryBackend) DescribeSessions(input *DescribeSessionsInput) (*Descr
 }
 
 // GetConnectionStatus returns the connection status of a target session.
-func (b *InMemoryBackend) GetConnectionStatus(input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error) {
+func (b *InMemoryBackend) GetConnectionStatus(ctx context.Context, input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetConnectionStatus")
 	defer b.mu.RUnlock()
 
 	target := input.Target
 	status := "notConnected"
 
-	for _, s := range b.sessions {
+	for _, s := range b.sessionsStore(region) {
 		if s.Target == target && s.Status == sessionStatusConnected {
 			status = connectionStatusConnected
 
@@ -181,7 +195,7 @@ func (b *InMemoryBackend) GetConnectionStatus(input *GetConnectionStatusInput) (
 }
 
 // GetAccessToken returns a mock access token for an active session.
-func (b *InMemoryBackend) GetAccessToken(input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error) {
+func (b *InMemoryBackend) GetAccessToken(_ context.Context, input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error) {
 	b.mu.RLock("GetAccessToken")
 	defer b.mu.RUnlock()
 
@@ -193,17 +207,19 @@ func (b *InMemoryBackend) GetAccessToken(input *GetAccessTokenInput) (*GetAccess
 }
 
 // ResumeSession resumes a disconnected session.
-func (b *InMemoryBackend) ResumeSession(input *ResumeSessionInput) (*ResumeSessionOutputFull, error) {
+func (b *InMemoryBackend) ResumeSession(ctx context.Context, input *ResumeSessionInput) (*ResumeSessionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("ResumeSession")
 	defer b.mu.Unlock()
 
-	sess, exists := b.sessions[input.SessionID]
+	sessions := b.sessionsStore(region)
+	sess, exists := sessions[input.SessionID]
 	if !exists {
 		return &ResumeSessionOutputFull{SessionID: input.SessionID, StreamURL: ""}, nil
 	}
 
 	sess.Status = sessionStatusConnected
-	b.sessions[input.SessionID] = sess
+	sessions[input.SessionID] = sess
 
 	return &ResumeSessionOutputFull{
 		SessionID:  sess.SessionID,
@@ -213,7 +229,7 @@ func (b *InMemoryBackend) ResumeSession(input *ResumeSessionInput) (*ResumeSessi
 }
 
 // StartAccessRequest creates an access request record.
-func (b *InMemoryBackend) StartAccessRequest(input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error) {
+func (b *InMemoryBackend) StartAccessRequest(_ context.Context, input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error) {
 	b.mu.Lock("StartAccessRequest")
 	defer b.mu.Unlock()
 
@@ -227,11 +243,12 @@ func (b *InMemoryBackend) StartAccessRequest(input *StartAccessRequestInput) (*S
 // --- Service Settings ---
 
 // GetServiceSetting returns the value for a service setting.
-func (b *InMemoryBackend) GetServiceSetting(input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error) {
+func (b *InMemoryBackend) GetServiceSetting(ctx context.Context, input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetServiceSetting")
 	defer b.mu.RUnlock()
 
-	if s, exists := b.serviceSettings[input.SettingID]; exists {
+	if s, exists := b.serviceSettingsStore(region)[input.SettingID]; exists {
 		return &GetServiceSettingOutputFull{ServiceSetting: s}, nil
 	}
 
@@ -243,11 +260,12 @@ func (b *InMemoryBackend) GetServiceSetting(input *GetServiceSettingInput) (*Get
 }
 
 // UpdateServiceSetting stores a custom value for a service setting.
-func (b *InMemoryBackend) UpdateServiceSetting(input *UpdateServiceSettingInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateServiceSetting(ctx context.Context, input *UpdateServiceSettingInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateServiceSetting")
 	defer b.mu.Unlock()
 
-	b.serviceSettings[input.SettingID] = &ServiceSetting{
+	b.serviceSettingsStore(region)[input.SettingID] = &ServiceSetting{
 		SettingID:    input.SettingID,
 		SettingValue: input.SettingValue,
 		Status:       settingStatusCustomized,
@@ -257,11 +275,12 @@ func (b *InMemoryBackend) UpdateServiceSetting(input *UpdateServiceSettingInput)
 }
 
 // ResetServiceSetting removes any custom value for a service setting.
-func (b *InMemoryBackend) ResetServiceSetting(input *ResetServiceSettingInput) (*ResetServiceSettingOutputFull, error) {
+func (b *InMemoryBackend) ResetServiceSetting(ctx context.Context, input *ResetServiceSettingInput) (*ResetServiceSettingOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("ResetServiceSetting")
 	defer b.mu.Unlock()
 
-	delete(b.serviceSettings, input.SettingID)
+	delete(b.serviceSettingsStore(region), input.SettingID)
 
 	return &ResetServiceSettingOutputFull{ServiceSetting: &ServiceSetting{
 		SettingID: input.SettingID,
@@ -272,11 +291,12 @@ func (b *InMemoryBackend) ResetServiceSetting(input *ResetServiceSettingInput) (
 // --- Resource Policies ---
 
 // GetResourcePolicies returns policies attached to a resource.
-func (b *InMemoryBackend) GetResourcePolicies(input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error) {
+func (b *InMemoryBackend) GetResourcePolicies(ctx context.Context, input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetResourcePolicies")
 	defer b.mu.RUnlock()
 
-	policies := b.resourcePolicies[input.ResourceARN]
+	policies := b.resourcePoliciesStore(region)[input.ResourceARN]
 	list := make([]ResourcePolicy, 0, len(policies))
 
 	for _, p := range policies {
@@ -287,7 +307,8 @@ func (b *InMemoryBackend) GetResourcePolicies(input *GetResourcePoliciesInput) (
 }
 
 // PutResourcePolicy attaches a policy to a resource.
-func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutputFull, error) {
+func (b *InMemoryBackend) PutResourcePolicy(ctx context.Context, input *PutResourcePolicyInput) (*PutResourcePolicyOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -297,13 +318,15 @@ func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*Put
 		PolicyHash: uuid.NewString(),
 		Policy:     input.Policy,
 	}
-	b.resourcePolicies[input.ResourceARN] = append(b.resourcePolicies[input.ResourceARN], policy)
+	policies := b.resourcePoliciesStore(region)
+	policies[input.ResourceARN] = append(policies[input.ResourceARN], policy)
 
 	return &PutResourcePolicyOutputFull{PolicyID: policyID, PolicyHash: policy.PolicyHash}, nil
 }
 
 // DeleteResourcePolicy removes a policy from a resource.
-func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -311,7 +334,8 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 		return &StubOutput{}, nil
 	}
 
-	existing := b.resourcePolicies[input.ResourceARN]
+	policies := b.resourcePoliciesStore(region)
+	existing := policies[input.ResourceARN]
 	updated := existing[:0]
 
 	for _, p := range existing {
@@ -320,7 +344,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 		}
 	}
 
-	b.resourcePolicies[input.ResourceARN] = updated
+	policies[input.ResourceARN] = updated
 
 	return &StubOutput{}, nil
 }
@@ -330,8 +354,10 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 // LabelParameterVersion adds labels to a specific parameter version.
 // When ParameterVersion is 0, labels are applied to the latest version.
 func (b *InMemoryBackend) LabelParameterVersion(
+	ctx context.Context,
 	input *LabelParameterVersionInput,
 ) (*LabelParameterVersionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("LabelParameterVersion")
 	defer b.mu.Unlock()
 
@@ -342,7 +368,7 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		}, nil
 	}
 
-	param, exists := b.parameters[input.Name]
+	param, exists := b.parametersStore(region)[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: %q", ErrParameterNotFound, input.Name)
 	}
@@ -352,12 +378,13 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		version = param.Version
 	}
 
-	if b.parameterLabels[input.Name] == nil {
-		b.parameterLabels[input.Name] = make(map[int64][]string)
+	parameterLabels := b.parameterLabelsStore(region)
+	if parameterLabels[input.Name] == nil {
+		parameterLabels[input.Name] = make(map[int64][]string)
 	}
 
-	b.parameterLabels[input.Name][version] = appendUniqueLabels(
-		b.parameterLabels[input.Name][version], input.Labels,
+	parameterLabels[input.Name][version] = appendUniqueLabels(
+		parameterLabels[input.Name][version], input.Labels,
 	)
 
 	return &LabelParameterVersionOutputFull{
@@ -369,8 +396,10 @@ func (b *InMemoryBackend) LabelParameterVersion(
 // UnlabelParameterVersion removes labels from a specific parameter version.
 // When ParameterVersion is 0, labels are removed from the latest version.
 func (b *InMemoryBackend) UnlabelParameterVersion(
+	ctx context.Context,
 	input *UnlabelParameterVersionInput,
 ) (*UnlabelParameterVersionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UnlabelParameterVersion")
 	defer b.mu.Unlock()
 
@@ -380,7 +409,7 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 
 	version := input.ParameterVersion
 	if version == 0 {
-		if param, exists := b.parameters[input.Name]; exists {
+		if param, exists := b.parametersStore(region)[input.Name]; exists {
 			version = param.Version
 		}
 	}
@@ -390,7 +419,8 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 		removedSet[l] = true
 	}
 
-	existing := b.parameterLabels[input.Name][version]
+	parameterLabels := b.parameterLabelsStore(region)
+	existing := parameterLabels[input.Name][version]
 	kept := make([]string, 0, len(existing))
 
 	for _, l := range existing {
@@ -399,8 +429,8 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 		}
 	}
 
-	if b.parameterLabels[input.Name] != nil {
-		b.parameterLabels[input.Name][version] = kept
+	if parameterLabels[input.Name] != nil {
+		parameterLabels[input.Name][version] = kept
 	}
 
 	return &UnlabelParameterVersionOutputFull{
@@ -430,8 +460,10 @@ func appendUniqueLabels(existing, newLabels []string) []string {
 
 // StartAutomationExecution creates a new automation execution.
 func (b *InMemoryBackend) StartAutomationExecution(
+	ctx context.Context,
 	input *StartAutomationExecutionInput,
 ) (*StartAutomationExecutionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StartAutomationExecution")
 	defer b.mu.Unlock()
 
@@ -452,19 +484,21 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		ExecutionType:         "Standard",
 		Mode:                  mode,
 	}
-	b.automationExecutions[execID] = exec
+	b.automationExecutionsStore(region)[execID] = exec
 
 	return &StartAutomationExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
 
 // GetAutomationExecution returns an automation execution by ID.
 func (b *InMemoryBackend) GetAutomationExecution(
+	ctx context.Context,
 	input *GetAutomationExecutionInput,
 ) (*GetAutomationExecutionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetAutomationExecution")
 	defer b.mu.RUnlock()
 
-	exec, exists := b.automationExecutions[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
 		return nil, fmt.Errorf("%w: %q", ErrAutomationExecutionNotFound, input.AutomationExecutionID)
 	}
@@ -476,13 +510,16 @@ func (b *InMemoryBackend) GetAutomationExecution(
 
 // DescribeAutomationExecutions returns all automation executions.
 func (b *InMemoryBackend) DescribeAutomationExecutions(
+	ctx context.Context,
 	_ *DescribeAutomationExecutionsInput,
 ) (*DescribeAutomationExecutionsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeAutomationExecutions")
 	defer b.mu.RUnlock()
 
-	list := make([]AutomationExecution, 0, len(b.automationExecutions))
-	for _, exec := range b.automationExecutions {
+	execs := b.automationExecutionsStore(region)
+	list := make([]AutomationExecution, 0, len(execs))
+	for _, exec := range execs {
 		list = append(list, *exec)
 	}
 
@@ -494,11 +531,12 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 }
 
 // StopAutomationExecution marks an automation execution as stopped.
-func (b *InMemoryBackend) StopAutomationExecution(input *StopAutomationExecutionInput) (*StubOutput, error) {
+func (b *InMemoryBackend) StopAutomationExecution(ctx context.Context, input *StopAutomationExecutionInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
 
-	if exec, exists := b.automationExecutions[input.AutomationExecutionID]; exists {
+	if exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]; exists {
 		exec.Status = automationStatusStopped
 		now := time.Now().UTC()
 		exec.EndTime = &now
@@ -509,11 +547,12 @@ func (b *InMemoryBackend) StopAutomationExecution(input *StopAutomationExecution
 
 // SendAutomationSignal sends a signal to an automation execution.
 // Approve/Reject signals update the execution status accordingly.
-func (b *InMemoryBackend) SendAutomationSignal(input *SendAutomationSignalInput) (*StubOutput, error) {
+func (b *InMemoryBackend) SendAutomationSignal(ctx context.Context, input *SendAutomationSignalInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
-	exec, exists := b.automationExecutions[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
 		return &StubOutput{}, nil
 	}
@@ -532,12 +571,14 @@ func (b *InMemoryBackend) SendAutomationSignal(input *SendAutomationSignalInput)
 
 // DescribeAutomationStepExecutions returns step executions for an automation.
 func (b *InMemoryBackend) DescribeAutomationStepExecutions(
+	ctx context.Context,
 	input *DescribeAutomationStepExecutionsInput,
 ) (*DescribeAutomationStepExecutionsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeAutomationStepExecutions")
 	defer b.mu.RUnlock()
 
-	exec, exists := b.automationExecutions[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
 		return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: []AutomationStepExec{}}, nil
 	}
@@ -547,8 +588,10 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 
 // StartChangeRequestExecution creates a change request automation execution.
 func (b *InMemoryBackend) StartChangeRequestExecution(
+	ctx context.Context,
 	input *StartChangeRequestExecutionInput,
 ) (*StartChangeRequestExecutionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
@@ -560,7 +603,7 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		StartTime:             time.Now().UTC(),
 		ExecutionType:         "ChangeRequest",
 	}
-	b.automationExecutions[execID] = exec
+	b.automationExecutionsStore(region)[execID] = exec
 
 	return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
@@ -569,13 +612,15 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 
 // StartExecutionPreview creates an execution preview.
 func (b *InMemoryBackend) StartExecutionPreview(
+	ctx context.Context,
 	input *StartExecutionPreviewInput,
 ) (*StartExecutionPreviewOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StartExecutionPreview")
 	defer b.mu.Unlock()
 
 	previewID := previewIDPrefix + uuid.NewString()
-	b.executionPreviews[previewID] = &ExecutionPreview{
+	b.executionPreviewsStore(region)[previewID] = &ExecutionPreview{
 		ExecutionPreviewID: previewID,
 		Status:             "Running",
 		DocumentName:       input.DocumentName,
@@ -585,11 +630,12 @@ func (b *InMemoryBackend) StartExecutionPreview(
 }
 
 // GetExecutionPreview returns an execution preview by ID.
-func (b *InMemoryBackend) GetExecutionPreview(input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error) {
+func (b *InMemoryBackend) GetExecutionPreview(ctx context.Context, input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetExecutionPreview")
 	defer b.mu.RUnlock()
 
-	preview, exists := b.executionPreviews[input.ExecutionPreviewID]
+	preview, exists := b.executionPreviewsStore(region)[input.ExecutionPreviewID]
 	if !exists {
 		return &GetExecutionPreviewOutputFull{ExecutionPreviewID: input.ExecutionPreviewID, Status: "Running"}, nil
 	}
@@ -609,16 +655,18 @@ func (b *InMemoryBackend) GetExecutionPreview(input *GetExecutionPreviewInput) (
 // When CalendarNames is provided, each name is looked up as a ChangeCalendar document.
 // Non-existent names result in an error. The returned state is OPEN unless a
 // ChangeCalendar document explicitly has a Closed state in its content.
-func (b *InMemoryBackend) GetCalendarState(input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error) {
+func (b *InMemoryBackend) GetCalendarState(ctx context.Context, input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error) {
 	if len(input.CalendarNames) == 0 {
 		return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
 	}
 
+	region := getRegion(ctx)
 	b.mu.RLock("GetCalendarState")
 	defer b.mu.RUnlock()
 
+	documents := b.documentsStore(region)
 	for _, name := range input.CalendarNames {
-		doc, exists := b.documents[name]
+		doc, exists := documents[name]
 		if !exists {
 			return nil, fmt.Errorf("%w: calendar document %q not found", ErrDocumentNotFound, name)
 		}
@@ -634,7 +682,8 @@ func (b *InMemoryBackend) GetCalendarState(input *GetCalendarStateInput) (*GetCa
 // --- OpsItem summary / OpsMetadata list ---
 
 // GetOpsSummary returns a summary count of ops items.
-func (b *InMemoryBackend) GetOpsSummary(_ *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error) {
+func (b *InMemoryBackend) GetOpsSummary(ctx context.Context, _ *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetOpsSummary")
 	defer b.mu.RUnlock()
 
@@ -643,7 +692,7 @@ func (b *InMemoryBackend) GetOpsSummary(_ *GetOpsSummaryInput) (*GetOpsSummaryOu
 			{
 				ID: "AWS:OpsItem",
 				Data: map[string]OpsSummaryValue{
-					"Count": {Count: len(b.opsItems), Unit: "Count"},
+					"Count": {Count: len(b.opsItemsStore(region)), Unit: "Count"},
 				},
 			},
 		},
@@ -651,12 +700,14 @@ func (b *InMemoryBackend) GetOpsSummary(_ *GetOpsSummaryInput) (*GetOpsSummaryOu
 }
 
 // ListOpsMetadata returns all ops metadata entries.
-func (b *InMemoryBackend) ListOpsMetadata(_ *ListOpsMetadataInput) (*ListOpsMetadataOutputFull, error) {
+func (b *InMemoryBackend) ListOpsMetadata(ctx context.Context, _ *ListOpsMetadataInput) (*ListOpsMetadataOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListOpsMetadata")
 	defer b.mu.RUnlock()
 
-	list := make([]OpsMetadata, 0, len(b.opsMetadata))
-	for _, m := range b.opsMetadata {
+	opsMetadata := b.opsMetadataStore(region)
+	list := make([]OpsMetadata, 0, len(opsMetadata))
+	for _, m := range opsMetadata {
 		list = append(list, m)
 	}
 
@@ -671,19 +722,22 @@ func (b *InMemoryBackend) ListOpsMetadata(_ *ListOpsMetadataInput) (*ListOpsMeta
 
 // UpdateAssociationStatus updates the status of an association.
 func (b *InMemoryBackend) UpdateAssociationStatus(
+	ctx context.Context,
 	input *UpdateAssociationStatusInput,
 ) (*UpdateAssociationStatusOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociationStatus")
 	defer b.mu.Unlock()
 
-	for id, assoc := range b.associations {
+	associations := b.associationsStore(region)
+	for id, assoc := range associations {
 		if assoc.InstanceID == input.InstanceID && assoc.Name == input.Name {
 			if assoc.Overview == nil {
 				assoc.Overview = &AssociationOverview{}
 			}
 
 			assoc.Overview.Status = input.AssociationStatus.Name
-			b.associations[id] = assoc
+			associations[id] = assoc
 
 			return &UpdateAssociationStatusOutputFull{AssociationDescription: assoc}, nil
 		}
@@ -693,16 +747,18 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 }
 
 // StartAssociationsOnce triggers a one-time run of the given associations.
-func (b *InMemoryBackend) StartAssociationsOnce(input *StartAssociationsOnceInput) (*StubOutput, error) {
+func (b *InMemoryBackend) StartAssociationsOnce(ctx context.Context, input *StartAssociationsOnceInput) (*StubOutput, error) {
+	region := getRegion(ctx)
 	b.mu.Lock("StartAssociationsOnce")
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
 
+	associations := b.associationsStore(region)
 	for _, assocID := range input.AssociationIDs {
-		if assoc, exists := b.associations[assocID]; exists {
+		if assoc, exists := associations[assocID]; exists {
 			assoc.LastUpdateAssociationDate = float64(now.Unix())
-			b.associations[assocID] = assoc
+			associations[assocID] = assoc
 		}
 	}
 
@@ -711,12 +767,14 @@ func (b *InMemoryBackend) StartAssociationsOnce(input *StartAssociationsOnceInpu
 
 // ListAssociationVersions returns the version history of an association.
 func (b *InMemoryBackend) ListAssociationVersions(
+	ctx context.Context,
 	input *ListAssociationVersionsInput,
 ) (*ListAssociationVersionsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListAssociationVersions")
 	defer b.mu.RUnlock()
 
-	assoc, exists := b.associations[input.AssociationID]
+	assoc, exists := b.associationsStore(region)[input.AssociationID]
 	if !exists {
 		return &ListAssociationVersionsOutputFull{AssociationVersions: []Association{}}, nil
 	}
@@ -728,12 +786,14 @@ func (b *InMemoryBackend) ListAssociationVersions(
 
 // DescribeAssociationExecutions returns execution history for an association.
 func (b *InMemoryBackend) DescribeAssociationExecutions(
+	ctx context.Context,
 	input *DescribeAssociationExecutionsInput,
 ) (*DescribeAssociationExecutionsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeAssociationExecutions")
 	defer b.mu.RUnlock()
 
-	assoc, exists := b.associations[input.AssociationID]
+	assoc, exists := b.associationsStore(region)[input.AssociationID]
 	if !exists {
 		return &DescribeAssociationExecutionsOutputFull{AssociationExecutions: []AssociationExecution{}}, nil
 	}
@@ -757,6 +817,7 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 
 // DescribeAssociationExecutionTargets returns targets for an association execution.
 func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
+	_ context.Context,
 	input *DescribeAssociationExecutionTargetsInput,
 ) (*DescribeAssociationExecutionTargetsOutputFull, error) {
 	b.mu.RLock("DescribeAssociationExecutionTargets")
@@ -773,6 +834,7 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 
 // DescribeMaintenanceWindowExecutions returns execution records for a window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
+	_ context.Context,
 	input *DescribeMaintenanceWindowExecutionsInput,
 ) (*DescribeMaintenanceWindowExecutionsOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowExecutions")
@@ -787,6 +849,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 
 // DescribeMaintenanceWindowExecutionTasks returns task executions for a window execution.
 func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
+	_ context.Context,
 	input *DescribeMaintenanceWindowExecutionTasksInput,
 ) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowExecutionTasks")
@@ -801,6 +864,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 
 // DescribeMaintenanceWindowExecutionTaskInvocations returns invocations for a task.
 func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
+	_ context.Context,
 	input *DescribeMaintenanceWindowExecutionTaskInvocationsInput,
 ) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull, error) {
 	b.mu.RLock("DescribeMaintenanceWindowExecutionTaskInvocations")
@@ -815,12 +879,14 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 
 // DescribeMaintenanceWindowSchedule returns the upcoming schedule for a window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
+	ctx context.Context,
 	input *DescribeMaintenanceWindowScheduleInput,
 ) (*DescribeMaintenanceWindowScheduleOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeMaintenanceWindowSchedule")
 	defer b.mu.RUnlock()
 
-	win, exists := b.maintenanceWindows[input.WindowID]
+	win, exists := b.maintenanceWindowsStore(region)[input.WindowID]
 	if !exists {
 		return &DescribeMaintenanceWindowScheduleOutputFull{
 			ScheduledWindowExecutions: []ScheduledWindowExecution{},
@@ -840,6 +906,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
 
 // GetMaintenanceWindowExecution returns a specific window execution.
 func (b *InMemoryBackend) GetMaintenanceWindowExecution(
+	_ context.Context,
 	input *GetMaintenanceWindowExecutionInput,
 ) (*GetMaintenanceWindowExecutionOutputFull, error) {
 	b.mu.RLock("GetMaintenanceWindowExecution")
@@ -854,6 +921,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecution(
 
 // GetMaintenanceWindowExecutionTask returns a specific task within a window execution.
 func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
+	_ context.Context,
 	input *GetMaintenanceWindowExecutionTaskInput,
 ) (*GetMaintenanceWindowExecutionTaskOutputFull, error) {
 	b.mu.RLock("GetMaintenanceWindowExecutionTask")
@@ -868,6 +936,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 
 // GetMaintenanceWindowExecutionTaskInvocation returns a specific task invocation.
 func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
+	_ context.Context,
 	input *GetMaintenanceWindowExecutionTaskInvocationInput,
 ) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error) {
 	b.mu.RLock("GetMaintenanceWindowExecutionTaskInvocation")
@@ -883,12 +952,14 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 // --- Nodes ---
 
 // ListNodes returns managed nodes derived from the activations store.
-func (b *InMemoryBackend) ListNodes(_ *ListNodesInput) (*ListNodesOutputFull, error) {
+func (b *InMemoryBackend) ListNodes(ctx context.Context, _ *ListNodesInput) (*ListNodesOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
-	nodes := make([]NodeInfo, 0, len(b.activations))
-	for _, act := range b.activations {
+	activations := b.activationsStore(region)
+	nodes := make([]NodeInfo, 0, len(activations))
+	for _, act := range activations {
 		nodes = append(nodes, NodeInfo{
 			InstanceID:       act.ActivationID,
 			PlatformType:     platformTypeLinux,
@@ -905,13 +976,14 @@ func (b *InMemoryBackend) ListNodes(_ *ListNodesInput) (*ListNodesOutputFull, er
 }
 
 // ListNodesSummary returns a summary of managed nodes.
-func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error) {
+func (b *InMemoryBackend) ListNodesSummary(ctx context.Context, _ *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("ListNodesSummary")
 	defer b.mu.RUnlock()
 
 	return &ListNodesSummaryOutputFull{
 		Summary: []map[string]string{
-			{"NodeCount": strconv.Itoa(len(b.activations))},
+			{"NodeCount": strconv.Itoa(len(b.activationsStore(region)))},
 		},
 	}, nil
 }
@@ -920,14 +992,16 @@ func (b *InMemoryBackend) ListNodesSummary(_ *ListNodesSummaryInput) (*ListNodes
 
 // DescribeEffectiveInstanceAssociations returns associations targeting an instance.
 func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
+	ctx context.Context,
 	input *DescribeEffectiveInstanceAssociationsInput,
 ) (*DescribeEffectiveInstanceAssociationsOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeEffectiveInstanceAssociations")
 	defer b.mu.RUnlock()
 
 	var result []InstanceAssociationInfo
 
-	for _, assoc := range b.associations {
+	for _, assoc := range b.associationsStore(region) {
 		if assoc.InstanceID == input.InstanceID {
 			result = append(result, InstanceAssociationInfo{
 				AssociationID:      assoc.AssociationID,
@@ -947,14 +1021,16 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 
 // DescribeInstanceAssociationsStatus returns status of associations on an instance.
 func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
+	ctx context.Context,
 	input *DescribeInstanceAssociationsStatusInput,
 ) (*DescribeInstanceAssociationsStatusOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeInstanceAssociationsStatus")
 	defer b.mu.RUnlock()
 
 	var result []InstanceAssociationStatusInfo
 
-	for _, assoc := range b.associations {
+	for _, assoc := range b.associationsStore(region) {
 		if assoc.InstanceID == input.InstanceID {
 			status := commandStatusSuccess
 			if assoc.Overview != nil {
@@ -979,13 +1055,16 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 
 // DescribeInstanceInformation returns information about managed instances from activations.
 func (b *InMemoryBackend) DescribeInstanceInformation(
+	ctx context.Context,
 	_ *DescribeInstanceInformationInput,
 ) (*DescribeInstanceInformationOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeInstanceInformation")
 	defer b.mu.RUnlock()
 
-	list := make([]InstanceInformation, 0, len(b.activations))
-	for _, act := range b.activations {
+	activations := b.activationsStore(region)
+	list := make([]InstanceInformation, 0, len(activations))
+	for _, act := range activations {
 		list = append(list, InstanceInformation{
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
@@ -1000,6 +1079,7 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 
 // DescribeInstancePatchStates returns patch compliance state for instances.
 func (b *InMemoryBackend) DescribeInstancePatchStates(
+	_ context.Context,
 	_ *DescribeInstancePatchStatesInput,
 ) (*DescribeInstancePatchStatesOutputFull, error) {
 	b.mu.RLock("DescribeInstancePatchStates")

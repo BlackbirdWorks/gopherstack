@@ -37,13 +37,15 @@ func getRegionFromContext(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
-// ebBusKey returns the compound key used to store a bus in the region-isolated map.
-func ebBusKey(region, busName string) string {
+// ebBusKey returns the region-free inner key used to store a bus, its rules and
+// its rule index within a region-scoped map. The region is the outer map key, so
+// this key only needs to disambiguate buses within a single region.
+func ebBusKey(busName string) string {
 	if busName == "" {
-		busName = "default"
+		busName = defaultEventBusName
 	}
 
-	return busName + "@" + region
+	return busName
 }
 
 var (
@@ -177,29 +179,31 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx             context.Context
-	mu              *lockmetrics.RWMutex
-	connections     map[string]*Connection
-	rules           map[string]map[string]*Rule
-	targets         map[string]map[string]*Target
-	eventSources    map[string]*EventSource
-	replays         map[string]*Replay
-	apiDestinations map[string]*APIDestination
+	ctx context.Context
+	mu  *lockmetrics.RWMutex
+	// Region-isolated stores. The outer key is the AWS region; the inner keys are
+	// region-free (bus name, rule name, resource name, etc).
+	connections     map[string]map[string]*Connection
+	rules           map[string]map[string]map[string]*Rule
+	targets         map[string]map[string]map[string]*Target
+	eventSources    map[string]map[string]*EventSource
+	replays         map[string]map[string]*Replay
+	apiDestinations map[string]map[string]*APIDestination
 	cancel          context.CancelFunc
 	deliveryTargets *DeliveryTargets
-	endpoints       map[string]*Endpoint
-	buses           map[string]*EventBus
-	partnerSources  map[string]*PartnerEventSource
-	archives        map[string]*Archive
-	archivedEvents  map[string][]EventEntry
-	busePolicies    map[string]*EventBusPolicy
+	endpoints       map[string]map[string]*Endpoint
+	buses           map[string]map[string]*EventBus
+	partnerSources  map[string]map[string]*PartnerEventSource
+	archives        map[string]map[string]*Archive
+	archivedEvents  map[string]map[string][]EventEntry
+	busePolicies    map[string]map[string]*EventBusPolicy
 	pipes           map[string]*Pipe
 	registries      map[string]*SchemaRegistry
 	schemas         map[string]map[string]*Schema // registryName → schemaName → Schema
 	schemaVersions  map[string][]*SchemaVersion   // "registryName/schemaName" → ordered versions
 	codeBindings    map[string]*CodeBinding       // "registryName/schemaName/language" → binding
 	workerSem       chan struct{}
-	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
+	ruleIndex       map[string]map[string]map[ruleIndexKey]map[string]*Rule
 	patternCache    sync.Map
 	region          string
 	accountID       string
@@ -238,18 +242,18 @@ func NewInMemoryBackendWithContext(
 	b := &InMemoryBackend{
 		accountID:       accountID,
 		region:          region,
-		buses:           make(map[string]*EventBus),
-		rules:           make(map[string]map[string]*Rule),
-		targets:         make(map[string]map[string]*Target),
-		eventSources:    make(map[string]*EventSource),
-		replays:         make(map[string]*Replay),
-		apiDestinations: make(map[string]*APIDestination),
-		archives:        make(map[string]*Archive),
-		archivedEvents:  make(map[string][]EventEntry),
-		connections:     make(map[string]*Connection),
-		endpoints:       make(map[string]*Endpoint),
-		partnerSources:  make(map[string]*PartnerEventSource),
-		busePolicies:    make(map[string]*EventBusPolicy),
+		buses:           make(map[string]map[string]*EventBus),
+		rules:           make(map[string]map[string]map[string]*Rule),
+		targets:         make(map[string]map[string]map[string]*Target),
+		eventSources:    make(map[string]map[string]*EventSource),
+		replays:         make(map[string]map[string]*Replay),
+		apiDestinations: make(map[string]map[string]*APIDestination),
+		archives:        make(map[string]map[string]*Archive),
+		archivedEvents:  make(map[string]map[string][]EventEntry),
+		connections:     make(map[string]map[string]*Connection),
+		endpoints:       make(map[string]map[string]*Endpoint),
+		partnerSources:  make(map[string]map[string]*PartnerEventSource),
+		busePolicies:    make(map[string]map[string]*EventBusPolicy),
 		pipes:           make(map[string]*Pipe),
 		registries:      make(map[string]*SchemaRegistry),
 		schemas:         make(map[string]map[string]*Schema),
@@ -262,10 +266,10 @@ func NewInMemoryBackendWithContext(
 		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
 		shutdownTimeout: defaultShutdownTimeout,
 		deliveryTimeout: defaultDeliveryTimeout,
-		ruleIndex:       make(map[string]map[ruleIndexKey]map[string]*Rule),
+		ruleIndex:       make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
 	}
-	// Create the default event bus.
-	b.buses[ebBusKey(b.region, defaultEventBusName)] = &EventBus{
+	// Create the default event bus in the backend's own region.
+	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
 		Name:        defaultEventBusName,
 		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
@@ -364,8 +368,140 @@ func (b *InMemoryBackend) replayARN(name string) string {
 	return arn.Build("events", b.region, b.accountID, "replay/"+name)
 }
 
-func (b *InMemoryBackend) targetKey(region, busName, ruleName string) string {
-	return busName + "@" + region + "/" + ruleName
+// targetKey returns the region-free inner key used to store a rule's targets
+// within a region-scoped target map.
+func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
+	return ebBusKey(busName) + "/" + ruleName
+}
+
+// busesStore returns the bus map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) busesStore(region string) map[string]*EventBus {
+	if b.buses[region] == nil {
+		b.buses[region] = make(map[string]*EventBus)
+	}
+
+	return b.buses[region]
+}
+
+// rulesStore returns the rules map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) rulesStore(region string) map[string]map[string]*Rule {
+	if b.rules[region] == nil {
+		b.rules[region] = make(map[string]map[string]*Rule)
+	}
+
+	return b.rules[region]
+}
+
+// targetsStore returns the targets map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) targetsStore(region string) map[string]map[string]*Target {
+	if b.targets[region] == nil {
+		b.targets[region] = make(map[string]map[string]*Target)
+	}
+
+	return b.targets[region]
+}
+
+// ruleIndexStore returns the rule index map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) ruleIndexStore(region string) map[string]map[ruleIndexKey]map[string]*Rule {
+	if b.ruleIndex[region] == nil {
+		b.ruleIndex[region] = make(map[string]map[ruleIndexKey]map[string]*Rule)
+	}
+
+	return b.ruleIndex[region]
+}
+
+// eventSourcesStore returns the event source map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) eventSourcesStore(region string) map[string]*EventSource {
+	if b.eventSources[region] == nil {
+		b.eventSources[region] = make(map[string]*EventSource)
+	}
+
+	return b.eventSources[region]
+}
+
+// replaysStore returns the replay map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) replaysStore(region string) map[string]*Replay {
+	if b.replays[region] == nil {
+		b.replays[region] = make(map[string]*Replay)
+	}
+
+	return b.replays[region]
+}
+
+// apiDestinationsStore returns the API destination map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) apiDestinationsStore(region string) map[string]*APIDestination {
+	if b.apiDestinations[region] == nil {
+		b.apiDestinations[region] = make(map[string]*APIDestination)
+	}
+
+	return b.apiDestinations[region]
+}
+
+// archivesStore returns the archive map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) archivesStore(region string) map[string]*Archive {
+	if b.archives[region] == nil {
+		b.archives[region] = make(map[string]*Archive)
+	}
+
+	return b.archives[region]
+}
+
+// archivedEventsStore returns the archived-events map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventEntry {
+	if b.archivedEvents[region] == nil {
+		b.archivedEvents[region] = make(map[string][]EventEntry)
+	}
+
+	return b.archivedEvents[region]
+}
+
+// connectionsStore returns the connection map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) connectionsStore(region string) map[string]*Connection {
+	if b.connections[region] == nil {
+		b.connections[region] = make(map[string]*Connection)
+	}
+
+	return b.connections[region]
+}
+
+// endpointsStore returns the endpoint map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) endpointsStore(region string) map[string]*Endpoint {
+	if b.endpoints[region] == nil {
+		b.endpoints[region] = make(map[string]*Endpoint)
+	}
+
+	return b.endpoints[region]
+}
+
+// partnerSourcesStore returns the partner event source map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) partnerSourcesStore(region string) map[string]*PartnerEventSource {
+	if b.partnerSources[region] == nil {
+		b.partnerSources[region] = make(map[string]*PartnerEventSource)
+	}
+
+	return b.partnerSources[region]
+}
+
+// busePoliciesStore returns the event bus policy map for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) busePoliciesStore(region string) map[string]*EventBusPolicy {
+	if b.busePolicies[region] == nil {
+		b.busePolicies[region] = make(map[string]*EventBusPolicy)
+	}
+
+	return b.busePolicies[region]
 }
 
 func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPattern, error) {
@@ -390,14 +526,15 @@ func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPatt
 	return compiled, nil
 }
 
-func (b *InMemoryBackend) addRuleToIndex(busKey string, rule *Rule) {
+func (b *InMemoryBackend) addRuleToIndex(region, busKey string, rule *Rule) {
 	if rule.compiledPattern == nil && rule.EventPattern == "" {
 		return
 	}
-	indexes := b.ruleIndex[busKey]
+	regionIndex := b.ruleIndexStore(region)
+	indexes := regionIndex[busKey]
 	if indexes == nil {
 		indexes = make(map[ruleIndexKey]map[string]*Rule)
-		b.ruleIndex[busKey] = indexes
+		regionIndex[busKey] = indexes
 	}
 
 	keys := indexKeysFromRule(rule)
@@ -412,8 +549,12 @@ func (b *InMemoryBackend) addRuleToIndex(busKey string, rule *Rule) {
 	rule.indexKeys = keys
 }
 
-func (b *InMemoryBackend) removeRuleFromIndex(busKey string, rule *Rule) {
-	indexes := b.ruleIndex[busKey]
+func (b *InMemoryBackend) removeRuleFromIndex(region, busKey string, rule *Rule) {
+	regionIndex := b.ruleIndex[region]
+	if regionIndex == nil {
+		return
+	}
+	indexes := regionIndex[busKey]
 	if indexes == nil {
 		return
 	}
@@ -430,7 +571,7 @@ func (b *InMemoryBackend) removeRuleFromIndex(busKey string, rule *Rule) {
 	}
 
 	if len(indexes) == 0 {
-		delete(b.ruleIndex, busKey)
+		delete(regionIndex, busKey)
 	}
 }
 
@@ -484,17 +625,15 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[ebBusKey(region, name)]; exists {
+	buses := b.busesStore(region)
+	if _, exists := buses[ebBusKey(name)]; exists {
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
 	// Count custom buses (exclude the default bus against the limit).
 	customBusCount := 0
-	for busKey := range b.buses {
-		if !strings.HasSuffix(busKey, "@"+region) {
-			continue
-		}
-		if busKey != ebBusKey(region, defaultEventBusName) {
+	for busName := range buses {
+		if busName != defaultEventBusName {
 			customBusCount++
 		}
 	}
@@ -512,7 +651,7 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 		Description: description,
 		CreatedTime: time.Now(),
 	}
-	b.buses[ebBusKey(region, name)] = bus
+	buses[ebBusKey(name)] = bus
 
 	return bus, nil
 }
@@ -529,21 +668,24 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 	b.mu.Lock("DeleteEventBus")
 	defer b.mu.Unlock()
 
-	busKey := ebBusKey(region, name)
-	if _, exists := b.buses[busKey]; !exists {
+	busKey := ebBusKey(name)
+	buses := b.busesStore(region)
+	if _, exists := buses[busKey]; !exists {
 		return fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
 
-	delete(b.buses, busKey)
-	delete(b.ruleIndex, busKey)
+	delete(buses, busKey)
+	delete(b.ruleIndexStore(region), busKey)
 
-	// Clean up all rules for this bus.
-	if busRules, ok := b.rules[busKey]; ok {
+	// Clean up all rules and targets for this bus.
+	rules := b.rulesStore(region)
+	targets := b.targetsStore(region)
+	if busRules, ok := rules[busKey]; ok {
 		for ruleName := range busRules {
-			delete(b.targets, b.targetKey(region, name, ruleName))
+			delete(targets, b.targetKey(name, ruleName))
 		}
 
-		delete(b.rules, busKey)
+		delete(rules, busKey)
 	}
 
 	return nil
@@ -556,12 +698,8 @@ func (b *InMemoryBackend) ListEventBuses(ctx context.Context, namePrefix, nextTo
 	b.mu.RLock("ListEventBuses")
 	defer b.mu.RUnlock()
 
-	regionSuffix := "@" + region
 	all := make([]EventBus, 0)
-	for busKey, bus := range b.buses {
-		if !strings.HasSuffix(busKey, regionSuffix) {
-			continue
-		}
+	for _, bus := range b.busesStore(region) {
 		if namePrefix == "" || strings.HasPrefix(bus.Name, namePrefix) {
 			all = append(all, *bus)
 		}
@@ -585,7 +723,7 @@ func (b *InMemoryBackend) DescribeEventBus(ctx context.Context, name string) (*E
 	b.mu.RLock("DescribeEventBus")
 	defer b.mu.RUnlock()
 
-	bus, exists := b.buses[ebBusKey(region, name)]
+	bus, exists := b.busesStore(region)[ebBusKey(name)]
 	if !exists {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
@@ -660,12 +798,12 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		}
 	}
 
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busKey]; !exists {
+	if _, exists := b.busesStore(region)[busKey]; !exists {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -674,13 +812,14 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		state = ruleStateEnabled
 	}
 
-	if b.rules[busKey] == nil {
-		b.rules[busKey] = make(map[string]*Rule)
+	rules := b.rulesStore(region)
+	if rules[busKey] == nil {
+		rules[busKey] = make(map[string]*Rule)
 	}
 
 	// Enforce per-bus rule limit only for new rules (not updates).
-	if _, exists := b.rules[busKey][input.Name]; !exists {
-		if len(b.rules[busKey]) >= maxRulesPerBus {
+	if _, exists := rules[busKey][input.Name]; !exists {
+		if len(rules[busKey]) >= maxRulesPerBus {
 			return nil, fmt.Errorf(
 				"%w: event bus %s has reached the maximum of %d rules",
 				ErrResourceLimitExceeded,
@@ -703,11 +842,11 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		compiledPattern:    compiled,
 	}
 
-	if existing, exists := b.rules[busKey][input.Name]; exists {
-		b.removeRuleFromIndex(busKey, existing)
+	if existing, exists := rules[busKey][input.Name]; exists {
+		b.removeRuleFromIndex(region, busKey, existing)
 	}
-	b.rules[busKey][input.Name] = rule
-	b.addRuleToIndex(busKey, rule)
+	rules[busKey][input.Name] = rule
+	b.addRuleToIndex(region, busKey, rule)
 
 	return rule, nil
 }
@@ -719,12 +858,12 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, eventBusName)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[busKey]
+	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -734,10 +873,10 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	b.removeRuleFromIndex(busKey, rule)
+	b.removeRuleFromIndex(region, busKey, rule)
 	delete(busRules, name)
 	// Also remove targets for this rule.
-	delete(b.targets, b.targetKey(region, eventBusName, name))
+	delete(b.targetsStore(region), b.targetKey(eventBusName, name))
 
 	return nil
 }
@@ -751,12 +890,12 @@ func (b *InMemoryBackend) ListRules(ctx context.Context,
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, eventBusName)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.RLock("ListRules")
 	defer b.mu.RUnlock()
 
-	busRules := b.rules[busKey]
+	busRules := b.rulesStore(region)[busKey]
 	all := make([]Rule, 0, len(busRules))
 	for _, r := range busRules {
 		if namePrefix == "" || strings.HasPrefix(r.Name, namePrefix) {
@@ -778,12 +917,12 @@ func (b *InMemoryBackend) DescribeRule(ctx context.Context, name, eventBusName s
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, eventBusName)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.RLock("DescribeRule")
 	defer b.mu.RUnlock()
 
-	busRules, exists := b.rules[busKey]
+	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -814,12 +953,12 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, eventBusName)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.Lock("setRuleState")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[busKey]
+	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -848,12 +987,12 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, eventBusName)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.Lock("PutTargets")
 	defer b.mu.Unlock()
 
-	busRules, exists := b.rules[busKey]
+	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
@@ -862,13 +1001,14 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	key := b.targetKey(region, eventBusName, ruleName)
-	if b.targets[key] == nil {
-		b.targets[key] = make(map[string]*Target)
+	targetsStore := b.targetsStore(region)
+	key := b.targetKey(eventBusName, ruleName)
+	if targetsStore[key] == nil {
+		targetsStore[key] = make(map[string]*Target)
 	}
 
 	// Reject if adding these targets would exceed the per-rule limit.
-	if len(b.targets[key])+len(targets) > maxTargetsPerRule {
+	if len(targetsStore[key])+len(targets) > maxTargetsPerRule {
 		return nil, fmt.Errorf(
 			"%w: rule %s already has the maximum number of targets (%d)",
 			ErrInvalidParameter,
@@ -900,7 +1040,7 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 			}
 		}
 		cp := t
-		b.targets[key][t.ID] = &cp
+		targetsStore[key][t.ID] = &cp
 	}
 
 	return failed, nil
@@ -920,8 +1060,8 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 	b.mu.Lock("RemoveTargets")
 	defer b.mu.Unlock()
 
-	key := b.targetKey(region, eventBusName, ruleName)
-	ruleTargets := b.targets[key]
+	key := b.targetKey(eventBusName, ruleName)
+	ruleTargets := b.targetsStore(region)[key]
 
 	var failed []FailedEntry
 	for _, id := range ids {
@@ -953,8 +1093,8 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 	b.mu.RLock("ListTargetsByRule")
 	defer b.mu.RUnlock()
 
-	key := b.targetKey(region, eventBusName, ruleName)
-	ruleTargets := b.targets[key]
+	key := b.targetKey(eventBusName, ruleName)
+	ruleTargets := b.targetsStore(region)[key]
 	all := make([]Target, 0, len(ruleTargets))
 	for _, t := range ruleTargets {
 		all = append(all, *t)
@@ -976,6 +1116,8 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 // `EventSizeLimitExceeded`. The remaining entries continue to be accepted.
 func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
 	const maxBatchBytes = 256 * 1024
+
+	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.Lock("PutEvents")
 
@@ -1017,7 +1159,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
 		}
 		// Capture event into matching archives.
-		b.captureEventInArchives(entry, busName)
+		b.captureEventInArchives(region, entry, busName)
 		accepted = append(accepted, entry)
 		results = append(results, EventResultEntry{EventID: eventID})
 	}
@@ -1026,7 +1168,6 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 	workerSem := b.workerSem
 	svcCtx := b.ctx
 	delivTimeout := b.deliveryTimeout
-	region := getRegionFromContext(ctx, b.region)
 	b.mu.Unlock()
 
 	// Trigger async fan-out delivery after releasing the lock.
@@ -1101,29 +1242,29 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.buses = make(map[string]*EventBus)
-	b.rules = make(map[string]map[string]*Rule)
-	b.targets = make(map[string]map[string]*Target)
+	b.buses = make(map[string]map[string]*EventBus)
+	b.rules = make(map[string]map[string]map[string]*Rule)
+	b.targets = make(map[string]map[string]map[string]*Target)
 	b.eventLog = nil
-	b.eventSources = make(map[string]*EventSource)
-	b.replays = make(map[string]*Replay)
-	b.apiDestinations = make(map[string]*APIDestination)
-	b.archives = make(map[string]*Archive)
-	b.archivedEvents = make(map[string][]EventEntry)
-	b.connections = make(map[string]*Connection)
-	b.endpoints = make(map[string]*Endpoint)
-	b.partnerSources = make(map[string]*PartnerEventSource)
-	b.busePolicies = make(map[string]*EventBusPolicy)
+	b.eventSources = make(map[string]map[string]*EventSource)
+	b.replays = make(map[string]map[string]*Replay)
+	b.apiDestinations = make(map[string]map[string]*APIDestination)
+	b.archives = make(map[string]map[string]*Archive)
+	b.archivedEvents = make(map[string]map[string][]EventEntry)
+	b.connections = make(map[string]map[string]*Connection)
+	b.endpoints = make(map[string]map[string]*Endpoint)
+	b.partnerSources = make(map[string]map[string]*PartnerEventSource)
+	b.busePolicies = make(map[string]map[string]*EventBusPolicy)
 	b.pipes = make(map[string]*Pipe)
 	b.registries = make(map[string]*SchemaRegistry)
 	b.schemas = make(map[string]map[string]*Schema)
 	b.schemaVersions = make(map[string][]*SchemaVersion)
 	b.codeBindings = make(map[string]*CodeBinding)
-	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
+	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.patternCache = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
-	b.buses[ebBusKey(b.region, defaultEventBusName)] = &EventBus{
+	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
 		Name:        defaultEventBusName,
 		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
@@ -1136,10 +1277,12 @@ func (b *InMemoryBackend) ActivateEventSource(ctx context.Context, name string) 
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("ActivateEventSource")
 	defer b.mu.Unlock()
 
-	src, exists := b.eventSources[name]
+	src, exists := b.eventSourcesStore(region)[name]
 	if !exists {
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -1155,10 +1298,12 @@ func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeactivateEventSource")
 	defer b.mu.Unlock()
 
-	src, exists := b.eventSources[name]
+	src, exists := b.eventSourcesStore(region)[name]
 	if !exists {
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -1176,10 +1321,12 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreatePartnerEventSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.partnerSources[name]; exists {
+	if _, exists := b.partnerSourcesStore(region)[name]; exists {
 		return nil, fmt.Errorf("%w: partner event source %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1188,7 +1335,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 		Name:    name,
 		Account: account,
 	}
-	b.partnerSources[name] = src
+	b.partnerSourcesStore(region)[name] = src
 
 	// Mirror as a PENDING EventSource in the customer account — matches AWS
 	// behaviour where creating a partner source causes it to appear in the
@@ -1201,7 +1348,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 		Name:         name,
 		State:        "PENDING",
 	}
-	b.eventSources[name] = esrc
+	b.eventSourcesStore(region)[name] = esrc
 
 	cp := *src
 
@@ -1214,10 +1361,12 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CancelReplay")
 	defer b.mu.Unlock()
 
-	replay, exists := b.replays[replayName]
+	replay, exists := b.replaysStore(region)[replayName]
 	if !exists {
 		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, replayName)
 	}
@@ -1265,10 +1414,12 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 		)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreateAPIDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.apiDestinations[input.Name]; exists {
+	if _, exists := b.apiDestinationsStore(region)[input.Name]; exists {
 		return nil, fmt.Errorf(
 			"%w: API destination %s already exists",
 			ErrAlreadyExists,
@@ -1289,7 +1440,7 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 		LastModifiedTime:             now,
 		Name:                         input.Name,
 	}
-	b.apiDestinations[input.Name] = dst
+	b.apiDestinationsStore(region)[input.Name] = dst
 
 	cp := *dst
 
@@ -1321,10 +1472,12 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 		)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreateArchive")
 	defer b.mu.Unlock()
 
-	if _, exists := b.archives[input.ArchiveName]; exists {
+	if _, exists := b.archivesStore(region)[input.ArchiveName]; exists {
 		return nil, fmt.Errorf("%w: archive %s already exists", ErrAlreadyExists, input.ArchiveName)
 	}
 
@@ -1338,7 +1491,7 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 		RetentionDays:  input.RetentionDays,
 		State:          "ENABLED",
 	}
-	b.archives[input.ArchiveName] = archive
+	b.archivesStore(region)[input.ArchiveName] = archive
 
 	cp := *archive
 
@@ -1362,10 +1515,12 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 		)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connections[input.Name]; exists {
+	if _, exists := b.connectionsStore(region)[input.Name]; exists {
 		return nil, fmt.Errorf("%w: connection %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -1380,7 +1535,7 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 		LastModifiedTime:  now,
 		Name:              input.Name,
 	}
-	b.connections[input.Name] = conn
+	b.connectionsStore(region)[input.Name] = conn
 
 	cp := *conn
 
@@ -1393,10 +1548,12 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.endpoints[input.Name]; exists {
+	if _, exists := b.endpointsStore(region)[input.Name]; exists {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -1420,7 +1577,7 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 		RoutingConfig:     input.RoutingConfig,
 		State:             stateActive,
 	}
-	b.endpoints[input.Name] = ep
+	b.endpointsStore(region)[input.Name] = ep
 
 	cp := *ep
 
@@ -1433,10 +1590,12 @@ func (b *InMemoryBackend) DeauthorizeConnection(ctx context.Context, name string
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeauthorizeConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.connections[name]
+	conn, exists := b.connectionsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
@@ -1454,14 +1613,17 @@ func (b *InMemoryBackend) DeleteAPIDestination(ctx context.Context, name string)
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeleteAPIDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.apiDestinations[name]; !exists {
+	store := b.apiDestinationsStore(region)
+	if _, exists := store[name]; !exists {
 		return fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
 	}
 
-	delete(b.apiDestinations, name)
+	delete(store, name)
 
 	return nil
 }
@@ -1472,14 +1634,18 @@ func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error 
 		return fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeleteArchive")
 	defer b.mu.Unlock()
 
-	if _, exists := b.archives[name]; !exists {
+	store := b.archivesStore(region)
+	if _, exists := store[name]; !exists {
 		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
 	}
 
-	delete(b.archives, name)
+	delete(store, name)
+	delete(b.archivedEventsStore(region), name)
 
 	return nil
 }
@@ -1490,10 +1656,12 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeArchive")
 	defer b.mu.RUnlock()
 
-	archive, exists := b.archives[name]
+	archive, exists := b.archivesStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
 	}
@@ -1505,11 +1673,14 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 
 // ListArchives returns archives optionally filtered by name prefix, with pagination.
 func (b *InMemoryBackend) ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListArchives")
 	defer b.mu.RUnlock()
 
-	all := make([]Archive, 0, len(b.archives))
-	for _, a := range b.archives {
+	store := b.archivesStore(region)
+	all := make([]Archive, 0, len(store))
+	for _, a := range store {
 		if namePrefix == "" || strings.HasPrefix(a.ArchiveName, namePrefix) {
 			all = append(all, *a)
 		}
@@ -1528,10 +1699,12 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("UpdateArchive")
 	defer b.mu.Unlock()
 
-	archive, exists := b.archives[input.ArchiveName]
+	archive, exists := b.archivesStore(region)[input.ArchiveName]
 	if !exists {
 		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, input.ArchiveName)
 	}
@@ -1557,14 +1730,17 @@ func (b *InMemoryBackend) DeleteConnection(ctx context.Context, name string) err
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connections[name]; !exists {
+	store := b.connectionsStore(region)
+	if _, exists := store[name]; !exists {
 		return fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
 
-	delete(b.connections, name)
+	delete(store, name)
 
 	return nil
 }
@@ -1575,10 +1751,12 @@ func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeConnection")
 	defer b.mu.RUnlock()
 
-	conn, exists := b.connections[name]
+	conn, exists := b.connectionsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
@@ -1592,11 +1770,14 @@ func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (
 func (b *InMemoryBackend) ListConnections(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]Connection, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	all := make([]Connection, 0, len(b.connections))
-	for _, c := range b.connections {
+	store := b.connectionsStore(region)
+	all := make([]Connection, 0, len(store))
+	for _, c := range store {
 		if namePrefix == "" || strings.HasPrefix(c.Name, namePrefix) {
 			all = append(all, *c)
 		}
@@ -1615,10 +1796,12 @@ func (b *InMemoryBackend) UpdateConnection(ctx context.Context, input UpdateConn
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("UpdateConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.connections[input.Name]
+	conn, exists := b.connectionsStore(region)[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, input.Name)
 	}
@@ -1645,14 +1828,17 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeleteEndpoint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.endpoints[name]; !exists {
+	store := b.endpointsStore(region)
+	if _, exists := store[name]; !exists {
 		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
 	}
 
-	delete(b.endpoints, name)
+	delete(store, name)
 
 	return nil
 }
@@ -1663,10 +1849,12 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeEndpoint")
 	defer b.mu.RUnlock()
 
-	ep, exists := b.endpoints[name]
+	ep, exists := b.endpointsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
 	}
@@ -1678,11 +1866,14 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 // ListEndpoints returns endpoints optionally filtered by name prefix, with pagination.
 func (b *InMemoryBackend) ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
-	all := make([]Endpoint, 0, len(b.endpoints))
-	for _, ep := range b.endpoints {
+	store := b.endpointsStore(region)
+	all := make([]Endpoint, 0, len(store))
+	for _, ep := range store {
 		if namePrefix == "" || strings.HasPrefix(ep.Name, namePrefix) {
 			all = append(all, *ep)
 		}
@@ -1701,10 +1892,12 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpoi
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
-	ep, exists := b.endpoints[input.Name]
+	ep, exists := b.endpointsStore(region)[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, input.Name)
 	}
@@ -1737,10 +1930,12 @@ func (b *InMemoryBackend) DescribeAPIDestination(ctx context.Context, name strin
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeAPIDestination")
 	defer b.mu.RUnlock()
 
-	dst, exists := b.apiDestinations[name]
+	dst, exists := b.apiDestinationsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
 	}
@@ -1754,11 +1949,14 @@ func (b *InMemoryBackend) DescribeAPIDestination(ctx context.Context, name strin
 func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]APIDestination, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListAPIDestinations")
 	defer b.mu.RUnlock()
 
-	all := make([]APIDestination, 0, len(b.apiDestinations))
-	for _, d := range b.apiDestinations {
+	store := b.apiDestinationsStore(region)
+	all := make([]APIDestination, 0, len(store))
+	for _, d := range store {
 		if namePrefix == "" || strings.HasPrefix(d.Name, namePrefix) {
 			all = append(all, *d)
 		}
@@ -1779,10 +1977,12 @@ func (b *InMemoryBackend) UpdateAPIDestination(ctx context.Context,
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("UpdateAPIDestination")
 	defer b.mu.Unlock()
 
-	dst, exists := b.apiDestinations[input.Name]
+	dst, exists := b.apiDestinationsStore(region)[input.Name]
 	if !exists {
 		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, input.Name)
 	}
@@ -1815,10 +2015,12 @@ func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) 
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeEventSource")
 	defer b.mu.RUnlock()
 
-	src, exists := b.eventSources[name]
+	src, exists := b.eventSourcesStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -1832,11 +2034,14 @@ func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) 
 func (b *InMemoryBackend) ListEventSources(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]EventSource, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListEventSources")
 	defer b.mu.RUnlock()
 
-	all := make([]EventSource, 0, len(b.eventSources))
-	for _, s := range b.eventSources {
+	store := b.eventSourcesStore(region)
+	all := make([]EventSource, 0, len(store))
+	for _, s := range store {
 		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
 			all = append(all, *s)
 		}
@@ -1855,10 +2060,12 @@ func (b *InMemoryBackend) DescribePartnerEventSource(ctx context.Context, name s
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribePartnerEventSource")
 	defer b.mu.RUnlock()
 
-	src, exists := b.partnerSources[name]
+	src, exists := b.partnerSourcesStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
 	}
@@ -1874,14 +2081,17 @@ func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name str
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("DeletePartnerEventSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.partnerSources[name]; !exists {
+	store := b.partnerSourcesStore(region)
+	if _, exists := store[name]; !exists {
 		return fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
 	}
 
-	delete(b.partnerSources, name)
+	delete(store, name)
 
 	return nil
 }
@@ -1890,11 +2100,14 @@ func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name str
 func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 	namePrefix, nextToken string,
 ) ([]PartnerEventSource, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListPartnerEventSources")
 	defer b.mu.RUnlock()
 
-	all := make([]PartnerEventSource, 0, len(b.partnerSources))
-	for _, s := range b.partnerSources {
+	store := b.partnerSourcesStore(region)
+	all := make([]PartnerEventSource, 0, len(store))
+	for _, s := range store {
 		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
 			all = append(all, *s)
 		}
@@ -1918,10 +2131,12 @@ func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Rep
 		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("DescribeReplay")
 	defer b.mu.RUnlock()
 
-	replay, exists := b.replays[name]
+	replay, exists := b.replaysStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, name)
 	}
@@ -1933,11 +2148,14 @@ func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Rep
 
 // ListReplays returns replays optionally filtered by name prefix, with pagination.
 func (b *InMemoryBackend) ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListReplays")
 	defer b.mu.RUnlock()
 
-	all := make([]Replay, 0, len(b.replays))
-	for _, r := range b.replays {
+	store := b.replaysStore(region)
+	all := make([]Replay, 0, len(store))
+	for _, r := range store {
 		if namePrefix == "" || strings.HasPrefix(r.ReplayName, namePrefix) {
 			all = append(all, *r)
 		}
@@ -1968,9 +2186,12 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 		)
 	}
 
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.Lock("StartReplay")
 
-	if _, exists := b.replays[input.ReplayName]; exists {
+	replays := b.replaysStore(region)
+	if _, exists := replays[input.ReplayName]; exists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
@@ -1979,7 +2200,7 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 	// Validate destination ARN points to a known event bus.
 	if input.Destination != nil && input.Destination.Arn != "" {
 		found := false
-		for _, bus := range b.buses {
+		for _, bus := range b.busesStore(region) {
 			if bus.Arn == input.Destination.Arn {
 				found = true
 
@@ -2000,7 +2221,7 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 	// Find the archive by ARN (EventSourceArn points to an archive ARN).
 	var archiveName string
 	var archivePattern string
-	for name, archive := range b.archives {
+	for name, archive := range b.archivesStore(region) {
 		if archive.ArchiveArn == input.EventSourceArn {
 			archiveName = name
 			archivePattern = archive.EventPattern
@@ -2019,10 +2240,11 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 		State:           replayStateStarting,
 		StateReason:     input.Description,
 	}
-	b.replays[input.ReplayName] = replay
+	replays[input.ReplayName] = replay
 
 	// Collect archived events to replay filtered by time window and event pattern.
 	eventsToReplay := b.filterArchivedEvents(
+		region,
 		archiveName,
 		archivePattern,
 		input.EventStartTime,
@@ -2038,7 +2260,7 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 
 	// Deliver archived events asynchronously and mark the replay complete.
 	if !b.closing.Load() {
-		b.scheduleReplayWorker(svcCtx, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
+		b.scheduleReplayWorker(svcCtx, region, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
 	}
 
 	return &cp, nil
@@ -2048,14 +2270,14 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 // time window [startTime, endTime) and optional event pattern.
 // Must be called with b.mu held for reading.
 func (b *InMemoryBackend) filterArchivedEvents(
-	archiveName, pattern string,
+	region, archiveName, pattern string,
 	startTime, endTime time.Time,
 ) []EventEntry {
 	if archiveName == "" {
 		return nil
 	}
 
-	raw := b.archivedEvents[archiveName]
+	raw := b.archivedEventsStore(region)[archiveName]
 	if len(raw) == 0 {
 		return nil
 	}
@@ -2088,6 +2310,7 @@ func (b *InMemoryBackend) filterArchivedEvents(
 // and then marks the replay COMPLETED. Extracted to reduce cognitive complexity of StartReplay.
 func (b *InMemoryBackend) scheduleReplayWorker(
 	ctx context.Context,
+	region string,
 	workerSem chan struct{},
 	replayName string,
 	eventsToReplay []EventEntry,
@@ -2107,7 +2330,7 @@ func (b *InMemoryBackend) scheduleReplayWorker(
 		}
 
 		b.mu.Lock("StartReplay-complete")
-		if r, ok := b.replays[replayName]; ok && r.State == replayStateStarting {
+		if r, ok := b.replaysStore(region)[replayName]; ok && r.State == replayStateStarting {
 			r.State = "COMPLETED"
 			r.ReplayEndTime = time.Now()
 		}
@@ -2128,10 +2351,10 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 	b.mu.RLock("ListRuleNamesByTarget")
 	defer b.mu.RUnlock()
 
-	// Target keys have format: "busName@region/ruleName"
-	prefix := eventBusName + "@" + region + "/"
+	// Within a region-scoped target map, keys have format: "busName/ruleName".
+	prefix := ebBusKey(eventBusName) + "/"
 	var names []string
-	for targetKey, tMap := range b.targets {
+	for targetKey, tMap := range b.targetsStore(region) {
 		if !strings.HasPrefix(targetKey, prefix) {
 			continue
 		}
@@ -2181,12 +2404,12 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.Lock("UpdateEventBus")
 	defer b.mu.Unlock()
 
-	bus, exists := b.buses[busKey]
+	bus, exists := b.busesStore(region)[busKey]
 	if !exists {
 		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
@@ -2206,19 +2429,20 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.Lock("PutPermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busKey]; !exists {
+	if _, exists := b.busesStore(region)[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	policy := b.busePolicies[busKey]
+	policies := b.busePoliciesStore(region)
+	policy := policies[busKey]
 	if policy == nil {
 		policy = &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement)}
-		b.busePolicies[busKey] = policy
+		policies[busKey] = policy
 	}
 
 	// If a raw Policy JSON is provided it replaces the whole policy.
@@ -2258,22 +2482,23 @@ func (b *InMemoryBackend) RemovePermission(ctx context.Context, input RemovePerm
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busKey]; !exists {
+	if _, exists := b.busesStore(region)[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
+	policies := b.busePoliciesStore(region)
 	if input.RemoveAllPermissions {
-		delete(b.busePolicies, busKey)
+		delete(policies, busKey)
 
 		return nil
 	}
 
-	policy := b.busePolicies[busKey]
+	policy := policies[busKey]
 	if policy == nil {
 		return nil
 	}
@@ -2290,16 +2515,16 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.RLock("GetEventBusPolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.buses[busKey]; !exists {
+	if _, exists := b.busesStore(region)[busKey]; !exists {
 		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	policy := b.busePolicies[busKey]
+	policy := b.busePoliciesStore(region)[busKey]
 	if policy == nil || len(policy.Statements) == 0 {
 		return "", nil
 	}
@@ -2324,17 +2549,18 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 	}
 
 	region := getRegionFromContext(ctx, b.region)
-	busKey := ebBusKey(region, busName)
+	busKey := ebBusKey(busName)
 
 	b.mu.Lock("PutEventBusPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buses[busKey]; !exists {
+	if _, exists := b.busesStore(region)[busKey]; !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
+	policies := b.busePoliciesStore(region)
 	if input.Policy == "" {
-		delete(b.busePolicies, busKey)
+		delete(policies, busKey)
 
 		return nil
 	}
@@ -2349,7 +2575,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 		s := stmts[i]
 		policy.Statements[s.Sid] = &s
 	}
-	b.busePolicies[busKey] = policy
+	policies[busKey] = policy
 
 	return nil
 }
@@ -2507,16 +2733,17 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, input UpdatePipeInput)
 // captureEventInArchives stores the entry in any archive whose EventSourceArn
 // matches the event bus ARN and whose EventPattern matches the event.
 // Must be called with b.mu held for writing.
-func (b *InMemoryBackend) captureEventInArchives(entry EventEntry, busName string) {
-	busARN := b.busARN(b.region, busName)
+func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry, busName string) {
+	busARN := b.busARN(region, busName)
 	envelope := buildEventEnvelope(entry)
-	for _, archive := range b.archives {
+	archivedEvents := b.archivedEventsStore(region)
+	for _, archive := range b.archivesStore(region) {
 		if archive.EventSourceArn != busARN {
 			continue
 		}
 		if archive.EventPattern == "" || matchPattern(archive.EventPattern, envelope) {
-			b.archivedEvents[archive.ArchiveName] = append(
-				b.archivedEvents[archive.ArchiveName],
+			archivedEvents[archive.ArchiveName] = append(
+				archivedEvents[archive.ArchiveName],
 				entry,
 			)
 			archive.EventCount++
@@ -2530,7 +2757,7 @@ func (b *InMemoryBackend) AddEventSourceInternal(src *EventSource) {
 	defer b.mu.Unlock()
 
 	cp := *src
-	b.eventSources[src.Name] = &cp
+	b.eventSourcesStore(b.region)[src.Name] = &cp
 }
 
 // AddReplayInternal adds a replay directly for testing.
@@ -2543,7 +2770,7 @@ func (b *InMemoryBackend) AddReplayInternal(replay *Replay) {
 	}
 
 	cp := *replay
-	b.replays[replay.ReplayName] = &cp
+	b.replaysStore(b.region)[replay.ReplayName] = &cp
 }
 
 // AddAPIDestinationInternal adds an API destination directly for testing.
@@ -2552,7 +2779,7 @@ func (b *InMemoryBackend) AddAPIDestinationInternal(dst *APIDestination) {
 	defer b.mu.Unlock()
 
 	cp := *dst
-	b.apiDestinations[dst.Name] = &cp
+	b.apiDestinationsStore(b.region)[dst.Name] = &cp
 }
 
 // AddArchiveInternal adds an archive directly for testing.
@@ -2561,7 +2788,7 @@ func (b *InMemoryBackend) AddArchiveInternal(archive *Archive) {
 	defer b.mu.Unlock()
 
 	cp := *archive
-	b.archives[archive.ArchiveName] = &cp
+	b.archivesStore(b.region)[archive.ArchiveName] = &cp
 }
 
 // AddConnectionInternal adds a connection directly for testing.
@@ -2570,7 +2797,7 @@ func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
 	defer b.mu.Unlock()
 
 	cp := *conn
-	b.connections[conn.Name] = &cp
+	b.connectionsStore(b.region)[conn.Name] = &cp
 }
 
 // AddEndpointInternal adds an endpoint directly for testing.
@@ -2579,7 +2806,7 @@ func (b *InMemoryBackend) AddEndpointInternal(ep *Endpoint) {
 	defer b.mu.Unlock()
 
 	cp := *ep
-	b.endpoints[ep.Name] = &cp
+	b.endpointsStore(b.region)[ep.Name] = &cp
 }
 
 // AddPartnerSourceInternal adds a partner event source directly for testing.
@@ -2588,7 +2815,7 @@ func (b *InMemoryBackend) AddPartnerSourceInternal(src *PartnerEventSource) {
 	defer b.mu.Unlock()
 
 	cp := *src
-	b.partnerSources[src.Name] = &cp
+	b.partnerSourcesStore(b.region)[src.Name] = &cp
 }
 
 // isValidHTTPMethod reports whether method is a supported API Destination HTTP method.

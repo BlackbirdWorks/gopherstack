@@ -320,14 +320,18 @@ type DeliveryStream struct {
 	bufferSizeBytes         int
 }
 
+// regionContextKey is the context key for the per-request AWS region.
+type regionContextKey struct{}
+
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
 	s3             S3Storer
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader
-	streams        map[string]*DeliveryStream
-	// pollerCancel maps stream name → cancel func for active Kinesis source pollers.
-	pollerCancel map[string]context.CancelFunc
+	// streams maps region → stream name → delivery stream for region isolation.
+	streams map[string]map[string]*DeliveryStream
+	// pollerCancel maps region → stream name → cancel func for active Kinesis source pollers.
+	pollerCancel map[string]map[string]context.CancelFunc
 	mu           *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context; delivery operations use it so
 	// they are cancelled when the server shuts down rather than blocking indefinitely.
@@ -353,8 +357,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	}
 
 	return &InMemoryBackend{
-		streams:      make(map[string]*DeliveryStream),
-		pollerCancel: make(map[string]context.CancelFunc),
+		streams:      make(map[string]map[string]*DeliveryStream),
+		pollerCancel: make(map[string]map[string]context.CancelFunc),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("firehose"),
@@ -364,6 +368,36 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// getRegionFromContext extracts the per-request AWS region from ctx, falling
+// back to the backend's configured region when none is present.
+func getRegionFromContext(ctx context.Context, b *InMemoryBackend) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+
+	return b.region
+}
+
+// regionStore returns the stream map for region, lazily creating it.
+// Must be called with the lock held.
+func (b *InMemoryBackend) regionStore(region string) map[string]*DeliveryStream {
+	if b.streams[region] == nil {
+		b.streams[region] = make(map[string]*DeliveryStream)
+	}
+
+	return b.streams[region]
+}
+
+// pollerStore returns the poller-cancel map for region, lazily creating it.
+// Must be called with the lock held.
+func (b *InMemoryBackend) pollerStore(region string) map[string]context.CancelFunc {
+	if b.pollerCancel[region] == nil {
+		b.pollerCancel[region] = make(map[string]context.CancelFunc)
+	}
+
+	return b.pollerCancel[region]
+}
 
 // SetS3Backend wires the S3 backend for actual record delivery.
 func (b *InMemoryBackend) SetS3Backend(s3 S3Storer) {
@@ -393,14 +427,19 @@ type CreateDeliveryStreamInput struct {
 }
 
 // CreateDeliveryStream creates a new delivery stream.
-func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) (*DeliveryStream, error) {
+func (b *InMemoryBackend) CreateDeliveryStream(
+	ctx context.Context, input CreateDeliveryStreamInput,
+) (*DeliveryStream, error) {
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateDeliveryStream")
 
-	if _, ok := b.streams[input.Name]; ok {
+	region := getRegionFromContext(ctx, b)
+	streams := b.regionStore(region)
+
+	if _, ok := streams[input.Name]; ok {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
@@ -416,7 +455,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 	}
 
 	now := time.Now()
-	streamARN := arn.Build("firehose", b.region, b.accountID, "deliverystream/"+input.Name)
+	streamARN := arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name)
 	s := &DeliveryStream{
 		Name:                    input.Name,
 		ARN:                     streamARN,
@@ -425,9 +464,9 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		Status:                  "ACTIVE",
 		Records:                 [][]byte{},
 		BackupRecords:           [][]byte{},
-		Tags:                    tags.New("firehose." + input.Name + ".tags"),
+		Tags:                    tags.New("firehose." + region + "." + input.Name + ".tags"),
 		AccountID:               b.accountID,
-		Region:                  b.region,
+		Region:                  region,
 		S3Destination:           input.S3Destination,
 		HTTPEndpointDestination: input.HTTPEndpointDestination,
 		RedshiftDestination:     input.RedshiftDestination,
@@ -438,7 +477,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 		LastUpdateTimestamp:     now,
 		lastFlush:               now,
 	}
-	b.streams[input.Name] = s
+	streams[input.Name] = s
 
 	// Collect Kinesis poller info while holding the lock.
 	var kinesisStreamARN string
@@ -455,7 +494,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 	b.mu.Unlock()
 
 	if shouldPoll {
-		b.launchKinesisPoller(input.Name, kinesisStreamARN)
+		b.launchKinesisPoller(region, input.Name, kinesisStreamARN)
 	}
 
 	return result, nil
@@ -511,13 +550,17 @@ func (b *InMemoryBackend) DescribeDeliveryStream(ctx context.Context, name strin
 	return streamCopy(s), nil
 }
 
-// ListDeliveryStreams returns all delivery stream names in alphabetical order.
-func (b *InMemoryBackend) ListDeliveryStreams() []string {
+// ListDeliveryStreams returns all delivery stream names in the request's region
+// in alphabetical order.
+func (b *InMemoryBackend) ListDeliveryStreams(ctx context.Context) []string {
 	b.mu.RLock("ListDeliveryStreams")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.streams))
-	for name := range b.streams {
+	region := getRegionFromContext(ctx, b)
+	streams := b.regionStore(region)
+
+	names := make([]string, 0, len(streams))
+	for name := range streams {
 		names = append(names, name)
 	}
 

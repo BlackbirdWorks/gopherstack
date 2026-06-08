@@ -1,8 +1,10 @@
 package autoscaling_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,10 +260,10 @@ func TestInMemoryBackend_SetInstanceProtection(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup          func(b *autoscaling.InMemoryBackend) (string, []string)
-		name           string
-		wantErr        bool
-		wantProtected  bool
+		setup         func(b *autoscaling.InMemoryBackend) (string, []string)
+		name          string
+		wantErr       bool
+		wantProtected bool
 	}{
 		{
 			name: "protect_instances",
@@ -1519,7 +1521,7 @@ func TestInMemoryBackend_RollbackInstanceRefresh(t *testing.T) {
 				tt.setup(b)
 			}
 
-			err := b.RollbackInstanceRefresh(tt.group)
+			_, err := b.RollbackInstanceRefresh(tt.group)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -2085,7 +2087,7 @@ func TestInMemoryBackend_Purge(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				b.Purge()
+				b.Purge(context.Background(), time.Now().Add(time.Hour))
 
 				groups, err := b.DescribeAutoScalingGroups(nil)
 				require.NoError(t, err)

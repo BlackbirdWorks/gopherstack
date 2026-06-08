@@ -1,6 +1,7 @@
 package ecr
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -451,8 +453,20 @@ func (b *InMemoryBackend) AccountID() string {
 	return b.accountID
 }
 
+// regionFor resolves the region to use for a request, preferring the per-request
+// region carried on the context (via pkgs/awsmeta) and falling back to the
+// backend's configured region when the context carries none.
+func (b *InMemoryBackend) regionFor(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return b.region
+}
+
 // CreateRepository creates a new ECR repository.
 func (b *InMemoryBackend) CreateRepository(
+	ctx context.Context,
 	name, imageTagMutability string,
 	scanOnPush bool,
 	encryptionType, kmsKey string,
@@ -476,9 +490,11 @@ func (b *InMemoryBackend) CreateRepository(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryAlreadyExists, name)
 	}
 
+	region := b.regionFor(ctx)
+
 	endpoint := b.endpoint
 	if endpoint == "" {
-		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, b.region)
+		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, region)
 	}
 
 	repo := &Repository{
@@ -486,7 +502,7 @@ func (b *InMemoryBackend) CreateRepository(
 		EncryptionType:     encryptionType,
 		KMSKey:             kmsKey,
 		RegistryID:         b.accountID,
-		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", b.region, b.accountID, name),
+		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", region, b.accountID, name),
 		RepositoryName:     name,
 		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
 		ImageTagMutability: imageTagMutability,
@@ -500,7 +516,7 @@ func (b *InMemoryBackend) CreateRepository(
 }
 
 // DescribeRepositories returns all repositories, optionally filtered by name.
-func (b *InMemoryBackend) DescribeRepositories(names []string) ([]Repository, error) {
+func (b *InMemoryBackend) DescribeRepositories(ctx context.Context, names []string) ([]Repository, error) {
 	b.mu.RLock("DescribeRepositories")
 	defer b.mu.RUnlock()
 
@@ -532,7 +548,7 @@ func (b *InMemoryBackend) DescribeRepositories(names []string) ([]Repository, er
 }
 
 // DeleteRepository removes a repository by name.
-func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
+func (b *InMemoryBackend) DeleteRepository(ctx context.Context, name string) (*Repository, error) {
 	b.mu.Lock("DeleteRepository")
 	defer b.mu.Unlock()
 
@@ -564,7 +580,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 }
 
 // BatchCheckLayerAvailability checks the availability of image layers in a repository.
-func (b *InMemoryBackend) BatchCheckLayerAvailability(
+func (b *InMemoryBackend) BatchCheckLayerAvailability(ctx context.Context,
 	repositoryName string,
 	layerDigests []string,
 ) ([]LayerAvailability, []LayerFailure, error) {
@@ -646,7 +662,7 @@ func deleteByTagLocked(repoImages map[string]*Image, repoTags map[string]string,
 // When deleting by digest, all associated tags are removed and the image is deleted.
 // When deleting by tag, only that tag binding is removed; the image remains accessible
 // by digest (it becomes untagged if it had no other tags).
-func (b *InMemoryBackend) BatchDeleteImage(
+func (b *InMemoryBackend) BatchDeleteImage(ctx context.Context,
 	repositoryName string,
 	imageIDs []ImageIdentifier,
 ) ([]ImageIdentifier, []ImageFailure, error) {
@@ -687,7 +703,7 @@ func (b *InMemoryBackend) BatchDeleteImage(
 }
 
 // BatchGetImage retrieves details for the specified images.
-func (b *InMemoryBackend) BatchGetImage(
+func (b *InMemoryBackend) BatchGetImage(ctx context.Context,
 	repositoryName string,
 	imageIDs []ImageIdentifier,
 ) ([]Image, []ImageFailure, error) {
@@ -737,7 +753,7 @@ func buildDigestTagsLocked(repoTagIdx map[string]string) map[string][]string {
 }
 
 // DescribeImages returns image details for a repository.
-func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []ImageIdentifier) ([]Image, error) {
+func (b *InMemoryBackend) DescribeImages(ctx context.Context, repositoryName string, imageIDs []ImageIdentifier) ([]Image, error) {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
@@ -785,7 +801,7 @@ func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []Image
 }
 
 // BatchGetRepositoryScanningConfiguration returns scanning configuration for repositories.
-func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
+func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(ctx context.Context,
 	repositoryNames []string,
 ) ([]RepositoryScanningConfiguration, []RepositoryScanningConfigurationFailure, error) {
 	b.mu.RLock("BatchGetRepositoryScanningConfiguration")
@@ -823,7 +839,7 @@ var ErrLayerDigestMismatch = awserr.New("InvalidLayerException", awserr.ErrInval
 // CompleteLayerUpload finalises the upload of an image layer.
 // If an upload session exists, it computes the SHA256 of accumulated bytes and verifies the digest.
 // If no session exists (direct digest path), the provided digest is trusted as-is.
-func (b *InMemoryBackend) CompleteLayerUpload(
+func (b *InMemoryBackend) CompleteLayerUpload(ctx context.Context,
 	repositoryName, uploadID string,
 	layerDigests []string,
 ) (*CompleteLayerUploadResult, error) {
@@ -914,7 +930,7 @@ func isFullSHA256Digest(s string) bool {
 }
 
 // GetDownloadURLForLayer resolves a local download URL for an uploaded layer.
-func (b *InMemoryBackend) GetDownloadURLForLayer(repositoryName, layerDigest string) (string, error) {
+func (b *InMemoryBackend) GetDownloadURLForLayer(ctx context.Context, repositoryName, layerDigest string) (string, error) {
 	b.mu.RLock("GetDownloadURLForLayer")
 	defer b.mu.RUnlock()
 
@@ -928,14 +944,14 @@ func (b *InMemoryBackend) GetDownloadURLForLayer(repositoryName, layerDigest str
 
 	endpoint := b.endpoint
 	if endpoint == "" {
-		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, b.region)
+		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, b.regionFor(ctx))
 	}
 
 	return fmt.Sprintf("http://%s/v2/%s/blobs/%s", endpoint, repositoryName, layerDigest), nil
 }
 
 // InitiateLayerUpload starts a layer upload session.
-func (b *InMemoryBackend) InitiateLayerUpload(repositoryName string) (*LayerUploadInitiation, error) {
+func (b *InMemoryBackend) InitiateLayerUpload(ctx context.Context, repositoryName string) (*LayerUploadInitiation, error) {
 	b.mu.Lock("InitiateLayerUpload")
 	defer b.mu.Unlock()
 
@@ -950,7 +966,7 @@ func (b *InMemoryBackend) InitiateLayerUpload(repositoryName string) (*LayerUplo
 }
 
 // UploadLayerPart records uploaded bytes for an existing upload session.
-func (b *InMemoryBackend) UploadLayerPart(
+func (b *InMemoryBackend) UploadLayerPart(ctx context.Context,
 	repositoryName, uploadID string,
 	_, lastByte int64,
 	blob []byte,
@@ -983,7 +999,7 @@ func (b *InMemoryBackend) UploadLayerPart(
 }
 
 // CreatePullThroughCacheRule creates a new pull-through cache rule.
-func (b *InMemoryBackend) CreatePullThroughCacheRule(
+func (b *InMemoryBackend) CreatePullThroughCacheRule(ctx context.Context,
 	prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix string,
 ) (*PullThroughCacheRule, error) {
 	if prefix == "" {
@@ -1017,7 +1033,7 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 }
 
 // DescribePullThroughCacheRules lists pull-through cache rules.
-func (b *InMemoryBackend) DescribePullThroughCacheRules(prefixes []string) ([]PullThroughCacheRule, error) {
+func (b *InMemoryBackend) DescribePullThroughCacheRules(ctx context.Context, prefixes []string) ([]PullThroughCacheRule, error) {
 	b.mu.RLock("DescribePullThroughCacheRules")
 	defer b.mu.RUnlock()
 
@@ -1043,7 +1059,7 @@ func (b *InMemoryBackend) DescribePullThroughCacheRules(prefixes []string) ([]Pu
 }
 
 // CreateRepositoryCreationTemplate creates a new repository creation template.
-func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
+func (b *InMemoryBackend) CreateRepositoryCreationTemplate(ctx context.Context,
 	req *RepositoryCreationTemplate,
 ) (*RepositoryCreationTemplate, error) {
 	if req.Prefix == "" {
@@ -1081,7 +1097,7 @@ func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
 }
 
 // DeleteRepositoryCreationTemplate deletes a repository creation template.
-func (b *InMemoryBackend) DeleteRepositoryCreationTemplate(prefix string) (*RepositoryCreationTemplate, error) {
+func (b *InMemoryBackend) DeleteRepositoryCreationTemplate(ctx context.Context, prefix string) (*RepositoryCreationTemplate, error) {
 	b.mu.Lock("DeleteRepositoryCreationTemplate")
 	defer b.mu.Unlock()
 
@@ -1097,7 +1113,7 @@ func (b *InMemoryBackend) DeleteRepositoryCreationTemplate(prefix string) (*Repo
 }
 
 // DescribeRepositoryCreationTemplates lists repository creation templates.
-func (b *InMemoryBackend) DescribeRepositoryCreationTemplates(prefixes []string) ([]RepositoryCreationTemplate, error) {
+func (b *InMemoryBackend) DescribeRepositoryCreationTemplates(ctx context.Context, prefixes []string) ([]RepositoryCreationTemplate, error) {
 	b.mu.RLock("DescribeRepositoryCreationTemplates")
 	defer b.mu.RUnlock()
 
@@ -1123,7 +1139,7 @@ func (b *InMemoryBackend) DescribeRepositoryCreationTemplates(prefixes []string)
 }
 
 // DeleteLifecyclePolicy deletes the lifecycle policy for a repository.
-func (b *InMemoryBackend) DeleteLifecyclePolicy(repositoryName string) (*LifecyclePolicyResult, error) {
+func (b *InMemoryBackend) DeleteLifecyclePolicy(ctx context.Context, repositoryName string) (*LifecyclePolicyResult, error) {
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
@@ -1147,7 +1163,7 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(repositoryName string) (*Lifecyc
 }
 
 // GetLifecyclePolicy returns the lifecycle policy for a repository.
-func (b *InMemoryBackend) GetLifecyclePolicy(repositoryName string) (*LifecyclePolicyResult, error) {
+func (b *InMemoryBackend) GetLifecyclePolicy(ctx context.Context, repositoryName string) (*LifecyclePolicyResult, error) {
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
@@ -1169,7 +1185,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(repositoryName string) (*LifecycleP
 }
 
 // GetLifecyclePolicyPreview returns the current lifecycle policy preview.
-func (b *InMemoryBackend) GetLifecyclePolicyPreview(repositoryName string) (*LifecyclePolicyPreviewResult, error) {
+func (b *InMemoryBackend) GetLifecyclePolicyPreview(ctx context.Context, repositoryName string) (*LifecyclePolicyPreviewResult, error) {
 	b.mu.RLock("GetLifecyclePolicyPreview")
 	defer b.mu.RUnlock()
 
@@ -1189,7 +1205,7 @@ func (b *InMemoryBackend) GetLifecyclePolicyPreview(repositoryName string) (*Lif
 }
 
 // PutLifecyclePolicy creates or replaces the lifecycle policy for a repository.
-func (b *InMemoryBackend) PutLifecyclePolicy(repositoryName, policyText string) (*LifecyclePolicyResult, error) {
+func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, repositoryName, policyText string) (*LifecyclePolicyResult, error) {
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
@@ -1208,7 +1224,7 @@ func (b *InMemoryBackend) PutLifecyclePolicy(repositoryName, policyText string) 
 }
 
 // StartLifecyclePolicyPreview starts or refreshes a lifecycle policy preview.
-func (b *InMemoryBackend) StartLifecyclePolicyPreview(
+func (b *InMemoryBackend) StartLifecyclePolicyPreview(ctx context.Context,
 	repositoryName, policyText string,
 ) (*LifecyclePolicyPreviewResult, error) {
 	b.mu.Lock("StartLifecyclePolicyPreview")
@@ -1240,7 +1256,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 }
 
 // DeletePullThroughCacheRule deletes a pull-through cache rule by prefix.
-func (b *InMemoryBackend) DeletePullThroughCacheRule(prefix string) (*PullThroughCacheRule, error) {
+func (b *InMemoryBackend) DeletePullThroughCacheRule(ctx context.Context, prefix string) (*PullThroughCacheRule, error) {
 	b.mu.Lock("DeletePullThroughCacheRule")
 	defer b.mu.Unlock()
 
@@ -1257,7 +1273,7 @@ func (b *InMemoryBackend) DeletePullThroughCacheRule(prefix string) (*PullThroug
 }
 
 // UpdatePullThroughCacheRule updates a pull-through cache rule by prefix.
-func (b *InMemoryBackend) UpdatePullThroughCacheRule(
+func (b *InMemoryBackend) UpdatePullThroughCacheRule(ctx context.Context,
 	prefix, credentialArn, customRoleArn string,
 ) (*PullThroughCacheRule, error) {
 	b.mu.Lock("UpdatePullThroughCacheRule")
@@ -1283,7 +1299,7 @@ func (b *InMemoryBackend) UpdatePullThroughCacheRule(
 }
 
 // ValidatePullThroughCacheRule validates a pull-through cache rule by prefix.
-func (b *InMemoryBackend) ValidatePullThroughCacheRule(prefix string) (*ValidatePullThroughCacheRuleResult, error) {
+func (b *InMemoryBackend) ValidatePullThroughCacheRule(ctx context.Context, prefix string) (*ValidatePullThroughCacheRuleResult, error) {
 	b.mu.RLock("ValidatePullThroughCacheRule")
 	defer b.mu.RUnlock()
 
@@ -1331,7 +1347,7 @@ func (b *InMemoryBackend) SetRegistryPolicyInternal(policy string) {
 }
 
 // DeleteRegistryPolicy deletes the registry-level IAM policy.
-func (b *InMemoryBackend) DeleteRegistryPolicy() (*RegistryPolicyResult, error) {
+func (b *InMemoryBackend) DeleteRegistryPolicy(ctx context.Context) (*RegistryPolicyResult, error) {
 	b.mu.Lock("DeleteRegistryPolicy")
 	defer b.mu.Unlock()
 
@@ -1350,7 +1366,7 @@ func (b *InMemoryBackend) DeleteRegistryPolicy() (*RegistryPolicyResult, error) 
 }
 
 // DescribeRegistry returns registry-wide metadata.
-func (b *InMemoryBackend) DescribeRegistry() (*RegistryDescription, error) {
+func (b *InMemoryBackend) DescribeRegistry(ctx context.Context) (*RegistryDescription, error) {
 	b.mu.RLock("DescribeRegistry")
 	defer b.mu.RUnlock()
 
@@ -1361,7 +1377,7 @@ func (b *InMemoryBackend) DescribeRegistry() (*RegistryDescription, error) {
 }
 
 // GetRegistryPolicy returns the registry-level IAM policy.
-func (b *InMemoryBackend) GetRegistryPolicy() (*RegistryPolicyResult, error) {
+func (b *InMemoryBackend) GetRegistryPolicy(ctx context.Context) (*RegistryPolicyResult, error) {
 	b.mu.RLock("GetRegistryPolicy")
 	defer b.mu.RUnlock()
 
@@ -1377,7 +1393,7 @@ func (b *InMemoryBackend) GetRegistryPolicy() (*RegistryPolicyResult, error) {
 }
 
 // GetRegistryScanningConfiguration returns the registry scanning configuration.
-func (b *InMemoryBackend) GetRegistryScanningConfiguration() (*RegistryScanningSettings, error) {
+func (b *InMemoryBackend) GetRegistryScanningConfiguration(ctx context.Context) (*RegistryScanningSettings, error) {
 	b.mu.RLock("GetRegistryScanningConfiguration")
 	defer b.mu.RUnlock()
 
@@ -1385,7 +1401,7 @@ func (b *InMemoryBackend) GetRegistryScanningConfiguration() (*RegistryScanningS
 }
 
 // PutRegistryPolicy creates or replaces the registry-level IAM policy.
-func (b *InMemoryBackend) PutRegistryPolicy(policyText string) (*RegistryPolicyResult, error) {
+func (b *InMemoryBackend) PutRegistryPolicy(ctx context.Context, policyText string) (*RegistryPolicyResult, error) {
 	b.mu.Lock("PutRegistryPolicy")
 	defer b.mu.Unlock()
 
@@ -1399,7 +1415,7 @@ func (b *InMemoryBackend) PutRegistryPolicy(policyText string) (*RegistryPolicyR
 }
 
 // PutRegistryScanningConfiguration updates the registry scanning configuration.
-func (b *InMemoryBackend) PutRegistryScanningConfiguration(
+func (b *InMemoryBackend) PutRegistryScanningConfiguration(ctx context.Context,
 	settings *RegistryScanningSettings,
 ) (*RegistryScanningSettings, error) {
 	b.mu.Lock("PutRegistryScanningConfiguration")
@@ -1419,7 +1435,7 @@ func (b *InMemoryBackend) PutRegistryScanningConfiguration(
 }
 
 // PutReplicationConfiguration updates the registry replication configuration.
-func (b *InMemoryBackend) PutReplicationConfiguration(cfg *ReplicationConfig) (*ReplicationConfig, error) {
+func (b *InMemoryBackend) PutReplicationConfiguration(ctx context.Context, cfg *ReplicationConfig) (*ReplicationConfig, error) {
 	b.mu.Lock("PutReplicationConfiguration")
 	defer b.mu.Unlock()
 
@@ -1433,7 +1449,7 @@ func (b *InMemoryBackend) PutReplicationConfiguration(cfg *ReplicationConfig) (*
 }
 
 // GetRepositoryPolicy returns the repository-level policy.
-func (b *InMemoryBackend) GetRepositoryPolicy(repositoryName string) (*RepositoryPolicyResult, error) {
+func (b *InMemoryBackend) GetRepositoryPolicy(ctx context.Context, repositoryName string) (*RepositoryPolicyResult, error) {
 	b.mu.RLock("GetRepositoryPolicy")
 	defer b.mu.RUnlock()
 
@@ -1454,7 +1470,7 @@ func (b *InMemoryBackend) GetRepositoryPolicy(repositoryName string) (*Repositor
 }
 
 // SetRepositoryPolicy creates or replaces the repository-level IAM policy.
-func (b *InMemoryBackend) SetRepositoryPolicy(repositoryName, policyText string) (*RepositoryPolicyResult, error) {
+func (b *InMemoryBackend) SetRepositoryPolicy(ctx context.Context, repositoryName, policyText string) (*RepositoryPolicyResult, error) {
 	b.mu.Lock("SetRepositoryPolicy")
 	defer b.mu.Unlock()
 
@@ -1472,7 +1488,7 @@ func (b *InMemoryBackend) SetRepositoryPolicy(repositoryName, policyText string)
 }
 
 // DeleteRepositoryPolicy deletes the repository-level policy.
-func (b *InMemoryBackend) DeleteRepositoryPolicy(repositoryName string) (*RepositoryPolicyResult, error) {
+func (b *InMemoryBackend) DeleteRepositoryPolicy(ctx context.Context, repositoryName string) (*RepositoryPolicyResult, error) {
 	b.mu.Lock("DeleteRepositoryPolicy")
 	defer b.mu.Unlock()
 
@@ -1495,7 +1511,7 @@ func (b *InMemoryBackend) DeleteRepositoryPolicy(repositoryName string) (*Reposi
 }
 
 // GetSigningConfiguration returns the current registry signing configuration.
-func (b *InMemoryBackend) GetSigningConfiguration() (*SigningSettings, error) {
+func (b *InMemoryBackend) GetSigningConfiguration(ctx context.Context) (*SigningSettings, error) {
 	b.mu.RLock("GetSigningConfiguration")
 	defer b.mu.RUnlock()
 
@@ -1503,7 +1519,7 @@ func (b *InMemoryBackend) GetSigningConfiguration() (*SigningSettings, error) {
 }
 
 // PutSigningConfiguration updates the registry signing configuration.
-func (b *InMemoryBackend) PutSigningConfiguration(settings *SigningSettings) (*SigningSettings, error) {
+func (b *InMemoryBackend) PutSigningConfiguration(ctx context.Context, settings *SigningSettings) (*SigningSettings, error) {
 	b.mu.Lock("PutSigningConfiguration")
 	defer b.mu.Unlock()
 
@@ -1513,7 +1529,7 @@ func (b *InMemoryBackend) PutSigningConfiguration(settings *SigningSettings) (*S
 }
 
 // DeleteSigningConfiguration removes the registry signing configuration.
-func (b *InMemoryBackend) DeleteSigningConfiguration() (*SigningSettings, error) {
+func (b *InMemoryBackend) DeleteSigningConfiguration(ctx context.Context) (*SigningSettings, error) {
 	b.mu.Lock("DeleteSigningConfiguration")
 	defer b.mu.Unlock()
 
@@ -1524,7 +1540,7 @@ func (b *InMemoryBackend) DeleteSigningConfiguration() (*SigningSettings, error)
 }
 
 // DescribeImageSigningStatus returns signing status for an image.
-func (b *InMemoryBackend) DescribeImageSigningStatus(
+func (b *InMemoryBackend) DescribeImageSigningStatus(ctx context.Context,
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageSigningStatusResult, error) {
@@ -1553,7 +1569,7 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(
 }
 
 // DescribeImageScanFindings returns scan findings for an image.
-func (b *InMemoryBackend) DescribeImageScanFindings(
+func (b *InMemoryBackend) DescribeImageScanFindings(ctx context.Context,
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageScanFindingsResult, error) {
@@ -1584,7 +1600,7 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 }
 
 // StartImageScan starts an image scan and returns the scan status.
-func (b *InMemoryBackend) StartImageScan(
+func (b *InMemoryBackend) StartImageScan(ctx context.Context,
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageScanStartResult, error) {
@@ -1639,7 +1655,7 @@ func passesTagFilter(isTagged bool, tagStatusFilter string) bool {
 
 // ListImages lists image identifiers for a repository.
 // tagStatusFilter controls which images to return: "TAGGED", "UNTAGGED", or "ANY" (default).
-func (b *InMemoryBackend) ListImages(repositoryName, tagStatusFilter string) ([]ImageIdentifier, error) {
+func (b *InMemoryBackend) ListImages(ctx context.Context, repositoryName, tagStatusFilter string) ([]ImageIdentifier, error) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
 
@@ -1683,7 +1699,7 @@ func (b *InMemoryBackend) ListImages(repositoryName, tagStatusFilter string) ([]
 }
 
 // ListImageReferrers lists image referrers for a subject image.
-func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject ImageIdentifier) ([]ImageReferrer, error) {
+func (b *InMemoryBackend) ListImageReferrers(ctx context.Context, repositoryName string, subject ImageIdentifier) ([]ImageReferrer, error) {
 	b.mu.RLock("ListImageReferrers")
 	defer b.mu.RUnlock()
 
@@ -1744,7 +1760,7 @@ func normalizeImageFields(image *Image, repositoryName, accountID string) {
 	}
 }
 
-func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, error) {
+func (b *InMemoryBackend) PutImage(ctx context.Context, repositoryName string, image Image) (*Image, error) {
 	b.mu.Lock("PutImage")
 	defer b.mu.Unlock()
 
@@ -1800,7 +1816,7 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 }
 
 // PutImageScanningConfiguration updates per-repository scan-on-push config.
-func (b *InMemoryBackend) PutImageScanningConfiguration(
+func (b *InMemoryBackend) PutImageScanningConfiguration(ctx context.Context,
 	repositoryName string,
 	scanOnPush bool,
 ) (*RepositoryScanningConfiguration, error) {
@@ -1823,7 +1839,7 @@ func (b *InMemoryBackend) PutImageScanningConfiguration(
 }
 
 // PutImageTagMutability updates per-repository tag mutability.
-func (b *InMemoryBackend) PutImageTagMutability(
+func (b *InMemoryBackend) PutImageTagMutability(ctx context.Context,
 	repositoryName, imageTagMutability string,
 	exclusionFilters []ImageTagMutabilityExclusionFilter,
 ) (*Repository, error) {
@@ -1847,7 +1863,7 @@ func (b *InMemoryBackend) PutImageTagMutability(
 }
 
 // DescribeImageReplicationStatus returns the current replication status for an image.
-func (b *InMemoryBackend) DescribeImageReplicationStatus(
+func (b *InMemoryBackend) DescribeImageReplicationStatus(ctx context.Context,
 	repositoryName string,
 	imageID ImageIdentifier,
 ) (*ImageReplicationStatusResult, error) {
@@ -1867,7 +1883,7 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 }
 
 // UpdateImageStorageClass updates the storage class for an image.
-func (b *InMemoryBackend) UpdateImageStorageClass(
+func (b *InMemoryBackend) UpdateImageStorageClass(ctx context.Context,
 	repositoryName string,
 	imageID ImageIdentifier,
 	target string,
@@ -1897,7 +1913,7 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 }
 
 // GetAccountSetting returns a registry account setting.
-func (b *InMemoryBackend) GetAccountSetting(name string) (string, error) {
+func (b *InMemoryBackend) GetAccountSetting(ctx context.Context, name string) (string, error) {
 	b.mu.RLock("GetAccountSetting")
 	defer b.mu.RUnlock()
 
@@ -1905,7 +1921,7 @@ func (b *InMemoryBackend) GetAccountSetting(name string) (string, error) {
 }
 
 // PutAccountSetting updates a registry account setting.
-func (b *InMemoryBackend) PutAccountSetting(name, value string) (string, error) {
+func (b *InMemoryBackend) PutAccountSetting(ctx context.Context, name, value string) (string, error) {
 	b.mu.Lock("PutAccountSetting")
 	defer b.mu.Unlock()
 
@@ -1915,7 +1931,7 @@ func (b *InMemoryBackend) PutAccountSetting(name, value string) (string, error) 
 }
 
 // RegisterPullTimeUpdateExclusion creates a pull time update exclusion.
-func (b *InMemoryBackend) RegisterPullTimeUpdateExclusion(principalArn string) (*PullTimeUpdateExclusion, error) {
+func (b *InMemoryBackend) RegisterPullTimeUpdateExclusion(ctx context.Context, principalArn string) (*PullTimeUpdateExclusion, error) {
 	b.mu.Lock("RegisterPullTimeUpdateExclusion")
 	defer b.mu.Unlock()
 
@@ -1927,7 +1943,7 @@ func (b *InMemoryBackend) RegisterPullTimeUpdateExclusion(principalArn string) (
 }
 
 // DeregisterPullTimeUpdateExclusion deletes a pull time update exclusion.
-func (b *InMemoryBackend) DeregisterPullTimeUpdateExclusion(principalArn string) (*PullTimeUpdateExclusion, error) {
+func (b *InMemoryBackend) DeregisterPullTimeUpdateExclusion(ctx context.Context, principalArn string) (*PullTimeUpdateExclusion, error) {
 	b.mu.Lock("DeregisterPullTimeUpdateExclusion")
 	defer b.mu.Unlock()
 
@@ -1943,7 +1959,7 @@ func (b *InMemoryBackend) DeregisterPullTimeUpdateExclusion(principalArn string)
 }
 
 // ListPullTimeUpdateExclusions lists pull time update exclusions.
-func (b *InMemoryBackend) ListPullTimeUpdateExclusions() ([]PullTimeUpdateExclusion, error) {
+func (b *InMemoryBackend) ListPullTimeUpdateExclusions(ctx context.Context) ([]PullTimeUpdateExclusion, error) {
 	b.mu.RLock("ListPullTimeUpdateExclusions")
 	defer b.mu.RUnlock()
 
@@ -1958,7 +1974,7 @@ func (b *InMemoryBackend) ListPullTimeUpdateExclusions() ([]PullTimeUpdateExclus
 }
 
 // UpdateRepositoryCreationTemplate updates a repository creation template.
-func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(
+func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(ctx context.Context,
 	req *RepositoryCreationTemplate,
 ) (*RepositoryCreationTemplate, error) {
 	b.mu.Lock("UpdateRepositoryCreationTemplate")
@@ -1989,7 +2005,7 @@ func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(
 }
 
 // TagResource associates tags with an ECR resource identified by its ARN.
-func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -2000,7 +2016,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 }
 
 // UntagResource removes tags from an ECR resource identified by its ARN.
-func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
@@ -2013,7 +2029,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 }
 
 // ListTagsForResource returns all tags for an ECR resource identified by its ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceArn string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 

@@ -153,8 +153,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"Firehose", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,

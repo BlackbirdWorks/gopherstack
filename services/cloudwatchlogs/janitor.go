@@ -84,7 +84,7 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 		}
 
 		j.Backend.mu.Lock("JanitorSweepRetention")
-		evicted += j.sweepGroupStreams(target.groupName, target.cutoffMs)
+		evicted += j.sweepGroupStreams(target.region, target.groupName, target.cutoffMs)
 		j.Backend.mu.Unlock()
 	}
 
@@ -101,6 +101,7 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 }
 
 type retentionTarget struct {
+	region    string
 	groupName string
 	cutoffMs  int64
 }
@@ -109,28 +110,38 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 	j.Backend.mu.RLock("JanitorRetentionTargets")
 	defer j.Backend.mu.RUnlock()
 
-	groupNames := make([]string, 0, len(j.Backend.groups))
-	for groupName := range j.Backend.groups {
-		groupNames = append(groupNames, groupName)
+	regions := make([]string, 0, len(j.Backend.groups))
+	for region := range j.Backend.groups {
+		regions = append(regions, region)
 	}
-	slices.Sort(groupNames)
+	slices.Sort(regions)
 
-	targets := make([]retentionTarget, 0, len(groupNames))
-	for _, groupName := range groupNames {
-		group := j.Backend.groups[groupName]
-		days := j.Backend.settings.MaxRetentionDays
-		if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
-			days = int(*group.RetentionInDays)
+	var targets []retentionTarget
+	for _, region := range regions {
+		regionGroups := j.Backend.groups[region]
+		groupNames := make([]string, 0, len(regionGroups))
+		for groupName := range regionGroups {
+			groupNames = append(groupNames, groupName)
 		}
+		slices.Sort(groupNames)
 
-		if days <= 0 {
-			continue
+		for _, groupName := range groupNames {
+			group := regionGroups[groupName]
+			days := j.Backend.settings.MaxRetentionDays
+			if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+				days = int(*group.RetentionInDays)
+			}
+
+			if days <= 0 {
+				continue
+			}
+
+			targets = append(targets, retentionTarget{
+				region:    region,
+				groupName: groupName,
+				cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
+			})
 		}
-
-		targets = append(targets, retentionTarget{
-			groupName: groupName,
-			cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
-		})
 	}
 
 	return targets
@@ -138,10 +149,14 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 
 // sweepGroupStreams evicts events older than cutoffMs for all streams in groupName.
 // Returns the number of evicted events. Must be called with the backend write lock held.
-func (j *Janitor) sweepGroupStreams(groupName string, cutoffMs int64) int {
+func (j *Janitor) sweepGroupStreams(region, groupName string, cutoffMs int64) int {
 	evicted := 0
 
-	for streamName, evts := range j.Backend.events[groupName] {
+	regionEvents := j.Backend.events[region]
+	regionStreams := j.Backend.streams[region]
+	regionGroups := j.Backend.groups[region]
+
+	for streamName, evts := range regionEvents[groupName] {
 		kept := make([]*OutputLogEvent, 0, len(evts))
 		evictedBytes := int64(0)
 		for _, ev := range evts {
@@ -157,20 +172,20 @@ func (j *Janitor) sweepGroupStreams(groupName string, cutoffMs int64) int {
 			continue
 		}
 
-		j.Backend.events[groupName][streamName] = kept
+		regionEvents[groupName][streamName] = kept
 
 		if evictedBytes > 0 {
-			stream := j.Backend.streams[groupName][streamName]
+			stream := regionStreams[groupName][streamName]
 			if stream != nil {
 				stream.StoredBytes -= evictedBytes
 			}
-			if g := j.Backend.groups[groupName]; g != nil {
+			if g := regionGroups[groupName]; g != nil {
 				g.StoredBytes -= evictedBytes
 			}
 		}
 
 		// Update stream metadata to reflect the events that remain.
-		stream := j.Backend.streams[groupName][streamName]
+		stream := regionStreams[groupName][streamName]
 		if stream != nil {
 			updateStreamTimestamps(stream, kept)
 		}

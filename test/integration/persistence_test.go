@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func TestPersistence_FileStore_RoundTrip_SSM(t *testing.T) {
 
 	// Create SSM backend and add a parameter.
 	backend := ssm.NewInMemoryBackend()
-	_, err = backend.PutParameter(&ssm.PutParameterInput{
+	_, err = backend.PutParameter(context.Background(), &ssm.PutParameterInput{
 		Name:  "/app/config",
 		Value: "hello-world",
 		Type:  "String",
@@ -74,7 +75,7 @@ func TestPersistence_FileStore_RoundTrip_SSM(t *testing.T) {
 	require.NoError(t, fresh.Restore(data))
 
 	// Verify parameter exists in fresh backend.
-	getOut, err := fresh.GetParameter(&ssm.GetParameterInput{
+	getOut, err := fresh.GetParameter(context.Background(), &ssm.GetParameterInput{
 		Name: "/app/config",
 	})
 	require.NoError(t, err)
@@ -98,7 +99,7 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 
 	// Set up SSM backend with a parameter.
 	ssmBackend := ssm.NewInMemoryBackend()
-	_, err = ssmBackend.PutParameter(&ssm.PutParameterInput{
+	_, err = ssmBackend.PutParameter(context.Background(), &ssm.PutParameterInput{
 		Name:  "/managed/param",
 		Value: "managed-value",
 		Type:  "String",
@@ -125,7 +126,7 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	assert.Contains(t, listOut.QueueURLs[0], "managed-queue")
 
 	// Verify SSM parameter restored.
-	getOut, err := freshSSM.GetParameter(&ssm.GetParameterInput{Name: "/managed/param"})
+	getOut, err := freshSSM.GetParameter(context.Background(), &ssm.GetParameterInput{Name: "/managed/param"})
 	require.NoError(t, err)
 	assert.Equal(t, "managed-value", getOut.Parameter.Value)
 }

@@ -12,6 +12,7 @@ package ecr_test
 // PutRegistryScanningConfiguration round-trip.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -834,11 +835,11 @@ func TestBatch2_BatchCheckLayerAvailability_AllAvailable(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateRepository("layer-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "layer-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	digest := "sha256:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
-	_, err = b.CompleteLayerUpload("layer-repo", "upload-1", []string{digest})
+	_, err = b.CompleteLayerUpload(context.Background(), "layer-repo", "upload-1", []string{digest})
 	require.NoError(t, err)
 
 	h := ecr.NewHandler(b, nil)
@@ -863,12 +864,12 @@ func TestBatch2_BatchCheckLayerAvailability_Mixed(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateRepository("mixed-layer-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "mixed-layer-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	presentDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	missingDigest := "sha256:9999999999999999999999999999999999999999999999999999999999999999"
-	_, err = b.CompleteLayerUpload("mixed-layer-repo", "upload-x", []string{presentDigest})
+	_, err = b.CompleteLayerUpload(context.Background(), "mixed-layer-repo", "upload-x", []string{presentDigest})
 	require.NoError(t, err)
 
 	h := ecr.NewHandler(b, nil)
@@ -907,11 +908,11 @@ func TestBatch2_GetDownloadUrlForLayer_URLFormat(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateRepository("download-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "download-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	digest := "sha256:deadbeef00000000000000000000000000000000000000000000000000000000"
-	_, err = b.CompleteLayerUpload("download-repo", "upload-dl", []string{digest})
+	_, err = b.CompleteLayerUpload(context.Background(), "download-repo", "upload-dl", []string{digest})
 	require.NoError(t, err)
 
 	h := ecr.NewHandler(b, nil)

@@ -7,31 +7,31 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups                 map[string]*LogGroup                    `json:"groups"`
-	Streams                map[string]map[string]*LogStream        `json:"streams"`
-	Events                 map[string]map[string][]*OutputLogEvent `json:"events"`
-	SubscriptionFilters    map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
-	ExportTasks            map[string]*ExportTask                  `json:"exportTasks,omitempty"`
-	ImportTasks            map[string]*ImportTask                  `json:"importTasks,omitempty"`
-	Deliveries             map[string]*Delivery                    `json:"deliveries,omitempty"`
-	LogAnomalyDetectors    map[string]*LogAnomalyDetector          `json:"logAnomalyDetectors,omitempty"`
-	ScheduledQueries       map[string]*ScheduledQuery              `json:"scheduledQueries,omitempty"`
-	AccountPolicies        map[string]*AccountPolicy               `json:"accountPolicies,omitempty"`
-	KmsKeys                map[string]string                       `json:"kmsKeys,omitempty"`
-	S3TableIntegrations    map[string]string                       `json:"s3TableIntegrations,omitempty"`
-	MetricFilters          map[string]map[string]*MetricFilter     `json:"metricFilters,omitempty"`
-	QueryDefinitions       map[string]*QueryDefinition             `json:"queryDefinitions,omitempty"`
-	DataProtectionPolicies map[string]string                       `json:"dataProtectionPolicies,omitempty"`
-	ResourcePolicies       map[string]ResourcePolicy               `json:"resourcePolicies,omitempty"`
-	DeliveryDestinations   map[string]DeliveryDestination          `json:"deliveryDestinations,omitempty"`
-	DeliverySources        map[string]DeliverySource               `json:"deliverySources,omitempty"`
-	Destinations           map[string]CWLDestination               `json:"destinations,omitempty"`
-	IndexPolicies          map[string]IndexPolicy                  `json:"indexPolicies,omitempty"`
-	Transformers           map[string]Transformer                  `json:"transformers,omitempty"`
-	Integrations           map[string]CWLIntegration               `json:"integrations,omitempty"`
-	DeletionProtected      map[string]bool                         `json:"deletionProtected,omitempty"`
-	AccountID              string                                  `json:"accountID"`
-	Region                 string                                  `json:"region"`
+	Groups                 map[string]map[string]*LogGroup                    `json:"groups"`
+	Streams                map[string]map[string]map[string]*LogStream        `json:"streams"`
+	Events                 map[string]map[string]map[string][]*OutputLogEvent `json:"events"`
+	SubscriptionFilters    map[string]map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
+	ExportTasks            map[string]*ExportTask                             `json:"exportTasks,omitempty"`
+	ImportTasks            map[string]*ImportTask                             `json:"importTasks,omitempty"`
+	Deliveries             map[string]*Delivery                               `json:"deliveries,omitempty"`
+	LogAnomalyDetectors    map[string]*LogAnomalyDetector                     `json:"logAnomalyDetectors,omitempty"`
+	ScheduledQueries       map[string]*ScheduledQuery                         `json:"scheduledQueries,omitempty"`
+	AccountPolicies        map[string]*AccountPolicy                          `json:"accountPolicies,omitempty"`
+	KmsKeys                map[string]string                                  `json:"kmsKeys,omitempty"`
+	S3TableIntegrations    map[string]string                                  `json:"s3TableIntegrations,omitempty"`
+	MetricFilters          map[string]map[string]map[string]*MetricFilter     `json:"metricFilters,omitempty"`
+	QueryDefinitions       map[string]*QueryDefinition                        `json:"queryDefinitions,omitempty"`
+	DataProtectionPolicies map[string]string                                  `json:"dataProtectionPolicies,omitempty"`
+	ResourcePolicies       map[string]ResourcePolicy                          `json:"resourcePolicies,omitempty"`
+	DeliveryDestinations   map[string]DeliveryDestination                     `json:"deliveryDestinations,omitempty"`
+	DeliverySources        map[string]DeliverySource                          `json:"deliverySources,omitempty"`
+	Destinations           map[string]CWLDestination                          `json:"destinations,omitempty"`
+	IndexPolicies          map[string]IndexPolicy                             `json:"indexPolicies,omitempty"`
+	Transformers           map[string]Transformer                             `json:"transformers,omitempty"`
+	Integrations           map[string]CWLIntegration                          `json:"integrations,omitempty"`
+	DeletionProtected      map[string]bool                                    `json:"deletionProtected,omitempty"`
+	AccountID              string                                             `json:"accountID"`
+	Region                 string                                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -128,16 +128,16 @@ func initSnapshotNilMaps(snap *backendSnapshot) {
 
 func initCoreNilMaps(snap *backendSnapshot) {
 	if snap.Groups == nil {
-		snap.Groups = make(map[string]*LogGroup)
+		snap.Groups = make(map[string]map[string]*LogGroup)
 	}
 	if snap.Streams == nil {
-		snap.Streams = make(map[string]map[string]*LogStream)
+		snap.Streams = make(map[string]map[string]map[string]*LogStream)
 	}
 	if snap.Events == nil {
-		snap.Events = make(map[string]map[string][]*OutputLogEvent)
+		snap.Events = make(map[string]map[string]map[string][]*OutputLogEvent)
 	}
 	if snap.SubscriptionFilters == nil {
-		snap.SubscriptionFilters = make(map[string][]*SubscriptionFilter)
+		snap.SubscriptionFilters = make(map[string]map[string][]*SubscriptionFilter)
 	}
 	if snap.ExportTasks == nil {
 		snap.ExportTasks = make(map[string]*ExportTask)
@@ -167,7 +167,7 @@ func initCoreNilMaps(snap *backendSnapshot) {
 
 func initCompletenessNilMaps(snap *backendSnapshot) {
 	if snap.MetricFilters == nil {
-		snap.MetricFilters = make(map[string]map[string]*MetricFilter)
+		snap.MetricFilters = make(map[string]map[string]map[string]*MetricFilter)
 	}
 	if snap.QueryDefinitions == nil {
 		snap.QueryDefinitions = make(map[string]*QueryDefinition)

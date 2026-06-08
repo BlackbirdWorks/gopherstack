@@ -3596,12 +3596,12 @@ type cwLogsAdapter struct {
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(groupName, "", ""); err != nil &&
+	if _, err := a.backend.CreateLogGroup(context.Background(), groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
 		return err
 	}
 
-	if _, err := a.backend.CreateLogStream(groupName, streamName); err != nil &&
+	if _, err := a.backend.CreateLogStream(context.Background(), groupName, streamName); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
 		return err
 	}
@@ -3617,7 +3617,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(groupName, streamName, "", events)
+	_, err := a.backend.PutLogEvents(context.Background(), groupName, streamName, "", events)
 
 	return err
 }
@@ -3722,7 +3722,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		// resource is "deliverystream/<name>"
 		streamName := strings.TrimPrefix(resource, "deliverystream/")
 
-		return d.firehose.PutRecord(streamName, payload)
+		return d.firehose.PutRecord(ctx, streamName, payload)
 	}
 
 	return nil

@@ -137,7 +137,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			got := matcher(&c)
+			got := matcher(c)
 			assert.Equal(t, tt.wantMatch, got)
 		})
 	}
@@ -197,7 +197,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			op := h.ExtractOperation(&c)
+			op := h.ExtractOperation(c)
 			assert.Equal(t, tt.wantOp, op)
 		})
 	}
@@ -227,7 +227,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			res := h.ExtractResource(&c)
+			res := h.ExtractResource(c)
 			assert.Equal(t, tt.wantResource, res)
 		})
 	}
@@ -1468,16 +1468,11 @@ func TestProvider_Init(t *testing.T) {
 // fakeConfigProvider implements config.Provider for tests.
 type fakeConfigProvider struct{}
 
-func (f *fakeConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return &fakeGlobalConfig{}
+func (f *fakeConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("999999999999", "us-west-2", 0, 0, false, 0)
 }
-
-type fakeGlobalConfig struct{}
-
-func (f *fakeGlobalConfig) GetAccountID() string { return "999999999999" }
-func (f *fakeGlobalConfig) GetRegion() string    { return "us-west-2" }
 
 // ---- helpers ----
 
-func boolPtr(b bool) *bool { return &b }
+func boolPtr(b bool) *bool    { return &b }
 func int32Ptr(i int32) *int32 { return &i }
