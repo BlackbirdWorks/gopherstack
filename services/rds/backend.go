@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -725,6 +726,8 @@ type InMemoryBackend struct {
 	clusterAutomatedBackups   map[string]*DBClusterAutomatedBackup
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
 	stopCh                    chan struct{}
+	stopOnce                  sync.Once
+	wg                        sync.WaitGroup
 	accountID                 string
 	region                    string
 	events                    []Event
@@ -779,9 +782,35 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close stops the background reconciler goroutine.
+// Close stops the background reconciler goroutine and waits for any in-flight
+// delayed lifecycle transitions to finish. Close is safe to call more than once.
 func (b *InMemoryBackend) Close() {
-	close(b.stopCh)
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
+	b.wg.Wait()
+}
+
+// runDelayed schedules fn to run after delay, unless the backend is closed
+// first. It is tracked by b.wg so Close can wait for it to finish, and it
+// respects b.stopCh so it never mutates state after shutdown.
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
+	b.wg.Add(1)
+
+	go func() {
+		defer b.wg.Done()
+
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-b.stopCh:
+			return
+		case <-timer.C:
+		}
+
+		fn()
+	}()
 }
 
 // Region returns the AWS region this backend is configured for.
