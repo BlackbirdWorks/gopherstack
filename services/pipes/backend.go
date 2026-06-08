@@ -1,12 +1,14 @@
 package pipes
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -817,9 +819,32 @@ type InMemoryBackend struct {
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
+
+	// svcCtx is the service lifecycle context. Delayed state-transition
+	// goroutines observe it so they are cancelled on server shutdown rather
+	// than firing after the backend has been discarded.
+	svcCtx context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
+// NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
+// context. Prefer [NewInMemoryBackendWithContext] when a service context is
+// available so delayed state transitions are cancelled on shutdown.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose delayed
+// state-transition goroutines are tied to svcCtx, so they are cancelled when the
+// service shuts down. If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(svcCtx)
+
 	return &InMemoryBackend{
 		pipes:               make(map[string]*Pipe),
 		pipeARNIndex:        make(map[string]string),
@@ -827,6 +852,48 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("pipes"),
+		svcCtx:              ctx,
+		cancel:              cancel,
+	}
+}
+
+// runDelayed runs fn after delay, unless the backend's lifecycle context is
+// cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
+// can wait for it.
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
+	b.wg.Add(1)
+
+	go func() {
+		defer b.wg.Done()
+
+		select {
+		case <-b.svcCtx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		fn()
+	}()
+}
+
+// Shutdown cancels in-flight delayed state transitions and waits for their
+// goroutines to exit, bounded by ctx. It implements the service shutdown
+// contract used by the handler.
+func (b *InMemoryBackend) Shutdown(ctx context.Context) {
+	if b.cancel != nil {
+		b.cancel()
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 
@@ -924,14 +991,15 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	b.pipeARNIndex[pipeARN] = in.Name
 
 	cp := clonePipe(p)
-	go b.completeCreateTransition(in.Name, in.DesiredState)
+	b.runDelayed(stateTransitionDelay, func() {
+		b.completeCreateTransition(in.Name, in.DesiredState)
+	})
 
 	return cp, nil
 }
 
-// completeCreateTransition moves a pipe from CREATING to its desired state after a brief delay.
+// completeCreateTransition moves a pipe from CREATING to its desired state.
 func (b *InMemoryBackend) completeCreateTransition(name, desiredState string) {
-	time.Sleep(stateTransitionDelay)
 	b.mu.Lock("completeCreateTransition")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
@@ -1163,14 +1231,15 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	go b.completeUpdateTransition(name, prevDesiredState)
+	b.runDelayed(stateTransitionDelay, func() {
+		b.completeUpdateTransition(name, prevDesiredState)
+	})
 
 	return cp, nil
 }
 
-// completeUpdateTransition moves a pipe from UPDATING to its desired state after a brief delay.
+// completeUpdateTransition moves a pipe from UPDATING to its desired state.
 func (b *InMemoryBackend) completeUpdateTransition(name, desiredState string) {
-	time.Sleep(stateTransitionDelay)
 	b.mu.Lock("completeUpdateTransition")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
@@ -1194,14 +1263,15 @@ func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	go b.completeDeleteTransition(name)
+	b.runDelayed(stateTransitionDelay, func() {
+		b.completeDeleteTransition(name)
+	})
 
 	return cp, nil
 }
 
 // completeDeleteTransition removes the pipe after it has been marked DELETING.
 func (b *InMemoryBackend) completeDeleteTransition(name string) {
-	time.Sleep(stateTransitionDelay)
 	b.mu.Lock("completeDeleteTransition")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
@@ -1232,14 +1302,15 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to RUNNING asynchronously.
-	go b.completeStartTransition(name)
+	b.runDelayed(stateTransitionDelay, func() {
+		b.completeStartTransition(name)
+	})
 
 	return cp, nil
 }
 
-// completeStartTransition moves a pipe from STARTING to RUNNING after a brief delay.
+// completeStartTransition moves a pipe from STARTING to RUNNING.
 func (b *InMemoryBackend) completeStartTransition(name string) {
-	time.Sleep(stateTransitionDelay)
 	b.mu.Lock("completeStartTransition")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
@@ -1270,14 +1341,15 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to STOPPED asynchronously.
-	go b.completeStopTransition(name)
+	b.runDelayed(stateTransitionDelay, func() {
+		b.completeStopTransition(name)
+	})
 
 	return cp, nil
 }
 
-// completeStopTransition moves a pipe from STOPPING to STOPPED after a brief delay.
+// completeStopTransition moves a pipe from STOPPING to STOPPED.
 func (b *InMemoryBackend) completeStopTransition(name string) {
-	time.Sleep(stateTransitionDelay)
 	b.mu.Lock("completeStopTransition")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]

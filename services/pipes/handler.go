@@ -91,13 +91,19 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown implements service.Shutdowner.
+// Shutdown implements service.Shutdowner. It stops the background runner and
+// cancels any in-flight delayed state-transition goroutines in the backend so
+// they cannot mutate pipe state after the process begins shutting down.
 func (h *Handler) Shutdown(ctx context.Context) {
 	if h.cancel != nil {
 		h.cancel()
 	}
 
 	h.runner.Wait(ctx)
+
+	if h.Backend != nil {
+		h.Backend.Shutdown(ctx)
+	}
 }
 
 var _ service.BackgroundWorker = (*Handler)(nil)
