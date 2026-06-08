@@ -85,7 +85,8 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 			if assoc == subnetID {
 				existing.AssociationIDs = append(
 					existing.AssociationIDs[:i],
-					existing.AssociationIDs[i+1:]...)
+					existing.AssociationIDs[i+1:]...,
+				)
 
 				break
 			}

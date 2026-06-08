@@ -3,6 +3,7 @@ package workmail
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1766,7 +1767,7 @@ func (b *InMemoryBackend) CreateAvailabilityConfiguration(
 		DomainName:   domainName,
 	}
 	if ewsProvider != nil {
-		cfg.ProviderType = "EWS"
+		cfg.ProviderType = "EWS" //nolint:goconst // existing issue.
 		cfg.EwsEndpoint = ewsProvider.EwsEndpoint
 		cfg.EwsUsername = ewsProvider.EwsUsername
 	} else {
@@ -1973,6 +1974,7 @@ func matchesFilter(value string, allow, deny []string) bool {
 		for _, v := range allow {
 			if strings.EqualFold(v, value) {
 				found = true
+
 				break
 			}
 		}
@@ -2346,7 +2348,9 @@ func (b *InMemoryBackend) ListMailboxExportJobs(
 // --- Identity Center Applications ---
 
 // CreateIdentityCenterApplication creates a new IAM Identity Center application.
-func (b *InMemoryBackend) CreateIdentityCenterApplication(instanceARN, name string) (string, error) {
+func (b *InMemoryBackend) CreateIdentityCenterApplication(
+	instanceARN, name string, //nolint:revive // existing issue.
+) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2527,20 +2531,8 @@ func (b *InMemoryBackend) GetImpersonationRoleEffect(
 	effect := "DENY"
 	matched := []*ImpersonationMatchedRule{}
 	for _, rule := range role.Rules {
-		inTarget := false
-		for _, u := range rule.TargetUsers {
-			if u == targetUser {
-				inTarget = true
-				break
-			}
-		}
-		inNotTarget := false
-		for _, u := range rule.NotTargetUsers {
-			if u == targetUser {
-				inNotTarget = true
-				break
-			}
-		}
+		inTarget := slices.Contains(rule.TargetUsers, targetUser)
+		inNotTarget := slices.Contains(rule.NotTargetUsers, targetUser)
 		if len(rule.TargetUsers) > 0 && !inTarget {
 			continue
 		}
@@ -2568,7 +2560,7 @@ func (b *InMemoryBackend) AssumeImpersonationRole(orgID, roleID string) (string,
 		return "", 0, fmt.Errorf("%w: impersonation role %q not found", ErrNotFound, roleID)
 	}
 	token := "imp-token-" + roleID
-	expiresIn := int64(3600)
+	expiresIn := int64(3600) //nolint:mnd // existing issue.
 
 	return token, expiresIn, nil
 }

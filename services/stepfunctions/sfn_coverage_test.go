@@ -482,7 +482,13 @@ func TestBackend_RunParsedExecution_FailState(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "run-sm-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"run-sm-"+tt.name,
+				tt.definition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "run-exec", `{}`)

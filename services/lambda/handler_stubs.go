@@ -185,7 +185,6 @@ func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
 	ex, err := store.stop(arn)
-
 	if err != nil {
 		// If not found, stop is a no-op — return a synthetic stopped response.
 		return c.JSON(http.StatusOK, map[string]any{"Status": string(DurableExecutionStatusStopped)})

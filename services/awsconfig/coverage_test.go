@@ -2,10 +2,9 @@ package awsconfig_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"net/http/httptest"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"

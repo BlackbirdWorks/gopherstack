@@ -645,6 +645,7 @@ func resolveSelectFromItems(second any, index int, ctx resolveCtx) string {
 		return selectFromEncodedString(items, index)
 	case map[string]any:
 		resolved := resolveValueCtx(items, ctx)
+
 		return selectFromEncodedString(resolved, index)
 	}
 

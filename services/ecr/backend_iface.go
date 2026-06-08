@@ -134,7 +134,10 @@ type Backend interface {
 	DeletePullThroughCacheRule(ctx context.Context, prefix string) (*PullThroughCacheRule, error)
 
 	// UpdatePullThroughCacheRule updates a pull-through cache rule by prefix.
-	UpdatePullThroughCacheRule(ctx context.Context, prefix, credentialArn, customRoleArn string) (*PullThroughCacheRule, error)
+	UpdatePullThroughCacheRule(
+		ctx context.Context,
+		prefix, credentialArn, customRoleArn string,
+	) (*PullThroughCacheRule, error)
 
 	// ValidatePullThroughCacheRule validates a pull-through cache rule by prefix.
 	ValidatePullThroughCacheRule(ctx context.Context, prefix string) (*ValidatePullThroughCacheRuleResult, error)
@@ -155,7 +158,10 @@ type Backend interface {
 	PutRegistryPolicy(ctx context.Context, policyText string) (*RegistryPolicyResult, error)
 
 	// PutRegistryScanningConfiguration updates the registry scanning configuration.
-	PutRegistryScanningConfiguration(ctx context.Context, settings *RegistryScanningSettings) (*RegistryScanningSettings, error)
+	PutRegistryScanningConfiguration(
+		ctx context.Context,
+		settings *RegistryScanningSettings,
+	) (*RegistryScanningSettings, error)
 
 	// PutReplicationConfiguration updates the registry replication configuration.
 	PutReplicationConfiguration(ctx context.Context, cfg *ReplicationConfig) (*ReplicationConfig, error)
@@ -179,10 +185,18 @@ type Backend interface {
 	DeleteSigningConfiguration(ctx context.Context) (*SigningSettings, error)
 
 	// DescribeImageSigningStatus returns signing status for an image.
-	DescribeImageSigningStatus(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageSigningStatusResult, error)
+	DescribeImageSigningStatus(
+		ctx context.Context,
+		repositoryName string,
+		imageID ImageIdentifier,
+	) (*ImageSigningStatusResult, error)
 
 	// DescribeImageScanFindings returns scan findings for an image.
-	DescribeImageScanFindings(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageScanFindingsResult, error)
+	DescribeImageScanFindings(
+		ctx context.Context,
+		repositoryName string,
+		imageID ImageIdentifier,
+	) (*ImageScanFindingsResult, error)
 
 	// StartImageScan starts an image scan and returns the scan status.
 	StartImageScan(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageScanStartResult, error)
@@ -198,7 +212,11 @@ type Backend interface {
 	PutImage(ctx context.Context, repositoryName string, image Image) (*Image, error)
 
 	// PutImageScanningConfiguration updates per-repository scan-on-push config.
-	PutImageScanningConfiguration(ctx context.Context, repositoryName string, scanOnPush bool) (*RepositoryScanningConfiguration, error)
+	PutImageScanningConfiguration(
+		ctx context.Context,
+		repositoryName string,
+		scanOnPush bool,
+	) (*RepositoryScanningConfiguration, error)
 
 	// PutImageTagMutability updates per-repository tag mutability.
 	PutImageTagMutability(
@@ -238,7 +256,10 @@ type Backend interface {
 	ListPullTimeUpdateExclusions(ctx context.Context) ([]PullTimeUpdateExclusion, error)
 
 	// UpdateRepositoryCreationTemplate updates a repository creation template.
-	UpdateRepositoryCreationTemplate(ctx context.Context, req *RepositoryCreationTemplate) (*RepositoryCreationTemplate, error)
+	UpdateRepositoryCreationTemplate(
+		ctx context.Context,
+		req *RepositoryCreationTemplate,
+	) (*RepositoryCreationTemplate, error)
 
 	// TagResource associates tags with a resource identified by ARN.
 	TagResource(ctx context.Context, resourceArn string, tags map[string]string) error

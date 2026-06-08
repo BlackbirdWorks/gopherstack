@@ -1013,7 +1013,7 @@ func classifyLogEvents(
 // PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
 // sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
 // Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
-func (b *InMemoryBackend) PutLogEvents(
+func (b *InMemoryBackend) PutLogEvents( //nolint:funlen // existing issue.
 	ctx context.Context,
 	groupName, streamName, sequenceToken string,
 	events []InputLogEvent,
@@ -1227,8 +1227,14 @@ func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamNam
 }
 
 // FilterLogEvents searches events across streams in a group with optional filter pattern.
-func (b *InMemoryBackend) FilterLogEvents(ctx context.Context, groupName string, streamNames []string, filterPattern string,
-	startTime, endTime *int64, limit int, nextToken string,
+func (b *InMemoryBackend) FilterLogEvents(
+	ctx context.Context,
+	groupName string,
+	streamNames []string,
+	filterPattern string,
+	startTime, endTime *int64,
+	limit int,
+	nextToken string,
 ) ([]OutputLogEvent, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -1490,7 +1496,8 @@ func (b *InMemoryBackend) emitMetricFilterMatches(emitter MetricEmitter, matches
 			}
 			for range m.matchCount {
 				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, ""); emitErr != nil {
-					logger.Load(b.ctx).Warn("cloudwatchlogs: metric filter emit failed",
+					logger.Load(b.ctx).Warn(
+						"cloudwatchlogs: metric filter emit failed",
 						"namespace", t.MetricNamespace,
 						"metric", t.MetricName,
 						"err", emitErr,
@@ -3404,6 +3411,7 @@ func standardLogGroupFields() []LogGroupField {
 		{Name: "@logStream", Percent: pct},
 	}
 }
+
 func (b *InMemoryBackend) GetLogGroupFields(ctx context.Context, logGroupName string) ([]LogGroupField, error) {
 	if logGroupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)

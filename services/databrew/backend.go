@@ -206,23 +206,19 @@ type Schedule struct {
 
 // InMemoryBackend stores DataBrew state in memory.
 type InMemoryBackend struct {
-	datasets  map[string]*Dataset
-	recipes   map[string]*Recipe
+	svcCtx    context.Context
+	schedules map[string]*Schedule
 	projects  map[string]*Project
 	jobs      map[string]*Job
 	jobRuns   map[string][]*JobRun
 	rulesets  map[string]*Ruleset
-	schedules map[string]*Schedule
+	datasets  map[string]*Dataset
 	mu        *lockmetrics.RWMutex
+	recipes   map[string]*Recipe
+	cancel    context.CancelFunc
 	accountID string
 	region    string
-
-	// svcCtx is the service lifecycle context. Delayed lifecycle goroutines
-	// (e.g. job run state transitions) select on its Done channel so they exit
-	// promptly on Shutdown instead of leaking or mutating state after Reset.
-	svcCtx context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	wg        sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new in-memory DataBrew backend with a background
@@ -262,16 +258,14 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // cancelled (Shutdown) before the delay elapses, preventing leaks and
 // post-Shutdown state mutation.
 func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
+	b.wg.Go(func() {
 		select {
 		case <-b.svcCtx.Done():
 			return
 		case <-time.After(delay):
 		}
 		fn()
-	}()
+	})
 }
 
 // Shutdown cancels the backend's lifecycle context and waits for in-flight

@@ -149,7 +149,8 @@ func TestBatch2_DescribeFileSystemPolicy_PolicyNotFound(t *testing.T) {
 			h := newRefinementHandler()
 			fsID := createFS(t, h, "policy-test-"+tt.name)
 
-			rec := doRESTRefinement(t, h, http.MethodGet,
+			rec := doRESTRefinement(
+				t, h, http.MethodGet,
 				"/2015-02-01/file-systems/"+fsID+"/policy",
 				nil,
 			)
@@ -210,14 +211,16 @@ func TestBatch2_DescribeFileSystemPolicy_AfterPut(t *testing.T) {
 			fsID := createFS(t, h, "policy-put-"+tt.name)
 
 			// Set policy.
-			rec := doRESTRefinement(t, h, http.MethodPut,
+			rec := doRESTRefinement(
+				t, h, http.MethodPut,
 				"/2015-02-01/file-systems/"+fsID+"/policy",
 				map[string]any{"Policy": tt.policy},
 			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Describe should now succeed.
-			rec = doRESTRefinement(t, h, http.MethodGet,
+			rec = doRESTRefinement(
+				t, h, http.MethodGet,
 				"/2015-02-01/file-systems/"+fsID+"/policy",
 				nil,
 			)

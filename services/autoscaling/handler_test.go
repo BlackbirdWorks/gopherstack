@@ -1489,7 +1489,8 @@ func TestAutoscalingHandler_SetDesiredCapacity(t *testing.T) {
 			name: "set_desired_capacity_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
 						"&AutoScalingGroupName=sdc-asg&MinSize=1&MaxSize=10&DesiredCapacity=2",
 				)
@@ -1534,7 +1535,8 @@ func TestAutoscalingHandler_TerminateInstanceInAutoScalingGroup(t *testing.T) {
 			name: "terminate_instance_success",
 			setup: func(t *testing.T, h *autoscaling.Handler, _ *autoscaling.InMemoryBackend) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
 						"&AutoScalingGroupName=term-asg&MinSize=1&MaxSize=5&DesiredCapacity=2",
 				)
@@ -1600,10 +1602,12 @@ func TestAutoscalingHandler_PutAndDescribeLifecycleHooks(t *testing.T) {
 			name: "describe_lifecycle_hooks_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dlh-asg&MinSize=0&MaxSize=5",
 				)
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=dlh-asg&LifecycleHookName=h1",
 				)
 			},
@@ -1654,10 +1658,12 @@ func TestAutoscalingHandler_DescribeScheduledActions(t *testing.T) {
 			name: "describe_scheduled_actions_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=sa-asg&MinSize=0&MaxSize=5",
 				)
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=BatchPutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=sa-asg"+
 						"&ScheduledUpdateGroupActions.member.1.ScheduledActionName=scale-out"+
 						"&ScheduledUpdateGroupActions.member.1.DesiredCapacity=5",
@@ -1710,7 +1716,8 @@ func TestAutoscalingHandler_DeleteAndDescribeTags(t *testing.T) {
 			name: "delete_tags_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=tag-asg&MinSize=0&MaxSize=5"+
 						"&Tags.member.1.Key=env&Tags.member.1.Value=prod",
 				)
@@ -1777,7 +1784,8 @@ func TestAutoscalingHandler_DescribeAutoScalingInstances(t *testing.T) {
 			name: "describe_instances_with_group",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
 						"&AutoScalingGroupName=inst-asg&MinSize=1&MaxSize=3&DesiredCapacity=1",
 				)
@@ -1823,7 +1831,8 @@ func TestAutoscalingHandler_ForceDeleteAutoScalingGroup(t *testing.T) {
 			name: "delete_with_instances_requires_force",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
 						"&AutoScalingGroupName=force-asg&MinSize=1&MaxSize=5&DesiredCapacity=2",
 				)
@@ -1835,7 +1844,8 @@ func TestAutoscalingHandler_ForceDeleteAutoScalingGroup(t *testing.T) {
 			name: "delete_with_force_succeeds",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
+				postAutoscalingForm(
+					t, h,
 					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
 						"&AutoScalingGroupName=force-asg2&MinSize=1&MaxSize=5&DesiredCapacity=2",
 				)

@@ -458,7 +458,8 @@ func TestLSILimit_CreateTable_Exceeds5_Rejected(t *testing.T) {
 		{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
 	}
 	attrDefs := make([]types.AttributeDefinition, 0, 2+len(lsis))
-	attrDefs = append(attrDefs,
+	attrDefs = append(
+		attrDefs,
 		types.AttributeDefinition{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
 		types.AttributeDefinition{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
 	)

@@ -60,7 +60,8 @@ func TestBatch2_ManagedRuleSet_PutAndGet(t *testing.T) {
 	assert.Contains(t, versions, "Version_1.0", "Version_1.0 should be in PublishedVersions")
 
 	version := versions["Version_1.0"].(map[string]any)
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		"arn:aws:wafv2:us-east-1:000000000000:regional/rulegroup/my-rg/abc",
 		version["AssociatedRuleGroupArn"],
 	)

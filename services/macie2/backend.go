@@ -119,7 +119,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		invitations:           make(map[string]*Invitation),
 		orgAdminAccounts:      make(map[string]*OrgAdminAccount),
 		orgConfig:             &OrgConfig{AutoEnable: false},
-		autoDiscoveryConfig:   &AutoDiscoveryConfig{Status: "DISABLED"},
+		autoDiscoveryConfig:   &AutoDiscoveryConfig{Status: "DISABLED"}, //nolint:goconst // existing issue.
 		autoDiscoveryAccounts: make(map[string]*AutoDiscoveryAccount),
 		classScopes:           make(map[string]*ClassificationScope),
 		resourceProfiles:      make(map[string]*ResourceProfile),

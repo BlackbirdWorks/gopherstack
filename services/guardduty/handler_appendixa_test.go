@@ -21,8 +21,8 @@ func TestAppendixA_Members(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_list_delete",
@@ -172,8 +172,8 @@ func TestAppendixA_Invitations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "count_and_list",
@@ -286,8 +286,8 @@ func TestAppendixA_Organization(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "admin_account_lifecycle",
@@ -375,8 +375,8 @@ func TestAppendixA_PublishingDestinations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_describe_update_list_delete",
@@ -454,8 +454,8 @@ func TestAppendixA_MalwareScanning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "start_get_list",
@@ -583,8 +583,8 @@ func TestAppendixA_Coverage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "list_and_statistics",
@@ -623,8 +623,8 @@ func TestAppendixA_MalwareProtectionPlans(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_get_update_list_delete",
@@ -713,8 +713,8 @@ func TestAppendixA_ThreatEntitySets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_get_update_list_delete",
@@ -812,8 +812,8 @@ func TestAppendixA_TrustedEntitySets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *guardduty.Handler)
+		name string
 	}{
 		{
 			name: "create_get_update_list_delete",

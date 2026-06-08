@@ -341,7 +341,7 @@ type ClusterOptionalConfig struct {
 }
 
 // CreateCluster creates a new EKS cluster.
-func (b *InMemoryBackend) CreateCluster(
+func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 	name, version, roleARN string,
 	vpcConfig *VpcConfig,
 	networkConfig *KubernetesNetworkConfig,
@@ -579,11 +579,13 @@ type NodegroupInput struct {
 	DiskSize       int32
 }
 
-const nodegroupDiskSizeMin = 20
-const nodegroupDiskSizeMax = 16384
+const (
+	nodegroupDiskSizeMin = 20
+	nodegroupDiskSizeMax = 16384
+)
 
 // CreateNodegroup creates a new node group in a cluster.
-func (b *InMemoryBackend) CreateNodegroup(
+func (b *InMemoryBackend) CreateNodegroup( //nolint:funlen // existing issue.
 	clusterName, nodegroupName, nodeRole, amiType, capacityType, version, releaseVersion string,
 	instanceTypes []string,
 	desiredSize, minSize, maxSize int32,

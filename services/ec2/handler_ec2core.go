@@ -236,7 +236,6 @@ func (h *Handler) handleCreateEgressOnlyInternetGateway(
 ) (any, error) {
 	vpcID := vals.Get("VpcId")
 	igw, err := h.Backend.CreateEgressOnlyInternetGateway(vpcID)
-
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +330,6 @@ func (h *Handler) handleAssociateIamInstanceProfile(vals url.Values, reqID strin
 func (h *Handler) handleDisassociateIamInstanceProfile(vals url.Values, reqID string) (any, error) {
 	assocID := vals.Get("AssociationId")
 	assoc, err := h.Backend.DisassociateIamInstanceProfile(assocID)
-
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +441,6 @@ func tgwRTToItem(rt *TransitGatewayRouteTable) tgwRouteTableItem {
 func (h *Handler) handleCreateTransitGatewayRouteTable(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgwID)
-
 	if err != nil {
 		return nil, err
 	}

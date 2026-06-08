@@ -22,8 +22,8 @@ func TestAppendixA_ClassificationJobs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "create_describe_list_update",
@@ -126,8 +126,8 @@ func TestAppendixA_Members(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "create_get_list_delete",
@@ -261,8 +261,8 @@ func TestAppendixA_Invitations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "create_list_count",
@@ -283,7 +283,7 @@ func TestAppendixA_Invitations(t *testing.T) {
 				var countResp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &countResp))
 				count, _ := countResp["invitationsCount"].(float64)
-				assert.EqualValues(t, 2, count)
+				assert.InDelta(t, 2, count, 0.0001)
 
 				// ListInvitations
 				rec = doRequest(t, h, http.MethodGet, "/invitations", nil)
@@ -358,8 +358,8 @@ func TestAppendixA_AdministratorMaster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_administrator_nil_when_none",
@@ -455,8 +455,8 @@ func TestAppendixA_OrgAdmin(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "enable_list_disable",
@@ -533,8 +533,8 @@ func TestAppendixA_AutomatedDiscovery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_update_configuration",
@@ -604,8 +604,8 @@ func TestAppendixA_BucketsAndBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "describe_buckets_returns_empty",
@@ -634,7 +634,7 @@ func TestAppendixA_BucketsAndBatch(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				count, _ := resp["bucketCount"].(float64)
-				assert.EqualValues(t, 0, count)
+				assert.InDelta(t, 0, count, 0.0001)
 			},
 		},
 		{
@@ -697,8 +697,8 @@ func TestAppendixA_ClassificationConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_put_classification_export_config",
@@ -797,8 +797,8 @@ func TestAppendixA_FindingsPublicationConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_put_publication_config",
@@ -844,8 +844,8 @@ func TestAppendixA_ResourceProfiles(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_and_update_resource_profile",
@@ -930,8 +930,8 @@ func TestAppendixA_RevealConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_and_update_reveal_config",
@@ -981,8 +981,8 @@ func TestAppendixA_SensitiveDataOccurrences(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_occurrences_and_availability_for_finding",
@@ -1040,8 +1040,8 @@ func TestAppendixA_SensitivityInspectionTemplates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "list_get_update_template",
@@ -1116,8 +1116,8 @@ func TestAppendixA_UsageAndManagedIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, h *macie2.Handler)
+		name string
 	}{
 		{
 			name: "get_usage_statistics",

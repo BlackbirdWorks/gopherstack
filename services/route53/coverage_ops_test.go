@@ -61,7 +61,8 @@ func TestRoute53_QueryLoggingConfig(t *testing.T) {
 
 	// CreateQueryLoggingConfig
 	const cwLogGroup = "arn:aws:logs:us-east-1:123456789012:log-group:/aws/route53/query-log"
-	rec := send(t, h, http.MethodPost, "/2013-04-01/queryloggingconfig",
+	rec := send(
+		t, h, http.MethodPost, "/2013-04-01/queryloggingconfig",
 		`<CreateQueryLoggingConfigRequest>`+
 			`<HostedZoneId>`+zoneID+`</HostedZoneId>`+
 			`<CloudWatchLogsLogGroupArn>`+cwLogGroup+`</CloudWatchLogsLogGroupArn>`+

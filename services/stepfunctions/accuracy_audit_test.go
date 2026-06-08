@@ -600,7 +600,13 @@ func TestRedriveExecution_RedriveCount(t *testing.T) {
 
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"Err","Cause":"test"}}}`
-			sm, err := b.CreateStateMachine(context.Background(), "redrive-sm-"+tt.name, failDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"redrive-sm-"+tt.name,
+				failDef,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "redrive-exec-"+tt.name, `{}`)
@@ -834,7 +840,13 @@ func TestSetStateMachineConfigurations_Encryption(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "enc-cfg-sm-"+tt.name, sfnPassDefinition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"enc-cfg-sm-"+tt.name,
+				sfnPassDefinition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			err = b.SetStateMachineConfigurations(sm.StateMachineArn, nil, nil, tt.encryption)

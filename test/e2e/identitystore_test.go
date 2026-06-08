@@ -29,10 +29,13 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Seed a group.
-	group, err := stack.IdentityStoreHandler.Backend.CreateGroup(testE2EStoreID, &identitystorebackend.CreateGroupRequest{
-		DisplayName: "Engineering",
-		Description: "Engineering team",
-	})
+	group, err := stack.IdentityStoreHandler.Backend.CreateGroup(
+		testE2EStoreID,
+		&identitystorebackend.CreateGroupRequest{
+			DisplayName: "Engineering",
+			Description: "Engineering team",
+		},
+	)
 	require.NoError(t, err)
 
 	// Add user to group.
@@ -289,9 +292,10 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 	require.NoError(t, err)
 	err = page.Locator("#edit-user-modal button[type='submit']:has-text('Save')").Click()
 	require.NoError(t, err)
-	err = page.Locator("tr:has(td:has-text('charlie.user')) td:has-text('Charlie Updated')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(10000),
-	})
+	err = page.Locator("tr:has(td:has-text('charlie.user')) td:has-text('Charlie Updated')").
+		WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(10000),
+		})
 	require.NoError(t, err)
 
 	// Create group in groups tab.
@@ -315,15 +319,17 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 	require.NoError(t, err)
 	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Memberships')").Click()
 	require.NoError(t, err)
-	_, err = page.Locator("#membership-modal select[name='membership_group']").SelectOption(playwright.SelectOptionValues{
-		Labels: &[]string{"DevRel"},
-	})
+	_, err = page.Locator("#membership-modal select[name='membership_group']").
+		SelectOption(playwright.SelectOptionValues{
+			Labels: &[]string{"DevRel"},
+		})
 	require.NoError(t, err)
 	err = page.Locator("#membership-modal button:has-text('Add')").Click()
 	require.NoError(t, err)
-	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) td:has-text('Member')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(10000),
-	})
+	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) td:has-text('Member')").
+		WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(10000),
+		})
 	require.NoError(t, err)
 	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) button:has-text('Remove')").Click()
 	require.NoError(t, err)

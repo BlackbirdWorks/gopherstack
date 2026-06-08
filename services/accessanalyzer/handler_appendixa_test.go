@@ -69,9 +69,9 @@ func TestApplyArchiveRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
-		setupFn    func(b *accessanalyzer.InMemoryBackend) string // returns analyzerArn
+		setupFn    func(b *accessanalyzer.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -125,9 +125,9 @@ func TestPolicyGenerationLifecycle(t *testing.T) {
 	h := accessanalyzer.NewHandler(b)
 
 	tests := []struct {
-		name    string
 		runFn   func() *httptest.ResponseRecorder
 		checkFn func(t *testing.T, rec *httptest.ResponseRecorder)
+		name    string
 	}{
 		{
 			name: "start_policy_generation",
@@ -255,9 +255,9 @@ func TestCheckPolicyOps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body map[string]any
 		name string
 		path string
-		body map[string]any
 	}{
 		{
 			name: "check_access_not_granted",
@@ -323,8 +323,8 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -422,8 +422,8 @@ func TestServiceLinkedAnalyzerLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler)
+		name string
 	}{
 		{
 			name: "create_service_linked_analyzer",
@@ -475,8 +475,8 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler)
+		name string
 	}{
 		{
 			name: "generate_and_get",
@@ -524,8 +524,8 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler)
+		name string
 	}{
 		{
 			name: "get_analyzed_resource",
@@ -555,7 +555,7 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 					t,
 					h,
 					http.MethodGet,
-					"/analyzed-resource?analyzerArn=arn:aws:access-analyzer:us-east-1:000000000000:analyzer/a&resourceArn=arn:aws:s3:::no-bucket",
+					"/analyzed-resource?analyzerArn=arn:aws:access-analyzer:us-east-1:000000000000:analyzer/a&resourceArn=arn:aws:s3:::no-bucket", //nolint:lll // existing issue.
 					nil,
 				)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -599,8 +599,8 @@ func TestFindingV2Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler)
+		name string
 	}{
 		{
 			name: "get_finding_v2",
@@ -664,8 +664,8 @@ func TestGetFindingsStatistics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setupFn    func(b *accessanalyzer.InMemoryBackend) string
+		name       string
 		wantStatus int
 		wantActive int
 	}{
@@ -711,7 +711,7 @@ func TestGetFindingsStatistics(t *testing.T) {
 
 				extStats := stats[0].(map[string]any)["externalAccessFindingsStatistics"].(map[string]any)
 				active := extStats["activeFindings"].(map[string]any)
-				assert.Equal(t, float64(tt.wantActive), active["total"])
+				assert.InDelta(t, float64(tt.wantActive), active["total"], 0.0001)
 			}
 		})
 	}
@@ -722,8 +722,8 @@ func TestUpdateAnalyzer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setupFn    func(b *accessanalyzer.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{

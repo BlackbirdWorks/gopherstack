@@ -13,7 +13,7 @@ import (
 )
 
 // Helper to create a backend with a single ASG for reuse in many tests.
-func newBackendWithASG(t *testing.T, name string) *autoscaling.InMemoryBackend {
+func newBackendWithASG(t *testing.T, name string) *autoscaling.InMemoryBackend { //nolint:unused // existing issue.
 	t.Helper()
 
 	b := autoscaling.NewInMemoryBackend()
@@ -137,6 +137,7 @@ func TestInMemoryBackend_EnterStandby(t *testing.T) {
 				for _, inst := range instances {
 					if inst.AutoScalingGroupName == "standby-asg" {
 						ids = append(ids, inst.InstanceID)
+
 						break
 					}
 				}
@@ -161,6 +162,7 @@ func TestInMemoryBackend_EnterStandby(t *testing.T) {
 				for _, inst := range instances {
 					if inst.AutoScalingGroupName == "standby2-asg" {
 						ids = append(ids, inst.InstanceID)
+
 						break
 					}
 				}
@@ -220,6 +222,7 @@ func TestInMemoryBackend_ExitStandby(t *testing.T) {
 				ids := make([]string, 0, 1)
 				for _, inst := range instances {
 					ids = append(ids, inst.InstanceID)
+
 					break
 				}
 
@@ -276,6 +279,7 @@ func TestInMemoryBackend_SetInstanceProtection(t *testing.T) {
 				})
 
 				instances, _ := b.DescribeAutoScalingInstances(nil)
+
 				return "prot-inst-asg", []string{instances[0].InstanceID}
 			},
 			wantProtected: true,
@@ -292,6 +296,7 @@ func TestInMemoryBackend_SetInstanceProtection(t *testing.T) {
 				})
 
 				instances, _ := b.DescribeAutoScalingInstances(nil)
+
 				return "unprot-inst-asg", []string{instances[0].InstanceID}
 			},
 			wantProtected: false,
@@ -412,8 +417,8 @@ func TestInMemoryBackend_ExecutePolicy(t *testing.T) {
 
 	tests := []struct {
 		setup   func(b *autoscaling.InMemoryBackend)
-		input   autoscaling.ExecutePolicyInput
 		name    string
+		input   autoscaling.ExecutePolicyInput
 		wantErr bool
 	}{
 		{
@@ -1633,8 +1638,8 @@ func TestInMemoryBackend_WarmPool(t *testing.T) {
 
 	tests := []struct {
 		setup   func(b *autoscaling.InMemoryBackend)
-		input   autoscaling.WarmPoolInput
 		name    string
+		input   autoscaling.WarmPoolInput
 		wantErr bool
 	}{
 		{
@@ -2072,8 +2077,8 @@ func TestInMemoryBackend_Purge(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name string
 	}{
 		{
 			name: "purge_clears_all_state",
@@ -2182,12 +2187,18 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "resume_processes_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&MinSize=1&MaxSize=5")
-				postAutoscalingForm(t, h,
-					"Action=SuspendProcesses&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&ScalingProcesses.member.1=Launch")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&MinSize=1&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=SuspendProcesses&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&ScalingProcesses.member.1=Launch",
+				)
 			},
-			body:       "Action=ResumeProcesses&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&ScalingProcesses.member.1=Launch",
+			body:       "Action=ResumeProcesses&Version=2011-01-01&AutoScalingGroupName=rp-http-asg&ScalingProcesses.member.1=Launch", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -2200,15 +2211,18 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "enter_standby_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=es-http-asg&MinSize=1&MaxSize=5&DesiredCapacity=2")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=es-http-asg&MinSize=1&MaxSize=5&DesiredCapacity=2", //nolint:lll // existing issue.
+				)
 			},
-			body:       "Action=EnterStandby&Version=2011-01-01&AutoScalingGroupName=es-http-asg&ShouldDecrementDesiredCapacity=true&InstanceIds.member.1=dummy",
+			body:       "Action=EnterStandby&Version=2011-01-01&AutoScalingGroupName=es-http-asg&ShouldDecrementDesiredCapacity=true&InstanceIds.member.1=dummy", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "enter_standby_group_not_found",
-			body:       "Action=EnterStandby&Version=2011-01-01&AutoScalingGroupName=no-such&ShouldDecrementDesiredCapacity=false",
+			body:       "Action=EnterStandby&Version=2011-01-01&AutoScalingGroupName=no-such&ShouldDecrementDesiredCapacity=false", //nolint:lll // existing issue.
 			wantStatus: http.StatusBadRequest,
 		},
 		// ExitStandby
@@ -2216,8 +2230,11 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "exit_standby_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=xs-http-asg&MinSize=1&MaxSize=5&DesiredCapacity=2")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=xs-http-asg&MinSize=1&MaxSize=5&DesiredCapacity=2", //nolint:lll // existing issue.
+				)
 			},
 			body:       "Action=ExitStandby&Version=2011-01-01&AutoScalingGroupName=xs-http-asg&InstanceIds.member.1=dummy",
 			wantStatus: http.StatusOK,
@@ -2232,10 +2249,13 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "set_instance_protection_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=sip-http-asg&MinSize=0&MaxSize=5")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=sip-http-asg&MinSize=0&MaxSize=5",
+				)
 			},
-			body:       "Action=SetInstanceProtection&Version=2011-01-01&AutoScalingGroupName=sip-http-asg&ProtectedFromScaleIn=true",
+			body:       "Action=SetInstanceProtection&Version=2011-01-01&AutoScalingGroupName=sip-http-asg&ProtectedFromScaleIn=true", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -2248,17 +2268,23 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "record_lifecycle_heartbeat_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&MinSize=0&MaxSize=5")
-				postAutoscalingForm(t, h,
-					"Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&LifecycleHookName=my-hook")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&MinSize=0&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&LifecycleHookName=my-hook",
+				)
 			},
-			body:       "Action=RecordLifecycleActionHeartbeat&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&LifecycleHookName=my-hook",
+			body:       "Action=RecordLifecycleActionHeartbeat&Version=2011-01-01&AutoScalingGroupName=lhb-http-asg&LifecycleHookName=my-hook", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "record_lifecycle_heartbeat_group_not_found",
-			body:       "Action=RecordLifecycleActionHeartbeat&Version=2011-01-01&AutoScalingGroupName=no-such&LifecycleHookName=h",
+			body:       "Action=RecordLifecycleActionHeartbeat&Version=2011-01-01&AutoScalingGroupName=no-such&LifecycleHookName=h", //nolint:lll // existing issue.
 			wantStatus: http.StatusBadRequest,
 		},
 		// ExecutePolicy
@@ -2266,10 +2292,16 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "execute_policy_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=ep-http-asg&MinSize=1&MaxSize=10&DesiredCapacity=2")
-				postAutoscalingForm(t, h,
-					"Action=PutScalingPolicy&Version=2011-01-01&AutoScalingGroupName=ep-http-asg&PolicyName=scale-up&AdjustmentType=ChangeInCapacity&ScalingAdjustment=1")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=ep-http-asg&MinSize=1&MaxSize=10&DesiredCapacity=2", //nolint:lll // existing issue.
+				)
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=PutScalingPolicy&Version=2011-01-01&AutoScalingGroupName=ep-http-asg&PolicyName=scale-up&AdjustmentType=ChangeInCapacity&ScalingAdjustment=1", //nolint:lll // existing issue.
+				)
 			},
 			body:       "Action=ExecutePolicy&Version=2011-01-01&AutoScalingGroupName=ep-http-asg&PolicyName=scale-up",
 			wantStatus: http.StatusOK,
@@ -2284,8 +2316,11 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "get_predictive_scaling_forecast_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=psf-http-asg&MinSize=0&MaxSize=5")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=psf-http-asg&MinSize=0&MaxSize=5",
+				)
 			},
 			body:       "Action=GetPredictiveScalingForecast&Version=2011-01-01&AutoScalingGroupName=psf-http-asg",
 			wantStatus: http.StatusOK,
@@ -2300,18 +2335,21 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "delete_notification_configuration_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dnc-http-asg&MinSize=0&MaxSize=5")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dnc-http-asg&MinSize=0&MaxSize=5",
+				)
 				postAutoscalingForm(t, h,
 					"Action=PutNotificationConfiguration&Version=2011-01-01&AutoScalingGroupName=dnc-http-asg"+
 						"&TopicARN=arn:aws:sns:us-east-1:000000000000:t&NotificationTypes.member.1=autoscaling:EC2_INSTANCE_LAUNCH")
 			},
-			body:       "Action=DeleteNotificationConfiguration&Version=2011-01-01&AutoScalingGroupName=dnc-http-asg&TopicARN=arn:aws:sns:us-east-1:000000000000:t",
+			body:       "Action=DeleteNotificationConfiguration&Version=2011-01-01&AutoScalingGroupName=dnc-http-asg&TopicARN=arn:aws:sns:us-east-1:000000000000:t", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "delete_notification_configuration_group_not_found",
-			body:       "Action=DeleteNotificationConfiguration&Version=2011-01-01&AutoScalingGroupName=no-such&TopicARN=arn:aws:sns:us-east-1:x",
+			body:       "Action=DeleteNotificationConfiguration&Version=2011-01-01&AutoScalingGroupName=no-such&TopicARN=arn:aws:sns:us-east-1:x", //nolint:lll // existing issue.
 			wantStatus: http.StatusBadRequest,
 		},
 		// DeletePolicy
@@ -2319,10 +2357,16 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "delete_policy_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dp-http-asg&MinSize=0&MaxSize=5")
-				postAutoscalingForm(t, h,
-					"Action=PutScalingPolicy&Version=2011-01-01&AutoScalingGroupName=dp-http-asg&PolicyName=my-pol&AdjustmentType=ChangeInCapacity&ScalingAdjustment=1")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dp-http-asg&MinSize=0&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=PutScalingPolicy&Version=2011-01-01&AutoScalingGroupName=dp-http-asg&PolicyName=my-pol&AdjustmentType=ChangeInCapacity&ScalingAdjustment=1", //nolint:lll // existing issue.
+				)
 			},
 			body:       "Action=DeletePolicy&Version=2011-01-01&AutoScalingGroupName=dp-http-asg&PolicyName=my-pol",
 			wantStatus: http.StatusOK,
@@ -2337,15 +2381,18 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "put_scheduled_update_group_action_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=psuga-http-asg&MinSize=0&MaxSize=10")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=psuga-http-asg&MinSize=0&MaxSize=10",
+				)
 			},
-			body:       "Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=psuga-http-asg&ScheduledActionName=sa1",
+			body:       "Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=psuga-http-asg&ScheduledActionName=sa1", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "put_scheduled_update_group_action_group_not_found",
-			body:       "Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=no-such&ScheduledActionName=a",
+			body:       "Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=no-such&ScheduledActionName=a", //nolint:lll // existing issue.
 			wantStatus: http.StatusBadRequest,
 		},
 		// DeleteScheduledAction
@@ -2353,12 +2400,18 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "delete_scheduled_action_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&MinSize=0&MaxSize=10")
-				postAutoscalingForm(t, h,
-					"Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&ScheduledActionName=sa-del")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&MinSize=0&MaxSize=10",
+				)
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=PutScheduledUpdateGroupAction&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&ScheduledActionName=sa-del", //nolint:lll // existing issue.
+				)
 			},
-			body:       "Action=DeleteScheduledAction&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&ScheduledActionName=sa-del",
+			body:       "Action=DeleteScheduledAction&Version=2011-01-01&AutoScalingGroupName=dsa-http-asg&ScheduledActionName=sa-del", //nolint:lll // existing issue.
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -2371,8 +2424,11 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 			name: "delete_warm_pool_success",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
 				t.Helper()
-				postAutoscalingForm(t, h,
-					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dwp-http-asg&MinSize=0&MaxSize=10")
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dwp-http-asg&MinSize=0&MaxSize=10",
+				)
 				postAutoscalingForm(t, h,
 					"Action=PutWarmPool&Version=2011-01-01&AutoScalingGroupName=dwp-http-asg")
 			},

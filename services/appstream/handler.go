@@ -603,11 +603,11 @@ func (h *Handler) opListTagsForResource(_ context.Context, body []byte) (any, er
 
 func stackToResponse(s *Stack) map[string]any {
 	return map[string]any{
-		"Name":        s.Name,
-		"Arn":         s.Arn,
-		"DisplayName": s.DisplayName,
-		"Description": s.Description,
-		"CreatedTime": s.CreatedTime.Unix(),
+		"Name":        s.Name,               //nolint:goconst // existing issue.
+		"Arn":         s.Arn,                //nolint:goconst // existing issue.
+		"DisplayName": s.DisplayName,        //nolint:goconst // existing issue.
+		"Description": s.Description,        //nolint:goconst // existing issue.
+		"CreatedTime": s.CreatedTime.Unix(), //nolint:goconst // existing issue.
 		keyTags:       s.Tags,
 	}
 }
@@ -618,9 +618,9 @@ func fleetToResponse(f *Fleet) map[string]any {
 		"Arn":                        f.Arn,
 		"DisplayName":                f.DisplayName,
 		"Description":                f.Description,
-		"InstanceType":               f.InstanceType,
+		"InstanceType":               f.InstanceType, //nolint:goconst // existing issue.
 		"FleetType":                  f.FleetType,
-		"State":                      f.State,
+		"State":                      f.State, //nolint:goconst // existing issue.
 		"MaxUserDurationInSeconds":   f.MaxUserDurationSecs,
 		"DisconnectTimeoutInSeconds": f.DisconnectTimeoutSecs,
 		"CreatedTime":                f.CreatedTime.Unix(),

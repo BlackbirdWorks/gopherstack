@@ -453,7 +453,8 @@ func TestAuditB2_GetMetrics_HTTP_ResponseShape(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	pubRec := doMWAARequest(t, h, http.MethodPost, "/metrics/environments/metrics-shape-env",
+	pubRec := doMWAARequest(
+		t, h, http.MethodPost, "/metrics/environments/metrics-shape-env",
 		map[string]any{
 			"MetricData": []any{
 				map[string]any{"MetricName": "TestMetric"},
@@ -706,7 +707,8 @@ func TestAuditB2_ListEnvironments_HTTP_NextToken_Pagination(t *testing.T) {
 	h := newHandlerForTest(t)
 
 	for i := range 5 {
-		rec := doMWAARequest(t, h, http.MethodPut,
+		rec := doMWAARequest(
+			t, h, http.MethodPut,
 			fmt.Sprintf("/environments/page-env-%02d", i),
 			map[string]any{
 				"DagS3Path":        "dags/",

@@ -371,7 +371,7 @@ func (rc *ResourceCreator) createCloudFrontDistribution(
 	}
 
 	comment := logicalID
-	var enabled = true
+	enabled := true
 
 	if cfg, ok := props["DistributionConfig"].(map[string]any); ok {
 		if c := resolve(cfg["Comment"], params, physicalIDs); c != "" {

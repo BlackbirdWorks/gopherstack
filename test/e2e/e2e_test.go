@@ -21,8 +21,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
 )
 
-var pw *playwright.Playwright
-var browser playwright.Browser
+var (
+	pw      *playwright.Playwright
+	browser playwright.Browser
+)
 
 func TestMain(m *testing.M) {
 	// Install Playwright if not already present
@@ -743,6 +745,7 @@ func TestE2E_Console(t *testing.T) {
 		Timeout: playwright.Float(10000),
 	}))
 }
+
 func TestE2E_DynamoDB_Pagination(t *testing.T) {
 	stack := newStack(t)
 

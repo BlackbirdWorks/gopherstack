@@ -54,9 +54,19 @@ type StorageBackend interface {
 	UpdateEncryptionKey(kmsKeyID, resourceType, scanType string) error
 
 	// CIS scan configuration
-	CreateCisScanConfiguration(name string, schedule map[string]any, targets map[string]any, tags map[string]string) (*CisScanConfiguration, error)
+	CreateCisScanConfiguration(
+		name string,
+		schedule map[string]any,
+		targets map[string]any,
+		tags map[string]string,
+	) (*CisScanConfiguration, error)
 	DeleteCisScanConfiguration(configARN string) error
-	UpdateCisScanConfiguration(configARN string, name string, schedule map[string]any, targets map[string]any) (*CisScanConfiguration, error)
+	UpdateCisScanConfiguration(
+		configARN string,
+		name string,
+		schedule map[string]any,
+		targets map[string]any,
+	) (*CisScanConfiguration, error)
 	ListCisScanConfigurations() ([]*CisScanConfiguration, error)
 
 	// CIS session operations
@@ -71,21 +81,36 @@ type StorageBackend interface {
 	ListCisScanResultsAggregatedByTargetResource(scanJobID string) ([]map[string]any, error)
 
 	// Code security integration
-	CreateCodeSecurityIntegration(name, integType string, tags map[string]string, details map[string]any) (*CodeSecurityIntegration, error)
+	CreateCodeSecurityIntegration(
+		name, integType string,
+		tags map[string]string,
+		details map[string]any,
+	) (*CodeSecurityIntegration, error)
 	DeleteCodeSecurityIntegration(integrationARN string) error
 	GetCodeSecurityIntegration(integrationARN string) (*CodeSecurityIntegration, error)
 	UpdateCodeSecurityIntegration(integrationARN string, details map[string]any) (*CodeSecurityIntegration, error)
 	ListCodeSecurityIntegrations() ([]*CodeSecurityIntegration, error)
 
 	// Code security scan configuration
-	CreateCodeSecurityScanConfiguration(name string, scopeSettings map[string]any, periodicConfig map[string]any, tags map[string]string) (*CodeSecurityScanConfiguration, error)
+	CreateCodeSecurityScanConfiguration(
+		name string,
+		scopeSettings map[string]any,
+		periodicConfig map[string]any,
+		tags map[string]string,
+	) (*CodeSecurityScanConfiguration, error)
 	DeleteCodeSecurityScanConfiguration(scanConfigARN string) error
 	GetCodeSecurityScanConfiguration(scanConfigARN string) (*CodeSecurityScanConfiguration, error)
-	UpdateCodeSecurityScanConfiguration(scanConfigARN string, scopeSettings map[string]any, periodicConfig map[string]any) (*CodeSecurityScanConfiguration, error)
+	UpdateCodeSecurityScanConfiguration(
+		scanConfigARN string,
+		scopeSettings map[string]any,
+		periodicConfig map[string]any,
+	) (*CodeSecurityScanConfiguration, error)
 	ListCodeSecurityScanConfigurations() ([]*CodeSecurityScanConfiguration, error)
 	BatchAssociateCodeSecurityScanConfiguration(scanConfigARN string, resources []string) ([]map[string]any, error)
 	BatchDisassociateCodeSecurityScanConfiguration(scanConfigARN string, resources []string) ([]map[string]any, error)
-	ListCodeSecurityScanConfigurationAssociations(scanConfigARN string) ([]*CodeSecurityScanConfigurationAssociation, error)
+	ListCodeSecurityScanConfigurationAssociations(
+		scanConfigARN string,
+	) ([]*CodeSecurityScanConfigurationAssociation, error)
 	StartCodeSecurityScan(resourceID string) (map[string]any, error)
 	GetCodeSecurityScan(scanID string) (map[string]any, error)
 

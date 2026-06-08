@@ -273,5 +273,7 @@ func TestSNS_FirehoseDelivery_NonFirehoseSubscriptionSkipped(t *testing.T) {
 }
 
 // Compile-time interface checks.
-var _ sns.LambdaInvoker = (*mockLambdaInvoker)(nil)
-var _ sns.FirehosePutter = (*mockFirehosePutter)(nil)
+var (
+	_ sns.LambdaInvoker  = (*mockLambdaInvoker)(nil)
+	_ sns.FirehosePutter = (*mockFirehosePutter)(nil)
+)

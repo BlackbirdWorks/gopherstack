@@ -75,6 +75,7 @@ func TestRegionIsolation_EventBus(t *testing.T) {
 			for _, bus := range buses {
 				if bus.Name == tc.busName {
 					found = true
+
 					break
 				}
 			}
@@ -93,7 +94,10 @@ func TestRegionIsolation_EventBus(t *testing.T) {
 				t.Errorf("DescribeEventBus: expected success from %q, got %v", tc.listRegion, descErr)
 			}
 			if !tc.wantVisible && descErr == nil {
-				t.Errorf("DescribeEventBus: expected error from %q (bus is in different region), got nil", tc.listRegion)
+				t.Errorf(
+					"DescribeEventBus: expected error from %q (bus is in different region), got nil",
+					tc.listRegion,
+				)
 			}
 		})
 	}
@@ -150,15 +154,24 @@ func TestRegionIsolation_Rules(t *testing.T) {
 			for _, rule := range rules {
 				if rule.Name == tc.ruleName {
 					found = true
+
 					break
 				}
 			}
 
 			if found != tc.wantVisible {
 				if tc.wantVisible {
-					t.Errorf("expected rule %q to be visible from region %q, but it was not", tc.ruleName, tc.listRegion)
+					t.Errorf(
+						"expected rule %q to be visible from region %q, but it was not",
+						tc.ruleName,
+						tc.listRegion,
+					)
 				} else {
-					t.Errorf("expected rule %q to NOT be visible from region %q, but it was", tc.ruleName, tc.listRegion)
+					t.Errorf(
+						"expected rule %q to NOT be visible from region %q, but it was",
+						tc.ruleName,
+						tc.listRegion,
+					)
 				}
 			}
 		})
@@ -193,6 +206,7 @@ func TestRegionIsolation_DefaultBus(t *testing.T) {
 	for _, bus := range defaultBuses {
 		if bus.Name == "default" {
 			foundDefault = true
+
 			break
 		}
 	}

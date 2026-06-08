@@ -327,6 +327,7 @@ func putItem(db *dynamodb.InMemoryDB, id, val string) {
 	sdkInput, _ := models.ToSDKPutItemInput(&input)
 	_, _ = db.PutItem(context.Background(), sdkInput)
 }
+
 func TestItem_Expiration(t *testing.T) {
 	t.Parallel()
 

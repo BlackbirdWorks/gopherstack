@@ -32,11 +32,23 @@ func TestAudit2_CreateStateMachine_Idempotent_SameParams(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			sm1, err := b.CreateStateMachine(context.Background(), "idem-sm-"+tt.name, minimalDefinition, validRoleARN, tt.smType)
+			sm1, err := b.CreateStateMachine(
+				context.Background(),
+				"idem-sm-"+tt.name,
+				minimalDefinition,
+				validRoleARN,
+				tt.smType,
+			)
 			require.NoError(t, err)
 
 			// Same name+def+roleArn+type → idempotent, returns same ARN.
-			sm2, err := b.CreateStateMachine(context.Background(), "idem-sm-"+tt.name, minimalDefinition, validRoleARN, tt.smType)
+			sm2, err := b.CreateStateMachine(
+				context.Background(),
+				"idem-sm-"+tt.name,
+				minimalDefinition,
+				validRoleARN,
+				tt.smType,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, sm1.StateMachineArn, sm2.StateMachineArn)
 
@@ -88,7 +100,13 @@ func TestAudit2_CreateStateMachine_SameName_DiffRole_Errors(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine(context.Background(), "role-conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(
+		context.Background(),
+		"role-conflict-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
 	altRole := "arn:aws:iam::000000000000:role/other-role"
@@ -100,7 +118,13 @@ func TestAudit2_CreateStateMachine_SameName_DiffType_Errors(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine(context.Background(), "type-conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(
+		context.Background(),
+		"type-conflict-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateStateMachine(context.Background(), "type-conflict-sm", minimalDefinition, validRoleARN, "EXPRESS")
@@ -211,7 +235,13 @@ func TestAudit2_UpdateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(context.Background(), "alias-update-weight-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"alias-update-weight-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")

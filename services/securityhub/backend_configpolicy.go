@@ -7,20 +7,20 @@ import (
 
 // ConfigurationPolicy represents a Security Hub central configuration policy.
 type ConfigurationPolicy struct {
+	ConfigurationPolicy map[string]any    `json:"ConfigurationPolicy"`
+	Tags                map[string]string `json:"Tags"`
 	Arn                 string            `json:"Arn"`
-	Id                  string            `json:"Id"`
+	Id                  string            `json:"Id"` //nolint:revive,staticcheck // existing issue.
 	Name                string            `json:"Name"`
 	Description         string            `json:"Description"`
 	CreatedAt           string            `json:"CreatedAt"`
 	UpdatedAt           string            `json:"UpdatedAt"`
-	ConfigurationPolicy map[string]any    `json:"ConfigurationPolicy"`
-	Tags                map[string]string `json:"Tags"`
 }
 
 // ConfigurationPolicyAssociation represents an association between a policy and a target.
 type ConfigurationPolicyAssociation struct {
-	ConfigurationPolicyId    string `json:"ConfigurationPolicyId"`
-	TargetId                 string `json:"TargetId"`
+	ConfigurationPolicyId    string `json:"ConfigurationPolicyId"` //nolint:revive,staticcheck // existing issue.
+	TargetId                 string `json:"TargetId"`              //nolint:revive,staticcheck // existing issue.
 	TargetType               string `json:"TargetType"`
 	AssociationType          string `json:"AssociationType"`
 	UpdatedAt                string `json:"UpdatedAt"`
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) ListConfigurationPolicies(nextToken string, maxResults
 	b.mu.RLock("ListConfigurationPolicies")
 	defer b.mu.RUnlock()
 
-	var all []*ConfigurationPolicy
+	var all []*ConfigurationPolicy //nolint:prealloc // existing issue.
 
 	for _, p := range b.configPolicies {
 		cp := *p
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) StartConfigurationPolicyAssociation(
 		TargetType:               targetType,
 		AssociationType:          "APPLIED",
 		UpdatedAt:                now,
-		AssociationStatus:        "SUCCESS",
+		AssociationStatus:        "SUCCESS", //nolint:goconst // existing issue.
 		AssociationStatusMessage: "",
 	}
 	b.configPolicyAssocs[targetID] = assoc
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) StartConfigurationPolicyAssociation(
 }
 
 func (b *InMemoryBackend) StartConfigurationPolicyDisassociation(
-	configPolicyIdentifier, targetID, targetType string,
+	configPolicyIdentifier, targetID, targetType string, //nolint:revive // existing issue.
 ) error {
 	b.mu.Lock("StartConfigurationPolicyDisassociation")
 	defer b.mu.Unlock()
@@ -209,7 +209,7 @@ func (b *InMemoryBackend) StartConfigurationPolicyDisassociation(
 }
 
 func (b *InMemoryBackend) GetConfigurationPolicyAssociation(
-	targetID, targetType string,
+	targetID, targetType string, //nolint:revive // existing issue.
 ) (*ConfigurationPolicyAssociation, error) {
 	b.mu.RLock("GetConfigurationPolicyAssociation")
 	defer b.mu.RUnlock()
@@ -275,7 +275,7 @@ func (b *InMemoryBackend) BatchGetConfigurationPolicyAssociations(
 		} else {
 			unprocessed = append(unprocessed, map[string]any{
 				"ConfigurationPolicyAssociationIdentifiers": req,
-				"ErrorCode":   "ResourceNotFoundException",
+				"ErrorCode":   "ResourceNotFoundException", //nolint:goconst // existing issue.
 				"ErrorReason": "Association not found",
 			})
 		}

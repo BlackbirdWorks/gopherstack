@@ -2689,38 +2689,45 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	purgeMemoryDBMap(ctx, b.clusters, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.clusters, cutoff,
 		func(c *Cluster) time.Time { return c.CreatedAt },
 		func(_ string, c *Cluster) { delete(b.arnToResource, c.ARN) },
 	)
 
-	purgeMemoryDBMapFiltered(ctx, b.acls, cutoff,
+	purgeMemoryDBMapFiltered(
+		ctx, b.acls, cutoff,
 		func(name string, _ *ACL) bool { return name == openAccessACL },
 		func(a *ACL) time.Time { return a.CreatedAt },
 		func(_ string, a *ACL) { delete(b.arnToResource, a.ARN) },
 	)
 
-	purgeMemoryDBMap(ctx, b.subnetGroups, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.subnetGroups, cutoff,
 		func(sg *SubnetGroup) time.Time { return sg.CreatedAt },
 		func(_ string, sg *SubnetGroup) { delete(b.arnToResource, sg.ARN) },
 	)
 
-	purgeMemoryDBMap(ctx, b.users, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.users, cutoff,
 		func(u *User) time.Time { return u.CreatedAt },
 		func(_ string, u *User) { delete(b.arnToResource, u.ARN) },
 	)
 
-	purgeMemoryDBMap(ctx, b.parameterGroups, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.parameterGroups, cutoff,
 		func(pg *ParameterGroup) time.Time { return pg.CreatedAt },
 		func(_ string, pg *ParameterGroup) { delete(b.arnToResource, pg.ARN) },
 	)
 
-	purgeMemoryDBMap(ctx, b.snapshots, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.snapshots, cutoff,
 		func(s *Snapshot) time.Time { return s.CreatedAt },
 		func(_ string, s *Snapshot) { delete(b.arnToResource, s.ARN) },
 	)
 
-	purgeMemoryDBMap(ctx, b.multiRegionClusters, cutoff,
+	purgeMemoryDBMap(
+		ctx, b.multiRegionClusters, cutoff,
 		func(mrc *MultiRegionCluster) time.Time { return mrc.CreatedAt },
 		func(_ string, _ *MultiRegionCluster) {},
 	)

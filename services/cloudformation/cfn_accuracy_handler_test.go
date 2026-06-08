@@ -923,7 +923,8 @@ func TestCreateStack_MultipleParameters(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "multi-params", tmpl,
+	stack, err := b.CreateStack(
+		t.Context(), "multi-params", tmpl,
 		[]cloudformation.Parameter{
 			{ParameterKey: "Env", ParameterValue: "production"},
 			{ParameterKey: "Team", ParameterValue: "ops"},

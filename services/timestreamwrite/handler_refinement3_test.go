@@ -825,7 +825,8 @@ func TestRefinement3_PersistenceDataSourceConfigRoundTrip(t *testing.T) {
 	_, err = b1.CreateTable("snap-blt-db", "snap-blt-tbl", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b1.CreateBatchLoadTask("snap-blt-db", "snap-blt-tbl",
+	_, err = b1.CreateBatchLoadTask(
+		"snap-blt-db", "snap-blt-tbl",
 		&timestreamwrite.DataSourceConfiguration{
 			DataFormat: "CSV",
 			DataSourceS3Configuration: &timestreamwrite.DataSourceS3Configuration{

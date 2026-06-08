@@ -109,7 +109,9 @@ func (b *InMemoryBackend) imageBuilderARN(name string) string {
 }
 
 // CopyImage duplicates an image with a new name.
-func (b *InMemoryBackend) CopyImage(sourceName, destName, destRegion, description string) (*Image, error) {
+func (b *InMemoryBackend) CopyImage(
+	sourceName, destName, destRegion, description string, //nolint:revive // existing issue.
+) (*Image, error) {
 	b.mu.Lock("CopyImage")
 	defer b.mu.Unlock()
 
@@ -118,7 +120,7 @@ func (b *InMemoryBackend) CopyImage(sourceName, destName, destRegion, descriptio
 		return nil, ErrNotFound
 	}
 
-	if _, ok := b.images[destName]; ok {
+	if _, ok := b.images[destName]; ok { //nolint:govet // existing issue.
 		return nil, ErrAlreadyExists
 	}
 
@@ -135,7 +137,7 @@ func (b *InMemoryBackend) CopyImage(sourceName, destName, destRegion, descriptio
 		Arn:          arn,
 		Description:  desc,
 		Platform:     src.Platform,
-		Visibility:   "PRIVATE",
+		Visibility:   "PRIVATE", //nolint:goconst // existing issue.
 		State:        imageStateAvailable,
 		BaseImageArn: src.Arn,
 	}
@@ -184,7 +186,7 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 		return nil, ErrNotFound
 	}
 
-	if _, ok := b.images[newImageName]; ok {
+	if _, ok := b.images[newImageName]; ok { //nolint:govet // existing issue.
 		return nil, ErrAlreadyExists
 	}
 
@@ -412,7 +414,9 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 }
 
 // StartImageBuilder transitions an image builder to RUNNING and returns a streaming URL.
-func (b *InMemoryBackend) StartImageBuilder(name, appstreamAgentVersion string) (string, error) {
+func (b *InMemoryBackend) StartImageBuilder(
+	name, appstreamAgentVersion string, //nolint:revive // existing issue.
+) (string, error) {
 	b.mu.Lock("StartImageBuilder")
 	defer b.mu.Unlock()
 
@@ -541,6 +545,7 @@ func (b *InMemoryBackend) StartSoftwareDeploymentToImageBuilder(imageBuilderName
 
 func (b *InMemoryBackend) nextExportTaskID() string {
 	b.exportTaskSeq++
+
 	return fmt.Sprintf("export-task-%05d", b.exportTaskSeq)
 }
 

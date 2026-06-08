@@ -627,10 +627,14 @@ func TestRefinement2_WriteRecordsReturnsIngested(t *testing.T) {
 		"DatabaseName": "wr-db",
 		"TableName":    "wr-tbl",
 		"Records": []map[string]any{
-			{"MeasureName": "cpu", "MeasureValue": "45", "MeasureValueType": "DOUBLE",
-				"Time": "1609459200000", "TimeUnit": "MILLISECONDS"},
-			{"MeasureName": "mem", "MeasureValue": "80", "MeasureValueType": "DOUBLE",
-				"Time": "1609459200000", "TimeUnit": "MILLISECONDS"},
+			{
+				"MeasureName": "cpu", "MeasureValue": "45", "MeasureValueType": "DOUBLE",
+				"Time": "1609459200000", "TimeUnit": "MILLISECONDS",
+			},
+			{
+				"MeasureName": "mem", "MeasureValue": "80", "MeasureValueType": "DOUBLE",
+				"Time": "1609459200000", "TimeUnit": "MILLISECONDS",
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

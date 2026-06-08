@@ -97,6 +97,7 @@ func (b *InMemoryBackend) userARN(userName, authType string) string {
 
 func (b *InMemoryBackend) nextSessionID() string {
 	b.sessionSeq++
+
 	return fmt.Sprintf("session-%010d", b.sessionSeq)
 }
 

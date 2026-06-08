@@ -494,7 +494,8 @@ func TestBackendOps_DescribeEffectivePatchesForPatchBaseline(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "effective-patches-baseline")
 
-	out, err := b.DescribeEffectivePatchesForPatchBaseline(context.TODO(),
+	out, err := b.DescribeEffectivePatchesForPatchBaseline(
+		context.TODO(),
 		&ssm.DescribeEffectivePatchesForPatchBaselineInput{BaselineID: id},
 	)
 	require.NoError(t, err)
@@ -506,7 +507,8 @@ func TestBackendOps_GetDeployablePatchSnapshotForInstance(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.GetDeployablePatchSnapshotForInstance(context.TODO(),
+	out, err := b.GetDeployablePatchSnapshotForInstance(
+		context.TODO(),
 		&ssm.GetDeployablePatchSnapshotForInstanceInput{
 			InstanceID: "i-snapshot-test",
 			SnapshotID: "snap-1234",
@@ -619,11 +621,14 @@ func TestBackendOps_DeregisterTargetFromMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	targetOut, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), &ssm.RegisterTargetWithMaintenanceWindowInput{
-		WindowID:     wid,
-		ResourceType: "INSTANCE",
-		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
-	})
+	targetOut, err := b.RegisterTargetWithMaintenanceWindow(
+		context.TODO(),
+		&ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		},
+	)
 	require.NoError(t, err)
 
 	out, err := b.DeregisterTargetFromMaintenanceWindow(context.TODO(), &ssm.DeregisterTargetFromMaintenanceWindowInput{
@@ -722,11 +727,14 @@ func TestBackendOps_UpdateMaintenanceWindowTarget(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	targetOut, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), &ssm.RegisterTargetWithMaintenanceWindowInput{
-		WindowID:     wid,
-		ResourceType: "INSTANCE",
-		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
-	})
+	targetOut, err := b.RegisterTargetWithMaintenanceWindow(
+		context.TODO(),
+		&ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		},
+	)
 	require.NoError(t, err)
 
 	out, err := b.UpdateMaintenanceWindowTarget(context.TODO(), &ssm.UpdateMaintenanceWindowTargetInput{
@@ -924,7 +932,10 @@ func TestBackendOps_DeleteOpsMetadata(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.DeleteOpsMetadata(context.TODO(), &ssm.DeleteOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
+	out, err := b.DeleteOpsMetadata(
+		context.TODO(),
+		&ssm.DeleteOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn},
+	)
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 

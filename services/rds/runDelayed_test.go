@@ -22,9 +22,9 @@ func TestRebootDBClusterDelayedTransition(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		closeEarly    bool   // close the backend before the transition delay elapses
-		wantStatus    string // expected cluster status after the scenario
-		wantFastClose bool   // Close must return well before the transition delay
+		wantStatus    string
+		closeEarly    bool
+		wantFastClose bool
 	}{
 		{
 			name:       "transition fires after delay",

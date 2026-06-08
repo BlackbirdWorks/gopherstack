@@ -311,7 +311,7 @@ type FindingStatisticsGroup struct {
 // --- Appendix A types ---
 
 // ClassificationJob represents a Macie classification job.
-type ClassificationJob struct { //nolint:govet // fieldalignment: readability over padding
+type ClassificationJob struct {
 	Tags               map[string]string `json:"tags,omitempty"`
 	S3JobDefinition    map[string]any    `json:"s3JobDefinition,omitempty"`
 	ScheduleFrequency  map[string]any    `json:"scheduleFrequency,omitempty"`
@@ -340,7 +340,7 @@ type ClassificationJobSummary struct {
 }
 
 // Member represents a Macie member account.
-type Member struct { //nolint:govet // fieldalignment: readability over padding
+type Member struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
 	InvitedAt              time.Time         `json:"invitedAt"`
 	UpdatedAt              time.Time         `json:"updatedAt"`
@@ -382,8 +382,8 @@ type OrgAdminAccount struct {
 
 // OrgConfig holds organization-level Macie configuration.
 type OrgConfig struct {
-	Features               []map[string]any `json:"features,omitempty"`
 	DataSources            map[string]any   `json:"dataSources,omitempty"`
+	Features               []map[string]any `json:"features,omitempty"`
 	AutoEnable             bool             `json:"autoEnable"`
 	MaxAccountLimitReached bool             `json:"maxAccountLimitReached"`
 }
@@ -420,7 +420,7 @@ type ClassificationExportS3Dest struct {
 }
 
 // ClassificationScope represents a classification scope resource.
-type ClassificationScope struct { //nolint:govet // fieldalignment: readability over padding
+type ClassificationScope struct {
 	Tags      map[string]string      `json:"tags,omitempty"`
 	S3        *ClassificationScopeS3 `json:"s3,omitempty"`
 	CreatedAt time.Time              `json:"createdAt"`
@@ -455,7 +455,7 @@ type SecurityHubConfig struct {
 }
 
 // ResourceProfile holds sensitivity profile data for a bucket.
-type ResourceProfile struct { //nolint:govet // fieldalignment: readability over padding
+type ResourceProfile struct {
 	Statistics               *ResourceStatistics `json:"statistics,omitempty"`
 	ResourceArn              string              `json:"resourceArn"`
 	SensitivityScore         int32               `json:"sensitivityScore"`
@@ -464,6 +464,8 @@ type ResourceProfile struct { //nolint:govet // fieldalignment: readability over
 
 // ResourceStatistics holds classification result counts for a bucket.
 type ResourceStatistics struct {
+	LastRunErroredAt                   *time.Time `json:"lastRunErroredAt,omitempty"`
+	LastRunAt                          *time.Time `json:"lastRunAt,omitempty"`
 	TotalBytesClassified               int64      `json:"totalBytesClassified"`
 	TotalDetections                    int64      `json:"totalDetections"`
 	TotalDetectionsWithoutSuppression  int64      `json:"totalDetectionsWithoutSuppression"`
@@ -472,25 +474,23 @@ type ResourceStatistics struct {
 	TotalItemsSkippedInvalidEncryption int64      `json:"totalItemsSkippedInvalidEncryption"`
 	TotalItemsSkippedInvalidKms        int64      `json:"totalItemsSkippedInvalidKms"`
 	TotalItemsSkippedPermissionError   int64      `json:"totalItemsSkippedPermissionError"`
-	LastRunErroredAt                   *time.Time `json:"lastRunErroredAt,omitempty"`
-	LastRunAt                          *time.Time `json:"lastRunAt,omitempty"`
 }
 
 // ResourceProfileArtifact is a single artifact in a resource profile.
 type ResourceProfileArtifact struct {
 	Arn       string `json:"arn"`
-	Sensitive bool   `json:"sensitive"`
 	Type      string `json:"type,omitempty"`
+	Sensitive bool   `json:"sensitive"`
 }
 
 // ResourceProfileDetection is a data identifier detection result.
 type ResourceProfileDetection struct {
 	Arn        string `json:"arn,omitempty"`
-	Count      int64  `json:"count"`
 	ID         string `json:"id,omitempty"`
 	Name       string `json:"name,omitempty"`
-	Suppressed bool   `json:"suppressed"`
 	Type       string `json:"type,omitempty"`
+	Count      int64  `json:"count"`
+	Suppressed bool   `json:"suppressed"`
 }
 
 // RevealConfiguration holds sensitive data reveal configuration.
@@ -500,7 +500,7 @@ type RevealConfiguration struct {
 }
 
 // SensitivityInspectionTemplate holds template configuration.
-type SensitivityInspectionTemplate struct { //nolint:govet // fieldalignment: readability over padding
+type SensitivityInspectionTemplate struct {
 	Excludes    map[string]any `json:"excludes,omitempty"`
 	Includes    map[string]any `json:"includes,omitempty"`
 	ID          string         `json:"id"`

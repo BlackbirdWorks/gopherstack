@@ -82,7 +82,10 @@ func TestSchemasBatch2_Handler_CreateSchema_InvalidTypeReturns400(t *testing.T) 
 			b := newBackend()
 			h := eventbridge.NewHandler(b)
 
-			_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "type-h-reg"})
+			_, err := b.CreateRegistry(
+				context.Background(),
+				eventbridge.CreateRegistryInput{RegistryName: "type-h-reg"},
+			)
 			require.NoError(t, err)
 
 			rec := auditMakeRequest(t, h, e, "CreateSchema", map[string]any{
@@ -129,7 +132,10 @@ func TestSchemasBatch2_DeleteBuiltinRegistry_Forbidden(t *testing.T) {
 			b := newBackend()
 
 			if !tt.wantForbid {
-				_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: tt.registryName})
+				_, err := b.CreateRegistry(
+					context.Background(),
+					eventbridge.CreateRegistryInput{RegistryName: tt.registryName},
+				)
 				require.NoError(t, err)
 			}
 
@@ -163,7 +169,10 @@ func TestSchemasBatch2_CreateBuiltinRegistry_Forbidden(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: tt.registryName})
+			_, err := b.CreateRegistry(
+				context.Background(),
+				eventbridge.CreateRegistryInput{RegistryName: tt.registryName},
+			)
 
 			if tt.wantForbid {
 				require.Error(t, err)

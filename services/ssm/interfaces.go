@@ -23,77 +23,179 @@ type StorageBackend interface {
 	ListDocuments(ctx context.Context, input *ListDocumentsInput) (*ListDocumentsOutput, error)
 	UpdateDocument(ctx context.Context, input *UpdateDocumentInput) (*UpdateDocumentOutput, error)
 	DeleteDocument(ctx context.Context, input *DeleteDocumentInput) (*DeleteDocumentOutput, error)
-	DescribeDocumentPermission(ctx context.Context, input *DescribeDocumentPermissionInput) (*DescribeDocumentPermissionOutput, error)
-	ModifyDocumentPermission(ctx context.Context, input *ModifyDocumentPermissionInput) (*ModifyDocumentPermissionOutput, error)
+	DescribeDocumentPermission(
+		ctx context.Context,
+		input *DescribeDocumentPermissionInput,
+	) (*DescribeDocumentPermissionOutput, error)
+	ModifyDocumentPermission(
+		ctx context.Context,
+		input *ModifyDocumentPermissionInput,
+	) (*ModifyDocumentPermissionOutput, error)
 	ListDocumentVersions(ctx context.Context, input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error)
 	// Command operations.
 	SendCommand(ctx context.Context, input *SendCommandInput) (*SendCommandOutput, error)
 	ListCommands(ctx context.Context, input *ListCommandsInput) (*ListCommandsOutput, error)
 	GetCommandInvocation(ctx context.Context, input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error)
-	ListCommandInvocations(ctx context.Context, input *ListCommandInvocationsInput) (*ListCommandInvocationsOutput, error)
+	ListCommandInvocations(
+		ctx context.Context,
+		input *ListCommandInvocationsInput,
+	) (*ListCommandInvocationsOutput, error)
 	// New operations.
 	CancelCommand(ctx context.Context, input *CancelCommandInput) (*CancelCommandOutput, error)
-	CancelMaintenanceWindowExecution(_ context.Context, input *CancelMaintenanceWindowExecutionInput) (*CancelMaintenanceWindowExecutionOutput, error)
+	CancelMaintenanceWindowExecution(
+		_ context.Context,
+		input *CancelMaintenanceWindowExecutionInput,
+	) (*CancelMaintenanceWindowExecutionOutput, error)
 	CreateActivation(ctx context.Context, input *CreateActivationInput) (*CreateActivationOutput, error)
 	CreateAssociation(ctx context.Context, input *CreateAssociationInput) (*CreateAssociationOutput, error)
-	CreateAssociationBatch(ctx context.Context, input *CreateAssociationBatchInput) (*CreateAssociationBatchOutput, error)
-	CreateMaintenanceWindow(ctx context.Context, input *CreateMaintenanceWindowInput) (*CreateMaintenanceWindowOutput, error)
+	CreateAssociationBatch(
+		ctx context.Context,
+		input *CreateAssociationBatchInput,
+	) (*CreateAssociationBatchOutput, error)
+	CreateMaintenanceWindow(
+		ctx context.Context,
+		input *CreateMaintenanceWindowInput,
+	) (*CreateMaintenanceWindowOutput, error)
 	CreateOpsItem(ctx context.Context, input *CreateOpsItemInput) (*CreateOpsItemOutput, error)
 	CreateOpsMetadata(ctx context.Context, input *CreateOpsMetadataInput) (*CreateOpsMetadataOutput, error)
 	CreatePatchBaseline(ctx context.Context, input *CreatePatchBaselineInput) (*CreatePatchBaselineOutput, error)
-	AssociateOpsItemRelatedItem(ctx context.Context, input *AssociateOpsItemRelatedItemInput) (*AssociateOpsItemRelatedItemOutput, error)
+	AssociateOpsItemRelatedItem(
+		ctx context.Context,
+		input *AssociateOpsItemRelatedItemInput,
+	) (*AssociateOpsItemRelatedItemOutput, error)
 	// Document metadata operations (Group 1).
-	UpdateDocumentDefaultVersion(ctx context.Context, input *UpdateDocumentDefaultVersionInput) (*UpdateDocumentDefaultVersionOutput, error)
+	UpdateDocumentDefaultVersion(
+		ctx context.Context,
+		input *UpdateDocumentDefaultVersionInput,
+	) (*UpdateDocumentDefaultVersionOutput, error)
 	UpdateDocumentMetadata(ctx context.Context, input *UpdateDocumentMetadataInput) (*StubOutput, error)
-	ListDocumentMetadataHistory(ctx context.Context, input *ListDocumentMetadataHistoryInput) (*ListDocumentMetadataHistoryOutput, error)
+	ListDocumentMetadataHistory(
+		ctx context.Context,
+		input *ListDocumentMetadataHistoryInput,
+	) (*ListDocumentMetadataHistoryOutput, error)
 	// Inventory operations (Group 2).
 	PutInventory(ctx context.Context, input *PutInventoryInput) (*StubOutput, error)
 	GetInventory(ctx context.Context, input *GetInventoryInput) (*GetInventoryOutput, error)
 	GetInventorySchema(_ context.Context, input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error)
 	ListInventoryEntries(ctx context.Context, input *ListInventoryEntriesInput) (*ListInventoryEntriesOutput, error)
 	DeleteInventory(ctx context.Context, input *DeleteInventoryInput) (*StubOutput, error)
-	DescribeInventoryDeletions(_ context.Context, _ *DescribeInventoryDeletionsInput) (*DescribeInventoryDeletionsOutput, error)
+	DescribeInventoryDeletions(
+		_ context.Context,
+		_ *DescribeInventoryDeletionsInput,
+	) (*DescribeInventoryDeletionsOutput, error)
 	// Compliance operations (Group 3).
 	PutComplianceItems(ctx context.Context, input *PutComplianceItemsInput) (*StubOutput, error)
 	ListComplianceItems(ctx context.Context, input *ListComplianceItemsInput) (*ListComplianceItemsOutput, error)
-	ListComplianceSummaries(ctx context.Context, _ *ListComplianceSummariesInput) (*ListComplianceSummariesOutput, error)
-	ListResourceComplianceSummaries(ctx context.Context, _ *ListResourceComplianceSummariesInput) (*ListResourceComplianceSummariesOutput, error)
+	ListComplianceSummaries(
+		ctx context.Context,
+		_ *ListComplianceSummariesInput,
+	) (*ListComplianceSummariesOutput, error)
+	ListResourceComplianceSummaries(
+		ctx context.Context,
+		_ *ListResourceComplianceSummariesInput,
+	) (*ListResourceComplianceSummariesOutput, error)
 	// Patch baseline operations (Group 4).
 	GetPatchBaseline(ctx context.Context, input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error)
-	GetDefaultPatchBaseline(ctx context.Context, input *GetDefaultPatchBaselineInput) (*GetDefaultPatchBaselineOutput, error)
-	GetPatchBaselineForPatchGroup(ctx context.Context, input *GetPatchBaselineForPatchGroupInput) (*GetPatchBaselineForPatchBaselineOutput, error)
-	RegisterDefaultPatchBaseline(ctx context.Context, input *RegisterDefaultPatchBaselineInput) (*RegisterDefaultPatchBaselineOutput, error)
-	RegisterPatchBaselineForPatchGroup(ctx context.Context, input *RegisterPatchBaselineForPatchGroupInput) (*RegisterPatchBaselineForPatchGroupOutput, error)
-	DeregisterPatchBaselineForPatchGroup(ctx context.Context, input *DeregisterPatchBaselineForPatchGroupInput) (*StubOutput, error)
+	GetDefaultPatchBaseline(
+		ctx context.Context,
+		input *GetDefaultPatchBaselineInput,
+	) (*GetDefaultPatchBaselineOutput, error)
+	GetPatchBaselineForPatchGroup(
+		ctx context.Context,
+		input *GetPatchBaselineForPatchGroupInput,
+	) (*GetPatchBaselineForPatchBaselineOutput, error)
+	RegisterDefaultPatchBaseline(
+		ctx context.Context,
+		input *RegisterDefaultPatchBaselineInput,
+	) (*RegisterDefaultPatchBaselineOutput, error)
+	RegisterPatchBaselineForPatchGroup(
+		ctx context.Context,
+		input *RegisterPatchBaselineForPatchGroupInput,
+	) (*RegisterPatchBaselineForPatchGroupOutput, error)
+	DeregisterPatchBaselineForPatchGroup(
+		ctx context.Context,
+		input *DeregisterPatchBaselineForPatchGroupInput,
+	) (*StubOutput, error)
 	DeletePatchBaseline(ctx context.Context, input *DeletePatchBaselineInput) (*DeletePatchBaselineOutput, error)
-	DescribePatchBaselines(ctx context.Context, input *DescribePatchBaselinesInput) (*DescribePatchBaselinesOutput, error)
+	DescribePatchBaselines(
+		ctx context.Context,
+		input *DescribePatchBaselinesInput,
+	) (*DescribePatchBaselinesOutput, error)
 	DescribePatchGroups(ctx context.Context, input *DescribePatchGroupsInput) (*DescribePatchGroupsOutput, error)
 	DescribePatchGroupState(_ context.Context, _ *DescribePatchGroupStateInput) (*DescribePatchGroupStateOutput, error)
 	DescribePatchProperties(_ context.Context, _ *DescribePatchPropertiesInput) (*DescribePatchPropertiesOutput, error)
-	DescribeEffectivePatchesForPatchBaseline(ctx context.Context, input *DescribeEffectivePatchesForPatchBaselineInput) (*DescribeEffectivePatchesForPatchBaselineOutput, error)
-	GetDeployablePatchSnapshotForInstance(_ context.Context, input *GetDeployablePatchSnapshotForInstanceInput) (*GetDeployablePatchSnapshotForInstanceOutput, error)
+	DescribeEffectivePatchesForPatchBaseline(
+		ctx context.Context,
+		input *DescribeEffectivePatchesForPatchBaselineInput,
+	) (*DescribeEffectivePatchesForPatchBaselineOutput, error)
+	GetDeployablePatchSnapshotForInstance(
+		_ context.Context,
+		input *GetDeployablePatchSnapshotForInstanceInput,
+	) (*GetDeployablePatchSnapshotForInstanceOutput, error)
 	// Maintenance window operations (Group 5).
 	GetMaintenanceWindow(ctx context.Context, input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error)
-	DeleteMaintenanceWindow(ctx context.Context, input *DeleteMaintenanceWindowInput) (*DeleteMaintenanceWindowOutput, error)
-	UpdateMaintenanceWindow(ctx context.Context, input *UpdateMaintenanceWindowInput) (*UpdateMaintenanceWindowOutput, error)
-	GetMaintenanceWindowTask(ctx context.Context, input *GetMaintenanceWindowTaskInput) (*GetMaintenanceWindowTaskOutput, error)
-	RegisterTargetWithMaintenanceWindow(ctx context.Context, input *RegisterTargetWithMaintenanceWindowInput) (*RegisterTargetWithMaintenanceWindowOutput, error)
-	RegisterTaskWithMaintenanceWindow(ctx context.Context, input *RegisterTaskWithMaintenanceWindowInput) (*RegisterTaskWithMaintenanceWindowOutput, error)
-	DeregisterTargetFromMaintenanceWindow(ctx context.Context, input *DeregisterTargetFromMaintenanceWindowInput) (*StubOutput, error)
-	DeregisterTaskFromMaintenanceWindow(ctx context.Context, input *DeregisterTaskFromMaintenanceWindowInput) (*StubOutput, error)
-	DescribeMaintenanceWindows(ctx context.Context, input *DescribeMaintenanceWindowsInput) (*DescribeMaintenanceWindowsOutput, error)
-	DescribeMaintenanceWindowsForTarget(ctx context.Context, input *DescribeMaintenanceWindowsForTargetInput) (*DescribeMaintenanceWindowsForTargetOutput, error)
-	DescribeMaintenanceWindowTargets(ctx context.Context, input *DescribeMaintenanceWindowTargetsInput) (*DescribeMaintenanceWindowTargetsOutput, error)
-	DescribeMaintenanceWindowTasks(ctx context.Context, input *DescribeMaintenanceWindowTasksInput) (*DescribeMaintenanceWindowTasksOutput, error)
-	UpdateMaintenanceWindowTarget(ctx context.Context, input *UpdateMaintenanceWindowTargetInput) (*UpdateMaintenanceWindowTargetOutput, error)
-	UpdateMaintenanceWindowTask(ctx context.Context, input *UpdateMaintenanceWindowTaskInput) (*UpdateMaintenanceWindowTaskOutput, error)
+	DeleteMaintenanceWindow(
+		ctx context.Context,
+		input *DeleteMaintenanceWindowInput,
+	) (*DeleteMaintenanceWindowOutput, error)
+	UpdateMaintenanceWindow(
+		ctx context.Context,
+		input *UpdateMaintenanceWindowInput,
+	) (*UpdateMaintenanceWindowOutput, error)
+	GetMaintenanceWindowTask(
+		ctx context.Context,
+		input *GetMaintenanceWindowTaskInput,
+	) (*GetMaintenanceWindowTaskOutput, error)
+	RegisterTargetWithMaintenanceWindow(
+		ctx context.Context,
+		input *RegisterTargetWithMaintenanceWindowInput,
+	) (*RegisterTargetWithMaintenanceWindowOutput, error)
+	RegisterTaskWithMaintenanceWindow(
+		ctx context.Context,
+		input *RegisterTaskWithMaintenanceWindowInput,
+	) (*RegisterTaskWithMaintenanceWindowOutput, error)
+	DeregisterTargetFromMaintenanceWindow(
+		ctx context.Context,
+		input *DeregisterTargetFromMaintenanceWindowInput,
+	) (*StubOutput, error)
+	DeregisterTaskFromMaintenanceWindow(
+		ctx context.Context,
+		input *DeregisterTaskFromMaintenanceWindowInput,
+	) (*StubOutput, error)
+	DescribeMaintenanceWindows(
+		ctx context.Context,
+		input *DescribeMaintenanceWindowsInput,
+	) (*DescribeMaintenanceWindowsOutput, error)
+	DescribeMaintenanceWindowsForTarget(
+		ctx context.Context,
+		input *DescribeMaintenanceWindowsForTargetInput,
+	) (*DescribeMaintenanceWindowsForTargetOutput, error)
+	DescribeMaintenanceWindowTargets(
+		ctx context.Context,
+		input *DescribeMaintenanceWindowTargetsInput,
+	) (*DescribeMaintenanceWindowTargetsOutput, error)
+	DescribeMaintenanceWindowTasks(
+		ctx context.Context,
+		input *DescribeMaintenanceWindowTasksInput,
+	) (*DescribeMaintenanceWindowTasksOutput, error)
+	UpdateMaintenanceWindowTarget(
+		ctx context.Context,
+		input *UpdateMaintenanceWindowTargetInput,
+	) (*UpdateMaintenanceWindowTargetOutput, error)
+	UpdateMaintenanceWindowTask(
+		ctx context.Context,
+		input *UpdateMaintenanceWindowTaskInput,
+	) (*UpdateMaintenanceWindowTaskOutput, error)
 	// OpsItem operations (Group 6).
 	GetOpsItem(ctx context.Context, input *GetOpsItemInput) (*GetOpsItemOutput, error)
 	DeleteOpsItem(ctx context.Context, input *DeleteOpsItemInput) (*StubOutput, error)
 	DescribeOpsItems(ctx context.Context, input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error)
 	UpdateOpsItem(ctx context.Context, input *UpdateOpsItemInput) (*StubOutput, error)
 	DisassociateOpsItemRelatedItem(ctx context.Context, input *DisassociateOpsItemRelatedItemInput) (*StubOutput, error)
-	ListOpsItemRelatedItems(ctx context.Context, input *ListOpsItemRelatedItemsInput) (*ListOpsItemRelatedItemsOutput, error)
+	ListOpsItemRelatedItems(
+		ctx context.Context,
+		input *ListOpsItemRelatedItemsInput,
+	) (*ListOpsItemRelatedItemsOutput, error)
 	ListOpsItemEvents(ctx context.Context, input *ListOpsItemEventsInput) (*ListOpsItemEventsOutput, error)
 	GetOpsMetadata(ctx context.Context, input *GetOpsMetadataInput) (*GetOpsMetadataOutput, error)
 	UpdateOpsMetadata(ctx context.Context, input *UpdateOpsMetadataInput) (*UpdateOpsMetadataOutput, error)
@@ -107,36 +209,99 @@ type StorageBackend interface {
 	DeregisterManagedInstance(ctx context.Context, input *DeregisterManagedInstanceInput) (*StubOutput, error)
 	DescribeActivations(ctx context.Context, _ *DescribeActivationsInput) (*DescribeActivationsOutput, error)
 	DescribeAssociation(ctx context.Context, input *DescribeAssociationInput) (*DescribeAssociationOutput, error)
-	DescribeAssociationExecutionTargets(_ context.Context, input *DescribeAssociationExecutionTargetsInput) (*DescribeAssociationExecutionTargetsOutputFull, error)
-	DescribeAssociationExecutions(ctx context.Context, input *DescribeAssociationExecutionsInput) (*DescribeAssociationExecutionsOutputFull, error)
-	DescribeAutomationExecutions(ctx context.Context, _ *DescribeAutomationExecutionsInput) (*DescribeAutomationExecutionsOutputFull, error)
-	DescribeAutomationStepExecutions(ctx context.Context, input *DescribeAutomationStepExecutionsInput) (*DescribeAutomationStepExecutionsOutputFull, error)
-	DescribeAvailablePatches(_ context.Context, _ *DescribeAvailablePatchesInput) (*DescribeAvailablePatchesOutput, error)
-	DescribeEffectiveInstanceAssociations(ctx context.Context, input *DescribeEffectiveInstanceAssociationsInput) (*DescribeEffectiveInstanceAssociationsOutputFull, error)
-	DescribeInstanceAssociationsStatus(ctx context.Context, input *DescribeInstanceAssociationsStatusInput) (*DescribeInstanceAssociationsStatusOutputFull, error)
-	DescribeInstanceInformation(ctx context.Context, _ *DescribeInstanceInformationInput) (*DescribeInstanceInformationOutputFull, error)
-	DescribeInstancePatchStates(_ context.Context, _ *DescribeInstancePatchStatesInput) (*DescribeInstancePatchStatesOutputFull, error)
-	DescribeInstancePatchStatesForPatchGroup(_ context.Context, _ *DescribeInstancePatchStatesForPatchGroupInput) (*DescribeInstancePatchStatesForPatchGroupOutput, error)
+	DescribeAssociationExecutionTargets(
+		_ context.Context,
+		input *DescribeAssociationExecutionTargetsInput,
+	) (*DescribeAssociationExecutionTargetsOutputFull, error)
+	DescribeAssociationExecutions(
+		ctx context.Context,
+		input *DescribeAssociationExecutionsInput,
+	) (*DescribeAssociationExecutionsOutputFull, error)
+	DescribeAutomationExecutions(
+		ctx context.Context,
+		_ *DescribeAutomationExecutionsInput,
+	) (*DescribeAutomationExecutionsOutputFull, error)
+	DescribeAutomationStepExecutions(
+		ctx context.Context,
+		input *DescribeAutomationStepExecutionsInput,
+	) (*DescribeAutomationStepExecutionsOutputFull, error)
+	DescribeAvailablePatches(
+		_ context.Context,
+		_ *DescribeAvailablePatchesInput,
+	) (*DescribeAvailablePatchesOutput, error)
+	DescribeEffectiveInstanceAssociations(
+		ctx context.Context,
+		input *DescribeEffectiveInstanceAssociationsInput,
+	) (*DescribeEffectiveInstanceAssociationsOutputFull, error)
+	DescribeInstanceAssociationsStatus(
+		ctx context.Context,
+		input *DescribeInstanceAssociationsStatusInput,
+	) (*DescribeInstanceAssociationsStatusOutputFull, error)
+	DescribeInstanceInformation(
+		ctx context.Context,
+		_ *DescribeInstanceInformationInput,
+	) (*DescribeInstanceInformationOutputFull, error)
+	DescribeInstancePatchStates(
+		_ context.Context,
+		_ *DescribeInstancePatchStatesInput,
+	) (*DescribeInstancePatchStatesOutputFull, error)
+	DescribeInstancePatchStatesForPatchGroup(
+		_ context.Context,
+		_ *DescribeInstancePatchStatesForPatchGroupInput,
+	) (*DescribeInstancePatchStatesForPatchGroupOutput, error)
 	DescribeInstancePatches(_ context.Context, _ *DescribeInstancePatchesInput) (*DescribeInstancePatchesOutput, error)
-	DescribeInstanceProperties(_ context.Context, _ *DescribeInstancePropertiesInput) (*DescribeInstancePropertiesOutput, error)
-	DescribeMaintenanceWindowExecutionTaskInvocations(_ context.Context, input *DescribeMaintenanceWindowExecutionTaskInvocationsInput) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull, error)
-	DescribeMaintenanceWindowExecutionTasks(_ context.Context, input *DescribeMaintenanceWindowExecutionTasksInput) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error)
-	DescribeMaintenanceWindowExecutions(_ context.Context, input *DescribeMaintenanceWindowExecutionsInput) (*DescribeMaintenanceWindowExecutionsOutputFull, error)
-	DescribeMaintenanceWindowSchedule(ctx context.Context, input *DescribeMaintenanceWindowScheduleInput) (*DescribeMaintenanceWindowScheduleOutputFull, error)
+	DescribeInstanceProperties(
+		_ context.Context,
+		_ *DescribeInstancePropertiesInput,
+	) (*DescribeInstancePropertiesOutput, error)
+	DescribeMaintenanceWindowExecutionTaskInvocations(
+		_ context.Context,
+		input *DescribeMaintenanceWindowExecutionTaskInvocationsInput,
+	) (*DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull, error)
+	DescribeMaintenanceWindowExecutionTasks(
+		_ context.Context,
+		input *DescribeMaintenanceWindowExecutionTasksInput,
+	) (*DescribeMaintenanceWindowExecutionTasksOutputFull, error)
+	DescribeMaintenanceWindowExecutions(
+		_ context.Context,
+		input *DescribeMaintenanceWindowExecutionsInput,
+	) (*DescribeMaintenanceWindowExecutionsOutputFull, error)
+	DescribeMaintenanceWindowSchedule(
+		ctx context.Context,
+		input *DescribeMaintenanceWindowScheduleInput,
+	) (*DescribeMaintenanceWindowScheduleOutputFull, error)
 	DescribeSessions(ctx context.Context, input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error)
 	GetAccessToken(_ context.Context, input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error)
-	GetAutomationExecution(ctx context.Context, input *GetAutomationExecutionInput) (*GetAutomationExecutionOutputFull, error)
+	GetAutomationExecution(
+		ctx context.Context,
+		input *GetAutomationExecutionInput,
+	) (*GetAutomationExecutionOutputFull, error)
 	GetCalendarState(ctx context.Context, input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error)
 	GetConnectionStatus(ctx context.Context, input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error)
 	GetExecutionPreview(ctx context.Context, input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error)
-	GetMaintenanceWindowExecution(_ context.Context, input *GetMaintenanceWindowExecutionInput) (*GetMaintenanceWindowExecutionOutputFull, error)
-	GetMaintenanceWindowExecutionTask(_ context.Context, input *GetMaintenanceWindowExecutionTaskInput) (*GetMaintenanceWindowExecutionTaskOutputFull, error)
-	GetMaintenanceWindowExecutionTaskInvocation(_ context.Context, input *GetMaintenanceWindowExecutionTaskInvocationInput) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error)
+	GetMaintenanceWindowExecution(
+		_ context.Context,
+		input *GetMaintenanceWindowExecutionInput,
+	) (*GetMaintenanceWindowExecutionOutputFull, error)
+	GetMaintenanceWindowExecutionTask(
+		_ context.Context,
+		input *GetMaintenanceWindowExecutionTaskInput,
+	) (*GetMaintenanceWindowExecutionTaskOutputFull, error)
+	GetMaintenanceWindowExecutionTaskInvocation(
+		_ context.Context,
+		input *GetMaintenanceWindowExecutionTaskInvocationInput,
+	) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error)
 	GetOpsSummary(ctx context.Context, _ *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error)
 	GetResourcePolicies(ctx context.Context, input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error)
 	GetServiceSetting(ctx context.Context, input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error)
-	LabelParameterVersion(ctx context.Context, input *LabelParameterVersionInput) (*LabelParameterVersionOutputFull, error)
-	ListAssociationVersions(ctx context.Context, input *ListAssociationVersionsInput) (*ListAssociationVersionsOutputFull, error)
+	LabelParameterVersion(
+		ctx context.Context,
+		input *LabelParameterVersionInput,
+	) (*LabelParameterVersionOutputFull, error)
+	ListAssociationVersions(
+		ctx context.Context,
+		input *ListAssociationVersionsInput,
+	) (*ListAssociationVersionsOutputFull, error)
 	ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutput, error)
 	ListNodes(ctx context.Context, _ *ListNodesInput) (*ListNodesOutputFull, error)
 	ListNodesSummary(ctx context.Context, _ *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error)
@@ -148,15 +313,30 @@ type StorageBackend interface {
 	SendAutomationSignal(ctx context.Context, input *SendAutomationSignalInput) (*StubOutput, error)
 	StartAccessRequest(_ context.Context, input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error)
 	StartAssociationsOnce(ctx context.Context, input *StartAssociationsOnceInput) (*StubOutput, error)
-	StartAutomationExecution(ctx context.Context, input *StartAutomationExecutionInput) (*StartAutomationExecutionOutputFull, error)
-	StartChangeRequestExecution(ctx context.Context, input *StartChangeRequestExecutionInput) (*StartChangeRequestExecutionOutputFull, error)
-	StartExecutionPreview(ctx context.Context, input *StartExecutionPreviewInput) (*StartExecutionPreviewOutputFull, error)
+	StartAutomationExecution(
+		ctx context.Context,
+		input *StartAutomationExecutionInput,
+	) (*StartAutomationExecutionOutputFull, error)
+	StartChangeRequestExecution(
+		ctx context.Context,
+		input *StartChangeRequestExecutionInput,
+	) (*StartChangeRequestExecutionOutputFull, error)
+	StartExecutionPreview(
+		ctx context.Context,
+		input *StartExecutionPreviewInput,
+	) (*StartExecutionPreviewOutputFull, error)
 	StartSession(ctx context.Context, input *StartSessionInput) (*StartSessionOutput, error)
 	StopAutomationExecution(ctx context.Context, input *StopAutomationExecutionInput) (*StubOutput, error)
 	TerminateSession(ctx context.Context, input *TerminateSessionInput) (*TerminateSessionOutput, error)
-	UnlabelParameterVersion(ctx context.Context, input *UnlabelParameterVersionInput) (*UnlabelParameterVersionOutputFull, error)
+	UnlabelParameterVersion(
+		ctx context.Context,
+		input *UnlabelParameterVersionInput,
+	) (*UnlabelParameterVersionOutputFull, error)
 	UpdateAssociation(ctx context.Context, input *UpdateAssociationInput) (*UpdateAssociationOutput, error)
-	UpdateAssociationStatus(ctx context.Context, input *UpdateAssociationStatusInput) (*UpdateAssociationStatusOutputFull, error)
+	UpdateAssociationStatus(
+		ctx context.Context,
+		input *UpdateAssociationStatusInput,
+	) (*UpdateAssociationStatusOutputFull, error)
 	UpdateManagedInstanceRole(ctx context.Context, input *UpdateManagedInstanceRoleInput) (*StubOutput, error)
 	UpdatePatchBaseline(ctx context.Context, input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error)
 	UpdateResourceDataSync(ctx context.Context, input *UpdateResourceDataSyncInput) (*StubOutput, error)

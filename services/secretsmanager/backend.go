@@ -101,16 +101,16 @@ const (
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
+	lambdaInvoker      LambdaInvoker
 	secrets            map[string]*Secret
 	resourcePolicies   map[string]string
 	replicationConfigs map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
-	lambdaInvoker      LambdaInvoker
+	schedulerStop      chan struct{}
 	accountID          string
 	region             string
 	schedulerOnce      sync.Once
-	schedulerStop      chan struct{}
 	schedulerStopOnce  sync.Once
 }
 

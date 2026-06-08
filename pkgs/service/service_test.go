@@ -24,6 +24,7 @@ func (m *MockService) Handler() echo.HandlerFunc {
 		return c.String(http.StatusOK, m.name)
 	}
 }
+
 func (m *MockService) RouteMatcher() service.Matcher {
 	return func(_ *echo.Context) bool {
 		return m.matched

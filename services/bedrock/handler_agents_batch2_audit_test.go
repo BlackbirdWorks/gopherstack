@@ -136,7 +136,8 @@ func TestAgentsHandler_DataSourceIngestionConfigurations(t *testing.T) {
 			h, b := newTestAgentsHandler(t)
 			kb, err := b.CreateKnowledgeBase("kb-"+tt.sourceType, "", "", nil, nil, nil)
 			require.NoError(t, err)
-			rec := doAgentRequest(t, h, http.MethodPost,
+			rec := doAgentRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":                    "source",

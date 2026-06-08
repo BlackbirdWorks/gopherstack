@@ -36,7 +36,12 @@ func doRequestNoTarget(t *testing.T, h *memorydb.Handler, body any) *httptest.Re
 
 // doRequestWithServiceHeader sends a request using the X-Amz-Target header
 // with no known prefix so RouteMatcher falls back to service extraction.
-func doRequestWithServiceHeader(t *testing.T, h *memorydb.Handler, op string, body any) *httptest.ResponseRecorder {
+func doRequestWithServiceHeader( //nolint:unused // existing issue.
+	t *testing.T,
+	h *memorydb.Handler,
+	op string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	bodyBytes, err := json.Marshal(body)
@@ -106,9 +111,9 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		target    string
-		wantOp    string
+		name   string
+		target string
+		wantOp string
 	}{
 		{
 			name:   "valid target returns op name",
@@ -241,9 +246,9 @@ func TestHandler_WriteBackendError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
 	}{
 		{
@@ -277,6 +282,7 @@ func TestHandler_WriteBackendError(t *testing.T) {
 				})
 				rec := doRequest(t, h, "CreateCluster", tt.body)
 				assert.Equal(t, http.StatusConflict, rec.Code)
+
 				return
 			}
 
@@ -417,9 +423,9 @@ func TestHandler_DescribeClusters_ShowShards(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
+		name             string
 		showShardDetails bool
-		wantShards     bool
+		wantShards       bool
 	}{
 		{name: "show shards true", showShardDetails: true, wantShards: true},
 		{name: "show shards false", showShardDetails: false, wantShards: false},
@@ -556,8 +562,8 @@ func TestHandler_UpdateUser_WithAuthMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		updateBody map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -618,8 +624,8 @@ func TestHandler_UpdateCluster_FieldCoverage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		updateBody map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -702,8 +708,8 @@ func TestHandler_DeleteClusterWithSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -785,9 +791,9 @@ func TestHandler_TagValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		op         string
-		body       map[string]any
 		wantStatus int
 	}{
 		{
@@ -802,6 +808,7 @@ func TestHandler_TagValidation(t *testing.T) {
 				for i := range tags {
 					tags[i] = map[string]any{"Key": "uniquekey" + string(rune(i+65)), "Value": "v"}
 				}
+
 				return map[string]any{
 					"ClusterName": "tagged-cl",
 					"NodeType":    "db.r6g.large",
@@ -848,8 +855,8 @@ func TestHandler_ReservedNodes_WithPurchase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		descBody   map[string]any
+		name       string
 		wantStatus int
 		wantCount  int
 	}{
@@ -917,7 +924,11 @@ func TestHandler_ReservedNodesOfferings_Filtered(t *testing.T) {
 		{name: "filter by offering type", body: map[string]any{"OfferingType": "All Upfront"}, wantCount: 1},
 		{name: "filter by duration 1y", body: map[string]any{"Duration": "1"}, wantCount: 2},
 		{name: "filter by duration 3y", body: map[string]any{"Duration": "3"}, wantCount: 1},
-		{name: "filter by specific offering ID", body: map[string]any{"ReservedNodesOfferingId": "aaa00000-1111-2222-3333-444444444444"}, wantCount: 1},
+		{
+			name:      "filter by specific offering ID",
+			body:      map[string]any{"ReservedNodesOfferingId": "aaa00000-1111-2222-3333-444444444444"},
+			wantCount: 1,
+		},
 		{name: "unknown duration returns all", body: map[string]any{"Duration": "99"}, wantCount: 3},
 	}
 
@@ -1208,8 +1219,8 @@ func TestHandler_CreateCluster_ValidationEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1443,8 +1454,8 @@ func TestHandler_DescribeParameters_Empty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1537,8 +1548,8 @@ func TestHandler_UpdateSubnetGroup_Fields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		updateBody map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1591,8 +1602,8 @@ func TestHandler_DescribeMultiRegionClusters_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1618,8 +1629,8 @@ func TestHandler_CreateUser_AuthTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1722,8 +1733,8 @@ func TestHandler_CreateParameterGroup_NoFamily(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1749,8 +1760,8 @@ func TestHandler_DescribeMultiRegionParameters_Boost(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -1788,8 +1799,8 @@ func TestHandler_DescribeMultiRegionParameterGroups_FilteredAndNotFound(t *testi
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 		wantCount  int
 	}{
@@ -1830,8 +1841,8 @@ func TestHandler_ResetParameterGroup_Variants(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{

@@ -77,7 +77,7 @@ func newNotFoundErr(msg string) error {
 	return &notFoundErr{msg: msg}
 }
 
-type notFoundErr struct{ msg string }
+type notFoundErr struct{ msg string } //nolint:errname // existing issue.
 
 func (e *notFoundErr) Error() string { return e.msg }
 

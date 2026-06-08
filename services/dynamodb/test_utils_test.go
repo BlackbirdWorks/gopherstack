@@ -39,8 +39,10 @@ func createTableHelper(
 		keySchema = append(keySchema, models.KeySchemaElement{
 			AttributeName: sk[0], KeyType: models.KeyTypeRange,
 		})
-		attributeDefinitions = append(attributeDefinitions, models.AttributeDefinition{
-			AttributeName: sk[0], AttributeType: "S"},
+		attributeDefinitions = append(
+			attributeDefinitions, models.AttributeDefinition{
+				AttributeName: sk[0], AttributeType: "S",
+			},
 		)
 	}
 

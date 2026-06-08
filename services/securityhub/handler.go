@@ -90,7 +90,7 @@ const (
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 
-	// Members
+	// Members.
 	opCreateMembers       = "CreateMembers"
 	opDeleteMembers       = "DeleteMembers"
 	opGetMembers          = "GetMembers"
@@ -98,7 +98,7 @@ const (
 	opListMembers         = "ListMembers"
 	opDisassociateMembers = "DisassociateMembers"
 
-	// Invitations / Admin
+	// Invitations / Admin.
 	opAcceptAdministratorInvitation        = "AcceptAdministratorInvitation"
 	opAcceptInvitation                     = "AcceptInvitation"
 	opDeclineInvitations                   = "DeclineInvitations"
@@ -110,21 +110,21 @@ const (
 	opDisassociateFromAdministratorAccount = "DisassociateFromAdministratorAccount"
 	opDisassociateFromMasterAccount        = "DisassociateFromMasterAccount"
 
-	// Organization
+	// Organization.
 	opDescribeOrganizationConfiguration = "DescribeOrganizationConfiguration"
 	opUpdateOrganizationConfiguration   = "UpdateOrganizationConfiguration"
 	opEnableOrganizationAdminAccount    = "EnableOrganizationAdminAccount"
 	opDisableOrganizationAdminAccount   = "DisableOrganizationAdminAccount"
 	opListOrganizationAdminAccounts     = "ListOrganizationAdminAccounts"
 
-	// Finding Aggregator
+	// Finding Aggregator.
 	opCreateFindingAggregator = "CreateFindingAggregator"
 	opGetFindingAggregator    = "GetFindingAggregator"
 	opListFindingAggregators  = "ListFindingAggregators"
 	opUpdateFindingAggregator = "UpdateFindingAggregator"
 	opDeleteFindingAggregator = "DeleteFindingAggregator"
 
-	// Configuration Policy
+	// Configuration Policy.
 	opCreateConfigurationPolicy               = "CreateConfigurationPolicy"
 	opGetConfigurationPolicy                  = "GetConfigurationPolicy"
 	opUpdateConfigurationPolicy               = "UpdateConfigurationPolicy"
@@ -136,26 +136,26 @@ const (
 	opStartConfigurationPolicyDisassociation  = "StartConfigurationPolicyDisassociation"
 	opBatchGetConfigurationPolicyAssociations = "BatchGetConfigurationPolicyAssociations"
 
-	// Hub V2
+	// Hub V2.
 	opEnableSecurityHubV2   = "EnableSecurityHubV2"
 	opDisableSecurityHubV2  = "DisableSecurityHubV2"
 	opDescribeSecurityHubV2 = "DescribeSecurityHubV2"
 
-	// Aggregator V2
+	// Aggregator V2.
 	opCreateAggregatorV2 = "CreateAggregatorV2"
 	opGetAggregatorV2    = "GetAggregatorV2"
 	opListAggregatorsV2  = "ListAggregatorsV2"
 	opUpdateAggregatorV2 = "UpdateAggregatorV2"
 	opDeleteAggregatorV2 = "DeleteAggregatorV2"
 
-	// Automation Rules V2
+	// Automation Rules V2.
 	opCreateAutomationRuleV2 = "CreateAutomationRuleV2"
 	opGetAutomationRuleV2    = "GetAutomationRuleV2"
 	opListAutomationRulesV2  = "ListAutomationRulesV2"
 	opUpdateAutomationRuleV2 = "UpdateAutomationRuleV2"
 	opDeleteAutomationRuleV2 = "DeleteAutomationRuleV2"
 
-	// Connectors V2
+	// Connectors V2.
 	opCreateConnectorV2   = "CreateConnectorV2"
 	opGetConnectorV2      = "GetConnectorV2"
 	opListConnectorsV2    = "ListConnectorsV2"
@@ -163,24 +163,24 @@ const (
 	opDeleteConnectorV2   = "DeleteConnectorV2"
 	opRegisterConnectorV2 = "RegisterConnectorV2"
 
-	// Tickets V2
+	// Tickets V2.
 	opCreateTicketV2 = "CreateTicketV2"
 
-	// Findings V2
+	// Findings V2.
 	opGetFindingsV2          = "GetFindingsV2"
 	opBatchUpdateFindingsV2  = "BatchUpdateFindingsV2"
 	opGetFindingStatisticsV2 = "GetFindingStatisticsV2"
 	opGetFindingsTrendsV2    = "GetFindingsTrendsV2"
 
-	// Resources V2
+	// Resources V2.
 	opGetResourcesV2           = "GetResourcesV2"
 	opGetResourcesStatisticsV2 = "GetResourcesStatisticsV2"
 	opGetResourcesTrendsV2     = "GetResourcesTrendsV2"
 
-	// Products V2
+	// Products V2.
 	opDescribeProductsV2 = "DescribeProductsV2"
 
-	// Recommended Policy V2
+	// Recommended Policy V2.
 	opGenerateRecommendedPolicyV2 = "GenerateRecommendedPolicyV2"
 	opGetRecommendedPolicyV2      = "GetRecommendedPolicyV2"
 
@@ -204,7 +204,7 @@ func (h *Handler) Name() string { return "SecurityHub" }
 func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns all supported operations.
-func (h *Handler) GetSupportedOperations() []string {
+func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existing issue.
 	return []string{
 		opEnableSecurityHub,
 		opDisableSecurityHub,
@@ -344,7 +344,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches SecurityHub requests by path.
 // For /findings and /tags paths, uses the Authorization header to disambiguate
 // from other services (e.g. Macie2) that share those path prefixes.
-func (h *Handler) RouteMatcher() service.Matcher {
+func (h *Handler) RouteMatcher() service.Matcher { //nolint:gocyclo,cyclop // existing issue.
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
@@ -432,7 +432,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // handleREST dispatches to the appropriate handler function.
-func (h *Handler) handleREST(c *echo.Context) error {
+func (h *Handler) handleREST(c *echo.Context) error { //nolint:funlen // existing issue.
 	op, resource := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	var body map[string]any
@@ -534,14 +534,14 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		// Configuration Policy
 		opCreateConfigurationPolicy:               func() error { return h.handleCreateConfigurationPolicy(c, body) },
 		opGetConfigurationPolicy:                  func() error { return h.handleGetConfigurationPolicy(c, resource) },
-		opUpdateConfigurationPolicy:               func() error { return h.handleUpdateConfigurationPolicy(c, resource, body) },
+		opUpdateConfigurationPolicy:               func() error { return h.handleUpdateConfigurationPolicy(c, resource, body) }, //nolint:lll // existing issue.
 		opDeleteConfigurationPolicy:               func() error { return h.handleDeleteConfigurationPolicy(c, resource) },
 		opListConfigurationPolicies:               func() error { return h.handleListConfigurationPolicies(c) },
 		opGetConfigurationPolicyAssociation:       func() error { return h.handleGetConfigurationPolicyAssociation(c, body) },
-		opListConfigurationPolicyAssociations:     func() error { return h.handleListConfigurationPolicyAssociations(c, body) },
-		opStartConfigurationPolicyAssociation:     func() error { return h.handleStartConfigurationPolicyAssociation(c, body) },
-		opStartConfigurationPolicyDisassociation:  func() error { return h.handleStartConfigurationPolicyDisassociation(c, body) },
-		opBatchGetConfigurationPolicyAssociations: func() error { return h.handleBatchGetConfigurationPolicyAssociations(c, body) },
+		opListConfigurationPolicyAssociations:     func() error { return h.handleListConfigurationPolicyAssociations(c, body) },     //nolint:lll // existing issue.
+		opStartConfigurationPolicyAssociation:     func() error { return h.handleStartConfigurationPolicyAssociation(c, body) },     //nolint:lll // existing issue.
+		opStartConfigurationPolicyDisassociation:  func() error { return h.handleStartConfigurationPolicyDisassociation(c, body) },  //nolint:lll // existing issue.
+		opBatchGetConfigurationPolicyAssociations: func() error { return h.handleBatchGetConfigurationPolicyAssociations(c, body) }, //nolint:lll // existing issue.
 		// Hub V2
 		opEnableSecurityHubV2:   func() error { return h.handleEnableSecurityHubV2(c, body) },
 		opDisableSecurityHubV2:  func() error { return h.handleDisableSecurityHubV2(c) },
@@ -593,14 +593,14 @@ func (h *Handler) handleREST(c *echo.Context) error {
 }
 
 // classifyPath maps (method, path) → (operation, resource).
-func classifyPath(method, path string) (string, string) {
+func classifyPath(method, path string) (string, string) { //nolint:gocyclo,cyclop,funlen // existing issue.
 	switch {
 	case path == pathAccounts || strings.HasPrefix(path, pathAccounts+"/"):
 		return classifyHubPath(method, path)
 	case strings.HasPrefix(path, "/hubv2"):
 		return classifyHubV2Path(method, path)
 	case strings.HasPrefix(path, "/findingHistory") ||
-		(strings.HasPrefix(path, "/findings") && !strings.HasPrefix(path, "/findingsv2") && !strings.HasPrefix(path, "/findingsTrendsv2") && !strings.HasPrefix(path, "/findingAggregator")):
+		(strings.HasPrefix(path, "/findings") && !strings.HasPrefix(path, "/findingsv2") && !strings.HasPrefix(path, "/findingsTrendsv2") && !strings.HasPrefix(path, "/findingAggregator")): //nolint:lll // existing issue.
 		return classifyFindingsPath(method, path)
 	case strings.HasPrefix(path, "/findingsv2") || strings.HasPrefix(path, "/findingsTrendsv2"):
 		return classifyFindingsV2Path(method, path)
@@ -1078,7 +1078,7 @@ func (h *Handler) handleGetInsights(c *echo.Context, body map[string]any) error 
 		items[i] = map[string]any{
 			keyInsightArn:      ins.InsightArn,
 			keyName:            ins.Name,
-			"GroupByAttribute": ins.GroupByAttribute,
+			"GroupByAttribute": ins.GroupByAttribute, //nolint:goconst // existing issue.
 			"Filters":          ins.Filters,
 		}
 	}
@@ -1464,7 +1464,7 @@ func (h *Handler) handleDescribeProducts(c *echo.Context) error {
 
 	for i, p := range products {
 		items[i] = map[string]any{
-			"ProductArn":       p.ProductArn,
+			"ProductArn":       p.ProductArn, //nolint:goconst // existing issue.
 			"ProductName":      p.ProductName,
 			"CompanyName":      p.CompanyName,
 			keyDescription:     p.Description,
@@ -1635,11 +1635,11 @@ func (h *Handler) handleListAutomationRules(c *echo.Context) error {
 	for i, r := range rules {
 		items[i] = map[string]any{
 			keyRuleArn:     r.RuleArn,
-			"RuleStatus":   r.RuleStatus,
-			"RuleOrder":    r.RuleOrder,
-			"RuleName":     r.RuleName,
+			"RuleStatus":   r.RuleStatus, //nolint:goconst // existing issue.
+			"RuleOrder":    r.RuleOrder,  //nolint:goconst // existing issue.
+			"RuleName":     r.RuleName,   //nolint:goconst // existing issue.
 			keyDescription: r.Description,
-			"IsTerminal":   r.IsTerminal,
+			"IsTerminal":   r.IsTerminal, //nolint:goconst // existing issue.
 			keyCreatedAt:   r.CreatedAt,
 			keyUpdatedAt:   r.UpdatedAt,
 			"CreatedBy":    r.CreatedBy,

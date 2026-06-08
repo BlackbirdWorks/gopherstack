@@ -627,7 +627,8 @@ func TestUnassignPrivateIPAddresses_RecyclesIPs(t *testing.T) {
 	require.Len(t, enis[0].SecondaryPrivateIPs, 2, "expected 2 secondary IPs after reassign")
 
 	// The freed IP must have been reused.
-	assert.True(t,
+	assert.True(
+		t,
 		slices.Contains(enis[0].SecondaryPrivateIPs, allocatedIPs[0]),
 		"freed IP %s should be reused by subsequent allocation", allocatedIPs[0],
 	)

@@ -300,7 +300,10 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 		{
 			name: "partial_miss",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/present", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/present", Type: "String", Value: "v"},
+				)
 			},
 			body:     `{"Names":["/present","/absent"]}`,
 			wantCode: http.StatusOK,
@@ -366,7 +369,10 @@ func TestSSMHandler_SnapshotRestore_Delegation(t *testing.T) {
 		{
 			name: "snapshot_and_restore_via_handler",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/snap-param", Type: "String", Value: "snap-value"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/snap-param", Type: "String", Value: "snap-value"},
+				)
 			},
 			check: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
@@ -491,7 +497,10 @@ type testInvalidBackend struct {
 
 var errSimulatedInternal = errors.New("simulated internal error")
 
-func (b *testInvalidBackend) PutParameter(_ context.Context, _ *ssm.PutParameterInput) (*ssm.PutParameterOutput, error) {
+func (b *testInvalidBackend) PutParameter(
+	_ context.Context,
+	_ *ssm.PutParameterInput,
+) (*ssm.PutParameterOutput, error) {
 	return nil, errSimulatedInternal
 }
 
@@ -526,7 +535,10 @@ func TestSSMHandler_HandlerSnapshotRestore(t *testing.T) {
 		{
 			name: "with_data",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/h-snap", Type: "String", Value: "hval"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/h-snap", Type: "String", Value: "hval"},
+				)
 			},
 		},
 		{
@@ -575,7 +587,10 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "GetParameterHistory_success",
 			action: "GetParameterHistory",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/hist-param", Type: "String", Value: "v1"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/hist-param", Type: "String", Value: "v1"},
+				)
 			},
 			body:     `{"Name":"/hist-param"}`,
 			wantCode: http.StatusOK,
@@ -590,7 +605,10 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "DeleteParameters_success",
 			action: "DeleteParameters",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/del-p1", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/del-p1", Type: "String", Value: "v"},
+				)
 			},
 			body:     `{"Names":["/del-p1","/del-missing"]}`,
 			wantCode: http.StatusOK,
@@ -599,7 +617,10 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "GetParametersByPath_success",
 			action: "GetParametersByPath",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/config", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/app/config", Type: "String", Value: "v"},
+				)
 			},
 			body:     `{"Path":"/app","Recursive":true}`,
 			wantCode: http.StatusOK,
@@ -614,7 +635,10 @@ func TestSSMHandler_AdditionalOps(t *testing.T) {
 			name:   "DescribeParameters_success",
 			action: "DescribeParameters",
 			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/desc-param", Type: "String", Value: "v"})
+				_, _ = b.PutParameter(
+					context.TODO(),
+					&ssm.PutParameterInput{Name: "/desc-param", Type: "String", Value: "v"},
+				)
 			},
 			body:     `{}`,
 			wantCode: http.StatusOK,

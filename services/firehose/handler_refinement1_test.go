@@ -135,9 +135,14 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 			_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "ver-stream"})
 			require.NoError(t, err)
 
-			err = b.UpdateDestination(context.TODO(), "ver-stream", tt.currentVersionID, &firehose.S3DestinationDescription{
-				BucketARN: "arn:aws:s3:::new-bucket",
-			})
+			err = b.UpdateDestination(
+				context.TODO(),
+				"ver-stream",
+				tt.currentVersionID,
+				&firehose.S3DestinationDescription{
+					BucketARN: "arn:aws:s3:::new-bucket",
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -109,12 +109,12 @@ type untagResourceInput struct {
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
 	Backend        StorageBackend
-	DefaultRegion  string
 	ops            map[string]actionFn
 	scheduler      *Scheduler
 	archiveJanitor *ArchiveJanitor
 	tags           map[string]*svcTags.Tags
 	tagsMu         *lockmetrics.RWMutex
+	DefaultRegion  string
 }
 
 // NewHandler creates a new EventBridge handler.
@@ -209,8 +209,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EventBridge" }
@@ -522,7 +524,8 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			rules, next, err := h.Backend.ListRules(ctx,
+			rules, next, err := h.Backend.ListRules(
+				ctx,
 				input.EventBusName,
 				input.NamePrefix,
 				input.NextToken,
@@ -614,7 +617,8 @@ func (h *Handler) targetActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			targets, next, err := h.Backend.ListTargetsByRule(ctx,
+			targets, next, err := h.Backend.ListTargetsByRule(
+				ctx,
 				input.Rule,
 				input.EventBusName,
 				input.NextToken,
@@ -647,7 +651,7 @@ func (h *Handler) eventsActions() map[string]actionFn {
 
 func (h *Handler) tagActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) {
+		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -660,7 +664,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 
 			return &listTagsForResourceOutput{Tags: tagList}, nil
 		},
-		"TagResource": func(ctx context.Context, b []byte) (any, error) {
+		"TagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -673,7 +677,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 
 			return &tagResourceOutput{}, nil
 		},
-		"UntagResource": func(ctx context.Context, b []byte) (any, error) {
+		"UntagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -729,9 +733,11 @@ type deauthorizeConnectionOutput struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-type activateEventSourceOutput struct{}
-type deactivateEventSourceOutput struct{}
-type deleteAPIDestinationOutput struct{}
+type (
+	activateEventSourceOutput   struct{}
+	deactivateEventSourceOutput struct{}
+	deleteAPIDestinationOutput  struct{}
+)
 
 // timeToEpochSeconds converts a time.Time to a float64 Unix epoch seconds value,
 // as required by the AWS JSON protocol for timestamp fields.
@@ -1472,7 +1478,8 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			names, next, err := h.Backend.ListRuleNamesByTarget(ctx,
+			names, next, err := h.Backend.ListRuleNamesByTarget(
+				ctx,
 				input.TargetArn,
 				input.EventBusName,
 				input.NextToken,
@@ -1752,7 +1759,8 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSchema(ctx,
+			return h.Backend.DescribeSchema(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1767,7 +1775,8 @@ func (h *Handler) schemaActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			schemas, next, err := h.Backend.ListSchemas(ctx,
+			schemas, next, err := h.Backend.ListSchemas(
+				ctx,
 				input.RegistryName,
 				input.SchemaNamePrefix,
 				input.NextToken,
@@ -1790,7 +1799,8 @@ func (h *Handler) schemaActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			schemas, next, err := h.Backend.SearchSchemas(ctx,
+			schemas, next, err := h.Backend.SearchSchemas(
+				ctx,
 				input.RegistryName,
 				input.Keywords,
 				input.NextToken,
@@ -1826,7 +1836,8 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			versions, next, err := h.Backend.ListSchemaVersions(ctx,
+			versions, next, err := h.Backend.ListSchemaVersions(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.NextToken,
@@ -1850,7 +1861,8 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSchemaVersion(ctx,
+			return h.Backend.DescribeSchemaVersion(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1866,7 +1878,8 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteSchemaVersion(ctx,
+			return &struct{}{}, h.Backend.DeleteSchemaVersion(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
@@ -1932,7 +1945,8 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			src, err := h.Backend.GetCodeBindingSource(ctx,
+			src, err := h.Backend.GetCodeBindingSource(
+				ctx,
 				input.RegistryName, input.SchemaName, input.Language, input.SchemaVersion,
 			)
 			if err != nil {

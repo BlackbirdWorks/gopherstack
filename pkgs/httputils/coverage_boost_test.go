@@ -126,8 +126,8 @@ func TestWriteJSON_WriteError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		payload any
+		name    string
 	}{
 		{
 			name:    "write_failure_does_not_panic",
@@ -151,8 +151,8 @@ func TestWriteXML_WriteError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		payload any
+		name    string
 	}{
 		{
 			name: "write_failure_does_not_panic",
@@ -178,8 +178,8 @@ func TestWriteDynamoDBResponse_WriteError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		payload any
+		name    string
 	}{
 		{
 			name:    "write_failure_does_not_panic",

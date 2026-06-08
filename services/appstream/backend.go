@@ -94,61 +94,61 @@ func (f *storedFleet) toFleet() *Fleet {
 }
 
 type backendSnapshot struct {
-	Stacks               map[string]*storedStack            `json:"stacks"`
-	Fleets               map[string]*storedFleet            `json:"fleets"`
+	Images               map[string]*storedImage            `json:"images"`
+	AppBlockBuilderAssoc map[string]map[string]bool         `json:"appBlockBuilderAssoc"`
 	Associations         map[string]map[string]bool         `json:"associations"`
 	Tags                 map[string]map[string]string       `json:"tags"`
 	AppBlocks            map[string]*storedAppBlock         `json:"appBlocks"`
 	AppBlockBuilders     map[string]*storedAppBlockBuilder  `json:"appBlockBuilders"`
-	AppBlockBuilderAssoc map[string]map[string]bool         `json:"appBlockBuilderAssoc"`
+	DirectoryConfigs     map[string]*storedDirectoryConfig  `json:"directoryConfigs"`
 	Applications         map[string]*storedApplication      `json:"applications"`
 	AppFleetAssoc        map[string]map[string]bool         `json:"appFleetAssoc"`
 	Entitlements         map[string]*storedEntitlement      `json:"entitlements"`
+	Fleets               map[string]*storedFleet            `json:"fleets"`
 	EntitlementApps      map[string]map[string]bool         `json:"entitlementApps"`
-	DirectoryConfigs     map[string]*storedDirectoryConfig  `json:"directoryConfigs"`
-	Images               map[string]*storedImage            `json:"images"`
+	ExportTasks          map[string]*storedExportImageTask  `json:"exportTasks"`
 	ImagePermissions     map[string]*storedImagePermissions `json:"imagePermissions"`
 	ImageBuilders        map[string]*storedImageBuilder     `json:"imageBuilders"`
 	SoftwareAssoc        map[string]map[string]bool         `json:"softwareAssoc"`
-	ExportTasks          map[string]*storedExportImageTask  `json:"exportTasks"`
-	ExportTaskSeq        int                                `json:"exportTaskSeq"`
+	Stacks               map[string]*storedStack            `json:"stacks"`
+	Themes               map[string]*storedTheme            `json:"themes"`
 	Users                map[string]*storedUser             `json:"users"`
 	UserStackAssoc       map[string]map[string]bool         `json:"userStackAssoc"`
 	Sessions             map[string]*storedSession          `json:"sessions"`
-	SessionSeq           int                                `json:"sessionSeq"`
 	UsageReport          *storedUsageReportSubscription     `json:"usageReport"`
-	Themes               map[string]*storedTheme            `json:"themes"`
+	SessionSeq           int                                `json:"sessionSeq"`
+	ExportTaskSeq        int                                `json:"exportTaskSeq"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu                   *lockmetrics.RWMutex
-	stacks               map[string]*storedStack
+	directoryConfigs     map[string]*storedDirectoryConfig
+	themes               map[string]*storedTheme
 	fleets               map[string]*storedFleet
-	associations         map[string]map[string]bool   // fleetName → set of stackNames
-	tags                 map[string]map[string]string // ARN → tags
+	associations         map[string]map[string]bool
+	tags                 map[string]map[string]string
 	appBlocks            map[string]*storedAppBlock
 	appBlockBuilders     map[string]*storedAppBlockBuilder
-	appBlockBuilderAssoc map[string]map[string]bool // builderName → set of appBlockNames
+	appBlockBuilderAssoc map[string]map[string]bool
 	applications         map[string]*storedApplication
-	appFleetAssoc        map[string]map[string]bool    // appName → set of fleetNames
-	entitlements         map[string]*storedEntitlement // entitlementKey → entitlement
-	entitlementApps      map[string]map[string]bool    // entitlementKey → set of appIDs
-	directoryConfigs     map[string]*storedDirectoryConfig
-	images               map[string]*storedImage
+	appFleetAssoc        map[string]map[string]bool
+	entitlements         map[string]*storedEntitlement
 	imagePermissions     map[string]*storedImagePermissions
+	stacks               map[string]*storedStack
+	mu                   *lockmetrics.RWMutex
+	entitlementApps      map[string]map[string]bool
 	imageBuilders        map[string]*storedImageBuilder
-	softwareAssoc        map[string]map[string]bool // imageBuilderName → set of software
+	softwareAssoc        map[string]map[string]bool
 	exportTasks          map[string]*storedExportImageTask
-	exportTaskSeq        int
-	users                map[string]*storedUser     // userKey → user
-	userStackAssoc       map[string]map[string]bool // userKey → set of stackNames
+	images               map[string]*storedImage
+	users                map[string]*storedUser
+	userStackAssoc       map[string]map[string]bool
 	sessions             map[string]*storedSession
-	sessionSeq           int
 	usageReport          *storedUsageReportSubscription
-	themes               map[string]*storedTheme
 	accountID            string
 	region               string
+	sessionSeq           int
+	exportTaskSeq        int
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -665,7 +665,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	data, _ := json.Marshal(backendSnapshot{ //nolint:musttag // existing issue.
 		Stacks:               b.stacks,
 		Fleets:               b.fleets,
 		Associations:         b.associations,
@@ -696,12 +696,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(data []byte) error { //nolint:gocognit,cyclop,funlen // existing issue.
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := json.Unmarshal(data, &snap); err != nil { //nolint:musttag // existing issue.
 		return err
 	}
 
@@ -709,24 +709,28 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		if m != nil {
 			return m
 		}
+
 		return make(map[string]*storedStack)
 	}
 	ifNilFleet := func(m map[string]*storedFleet) map[string]*storedFleet {
 		if m != nil {
 			return m
 		}
+
 		return make(map[string]*storedFleet)
 	}
 	ifNilBool := func(m map[string]map[string]bool) map[string]map[string]bool {
 		if m != nil {
 			return m
 		}
+
 		return make(map[string]map[string]bool)
 	}
 	ifNilTags := func(m map[string]map[string]string) map[string]map[string]string {
 		if m != nil {
 			return m
 		}
+
 		return make(map[string]map[string]string)
 	}
 

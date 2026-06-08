@@ -97,33 +97,31 @@ type backendSnapshot struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	directories map[string]*storedDirectory // directoryID → directory
-	snapshots   map[string]*storedSnapshot  // snapshotID → snapshot
-	aliases     map[string]string           // alias → directoryID
-	accountID   string
-	region      string
-
-	// Appendix A state.
-	ipRoutes              map[string][]storedIpRoute             // directoryID → []route
-	regions               map[string]*storedRegion               // "dirID:regionName" → region
-	schemaExtensions      map[string]*storedSchemaExtension      // extensionID → ext
-	conditionalForwarders map[string]*storedConditionalForwarder // "dirID:domain" → fwd
-	logSubscriptions      map[string]*storedLogSubscription      // "dirID:logGroup" → sub
-	eventTopics           map[string]*storedEventTopic           // "dirID:topicName" → topic
-	domainControllers     map[string]*storedDomainController     // controllerID → dc
-	trusts                map[string]*storedTrust                // trustID → trust
-	sharedDirectories     map[string]*storedSharedDirectory      // sharedDirID → shared
-	certificates          map[string]*storedCertificate          // certID → cert
-	ldapsSettings         map[string]*storedLDAPSSetting         // "dirID:ldapsType" → setting
-	clientAuthSettings    map[string]*storedClientAuthSetting    // "dirID:authType" → setting
-	radiusSettings        map[string]*storedRadiusSettings       // directoryID → settings
-	dirDataAccess         map[string]bool                        // directoryID → enabled
-	caEnrollment          map[string]bool                        // directoryID → enabled
-	adAssessments         map[string]*storedADAssessment         // assessmentID → assessment
-	dirSettings           map[string][]*storedDirectorySetting   // directoryID → []setting
-	updateInfoEntries     map[string][]*storedUpdateInfo         // directoryID → []entry
-	hybridADUpdates       map[string]*storedHybridADUpdate       // requestID → update
+	domainControllers     map[string]*storedDomainController
+	adAssessments         map[string]*storedADAssessment
+	snapshots             map[string]*storedSnapshot
+	aliases               map[string]string
+	hybridADUpdates       map[string]*storedHybridADUpdate
+	updateInfoEntries     map[string][]*storedUpdateInfo
+	ipRoutes              map[string][]storedIpRoute
+	regions               map[string]*storedRegion
+	schemaExtensions      map[string]*storedSchemaExtension
+	conditionalForwarders map[string]*storedConditionalForwarder
+	logSubscriptions      map[string]*storedLogSubscription
+	eventTopics           map[string]*storedEventTopic
+	directories           map[string]*storedDirectory
+	sharedDirectories     map[string]*storedSharedDirectory
+	mu                    *lockmetrics.RWMutex
+	certificates          map[string]*storedCertificate
+	ldapsSettings         map[string]*storedLDAPSSetting
+	clientAuthSettings    map[string]*storedClientAuthSetting
+	radiusSettings        map[string]*storedRadiusSettings
+	dirDataAccess         map[string]bool
+	caEnrollment          map[string]bool
+	trusts                map[string]*storedTrust
+	dirSettings           map[string][]*storedDirectorySetting
+	region                string
+	accountID             string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -384,7 +382,7 @@ func (b *InMemoryBackend) GetDirectoryLimits() *DirectoryLimits {
 	var simpleADCount, msADCount, connectedCount int32
 
 	for _, d := range b.directories {
-		switch DirectoryType(d.DirType) {
+		switch DirectoryType(d.DirType) { //nolint:exhaustive // existing issue.
 		case DirectoryTypeSimpleAD:
 			simpleADCount++
 		case DirectoryTypeMicrosoftAD:
@@ -402,8 +400,8 @@ func (b *InMemoryBackend) GetDirectoryLimits() *DirectoryLimits {
 		CloudOnlyMicrosoftADLimit:        defaultMicrosoftADLimit,
 		CloudOnlyMicrosoftADLimitReached: msADCount >= defaultMicrosoftADLimit,
 		ConnectedDirectoriesCurrentCount: connectedCount,
-		ConnectedDirectoriesLimit:        10,
-		ConnectedDirectoriesLimitReached: connectedCount >= 10,
+		ConnectedDirectoriesLimit:        10,                   //nolint:mnd // existing issue.
+		ConnectedDirectoriesLimitReached: connectedCount >= 10, //nolint:mnd // existing issue.
 	}
 }
 

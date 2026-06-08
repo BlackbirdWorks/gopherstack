@@ -1,4 +1,4 @@
-package cloudwatchlogs
+package cloudwatchlogs //nolint:testpackage // existing issue.
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCloudWatchLogsRegionIsolation(t *testing.T) {
+func TestCloudWatchLogsRegionIsolation(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := NewInMemoryBackend()
 
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
@@ -42,7 +42,7 @@ func TestCloudWatchLogsRegionIsolation(t *testing.T) {
 
 	eastGroups2, _, err := backend.DescribeLogGroups(ctxEast, "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, eastGroups2, 0)
+	assert.Empty(t, eastGroups2)
 
 	westGroups2, _, err := backend.DescribeLogGroups(ctxWest, "", "", 0)
 	require.NoError(t, err)

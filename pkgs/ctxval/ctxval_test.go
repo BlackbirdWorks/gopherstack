@@ -11,8 +11,8 @@ import (
 )
 
 type sample struct {
-	N int
 	S string
+	N int
 }
 
 func TestKey_NameAndString(t *testing.T) {
@@ -37,7 +37,7 @@ func TestKey_NameAndString(t *testing.T) {
 
 			if tc.nilKey {
 				var k *ctxval.Key[int]
-				assert.Equal(t, "", k.Name())
+				assert.Empty(t, k.Name())
 
 				return
 			}
@@ -53,9 +53,9 @@ func TestSetGet_PrimitiveTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantVal  any
 		setup    func() (context.Context, func(context.Context) (any, bool))
 		name     string
-		wantVal  any
 		wantOk   bool
 		setNoVal bool
 	}{

@@ -626,7 +626,8 @@ func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParamete
 		v.Overrides = &ov
 	}
 	v.CapacityProviderStrategy = append(
-		[]CapacityProviderStrategyItem(nil), src.CapacityProviderStrategy...)
+		[]CapacityProviderStrategyItem(nil), src.CapacityProviderStrategy...,
+	)
 	v.PlacementConstraints = append([]PlacementConstraint(nil), src.PlacementConstraints...)
 	v.PlacementStrategy = append([]PlacementStrategy(nil), src.PlacementStrategy...)
 
@@ -665,7 +666,8 @@ func cloneSourceParameters(src *SourceParameters) *SourceParameters {
 	if src.SelfManagedKafkaParameters != nil {
 		v := *src.SelfManagedKafkaParameters
 		v.AdditionalBootstrapServers = append(
-			[]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...)
+			[]string(nil), src.SelfManagedKafkaParameters.AdditionalBootstrapServers...,
+		)
 		if v.Credentials != nil {
 			c := *v.Credentials
 			v.Credentials = &c
@@ -729,7 +731,8 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 		v := *src.SageMakerPipelineParameters
 		v.PipelineParameterList = append(
 			[]SageMakerPipelineParameter(nil),
-			src.SageMakerPipelineParameters.PipelineParameterList...)
+			src.SageMakerPipelineParameters.PipelineParameterList...,
+		)
 		tp.SageMakerPipelineParameters = &v
 	}
 	if src.BatchJobParameters != nil {
@@ -743,10 +746,12 @@ func cloneTargetParameters(src *TargetParameters) *TargetParameters {
 		v.DimensionMappings = append([]TimestreamDimensionMapping(nil), src.TimestreamParameters.DimensionMappings...)
 		v.SingleMeasureMappings = append(
 			[]TimestreamSingleMeasureMapping(nil),
-			src.TimestreamParameters.SingleMeasureMappings...)
+			src.TimestreamParameters.SingleMeasureMappings...,
+		)
 		v.MultiMeasureMappings = append(
 			[]TimestreamMultiMeasureMapping(nil),
-			src.TimestreamParameters.MultiMeasureMappings...)
+			src.TimestreamParameters.MultiMeasureMappings...,
+		)
 		tp.TimestreamParameters = &v
 	}
 	if src.HTTPParameters != nil {
@@ -813,19 +818,15 @@ func clonePipe(p *Pipe) *Pipe {
 
 // InMemoryBackend is the in-memory store for pipes.
 type InMemoryBackend struct {
+	svcCtx              context.Context
 	pipes               map[string]*Pipe
 	pipeARNIndex        map[string]string
-	enrichmentCallCount map[string]int64 // pipe name → enrichment invocation count
+	enrichmentCallCount map[string]int64
 	mu                  *lockmetrics.RWMutex
+	cancel              context.CancelFunc
 	accountID           string
 	region              string
-
-	// svcCtx is the service lifecycle context. Delayed state-transition
-	// goroutines observe it so they are cancelled on server shutdown rather
-	// than firing after the backend has been discarded.
-	svcCtx context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	wg                  sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -860,12 +861,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
 // cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
 // can wait for it.
-func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Add(1)
-
-	go func() {
-		defer b.wg.Done()
-
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) { //nolint:unparam // existing issue.
+	b.wg.Go(func() {
 		select {
 		case <-b.svcCtx.Done():
 			return
@@ -873,7 +870,7 @@ func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
 		}
 
 		fn()
-	}()
+	})
 }
 
 // Shutdown cancels in-flight delayed state transitions and waits for their

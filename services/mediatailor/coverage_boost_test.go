@@ -200,8 +200,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		ctx     any
 		name    string
-		ctx     interface{}
 		wantErr bool
 	}{
 		{name: "nil context returns error", ctx: nil, wantErr: true},
@@ -228,9 +228,9 @@ func TestTagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		tagBody  map[string]any
 		name     string
 		wantCode int
-		tagBody  map[string]any
 	}{
 		{
 			name:     "tag existing resource succeeds",
@@ -1018,9 +1018,9 @@ func TestHandleConfigureLogs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     map[string]any
 		name     string
 		path     string
-		body     map[string]any
 		wantCode int
 	}{
 		{

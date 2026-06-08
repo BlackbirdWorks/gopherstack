@@ -202,7 +202,7 @@ func classifyPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func classifyChannelPath(method, path string) (string, string, bool) {
+func classifyChannelPath(method, path string) (string, string, bool) { //nolint:cyclop // existing issue.
 	const prefix = pathChannels + "/"
 
 	switch {
@@ -661,11 +661,11 @@ type s3DestinationOutput struct {
 type harvestJobOutput struct {
 	S3Destination    *s3DestinationOutput `json:"S3Destination"`
 	Arn              string               `json:"Arn"`
-	ChannelId        string               `json:"ChannelId"`
+	ChannelId        string               `json:"ChannelId"` //nolint:revive,staticcheck // existing issue.
 	CreatedAt        string               `json:"CreatedAt"`
 	EndTime          string               `json:"EndTime"`
-	Id               string               `json:"Id"`
-	OriginEndpointId string               `json:"OriginEndpointId"`
+	Id               string               `json:"Id"`               //nolint:revive,staticcheck // existing issue.
+	OriginEndpointId string               `json:"OriginEndpointId"` //nolint:revive,staticcheck // existing issue.
 	StartTime        string               `json:"StartTime"`
 	Status           string               `json:"Status"`
 }

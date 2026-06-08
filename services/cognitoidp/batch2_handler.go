@@ -336,8 +336,10 @@ func (h *Handler) handleVerifyUserAttributeFull(
 // IdentityProvider — full with AttributeMapping and IdpIdentifiers
 // ---------------------------------------------------------------------------
 
-type idpProviderDetails map[string]string
-type idpAttributeMapping map[string]string
+type (
+	idpProviderDetails  map[string]string
+	idpAttributeMapping map[string]string
+)
 
 type createIdentityProviderFullInput struct {
 	UserPoolID       string              `json:"UserPoolId"`

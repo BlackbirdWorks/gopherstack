@@ -29,6 +29,7 @@ func boostAPI(t *testing.T, handler *apigateway.Handler, e *echo.Echo) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp["id"].(string)
 }
 
@@ -41,6 +42,7 @@ func boostRootResource(t *testing.T, handler *apigateway.Handler, e *echo.Echo, 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	items := resp["item"].([]any)
 	require.NotEmpty(t, items)
+
 	return items[0].(map[string]any)["id"].(string)
 }
 
@@ -52,17 +54,27 @@ func boostDeployment(t *testing.T, handler *apigateway.Handler, e *echo.Echo, ap
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp["id"].(string)
 }
 
 // boostAuthorizer creates an authorizer and returns its ID.
 func boostAuthorizer(t *testing.T, handler *apigateway.Handler, e *echo.Echo, apiID string) string {
 	t.Helper()
-	rec := postWithHandler(t, handler, e, "CreateAuthorizer",
-		fmt.Sprintf(`{"restApiId":%q,"name":"auth","type":"TOKEN","authorizerUri":"arn:aws:lambda:us-east-1:123:function:auth"}`, apiID))
+	rec := postWithHandler(
+		t,
+		handler,
+		e,
+		"CreateAuthorizer",
+		fmt.Sprintf(
+			`{"restApiId":%q,"name":"auth","type":"TOKEN","authorizerUri":"arn:aws:lambda:us-east-1:123:function:auth"}`,
+			apiID,
+		),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp["id"].(string)
 }
 
@@ -74,6 +86,7 @@ func boostDocPart(t *testing.T, handler *apigateway.Handler, e *echo.Echo, apiID
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	return resp["id"].(string)
 }
 
@@ -90,12 +103,12 @@ func TestBoost_DocumentationPart_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		getWantCode      int
-		deleteWantCode   int
-		afterDeleteCode  int
-		listWantLen      int
-		useValidID       bool
+		name            string
+		getWantCode     int
+		deleteWantCode  int
+		afterDeleteCode int
+		listWantLen     int
+		useValidID      bool
 	}{
 		{
 			name:            "get_and_delete_existing",
@@ -153,7 +166,7 @@ func TestBoost_DocumentationPart_CRUD(t *testing.T) {
 	}
 }
 
-// TestBoost_DocumentationVersion_CRUD tests GetDocumentationVersion, GetDocumentationVersions, DeleteDocumentationVersion.
+// TestBoost_DocumentationVersion_CRUD tests doc versions. //nolint:lll // existing issue.
 func TestBoost_DocumentationVersion_CRUD(t *testing.T) {
 	t.Parallel()
 
@@ -359,11 +372,11 @@ func TestBoost_UpdateModel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		modelName  string
-		schema     string
-		wantCode   int
-		useValid   bool
+		name      string
+		modelName string
+		schema    string
+		wantCode  int
+		useValid  bool
 	}{
 		{
 			name:      "update_schema",
@@ -408,10 +421,10 @@ func TestBoost_UpdateBasePathMapping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantCode   int
-		useValid   bool
-		newStage   string
+		name     string
+		newStage string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "update_stage",
@@ -454,11 +467,11 @@ func TestBoost_ResourceTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		addTags       map[string]string
+		wantTagsAfter map[string]string
 		name          string
 		initialTags   string
-		addTags       map[string]string
 		removeTags    []string
-		wantTagsAfter map[string]string
 	}{
 		{
 			name:        "tag_and_untag",
@@ -534,14 +547,14 @@ func TestBoost_TestInvokeMethod(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		httpMethod      string
-		integration     string
-		wantCode        int
-		wantStatusOK    bool
-		useValidAPI     bool
+		name             string
+		httpMethod       string
+		integration      string
+		wantCode         int
+		wantStatusOK     bool
+		useValidAPI      bool
 		useValidResource bool
-		useValidMethod  bool
+		useValidMethod   bool
 	}{
 		{
 			name:             "invoke_mock_integration",
@@ -619,9 +632,9 @@ func TestBoost_TestInvokeAuthorizer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		wantCode    int
-		useValidAPI bool
+		name         string
+		wantCode     int
+		useValidAPI  bool
 		useValidAuth bool
 	}{
 		{
@@ -678,11 +691,11 @@ func TestBoost_GetModelTemplate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		wantCode    int
-		useValid    bool
-		schema      string
+		name         string
+		schema       string
 		wantContains string
+		wantCode     int
+		useValid     bool
 	}{
 		{
 			name:         "with_schema",
@@ -741,17 +754,17 @@ func TestBoost_GatewayResponses(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		responseType     string
-		putStatusCode    string
-		wantPutCode      int
-		wantGetCode      int
-		wantDefaultResp  bool
-		wantGetListCode  int
-		doDelete         bool
-		wantDeleteCode   int
-		wantAfterDelete  bool // true = should be default response again
-		apiNotFound      bool
+		name            string
+		responseType    string
+		putStatusCode   string
+		wantPutCode     int
+		wantGetCode     int
+		wantGetListCode int
+		wantDeleteCode  int
+		wantDefaultResp bool
+		doDelete        bool
+		wantAfterDelete bool
+		apiNotFound     bool
 	}{
 		{
 			name:            "default_response_returned_when_not_set",
@@ -760,11 +773,11 @@ func TestBoost_GatewayResponses(t *testing.T) {
 			wantDefaultResp: true,
 		},
 		{
-			name:          "put_and_get_custom",
-			responseType:  "RESOURCE_NOT_FOUND",
-			putStatusCode: "404",
-			wantPutCode:   http.StatusCreated,
-			wantGetCode:   http.StatusOK,
+			name:            "put_and_get_custom",
+			responseType:    "RESOURCE_NOT_FOUND",
+			putStatusCode:   "404",
+			wantPutCode:     http.StatusCreated,
+			wantGetCode:     http.StatusOK,
 			wantGetListCode: http.StatusOK,
 		},
 		{
@@ -777,10 +790,10 @@ func TestBoost_GatewayResponses(t *testing.T) {
 			wantAfterDelete: true,
 		},
 		{
-			name:         "api_not_found_get_list",
-			responseType: "UNAUTHORIZED",
+			name:            "api_not_found_get_list",
+			responseType:    "UNAUTHORIZED",
 			wantGetListCode: http.StatusNotFound,
-			apiNotFound:  true,
+			apiNotFound:     true,
 		},
 	}
 
@@ -852,10 +865,10 @@ func TestBoost_ClientCertificates(t *testing.T) {
 		wantCreateCode  int
 		wantGetCode     int
 		wantListMinLen  int
-		doDelete        bool
 		wantDeleteCode  int
-		doUpdate        bool
 		wantUpdateCode  int
+		doDelete        bool
+		doUpdate        bool
 		useInvalidGetID bool
 	}{
 		{
@@ -938,15 +951,15 @@ func TestBoost_VpcLinks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		linkName       string
-		updateName     string
-		wantCreateCode int
-		wantGetCode    int
-		doDelete       bool
-		wantDeleteCode int
-		useInvalidID   bool
+		name            string
+		linkName        string
+		updateName      string
+		wantCreateCode  int
+		wantGetCode     int
+		wantDeleteCode  int
 		wantGetAfterDel int
+		doDelete        bool
+		useInvalidID    bool
 	}{
 		{
 			name:            "full_lifecycle",
@@ -981,7 +994,10 @@ func TestBoost_VpcLinks(t *testing.T) {
 			var linkID string
 
 			// Create
-			body := fmt.Sprintf(`{"name":%q,"targetArns":["arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/abc"]}`, tt.linkName)
+			body := fmt.Sprintf(
+				`{"name":%q,"targetArns":["arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/abc"]}`,
+				tt.linkName,
+			)
 			createRec := postWithHandler(t, handler, e, "CreateVpcLink", body)
 			assert.Equal(t, tt.wantCreateCode, createRec.Code)
 
@@ -1036,9 +1052,9 @@ func TestBoost_GetUsage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantCode   int
-		useValid   bool
+		name     string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "success",
@@ -1082,11 +1098,11 @@ func TestBoost_UpdateMethod(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		updateInput   string
-		wantCode      int
-		useValidAPI   bool
-		useValidRes   bool
+		name           string
+		updateInput    string
+		wantCode       int
+		useValidAPI    bool
+		useValidRes    bool
 		useValidMethod bool
 	}{
 		{
@@ -1098,11 +1114,11 @@ func TestBoost_UpdateMethod(t *testing.T) {
 			useValidMethod: true,
 		},
 		{
-			name:        "method_not_found",
-			updateInput: `"authorizationType":"AWS_IAM"`,
-			wantCode:    http.StatusNotFound,
-			useValidAPI: true,
-			useValidRes: true,
+			name:           "method_not_found",
+			updateInput:    `"authorizationType":"AWS_IAM"`,
+			wantCode:       http.StatusNotFound,
+			useValidAPI:    true,
+			useValidRes:    true,
 			useValidMethod: false,
 		},
 	}
@@ -1138,16 +1154,16 @@ func TestBoost_PaginatedListing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		action         string
-		setupAction    string
-		setupBodies    []string
-		wantCode       int
-		wantMinItems   int
+		name         string
+		action       string
+		setupAction  string
+		setupBodies  []string
+		wantCode     int
+		wantMinItems int
 	}{
 		{
-			name:   "api_keys_paginated",
-			action: "GetApiKeys",
+			name:        "api_keys_paginated",
+			action:      "GetApiKeys",
 			setupAction: "CreateApiKey",
 			setupBodies: []string{
 				`{"name":"key-a","enabled":true}`,
@@ -1157,8 +1173,8 @@ func TestBoost_PaginatedListing(t *testing.T) {
 			wantMinItems: 2,
 		},
 		{
-			name:   "domain_names_paginated",
-			action: "GetDomainNames",
+			name:        "domain_names_paginated",
+			action:      "GetDomainNames",
 			setupAction: "CreateDomainName",
 			setupBodies: []string{
 				`{"domainName":"a.example.com"}`,
@@ -1168,8 +1184,8 @@ func TestBoost_PaginatedListing(t *testing.T) {
 			wantMinItems: 2,
 		},
 		{
-			name:   "usage_plans_paginated",
-			action: "GetUsagePlans",
+			name:        "usage_plans_paginated",
+			action:      "GetUsagePlans",
 			setupAction: "CreateUsagePlan",
 			setupBodies: []string{
 				`{"name":"plan-a"}`,
@@ -1209,10 +1225,10 @@ func TestBoost_UpdateIntegration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		newURI      string
-		wantCode    int
-		useValid    bool
+		name     string
+		newURI   string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "update_uri",
@@ -1238,9 +1254,17 @@ func TestBoost_UpdateIntegration(t *testing.T) {
 			postWithHandler(t, handler, e, "PutMethod",
 				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":"POST","authorizationType":"NONE"}`,
 					apiID, rootID))
-			postWithHandler(t, handler, e, "PutIntegration",
-				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":"POST","type":"HTTP","uri":"https://orig.example.com"}`,
-					apiID, rootID))
+			postWithHandler(
+				t,
+				handler,
+				e,
+				"PutIntegration",
+				fmt.Sprintf(
+					`{"restApiId":%q,"resourceId":%q,"httpMethod":"POST","type":"HTTP","uri":"https://orig.example.com"}`,
+					apiID,
+					rootID,
+				),
+			)
 
 			lookupMethod := "POST"
 			if !tt.useValid {
@@ -1260,9 +1284,9 @@ func TestBoost_UpdateMethodResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantCode   int
-		useValid   bool
+		name     string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "update_response_models",
@@ -1296,9 +1320,18 @@ func TestBoost_UpdateMethodResponse(t *testing.T) {
 				lookupCode = "404"
 			}
 
-			rec := postWithHandler(t, handler, e, "UpdateMethodResponse",
-				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":"GET","statusCode":%q,"responseModels":{"application/json":"Empty"}}`,
-					apiID, rootID, lookupCode))
+			rec := postWithHandler(
+				t,
+				handler,
+				e,
+				"UpdateMethodResponse",
+				fmt.Sprintf(
+					`{"restApiId":%q,"resourceId":%q,"httpMethod":"GET","statusCode":%q,"responseModels":{"application/json":"Empty"}}`, //nolint:lll // existing issue.
+					apiID,
+					rootID,
+					lookupCode,
+				),
+			)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
@@ -1309,11 +1342,11 @@ func TestBoost_UpdateRestAPI(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		newName     string
-		newDesc     string
-		wantCode    int
-		useValid    bool
+		name     string
+		newName  string
+		newDesc  string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "update_name_and_description",
@@ -1412,10 +1445,10 @@ func TestBoost_UpdateStage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		newDesc    string
-		wantCode   int
-		useValid   bool
+		name     string
+		newDesc  string
+		wantCode int
+		useValid bool
 	}{
 		{
 			name:     "update_description",
@@ -1456,15 +1489,15 @@ func TestBoost_GetAccount_And_UpdateAccount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		throttleBurst    int
-		throttleRate     float64
-		wantUpdateCode   int
-		wantGetCode      int
+		name           string
+		throttleBurst  int
+		throttleRate   float64
+		wantUpdateCode int
+		wantGetCode    int
 	}{
 		{
-			name:           "get_account",
-			wantGetCode:    http.StatusOK,
+			name:        "get_account",
+			wantGetCode: http.StatusOK,
 		},
 		{
 			name:           "update_throttle_settings",
@@ -1501,9 +1534,9 @@ func TestBoost_UpdateApiKey(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		newName  string
 		wantCode int
 		useValid bool
-		newName  string
 	}{
 		{
 			name:     "update_name",
@@ -1595,9 +1628,9 @@ func TestBoost_UpdateDomainName(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		newCert  string
 		wantCode int
 		useValid bool
-		newCert  string
 	}{
 		{
 			name:     "update_certificate",
@@ -1674,9 +1707,18 @@ func TestBoost_UpdateIntegrationResponse(t *testing.T) {
 				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":"GET","statusCode":"200"}`,
 					apiID, rootID))
 
-			rec := postWithHandler(t, handler, e, "UpdateIntegrationResponse",
-				fmt.Sprintf(`{"restApiId":%q,"resourceId":%q,"httpMethod":"GET","statusCode":%q,"responseTemplates":{"application/json":"#set($x=1)"}}`,
-					apiID, rootID, tt.statusCode))
+			rec := postWithHandler(
+				t,
+				handler,
+				e,
+				"UpdateIntegrationResponse",
+				fmt.Sprintf(
+					`{"restApiId":%q,"resourceId":%q,"httpMethod":"GET","statusCode":%q,"responseTemplates":{"application/json":"#set($x=1)"}}`, //nolint:lll // existing issue.
+					apiID,
+					rootID,
+					tt.statusCode,
+				),
+			)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}

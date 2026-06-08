@@ -107,18 +107,21 @@ func (h *Handler) buildAppendixAOps() map[string]service.JSONOpFunc {
 // IP Groups
 // =============================================================================
 
-type createIpGroupInput struct {
+type createIpGroupInput struct { //nolint:revive,staticcheck // existing issue.
 	GroupName string       `json:"GroupName"`
 	GroupDesc string       `json:"GroupDesc"`
 	Tags      []tagItem    `json:"Tags"`
 	UserRules []ipRuleItem `json:"UserRules"`
 }
 
-type createIpGroupOutput struct {
-	GroupId string `json:"GroupId"`
+type createIpGroupOutput struct { //nolint:revive,staticcheck // existing issue.
+	GroupId string `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleCreateIpGroup(_ context.Context, req *createIpGroupInput) (*createIpGroupOutput, error) {
+func (h *Handler) handleCreateIpGroup( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *createIpGroupInput,
+) (*createIpGroupOutput, error) {
 	tags := tagsToMap(req.Tags)
 
 	id, err := h.Backend.CreateIpGroup(req.GroupName, req.GroupDesc, req.UserRules, tags)
@@ -129,25 +132,25 @@ func (h *Handler) handleCreateIpGroup(_ context.Context, req *createIpGroupInput
 	return &createIpGroupOutput{GroupId: id}, nil
 }
 
-type describeIpGroupsInput struct {
-	GroupIds   []string `json:"GroupIds"`
-	MaxResults int32    `json:"MaxResults"`
+type describeIpGroupsInput struct { //nolint:revive,staticcheck // existing issue.
 	NextToken  string   `json:"NextToken"`
+	GroupIds   []string `json:"GroupIds"` //nolint:revive // existing issue.
+	MaxResults int32    `json:"MaxResults"`
 }
 
-type workspacesIpGroupResp struct {
-	GroupId   string       `json:"GroupId"`
+type workspacesIpGroupResp struct { //nolint:revive,staticcheck // existing issue.
+	GroupId   string       `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 	GroupName string       `json:"GroupName"`
 	GroupDesc string       `json:"GroupDesc"`
 	UserRules []ipRuleItem `json:"UserRules"`
 }
 
-type describeIpGroupsOutput struct {
-	Result    []workspacesIpGroupResp `json:"Result"`
+type describeIpGroupsOutput struct { //nolint:revive,staticcheck // existing issue.
 	NextToken string                  `json:"NextToken,omitempty"`
+	Result    []workspacesIpGroupResp `json:"Result"`
 }
 
-func (h *Handler) handleDescribeIpGroups(
+func (h *Handler) handleDescribeIpGroups( //nolint:revive,staticcheck // existing issue.
 	_ context.Context,
 	req *describeIpGroupsInput,
 ) (*describeIpGroupsOutput, error) {
@@ -169,56 +172,74 @@ func (h *Handler) handleDescribeIpGroups(
 	return &describeIpGroupsOutput{Result: items, NextToken: nextToken}, nil
 }
 
-type deleteIpGroupInput struct {
-	GroupId string `json:"GroupId"`
+type deleteIpGroupInput struct { //nolint:revive,staticcheck // existing issue.
+	GroupId string `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleDeleteIpGroup(_ context.Context, req *deleteIpGroupInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteIpGroup( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *deleteIpGroupInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.DeleteIpGroup(req.GroupId)
 }
 
-type authorizeIpRulesInput struct {
-	GroupId   string       `json:"GroupId"`
+type authorizeIpRulesInput struct { //nolint:revive,staticcheck // existing issue.
+	GroupId   string       `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 	UserRules []ipRuleItem `json:"UserRules"`
 }
 
-func (h *Handler) handleAuthorizeIpRules(_ context.Context, req *authorizeIpRulesInput) (*emptyOutput, error) {
+func (h *Handler) handleAuthorizeIpRules( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *authorizeIpRulesInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.AuthorizeIpRules(req.GroupId, req.UserRules)
 }
 
-type revokeIpRulesInput struct {
-	GroupId   string   `json:"GroupId"`
+type revokeIpRulesInput struct { //nolint:revive,staticcheck // existing issue.
+	GroupId   string   `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 	UserRules []string `json:"UserRules"`
 }
 
-func (h *Handler) handleRevokeIpRules(_ context.Context, req *revokeIpRulesInput) (*emptyOutput, error) {
+func (h *Handler) handleRevokeIpRules( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *revokeIpRulesInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.RevokeIpRules(req.GroupId, req.UserRules)
 }
 
-type updateRulesOfIpGroupInput struct {
-	GroupId   string       `json:"GroupId"`
+type updateRulesOfIpGroupInput struct { //nolint:revive,staticcheck // existing issue.
+	GroupId   string       `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
 	UserRules []ipRuleItem `json:"UserRules"`
 }
 
-func (h *Handler) handleUpdateRulesOfIpGroup(_ context.Context, req *updateRulesOfIpGroupInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateRulesOfIpGroup( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *updateRulesOfIpGroupInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.UpdateRulesOfIpGroup(req.GroupId, req.UserRules)
 }
 
-type associateIpGroupsInput struct {
-	DirectoryId string   `json:"DirectoryId"`
-	GroupIds    []string `json:"GroupIds"`
+type associateIpGroupsInput struct { //nolint:revive,staticcheck // existing issue.
+	DirectoryId string   `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	GroupIds    []string `json:"GroupIds"`    //nolint:revive // existing issue.
 }
 
-func (h *Handler) handleAssociateIpGroups(_ context.Context, req *associateIpGroupsInput) (*emptyOutput, error) {
+func (h *Handler) handleAssociateIpGroups( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *associateIpGroupsInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.AssociateIpGroups(req.DirectoryId, req.GroupIds)
 }
 
-type disassociateIpGroupsInput struct {
-	DirectoryId string   `json:"DirectoryId"`
-	GroupIds    []string `json:"GroupIds"`
+type disassociateIpGroupsInput struct { //nolint:revive,staticcheck // existing issue.
+	DirectoryId string   `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	GroupIds    []string `json:"GroupIds"`    //nolint:revive // existing issue.
 }
 
-func (h *Handler) handleDisassociateIpGroups(_ context.Context, req *disassociateIpGroupsInput) (*emptyOutput, error) {
+func (h *Handler) handleDisassociateIpGroups( //nolint:revive,staticcheck // existing issue.
+	_ context.Context,
+	req *disassociateIpGroupsInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.DisassociateIpGroups(req.DirectoryId, req.GroupIds)
 }
 
@@ -232,7 +253,7 @@ type createConnectionAliasInput struct {
 }
 
 type createConnectionAliasOutput struct {
-	AliasId string `json:"AliasId"`
+	AliasId string `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCreateConnectionAlias(
@@ -247,31 +268,31 @@ func (h *Handler) handleCreateConnectionAlias(
 }
 
 type describeConnectionAliasesInput struct {
-	AliasIds   []string `json:"AliasIds"`
-	ResourceId string   `json:"ResourceId"`
-	Limit      int32    `json:"Limit"`
+	ResourceId string   `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	NextToken  string   `json:"NextToken"`
+	AliasIds   []string `json:"AliasIds"` //nolint:revive // existing issue.
+	Limit      int32    `json:"Limit"`
 }
 
 type connAliasResp struct {
-	AliasId              string               `json:"AliasId"`
+	AliasId              string               `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 	ConnectionString     string               `json:"ConnectionString"`
 	State                string               `json:"State"`
-	OwnerAccountId       string               `json:"OwnerAccountId"`
+	OwnerAccountId       string               `json:"OwnerAccountId"` //nolint:revive,staticcheck // existing issue.
 	ConnectionIdentifier string               `json:"ConnectionIdentifier,omitempty"`
 	Associations         []connAliasAssocResp `json:"Associations,omitempty"`
 }
 
 type connAliasAssocResp struct {
 	AssociationStatus    string `json:"AssociationStatus"`
-	AssociatedAccountId  string `json:"AssociatedAccountId,omitempty"`
-	ResourceId           string `json:"ResourceId,omitempty"`
+	AssociatedAccountId  string `json:"AssociatedAccountId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	ResourceId           string `json:"ResourceId,omitempty"`          //nolint:revive,staticcheck // existing issue.
 	ConnectionIdentifier string `json:"ConnectionIdentifier,omitempty"`
 }
 
 type describeConnectionAliasesOutput struct {
-	ConnectionAliases []connAliasResp `json:"ConnectionAliases"`
 	NextToken         string          `json:"NextToken,omitempty"`
+	ConnectionAliases []connAliasResp `json:"ConnectionAliases"`
 }
 
 func (h *Handler) handleDescribeConnectionAliases(
@@ -307,7 +328,7 @@ func (h *Handler) handleDescribeConnectionAliases(
 }
 
 type deleteConnectionAliasInput struct {
-	AliasId string `json:"AliasId"`
+	AliasId string `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteConnectionAlias(
@@ -317,8 +338,8 @@ func (h *Handler) handleDeleteConnectionAlias(
 }
 
 type associateConnectionAliasInput struct {
-	AliasId    string `json:"AliasId"`
-	ResourceId string `json:"ResourceId"`
+	AliasId    string `json:"AliasId"`    //nolint:revive,staticcheck // existing issue.
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type associateConnectionAliasOutput struct {
@@ -337,7 +358,7 @@ func (h *Handler) handleAssociateConnectionAlias(
 }
 
 type disassociateConnectionAliasInput struct {
-	AliasId string `json:"AliasId"`
+	AliasId string `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDisassociateConnectionAlias(
@@ -347,20 +368,20 @@ func (h *Handler) handleDisassociateConnectionAlias(
 }
 
 type describeConnectionAliasPermissionsInput struct {
-	AliasId    string `json:"AliasId"`
-	MaxResults int32  `json:"MaxResults"`
+	AliasId    string `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type connAliasPermResp struct {
-	SharedAccountId  string `json:"SharedAccountId"`
+	SharedAccountId  string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 	AllowAssociation bool   `json:"AllowAssociation"`
 }
 
 type describeConnectionAliasPermissionsOutput struct {
-	AliasId                    string              `json:"AliasId"`
-	ConnectionAliasPermissions []connAliasPermResp `json:"ConnectionAliasPermissions"`
+	AliasId                    string              `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 	NextToken                  string              `json:"NextToken,omitempty"`
+	ConnectionAliasPermissions []connAliasPermResp `json:"ConnectionAliasPermissions"`
 }
 
 func (h *Handler) handleDescribeConnectionAliasPermissions(
@@ -389,9 +410,9 @@ func (h *Handler) handleDescribeConnectionAliasPermissions(
 }
 
 type updateConnectionAliasPermissionInput struct {
-	AliasId                   string `json:"AliasId"`
+	AliasId                   string `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
 	ConnectionAliasPermission struct {
-		SharedAccountId  string `json:"SharedAccountId"`
+		SharedAccountId  string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 		AllowAssociation bool   `json:"AllowAssociation"`
 	} `json:"ConnectionAliasPermission"`
 }
@@ -411,13 +432,13 @@ func (h *Handler) handleUpdateConnectionAliasPermission(
 // =============================================================================
 
 type createWorkspaceBundleInput struct {
-	BundleName        string    `json:"BundleName"`
-	BundleDescription string    `json:"BundleDescription"`
-	ImageId           string    `json:"ImageId"`
-	Tags              []tagItem `json:"Tags"`
+	BundleName        string `json:"BundleName"`
+	BundleDescription string `json:"BundleDescription"`
+	ImageId           string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	ComputeType       struct {
 		Name string `json:"Name"`
 	} `json:"ComputeType"`
+	Tags        []tagItem `json:"Tags"`
 	UserStorage struct {
 		Capacity int32 `json:"Capacity"`
 	} `json:"UserStorage"`
@@ -427,11 +448,11 @@ type createWorkspaceBundleInput struct {
 }
 
 type workspaceBundleResp struct {
-	BundleId    string `json:"BundleId"`
+	BundleId    string `json:"BundleId"` //nolint:revive,staticcheck // existing issue.
 	Name        string `json:"Name"`
 	Owner       string `json:"Owner"`
 	Description string `json:"Description"`
-	ImageId     string `json:"ImageId"`
+	ImageId     string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	ComputeType struct {
 		Name string `json:"Name"`
 	} `json:"ComputeType"`
@@ -469,7 +490,7 @@ func (h *Handler) handleCreateWorkspaceBundle(
 }
 
 type deleteWorkspaceBundleInput struct {
-	BundleId string `json:"BundleId"`
+	BundleId string `json:"BundleId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteWorkspaceBundle(
@@ -479,8 +500,8 @@ func (h *Handler) handleDeleteWorkspaceBundle(
 }
 
 type updateWorkspaceBundleInput struct {
-	BundleId string `json:"BundleId"`
-	ImageId  string `json:"ImageId"`
+	BundleId string `json:"BundleId"` //nolint:revive,staticcheck // existing issue.
+	ImageId  string `json:"ImageId"`  //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleUpdateWorkspaceBundle(
@@ -495,14 +516,14 @@ func (h *Handler) handleUpdateWorkspaceBundle(
 
 type copyWorkspaceImageInput struct {
 	Name          string    `json:"Name"`
-	SourceImageId string    `json:"SourceImageId"`
+	SourceImageId string    `json:"SourceImageId"` //nolint:revive,staticcheck // existing issue.
 	SourceRegion  string    `json:"SourceRegion"`
 	Description   string    `json:"Description"`
 	Tags          []tagItem `json:"Tags"`
 }
 
 type copyWorkspaceImageOutput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCopyWorkspaceImage(
@@ -521,12 +542,12 @@ func (h *Handler) handleCopyWorkspaceImage(
 type createWorkspaceImageInput struct {
 	Name        string    `json:"Name"`
 	Description string    `json:"Description"`
-	WorkspaceId string    `json:"WorkspaceId"`
+	WorkspaceId string    `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 	Tags        []tagItem `json:"Tags"`
 }
 
 type workspaceImageResp struct {
-	ImageId     string `json:"ImageId"`
+	ImageId     string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	Name        string `json:"Name"`
 	Description string `json:"Description"`
 	State       string `json:"State"`
@@ -534,7 +555,7 @@ type workspaceImageResp struct {
 }
 
 type createWorkspaceImageOutput struct {
-	ImageId     string `json:"ImageId"`
+	ImageId     string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	Name        string `json:"Name"`
 	Description string `json:"Description"`
 	State       string `json:"State"`
@@ -559,7 +580,7 @@ func (h *Handler) handleCreateWorkspaceImage(
 }
 
 type deleteWorkspaceImageInput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteWorkspaceImage(
@@ -569,14 +590,14 @@ func (h *Handler) handleDeleteWorkspaceImage(
 }
 
 type importWorkspaceImageInput struct {
-	Ec2ImageId       string    `json:"Ec2ImageId"`
+	Ec2ImageId       string    `json:"Ec2ImageId"` //nolint:revive,staticcheck // existing issue.
 	ImageName        string    `json:"ImageName"`
 	ImageDescription string    `json:"ImageDescription"`
 	Tags             []tagItem `json:"Tags"`
 }
 
 type importWorkspaceImageOutput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleImportWorkspaceImage(
@@ -598,7 +619,7 @@ type importCustomWorkspaceImageInput struct {
 }
 
 type importCustomWorkspaceImageOutput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	State   string `json:"State"`
 }
 
@@ -614,14 +635,14 @@ func (h *Handler) handleImportCustomWorkspaceImage(
 }
 
 type createUpdatedWorkspaceImageInput struct {
-	SourceImageId string    `json:"SourceImageId"`
+	SourceImageId string    `json:"SourceImageId"` //nolint:revive,staticcheck // existing issue.
 	Name          string    `json:"Name"`
 	Description   string    `json:"Description"`
 	Tags          []tagItem `json:"Tags"`
 }
 
 type createUpdatedWorkspaceImageOutput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCreateUpdatedWorkspaceImage(
@@ -638,15 +659,15 @@ func (h *Handler) handleCreateUpdatedWorkspaceImage(
 }
 
 type describeWorkspaceImagesInput struct {
-	ImageIds   []string `json:"ImageIds"`
 	ImageType  string   `json:"ImageType"`
-	MaxResults int32    `json:"MaxResults"`
 	NextToken  string   `json:"NextToken"`
+	ImageIds   []string `json:"ImageIds"` //nolint:revive // existing issue.
+	MaxResults int32    `json:"MaxResults"`
 }
 
 type describeWorkspaceImagesOutput struct {
-	Images    []workspaceImageResp `json:"Images"`
 	NextToken string               `json:"NextToken,omitempty"`
+	Images    []workspaceImageResp `json:"Images"`
 }
 
 func (h *Handler) handleDescribeWorkspaceImages(
@@ -674,22 +695,22 @@ func (h *Handler) handleDescribeWorkspaceImages(
 }
 
 type describeWorkspaceImagePermissionsInput struct {
-	ImageId    string `json:"ImageId"`
-	MaxResults int32  `json:"MaxResults"`
+	ImageId    string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type imgPermResp struct {
-	SharedAccountId string `json:"SharedAccountId"`
+	SharedAccountId string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 	ImagePermission struct {
 		AllowCopyImage bool `json:"AllowCopyImage"`
 	} `json:"ImagePermission"`
 }
 
 type describeWorkspaceImagePermissionsOutput struct {
-	ImageId          string        `json:"ImageId"`
-	ImagePermissions []imgPermResp `json:"ImagePermissions"`
+	ImageId          string        `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	NextToken        string        `json:"NextToken,omitempty"`
+	ImagePermissions []imgPermResp `json:"ImagePermissions"`
 }
 
 func (h *Handler) handleDescribeWorkspaceImagePermissions(
@@ -714,8 +735,8 @@ func (h *Handler) handleDescribeWorkspaceImagePermissions(
 }
 
 type updateWorkspaceImagePermissionInput struct {
-	ImageId         string `json:"ImageId"`
-	SharedAccountId string `json:"SharedAccountId"`
+	ImageId         string `json:"ImageId"`         //nolint:revive,staticcheck // existing issue.
+	SharedAccountId string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 	AllowCopyImage  bool   `json:"AllowCopyImage"`
 }
 
@@ -728,11 +749,11 @@ func (h *Handler) handleUpdateWorkspaceImagePermission(
 }
 
 type describeCustomWorkspaceImageImportInput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type describeCustomWorkspaceImageImportOutput struct {
-	ImageId string `json:"ImageId"`
+	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	State   string `json:"State"`
 	Created string `json:"Created,omitempty"`
 }
@@ -758,8 +779,8 @@ func (h *Handler) handleDescribeCustomWorkspaceImageImport(
 
 type createWorkspacesPoolInput struct {
 	PoolName    string    `json:"PoolName"`
-	BundleId    string    `json:"BundleId"`
-	DirectoryId string    `json:"DirectoryId"`
+	BundleId    string    `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	Description string    `json:"Description"`
 	Tags        []tagItem `json:"Tags"`
 	Capacity    struct {
@@ -768,11 +789,11 @@ type createWorkspacesPoolInput struct {
 }
 
 type workspacesPoolResp struct {
-	PoolId      string `json:"PoolId"`
+	PoolId      string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 	PoolArn     string `json:"PoolArn"`
 	PoolName    string `json:"PoolName"`
-	BundleId    string `json:"BundleId"`
-	DirectoryId string `json:"DirectoryId"`
+	BundleId    string `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	Description string `json:"Description"`
 	State       string `json:"State"`
 	CreatedAt   string `json:"CreatedAt,omitempty"`
@@ -809,14 +830,14 @@ func toPoolResp(p *storedPool) workspacesPoolResp {
 }
 
 type describeWorkspacesPoolsInput struct {
-	PoolIds   []string `json:"PoolIds"`
-	Limit     int32    `json:"Limit"`
 	NextToken string   `json:"NextToken"`
+	PoolIds   []string `json:"PoolIds"` //nolint:revive // existing issue.
+	Limit     int32    `json:"Limit"`
 }
 
 type describeWorkspacesPoolsOutput struct {
-	WorkspacesPools []workspacesPoolResp `json:"WorkspacesPools"`
 	NextToken       string               `json:"NextToken,omitempty"`
+	WorkspacesPools []workspacesPoolResp `json:"WorkspacesPools"`
 }
 
 func (h *Handler) handleDescribeWorkspacesPools(
@@ -836,7 +857,7 @@ func (h *Handler) handleDescribeWorkspacesPools(
 }
 
 type startWorkspacesPoolInput struct {
-	PoolId string `json:"PoolId"`
+	PoolId string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleStartWorkspacesPool(_ context.Context, req *startWorkspacesPoolInput) (*emptyOutput, error) {
@@ -844,7 +865,7 @@ func (h *Handler) handleStartWorkspacesPool(_ context.Context, req *startWorkspa
 }
 
 type stopWorkspacesPoolInput struct {
-	PoolId string `json:"PoolId"`
+	PoolId string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleStopWorkspacesPool(_ context.Context, req *stopWorkspacesPoolInput) (*emptyOutput, error) {
@@ -852,7 +873,7 @@ func (h *Handler) handleStopWorkspacesPool(_ context.Context, req *stopWorkspace
 }
 
 type terminateWorkspacesPoolInput struct {
-	PoolId string `json:"PoolId"`
+	PoolId string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleTerminateWorkspacesPool(
@@ -862,10 +883,10 @@ func (h *Handler) handleTerminateWorkspacesPool(
 }
 
 type updateWorkspacesPoolInput struct {
-	PoolId      string `json:"PoolId"`
+	PoolId      string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
 	Description string `json:"Description"`
-	BundleId    string `json:"BundleId"`
-	DirectoryId string `json:"DirectoryId"`
+	BundleId    string `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type updateWorkspacesPoolOutput struct {
@@ -884,21 +905,21 @@ func (h *Handler) handleUpdateWorkspacesPool(
 }
 
 type describeWorkspacesPoolSessionsInput struct {
-	PoolId    string `json:"PoolId"`
-	UserId    string `json:"UserId"`
-	Limit     int32  `json:"Limit"`
+	PoolId    string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
+	UserId    string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
 	NextToken string `json:"NextToken"`
+	Limit     int32  `json:"Limit"`
 }
 
 type poolSessionResp struct {
-	SessionId string `json:"SessionId"`
-	PoolId    string `json:"PoolId"`
-	UserId    string `json:"UserId"`
+	SessionId string `json:"SessionId"` //nolint:revive,staticcheck // existing issue.
+	PoolId    string `json:"PoolId"`    //nolint:revive,staticcheck // existing issue.
+	UserId    string `json:"UserId"`    //nolint:revive,staticcheck // existing issue.
 }
 
 type describeWorkspacesPoolSessionsOutput struct {
-	Sessions  []poolSessionResp `json:"Sessions"`
 	NextToken string            `json:"NextToken,omitempty"`
+	Sessions  []poolSessionResp `json:"Sessions"`
 }
 
 func (h *Handler) handleDescribeWorkspacesPoolSessions(
@@ -920,7 +941,7 @@ func (h *Handler) handleDescribeWorkspacesPoolSessions(
 }
 
 type terminateWorkspacesPoolSessionInput struct {
-	SessionId string `json:"SessionId"`
+	SessionId string `json:"SessionId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleTerminateWorkspacesPoolSession(
@@ -934,14 +955,14 @@ func (h *Handler) handleTerminateWorkspacesPoolSession(
 // =============================================================================
 
 type registerWorkspaceDirectoryInput struct {
-	DirectoryId       string    `json:"DirectoryId"`
-	SubnetIds         []string  `json:"SubnetIds"`
-	EnableSelfService bool      `json:"EnableSelfService"`
+	DirectoryId       string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	SubnetIds         []string  `json:"SubnetIds"`   //nolint:revive // existing issue.
 	Tags              []tagItem `json:"Tags"`
+	EnableSelfService bool      `json:"EnableSelfService"`
 }
 
 type registerWorkspaceDirectoryOutput struct {
-	DirectoryId string `json:"DirectoryId"`
+	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	State       string `json:"State"`
 }
 
@@ -956,7 +977,7 @@ func (h *Handler) handleRegisterWorkspaceDirectory(
 }
 
 type deregisterWorkspaceDirectoryInput struct {
-	DirectoryId string `json:"DirectoryId"`
+	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeregisterWorkspaceDirectory(
@@ -984,14 +1005,14 @@ func (h *Handler) handleDescribeAccount(_ context.Context, _ *emptyOutput) (*des
 }
 
 type describeAccountModificationsOutput struct {
-	AccountModifications []interface{} `json:"AccountModifications"`
-	NextToken            string        `json:"NextToken,omitempty"`
+	NextToken            string `json:"NextToken,omitempty"`
+	AccountModifications []any  `json:"AccountModifications"`
 }
 
 func (h *Handler) handleDescribeAccountModifications(
 	_ context.Context, _ *emptyOutput,
 ) (*describeAccountModificationsOutput, error) {
-	return &describeAccountModificationsOutput{AccountModifications: []interface{}{}}, nil
+	return &describeAccountModificationsOutput{AccountModifications: []any{}}, nil
 }
 
 type modifyAccountInput struct {
@@ -1006,7 +1027,7 @@ func (h *Handler) handleModifyAccount(_ context.Context, req *modifyAccountInput
 }
 
 type modifyEndpointEncryptionModeInput struct {
-	DirectoryId            string `json:"DirectoryId"`
+	DirectoryId            string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	EndpointEncryptionMode string `json:"EndpointEncryptionMode"`
 }
 
@@ -1024,12 +1045,12 @@ func (h *Handler) handleModifyEndpointEncryptionMode(
 
 type createConnectClientAddInInput struct {
 	Name       string `json:"Name"`
-	ResourceId string `json:"ResourceId"`
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	URL        string `json:"URL"`
 }
 
 type createConnectClientAddInOutput struct {
-	AddInId string `json:"AddInId"`
+	AddInId string `json:"AddInId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCreateConnectClientAddIn(
@@ -1044,8 +1065,8 @@ func (h *Handler) handleCreateConnectClientAddIn(
 }
 
 type deleteConnectClientAddInInput struct {
-	AddInId    string `json:"AddInId"`
-	ResourceId string `json:"ResourceId"`
+	AddInId    string `json:"AddInId"`    //nolint:revive,staticcheck // existing issue.
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteConnectClientAddIn(
@@ -1055,20 +1076,20 @@ func (h *Handler) handleDeleteConnectClientAddIn(
 }
 
 type describeConnectClientAddInsInput struct {
-	ResourceId string `json:"ResourceId"`
-	MaxResults int32  `json:"MaxResults"`
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type connectAddInResp struct {
-	AddInId string `json:"AddInId"`
+	AddInId string `json:"AddInId"` //nolint:revive,staticcheck // existing issue.
 	Name    string `json:"Name"`
 	URL     string `json:"URL"`
 }
 
 type describeConnectClientAddInsOutput struct {
-	AddIns    []connectAddInResp `json:"AddIns"`
 	NextToken string             `json:"NextToken,omitempty"`
+	AddIns    []connectAddInResp `json:"AddIns"`
 }
 
 func (h *Handler) handleDescribeConnectClientAddIns(
@@ -1090,8 +1111,8 @@ func (h *Handler) handleDescribeConnectClientAddIns(
 }
 
 type updateConnectClientAddInInput struct {
-	AddInId    string `json:"AddInId"`
-	ResourceId string `json:"ResourceId"`
+	AddInId    string `json:"AddInId"`    //nolint:revive,staticcheck // existing issue.
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	Name       string `json:"Name"`
 	URL        string `json:"URL"`
 }
@@ -1109,28 +1130,28 @@ func (h *Handler) handleUpdateConnectClientAddIn(
 // =============================================================================
 
 type importClientBrandingInput struct {
-	ResourceId        string                 `json:"ResourceId"`
-	DeviceTypeAndroid map[string]interface{} `json:"DeviceTypeAndroid"`
-	DeviceTypeIos     map[string]interface{} `json:"DeviceTypeIos"`
-	DeviceTypeLinux   map[string]interface{} `json:"DeviceTypeLinux"`
-	DeviceTypeOsx     map[string]interface{} `json:"DeviceTypeOsx"`
-	DeviceTypeWeb     map[string]interface{} `json:"DeviceTypeWeb"`
-	DeviceTypeWindows map[string]interface{} `json:"DeviceTypeWindows"`
+	DeviceTypeAndroid map[string]any `json:"DeviceTypeAndroid"`
+	DeviceTypeIos     map[string]any `json:"DeviceTypeIos"`
+	DeviceTypeLinux   map[string]any `json:"DeviceTypeLinux"`
+	DeviceTypeOsx     map[string]any `json:"DeviceTypeOsx"`
+	DeviceTypeWeb     map[string]any `json:"DeviceTypeWeb"`
+	DeviceTypeWindows map[string]any `json:"DeviceTypeWindows"`
+	ResourceId        string         `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type importClientBrandingOutput struct {
-	DeviceTypeAndroid map[string]interface{} `json:"DeviceTypeAndroid,omitempty"`
-	DeviceTypeIos     map[string]interface{} `json:"DeviceTypeIos,omitempty"`
-	DeviceTypeLinux   map[string]interface{} `json:"DeviceTypeLinux,omitempty"`
-	DeviceTypeOsx     map[string]interface{} `json:"DeviceTypeOsx,omitempty"`
-	DeviceTypeWeb     map[string]interface{} `json:"DeviceTypeWeb,omitempty"`
-	DeviceTypeWindows map[string]interface{} `json:"DeviceTypeWindows,omitempty"`
+	DeviceTypeAndroid map[string]any `json:"DeviceTypeAndroid,omitempty"`
+	DeviceTypeIos     map[string]any `json:"DeviceTypeIos,omitempty"`
+	DeviceTypeLinux   map[string]any `json:"DeviceTypeLinux,omitempty"`
+	DeviceTypeOsx     map[string]any `json:"DeviceTypeOsx,omitempty"`
+	DeviceTypeWeb     map[string]any `json:"DeviceTypeWeb,omitempty"`
+	DeviceTypeWindows map[string]any `json:"DeviceTypeWindows,omitempty"`
 }
 
 func (h *Handler) handleImportClientBranding(
 	_ context.Context, req *importClientBrandingInput,
 ) (*importClientBrandingOutput, error) {
-	platforms := map[string]map[string]interface{}{}
+	platforms := map[string]map[string]any{}
 
 	if req.DeviceTypeAndroid != nil {
 		platforms["DeviceTypeAndroid"] = req.DeviceTypeAndroid
@@ -1166,16 +1187,16 @@ func (h *Handler) handleImportClientBranding(
 }
 
 type describeClientBrandingInput struct {
-	ResourceId string `json:"ResourceId"`
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type describeClientBrandingOutput struct {
-	DeviceTypeAndroid map[string]interface{} `json:"DeviceTypeAndroid,omitempty"`
-	DeviceTypeIos     map[string]interface{} `json:"DeviceTypeIos,omitempty"`
-	DeviceTypeLinux   map[string]interface{} `json:"DeviceTypeLinux,omitempty"`
-	DeviceTypeOsx     map[string]interface{} `json:"DeviceTypeOsx,omitempty"`
-	DeviceTypeWeb     map[string]interface{} `json:"DeviceTypeWeb,omitempty"`
-	DeviceTypeWindows map[string]interface{} `json:"DeviceTypeWindows,omitempty"`
+	DeviceTypeAndroid map[string]any `json:"DeviceTypeAndroid,omitempty"`
+	DeviceTypeIos     map[string]any `json:"DeviceTypeIos,omitempty"`
+	DeviceTypeLinux   map[string]any `json:"DeviceTypeLinux,omitempty"`
+	DeviceTypeOsx     map[string]any `json:"DeviceTypeOsx,omitempty"`
+	DeviceTypeWeb     map[string]any `json:"DeviceTypeWeb,omitempty"`
+	DeviceTypeWindows map[string]any `json:"DeviceTypeWindows,omitempty"`
 }
 
 func (h *Handler) handleDescribeClientBranding(
@@ -1197,7 +1218,7 @@ func (h *Handler) handleDescribeClientBranding(
 }
 
 type deleteClientBrandingInput struct {
-	ResourceId string   `json:"ResourceId"`
+	ResourceId string   `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	Platforms  []string `json:"Platforms"`
 }
 
@@ -1212,11 +1233,11 @@ func (h *Handler) handleDeleteClientBranding(
 // =============================================================================
 
 type describeClientPropertiesInput struct {
-	ResourceIds []string `json:"ResourceIds"`
+	ResourceIds []string `json:"ResourceIds"` //nolint:revive // existing issue.
 }
 
 type clientPropsResult struct {
-	ResourceId       string `json:"ResourceId"`
+	ResourceId       string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	ClientProperties struct {
 		ReconnectEnabled string `json:"ReconnectEnabled,omitempty"`
 	} `json:"ClientProperties"`
@@ -1245,7 +1266,7 @@ func (h *Handler) handleDescribeClientProperties(
 }
 
 type modifyClientPropertiesInput struct {
-	ResourceId       string `json:"ResourceId"`
+	ResourceId       string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	ClientProperties struct {
 		ReconnectEnabled string `json:"ReconnectEnabled"`
 	} `json:"ClientProperties"`
@@ -1264,7 +1285,7 @@ func (h *Handler) handleModifyClientProperties(
 // =============================================================================
 
 type modifyCertificateBasedAuthPropertiesInput struct {
-	DirectoryId                    string `json:"DirectoryId"`
+	DirectoryId                    string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	CertificateBasedAuthProperties struct {
 		Status                  string `json:"Status"`
 		CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
@@ -1283,10 +1304,10 @@ func (h *Handler) handleModifyCertificateBasedAuthProperties(
 }
 
 type modifySamlPropertiesInput struct {
-	DirectoryId    string `json:"DirectoryId"`
+	DirectoryId    string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	SamlProperties struct {
 		Status                  string `json:"Status"`
-		UserAccessUrl           string `json:"UserAccessUrl"`
+		UserAccessUrl           string `json:"UserAccessUrl"` //nolint:revive,staticcheck // existing issue.
 		RelayStateParameterName string `json:"RelayStateParameterName"`
 	} `json:"SamlProperties"`
 }
@@ -1304,7 +1325,7 @@ func (h *Handler) handleModifySamlProperties(
 }
 
 type modifySelfservicePermissionsInput struct {
-	DirectoryId            string `json:"DirectoryId"`
+	DirectoryId            string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	SelfservicePermissions struct {
 		RestartWorkspace   string `json:"RestartWorkspace"`
 		IncreaseVolumeSize string `json:"IncreaseVolumeSize"`
@@ -1329,7 +1350,7 @@ func (h *Handler) handleModifySelfservicePermissions(
 }
 
 type modifyStreamingPropertiesInput struct {
-	DirectoryId         string `json:"DirectoryId"`
+	DirectoryId         string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	StreamingProperties struct {
 		StreamingExperiencePreferredProtocol string `json:"StreamingExperiencePreferredProtocol"`
 		UserSettings                         []struct {
@@ -1350,7 +1371,7 @@ func (h *Handler) handleModifyStreamingProperties(
 }
 
 type modifyWorkspaceAccessPropertiesInput struct {
-	DirectoryId               string `json:"DirectoryId"`
+	DirectoryId               string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	WorkspaceAccessProperties struct {
 		DeviceTypeWindows    string `json:"DeviceTypeWindows"`
 		DeviceTypeOsx        string `json:"DeviceTypeOsx"`
@@ -1381,12 +1402,12 @@ func (h *Handler) handleModifyWorkspaceAccessProperties(
 }
 
 type modifyWorkspaceCreationPropertiesInput struct {
-	DirectoryId                 string `json:"DirectoryId"`
+	DirectoryId                 string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	WorkspaceCreationProperties struct {
+		DefaultOu                       string `json:"DefaultOu"`
+		CustomSecurityGroupId           string `json:"CustomSecurityGroupId"` //nolint:revive,staticcheck // existing issue.
 		EnableWorkDocs                  bool   `json:"EnableWorkDocs"`
 		EnableInternetAccess            bool   `json:"EnableInternetAccess"`
-		DefaultOu                       string `json:"DefaultOu"`
-		CustomSecurityGroupId           string `json:"CustomSecurityGroupId"`
 		UserEnabledAsLocalAdministrator bool   `json:"UserEnabledAsLocalAdministrator"`
 		EnableMaintenanceMode           bool   `json:"EnableMaintenanceMode"`
 	} `json:"WorkspaceCreationProperties"`
@@ -1408,15 +1429,15 @@ func (h *Handler) handleModifyWorkspaceCreationProperties(
 // =============================================================================
 
 type createAccountLinkInvitationInput struct {
-	TargetAccountId string `json:"TargetAccountId"`
+	TargetAccountId string `json:"TargetAccountId"` //nolint:revive,staticcheck // existing issue.
 	ClientToken     string `json:"ClientToken"`
 }
 
 type accountLinkResp struct {
-	LinkId          string `json:"LinkId"`
+	LinkId          string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
 	Status          string `json:"Status"`
-	SourceAccountId string `json:"SourceAccountId"`
-	TargetAccountId string `json:"TargetAccountId"`
+	SourceAccountId string `json:"SourceAccountId"` //nolint:revive,staticcheck // existing issue.
+	TargetAccountId string `json:"TargetAccountId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type createAccountLinkInvitationOutput struct {
@@ -1444,7 +1465,7 @@ func toAccountLinkResp(l *storedAccountLink) accountLinkResp {
 }
 
 type acceptAccountLinkInvitationInput struct {
-	LinkId string `json:"LinkId"`
+	LinkId string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type acceptAccountLinkInvitationOutput struct {
@@ -1463,7 +1484,7 @@ func (h *Handler) handleAcceptAccountLinkInvitation(
 }
 
 type rejectAccountLinkInvitationInput struct {
-	LinkId string `json:"LinkId"`
+	LinkId string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type rejectAccountLinkInvitationOutput struct {
@@ -1482,7 +1503,7 @@ func (h *Handler) handleRejectAccountLinkInvitation(
 }
 
 type deleteAccountLinkInvitationInput struct {
-	LinkId string `json:"LinkId"`
+	LinkId string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type deleteAccountLinkInvitationOutput struct {
@@ -1501,7 +1522,7 @@ func (h *Handler) handleDeleteAccountLinkInvitation(
 }
 
 type getAccountLinkInput struct {
-	LinkId string `json:"LinkId"`
+	LinkId string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type getAccountLinkOutput struct {
@@ -1521,13 +1542,13 @@ func (h *Handler) handleGetAccountLink(
 
 type listAccountLinksInput struct {
 	LinkStatusFilter string `json:"LinkStatusFilter"`
-	MaxResults       int32  `json:"MaxResults"`
 	NextToken        string `json:"NextToken"`
+	MaxResults       int32  `json:"MaxResults"`
 }
 
 type listAccountLinksOutput struct {
-	AccountLinks []accountLinkResp `json:"AccountLinks"`
 	NextToken    string            `json:"NextToken,omitempty"`
+	AccountLinks []accountLinkResp `json:"AccountLinks"`
 }
 
 func (h *Handler) handleListAccountLinks(
@@ -1551,13 +1572,13 @@ func (h *Handler) handleListAccountLinks(
 // =============================================================================
 
 type associateWorkspaceApplicationInput struct {
-	WorkspaceId   string `json:"WorkspaceId"`
-	ApplicationId string `json:"ApplicationId"`
+	WorkspaceId   string `json:"WorkspaceId"`   //nolint:revive,staticcheck // existing issue.
+	ApplicationId string `json:"ApplicationId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type workspaceAssocResp struct {
-	WorkspaceId          string `json:"WorkspaceId"`
-	AssociatedResourceId string `json:"AssociatedResourceId"`
+	WorkspaceId          string `json:"WorkspaceId"`          //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceId string `json:"AssociatedResourceId"` //nolint:revive,staticcheck // existing issue.
 	AssociationStatus    string `json:"AssociationStatus"`
 }
 
@@ -1576,14 +1597,14 @@ func (h *Handler) handleAssociateWorkspaceApplication(
 		Association: workspaceAssocResp{
 			WorkspaceId:          req.WorkspaceId,
 			AssociatedResourceId: req.ApplicationId,
-			AssociationStatus:    "INSTALLED",
+			AssociationStatus:    "INSTALLED", //nolint:goconst // existing issue.
 		},
 	}, nil
 }
 
 type disassociateWorkspaceApplicationInput struct {
-	WorkspaceId   string `json:"WorkspaceId"`
-	ApplicationId string `json:"ApplicationId"`
+	WorkspaceId   string `json:"WorkspaceId"`   //nolint:revive,staticcheck // existing issue.
+	ApplicationId string `json:"ApplicationId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type disassociateWorkspaceApplicationOutput struct {
@@ -1607,7 +1628,7 @@ func (h *Handler) handleDisassociateWorkspaceApplication(
 }
 
 type deployWorkspaceApplicationsInput struct {
-	WorkspaceId string `json:"WorkspaceId"`
+	WorkspaceId string `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 	Force       bool   `json:"Force"`
 }
 
@@ -1641,7 +1662,7 @@ func (h *Handler) handleDeployWorkspaceApplications(
 }
 
 type describeWorkspaceAssociationsInput struct {
-	WorkspaceId             string   `json:"WorkspaceId"`
+	WorkspaceId             string   `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 }
 
@@ -1670,15 +1691,15 @@ func (h *Handler) handleDescribeWorkspaceAssociations(
 }
 
 type describeApplicationAssociationsInput struct {
-	ApplicationId           string   `json:"ApplicationId"`
+	ApplicationId           string   `json:"ApplicationId"` //nolint:revive,staticcheck // existing issue.
+	NextToken               string   `json:"NextToken"`
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 	MaxResults              int32    `json:"MaxResults"`
-	NextToken               string   `json:"NextToken"`
 }
 
 type describeApplicationAssociationsOutput struct {
-	Associations []workspaceAssocResp `json:"Associations"`
 	NextToken    string               `json:"NextToken,omitempty"`
+	Associations []workspaceAssocResp `json:"Associations"`
 }
 
 func (h *Handler) handleDescribeApplicationAssociations(
@@ -1704,21 +1725,21 @@ func (h *Handler) handleDescribeApplicationAssociations(
 }
 
 type describeApplicationsInput struct {
-	ApplicationIds []string `json:"ApplicationIds"`
-	MaxResults     int32    `json:"MaxResults"`
 	NextToken      string   `json:"NextToken"`
+	ApplicationIds []string `json:"ApplicationIds"` //nolint:revive // existing issue.
+	MaxResults     int32    `json:"MaxResults"`
 }
 
 type applicationResp struct {
-	ApplicationId string `json:"ApplicationId"`
+	ApplicationId string `json:"ApplicationId"` //nolint:revive,staticcheck // existing issue.
 	Name          string `json:"Name"`
 	Owner         string `json:"Owner"`
 	State         string `json:"State"`
 }
 
 type describeApplicationsOutput struct {
-	Applications []applicationResp `json:"Applications"`
 	NextToken    string            `json:"NextToken,omitempty"`
+	Applications []applicationResp `json:"Applications"`
 }
 
 func (h *Handler) handleDescribeApplications(
@@ -1743,33 +1764,33 @@ func (h *Handler) handleDescribeApplications(
 }
 
 type describeImageAssociationsInput struct {
-	ImageId                 string   `json:"ImageId"`
+	ImageId                 string   `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 }
 
 type describeImageAssociationsOutput struct {
-	Associations []interface{} `json:"Associations"`
+	Associations []any `json:"Associations"`
 }
 
 func (h *Handler) handleDescribeImageAssociations(
 	_ context.Context, _ *describeImageAssociationsInput,
 ) (*describeImageAssociationsOutput, error) {
-	return &describeImageAssociationsOutput{Associations: []interface{}{}}, nil
+	return &describeImageAssociationsOutput{Associations: []any{}}, nil
 }
 
 type describeBundleAssociationsInput struct {
-	BundleId                string   `json:"BundleId"`
+	BundleId                string   `json:"BundleId"` //nolint:revive,staticcheck // existing issue.
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 }
 
 type describeBundleAssociationsOutput struct {
-	Associations []interface{} `json:"Associations"`
+	Associations []any `json:"Associations"`
 }
 
 func (h *Handler) handleDescribeBundleAssociations(
 	_ context.Context, _ *describeBundleAssociationsInput,
 ) (*describeBundleAssociationsOutput, error) {
-	return &describeBundleAssociationsOutput{Associations: []interface{}{}}, nil
+	return &describeBundleAssociationsOutput{Associations: []any{}}, nil
 }
 
 // =============================================================================
@@ -1777,13 +1798,13 @@ func (h *Handler) handleDescribeBundleAssociations(
 // =============================================================================
 
 type migrateWorkspaceInput struct {
-	SourceWorkspaceId string `json:"SourceWorkspaceId"`
-	BundleId          string `json:"BundleId"`
+	SourceWorkspaceId string `json:"SourceWorkspaceId"` //nolint:revive,staticcheck // existing issue.
+	BundleId          string `json:"BundleId"`          //nolint:revive,staticcheck // existing issue.
 }
 
 type migrateWorkspaceOutput struct {
-	SourceWorkspaceId string `json:"SourceWorkspaceId"`
-	TargetWorkspaceId string `json:"TargetWorkspaceId"`
+	SourceWorkspaceId string `json:"SourceWorkspaceId"` //nolint:revive,staticcheck // existing issue.
+	TargetWorkspaceId string `json:"TargetWorkspaceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleMigrateWorkspace(
@@ -1798,7 +1819,7 @@ func (h *Handler) handleMigrateWorkspace(
 }
 
 type restoreWorkspaceInput struct {
-	WorkspaceId string `json:"WorkspaceId"`
+	WorkspaceId string `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleRestoreWorkspace(_ context.Context, req *restoreWorkspaceInput) (*emptyOutput, error) {
@@ -1806,26 +1827,26 @@ func (h *Handler) handleRestoreWorkspace(_ context.Context, req *restoreWorkspac
 }
 
 type describeWorkspaceSnapshotsInput struct {
-	WorkspaceId string `json:"WorkspaceId"`
+	WorkspaceId string `json:"WorkspaceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type describeWorkspaceSnapshotsOutput struct {
-	RebuildSnapshots []interface{} `json:"RebuildSnapshots"`
-	RestoreSnapshots []interface{} `json:"RestoreSnapshots"`
+	RebuildSnapshots []any `json:"RebuildSnapshots"`
+	RestoreSnapshots []any `json:"RestoreSnapshots"`
 }
 
 func (h *Handler) handleDescribeWorkspaceSnapshots(
 	_ context.Context, _ *describeWorkspaceSnapshotsInput,
 ) (*describeWorkspaceSnapshotsOutput, error) {
 	return &describeWorkspaceSnapshotsOutput{
-		RebuildSnapshots: []interface{}{},
-		RestoreSnapshots: []interface{}{},
+		RebuildSnapshots: []any{},
+		RestoreSnapshots: []any{},
 	}, nil
 }
 
 type standbyWorkspaceSpec struct {
-	PrimaryWorkspaceId  string `json:"PrimaryWorkspaceId"`
-	DirectoryId         string `json:"DirectoryId"`
+	PrimaryWorkspaceId  string `json:"PrimaryWorkspaceId"` //nolint:revive,staticcheck // existing issue.
+	DirectoryId         string `json:"DirectoryId"`        //nolint:revive,staticcheck // existing issue.
 	VolumeEncryptionKey string `json:"VolumeEncryptionKey"`
 }
 
@@ -1835,7 +1856,7 @@ type createStandbyWorkspacesInput struct {
 }
 
 type createStandbyWorkspacesOutput struct {
-	FailedStandbyRequests  []interface{}       `json:"FailedStandbyRequests"`
+	FailedStandbyRequests  []any               `json:"FailedStandbyRequests"`
 	PendingStandbyRequests []map[string]string `json:"PendingStandbyRequests"`
 }
 
@@ -1856,7 +1877,7 @@ func (h *Handler) handleCreateStandbyWorkspaces(
 		return nil, err
 	}
 
-	failedOut := make([]interface{}, 0, len(failed))
+	failedOut := make([]any, 0, len(failed))
 	for _, f := range failed {
 		failedOut = append(failedOut, f)
 	}
@@ -1873,13 +1894,13 @@ func (h *Handler) handleCreateStandbyWorkspaces(
 
 type listAvailableManagementCidrRangesInput struct {
 	ManagementCidrRangeConstraint string `json:"ManagementCidrRangeConstraint"`
-	MaxResults                    int32  `json:"MaxResults"`
 	NextToken                     string `json:"NextToken"`
+	MaxResults                    int32  `json:"MaxResults"`
 }
 
 type listAvailableManagementCidrRangesOutput struct {
-	ManagementCidrRanges []string `json:"ManagementCidrRanges"`
 	NextToken            string   `json:"NextToken,omitempty"`
+	ManagementCidrRanges []string `json:"ManagementCidrRanges"`
 }
 
 func (h *Handler) handleListAvailableManagementCidrRanges(

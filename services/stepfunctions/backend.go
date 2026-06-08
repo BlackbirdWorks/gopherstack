@@ -84,7 +84,7 @@ func getRegionFromContext(ctx context.Context, defaultRegion string) string {
 }
 
 // regionFromARN extracts the region component from an ARN string.
-// ARN format: arn:{partition}:{service}:{region}:{account}:{resource}
+// ARN format: arn:{partition}:{service}:{region}:{account}:{resource}.
 func regionFromARN(arnStr, fallback string) string {
 	const arnRegionIdx = 3
 
@@ -407,7 +407,10 @@ func (b *InMemoryBackend) SetStateMachineConfigurations(
 }
 
 // CreateStateMachine creates and stores a new state machine in the caller's region.
-func (b *InMemoryBackend) CreateStateMachine(ctx context.Context, name, definition, roleArn, smType string) (*StateMachine, error) {
+func (b *InMemoryBackend) CreateStateMachine(
+	ctx context.Context,
+	name, definition, roleArn, smType string,
+) (*StateMachine, error) {
 	if smType == "" {
 		smType = "STANDARD"
 	}
@@ -551,7 +554,11 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 }
 
 // ListStateMachines returns state machines in the caller's region with optional pagination.
-func (b *InMemoryBackend) ListStateMachines(ctx context.Context, nextToken string, maxResults int) ([]StateMachine, string, error) {
+func (b *InMemoryBackend) ListStateMachines(
+	ctx context.Context,
+	nextToken string,
+	maxResults int,
+) ([]StateMachine, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListStateMachines")
@@ -1453,7 +1460,11 @@ func (b *InMemoryBackend) DescribeActivity(activityArn string) (*Activity, error
 }
 
 // ListActivities returns activities in the caller's region with optional pagination.
-func (b *InMemoryBackend) ListActivities(ctx context.Context, nextToken string, maxResults int) ([]Activity, string, error) {
+func (b *InMemoryBackend) ListActivities(
+	ctx context.Context,
+	nextToken string,
+	maxResults int,
+) ([]Activity, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListActivities")

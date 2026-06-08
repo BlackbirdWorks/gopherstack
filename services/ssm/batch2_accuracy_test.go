@@ -305,7 +305,10 @@ func TestBatch2_ParameterLabels_VersionSpecific(t *testing.T) {
 	require.NoError(t, err)
 
 	// Update to create version 2.
-	_, err = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/key", Value: "v2", Type: "String", Overwrite: true})
+	_, err = b.PutParameter(
+		context.TODO(),
+		&ssm.PutParameterInput{Name: "/app/key", Value: "v2", Type: "String", Overwrite: true},
+	)
 	require.NoError(t, err)
 
 	// Label version 1 with "stable".

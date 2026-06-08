@@ -115,10 +115,10 @@ func TestBackend_UpdateActionTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		updateName  string
-		updateDesc  string
-		wantErrMsg  string
+		name       string
+		updateName string
+		updateDesc string
+		wantErrMsg string
 	}{
 		{
 			name:       "update name only",
@@ -169,8 +169,8 @@ func TestBackend_DisableImportFindingsForProduct(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		preEnable  bool
 		wantErrMsg string
+		preEnable  bool
 	}{
 		{
 			name:      "disable after enable succeeds",
@@ -213,9 +213,9 @@ func TestBackend_UpdateSecurityControl(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		controlID  string
-		params     map[string]any
+		params    map[string]any
+		name      string
+		controlID string
 	}{
 		{
 			name:      "update known control",
@@ -390,8 +390,8 @@ func TestBackend_GetFindingAggregator(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		preCreate  bool
 		wantErrMsg string
+		preCreate  bool
 	}{
 		{
 			name:      "get existing aggregator",
@@ -437,10 +437,10 @@ func TestBackend_GetConfigurationPolicy(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantErrMsg string
 		useByARN   bool
 		useByName  bool
 		preCreate  bool
-		wantErrMsg string
 	}{
 		{
 			name:      "get by ID",
@@ -472,7 +472,7 @@ func TestBackend_GetConfigurationPolicy(t *testing.T) {
 			if tc.preCreate {
 				cp, err := b.CreateConfigurationPolicy("TestPolicy", "desc", map[string]any{}, nil)
 				require.NoError(t, err)
-				if tc.useByARN {
+				if tc.useByARN { //nolint:gocritic // existing issue.
 					identifier = cp.Arn
 				} else if tc.useByName {
 					identifier = cp.Name
@@ -553,9 +553,9 @@ func TestBackend_DeleteConfigurationPolicy(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantErrMsg string
 		useByARN   bool
 		preCreate  bool
-		wantErrMsg string
 	}{
 		{name: "delete by ID", preCreate: true},
 		{name: "delete by ARN", preCreate: true, useByARN: true},
@@ -595,9 +595,9 @@ func TestBackend_UpdateFindings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		hubEnabled  bool
-		wantErrMsg  string
+		name       string
+		wantErrMsg string
+		hubEnabled bool
 	}{
 		{name: "hub enabled, updates findings", hubEnabled: true},
 		{name: "hub not enabled returns error", hubEnabled: false, wantErrMsg: "not enabled"},
@@ -679,7 +679,6 @@ func TestBackend_GetInsights_ByArn(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, tc := range tests {
-		i, tc := i, tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var arns []string
@@ -699,12 +698,12 @@ func TestBackend_UpdateInsight(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		newName     string
-		newGroupBy  string
-		newFilters  map[string]any
-		notFound    bool
-		wantErrMsg  string
+		newFilters map[string]any
+		name       string
+		newName    string
+		newGroupBy string
+		wantErrMsg string
+		notFound   bool
 	}{
 		{
 			name:    "update name",
@@ -756,8 +755,8 @@ func TestBackend_GetInsightResults(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		preCreate  bool
 		wantErrMsg string
+		preCreate  bool
 	}{
 		{name: "get results for existing insight", preCreate: true},
 		{name: "get results for missing insight", preCreate: false, wantErrMsg: "not found"},
@@ -797,8 +796,8 @@ func TestBackend_DeleteInsight(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		preCreate  bool
 		wantErrMsg string
+		preCreate  bool
 	}{
 		{name: "delete existing insight", preCreate: true},
 		{name: "delete non-existent insight returns error", preCreate: false, wantErrMsg: "not found"},
@@ -837,9 +836,9 @@ func TestBackend_MatchesStringFilter(t *testing.T) {
 
 	// Tested indirectly through GetFindings with filters
 	tests := []struct {
-		name       string
-		filter     map[string]any
-		wantFound  bool
+		filter    map[string]any
+		name      string
+		wantFound bool
 	}{
 		{
 			name:      "no filter returns all",
@@ -925,10 +924,16 @@ func TestHandler_UpdateActionTarget(t *testing.T) {
 				"Id":          "my-target",
 			})
 
-			rec := doRequest(t, h, http.MethodPatch, "/actionTargets/arn:aws:securityhub:us-east-1:000000000000:action/custom/my-target", map[string]any{
-				"Name":        "Updated",
-				"Description": "New desc",
-			})
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPatch,
+				"/actionTargets/arn:aws:securityhub:us-east-1:000000000000:action/custom/my-target",
+				map[string]any{
+					"Name":        "Updated",
+					"Description": "New desc",
+				},
+			)
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
@@ -1040,11 +1045,11 @@ func TestHandler_DeclineDeleteInvitations(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -1204,9 +1209,9 @@ func TestHandler_DisableSecurityHubV2(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		preEnable    bool
-		wantCode     int
+		name      string
+		preEnable bool
+		wantCode  int
 	}{
 		{
 			name:      "disable after enable succeeds",
@@ -1433,7 +1438,11 @@ func TestHandler_DescribeProductsV2_WithFilter(t *testing.T) {
 		wantCode int
 	}{
 		{name: "list all products V2", query: "", wantCode: http.StatusOK},
-		{name: "filter by product ARN", query: "?ProductArn=arn:aws:securityhub:us-east-1::product/aws/guardduty", wantCode: http.StatusOK},
+		{
+			name:     "filter by product ARN",
+			query:    "?ProductArn=arn:aws:securityhub:us-east-1::product/aws/guardduty",
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1455,8 +1464,8 @@ func TestHandler_HubV2_EnableWithTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{

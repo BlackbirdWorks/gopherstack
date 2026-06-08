@@ -1259,7 +1259,8 @@ func TestBatch1_PodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 
 	assoc, err := b.CreatePodIdentityAssociation(
 		"pi-lifecycle-cluster", "kube-system", "aws-node",
-		"arn:aws:iam::123:role/pi-role", nil)
+		"arn:aws:iam::123:role/pi-role", nil,
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
 	assert.Equal(t, "kube-system", assoc.Namespace)
@@ -1270,7 +1271,8 @@ func TestBatch1_PodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 	assert.Equal(t, assoc.AssociationID, described.AssociationID)
 
 	updated, err := b.UpdatePodIdentityAssociation(
-		"pi-lifecycle-cluster", assoc.AssociationID, "arn:aws:iam::123:role/pi-role-v2")
+		"pi-lifecycle-cluster", assoc.AssociationID, "arn:aws:iam::123:role/pi-role-v2",
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::123:role/pi-role-v2", updated.RoleARN)
 

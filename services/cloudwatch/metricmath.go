@@ -9,8 +9,10 @@ import (
 	"time"
 )
 
-const percentHundred = 100.0
-const fillArgCount = 2
+const (
+	percentHundred = 100.0
+	fillArgCount   = 2
+)
 
 // metricTimeSeries maps timestamp (unix seconds) to value for a single metric result.
 type metricTimeSeries map[int64]float64
@@ -408,7 +410,6 @@ func evalBinaryIDID(m []string, resolved map[string]MetricDataResult, result *Me
 func evalBinaryIDConst(m []string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
 	id, opChar := m[1], m[2][0]
 	constVal, err := strconv.ParseFloat(m[3], 64)
-
 	if err != nil {
 		return false
 	}
@@ -433,7 +434,6 @@ func evalBinaryIDConst(m []string, resolved map[string]MetricDataResult, result 
 // evalBinaryConstID evaluates "constant OP id" expressions.
 func evalBinaryConstID(m []string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
 	constVal, err := strconv.ParseFloat(m[1], 64)
-
 	if err != nil {
 		return false
 	}

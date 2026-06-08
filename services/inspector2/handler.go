@@ -71,7 +71,7 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	base := []string{
+	base := []string{ //nolint:prealloc // existing issue.
 		opEnable,
 		opDisable,
 		opBatchGetAccountStatus,
@@ -91,7 +91,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
-func (h *Handler) RouteMatcher() service.Matcher {
+func (h *Handler) RouteMatcher() service.Matcher { //nolint:cyclop // existing issue.
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 

@@ -82,8 +82,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // GetSupportedOperations returns the list of supported Firehose operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -891,7 +893,12 @@ func (h *Handler) handleUpdateDestination(
 
 	dest := buildS3DestinationDescription(raw)
 
-	if err := h.Backend.UpdateDestination(ctx, in.DeliveryStreamName, in.CurrentDeliveryStreamVersionID, dest); err != nil {
+	if err := h.Backend.UpdateDestination(
+		ctx,
+		in.DeliveryStreamName,
+		in.CurrentDeliveryStreamVersionID,
+		dest,
+	); err != nil {
 		return nil, err
 	}
 

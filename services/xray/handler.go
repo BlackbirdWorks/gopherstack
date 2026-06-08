@@ -36,6 +36,7 @@ const (
 	pathEncryptionConfig    = "/EncryptionConfig"
 	pathPutEncryptionConfig = "/PutEncryptionConfig"
 )
+
 const (
 	pathTraceSegments                  = "/TraceSegments"
 	pathTelemetryRecords               = "/TelemetryRecords"

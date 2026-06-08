@@ -90,7 +90,7 @@ const (
 
 	opGetClustersForImage = "GetClustersForImage"
 
-	// paths
+	// paths.
 	pathMembersAssociate    = "/members/associate"
 	pathMembersDisassociate = "/members/disassociate"
 	pathMembersGet          = "/members/get"
@@ -239,7 +239,7 @@ func appendixAOps() []string {
 }
 
 //nolint:cyclop,gocyclo // exhaustive path-to-operation mapping for all 62 appendix A ops
-func classifyAppendixAPath(method, path string) string {
+func classifyAppendixAPath(method, path string) string { //nolint:gocognit,funlen // existing issue.
 	switch {
 	// Members
 	case method == http.MethodPost && path == pathMembersAssociate:
@@ -402,7 +402,7 @@ func classifyAppendixAPath(method, path string) string {
 }
 
 //nolint:cyclop,gocyclo // dispatch table for 62 ops
-func (h *Handler) handleAppendixA(c *echo.Context) (bool, error) {
+func (h *Handler) handleAppendixA(c *echo.Context) (bool, error) { //nolint:funlen // existing issue.
 	op := classifyAppendixAPath(c.Request().Method, c.Request().URL.Path)
 	if op == opUnknown {
 		return false, nil
@@ -589,7 +589,7 @@ func (h *Handler) handleAssociateMember(c *echo.Context) error {
 		return h.mapError(c, assocErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"accountId": req.AccountID})
+	return c.JSON(http.StatusOK, map[string]any{"accountId": req.AccountID}) //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleDisassociateMember(c *echo.Context) error {
@@ -683,7 +683,7 @@ func (h *Handler) handleEnableDelegatedAdminAccount(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"delegatedAdminAccountId": req.DelegatedAdminAccountID,
-		"status":                  "ENABLED",
+		"status":                  "ENABLED", //nolint:goconst // existing issue.
 	})
 }
 
@@ -767,7 +767,9 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 		}
 	}
 
-	if updateErr := h.Backend.UpdateOrganizationConfiguration(OrgConfiguration{AutoEnable: autoEnable}); updateErr != nil {
+	if updateErr := h.Backend.UpdateOrganizationConfiguration(
+		OrgConfiguration{AutoEnable: autoEnable},
+	); updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
 
@@ -961,10 +963,10 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanName string            `json:"scanName"`
 		Schedule map[string]any    `json:"schedule"`
 		Targets  map[string]any    `json:"targets"`
 		Tags     map[string]string `json:"tags"`
+		ScanName string            `json:"scanName"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -976,7 +978,7 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn}) //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
@@ -1007,10 +1009,10 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanConfigurationArn string         `json:"scanConfigurationArn"`
-		ScanName             string         `json:"scanName"`
 		Schedule             map[string]any `json:"schedule"`
 		Targets              map[string]any `json:"targets"`
+		ScanConfigurationArn string         `json:"scanConfigurationArn"`
+		ScanName             string         `json:"scanName"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1050,8 +1052,8 @@ func (h *Handler) handleStartCisSession(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanJobID string         `json:"scanJobId"`
 		Message   map[string]any `json:"message"`
+		ScanJobID string         `json:"scanJobId"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1123,8 +1125,8 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanJobID string         `json:"scanJobId"`
 		Messages  map[string]any `json:"messages"`
+		ScanJobID string         `json:"scanJobId"`
 	}
 
 	if len(body) > 0 {
@@ -1244,10 +1246,10 @@ func (h *Handler) handleCreateCodeSecurityIntegration(c *echo.Context) error {
 	}
 
 	var req struct {
-		Name    string            `json:"name"`
-		Type    string            `json:"type"`
 		Tags    map[string]string `json:"tags"`
 		Details map[string]any    `json:"details"`
+		Name    string            `json:"name"`
+		Type    string            `json:"type"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1315,8 +1317,8 @@ func (h *Handler) handleUpdateCodeSecurityIntegration(c *echo.Context) error {
 	}
 
 	var req struct {
-		IntegrationArn string         `json:"integrationArn"`
 		Details        map[string]any `json:"details"`
+		IntegrationArn string         `json:"integrationArn"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1354,10 +1356,10 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 	}
 
 	var req struct {
-		Name                      string            `json:"name"`
 		ScopeSettings             map[string]any    `json:"scopeSettings"`
 		PeriodicScanConfiguration map[string]any    `json:"periodicScanConfiguration"`
 		Tags                      map[string]string `json:"tags"`
+		Name                      string            `json:"name"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1424,9 +1426,9 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 	}
 
 	var req struct {
-		ScanConfigurationArn      string         `json:"scanConfigurationArn"`
 		ScopeSettings             map[string]any `json:"scopeSettings"`
 		PeriodicScanConfiguration map[string]any `json:"periodicScanConfiguration"`
+		ScanConfigurationArn      string         `json:"scanConfigurationArn"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -1456,7 +1458,9 @@ func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) erro
 	return c.JSON(http.StatusOK, map[string]any{"scanConfigurations": cfgs})
 }
 
-func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration(c *echo.Context) error {
+func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
+	c *echo.Context,
+) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
@@ -1486,7 +1490,9 @@ func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration(c *echo.Cont
 	return c.JSON(http.StatusOK, map[string]any{"failedAssociations": failed})
 }
 
-func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration(c *echo.Context) error {
+func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
+	c *echo.Context,
+) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
@@ -1608,7 +1614,7 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": report.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{"reportId": report.ReportID}) //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
@@ -1740,8 +1746,8 @@ func (h *Handler) handleListCoverage(c *echo.Context) error {
 
 	var req struct {
 		FilterCriteria map[string]any `json:"filterCriteria"`
-		MaxResults     int32          `json:"maxResults"`
 		NextToken      string         `json:"nextToken"`
+		MaxResults     int32          `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -1794,8 +1800,8 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 	}
 
 	var req struct {
-		AggregationType    string         `json:"aggregationType"`
 		AggregationRequest map[string]any `json:"aggregationRequest"`
+		AggregationType    string         `json:"aggregationType"`
 	}
 
 	if len(body) > 0 {

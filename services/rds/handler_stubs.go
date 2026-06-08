@@ -524,7 +524,8 @@ func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members, marker, err := paginateDescribe(vals, groups,
+	members, marker, err := paginateDescribe(
+		vals, groups,
 		func(a, b DBShardGroup) bool {
 			return a.DBShardGroupIdentifier < b.DBShardGroupIdentifier
 		},
@@ -636,7 +637,8 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members, marker, err := paginateDescribe(vals, integrations,
+	members, marker, err := paginateDescribe(
+		vals, integrations,
 		func(a, b Integration) bool { return a.IntegrationName < b.IntegrationName },
 		func(intg Integration) xmlIntegration { return toXMLIntegration(&intg) },
 	)
@@ -715,7 +717,8 @@ func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members, marker, err := paginateDescribe(vals, tdbs,
+	members, marker, err := paginateDescribe(
+		vals, tdbs,
 		func(a, b TenantDatabase) bool {
 			ka := a.DBInstanceIdentifier + "/" + a.TenantDBName
 			kb := b.DBInstanceIdentifier + "/" + b.TenantDBName

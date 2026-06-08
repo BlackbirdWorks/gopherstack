@@ -1623,7 +1623,7 @@ func TestAppStream_Sessions(t *testing.T) {
 		{
 			name:   "ExpireSession removes session",
 			action: "ExpireSession",
-			setup:  func(h *appstream.Handler) {},
+			setup:  func(h *appstream.Handler) {}, //nolint:revive // existing issue.
 			body:   nil,
 			// Special case handled below
 			wantCode: http.StatusOK,
@@ -1631,7 +1631,7 @@ func TestAppStream_Sessions(t *testing.T) {
 		{
 			name:   "DrainSessionInstance removes session",
 			action: "DrainSessionInstance",
-			setup:  func(h *appstream.Handler) {},
+			setup:  func(h *appstream.Handler) {}, //nolint:revive // existing issue.
 			body:   nil,
 			// Special case handled below
 			wantCode: http.StatusOK,

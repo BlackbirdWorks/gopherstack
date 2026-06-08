@@ -61,11 +61,11 @@ type TagEntry struct {
 type Crl struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
-	CrlData        []byte    `json:"crlData,omitempty"`
 	CrlID          string    `json:"crlId"`
 	CrlArn         string    `json:"crlArn"`
 	Name           string    `json:"name"`
 	TrustAnchorArn string    `json:"trustAnchorArn"`
+	CrlData        []byte    `json:"crlData,omitempty"`
 	Enabled        bool      `json:"enabled"`
 }
 
@@ -93,9 +93,9 @@ type AttributeMapping struct {
 
 // NotificationSetting holds a notification configuration for a trust anchor.
 type NotificationSetting struct {
+	Threshold *int32 `json:"threshold,omitempty"`
 	Event     string `json:"event"`
 	Channel   string `json:"channel,omitempty"`
-	Threshold *int32 `json:"threshold,omitempty"`
 	Enabled   bool   `json:"enabled"`
 }
 
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) crlARN(id string) string {
 	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:crl/%s", b.region, b.accountID, id)
 }
 
-func (b *InMemoryBackend) subjectARN(id string) string {
+func (b *InMemoryBackend) subjectARN(id string) string { //nolint:unused // existing issue.
 	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:subject/%s", b.region, b.accountID, id)
 }
 
@@ -764,7 +764,7 @@ func (b *InMemoryBackend) DeleteAttributeMapping(
 
 	mappings := b.attributeMappings[profileID]
 
-	if len(specifiers) == 0 {
+	if len(specifiers) == 0 { //nolint:nestif // existing issue.
 		// Remove entire field mapping.
 		filtered := mappings[:0]
 

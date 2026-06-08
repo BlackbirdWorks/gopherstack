@@ -936,17 +936,20 @@ func (j *Janitor) applyStorageClassTransitions(
 		ver, ok := obj.Versions[obj.LatestVersionID]
 		if !ok || ver.Deleted {
 			obj.mu.Unlock()
+
 			continue
 		}
 
 		if !strings.HasPrefix(ver.Key, prefix) {
 			obj.mu.Unlock()
+
 			continue
 		}
 
 		tagKey := bucket.Name + "/" + ver.Key + "/" + ver.VersionID
 		if !objectMatchesTags(tagsByKey[tagKey], tagFilters) {
 			obj.mu.Unlock()
+
 			continue
 		}
 
@@ -961,6 +964,7 @@ func (j *Janitor) applyStorageClassTransitions(
 
 		if !shouldTransition {
 			obj.mu.Unlock()
+
 			continue
 		}
 

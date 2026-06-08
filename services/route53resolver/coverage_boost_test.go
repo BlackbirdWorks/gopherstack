@@ -153,10 +153,10 @@ func TestUpdateResolverConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body              any
-		name              string
-		wantAutoReverse   string
-		wantCode          int
+		body            any
+		name            string
+		wantAutoReverse string
+		wantCode        int
 	}{
 		{
 			name:            "enable_success",
@@ -451,7 +451,7 @@ func TestQueryLogConfigDeleteAndList(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			afterResp := decodeJSON(t, rec)
 			afterItems, _ := afterResp["ResolverQueryLogConfigs"].([]any)
-			assert.Len(t, afterItems, 0)
+			assert.Empty(t, afterItems)
 		})
 	}
 }
@@ -617,6 +617,7 @@ func TestQueryLogConfigPolicy(t *testing.T) {
 			if tt.name == "get_missing_arn" {
 				rec := doRequest(t, h, "GetResolverQueryLogConfigPolicy", map[string]any{})
 				assert.Equal(t, tt.wantCode, rec.Code)
+
 				return
 			}
 
@@ -625,6 +626,7 @@ func TestQueryLogConfigPolicy(t *testing.T) {
 					"ResolverQueryLogConfigPolicy": tt.policy,
 				})
 				assert.Equal(t, tt.wantCode, rec.Code)
+
 				return
 			}
 
@@ -796,6 +798,7 @@ func TestResolverRulePolicy(t *testing.T) {
 					"ResolverRulePolicy": tt.policy,
 				})
 				assert.Equal(t, tt.wantCode, rec.Code)
+
 				return
 			}
 
@@ -914,8 +917,11 @@ func TestDisassociateResolverEndpointIPAddressErrors(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "endpoint_not_found",
-			body:     map[string]any{"ResolverEndpointId": "rslvr-in-notexist", "IpAddress": map[string]string{"IpId": "ip-abc"}},
+			name: "endpoint_not_found",
+			body: map[string]any{
+				"ResolverEndpointId": "rslvr-in-notexist",
+				"IpAddress":          map[string]string{"IpId": "ip-abc"},
+			},
 			wantCode: http.StatusNotFound,
 		},
 	}
@@ -956,6 +962,7 @@ func TestUpdateResolverRule(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 				return resp["ResolverRule"].(map[string]any)["Id"].(string)
 			},
 			body: func(ruleID string) map[string]any {
@@ -1013,8 +1020,8 @@ func TestBackendInternalHelpers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T, b *route53resolver.InMemoryBackend)
+		name string
 	}{
 		{
 			name: "add_rule_with_endpoint",
@@ -1024,7 +1031,7 @@ func TestBackendInternalHelpers(t *testing.T) {
 				require.NotNil(t, r)
 				assert.Equal(t, "internal-rule", r.Name)
 				assert.Equal(t, "rslvr-in-ep01", r.ResolverEndpointID)
-				assert.Equal(t, route53resolver.RuleCount(b), 1)
+				assert.Equal(t, 1, route53resolver.RuleCount(b))
 			},
 		},
 		{
@@ -1053,7 +1060,7 @@ func TestBackendInternalHelpers(t *testing.T) {
 				assert.Equal(t, "fw-rule", rule.Name)
 				assert.Equal(t, "ALLOW", rule.Action)
 				assert.Equal(t, int32(50), rule.Priority)
-				assert.Equal(t, route53resolver.FirewallRuleBackendCount(b), 1)
+				assert.Equal(t, 1, route53resolver.FirewallRuleBackendCount(b))
 			},
 		},
 	}
@@ -1123,6 +1130,7 @@ func TestUpdateResolverEndpoint(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := decodeJSON(t, rec)
+
 				return resp["ResolverEndpoint"].(map[string]any)["Id"].(string)
 			},
 			body: func(epID string) map[string]any {

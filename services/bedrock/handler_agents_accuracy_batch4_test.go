@@ -191,7 +191,8 @@ func TestAccuracy_DataSource_S3VectorIngestionConfigPreserved(t *testing.T) {
 				},
 			}
 
-			rec := doAgentRequest(t, h, http.MethodPost,
+			rec := doAgentRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":                         tt.name,
@@ -239,7 +240,8 @@ func TestAccuracy_DataSource_S3BucketConfigPreserved(t *testing.T) {
 		},
 	}
 
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 		map[string]any{
 			"name":                    "s3-source",
@@ -286,7 +288,8 @@ func TestAccuracy_DataSource_DeletionPolicyPreserved(t *testing.T) {
 			kb, err := b.CreateKnowledgeBase("del-policy-kb-"+tt.name, "", "", nil, nil, nil)
 			require.NoError(t, err)
 
-			rec := doAgentRequest(t, h, http.MethodPost,
+			rec := doAgentRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":               "source-with-deletion",
@@ -314,7 +317,8 @@ func TestAccuracy_IngestionJob_StatusTransitions(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 	kbID, dsID := createKBAndDS(t, h)
 
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "test ingestion"},
 	)
@@ -349,7 +353,8 @@ func TestAccuracy_IngestionJob_ListContainsStartedJob(t *testing.T) {
 	kbID, dsID := createKBAndDS(t, h)
 
 	// AWS only allows one running job per data source; stop the first before starting the second.
-	rec1 := doAgentRequest(t, h, http.MethodPost,
+	rec1 := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "first job"},
 	)
@@ -363,7 +368,8 @@ func TestAccuracy_IngestionJob_ListContainsStartedJob(t *testing.T) {
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs/%s/stop", kbID, dsID, job1ID), nil)
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
-	doAgentRequest(t, h, http.MethodPost,
+	doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "second job"},
 	)
@@ -386,7 +392,8 @@ func TestAccuracy_IngestionJob_DescriptionPreserved(t *testing.T) {
 
 	const desc = "my important ingestion job"
 
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": desc},
 	)
@@ -409,7 +416,8 @@ func TestAccuracy_ActionGroup_ReturnControlExecutorPreserved(t *testing.T) {
 	agent, err := b.CreateAgent("rc-agent", "amazon.titan-text-express-v1", "", "", nil)
 	require.NoError(t, err)
 
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/agents/%s/action-groups", agent.AgentID),
 		map[string]any{
 			"actionGroupName": "return-control-group",
@@ -453,7 +461,8 @@ func TestAccuracy_ActionGroup_LambdaExecutorPreserved(t *testing.T) {
 
 	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:my-action-handler"
 
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/agents/%s/action-groups", agent.AgentID),
 		map[string]any{
 			"actionGroupName": "lambda-group",
@@ -503,7 +512,8 @@ func TestAccuracy_ActionGroup_ReturnControlVsLambda(t *testing.T) {
 			agent, err := b.CreateAgent("exec-test-"+tt.name, "model", "", "", nil)
 			require.NoError(t, err)
 
-			rec := doAgentRequest(t, h, http.MethodPost,
+			rec := doAgentRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/agents/%s/action-groups", agent.AgentID),
 				map[string]any{
 					"actionGroupName": "exec-group",
@@ -546,7 +556,8 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 			supervisor, err := b.CreateAgent("supervisor-"+tt.name, "model", "", "", nil)
 			require.NoError(t, err)
 
-			rec := doAgentRequest(t, h, http.MethodPost,
+			rec := doAgentRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 				map[string]any{
 					"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
@@ -584,7 +595,8 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Associate with relay disabled
-	assocRec := doAgentRequest(t, h, http.MethodPost,
+	assocRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 		map[string]any{
 			"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
@@ -599,7 +611,8 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 	collabID := assocBody["agentCollaborator"].(map[string]any)["collaboratorId"].(string)
 
 	// Update relay to enabled
-	updateRec := doAgentRequest(t, h, http.MethodPut,
+	updateRec := doAgentRequest(
+		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators/%s", supervisor.AgentID, collabID),
 		map[string]any{"relayConversationHistory": "TO_COLLABORATOR"},
 	)
@@ -627,7 +640,8 @@ func TestAccuracy_AgentCollaborator_SupervisorPattern(t *testing.T) {
 
 	// Associate two subagents
 	for i := range 2 {
-		rec := doAgentRequest(t, h, http.MethodPost,
+		rec := doAgentRequest(
+			t, h, http.MethodPost,
 			fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 			map[string]any{
 				"collaboratorArn": fmt.Sprintf("arn:aws:bedrock:us-east-1:000000000000:agent/subagent-%d", i),
@@ -655,7 +669,8 @@ func TestAccuracy_AgentCollaborator_DisassociateRemovesFromList(t *testing.T) {
 	require.NoError(t, err)
 
 	// Associate
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", agent.AgentID),
 		map[string]any{
 			"collaboratorArn": "arn:aws:bedrock:us-east-1:000000000000:agent/temp-collab",
@@ -830,7 +845,8 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create data source with BDA parsing
-	dsRec := doAgentRequest(t, h, http.MethodPost,
+	dsRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 		map[string]any{
 			"name": "bda-source",
@@ -851,7 +867,8 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 	dsID := dsBody["dataSource"].(map[string]any)["dataSourceId"].(string)
 
 	// Ingest documents
-	ingestRec := doAgentRequest(t, h, http.MethodPost,
+	ingestRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kb.KnowledgeBaseID, dsID),
 		map[string]any{"documentIds": []string{"doc-1", "doc-2", "doc-3"}},
 	)
@@ -876,14 +893,16 @@ func TestAccuracy_KBDocuments_GetSpecificDocuments(t *testing.T) {
 	kbID, dsID := createKBAndDS(t, h)
 
 	// Ingest 5 documents
-	ingestRec := doAgentRequest(t, h, http.MethodPost,
+	ingestRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID),
 		map[string]any{"documentIds": []string{"d1", "d2", "d3", "d4", "d5"}},
 	)
 	require.Equal(t, http.StatusOK, ingestRec.Code)
 
 	// Get specific 2
-	getDocRec := doAgentRequest(t, h, http.MethodPost,
+	getDocRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents/getDocuments", kbID, dsID),
 		map[string]any{"documentIds": []string{"d2", "d4"}},
 	)

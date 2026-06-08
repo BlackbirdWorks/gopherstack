@@ -8,7 +8,7 @@ type Settings struct {
 	// Defaults to 24 hours for local mock stability.
 	ExecutionRetention time.Duration `json:"execution_retention" name:"execution-retention" env:"SFN_EXECUTION_RETENTION" default:"24h" help:"How long to retain execution history."` //nolint:lll // tags
 	// JanitorInterval is how often the background worker runs.
-	JanitorInterval time.Duration `json:"janitor_interval" name:"janitor-interval" env:"SFN_JANITOR_INTERVAL" default:"1m" help:"How often the background janitor runs."` //nolint:lll // tags
+	JanitorInterval time.Duration `json:"janitor_interval"    name:"janitor-interval"    env:"SFN_JANITOR_INTERVAL"    default:"1m"  help:"How often the background janitor runs."` //nolint:lll,golines // tags
 }
 
 const (

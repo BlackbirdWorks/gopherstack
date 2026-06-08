@@ -1,4 +1,4 @@
-package mediastore
+package mediastore //nolint:testpackage // existing issue.
 
 import (
 	"context"

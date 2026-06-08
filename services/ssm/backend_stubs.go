@@ -857,7 +857,10 @@ func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
 }
 
 // DescribeActivations lists stored activations.
-func (b *InMemoryBackend) DescribeActivations(ctx context.Context, _ *DescribeActivationsInput) (*DescribeActivationsOutput, error) {
+func (b *InMemoryBackend) DescribeActivations(
+	ctx context.Context,
+	_ *DescribeActivationsInput,
+) (*DescribeActivationsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeActivations")
 	defer b.mu.RUnlock()
@@ -872,7 +875,10 @@ func (b *InMemoryBackend) DescribeActivations(ctx context.Context, _ *DescribeAc
 }
 
 // DescribeAssociation retrieves an association by name or ID.
-func (b *InMemoryBackend) DescribeAssociation(ctx context.Context, input *DescribeAssociationInput) (*DescribeAssociationOutput, error) {
+func (b *InMemoryBackend) DescribeAssociation(
+	ctx context.Context,
+	input *DescribeAssociationInput,
+) (*DescribeAssociationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeAssociation")
 	defer b.mu.RUnlock()
@@ -1042,7 +1048,10 @@ func opsItemMatchesFilters(item OpsItem, filters []OpsItemFilter) bool {
 }
 
 // DescribeOpsItems lists OpsItems.
-func (b *InMemoryBackend) DescribeOpsItems(ctx context.Context, input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error) {
+func (b *InMemoryBackend) DescribeOpsItems(
+	ctx context.Context,
+	input *DescribeOpsItemsInput,
+) (*DescribeOpsItemsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeOpsItems")
 	defer b.mu.RUnlock()
@@ -1173,7 +1182,10 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 }
 
 // GetMaintenanceWindow retrieves a maintenance window by ID.
-func (b *InMemoryBackend) GetMaintenanceWindow(ctx context.Context, input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error) {
+func (b *InMemoryBackend) GetMaintenanceWindow(
+	ctx context.Context,
+	input *GetMaintenanceWindowInput,
+) (*GetMaintenanceWindowOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindow")
 	defer b.mu.RUnlock()
@@ -1201,7 +1213,10 @@ func (b *InMemoryBackend) GetOpsItem(ctx context.Context, input *GetOpsItemInput
 }
 
 // GetOpsMetadata retrieves OpsMetadata by ARN.
-func (b *InMemoryBackend) GetOpsMetadata(ctx context.Context, input *GetOpsMetadataInput) (*GetOpsMetadataOutput, error) {
+func (b *InMemoryBackend) GetOpsMetadata(
+	ctx context.Context,
+	input *GetOpsMetadataInput,
+) (*GetOpsMetadataOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetOpsMetadata")
 	defer b.mu.RUnlock()
@@ -1215,7 +1230,10 @@ func (b *InMemoryBackend) GetOpsMetadata(ctx context.Context, input *GetOpsMetad
 }
 
 // GetPatchBaseline retrieves a patch baseline by ID.
-func (b *InMemoryBackend) GetPatchBaseline(ctx context.Context, input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error) {
+func (b *InMemoryBackend) GetPatchBaseline(
+	ctx context.Context,
+	input *GetPatchBaselineInput,
+) (*GetPatchBaselineOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetPatchBaseline")
 	defer b.mu.RUnlock()
@@ -1229,7 +1247,10 @@ func (b *InMemoryBackend) GetPatchBaseline(ctx context.Context, input *GetPatchB
 }
 
 // ListAssociations lists all stored associations.
-func (b *InMemoryBackend) ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutput, error) {
+func (b *InMemoryBackend) ListAssociations(
+	ctx context.Context,
+	_ *ListAssociationsInput,
+) (*ListAssociationsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListAssociations")
 	defer b.mu.RUnlock()
@@ -1364,7 +1385,10 @@ func (b *InMemoryBackend) StartSession(ctx context.Context, input *StartSessionI
 }
 
 // TerminateSession terminates an active SSM session.
-func (b *InMemoryBackend) TerminateSession(ctx context.Context, input *TerminateSessionInput) (*TerminateSessionOutput, error) {
+func (b *InMemoryBackend) TerminateSession(
+	ctx context.Context,
+	input *TerminateSessionInput,
+) (*TerminateSessionOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("TerminateSession")
 	defer b.mu.Unlock()
@@ -1383,7 +1407,10 @@ func (b *InMemoryBackend) TerminateSession(ctx context.Context, input *Terminate
 }
 
 // UpdateAssociation updates an existing association.
-func (b *InMemoryBackend) UpdateAssociation(ctx context.Context, input *UpdateAssociationInput) (*UpdateAssociationOutput, error) {
+func (b *InMemoryBackend) UpdateAssociation(
+	ctx context.Context,
+	input *UpdateAssociationInput,
+) (*UpdateAssociationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociation")
 	defer b.mu.Unlock()
@@ -1514,7 +1541,10 @@ func (b *InMemoryBackend) UpdateOpsItem(ctx context.Context, input *UpdateOpsIte
 }
 
 // UpdateOpsMetadata updates OpsMetadata.
-func (b *InMemoryBackend) UpdateOpsMetadata(ctx context.Context, input *UpdateOpsMetadataInput) (*UpdateOpsMetadataOutput, error) {
+func (b *InMemoryBackend) UpdateOpsMetadata(
+	ctx context.Context,
+	input *UpdateOpsMetadataInput,
+) (*UpdateOpsMetadataOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateOpsMetadata")
 	defer b.mu.Unlock()
@@ -1540,7 +1570,10 @@ func (b *InMemoryBackend) UpdateOpsMetadata(ctx context.Context, input *UpdateOp
 }
 
 // UpdatePatchBaseline updates a patch baseline.
-func (b *InMemoryBackend) UpdatePatchBaseline(ctx context.Context, input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error) {
+func (b *InMemoryBackend) UpdatePatchBaseline(
+	ctx context.Context,
+	input *UpdatePatchBaselineInput,
+) (*UpdatePatchBaselineOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdatePatchBaseline")
 	defer b.mu.Unlock()

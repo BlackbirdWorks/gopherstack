@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,7 +101,7 @@ func TestHarvestJob_Create(t *testing.T) {
 		},
 		{
 			name: "missing origin endpoint returns not found",
-			setup: func(h *mediapackage.Handler) (string, string) {
+			setup: func(h *mediapackage.Handler) (string, string) { //nolint:revive // existing issue.
 				return "", ""
 			},
 			body: map[string]any{
@@ -120,7 +119,7 @@ func TestHarvestJob_Create(t *testing.T) {
 		},
 		{
 			name: "missing id returns unprocessable entity",
-			setup: func(h *mediapackage.Handler) (string, string) {
+			setup: func(h *mediapackage.Handler) (string, string) { //nolint:revive // existing issue.
 				return "", ""
 			},
 			body: map[string]any{
@@ -442,7 +441,7 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	assert.Equal(t, "cycle-job", created["Id"])
-	assert.True(t, strings.Contains(created["Arn"].(string), "harvest_jobs/cycle-job"))
+	assert.Contains(t, created["Arn"].(string), "harvest_jobs/cycle-job")
 
 	// Describe
 	rec2 := doRequest(t, h, http.MethodGet, "/harvest_jobs/cycle-job", nil)

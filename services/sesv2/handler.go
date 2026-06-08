@@ -432,8 +432,10 @@ func parseContactListSpecialPath(method string, segments []string) (string, stri
 	return unknownAction, ""
 }
 
-const metricsPathSegments = 2
-const exportJobPathSegments = 3
+const (
+	metricsPathSegments   = 2
+	exportJobPathSegments = 3
+)
 
 func parseMetricsPath(method string, segments []string) (string, string) {
 	if len(segments) == metricsPathSegments && segments[1] == "batch" && method == http.MethodPost {

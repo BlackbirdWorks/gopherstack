@@ -2991,6 +2991,7 @@ func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string,
 	for _, m := range d.models {
 		if m.Name == modelName {
 			model = m
+
 			break
 		}
 	}

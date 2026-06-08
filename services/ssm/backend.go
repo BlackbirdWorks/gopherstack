@@ -767,7 +767,10 @@ func (b *InMemoryBackend) GetParameters(ctx context.Context, input *GetParameter
 }
 
 // DeleteParameter deletes a single parameter.
-func (b *InMemoryBackend) DeleteParameter(ctx context.Context, input *DeleteParameterInput) (*DeleteParameterOutput, error) {
+func (b *InMemoryBackend) DeleteParameter(
+	ctx context.Context,
+	input *DeleteParameterInput,
+) (*DeleteParameterOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.Lock("DeleteParameter")
@@ -791,7 +794,10 @@ func (b *InMemoryBackend) DeleteParameter(ctx context.Context, input *DeletePara
 }
 
 // DeleteParameters deletes multiple parameters.
-func (b *InMemoryBackend) DeleteParameters(ctx context.Context, input *DeleteParametersInput) (*DeleteParametersOutput, error) {
+func (b *InMemoryBackend) DeleteParameters(
+	ctx context.Context,
+	input *DeleteParametersInput,
+) (*DeleteParametersOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.Lock("DeleteParameters")
@@ -824,7 +830,10 @@ func (b *InMemoryBackend) DeleteParameters(ctx context.Context, input *DeletePar
 }
 
 // GetParameterHistory retrieves all versions of a parameter.
-func (b *InMemoryBackend) GetParameterHistory(ctx context.Context, input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error) {
+func (b *InMemoryBackend) GetParameterHistory(
+	ctx context.Context,
+	input *GetParameterHistoryInput,
+) (*GetParameterHistoryOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParameterHistory")
@@ -939,7 +948,10 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 }
 
 // GetParametersByPath returns parameters whose names begin with the given path.
-func (b *InMemoryBackend) GetParametersByPath(ctx context.Context, input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
+func (b *InMemoryBackend) GetParametersByPath(
+	ctx context.Context,
+	input *GetParametersByPathInput,
+) (*GetParametersByPathOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParametersByPath")
@@ -1013,7 +1025,10 @@ func (b *InMemoryBackend) GetParametersByPath(ctx context.Context, input *GetPar
 }
 
 // DescribeParameters returns metadata for all parameters (no values).
-func (b *InMemoryBackend) DescribeParameters(ctx context.Context, input *DescribeParametersInput) (*DescribeParametersOutput, error) {
+func (b *InMemoryBackend) DescribeParameters(
+	ctx context.Context,
+	input *DescribeParametersInput,
+) (*DescribeParametersOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("DescribeParameters")
@@ -1225,7 +1240,10 @@ func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, input *Rem
 }
 
 // ListTagsForResource returns all tags for a resource.
-func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	ctx context.Context,
+	input *ListTagsForResourceInput,
+) (*ListTagsForResourceOutput, error) {
 	region := getRegion(ctx)
 
 	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
@@ -1326,7 +1344,10 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 const defaultListDocMaxResults = 50
 
 // CreateDocument stores a new SSM document.
-func (b *InMemoryBackend) CreateDocument(ctx context.Context, input *CreateDocumentInput) (*CreateDocumentOutput, error) {
+func (b *InMemoryBackend) CreateDocument(
+	ctx context.Context,
+	input *CreateDocumentInput,
+) (*CreateDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
@@ -1446,7 +1467,10 @@ func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 }
 
 // DescribeDocument returns document metadata.
-func (b *InMemoryBackend) DescribeDocument(ctx context.Context, input *DescribeDocumentInput) (*DescribeDocumentOutput, error) {
+func (b *InMemoryBackend) DescribeDocument(
+	ctx context.Context,
+	input *DescribeDocumentInput,
+) (*DescribeDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeDocument")
 	defer b.mu.RUnlock()
@@ -1517,7 +1541,10 @@ func (b *InMemoryBackend) ListDocuments(ctx context.Context, input *ListDocument
 }
 
 // UpdateDocument increments the document version and updates content.
-func (b *InMemoryBackend) UpdateDocument(ctx context.Context, input *UpdateDocumentInput) (*UpdateDocumentOutput, error) {
+func (b *InMemoryBackend) UpdateDocument(
+	ctx context.Context,
+	input *UpdateDocumentInput,
+) (*UpdateDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateDocument")
 	defer b.mu.Unlock()
@@ -1573,7 +1600,10 @@ func (b *InMemoryBackend) UpdateDocument(ctx context.Context, input *UpdateDocum
 }
 
 // DeleteDocument removes a document and all its versions and permissions.
-func (b *InMemoryBackend) DeleteDocument(ctx context.Context, input *DeleteDocumentInput) (*DeleteDocumentOutput, error) {
+func (b *InMemoryBackend) DeleteDocument(
+	ctx context.Context,
+	input *DeleteDocumentInput,
+) (*DeleteDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
@@ -1645,7 +1675,10 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 }
 
 // ListDocumentVersions returns all versions of a document.
-func (b *InMemoryBackend) ListDocumentVersions(ctx context.Context, input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error) {
+func (b *InMemoryBackend) ListDocumentVersions(
+	ctx context.Context,
+	input *ListDocumentVersionsInput,
+) (*ListDocumentVersionsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListDocumentVersions")
 	defer b.mu.RUnlock()
@@ -1783,7 +1816,10 @@ func (b *InMemoryBackend) ListCommands(ctx context.Context, input *ListCommandsI
 }
 
 // GetCommandInvocation returns the stored invocation for the given command and instance.
-func (b *InMemoryBackend) GetCommandInvocation(ctx context.Context, input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error) {
+func (b *InMemoryBackend) GetCommandInvocation(
+	ctx context.Context,
+	input *GetCommandInvocationInput,
+) (*GetCommandInvocationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetCommandInvocation")
 	defer b.mu.RUnlock()
@@ -2005,7 +2041,10 @@ func (b *InMemoryBackend) CancelMaintenanceWindowExecution(
 }
 
 // CreateActivation creates a new activation for managed instances.
-func (b *InMemoryBackend) CreateActivation(ctx context.Context, input *CreateActivationInput) (*CreateActivationOutput, error) {
+func (b *InMemoryBackend) CreateActivation(
+	ctx context.Context,
+	input *CreateActivationInput,
+) (*CreateActivationOutput, error) {
 	if input.IamRole == "" {
 		return nil, fmt.Errorf("%w: IamRole is required", ErrValidationException)
 	}
@@ -2089,7 +2128,10 @@ func copyAssocTargets(src []AssociationTarget) []AssociationTarget {
 }
 
 // CreateAssociation creates a new association between a document and targets.
-func (b *InMemoryBackend) CreateAssociation(ctx context.Context, input *CreateAssociationInput) (*CreateAssociationOutput, error) {
+func (b *InMemoryBackend) CreateAssociation(
+	ctx context.Context,
+	input *CreateAssociationInput,
+) (*CreateAssociationOutput, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
 	}
@@ -2350,7 +2392,10 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 }
 
 // CreatePatchBaseline creates a new patch baseline.
-func (b *InMemoryBackend) CreatePatchBaseline(ctx context.Context, input *CreatePatchBaselineInput) (*CreatePatchBaselineOutput, error) {
+func (b *InMemoryBackend) CreatePatchBaseline(
+	ctx context.Context,
+	input *CreatePatchBaselineInput,
+) (*CreatePatchBaselineOutput, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
 	}

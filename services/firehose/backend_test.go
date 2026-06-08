@@ -204,7 +204,10 @@ func TestTagDeliveryStream(t *testing.T) {
 			name:       "overwrite",
 			streamName: "overwrite-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "overwrite-stream"})
+				_, _ = b.CreateDeliveryStream(
+					context.TODO(),
+					firehose.CreateDeliveryStreamInput{Name: "overwrite-stream"},
+				)
 				_ = b.TagDeliveryStream(context.TODO(), "overwrite-stream", map[string]string{"env": "dev"})
 			},
 			tags:     map[string]string{"env": "prod"},
@@ -259,7 +262,11 @@ func TestUntagDeliveryStream(t *testing.T) {
 			streamName: "untag-stream",
 			setup: func(b *firehose.InMemoryBackend) {
 				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "untag-stream"})
-				_ = b.TagDeliveryStream(context.TODO(), "untag-stream", map[string]string{"env": "prod", "team": "platform"})
+				_ = b.TagDeliveryStream(
+					context.TODO(),
+					"untag-stream",
+					map[string]string{"env": "prod", "team": "platform"},
+				)
 			},
 			keysToRemove:   []string{"env"},
 			wantAbsentKeys: []string{"env"},

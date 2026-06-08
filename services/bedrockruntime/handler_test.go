@@ -381,6 +381,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
+
 func TestHandler_MissingModelID(t *testing.T) {
 	t.Parallel()
 

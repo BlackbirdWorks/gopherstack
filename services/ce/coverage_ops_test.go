@@ -709,7 +709,6 @@ func TestCoverage_GetCostAndUsage_GroupByDimensions(t *testing.T) {
 	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT", "TAG$Env"}
 
 	for _, dim := range dimensions {
-		dim := dim
 		t.Run(dim, func(t *testing.T) {
 			t.Parallel()
 
@@ -751,7 +750,6 @@ func TestCoverage_GetCostAndUsage_AlternateMetrics(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

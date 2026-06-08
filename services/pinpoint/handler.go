@@ -1498,6 +1498,7 @@ func (h *Handler) createVoiceTemplateARN(body []byte, region, templateName strin
 
 	return t.ARN, nil
 }
+
 func (h *Handler) handleCreateCampaign(c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

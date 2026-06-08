@@ -55,7 +55,7 @@ func (b *InMemoryBackend) ListFindingAggregators(nextToken string, maxResults in
 	b.mu.RLock("ListFindingAggregators")
 	defer b.mu.RUnlock()
 
-	var all []*FindingAggregator
+	var all []*FindingAggregator //nolint:prealloc // existing issue.
 
 	for _, agg := range b.findingAggregators {
 		cp := *agg

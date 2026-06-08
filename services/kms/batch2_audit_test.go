@@ -2457,7 +2457,8 @@ func encodeBase64(data []byte) string {
 		if i+2 < len(data) {
 			b2 = data[i+2]
 		}
-		encoded = append(encoded,
+		encoded = append(
+			encoded,
 			alphabet[b0>>2],
 			alphabet[((b0&0x3)<<4)|(b1>>4)],
 			alphabet[((b1&0xF)<<2)|(b2>>6)],

@@ -1333,6 +1333,7 @@ func TestHandler_NewOps_CreateEventSubscription(t *testing.T) {
 		})
 	}
 }
+
 func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 	t.Parallel()
 

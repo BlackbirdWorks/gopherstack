@@ -510,7 +510,8 @@ func (b *InMemoryBackend) CreateEnvironment(
 	b.environments[key] = env
 	b.envARNIndex[envARN] = key
 
-	b.appendEvent(appName, envName,
+	b.appendEvent(
+		appName, envName,
 		"Successfully launched environment: "+envName+".",
 		eventSeverityInfo,
 	)
@@ -621,7 +622,8 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 
 	env.OptionSettings = updateOptionSettings(env.OptionSettings, params.OptionSettings, params.OptionsToRemove)
 
-	b.appendEvent(appName, envName,
+	b.appendEvent(
+		appName, envName,
 		"Environment update completed successfully.",
 		eventSeverityInfo,
 	)
@@ -674,7 +676,8 @@ func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Enviro
 	delete(b.envARNIndex, env.EnvironmentARN)
 	delete(b.environments, key)
 
-	b.appendEvent(appName, envName,
+	b.appendEvent(
+		appName, envName,
 		"terminateEnvironment completed successfully.",
 		eventSeverityInfo,
 	)

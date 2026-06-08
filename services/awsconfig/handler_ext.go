@@ -171,8 +171,10 @@ func extendedSupportedOperations() []string {
 
 // --- Request/Response types for extended ops ---
 
-type emptyInput struct{}
-type emptyOutput struct{}
+type (
+	emptyInput  struct{}
+	emptyOutput struct{}
+)
 
 // DeletePendingAggregationRequest request/response types and handler.
 type deletePendingAggregationRequestInput struct {

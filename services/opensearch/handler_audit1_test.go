@@ -562,7 +562,7 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 		},
 		{
 			name: "all_four_log_types",
-			logPublishingOpts: (func() map[string]any {
+			logPublishingOpts: func() map[string]any {
 				opts := map[string]any{}
 				for _, lt := range allLogTypes {
 					opts[lt] = map[string]any{
@@ -572,7 +572,7 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 				}
 
 				return opts
-			})(),
+			}(),
 			wantLogTypes: allLogTypes,
 		},
 		{

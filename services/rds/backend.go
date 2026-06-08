@@ -690,8 +690,8 @@ type DBClusterOptions struct {
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	clusterEndpoints          map[string]*DBClusterEndpoint
-	parameterGroups           map[string]*DBParameterGroup
+	snapshotAttributes        map[string]*DBSnapshotAttributesResult
+	reservedInstances         map[string]*ReservedDBInstance
 	snapshots                 map[string]*DBSnapshot
 	subnetGroups              map[string]*DBSubnetGroup
 	tags                      map[string][]Tag
@@ -709,10 +709,10 @@ type InMemoryBackend struct {
 	mu                        *lockmetrics.RWMutex
 	dbSecurityGroups          map[string]*DBSecurityGroup
 	blueGreenDeployments      map[string]*BlueGreenDeployment
-	snapshotAttributes        map[string]*DBSnapshotAttributesResult
-	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
-	reservedInstances         map[string]*ReservedDBInstance
+	clusterEndpoints          map[string]*DBClusterEndpoint
+	parameterGroups           map[string]*DBParameterGroup
 	recommendations           map[string]*DBRecommendation
+	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
 	proxies                   map[string]*DBProxy
 	proxyTargetGroups         map[string]*DBProxyTargetGroup
 	proxyTargets              map[string][]DBProxyTarget
@@ -726,11 +726,11 @@ type InMemoryBackend struct {
 	clusterAutomatedBackups   map[string]*DBClusterAutomatedBackup
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
 	stopCh                    chan struct{}
-	stopOnce                  sync.Once
-	wg                        sync.WaitGroup
 	accountID                 string
 	region                    string
 	events                    []Event
+	wg                        sync.WaitGroup
+	stopOnce                  sync.Once
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
@@ -795,11 +795,7 @@ func (b *InMemoryBackend) Close() {
 // first. It is tracked by b.wg so Close can wait for it to finish, and it
 // respects b.stopCh so it never mutates state after shutdown.
 func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Add(1)
-
-	go func() {
-		defer b.wg.Done()
-
+	b.wg.Go(func() {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
 
@@ -810,7 +806,7 @@ func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
 		}
 
 		fn()
-	}()
+	})
 }
 
 // Region returns the AWS region this backend is configured for.

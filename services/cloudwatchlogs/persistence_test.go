@@ -55,7 +55,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				if err != nil {
 					return ""
 				}
-				_ = b.PutSubscriptionFilter(context.Background(),
+				_ = b.PutSubscriptionFilter(
+					context.Background(),
 					"sub-grp", "my-filter", "ERROR",
 					"arn:aws:lambda:us-east-1:123456789012:function:target",
 					"", "",

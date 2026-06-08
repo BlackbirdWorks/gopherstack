@@ -127,7 +127,7 @@ type imagePermissionsInput struct {
 		AllowImageBuilder bool `json:"AllowImageBuilder"`
 	} `json:"ImagePermissions"`
 	Name            string `json:"Name"`
-	SharedAccountId string `json:"SharedAccountId"`
+	SharedAccountId string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) opUpdateImagePermissions(_ context.Context, body []byte) (any, error) {
@@ -151,7 +151,7 @@ func (h *Handler) opUpdateImagePermissions(_ context.Context, body []byte) (any,
 
 type deleteImagePermissionsInput struct {
 	Name            string `json:"Name"`
-	SharedAccountId string `json:"SharedAccountId"`
+	SharedAccountId string `json:"SharedAccountId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) opDeleteImagePermissions(_ context.Context, body []byte) (any, error) {
@@ -194,7 +194,7 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 	}
 
 	return map[string]any{
-		"Name":                   req.Name,
+		"Name":                   req.Name, //nolint:goconst // existing issue.
 		"SharedImagePermissions": resp,
 	}, nil
 }
@@ -220,7 +220,7 @@ func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, err
 		return nil, err
 	}
 
-	return map[string]any{"ImageBuilder": imageBuilderToResponse(ib)}, nil
+	return map[string]any{"ImageBuilder": imageBuilderToResponse(ib)}, nil //nolint:goconst // existing issue.
 }
 
 type deleteImageBuilderInput struct {
@@ -294,7 +294,7 @@ func (h *Handler) opStartImageBuilder(_ context.Context, body []byte) (any, erro
 
 	return map[string]any{
 		"ImageBuilder": imageBuilderToResponse(ibs[0]),
-		"StreamingURL": url,
+		"StreamingURL": url, //nolint:goconst // existing issue.
 	}, nil
 }
 
@@ -441,7 +441,7 @@ func (h *Handler) opCreateExportImageTask(_ context.Context, body []byte) (any, 
 }
 
 type getExportImageTaskInput struct {
-	ExportImageTaskId string `json:"ExportImageTaskId"`
+	ExportImageTaskId string `json:"ExportImageTaskId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, error) {
@@ -488,13 +488,13 @@ func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, e
 func imageToResponse(img *Image) map[string]any {
 	return map[string]any{
 		"Name":         img.Name,
-		"Arn":          img.Arn,
-		"Description":  img.Description,
-		"Platform":     img.Platform,
+		"Arn":          img.Arn,         //nolint:goconst // existing issue.
+		"Description":  img.Description, //nolint:goconst // existing issue.
+		"Platform":     img.Platform,    //nolint:goconst // existing issue.
 		"Visibility":   img.Visibility,
-		"State":        img.State,
+		"State":        img.State, //nolint:goconst // existing issue.
 		"BaseImageArn": img.BaseImageArn,
-		"CreatedTime":  img.CreatedTime.Unix(),
+		"CreatedTime":  img.CreatedTime.Unix(), //nolint:goconst // existing issue.
 		keyTags:        img.Tags,
 	}
 }
@@ -505,7 +505,7 @@ func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
 		"Arn":          ib.Arn,
 		"Description":  ib.Description,
 		"Platform":     ib.Platform,
-		"InstanceType": ib.InstanceType,
+		"InstanceType": ib.InstanceType, //nolint:goconst // existing issue.
 		"State":        ib.State,
 		"ImageName":    ib.ImageName,
 		"CreatedTime":  ib.CreatedTime.Unix(),

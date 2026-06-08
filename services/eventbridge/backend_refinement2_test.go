@@ -276,7 +276,10 @@ func TestRefinement2_PutTargets_EnforcesLimit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "r", ScheduleExpression: "rate(1 minute)"})
+			_, err := b.PutRule(
+				context.Background(),
+				eventbridge.PutRuleInput{Name: "r", ScheduleExpression: "rate(1 minute)"},
+			)
 			require.NoError(t, err)
 
 			targets := make([]eventbridge.Target, tt.targetCount)
@@ -809,7 +812,10 @@ func TestRefinement2_ListRuleNamesByTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "r1", ScheduleExpression: "rate(1 minute)"})
+			_, err := b.PutRule(
+				context.Background(),
+				eventbridge.PutRuleInput{Name: "r1", ScheduleExpression: "rate(1 minute)"},
+			)
 			require.NoError(t, err)
 			_, err = b.PutTargets(context.Background(), "r1", "", []eventbridge.Target{
 				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123:function:fn"},

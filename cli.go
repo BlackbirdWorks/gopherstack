@@ -448,6 +448,7 @@ func (c *CLI) resolvedDataDir() string {
 func (c *CLI) createPersistenceStore() (*persistence.FileStore, error) {
 	return persistence.NewFileStore(c.resolvedDataDir())
 }
+
 func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
 	return c.DynamoDB
 }
@@ -2011,7 +2012,8 @@ func buildHTTPErrorHandler() func(*echo.Context, error) {
 		}
 
 		if httpErr.Code >= http.StatusInternalServerError {
-			logger.Load(c.Request().Context()).ErrorContext(c.Request().Context(), "HTTP error",
+			logger.Load(c.Request().Context()).ErrorContext(
+				c.Request().Context(), "HTTP error",
 				"status", httpErr.Code,
 				"error", httpErr.Message,
 				"path", c.Request().URL.Path,
@@ -3100,6 +3102,7 @@ func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+
 	return out.CiphertextBlob, nil
 }
 
@@ -3110,6 +3113,7 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return out.Plaintext, nil
 }
 
@@ -4081,7 +4085,8 @@ func wireTaggingDDB(
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			tables := ddbBk.TaggedTables()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(tables))
@@ -4135,7 +4140,8 @@ func wireTaggingSQS(
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			queues := sqsBk.TaggedQueues()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(queues))
@@ -4169,7 +4175,8 @@ func wireTaggingSNS(
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			topics := snsBk.TaggedTopics()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(topics))
@@ -4198,7 +4205,8 @@ func wireTaggingLambda(
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			fns := lambdaH.TaggedFunctions()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(fns))
@@ -4227,7 +4235,8 @@ func wireTaggingKMS(
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			keys := kmsH.TaggedKeys()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(keys))
@@ -4258,7 +4267,8 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 		return
 	}
 
-	registerTaggingService(bk,
+	registerTaggingService(
+		bk,
 		func() []resourcegroupstaggingapibackend.TaggedResource {
 			secrets := smBk.TaggedSecrets()
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(secrets))

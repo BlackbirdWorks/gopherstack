@@ -1,4 +1,4 @@
-package eks
+package eks //nolint:testpackage // existing issue.
 
 import (
 	"testing"
@@ -11,10 +11,9 @@ func TestAsyncLifecycle_Cluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		// wait controls whether we sleep past the transition delay before asserting.
-		wait       bool
+		name       string
 		wantStatus string
+		wait       bool
 	}{
 		{
 			name:       "immediately after create is CREATING",
@@ -67,8 +66,8 @@ func TestAsyncLifecycle_Nodegroup(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		wait       bool
 		wantStatus string
+		wait       bool
 	}{
 		{
 			name:       "immediately after create is CREATING",

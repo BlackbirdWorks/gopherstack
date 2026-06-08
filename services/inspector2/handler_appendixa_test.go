@@ -46,11 +46,11 @@ func TestAppendixA_Members(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}
 
 	tests := []struct {
@@ -159,11 +159,11 @@ func TestAppendixA_DelegatedAdmin(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}
 
 	tests := []struct {
@@ -283,11 +283,11 @@ func TestAppendixA_OrgConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}{
 		{
 			name:   "Describe returns defaults",
@@ -331,11 +331,11 @@ func TestAppendixA_Ec2DeepInspection(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}
 
 	tests := []struct {
@@ -446,11 +446,11 @@ func TestAppendixA_EncryptionKey(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}
 
 	tests := []struct {
@@ -528,11 +528,11 @@ func TestAppendixA_CisScanConfiguration(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}
 
 	tests := []struct {
@@ -678,11 +678,11 @@ func TestAppendixA_CisSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}{
 		{
 			name:   "StartCisSession returns OK",
@@ -1091,11 +1091,11 @@ func TestAppendixA_Coverage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}{
 		{
 			name:   "ListCoverage returns empty covered resources",
@@ -1143,11 +1143,11 @@ func TestAppendixA_AggregationsUsagePermissions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}{
 		{
 			name:   "ListFindingAggregations returns responses",
@@ -1228,11 +1228,11 @@ func TestAppendixA_BatchOps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, body []byte)
 	}{
 		{
 			name:   "BatchGetCodeSnippet returns results and errors",

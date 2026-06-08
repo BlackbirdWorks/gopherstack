@@ -751,7 +751,8 @@ func TestAudit1_UntagViaDeleteVerb(t *testing.T) {
 	// DELETE /resources/{Arn}/tags with JSON body.
 	e := echo.New()
 	bodyBytes, _ := json.Marshal(map[string]any{"Keys": []string{"env"}})
-	req := httptest.NewRequest(http.MethodDelete,
+	req := httptest.NewRequest(
+		http.MethodDelete,
 		"/resources/"+g.ARN+"/tags",
 		strings.NewReader(string(bodyBytes)),
 	)

@@ -1739,6 +1739,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 
 	return cloneCluster(cluster)
 }
+
 func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {
 	b.mu.Lock("AddConfigurationInternal")
 	defer b.mu.Unlock()

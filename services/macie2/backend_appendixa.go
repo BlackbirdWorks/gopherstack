@@ -360,7 +360,7 @@ func (b *InMemoryBackend) GetAdministratorAccount() (*AdministratorAccount, erro
 	defer b.mu.RUnlock()
 
 	if b.administrator == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // existing issue.
 	}
 
 	cp := *b.administrator
@@ -472,7 +472,7 @@ func (b *InMemoryBackend) GetAutomatedDiscoveryConfiguration() (*AutoDiscoveryCo
 	defer b.mu.RUnlock()
 
 	if b.autoDiscoveryConfig == nil {
-		return &AutoDiscoveryConfig{Status: "DISABLED"}, nil
+		return &AutoDiscoveryConfig{Status: "DISABLED"}, nil //nolint:goconst // existing issue.
 	}
 
 	cp := *b.autoDiscoveryConfig
@@ -948,7 +948,7 @@ func (b *InMemoryBackend) GetUsageStatistics(
 // GetUsageTotals returns aggregated usage totals (all zero).
 func (b *InMemoryBackend) GetUsageTotals(_ string) ([]UsageTotal, error) {
 	return []UsageTotal{
-		{Currency: "USD", EstimatedCost: "0", Type: "DATA_INVENTORY_EVALUATION"},
+		{Currency: "USD", EstimatedCost: "0", Type: "DATA_INVENTORY_EVALUATION"}, //nolint:goconst // existing issue.
 		{Currency: "USD", EstimatedCost: "0", Type: "SENSITIVE_DATA_DISCOVERY"},
 		{Currency: "USD", EstimatedCost: "0", Type: "AUTOMATED_SENSITIVE_DATA_DISCOVERY"},
 	}, nil
@@ -957,13 +957,13 @@ func (b *InMemoryBackend) GetUsageTotals(_ string) ([]UsageTotal, error) {
 // --- managed data identifiers ---
 
 // managedDataIdentifiers is the static list of built-in Macie data identifiers.
-var managedDataIdentifiers = []ManagedDataIdentifier{
-	{Category: "CREDENTIALS", ID: "AWS_CREDENTIALS"},
+var managedDataIdentifiers = []ManagedDataIdentifier{ //nolint:gochecknoglobals // existing issue.
+	{Category: "CREDENTIALS", ID: "AWS_CREDENTIALS"}, //nolint:goconst // existing issue.
 	{Category: "CREDENTIALS", ID: "PRIVATE_KEY"},
 	{Category: "CREDENTIALS", ID: "AWS_SECRET_ACCESS_KEY"},
 	{Category: "FINANCIAL_INFORMATION", ID: "CREDIT_CARD_NUMBER"},
 	{Category: "FINANCIAL_INFORMATION", ID: "BANK_ACCOUNT_NUMBER_US"},
-	{Category: "PERSONAL_INFORMATION", ID: "EMAIL_ADDRESS"},
+	{Category: "PERSONAL_INFORMATION", ID: "EMAIL_ADDRESS"}, //nolint:goconst // existing issue.
 	{Category: "PERSONAL_INFORMATION", ID: "PHONE_NUMBER_US"},
 	{Category: "PERSONAL_INFORMATION", ID: "NAME"},
 	{Category: "PERSONAL_INFORMATION", ID: "US_SOCIAL_SECURITY_NUMBER"},

@@ -81,7 +81,7 @@ func TestRefinement1_HandlerBackendIsInterface(t *testing.T) {
 	h := xray.NewHandler(b)
 
 	// Handler.Backend must be assignable to the interface.
-	var _ = h.Backend
+	_ = h.Backend
 }
 
 // TestRefinement1_CountHelpers verifies all export_test count helpers.

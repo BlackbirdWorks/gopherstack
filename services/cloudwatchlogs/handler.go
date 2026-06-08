@@ -932,7 +932,12 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if _, err := h.Backend.CreateLogGroup(ctx, input.LogGroupName, input.LogGroupClass, input.KmsKeyID); err != nil {
+			if _, err := h.Backend.CreateLogGroup(
+				ctx,
+				input.LogGroupName,
+				input.LogGroupClass,
+				input.KmsKeyID,
+			); err != nil {
 				return nil, err
 			}
 			if len(input.Tags) > 0 {
@@ -957,7 +962,12 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			groups, next, err := h.Backend.DescribeLogGroups(ctx, input.LogGroupNamePrefix, input.NextToken, input.Limit)
+			groups, next, err := h.Backend.DescribeLogGroups(
+				ctx,
+				input.LogGroupNamePrefix,
+				input.NextToken,
+				input.Limit,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -996,7 +1006,8 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			streams, next, err := h.Backend.DescribeLogStreams(ctx,
+			streams, next, err := h.Backend.DescribeLogStreams(
+				ctx,
 				input.LogGroupName,
 				input.LogStreamNamePrefix,
 				input.NextToken,
@@ -1020,7 +1031,8 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			result, err := h.Backend.PutLogEvents(ctx,
+			result, err := h.Backend.PutLogEvents(
+				ctx,
 				input.LogGroupName,
 				input.LogStreamName,
 				input.SequenceToken,
@@ -1072,7 +1084,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 
 func (h *Handler) logTagActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListTagsLogGroup": func(ctx context.Context, b []byte) (any, error) {
+		"ListTagsLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1080,7 +1092,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &listTagsLogGroupOutput{Tags: h.getTags(input.LogGroupName)}, nil
 		},
-		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) {
+		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1088,7 +1100,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &listTagsForResourceOutput{Tags: h.getTags(input.ResourceArn)}, nil
 		},
-		"TagLogGroup": func(ctx context.Context, b []byte) (any, error) {
+		"TagLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1101,7 +1113,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &tagLogGroupOutput{}, nil
 		},
-		"UntagLogGroup": func(ctx context.Context, b []byte) (any, error) {
+		"UntagLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1110,7 +1122,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &untagLogGroupOutput{}, nil
 		},
-		"TagResource": func(ctx context.Context, b []byte) (any, error) {
+		"TagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1119,7 +1131,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &tagResourceOutput{}, nil
 		},
-		"UntagResource": func(ctx context.Context, b []byte) (any, error) {
+		"UntagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -1166,7 +1178,8 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.PutSubscriptionFilter(ctx,
+			if err := h.Backend.PutSubscriptionFilter(
+				ctx,
 				input.LogGroupName, input.FilterName, input.FilterPattern, input.DestinationArn,
 				input.RoleArn, input.Distribution,
 			); err != nil {
@@ -1180,7 +1193,8 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			filters, next, err := h.Backend.DescribeSubscriptionFilters(ctx,
+			filters, next, err := h.Backend.DescribeSubscriptionFilters(
+				ctx,
 				input.LogGroupName, input.FilterNamePrefix, input.NextToken, input.Limit,
 			)
 			if err != nil {
@@ -1230,7 +1244,8 @@ func (h *Handler) handleStartQuery(ctx context.Context, b []byte) (any, error) {
 	}
 
 	queryID := uuid.New().String()
-	if _, err := h.Backend.StartQuery(ctx,
+	if _, err := h.Backend.StartQuery(
+		ctx,
 		queryID,
 		input.QueryString,
 		logGroups,
@@ -1243,7 +1258,7 @@ func (h *Handler) handleStartQuery(ctx context.Context, b []byte) (any, error) {
 	return &startQueryOutput{QueryID: queryID}, nil
 }
 
-func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input getQueryResultsInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1256,7 +1271,7 @@ func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, err
 	return &getQueryResultsOutput{Results: results, Statistics: stats, Status: status}, nil
 }
 
-func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input stopQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1268,7 +1283,7 @@ func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) {
 	return &stopQueryOutput{Success: true}, nil
 }
 
-func (h *Handler) handleDescribeQueries(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeQueries(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input describeQueriesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1292,7 +1307,7 @@ func (h *Handler) insightsActions() map[string]actionFn {
 	}
 }
 
-func (h *Handler) handleAssociateKmsKey(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleAssociateKmsKey(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input associateKmsKeyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1304,7 +1319,10 @@ func (h *Handler) handleAssociateKmsKey(ctx context.Context, b []byte) (any, err
 	return &associateKmsKeyOutput{}, nil
 }
 
-func (h *Handler) handleAssociateSourceToS3TableIntegration(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleAssociateSourceToS3TableIntegration(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input associateSourceToS3TableIntegrationInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1328,7 +1346,10 @@ func (h *Handler) handleAssociateSourceToS3TableIntegration(ctx context.Context,
 	return &associateSourceToS3TableIntegrationOutput{Identifier: id}, nil
 }
 
-func (h *Handler) handleCancelExportTask(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCancelExportTask(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input cancelExportTaskInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1340,7 +1361,10 @@ func (h *Handler) handleCancelExportTask(ctx context.Context, b []byte) (any, er
 	return &cancelExportTaskOutput{}, nil
 }
 
-func (h *Handler) handleCancelImportTask(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCancelImportTask(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input cancelImportTaskInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1359,7 +1383,7 @@ func (h *Handler) handleCancelImportTask(ctx context.Context, b []byte) (any, er
 	}, nil
 }
 
-func (h *Handler) handleCreateDelivery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCreateDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input createDeliveryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1373,7 +1397,10 @@ func (h *Handler) handleCreateDelivery(ctx context.Context, b []byte) (any, erro
 	return &createDeliveryOutput{Delivery: delivery}, nil
 }
 
-func (h *Handler) handleCreateExportTask(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCreateExportTask(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input createExportTaskInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1390,7 +1417,10 @@ func (h *Handler) handleCreateExportTask(ctx context.Context, b []byte) (any, er
 	return &createExportTaskOutput{TaskID: taskID}, nil
 }
 
-func (h *Handler) handleCreateImportTask(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCreateImportTask(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input createImportTaskInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1408,7 +1438,10 @@ func (h *Handler) handleCreateImportTask(ctx context.Context, b []byte) (any, er
 	}, nil
 }
 
-func (h *Handler) handleCreateLogAnomalyDetector(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCreateLogAnomalyDetector(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input createLogAnomalyDetectorInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1425,7 +1458,10 @@ func (h *Handler) handleCreateLogAnomalyDetector(ctx context.Context, b []byte) 
 	return &createLogAnomalyDetectorOutput{AnomalyDetectorArn: detectorArn}, nil
 }
 
-func (h *Handler) handleCreateScheduledQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleCreateScheduledQuery(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input createScheduledQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1447,7 +1483,10 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, b []byte) (any
 	return &createScheduledQueryOutput{ScheduledQueryArn: queryArn, State: effectiveState}, nil
 }
 
-func (h *Handler) handleDeleteAccountPolicy(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDeleteAccountPolicy(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input deleteAccountPolicyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1460,7 +1499,10 @@ func (h *Handler) handleDeleteAccountPolicy(ctx context.Context, b []byte) (any,
 	return &deleteAccountPolicyOutput{}, nil
 }
 
-func (h *Handler) handleDescribeExportTasks(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeExportTasks(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input describeExportTasksInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1473,7 +1515,10 @@ func (h *Handler) handleDescribeExportTasks(ctx context.Context, b []byte) (any,
 	return &describeExportTasksOutput{ExportTasks: tasks, NextToken: next}, nil
 }
 
-func (h *Handler) handleDescribeImportTasks(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeImportTasks(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input describeImportTasksInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1486,7 +1531,10 @@ func (h *Handler) handleDescribeImportTasks(ctx context.Context, b []byte) (any,
 	return &describeImportTasksOutput{ImportTasks: tasks, NextToken: next}, nil
 }
 
-func (h *Handler) handleDescribeDeliveries(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeDeliveries(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input describeDeliveriesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1499,7 +1547,7 @@ func (h *Handler) handleDescribeDeliveries(ctx context.Context, b []byte) (any, 
 	return &describeDeliveriesOutput{Deliveries: deliveries, NextToken: next}, nil
 }
 
-func (h *Handler) handleGetDelivery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleGetDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input getDeliveryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1512,7 +1560,7 @@ func (h *Handler) handleGetDelivery(ctx context.Context, b []byte) (any, error) 
 	return &getDeliveryOutput{Delivery: d}, nil
 }
 
-func (h *Handler) handleDeleteDelivery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDeleteDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input deleteDeliveryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1524,7 +1572,10 @@ func (h *Handler) handleDeleteDelivery(ctx context.Context, b []byte) (any, erro
 	return &deleteDeliveryOutput{}, nil
 }
 
-func (h *Handler) handleDeleteLogAnomalyDetector(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDeleteLogAnomalyDetector(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input deleteLogAnomalyDetectorInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1536,7 +1587,10 @@ func (h *Handler) handleDeleteLogAnomalyDetector(ctx context.Context, b []byte) 
 	return &deleteLogAnomalyDetectorOutput{}, nil
 }
 
-func (h *Handler) handleListLogAnomalyDetectors(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleListLogAnomalyDetectors(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input listLogAnomalyDetectorsInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1549,7 +1603,10 @@ func (h *Handler) handleListLogAnomalyDetectors(ctx context.Context, b []byte) (
 	return &listLogAnomalyDetectorsOutput{AnomalyDetectors: detectors, NextToken: next}, nil
 }
 
-func (h *Handler) handleUpdateLogAnomalyDetector(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleUpdateLogAnomalyDetector(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input updateLogAnomalyDetectorInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1565,7 +1622,10 @@ func (h *Handler) handleUpdateLogAnomalyDetector(ctx context.Context, b []byte) 
 	return &updateLogAnomalyDetectorOutput{}, nil
 }
 
-func (h *Handler) handleDeleteScheduledQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDeleteScheduledQuery(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input deleteScheduledQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1577,7 +1637,10 @@ func (h *Handler) handleDeleteScheduledQuery(ctx context.Context, b []byte) (any
 	return &deleteScheduledQueryOutput{}, nil
 }
 
-func (h *Handler) handleListScheduledQueries(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleListScheduledQueries(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input listScheduledQueriesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1590,7 +1653,10 @@ func (h *Handler) handleListScheduledQueries(ctx context.Context, b []byte) (any
 	return &listScheduledQueriesOutput{ScheduledQueries: queries, NextToken: next}, nil
 }
 
-func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleUpdateScheduledQuery(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input updateScheduledQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1602,7 +1668,10 @@ func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, b []byte) (any
 	return &updateScheduledQueryOutput{}, nil
 }
 
-func (h *Handler) handlePutAccountPolicy(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handlePutAccountPolicy(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input putAccountPolicyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1621,7 +1690,10 @@ func (h *Handler) handlePutAccountPolicy(ctx context.Context, b []byte) (any, er
 	return &putAccountPolicyOutput{AccountPolicy: policy}, nil
 }
 
-func (h *Handler) handleDescribeAccountPolicies(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeAccountPolicies(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input describeAccountPoliciesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1640,7 +1712,10 @@ func (h *Handler) handleDescribeAccountPolicies(ctx context.Context, b []byte) (
 	return &describeAccountPoliciesOutput{AccountPolicies: policies, NextToken: nextToken}, nil
 }
 
-func (h *Handler) handleDisassociateKmsKey(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDisassociateKmsKey(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input disassociateKmsKeyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1657,7 +1732,8 @@ func (h *Handler) handlePutMetricFilter(ctx context.Context, b []byte) (any, err
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.PutMetricFilter(ctx,
+	if err := h.Backend.PutMetricFilter(
+		ctx,
 		input.LogGroupName,
 		input.FilterName,
 		input.FilterPattern,
@@ -1674,7 +1750,8 @@ func (h *Handler) handleDescribeMetricFilters(ctx context.Context, b []byte) (an
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	filters, next, err := h.Backend.DescribeMetricFilters(ctx,
+	filters, next, err := h.Backend.DescribeMetricFilters(
+		ctx,
 		input.LogGroupName,
 		input.FilterNamePrefix,
 		input.MetricName,
@@ -1701,7 +1778,10 @@ func (h *Handler) handleDeleteMetricFilter(ctx context.Context, b []byte) (any, 
 	return &deleteMetricFilterOutput{}, nil
 }
 
-func (h *Handler) handleTestMetricFilter(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleTestMetricFilter(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input testMetricFilterInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1714,7 +1794,10 @@ func (h *Handler) handleTestMetricFilter(ctx context.Context, b []byte) (any, er
 	return &testMetricFilterOutput{Matches: matches}, nil
 }
 
-func (h *Handler) handlePutQueryDefinition(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handlePutQueryDefinition(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input putQueryDefinitionInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1727,7 +1810,10 @@ func (h *Handler) handlePutQueryDefinition(ctx context.Context, b []byte) (any, 
 	return &putQueryDefinitionOutput{QueryDefinitionID: id}, nil
 }
 
-func (h *Handler) handleDescribeQueryDefinitions(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDescribeQueryDefinitions(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input describeQueryDefinitionsInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1744,7 +1830,10 @@ func (h *Handler) handleDescribeQueryDefinitions(ctx context.Context, b []byte) 
 	return &describeQueryDefinitionsOutput{QueryDefinitions: defs, NextToken: next}, nil
 }
 
-func (h *Handler) handleDeleteQueryDefinition(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleDeleteQueryDefinition(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input deleteQueryDefinitionInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1756,7 +1845,10 @@ func (h *Handler) handleDeleteQueryDefinition(ctx context.Context, b []byte) (an
 	return &deleteQueryDefinitionOutput{Success: true}, nil
 }
 
-func (h *Handler) handleGetLogAnomalyDetector(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleGetLogAnomalyDetector(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input getLogAnomalyDetectorInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1769,7 +1861,10 @@ func (h *Handler) handleGetLogAnomalyDetector(ctx context.Context, b []byte) (an
 	return &getLogAnomalyDetectorOutput{AnomalyDetector: d}, nil
 }
 
-func (h *Handler) handleGetScheduledQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleGetScheduledQuery(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input getScheduledQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1808,7 +1903,7 @@ func (h *Handler) handleGetLogRecord(ctx context.Context, b []byte) (any, error)
 	return &getLogRecordOutput{LogRecord: record}, nil
 }
 
-func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input listAnomaliesInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1821,7 +1916,10 @@ func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error
 	return &listAnomaliesOutput{Anomalies: anomalies, NextToken: next}, nil
 }
 
-func (h *Handler) handleListLogGroupsForQuery(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleListLogGroupsForQuery(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input listLogGroupsForQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1834,7 +1932,10 @@ func (h *Handler) handleListLogGroupsForQuery(ctx context.Context, b []byte) (an
 	return &listLogGroupsForQueryOutput{LogGroupIdentifiers: groups}, nil
 }
 
-func (h *Handler) handleGetScheduledQueryHistory(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleGetScheduledQueryHistory(
+	ctx context.Context, //nolint:revive // existing issue.
+	b []byte,
+) (any, error) {
 	var input getScheduledQueryHistoryInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
@@ -1851,7 +1952,7 @@ func (h *Handler) handleGetScheduledQueryHistory(ctx context.Context, b []byte) 
 	return &getScheduledQueryHistoryOutput{ScheduledQueryRunSummaries: summaries, NextToken: next}, nil
 }
 
-func (h *Handler) handleUpdateAnomaly(ctx context.Context, b []byte) (any, error) {
+func (h *Handler) handleUpdateAnomaly(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input updateAnomalyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err

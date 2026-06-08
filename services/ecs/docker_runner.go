@@ -88,7 +88,8 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 		if startErr := r.cli.ContainerStart(ctx, containerID, dockertypes.StartOptions{}); startErr != nil {
 			// Clean up the just-created container before rolling back the rest.
 			if rmErr := r.cli.ContainerRemove(ctx, containerID, dockertypes.RemoveOptions{Force: true}); rmErr != nil {
-				log.WarnContext(ctx, "failed to remove container after start failure",
+				log.WarnContext(
+					ctx, "failed to remove container after start failure",
 					"containerID", containerID,
 					"error", rmErr,
 				)

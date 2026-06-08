@@ -232,7 +232,8 @@ func TestCreateStack_AllowedValues_ValidValue_Accepted(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "av-ok", tmpl,
+	stack, err := b.CreateStack(
+		t.Context(), "av-ok", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "dev"}},
 		cloudformation.StackOptions{},
 	)
@@ -257,7 +258,8 @@ func TestCreateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "av-bad", tmpl,
+	stack, err := b.CreateStack(
+		t.Context(), "av-bad", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
@@ -285,7 +287,8 @@ func TestCreateStack_AllowedValues_ConstraintDescription_InError(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "av-constraint", tmpl,
+	stack, err := b.CreateStack(
+		t.Context(), "av-constraint", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
@@ -335,13 +338,15 @@ func TestUpdateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 		}
 	}`
 
-	_, err := b.CreateStack(t.Context(), "upd-av", tmpl,
+	_, err := b.CreateStack(
+		t.Context(), "upd-av", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "dev"}},
 		cloudformation.StackOptions{},
 	)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateStack(t.Context(), "upd-av", tmpl,
+	updated, err := b.UpdateStack(
+		t.Context(), "upd-av", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
@@ -811,7 +816,8 @@ func TestCreateStack_ParametersResolvedInOutputs(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(t.Context(), "param-out", tmpl,
+	stack, err := b.CreateStack(
+		t.Context(), "param-out", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "EnvName", ParameterValue: "production"}},
 		cloudformation.StackOptions{},
 	)

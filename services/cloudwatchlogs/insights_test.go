@@ -278,7 +278,14 @@ func TestInsightsQuery_SortByIngestionTime(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery(context.Background(), "q1", "fields @message | sort @ingestionTime asc", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(
+		context.Background(),
+		"q1",
+		"fields @message | sort @ingestionTime asc",
+		[]string{"/grp"},
+		0,
+		0,
+	)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")

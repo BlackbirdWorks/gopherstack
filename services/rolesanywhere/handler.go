@@ -714,11 +714,11 @@ func (h *Handler) dispatchNotificationOps(op string, body []byte) (any, int, boo
 
 func (h *Handler) handleImportCrl(body []byte) (any, int, error) {
 	var req struct {
-		CrlData        []byte     `json:"crlData"`
+		Enabled        *bool      `json:"enabled"`
 		Name           string     `json:"name"`
 		TrustAnchorArn string     `json:"trustAnchorArn"`
+		CrlData        []byte     `json:"crlData"`
 		Tags           []TagEntry `json:"tags"`
-		Enabled        *bool      `json:"enabled"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -776,8 +776,8 @@ func (h *Handler) handleUpdateCrl(path string, body []byte) (any, int, error) {
 	id := extractID(path, pathCrl)
 
 	var req struct {
-		CrlData []byte `json:"crlData"`
 		Name    string `json:"name"`
+		CrlData []byte `json:"crlData"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -916,8 +916,8 @@ func (h *Handler) handleDeleteAttributeMapping(path, query string) (any, int, er
 
 func (h *Handler) handlePutNotificationSettings(body []byte) (any, int, error) {
 	var req struct {
-		NotificationSettings []NotificationSetting `json:"notificationSettings"`
 		TrustAnchorID        string                `json:"trustAnchorId"`
+		NotificationSettings []NotificationSetting `json:"notificationSettings"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -936,8 +936,8 @@ func (h *Handler) handlePutNotificationSettings(body []byte) (any, int, error) {
 
 func (h *Handler) handleResetNotificationSettings(body []byte) (any, int, error) {
 	var req struct {
-		NotificationSettingKeys []NotificationSettingKey `json:"notificationSettingKeys"`
 		TrustAnchorID           string                   `json:"trustAnchorId"`
+		NotificationSettingKeys []NotificationSettingKey `json:"notificationSettingKeys"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1263,11 +1263,11 @@ func trustAnchorToJSON(ta *TrustAnchor) map[string]any {
 	m := map[string]any{
 		"trustAnchorId":  ta.TrustAnchorID,
 		"trustAnchorArn": ta.TrustAnchorArn,
-		"name":           ta.Name,
+		"name":           ta.Name, //nolint:goconst // existing issue.
 		"source":         ta.Source,
-		"enabled":        ta.Enabled,
-		"createdAt":      ta.CreatedAt.Format(time.RFC3339),
-		"updatedAt":      ta.UpdatedAt.Format(time.RFC3339),
+		"enabled":        ta.Enabled,                        //nolint:goconst // existing issue.
+		"createdAt":      ta.CreatedAt.Format(time.RFC3339), //nolint:goconst // existing issue.
+		"updatedAt":      ta.UpdatedAt.Format(time.RFC3339), //nolint:goconst // existing issue.
 	}
 
 	if len(ta.Tags) > 0 {
@@ -1365,7 +1365,7 @@ func trustAnchorWithSettingsToJSON(ta *TrustAnchor, settings []NotificationSetti
 func extractProfileIDFromMappingPath(path string) string {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	if len(segments) >= 2 {
+	if len(segments) >= 2 { //nolint:mnd // existing issue.
 		return segments[1]
 	}
 

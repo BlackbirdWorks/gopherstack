@@ -798,8 +798,8 @@ type listAutoScalingConfigurationsInput struct {
 }
 
 type listAutoScalingConfigurationsOutput struct {
-	AutoScalingConfigurationSummaryList []autoScalingConfigurationSummaryOutput `json:"AutoScalingConfigurationSummaryList"` //nolint:golines
 	NextToken                           string                                  `json:"NextToken,omitempty"`
+	AutoScalingConfigurationSummaryList []autoScalingConfigurationSummaryOutput `json:"AutoScalingConfigurationSummaryList"` //nolint:lll // existing issue.
 }
 
 func (h *Handler) handleListAutoScalingConfigurations(
@@ -867,8 +867,8 @@ type listServicesForAutoScalingConfigurationInput struct {
 }
 
 type listServicesForAutoScalingConfigurationOutput struct {
-	ServiceArnList []string `json:"ServiceArnList"`
 	NextToken      string   `json:"NextToken,omitempty"`
+	ServiceArnList []string `json:"ServiceArnList"`
 }
 
 func (h *Handler) handleListServicesForAutoScalingConfiguration(
@@ -988,8 +988,8 @@ type connectionSummaryOutput struct {
 }
 
 type listConnectionsOutput struct {
-	ConnectionSummaryList []connectionSummaryOutput `json:"ConnectionSummaryList"`
 	NextToken             string                    `json:"NextToken,omitempty"`
+	ConnectionSummaryList []connectionSummaryOutput `json:"ConnectionSummaryList"`
 }
 
 func (h *Handler) handleListConnections(
@@ -1022,9 +1022,9 @@ type traceConfigurationInput struct {
 }
 
 type createObservabilityConfigurationInput struct {
+	TraceConfiguration             *traceConfigurationInput `json:"TraceConfiguration"`
 	ObservabilityConfigurationName string                   `json:"ObservabilityConfigurationName"`
 	Tags                           []tagInput               `json:"Tags"`
-	TraceConfiguration             *traceConfigurationInput `json:"TraceConfiguration"`
 }
 
 type observabilityConfigurationOutput struct {
@@ -1144,8 +1144,8 @@ type observabilityConfigurationSummaryOutput struct {
 }
 
 type listObservabilityConfigurationsOutput struct {
-	ObservabilityConfigurationSummaryList []observabilityConfigurationSummaryOutput `json:"ObservabilityConfigurationSummaryList"` //nolint:golines
 	NextToken                             string                                    `json:"NextToken,omitempty"`
+	ObservabilityConfigurationSummaryList []observabilityConfigurationSummaryOutput `json:"ObservabilityConfigurationSummaryList"` //nolint:lll // existing issue.
 }
 
 func (h *Handler) handleListObservabilityConfigurations(
@@ -1193,10 +1193,10 @@ type vpcConnectorOutput struct {
 	VpcConnectorArn      string   `json:"VpcConnectorArn"`
 	VpcConnectorName     string   `json:"VpcConnectorName"`
 	Status               string   `json:"Status"`
-	VpcConnectorRevision int32    `json:"VpcConnectorRevision"`
 	Subnets              []string `json:"Subnets"`
 	SecurityGroups       []string `json:"SecurityGroups"`
 	CreatedAt            int64    `json:"CreatedAt"`
+	VpcConnectorRevision int32    `json:"VpcConnectorRevision"`
 }
 
 type createVpcConnectorOutput struct {
@@ -1299,8 +1299,8 @@ type listVpcConnectorsInput struct {
 }
 
 type listVpcConnectorsOutput struct {
-	VpcConnectors []vpcConnectorOutput `json:"VpcConnectors"`
 	NextToken     string               `json:"NextToken,omitempty"`
+	VpcConnectors []vpcConnectorOutput `json:"VpcConnectors"`
 }
 
 func (h *Handler) handleListVpcConnectors(
@@ -1464,8 +1464,8 @@ type vpcIngressConnectionSummaryOutput struct {
 }
 
 type listVpcIngressConnectionsOutput struct {
-	VpcIngressConnectionSummaryList []vpcIngressConnectionSummaryOutput `json:"VpcIngressConnectionSummaryList"`
 	NextToken                       string                              `json:"NextToken,omitempty"`
+	VpcIngressConnectionSummaryList []vpcIngressConnectionSummaryOutput `json:"VpcIngressConnectionSummaryList"`
 }
 
 func (h *Handler) handleListVpcIngressConnections(
@@ -1500,8 +1500,8 @@ func (h *Handler) handleListVpcIngressConnections(
 }
 
 type updateVpcIngressConnectionInput struct {
-	VpcIngressConnectionArn string                        `json:"VpcIngressConnectionArn"`
 	IngressVpcConfiguration *ingressVpcConfigurationInput `json:"IngressVpcConfiguration"`
+	VpcIngressConnectionArn string                        `json:"VpcIngressConnectionArn"`
 }
 
 type updateVpcIngressConnectionOutput struct {
@@ -1533,9 +1533,9 @@ func (h *Handler) handleUpdateVpcIngressConnection(
 // --- CustomDomain handler types and methods ---
 
 type associateCustomDomainInput struct {
+	EnableWWWSubdomain *bool  `json:"EnableWWWSubdomain"`
 	ServiceArn         string `json:"ServiceArn"`
 	DomainName         string `json:"DomainName"`
-	EnableWWWSubdomain *bool  `json:"EnableWWWSubdomain"`
 }
 
 type customDomainOutput struct {
@@ -1545,9 +1545,9 @@ type customDomainOutput struct {
 }
 
 type associateCustomDomainOutput struct {
-	CustomDomain customDomainOutput `json:"CustomDomain"`
 	DNSTarget    string             `json:"DNSTarget"`
 	ServiceArn   string             `json:"ServiceArn"`
+	CustomDomain customDomainOutput `json:"CustomDomain"`
 }
 
 func toCustomDomainOutput(cd *CustomDomain) customDomainOutput {
@@ -1593,9 +1593,9 @@ type disassociateCustomDomainInput struct {
 }
 
 type disassociateCustomDomainOutput struct {
-	CustomDomain customDomainOutput `json:"CustomDomain"`
 	DNSTarget    string             `json:"DNSTarget"`
 	ServiceArn   string             `json:"ServiceArn"`
+	CustomDomain customDomainOutput `json:"CustomDomain"`
 }
 
 func (h *Handler) handleDisassociateCustomDomain(
@@ -1629,11 +1629,11 @@ type describeCustomDomainsInput struct {
 }
 
 type describeCustomDomainsOutput struct {
-	CustomDomains []customDomainOutput `json:"CustomDomains"`
 	DNSTarget     string               `json:"DNSTarget"`
 	ServiceArn    string               `json:"ServiceArn"`
-	VpcDNSTargets []any                `json:"VpcDNSTargets"`
 	NextToken     string               `json:"NextToken,omitempty"`
+	CustomDomains []customDomainOutput `json:"CustomDomains"`
+	VpcDNSTargets []any                `json:"VpcDNSTargets"`
 }
 
 func (h *Handler) handleDescribeCustomDomains(

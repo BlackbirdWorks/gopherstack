@@ -394,25 +394,21 @@ type ExpenseJob struct {
 
 // InMemoryBackend is the in-memory store for Textract jobs.
 type InMemoryBackend struct {
-	jobs                   map[string]*DocumentJob
+	svcCtx                 context.Context
+	adapterClientTokenToID map[string]string
 	expenseJobs            map[string]*ExpenseJob
-	lendingJobs            map[string]*LendingJob
 	adapters               map[string]*Adapter
-	adapterVersions        map[string]*AdapterVersion // key: adapterId+"#"+version
-	clientTokenToJobID     map[string]string          // dedup: ClientRequestToken → JobID
-	adapterClientTokenToID map[string]string          // dedup: ClientRequestToken → AdapterID
+	adapterVersions        map[string]*AdapterVersion
+	clientTokenToJobID     map[string]string
+	jobs                   map[string]*DocumentJob
 	mu                     *lockmetrics.RWMutex
+	lendingJobs            map[string]*LendingJob
+	cancel                 context.CancelFunc
 	accountID              string
 	region                 string
+	wg                     sync.WaitGroup
+	asyncJobDelay          time.Duration
 	maxJobs                int
-	asyncJobDelay          time.Duration // how long before async jobs transition to SUCCEEDED
-
-	// svcCtx is the service lifecycle context. Delayed job-completion
-	// goroutines observe it so they are cancelled on server shutdown rather
-	// than firing after the backend has been discarded.
-	svcCtx context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -454,11 +450,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
 // can wait for it. A zero delay fires fn promptly (time.After(0) is immediate).
 func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Add(1)
-
-	go func() {
-		defer b.wg.Done()
-
+	b.wg.Go(func() {
 		select {
 		case <-b.svcCtx.Done():
 			return
@@ -466,7 +458,7 @@ func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
 		}
 
 		fn()
-	}()
+	})
 }
 
 // Shutdown cancels in-flight delayed job completions and waits for their
@@ -981,7 +973,8 @@ func buildQueryBlocks(queries *QueriesConfig, page int) []Block {
 			pages = []string{"1"}
 		}
 
-		blocks = append(blocks,
+		blocks = append(
+			blocks,
 			Block{
 				BlockType:  "QUERY",
 				ID:         queryID,

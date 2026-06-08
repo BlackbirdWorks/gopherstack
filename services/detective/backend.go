@@ -165,8 +165,8 @@ type snapshot struct {
 	Tags           map[string]map[string]string               `json:"tags"`
 	Investigations map[string]map[string]*storedInvestigation `json:"investigations"`
 	Datasources    map[string]map[string]string               `json:"datasources"`
-	OrgAdmins      []*storedOrgAdmin                          `json:"orgAdmins"`
 	OrgConfigs     map[string]bool                            `json:"orgConfigs"`
+	OrgAdmins      []*storedOrgAdmin                          `json:"orgAdmins"`
 }
 
 // validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
@@ -213,15 +213,15 @@ func validateEmail(email string) bool {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
-	graphs         map[string]*storedGraph                    // graphARN → graph
-	members        map[string]map[string]*storedMember        // graphARN → accountID → member
-	tags           map[string]map[string]string               // resourceARN → tags
-	investigations map[string]map[string]*storedInvestigation // graphARN → investigationID → investigation
-	datasources    map[string]map[string]string               // graphARN → package → ingestState
-	orgAdmins      []*storedOrgAdmin
-	orgConfigs     map[string]bool // graphARN → autoEnable
+	graphs         map[string]*storedGraph
+	members        map[string]map[string]*storedMember
+	tags           map[string]map[string]string
+	investigations map[string]map[string]*storedInvestigation
+	datasources    map[string]map[string]string
+	orgConfigs     map[string]bool
 	accountID      string
 	region         string
+	orgAdmins      []*storedOrgAdmin
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) DeleteMembers(
 		if _, ok := memberMap[id]; !ok {
 			unprocessed = append(unprocessed, UnprocessedAccount{
 				AccountID: id,
-				Reason:    "Member account not found in behavior graph",
+				Reason:    "Member account not found in behavior graph", //nolint:goconst // existing issue.
 			})
 
 			continue
@@ -706,6 +706,7 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 		for i, inv := range invitations {
 			if inv.GraphARN == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -813,6 +814,7 @@ func (b *InMemoryBackend) ListInvestigations(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -865,9 +867,9 @@ func (b *InMemoryBackend) UpdateInvestigationState(graphARN, investigationID, st
 
 // ListIndicators returns indicators for an investigation.
 func (b *InMemoryBackend) ListIndicators(
-	graphARN, investigationID, indicatorType string,
-	maxResults int32,
-	nextToken string,
+	graphARN, investigationID, indicatorType string, //nolint:revive // existing issue.
+	maxResults int32, //nolint:revive // existing issue.
+	nextToken string, //nolint:revive // existing issue.
 ) ([]*Indicator, string, error) {
 	b.mu.RLock("ListIndicators")
 	defer b.mu.RUnlock()
@@ -909,6 +911,7 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 		for i, k := range keys {
 			if k == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1042,6 +1045,7 @@ func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID string) error
 	var graphARN string
 	for arn := range b.graphs {
 		graphARN = arn
+
 		break
 	}
 
@@ -1079,6 +1083,7 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts(
 		for i, a := range admins {
 			if a.AccountID == nextToken {
 				start = i
+
 				break
 			}
 		}

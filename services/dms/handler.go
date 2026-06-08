@@ -844,7 +844,6 @@ func (h *Handler) handleCreateReplicationInstance(
 		ptrBool(in.PubliclyAccessible),
 		kv,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -879,7 +878,6 @@ func (h *Handler) handleDescribeReplicationInstances(
 	}
 
 	list, err := h.Backend.DescribeReplicationInstances(lookup)
-
 	if err != nil {
 		return nil, err
 	}
@@ -913,7 +911,6 @@ func (h *Handler) handleDeleteReplicationInstance(
 	arnOrID := ptrStr(in.ReplicationInstanceArn)
 	// Retrieve before deletion to return it in the response.
 	instances, err := h.Backend.DescribeReplicationInstances(arnOrID)
-
 	if err != nil {
 		// Try ARN lookup via delete directly.
 		if delErr := h.Backend.DeleteReplicationInstance(arnOrID); delErr != nil {
@@ -981,7 +978,6 @@ func (h *Handler) handleCreateEndpoint(
 		ptrInt32(in.Port),
 		kv,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1009,6 @@ func (h *Handler) handleDescribeEndpoints(
 	}
 
 	list, err := h.Backend.DescribeEndpoints(lookup)
-
 	if err != nil {
 		return nil, err
 	}
@@ -1109,7 +1104,6 @@ func (h *Handler) handleCreateReplicationTask(
 		ptrStr(in.ReplicationTaskSettings),
 		kv,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -1133,7 +1127,6 @@ func (h *Handler) handleDescribeReplicationTasks(
 ) (*describeReplicationTasksOutput, error) {
 	arnOrID := extractFilterValue(in.Filters, "replication-task-id", "replication-task-arn")
 	list, err := h.Backend.DescribeReplicationTasks(arnOrID)
-
 	if err != nil {
 		return nil, err
 	}

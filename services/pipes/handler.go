@@ -106,8 +106,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 }
 
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // GetSupportedOperations returns the list of supported Pipes operations.
 func (h *Handler) GetSupportedOperations() []string {

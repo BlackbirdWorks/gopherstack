@@ -159,7 +159,10 @@ func TestHandler_GetDocument_VersionedContent(t *testing.T) {
 	assert.Equal(t, "2", out2.DocumentVersion)
 
 	// $LATEST — should return the latest (version 2)
-	outLatest, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"})
+	outLatest, err := b.GetDocument(
+		context.TODO(),
+		&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, `{"v":2}`, outLatest.Content)
 

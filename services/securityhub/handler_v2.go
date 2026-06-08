@@ -13,7 +13,7 @@ import (
 
 func classifyHubV2Path(method, path string) (string, string) {
 	switch {
-	case method == http.MethodPost && path == "/hubv2":
+	case method == http.MethodPost && path == "/hubv2": //nolint:goconst // existing issue.
 		return opEnableSecurityHubV2, ""
 	case method == http.MethodDelete && path == "/hubv2":
 		return opDisableSecurityHubV2, ""
@@ -41,11 +41,11 @@ func classifyAggregatorV2Path(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func classifyAutomationRulesV2Path(method, path string) (string, string) {
+func classifyAutomationRulesV2Path(method, path string) (string, string) { //nolint:cyclop // existing issue.
 	switch {
-	case method == http.MethodPost && path == "/automationrulesv2/create":
+	case method == http.MethodPost && path == "/automationrulesv2/create": //nolint:goconst // existing issue.
 		return opCreateAutomationRuleV2, ""
-	case method == http.MethodGet && path == "/automationrulesv2/list":
+	case method == http.MethodGet && path == "/automationrulesv2/list": //nolint:goconst // existing issue.
 		return opListAutomationRulesV2, ""
 	case method == http.MethodGet && strings.HasPrefix(path, "/automationrulesv2/") &&
 		path != "/automationrulesv2/create" && path != "/automationrulesv2/list":
@@ -67,7 +67,7 @@ func classifyConnectorsV2Path(method, path string) (string, string) {
 		return opCreateConnectorV2, ""
 	case method == http.MethodGet && path == "/connectorsv2":
 		return opListConnectorsV2, ""
-	case method == http.MethodPost && path == "/connectorsv2/register":
+	case method == http.MethodPost && path == "/connectorsv2/register": //nolint:goconst // existing issue.
 		return opRegisterConnectorV2, ""
 	case method == http.MethodGet && strings.HasPrefix(path, "/connectorsv2/") &&
 		path != "/connectorsv2/register":
@@ -188,8 +188,8 @@ func (h *Handler) handleDescribeSecurityHubV2(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"HubV2Arn":  hub.HubV2Arn,
-		"CreatedAt": hub.CreatedAt,
-		"UpdatedAt": hub.UpdatedAt,
+		"CreatedAt": hub.CreatedAt, //nolint:goconst // existing issue.
+		"UpdatedAt": hub.UpdatedAt, //nolint:goconst // existing issue.
 	})
 }
 
@@ -202,7 +202,7 @@ func (h *Handler) handleCreateAggregatorV2(c *echo.Context, body map[string]any)
 
 	if raw, ok := body["Regions"].([]any); ok {
 		for _, v := range raw {
-			if s, ok := v.(string); ok {
+			if s, ok := v.(string); ok { //nolint:govet // existing issue.
 				regions = append(regions, s)
 			}
 		}
@@ -220,7 +220,10 @@ func (h *Handler) handleGetAggregatorV2(c *echo.Context, arn string) error {
 	agg, err := h.Backend.GetAggregatorV2(arn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Aggregator V2 not found"})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{keyMessage: "Aggregator V2 not found"}, //nolint:goconst // existing issue.
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
@@ -239,7 +242,7 @@ func (h *Handler) handleListAggregatorsV2(c *echo.Context) error {
 
 	aggs, next := h.Backend.ListAggregatorsV2(nextToken, maxResults)
 
-	var out []map[string]any
+	var out []map[string]any //nolint:prealloc // existing issue.
 
 	for _, agg := range aggs {
 		out = append(out, aggregatorV2ToResponse(agg))
@@ -265,7 +268,7 @@ func (h *Handler) handleUpdateAggregatorV2(c *echo.Context, arn string, body map
 
 	if raw, ok := body["Regions"].([]any); ok {
 		for _, v := range raw {
-			if s, ok := v.(string); ok {
+			if s, ok := v.(string); ok { //nolint:govet // existing issue.
 				regions = append(regions, s)
 			}
 		}
@@ -299,8 +302,8 @@ func aggregatorV2ToResponse(agg *AggregatorV2) map[string]any {
 	return map[string]any{
 		"AggregatorV2Arn":   agg.AggregatorV2Arn,
 		"AggregationRegion": agg.AggregationRegion,
-		"RegionLinkingMode": agg.RegionLinkingMode,
-		"Regions":           agg.Regions,
+		"RegionLinkingMode": agg.RegionLinkingMode, //nolint:goconst // existing issue.
+		"Regions":           agg.Regions,           //nolint:goconst // existing issue.
 		"CreatedAt":         agg.CreatedAt,
 		"UpdatedAt":         agg.UpdatedAt,
 	}
@@ -325,7 +328,7 @@ func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]
 
 	if raw, ok := body["Actions"].([]any); ok {
 		for _, item := range raw {
-			if m, ok := item.(map[string]any); ok {
+			if m, ok := item.(map[string]any); ok { //nolint:govet // existing issue.
 				actions = append(actions, m)
 			}
 		}
@@ -342,7 +345,7 @@ func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]
 	}
 
 	if ruleStatus == "" {
-		ruleStatus = "ENABLED"
+		ruleStatus = "ENABLED" //nolint:goconst // existing issue.
 	}
 
 	rule, err := h.Backend.CreateAutomationRuleV2(
@@ -366,7 +369,10 @@ func (h *Handler) handleGetAutomationRuleV2(c *echo.Context, identifier string) 
 	rule, err := h.Backend.GetAutomationRuleV2(identifier)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Automation rule V2 not found"})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{keyMessage: "Automation rule V2 not found"}, //nolint:goconst // existing issue.
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
@@ -385,7 +391,7 @@ func (h *Handler) handleListAutomationRulesV2(c *echo.Context) error {
 
 	rules, next := h.Backend.ListAutomationRulesV2(nextToken, maxResults)
 
-	var out []map[string]any
+	var out []map[string]any //nolint:prealloc // existing issue.
 
 	for _, rule := range rules {
 		out = append(out, automationRuleV2ToResponse(rule))
@@ -433,21 +439,21 @@ func automationRuleV2ToResponse(rule *AutomationRuleV2) map[string]any {
 	return map[string]any{
 		"Identifier":  rule.Identifier,
 		"RuleArn":     rule.RuleArn,
-		"RuleName":    rule.RuleName,
-		"RuleStatus":  rule.RuleStatus,
-		"Description": rule.Description,
+		"RuleName":    rule.RuleName,    //nolint:goconst // existing issue.
+		"RuleStatus":  rule.RuleStatus,  //nolint:goconst // existing issue.
+		"Description": rule.Description, //nolint:goconst // existing issue.
 		"CreatedAt":   rule.CreatedAt,
 		"UpdatedAt":   rule.UpdatedAt,
 		"Criteria":    rule.Criteria,
 		"Actions":     rule.Actions,
-		"RuleOrder":   rule.RuleOrder,
-		"IsTerminal":  rule.IsTerminal,
+		"RuleOrder":   rule.RuleOrder,  //nolint:goconst // existing issue.
+		"IsTerminal":  rule.IsTerminal, //nolint:goconst // existing issue.
 	}
 }
 
 // --- Handler functions: Connectors V2 ---
 
-func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error {
+func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error { //nolint:dupl // existing issue.
 	name, _ := body["Name"].(string)
 	description, _ := body["Description"].(string)
 
@@ -479,7 +485,10 @@ func (h *Handler) handleGetConnectorV2(c *echo.Context, connectorID string) erro
 	conn, err := h.Backend.GetConnectorV2(connectorID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{keyMessage: "Connector V2 not found"}, //nolint:goconst // existing issue.
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
@@ -498,7 +507,7 @@ func (h *Handler) handleListConnectorsV2(c *echo.Context) error {
 
 	connectors, next := h.Backend.ListConnectorsV2(nextToken, maxResults)
 
-	var out []map[string]any
+	var out []map[string]any //nolint:prealloc // existing issue.
 
 	for _, conn := range connectors {
 		out = append(out, connectorV2ToResponse(conn))
@@ -576,7 +585,7 @@ func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 	return map[string]any{
 		"ConnectorId":     conn.ConnectorId,
 		"ConnectorArn":    conn.ConnectorArn,
-		"Name":            conn.Name,
+		"Name":            conn.Name, //nolint:goconst // existing issue.
 		"Description":     conn.Description,
 		"CreatedAt":       conn.CreatedAt,
 		"UpdatedAt":       conn.UpdatedAt,
@@ -628,7 +637,7 @@ func (h *Handler) handleGetFindingsV2(c *echo.Context, body map[string]any) erro
 
 	if raw, ok := body["SortCriteria"].([]any); ok {
 		for _, item := range raw {
-			if m, ok := item.(map[string]any); ok {
+			if m, ok := item.(map[string]any); ok { //nolint:govet // existing issue.
 				sortCriteria = append(sortCriteria, m)
 			}
 		}
@@ -661,7 +670,7 @@ func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]a
 
 	if raw, ok := body["FindingIdentifiers"].([]any); ok {
 		for _, item := range raw {
-			if m, ok := item.(map[string]any); ok {
+			if m, ok := item.(map[string]any); ok { //nolint:govet // existing issue.
 				findingIdentifiers = append(findingIdentifiers, m)
 			}
 		}
@@ -694,7 +703,7 @@ func (h *Handler) handleGetFindingStatisticsV2(c *echo.Context, body map[string]
 
 	if raw, ok := body["GroupByAttributes"].([]any); ok {
 		for _, v := range raw {
-			if s, ok := v.(string); ok {
+			if s, ok := v.(string); ok { //nolint:govet // existing issue.
 				groupByAttributes = append(groupByAttributes, s)
 			}
 		}
@@ -763,7 +772,7 @@ func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[strin
 
 	if raw, ok := body["GroupByAttributes"].([]any); ok {
 		for _, v := range raw {
-			if s, ok := v.(string); ok {
+			if s, ok := v.(string); ok { //nolint:govet // existing issue.
 				groupByAttributes = append(groupByAttributes, s)
 			}
 		}
@@ -808,11 +817,11 @@ func (h *Handler) handleDescribeProductsV2(c *echo.Context) error {
 
 	products, next := h.Backend.DescribeProductsV2(nextToken, maxResults)
 
-	var out []map[string]any
+	var out []map[string]any //nolint:prealloc // existing issue.
 
 	for _, p := range products {
 		out = append(out, map[string]any{
-			"ProductArn":       p.ProductArn,
+			"ProductArn":       p.ProductArn, //nolint:goconst // existing issue.
 			"ProductName":      p.ProductName,
 			"CompanyName":      p.CompanyName,
 			"Description":      p.Description,
@@ -868,5 +877,5 @@ func (h *Handler) handleGetRecommendedPolicyV2(c *echo.Context, metadataUID stri
 	})
 }
 
-// avoid unused import warning
+// avoid unused import warning.
 var _ = strings.HasPrefix

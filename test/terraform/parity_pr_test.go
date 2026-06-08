@@ -61,7 +61,8 @@ func TestTerraform_S3_PublicAccessBlock_Ownership(t *testing.T) {
 			require.NoError(t, err, "GetBucketOwnershipControls should succeed")
 			require.NotNil(t, oc.OwnershipControls)
 			require.Len(t, oc.OwnershipControls.Rules, 1)
-			assert.Equal(t,
+			assert.Equal(
+				t,
 				s3types.ObjectOwnership("BucketOwnerEnforced"),
 				oc.OwnershipControls.Rules[0].ObjectOwnership,
 			)
@@ -107,7 +108,8 @@ func TestTerraform_S3_SSE_RoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, enc.ServerSideEncryptionConfiguration)
 			require.NotEmpty(t, enc.ServerSideEncryptionConfiguration.Rules)
-			assert.Equal(t,
+			assert.Equal(
+				t,
 				s3types.ServerSideEncryption("AES256"),
 				enc.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm,
 			)
@@ -211,7 +213,8 @@ func TestTerraform_S3_Logging(t *testing.T) {
 			defer logOut.Body.Close()
 			body, _ := io.ReadAll(logOut.Body)
 			assert.Contains(t, string(body), source, "log line must reference the source bucket")
-			assert.True(t,
+			assert.True(
+				t,
 				strings.Contains(string(body), "REST.GET.OBJECT") ||
 					strings.Contains(string(body), "REST.PUT.OBJECT"),
 				"log line must record at least one of our operations",
@@ -341,7 +344,8 @@ func TestTerraform_DDB_PITR_SSE(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, cb.ContinuousBackupsDescription)
 			require.NotNil(t, cb.ContinuousBackupsDescription.PointInTimeRecoveryDescription)
-			assert.Equal(t,
+			assert.Equal(
+				t,
 				ddbtypes.PointInTimeRecoveryStatusEnabled,
 				cb.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus,
 			)

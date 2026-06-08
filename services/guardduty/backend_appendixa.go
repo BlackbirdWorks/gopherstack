@@ -32,6 +32,7 @@ var (
 
 // Member represents a GuardDuty member account.
 type Member struct {
+	UpdatedAt          time.Time `json:"updatedAt"`
 	AccountID          string    `json:"accountId"`
 	AdministratorID    string    `json:"administratorId"`
 	MasterID           string    `json:"masterId"`
@@ -39,7 +40,6 @@ type Member struct {
 	Email              string    `json:"email"`
 	RelationshipStatus string    `json:"relationshipStatus"`
 	InvitedAt          string    `json:"invitedAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 // Invitation represents a pending GuardDuty invitation.
@@ -96,7 +96,7 @@ type DestinationProperties struct {
 }
 
 // MalwareScan represents a GuardDuty malware scan result.
-type MalwareScan struct { //nolint:govet // fieldalignment: time.Time fields after strings
+type MalwareScan struct {
 	ScanID          string         `json:"scanId"`
 	DetectorID      string         `json:"detectorId"`
 	AccountID       string         `json:"accountId"`
@@ -111,8 +111,8 @@ type MalwareScan struct { //nolint:govet // fieldalignment: time.Time fields aft
 
 // MalwareScanSettings holds malware scan configuration for a detector.
 type MalwareScanSettings struct {
-	EbsSnapshotPreservation string         `json:"ebsSnapshotPreservation"`
 	ScanResourceCriteria    map[string]any `json:"scanResourceCriteria"`
+	EbsSnapshotPreservation string         `json:"ebsSnapshotPreservation"`
 }
 
 // MalwareProtectionPlan represents a malware protection plan.
@@ -172,8 +172,8 @@ func (b *InMemoryBackend) CreateMembers(
 	if _, ok := b.detectors[detectorID]; !ok {
 		for _, acc := range accountDetails {
 			unprocessed = append(unprocessed, map[string]any{
-				"accountId": acc["accountId"],
-				"result":    "DetectorNotFound",
+				"accountId": acc["accountId"],   //nolint:goconst // existing issue.
+				"result":    "DetectorNotFound", //nolint:goconst // existing issue.
 			})
 		}
 
@@ -233,7 +233,7 @@ func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) 
 		for _, id := range accountIDs {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": id,
-				"result":    "ResourceNotFoundException",
+				"result":    "ResourceNotFoundException", //nolint:goconst // existing issue.
 			})
 		}
 
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) ListMembers(detectorID string, onlyAssociated bool) ([
 	var all []*Member
 
 	for _, m := range b.members[detectorID] {
-		if onlyAssociated && m.RelationshipStatus != "Enabled" {
+		if onlyAssociated && m.RelationshipStatus != "Enabled" { //nolint:goconst // existing issue.
 			continue
 		}
 
@@ -428,8 +428,8 @@ func (b *InMemoryBackend) GetMemberDetectors(
 			if m, ok := b.members[detectorID][id]; ok {
 				memberDetails = append(memberDetails, map[string]any{
 					"accountId":  m.AccountID,
-					"detectorId": m.DetectorID,
-					"features":   []any{},
+					"detectorId": m.DetectorID, //nolint:goconst // existing issue.
+					"features":   []any{},      //nolint:goconst // existing issue.
 				})
 
 				continue
@@ -1000,10 +1000,10 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string) (map[stri
 				"accountId":              b.accountID,
 				"dataSources":            map[string]any{},
 				"features":               []any{},
-				"freeTrialDaysRemaining": 30,
+				"freeTrialDaysRemaining": 30, //nolint:mnd // existing issue.
 			},
 		},
-		"unprocessedAccounts": []any{},
+		"unprocessedAccounts": []any{}, //nolint:goconst // existing issue.
 	}, nil
 }
 
@@ -1151,7 +1151,9 @@ func (b *InMemoryBackend) UpdateMalwareProtectionPlan(
 }
 
 // SendObjectMalwareScan initiates a malware scan on an S3 object.
-func (b *InMemoryBackend) SendObjectMalwareScan(s3ObjectDetails map[string]any) (string, error) {
+func (b *InMemoryBackend) SendObjectMalwareScan(
+	s3ObjectDetails map[string]any, //nolint:revive // existing issue.
+) (string, error) {
 	b.mu.Lock("SendObjectMalwareScan")
 	defer b.mu.Unlock()
 

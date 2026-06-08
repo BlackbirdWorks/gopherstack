@@ -17,12 +17,8 @@ func TestBackendShutdown(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		// build returns a backend and a started job name, or empty for no run.
-		build func(t *testing.T) (*databrew.InMemoryBackend, string)
-		// expectSucceeded is whether the run should reach SUCCEEDED after
-		// Shutdown returns. When Shutdown cancels before the transition delay
-		// elapses, the run stays in STARTING.
+		build           func(t *testing.T) (*databrew.InMemoryBackend, string)
+		name            string
 		expectSucceeded bool
 	}{
 		{

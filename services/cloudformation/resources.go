@@ -67,8 +67,6 @@ import (
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
-const ()
-
 // ServiceBackends holds references to all service backends.
 type ServiceBackends struct {
 	DynamoDB        *ddbbackend.DynamoDBHandler
@@ -1787,7 +1785,13 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 		smType = "STANDARD"
 	}
 
-	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(context.Background(), name, definition, roleArn, smType)
+	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(
+		context.Background(),
+		name,
+		definition,
+		roleArn,
+		smType,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create StepFunctions state machine: %w", err)
 	}
@@ -1911,7 +1915,10 @@ func (r *serviceBackendsResolver) ResolveSSMSecureParameter(name string) (string
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
-	out, err := r.ssm.Backend.GetParameter(context.Background(), &ssmbackend.GetParameterInput{Name: name, WithDecryption: true})
+	out, err := r.ssm.Backend.GetParameter(
+		context.Background(),
+		&ssmbackend.GetParameterInput{Name: name, WithDecryption: true},
+	)
 	if err != nil {
 		return "", err
 	}

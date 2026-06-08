@@ -8,8 +8,6 @@ import (
 	io_prometheus_client "github.com/prometheus/client_model/go"
 )
 
-const ()
-
 const (
 	msPerSecond = 1000.0
 	p50Divisor  = 2

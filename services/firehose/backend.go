@@ -683,7 +683,11 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 }
 
 // UpdateDestination updates the S3 destination configuration of an existing stream.
-func (b *InMemoryBackend) UpdateDestination(ctx context.Context, streamName, currentVersionID string, dest *S3DestinationDescription) error {
+func (b *InMemoryBackend) UpdateDestination(
+	ctx context.Context,
+	streamName, currentVersionID string,
+	dest *S3DestinationDescription,
+) error {
 	b.mu.Lock("UpdateDestination")
 	defer b.mu.Unlock()
 
@@ -1502,8 +1506,10 @@ const redshiftRetryDuration = 7200 * time.Second
 // redshiftHostParts is the SplitN limit for extracting cluster ID from JDBC host.
 const redshiftHostParts = 2
 
-const redshiftBackoffInitial = 2 * time.Second
-const redshiftBackoffMax = 60 * time.Second
+const (
+	redshiftBackoffInitial = 2 * time.Second
+	redshiftBackoffMax     = 60 * time.Second
+)
 
 // buildRedshiftInsertSQL constructs a batch INSERT SQL statement for Redshift delivery.
 // Returns the SQL string and true, or ("", false) when records is empty.

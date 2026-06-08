@@ -64,10 +64,10 @@ func (r *Runner) runOne(ctx context.Context, script string) {
 	}
 
 	out, err := cmd.CombinedOutput()
-
 	if err != nil {
 		if r.log != nil {
-			r.log.ErrorContext(scriptCtx, "init hook: script failed",
+			r.log.ErrorContext(
+				scriptCtx, "init hook: script failed",
 				"script", script,
 				"error", err,
 				"output", string(out),

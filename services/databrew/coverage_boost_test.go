@@ -40,7 +40,7 @@ func TestHandlerReset(t *testing.T) {
 func TestHandlerStartWorker(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	require.NoError(t, h.StartWorker(nil))
+	require.NoError(t, h.StartWorker(nil)) //nolint:staticcheck // existing issue.
 }
 
 func TestHandlerRouteMatcher(t *testing.T) {
@@ -57,7 +57,6 @@ func TestHandlerRouteMatcher(t *testing.T) {
 	h := newTestHandler()
 	matcher := h.RouteMatcher()
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 			req, _ := http.NewRequest(http.MethodGet, tc.path, nil)
@@ -72,7 +71,7 @@ func TestHandlerRouteMatcher(t *testing.T) {
 func TestHandlerMatchPriority(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	assert.Greater(t, h.MatchPriority(), 0)
+	assert.Positive(t, h.MatchPriority())
 }
 
 func TestHandlerExtractOperation(t *testing.T) {
@@ -90,7 +89,6 @@ func TestHandlerExtractOperation(t *testing.T) {
 		{"unknown", http.MethodGet, "/other", "Unknown"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
@@ -109,7 +107,13 @@ func TestCreateRuleset_Success(t *testing.T) {
 	rules := []databrew.Rule{
 		{Name: "rule1", CheckExpression: "ROWCOUNT > 0"},
 	}
-	rs, err := b.CreateRuleset("my-ruleset", "desc", "arn:aws:glue:us-east-1:123456789012:table/db/tbl", rules, map[string]string{"env": "test"})
+	rs, err := b.CreateRuleset(
+		"my-ruleset",
+		"desc",
+		"arn:aws:glue:us-east-1:123456789012:table/db/tbl",
+		rules,
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-ruleset", rs.Name)
 	assert.Equal(t, "desc", rs.Description)
@@ -223,7 +227,12 @@ func TestDeleteRuleset_NotFound(t *testing.T) {
 func TestCreateSchedule_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	sc, err := b.CreateSchedule("my-schedule", []string{"job1", "job2"}, "cron(0 12 * * ? *)", map[string]string{"env": "prod"})
+	sc, err := b.CreateSchedule(
+		"my-schedule",
+		[]string{"job1", "job2"},
+		"cron(0 12 * * ? *)",
+		map[string]string{"env": "prod"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-schedule", sc.Name)
 	assert.Equal(t, "cron(0 12 * * ? *)", sc.CronExpression)
@@ -339,6 +348,7 @@ func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 	// Wait for the async transition.
 	require.Eventually(t, func() bool {
 		runs, _, listErr := b.ListJobRuns("stop-j2", 100, "")
+
 		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
 	}, 3*time.Second, 25*time.Millisecond)
 	// Stopping a SUCCEEDED run should be a no-op (returns the run).
@@ -401,7 +411,13 @@ func TestDescribeJobRun_RunIDNotFound(t *testing.T) {
 func TestFindTagsByArn_Dataset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	ds, err := b.CreateDataset("tagged-ds", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, map[string]string{"k": "v"})
+	ds, err := b.CreateDataset(
+		"tagged-ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 	tags, err := b.FindTagsByArn(ds.Arn)
 	require.NoError(t, err)
@@ -468,7 +484,13 @@ func TestFindTagsByArn_NotFound(t *testing.T) {
 func TestUpdateTagsByArn_AddAndRemove_Dataset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	ds, err := b.CreateDataset("tag-upd-ds", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, map[string]string{"old": "val"})
+	ds, err := b.CreateDataset(
+		"tag-upd-ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		map[string]string{"old": "val"},
+	)
 	require.NoError(t, err)
 	err = b.UpdateTagsByArn(ds.Arn, map[string]string{"new": "tag"}, []string{"old"})
 	require.NoError(t, err)
@@ -541,7 +563,11 @@ func TestUpdateTagsByArn_Schedule(t *testing.T) {
 func TestUpdateTagsByArn_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.UpdateTagsByArn("arn:aws:databrew:us-east-1:123456789012:dataset/nonexistent", map[string]string{"k": "v"}, nil)
+	err := b.UpdateTagsByArn(
+		"arn:aws:databrew:us-east-1:123456789012:dataset/nonexistent",
+		map[string]string{"k": "v"},
+		nil,
+	)
 	require.Error(t, err)
 }
 
@@ -817,7 +843,13 @@ func TestHandlerTagResource(t *testing.T) {
 func TestHandlerListTagsForResource(t *testing.T) {
 	t.Parallel()
 	b := databrew.NewInMemoryBackend("123456789012", "us-east-1")
-	ds, err := b.CreateDataset("list-tag-ds", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, map[string]string{"k": "v"})
+	ds, err := b.CreateDataset(
+		"list-tag-ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 
 	h := databrew.NewHandler(b)
@@ -831,7 +863,13 @@ func TestHandlerListTagsForResource(t *testing.T) {
 func TestHandlerUntagResource(t *testing.T) {
 	t.Parallel()
 	b := databrew.NewInMemoryBackend("123456789012", "us-east-1")
-	ds, err := b.CreateDataset("untag-ds", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, map[string]string{"remove-me": "yes"})
+	ds, err := b.CreateDataset(
+		"untag-ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		map[string]string{"remove-me": "yes"},
+	)
 	require.NoError(t, err)
 
 	h := databrew.NewHandler(b)
@@ -901,9 +939,15 @@ func TestHandlerSendProjectSessionAction(t *testing.T) {
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
 		"Name": "action-proj", "RecipeName": "r1",
 	})
-	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/action-proj/sendProjectSessionAction", map[string]any{
-		"Action": map[string]any{"Operation": "TRIM"},
-	})
+	rec := databrewReq(
+		t,
+		h,
+		http.MethodPut,
+		"/databrew/v1/projects/action-proj/sendProjectSessionAction",
+		map[string]any{
+			"Action": map[string]any{"Operation": "TRIM"},
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

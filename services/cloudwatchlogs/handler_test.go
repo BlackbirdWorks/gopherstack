@@ -466,7 +466,8 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
-				doLogsRequest(t, h, e, "PutSubscriptionFilter",
+				doLogsRequest(
+					t, h, e, "PutSubscriptionFilter",
 					`{"logGroupName":"sub-grp","filterName":"f1","filterPattern":"",`+
 						`"destinationArn":"arn:aws:lambda:us-east-1:123456789012:function:a"}`,
 				)
@@ -488,7 +489,8 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
-				doLogsRequest(t, h, e, "PutSubscriptionFilter",
+				doLogsRequest(
+					t, h, e, "PutSubscriptionFilter",
 					`{"logGroupName":"sub-grp","filterName":"f1","filterPattern":"",`+
 						`"destinationArn":"arn:aws:lambda:us-east-1:123456789012:function:a"}`,
 				)

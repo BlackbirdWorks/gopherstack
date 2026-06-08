@@ -31,6 +31,7 @@ func bucketNameFromARN(arn string) string {
 	if len(parts) == s3ARNParts {
 		return parts[5]
 	}
+
 	return arn
 }
 
@@ -56,6 +57,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 	var cfg ReplicationConfiguration
 	if xmlErr := xml.Unmarshal([]byte(cfgXML), &cfg); xmlErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "replication: failed to parse config", "bucket", bucketName, "error", xmlErr)
+
 		return
 	}
 
@@ -67,6 +69,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 	if getErr != nil {
 		logger.Load(ctx).
 			WarnContext(ctx, "replication: source GetObject failed", "bucket", bucketName, "key", key, "error", getErr)
+
 		return
 	}
 	defer getOut.Body.Close()
@@ -74,6 +77,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 	data, readErr := io.ReadAll(getOut.Body)
 	if readErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "replication: read source body failed", "error", readErr)
+
 		return
 	}
 

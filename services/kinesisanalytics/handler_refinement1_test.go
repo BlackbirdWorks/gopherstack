@@ -738,7 +738,8 @@ func TestRefinement1_DeepCopyInput(t *testing.T) {
 	app3.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessor.ResourceARN = "mutated"
 
 	app4, _ := b.DescribeApplication("dc-input-app")
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		"arn:aws:lambda:us-east-1:000:function:fn",
 		app4.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessor.ResourceARN,
 	)

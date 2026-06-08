@@ -35,7 +35,8 @@ func TestAccuracy_InvokeModel_MultipleModelFamilies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/invoke",
 				map[string]any{"prompt": "Hello"},
 			)
@@ -111,7 +112,8 @@ func TestAccuracy_Converse_WithSystemMessages(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
+			rec := doRequest(
+				t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
 				map[string]any{
 					"messages": []map[string]any{
 						{"role": "user", "content": []map[string]any{{"type": "text", "text": "Hi"}}},
@@ -134,7 +136,8 @@ func TestAccuracy_Converse_StopReasonEndTurn(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
 		map[string]any{
 			"messages": []map[string]any{
 				{"role": "user", "content": []map[string]any{{"type": "text", "text": "Tell me a joke"}}},
@@ -176,7 +179,8 @@ func TestAccuracy_CountTokens_MultipleModelFamilies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/count-tokens",
 				map[string]any{"prompt": tt.text},
 			)
@@ -294,7 +298,8 @@ func TestAccuracy_ApplyGuardrail_ResponseShape(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/guardrail/g-001/version/1/apply",
+			rec := doRequest(
+				t, h, http.MethodPost, "/guardrail/g-001/version/1/apply",
 				map[string]any{"content": tt.content, "source": "INPUT"},
 			)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -331,7 +336,8 @@ func TestAccuracy_ApplyGuardrail_OutputsMirrorInput(t *testing.T) {
 			}
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/guardrail/g-001/version/1/apply",
+			rec := doRequest(
+				t, h, http.MethodPost, "/guardrail/g-001/version/1/apply",
 				map[string]any{"content": content, "source": "OUTPUT"},
 			)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -394,7 +400,8 @@ func TestAccuracy_ListAsyncInvokes_AfterCreate(t *testing.T) {
 			h := newTestHandler(t)
 
 			for i, s3URL := range tt.invokeURLs {
-				rec := doRequest(t, h, http.MethodPost, "/async-invoke",
+				rec := doRequest(
+					t, h, http.MethodPost, "/async-invoke",
 					map[string]any{
 						"modelId": "anthropic.claude-v2",
 						"outputDataConfig": map[string]any{
@@ -452,7 +459,8 @@ func TestAccuracy_AsyncInvoke_GetResponseShape(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			recCreate := doRequest(t, h, http.MethodPost, "/async-invoke",
+			recCreate := doRequest(
+				t, h, http.MethodPost, "/async-invoke",
 				map[string]any{
 					"modelId": tt.modelID,
 					"outputDataConfig": map[string]any{
@@ -553,7 +561,8 @@ func TestAccuracy_InvokeModelWithResponseStream_ContentType(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/invoke-with-response-stream",
 				map[string]any{"prompt": "stream this"},
 			)
@@ -579,7 +588,8 @@ func TestAccuracy_ConverseStream_ContentType(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/converse-stream",
 				map[string]any{
 					"messages": []map[string]any{

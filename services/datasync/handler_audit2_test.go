@@ -97,7 +97,7 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			rec := doRequest(t, h, "UpdateTaskExecution", tc.body)
+			rec := doRequest(t, h, "UpdateTaskExecution", tc.body) //nolint:govet // existing issue.
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}

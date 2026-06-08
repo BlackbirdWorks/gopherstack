@@ -841,7 +841,8 @@ func TestAgentsHandler_IngestionJobLifecycle(t *testing.T) {
 	dsID := ds.DataSourceID
 
 	// Start ingestion job.
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "test ingestion"},
 	)
@@ -855,13 +856,15 @@ func TestAgentsHandler_IngestionJobLifecycle(t *testing.T) {
 	assert.Equal(t, "STARTING", job["status"])
 
 	// Get ingestion job.
-	rec2 := doAgentRequest(t, h, http.MethodGet,
+	rec2 := doAgentRequest(
+		t, h, http.MethodGet,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs/%s", kbID, dsID, jobID), nil,
 	)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	// List ingestion jobs.
-	rec3 := doAgentRequest(t, h, http.MethodGet,
+	rec3 := doAgentRequest(
+		t, h, http.MethodGet,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID), nil,
 	)
 	assert.Equal(t, http.StatusOK, rec3.Code)
@@ -931,7 +934,8 @@ func TestAgentsHandler_AgentKBAssociationLifecycle(t *testing.T) {
 	kbID := kb.KnowledgeBaseID
 
 	// Associate KB with agent.
-	rec := doAgentRequest(t, h, http.MethodPut,
+	rec := doAgentRequest(
+		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID),
 		map[string]any{
 			"knowledgeBaseId": kbID,
@@ -945,7 +949,8 @@ func TestAgentsHandler_AgentKBAssociationLifecycle(t *testing.T) {
 	assert.NotNil(t, assocOut["agentKnowledgeBase"])
 
 	// List KB associations.
-	rec2 := doAgentRequest(t, h, http.MethodGet,
+	rec2 := doAgentRequest(
+		t, h, http.MethodGet,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID), nil,
 	)
 	assert.Equal(t, http.StatusOK, rec2.Code)
@@ -955,7 +960,8 @@ func TestAgentsHandler_AgentKBAssociationLifecycle(t *testing.T) {
 	assert.Len(t, listOut["agentKnowledgeBaseSummaries"].([]any), 1)
 
 	// Get specific KB association.
-	rec3 := doAgentRequest(t, h, http.MethodGet,
+	rec3 := doAgentRequest(
+		t, h, http.MethodGet,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases/%s", agentID, kbID), nil,
 	)
 	assert.Equal(t, http.StatusOK, rec3.Code)
@@ -973,7 +979,8 @@ func TestAgentsHandler_AgentKBAssociationLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, recDel.Code)
 
 	// Now list should be empty.
-	rec5 := doAgentRequest(t, h, http.MethodGet,
+	rec5 := doAgentRequest(
+		t, h, http.MethodGet,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID), nil,
 	)
 	assert.Equal(t, http.StatusOK, rec5.Code)
@@ -990,7 +997,8 @@ func TestAgentsHandler_AgentKBAssociation_AgentNotFound(t *testing.T) {
 	kb, err := b.CreateKnowledgeBase("notfound-assoc-kb", "", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	rec := doAgentRequest(t, h, http.MethodPut,
+	rec := doAgentRequest(
+		t, h, http.MethodPut,
 		"/agents/nonexistent/agentversions/DRAFT/knowledgebases",
 		map[string]any{"knowledgeBaseId": kb.KnowledgeBaseID},
 	)
@@ -1004,7 +1012,8 @@ func TestAgentsHandler_AgentKBAssociation_KBNotFound(t *testing.T) {
 	ag, err := b.CreateAgent("kbnotfound-agent", "", "", "", nil)
 	require.NoError(t, err)
 
-	rec := doAgentRequest(t, h, http.MethodPut,
+	rec := doAgentRequest(
+		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", ag.AgentID),
 		map[string]any{"knowledgeBaseId": "nonexistent-kb"},
 	)

@@ -100,8 +100,10 @@ const (
 	iteratorTTL = 300 * time.Second
 )
 
-const streamModeProvisioned = StreamModeProvisioned
-const streamModeOnDemand = StreamModeOnDemand
+const (
+	streamModeProvisioned = StreamModeProvisioned
+	streamModeOnDemand    = StreamModeOnDemand
+)
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {

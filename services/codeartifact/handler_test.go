@@ -1315,7 +1315,8 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=copy-domain&repository=dst-repo", nil)
 
 	// Seed a version in src-repo.
-	doRequest(t, h, http.MethodGet,
+	doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=copy-domain&repository=src-repo&format=pypi&package=boto3&version=1.26.0",
 		nil,
 	)
@@ -1337,7 +1338,8 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	assert.Equal(t, "9.9.9", failedEntry["version"])
 
 	// Verify the copied version is now accessible in dst-repo.
-	descRec := doRequest(t, h, http.MethodGet,
+	descRec := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=copy-domain&repository=dst-repo&format=pypi&package=boto3&version=1.26.0",
 		nil,
 	)
@@ -2230,12 +2232,14 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=disp-st-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=disp-st-domain&repository=disp-st-repo", nil)
-	doRequest(t, h, http.MethodGet,
+	doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg&version=1.0.0",
 		nil,
 	)
 
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions/dispose?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg",
 		map[string]any{"versions": []string{"1.0.0", "9.9.9"}},
 	)
@@ -2248,7 +2252,8 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	assert.Equal(t, "NOT_FOUND", success["9.9.9"])
 
 	// Verify status changed to Disposed.
-	descRec := doRequest(t, h, http.MethodGet,
+	descRec := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=disp-st-domain&repository=disp-st-repo&format=npm&package=pkg&version=1.0.0",
 		nil,
 	)
@@ -2265,19 +2270,22 @@ func TestHandler_UpdatePackageVersionsStatus_StatusChange(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=uvs-st-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=uvs-st-domain&repository=uvs-st-repo", nil)
-	doRequest(t, h, http.MethodGet,
+	doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react&version=18.0.0",
 		nil,
 	)
 
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions/update_status?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react",
 		map[string]any{"targetStatus": "Archived", "versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify status changed.
-	descRec := doRequest(t, h, http.MethodGet,
+	descRec := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=uvs-st-domain&repository=uvs-st-repo&format=npm&package=react&version=18.0.0",
 		nil,
 	)
@@ -2293,11 +2301,13 @@ func TestHandler_UpdateRepository_DescriptionPersists(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=ur-desc-domain", nil)
-	doRequest(t, h, http.MethodPost, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
+	doRequest(
+		t, h, http.MethodPost, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
 		map[string]any{"description": "original"},
 	)
 
-	rec := doRequest(t, h, http.MethodPut, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
+	rec := doRequest(
+		t, h, http.MethodPut, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo",
 		map[string]any{"description": "updated"},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -2334,7 +2344,8 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 		nil,
 	)
 
-	listRec := doRequest(t, h, http.MethodPost,
+	listRec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions?domain=pub-list-domain&repository=pub-list-repo&format=npm&package=react",
 		nil,
 	)
@@ -2396,7 +2407,8 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	assert.Equal(t, "Published", pubResp["status"])
 
 	// Describe version.
-	descRec := doRequest(t, h, http.MethodGet,
+	descRec := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
 		nil,
 	)
@@ -2407,14 +2419,16 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	assert.Equal(t, "Published", pv["status"])
 
 	// Archive version.
-	archRec := doRequest(t, h, http.MethodPost,
+	archRec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions/update_status?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
 		map[string]any{"targetStatus": "Archived", "versions": []string{"1.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, archRec.Code)
 
 	// Verify archived.
-	descRec2 := doRequest(t, h, http.MethodGet,
+	descRec2 := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
 		nil,
 	)
@@ -2425,14 +2439,16 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	assert.Equal(t, "Archived", pv2["status"])
 
 	// Dispose version.
-	dispRec := doRequest(t, h, http.MethodPost,
+	dispRec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions/dispose?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
 		map[string]any{"versions": []string{"1.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, dispRec.Code)
 
 	// Verify disposed.
-	descRec3 := doRequest(t, h, http.MethodGet,
+	descRec3 := doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
 		nil,
 	)
@@ -2443,14 +2459,16 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	assert.Equal(t, "Disposed", pv3["status"])
 
 	// Delete version.
-	delRec := doRequest(t, h, http.MethodPost,
+	delRec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions/delete?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
 		map[string]any{"versions": []string{"1.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	// Verify gone from list.
-	listRec := doRequest(t, h, http.MethodPost,
+	listRec := doRequest(
+		t, h, http.MethodPost,
 		"/v1/package/versions?domain=lifecycle-domain&repository=lifecycle-repo&format=npm&package=mylib",
 		nil,
 	)
@@ -2514,7 +2532,8 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 		{"pypi", "boto3", "1.28.0"},
 		{"maven", "spring-boot", "3.0.0"},
 	} {
-		doRequest(t, h, http.MethodPost,
+		doRequest(
+			t, h, http.MethodPost,
 			"/v1/package/versions/publish?domain=fmt-multi-domain&repository=fmt-multi-repo&format="+
 				tc.format+"&package="+tc.pkg+"&version="+tc.version,
 			nil,
@@ -2578,7 +2597,8 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 	}
 
 	// Verify 3 connections via DescribeRepository.
-	descRec := doRequest(t, h, http.MethodGet,
+	descRec := doRequest(
+		t, h, http.MethodGet,
 		"/v1/repository?domain=multi-conn-domain&repository=multi-conn-repo",
 		nil,
 	)
@@ -2656,7 +2676,8 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 	setupRepo(t, h, "self-copy-domain", "dst")
 
 	// Seed version in src.
-	doRequest(t, h, http.MethodGet,
+	doRequest(
+		t, h, http.MethodGet,
 		"/v1/package/version?domain=self-copy-domain&repository=src&format=npm&package=react&version=18.0.0",
 		nil,
 	)

@@ -154,7 +154,8 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 	h := newHandler()
 
 	// Create launch template via handler.
-	ltRec := postForm(t, h,
+	ltRec := postForm(
+		t, h,
 		"Action=CreateLaunchTemplate&Version=2016-11-15"+
 			"&LaunchTemplateName=my-lt"+
 			"&LaunchTemplateData.ImageId=ami-123"+
@@ -323,7 +324,8 @@ func TestNetworking1_Handler_DhcpOptions(t *testing.T) {
 
 	h := newHandler()
 
-	createRec := postForm(t, h,
+	createRec := postForm(
+		t, h,
 		"Action=CreateDhcpOptions&Version=2016-11-15"+
 			"&DhcpConfiguration.1.Key=domain-name&DhcpConfiguration.1.Value.1=example.com",
 	)
@@ -457,7 +459,8 @@ func TestNetworking1_Handler_VpcEndpointServiceConfigOps(t *testing.T) {
 	h := newHandler()
 
 	// Create.
-	createRec := postForm(t, h,
+	createRec := postForm(
+		t, h,
 		"Action=CreateVpcEndpointServiceConfiguration&Version=2016-11-15"+
 			"&AcceptanceRequired=false&NetworkLoadBalancerArn.1=arn:aws:elasticloadbalancing::nlb/my-nlb",
 	)
@@ -553,7 +556,8 @@ func TestNetworking1_Handler_IamInstanceProfile(t *testing.T) {
 	h := newHandler()
 
 	// Run an instance first.
-	runRec := postForm(t, h,
+	runRec := postForm(
+		t, h,
 		"Action=RunInstances&Version=2016-11-15"+
 			"&ImageId=ami-123&InstanceType=t2.micro&MinCount=1&MaxCount=1",
 	)

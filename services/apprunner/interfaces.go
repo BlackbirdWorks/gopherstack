@@ -157,11 +157,11 @@ type ObservabilityConfigurationSummary struct {
 type VpcConnector struct {
 	CreatedAt            time.Time
 	DeletedAt            time.Time
-	SecurityGroups       []string
-	Subnets              []string
 	VpcConnectorArn      string
 	VpcConnectorName     string
 	Status               string
+	SecurityGroups       []string
+	Subnets              []string
 	VpcConnectorRevision int32
 }
 

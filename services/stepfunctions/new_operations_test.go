@@ -298,7 +298,13 @@ func TestStartSyncExecution(t *testing.T) {
 
 			var smARN string
 			if !errors.Is(tt.errIs, stepfunctions.ErrStateMachineDoesNotExist) {
-				sm, smErr := b.CreateStateMachine(context.Background(), "sync-sm-"+tt.name, tt.definition, "arn:role", tt.smType)
+				sm, smErr := b.CreateStateMachine(
+					context.Background(),
+					"sync-sm-"+tt.name,
+					tt.definition,
+					"arn:role",
+					tt.smType,
+				)
 				require.NoError(t, smErr)
 				smARN = sm.StateMachineArn
 			} else {

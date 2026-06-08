@@ -168,10 +168,12 @@ type ExecutionResult struct {
 	Cause  string
 }
 
-const maxConcurrentSubExecutors = 64
-const maxJSONPathCacheEntries = int64(4096)
-const maxRetryDelay = 24 * time.Hour
-const maxCacheStoreCASAttempts = 128
+const (
+	maxConcurrentSubExecutors = 64
+	maxJSONPathCacheEntries   = int64(4096)
+	maxRetryDelay             = 24 * time.Hour
+	maxCacheStoreCASAttempts  = 128
+)
 
 type jsonPathCache struct {
 	entries    sync.Map
@@ -1444,7 +1446,6 @@ func (e *Executor) runParallelBranch(
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
 	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
 	res, err := exec.Execute(ctx, executionARN, marshalInput(input))
-
 	if err != nil {
 		errs[idx] = err
 

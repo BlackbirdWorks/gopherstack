@@ -1365,7 +1365,8 @@ func TestInMemoryBackend_Refinement2_RandomAlphanumeric_NoBias(t *testing.T) {
 		require.Len(t, s, 64)
 
 		for _, c := range s {
-			assert.True(t,
+			assert.True(
+				t,
 				(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'),
 				"character %q is not alphanumeric", c,
 			)

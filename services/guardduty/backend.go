@@ -152,27 +152,27 @@ type ThreatIntelSet struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	orgConfigs             map[string]*OrgConfig
+	adminAccounts          map[string]*AdminAccount
+	filters                map[string]map[string]*Filter
+	findings               map[string]map[string]*Finding
+	ipSets                 map[string]map[string]*IPSet
+	threatIntelSets        map[string]map[string]*ThreatIntelSet
+	tags                   map[string]map[string]string
+	members                map[string]map[string]*Member
+	invitations            map[string]*Invitation
+	orgAdminAccounts       map[string]*OrgAdminAccount
+	detectors              map[string]*Detector
+	publishingDestinations map[string]map[string]*PublishingDestination
 	mu                     *lockmetrics.RWMutex
-	detectors              map[string]*Detector                         // detectorID → Detector
-	filters                map[string]map[string]*Filter                // detectorID → filterName → Filter
-	findings               map[string]map[string]*Finding               // detectorID → findingID → Finding
-	ipSets                 map[string]map[string]*IPSet                 // detectorID → ipSetID → IPSet
-	threatIntelSets        map[string]map[string]*ThreatIntelSet        // detectorID → setID → ThreatIntelSet
-	tags                   map[string]map[string]string                 // resourceARN → tags
-	members                map[string]map[string]*Member                // detectorID → accountID → Member
-	invitations            map[string]*Invitation                       // invitationID → Invitation
-	orgAdminAccounts       map[string]*OrgAdminAccount                  // accountID → OrgAdminAccount
-	orgConfigs             map[string]*OrgConfig                        // detectorID → OrgConfig
-	adminAccounts          map[string]*AdminAccount                     // detectorID → AdminAccount
-	publishingDestinations map[string]map[string]*PublishingDestination // detectorID → destID → Dest
-	malwareScans           map[string]*MalwareScan                      // scanID → Scan
-	malwareScanSettings    map[string]*MalwareScanSettings              // detectorID → settings
-	malwareProtectionPlans map[string]*MalwareProtectionPlan            // planID → Plan
-	threatEntitySets       map[string]map[string]*ThreatEntitySet       // detectorID → setID → set
-	trustedEntitySets      map[string]map[string]*TrustedEntitySet      // detectorID → setID → set
-	memberSeq              int64
+	malwareScans           map[string]*MalwareScan
+	malwareScanSettings    map[string]*MalwareScanSettings
+	malwareProtectionPlans map[string]*MalwareProtectionPlan
+	threatEntitySets       map[string]map[string]*ThreatEntitySet
+	trustedEntitySets      map[string]map[string]*TrustedEntitySet
 	accountID              string
 	region                 string
+	memberSeq              int64
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.

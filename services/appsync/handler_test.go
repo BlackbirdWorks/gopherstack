@@ -1168,7 +1168,8 @@ func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
-		rec := doRequest(t, h, http.MethodPost,
+		rec := doRequest(
+			t, h, http.MethodPost,
 			"/v1/sourceApis/"+src.APIID+"/mergedApiAssociations",
 			map[string]any{"mergedApiIdentifier": mrg.APIID, "description": "test"},
 		)
@@ -1189,7 +1190,8 @@ func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 		src, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 		require.NoError(t, err)
 
-		rec := doRequest(t, h, http.MethodPost,
+		rec := doRequest(
+			t, h, http.MethodPost,
 			"/v1/sourceApis/"+src.APIID+"/mergedApiAssociations",
 			map[string]any{"description": "test"},
 		)
@@ -1209,7 +1211,8 @@ func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
-		rec := doRequest(t, h, http.MethodPost,
+		rec := doRequest(
+			t, h, http.MethodPost,
 			"/v1/mergedApis/"+mrg.APIID+"/sourceApiAssociations",
 			map[string]any{"sourceApiIdentifier": src.APIID, "description": "test"},
 		)
@@ -1230,7 +1233,8 @@ func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 		mrg, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
 		require.NoError(t, err)
 
-		rec := doRequest(t, h, http.MethodPost,
+		rec := doRequest(
+			t, h, http.MethodPost,
 			"/v1/mergedApis/"+mrg.APIID+"/sourceApiAssociations",
 			map[string]any{"description": "test"},
 		)

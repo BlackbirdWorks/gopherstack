@@ -2,6 +2,7 @@ package ses_test
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -28,7 +29,7 @@ func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	assert.Greater(t, h.MatchPriority(), 0)
+	assert.Positive(t, h.MatchPriority())
 }
 
 func TestHandler_Reset(t *testing.T) {
@@ -66,9 +67,9 @@ func TestExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		body    string
-		wantOp  string
+		name   string
+		body   string
+		wantOp string
 	}{
 		{
 			name:   "action_present",
@@ -155,7 +156,7 @@ func TestReceiptActionToXML_AllTypes(t *testing.T) {
 		{
 			name: "s3_action",
 			actionParams: url.Values{
-				"Rule.Actions.member.1.S3Action.BucketName": {"my-bucket"},
+				"Rule.Actions.member.1.S3Action.BucketName":      {"my-bucket"},
 				"Rule.Actions.member.1.S3Action.ObjectKeyPrefix": {"prefix/"},
 			}.Encode(),
 			wantContains: "my-bucket",
@@ -218,18 +219,16 @@ func TestReceiptActionToXML_AllTypes(t *testing.T) {
 			postForm(t, h, "Action=CreateReceiptRuleSet&Version=2010-12-01&RuleSetName=test-rs")
 
 			createBody := url.Values{
-				"Action":      {"CreateReceiptRule"},
-				"Version":     {"2010-12-01"},
-				"RuleSetName": {"test-rs"},
-				"Rule.Name":   {"rule1"},
+				"Action":       {"CreateReceiptRule"},
+				"Version":      {"2010-12-01"},
+				"RuleSetName":  {"test-rs"},
+				"Rule.Name":    {"rule1"},
 				"Rule.Enabled": {"true"},
 			}
 			// Merge action params.
 			parsed, err := url.ParseQuery(tt.actionParams)
 			require.NoError(t, err)
-			for k, vs := range parsed {
-				createBody[k] = vs
-			}
+			maps.Copy(createBody, parsed)
 			postForm(t, h, createBody.Encode())
 
 			// Now describe it — this exercises toXMLReceiptRule + receiptActionToXML.
@@ -315,8 +314,8 @@ func TestHandler_SendBounce_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "missing_original_message_id",
@@ -354,8 +353,8 @@ func TestHandler_SendCustomVerificationEmail_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "missing_email",
@@ -371,7 +370,7 @@ func TestHandler_SendCustomVerificationEmail_Errors(t *testing.T) {
 		},
 		{
 			name:         "valid_request",
-			body:         "Action=SendCustomVerificationEmail&Version=2010-12-01&EmailAddress=user@example.com&TemplateName=MyTemplate",
+			body:         "Action=SendCustomVerificationEmail&Version=2010-12-01&EmailAddress=user@example.com&TemplateName=MyTemplate", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SendCustomVerificationEmailResponse",
 		},
@@ -397,11 +396,11 @@ func TestHandler_TestRenderTemplate_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "template_not_found",
@@ -413,15 +412,15 @@ func TestHandler_TestRenderTemplate_Errors(t *testing.T) {
 			name: "valid_template_render",
 			setup: func(h *ses.Handler) {
 				postForm(t, h, url.Values{
-					"Action":                    {"CreateTemplate"},
-					"Version":                   {"2010-12-01"},
-					"Template.TemplateName":     {"MyTpl"},
-					"Template.SubjectPart":      {"Hello {{name}}"},
-					"Template.TextPart":         {"body"},
-					"Template.HtmlPart":         {"<p>body</p>"},
+					"Action":                {"CreateTemplate"},
+					"Version":               {"2010-12-01"},
+					"Template.TemplateName": {"MyTpl"},
+					"Template.SubjectPart":  {"Hello {{name}}"},
+					"Template.TextPart":     {"body"},
+					"Template.HtmlPart":     {"<p>body</p>"},
 				}.Encode())
 			},
-			body:         "Action=TestRenderTemplate&Version=2010-12-01&TemplateName=MyTpl&TemplateData=%7B%22name%22%3A%22World%22%7D",
+			body:         "Action=TestRenderTemplate&Version=2010-12-01&TemplateName=MyTpl&TemplateData=%7B%22name%22%3A%22World%22%7D", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "TestRenderTemplateResponse",
 		},
@@ -451,11 +450,11 @@ func TestHandler_UpdateCustomVerificationEmailTemplate_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "template_not_found",
@@ -467,23 +466,23 @@ func TestHandler_UpdateCustomVerificationEmailTemplate_Errors(t *testing.T) {
 			name: "valid_update",
 			setup: func(h *ses.Handler) {
 				postForm(t, h, url.Values{
-					"Action":                          {"CreateCustomVerificationEmailTemplate"},
-					"Version":                         {"2010-12-01"},
-					"TemplateName":                    {"CveTpl"},
-					"FromEmailAddress":                {"from@example.com"},
-					"TemplateSubject":                 {"subj"},
-					"TemplateContent":                 {"content"},
-					"SuccessRedirectionURL":           {"https://example.com/success"},
-					"FailureRedirectionURL":           {"https://example.com/fail"},
+					"Action":                {"CreateCustomVerificationEmailTemplate"},
+					"Version":               {"2010-12-01"},
+					"TemplateName":          {"CveTpl"},
+					"FromEmailAddress":      {"from@example.com"},
+					"TemplateSubject":       {"subj"},
+					"TemplateContent":       {"content"},
+					"SuccessRedirectionURL": {"https://example.com/success"},
+					"FailureRedirectionURL": {"https://example.com/fail"},
 				}.Encode())
 			},
 			body: url.Values{
-				"Action":               {"UpdateCustomVerificationEmailTemplate"},
-				"Version":              {"2010-12-01"},
-				"TemplateName":         {"CveTpl"},
-				"FromEmailAddress":     {"updated@example.com"},
-				"TemplateSubject":      {"new subj"},
-				"TemplateContent":      {"new content"},
+				"Action":                {"UpdateCustomVerificationEmailTemplate"},
+				"Version":               {"2010-12-01"},
+				"TemplateName":          {"CveTpl"},
+				"FromEmailAddress":      {"updated@example.com"},
+				"TemplateSubject":       {"new subj"},
+				"TemplateContent":       {"new content"},
 				"SuccessRedirectionURL": {"https://example.com/ok"},
 				"FailureRedirectionURL": {"https://example.com/fail"},
 			}.Encode(),
@@ -518,8 +517,8 @@ func TestHandler_DescribeReceiptRule_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "ruleset_not_found",
@@ -549,11 +548,11 @@ func TestHandler_UpdateReceiptRule_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "ruleset_not_found",
@@ -599,8 +598,8 @@ func TestHandler_ReorderReceiptRuleSet_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "ruleset_not_found",
@@ -632,8 +631,8 @@ func TestHandler_SetReceiptRulePosition_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "ruleset_not_found",
@@ -669,11 +668,11 @@ func TestHandler_DescribeConfigurationSet_WithOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "not_found",
@@ -685,7 +684,11 @@ func TestHandler_DescribeConfigurationSet_WithOptions(t *testing.T) {
 			name: "with_tracking_options",
 			setup: func(h *ses.Handler) {
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=cstrack")
-				postForm(t, h, "Action=CreateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=cstrack&TrackingOptions.CustomRedirectDomain=track.example.com")
+				postForm(
+					t,
+					h,
+					"Action=CreateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=cstrack&TrackingOptions.CustomRedirectDomain=track.example.com", //nolint:lll // existing issue.
+				)
 			},
 			body:         "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=cstrack",
 			wantCode:     http.StatusOK,
@@ -695,7 +698,11 @@ func TestHandler_DescribeConfigurationSet_WithOptions(t *testing.T) {
 			name: "with_delivery_options",
 			setup: func(h *ses.Handler) {
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=csdel")
-				postForm(t, h, "Action=PutConfigurationSetDeliveryOptions&Version=2010-12-01&ConfigurationSetName=csdel&DeliveryOptions.TlsPolicy=Require")
+				postForm(
+					t,
+					h,
+					"Action=PutConfigurationSetDeliveryOptions&Version=2010-12-01&ConfigurationSetName=csdel&DeliveryOptions.TlsPolicy=Require", //nolint:lll // existing issue.
+				)
 			},
 			body:         "Action=DescribeConfigurationSet&Version=2010-12-01&ConfigurationSetName=csdel",
 			wantCode:     http.StatusOK,
@@ -729,12 +736,12 @@ func TestHandler_PutConfigurationSetDeliveryOptions_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "config_set_not_found",
-			body:         "Action=PutConfigurationSetDeliveryOptions&Version=2010-12-01&ConfigurationSetName=missing&DeliveryOptions.TlsPolicy=Require",
+			body:         "Action=PutConfigurationSetDeliveryOptions&Version=2010-12-01&ConfigurationSetName=missing&DeliveryOptions.TlsPolicy=Require", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -760,15 +767,15 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "config_set_not_found",
-			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=missing&EventDestination.Name=dest",
+			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=missing&EventDestination.Name=dest", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -777,7 +784,7 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 			setup: func(h *ses.Handler) {
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=csupd")
 			},
-			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=csupd&EventDestination.Name=nodest",
+			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=csupd&EventDestination.Name=nodest", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "EventDestinationDoesNotExist",
 		},
@@ -786,20 +793,20 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 			setup: func(h *ses.Handler) {
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=csupd2")
 				postForm(t, h, url.Values{
-					"Action":                                       {"CreateConfigurationSetEventDestination"},
-					"Version":                                      {"2010-12-01"},
-					"ConfigurationSetName":                         {"csupd2"},
-					"EventDestination.Name":                        {"mydest"},
-					"EventDestination.Enabled":                     {"true"},
+					"Action":                   {"CreateConfigurationSetEventDestination"},
+					"Version":                  {"2010-12-01"},
+					"ConfigurationSetName":     {"csupd2"},
+					"EventDestination.Name":    {"mydest"},
+					"EventDestination.Enabled": {"true"},
 					"EventDestination.MatchingEventTypes.member.1": {"send"},
 				}.Encode())
 			},
 			body: url.Values{
-				"Action":                                       {"UpdateConfigurationSetEventDestination"},
-				"Version":                                      {"2010-12-01"},
-				"ConfigurationSetName":                         {"csupd2"},
-				"EventDestination.Name":                        {"mydest"},
-				"EventDestination.Enabled":                     {"false"},
+				"Action":                   {"UpdateConfigurationSetEventDestination"},
+				"Version":                  {"2010-12-01"},
+				"ConfigurationSetName":     {"csupd2"},
+				"EventDestination.Name":    {"mydest"},
+				"EventDestination.Enabled": {"false"},
 				"EventDestination.MatchingEventTypes.member.1": {"bounce"},
 			}.Encode(),
 			wantCode:     http.StatusOK,
@@ -833,12 +840,12 @@ func TestHandler_UpdateConfigurationSetReputationMetricsEnabled_Errors(t *testin
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "config_set_not_found",
-			body:         "Action=UpdateConfigurationSetReputationMetricsEnabled&Version=2010-12-01&ConfigurationSetName=missing&Enabled=true",
+			body:         "Action=UpdateConfigurationSetReputationMetricsEnabled&Version=2010-12-01&ConfigurationSetName=missing&Enabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -866,12 +873,12 @@ func TestHandler_UpdateConfigurationSetSendingEnabled_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "config_set_not_found",
-			body:         "Action=UpdateConfigurationSetSendingEnabled&Version=2010-12-01&ConfigurationSetName=missing&Enabled=true",
+			body:         "Action=UpdateConfigurationSetSendingEnabled&Version=2010-12-01&ConfigurationSetName=missing&Enabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -899,12 +906,12 @@ func TestHandler_UpdateConfigurationSetTrackingOptions_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "config_set_not_found",
-			body:         "Action=UpdateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=missing&TrackingOptions.CustomRedirectDomain=x.com",
+			body:         "Action=UpdateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=missing&TrackingOptions.CustomRedirectDomain=x.com", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -923,7 +930,11 @@ func TestHandler_UpdateConfigurationSetTrackingOptions_Errors(t *testing.T) {
 			if tt.name == "tracking_options_not_found" {
 				h := newHandler()
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=csnotrack")
-				rec := postForm(t, h, "Action=UpdateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=csnotrack&TrackingOptions.CustomRedirectDomain=x.com")
+				rec := postForm(
+					t,
+					h,
+					"Action=UpdateConfigurationSetTrackingOptions&Version=2010-12-01&ConfigurationSetName=csnotrack&TrackingOptions.CustomRedirectDomain=x.com", //nolint:lll // existing issue.
+				)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), tt.wantContains)
 
@@ -946,11 +957,11 @@ func TestHandler_PutIdentityPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(h *ses.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "put_policy_succeeds_even_for_unknown_identity",
@@ -963,7 +974,7 @@ func TestHandler_PutIdentityPolicy(t *testing.T) {
 			setup: func(h *ses.Handler) {
 				require.NoError(t, h.Backend.VerifyEmailIdentity("policy@example.com"))
 			},
-			body:         "Action=PutIdentityPolicy&Version=2010-12-01&Identity=policy@example.com&PolicyName=mypol&Policy={\"Version\":\"2012-10-17\"}",
+			body:         "Action=PutIdentityPolicy&Version=2010-12-01&Identity=policy@example.com&PolicyName=mypol&Policy={\"Version\":\"2012-10-17\"}", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "PutIdentityPolicyResponse",
 		},
@@ -995,8 +1006,8 @@ func TestHandler_DeleteIdentityPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "idempotent_delete_nonexistent",
@@ -1034,12 +1045,12 @@ func TestHandler_GetIdentityPolicies(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "unknown_identity_returns_empty",
-			body:         "Action=GetIdentityPolicies&Version=2010-12-01&Identity=nonexistent@example.com&PolicyNames.member.1=p1",
+			body:         "Action=GetIdentityPolicies&Version=2010-12-01&Identity=nonexistent@example.com&PolicyNames.member.1=p1", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "GetIdentityPoliciesResponse",
 		},
@@ -1073,8 +1084,8 @@ func TestHandler_ListIdentityPolicies(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "unknown_identity_returns_empty",
@@ -1112,8 +1123,8 @@ func TestHandler_SetIdentityDkimEnabled(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "creates_identity_if_missing",
@@ -1151,12 +1162,12 @@ func TestHandler_SetIdentityFeedbackForwardingEnabled(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "creates_identity_if_missing",
-			body:         "Action=SetIdentityFeedbackForwardingEnabled&Version=2010-12-01&Identity=new@example.com&ForwardingEnabled=true",
+			body:         "Action=SetIdentityFeedbackForwardingEnabled&Version=2010-12-01&Identity=new@example.com&ForwardingEnabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SetIdentityFeedbackForwardingEnabledResponse",
 		},
@@ -1190,24 +1201,24 @@ func TestHandler_SetIdentityHeadersInNotificationsEnabled(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "creates_identity_if_missing",
-			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=new@example.com&NotificationType=Bounce&Enabled=true",
+			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=new@example.com&NotificationType=Bounce&Enabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SetIdentityHeadersInNotificationsEnabledResponse",
 		},
 		{
 			name:         "missing_identity_param",
-			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=&NotificationType=Bounce&Enabled=true",
+			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=&NotificationType=Bounce&Enabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
 		},
 		{
 			name:         "missing_notification_type",
-			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=x@example.com&NotificationType=&Enabled=true",
+			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=x@example.com&NotificationType=&Enabled=true", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
 		},
@@ -1235,12 +1246,12 @@ func TestHandler_SetIdentityMailFromDomain(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "creates_identity_if_missing",
-			body:         "Action=SetIdentityMailFromDomain&Version=2010-12-01&Identity=new@example.com&MailFromDomain=mail.example.com",
+			body:         "Action=SetIdentityMailFromDomain&Version=2010-12-01&Identity=new@example.com&MailFromDomain=mail.example.com", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SetIdentityMailFromDomainResponse",
 		},
@@ -1274,24 +1285,24 @@ func TestHandler_SetIdentityNotificationTopic(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "creates_identity_if_missing",
-			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=new@example.com&NotificationType=Bounce&SnsTopic=arn:aws:sns:us-east-1:123:topic",
+			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=new@example.com&NotificationType=Bounce&SnsTopic=arn:aws:sns:us-east-1:123:topic", //nolint:lll // existing issue.
 			wantCode:     http.StatusOK,
 			wantContains: "SetIdentityNotificationTopicResponse",
 		},
 		{
 			name:         "missing_identity_param",
-			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=&NotificationType=Bounce&SnsTopic=arn:aws:sns:us-east-1:123:topic",
+			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=&NotificationType=Bounce&SnsTopic=arn:aws:sns:us-east-1:123:topic", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
 		},
 		{
 			name:         "missing_notification_type",
-			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=x@example.com&NotificationType=&SnsTopic=arn:aws:sns:us-east-1:123:topic",
+			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=x@example.com&NotificationType=&SnsTopic=arn:aws:sns:us-east-1:123:topic", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
 		},
@@ -1319,8 +1330,8 @@ func TestHandler_VerifyDomainIdentity_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "empty_domain",
@@ -1358,8 +1369,8 @@ func TestHandler_VerifyDomainDkim_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "empty_domain",
@@ -1397,8 +1408,8 @@ func TestHandler_VerifyEmailAddress_Errors(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "empty_email",
@@ -1567,9 +1578,9 @@ func TestHandler_SendBulkTemplatedEmail_TooManyDestinations(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		wantContains string
 		numDests     int
 		wantCode     int
-		wantContains string
 	}{
 		{
 			name:         "exactly_50_ok",
@@ -1597,9 +1608,9 @@ func TestHandler_SendBulkTemplatedEmail_TooManyDestinations(t *testing.T) {
 				"Action":                {"CreateTemplate"},
 				"Version":               {"2010-12-01"},
 				"Template.TemplateName": {"BulkTpl"},
-				"Template.SubjectPart": {"subj"},
-				"Template.TextPart":    {"body"},
-				"Template.HtmlPart":    {"<p>body</p>"},
+				"Template.SubjectPart":  {"subj"},
+				"Template.TextPart":     {"body"},
+				"Template.HtmlPart":     {"<p>body</p>"},
 			}.Encode())
 
 			vals := url.Values{
@@ -1633,6 +1644,7 @@ func itoa(n int) string {
 			b = append(b, byte('0'+(n/10)%10))
 		}
 		b = append(b, byte('0'+n%10))
+
 		return string(b)
 	}())
 }

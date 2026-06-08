@@ -639,9 +639,11 @@ func TestBackend_GetMetricData_AnomalyDetectionBandExpression(t *testing.T) {
 	for i := range 5 {
 		ts := now.Add(-time.Duration(5-i) * time.Minute)
 		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
-			{MetricName: "M", Value: float64(10 + i*5), Count: 1,
+			{
+				MetricName: "M", Value: float64(10 + i*5), Count: 1,
 				Sum: float64(10 + i*5), Min: float64(10 + i*5), Max: float64(10 + i*5),
-				Timestamp: ts},
+				Timestamp: ts,
+			},
 		})
 		require.NoError(t, err)
 	}
@@ -743,7 +745,8 @@ func TestHandler_PutMetricData_StatisticSet_FormParsed(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData"+
 			"&Namespace=App"+
 			"&MetricData.member.1.MetricName=Reqs"+
@@ -760,7 +763,8 @@ func TestHandler_PutMetricData_ValueAndStatisticSet_Returns200WithUnprocessed(t 
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData"+
 			"&Namespace=App"+
 			"&MetricData.member.1.MetricName=BadReq"+
@@ -780,7 +784,8 @@ func TestHandler_PutMetricData_InvalidStorageResolution_Returns200WithUnprocesse
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData"+
 			"&Namespace=App"+
 			"&MetricData.member.1.MetricName=BadRes"+
@@ -800,7 +805,8 @@ func TestHandler_PutMetricData_WithDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData"+
 			"&Namespace=MyApp"+
 			"&MetricData.member.1.MetricName=Errors"+
@@ -824,13 +830,15 @@ func TestHandler_ListMetrics_DimensionFilter(t *testing.T) {
 	h := newCWHandler()
 
 	// Store two metrics with different dimensions.
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=RPM&MetricData.member.1.Value=100"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Env&MetricData.member.1.Dimensions.member.1.Value=prod"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=RPM&MetricData.member.1.Value=50"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Env&MetricData.member.1.Dimensions.member.1.Value=staging"+
@@ -838,7 +846,8 @@ func TestHandler_ListMetrics_DimensionFilter(t *testing.T) {
 	)
 
 	// Filter to prod only.
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=ListMetrics&Namespace=NS&MetricName=RPM"+
 			"&Dimensions.member.1.Name=Env&Dimensions.member.1.Value=prod",
 	)
@@ -855,7 +864,8 @@ func TestHandler_GetMetricStatistics_WithDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=MyNS"+
 			"&MetricData.member.1.MetricName=CPU"+
 			"&MetricData.member.1.Value=75"+
@@ -863,7 +873,8 @@ func TestHandler_GetMetricStatistics_WithDimensions(t *testing.T) {
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricStatistics"+
 			"&Namespace=MyNS"+
 			"&MetricName=CPU"+
@@ -884,7 +895,8 @@ func TestHandler_PutAnomalyDetector_WithDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutAnomalyDetector"+
 			"&Namespace=App"+
 			"&MetricName=Latency"+
@@ -905,14 +917,16 @@ func TestHandler_DeleteAnomalyDetector_CleansUpTags(t *testing.T) {
 	h := newCWHandler()
 
 	// Create detector.
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutAnomalyDetector&Namespace=App&MetricName=CPU&Stat=Average",
 	)
 	assert.Equal(t, 200, rec.Code)
 
 	// Tag it (we need a valid ARN for the tag — use describe to find it or construct directly).
 	// The implementation uses buildAnomalyDetectorARN which is internal; we just verify delete succeeds.
-	rec = postForm(t, h,
+	rec = postForm(
+		t, h,
 		"Action=DeleteAnomalyDetector&Namespace=App&MetricName=CPU&Stat=Average",
 	)
 	assert.Equal(t, 200, rec.Code, "delete should succeed; body: %s", rec.Body.String())
@@ -946,14 +960,16 @@ func TestHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	for _, ts := range []string{
 		"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", "2024-01-01T00:03:00Z",
 	} {
-		postForm(t, h, "Action=PutMetricData&Namespace=NS"+
-			"&MetricData.member.1.MetricName=Counter"+
-			"&MetricData.member.1.Value=1"+
-			"&MetricData.member.1.Timestamp="+ts,
+		postForm(
+			t, h, "Action=PutMetricData&Namespace=NS"+
+				"&MetricData.member.1.MetricName=Counter"+
+				"&MetricData.member.1.Value=1"+
+				"&MetricData.member.1.Timestamp="+ts,
 		)
 	}
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricData"+
 			"&MetricDataQueries.member.1.Id=m1"+
 			"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS"+
@@ -976,7 +992,8 @@ func TestHandler_PutMetricData_StorageResolution1(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Ticks"+
 			"&MetricData.member.1.Value=1"+
@@ -990,7 +1007,8 @@ func TestHandler_PutMetricData_StorageResolution60(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Ticks"+
 			"&MetricData.member.1.Value=1"+
@@ -1008,7 +1026,8 @@ func TestHandler_PutMetricStream_WithIncludeFilters(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricStream"+
 			"&Name=filtered-stream"+
 			"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds"+
@@ -1023,7 +1042,8 @@ func TestHandler_PutMetricStream_WithExcludeFilters(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricStream"+
 			"&Name=exclude-stream"+
 			"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds"+
@@ -1147,10 +1167,14 @@ func TestBackend_AnomalyDetector_DimensionMatch(t *testing.T) {
 	dimStaging := []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}
 
 	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
-		{MetricName: "CPU", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
-			Timestamp: now.Add(-time.Minute), Dimensions: dimProd},
-		{MetricName: "CPU", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20,
-			Timestamp: now.Add(-time.Minute), Dimensions: dimStaging},
+		{
+			MetricName: "CPU", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
+			Timestamp: now.Add(-time.Minute), Dimensions: dimProd,
+		},
+		{
+			MetricName: "CPU", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20,
+			Timestamp: now.Add(-time.Minute), Dimensions: dimStaging,
+		},
 	})
 	require.NoError(t, err)
 
@@ -1279,14 +1303,16 @@ func TestHandler_GetMetricData_WithExpressions(t *testing.T) {
 
 	h := newCWHandler()
 
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Hits"+
 			"&MetricData.member.1.Value=10"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricData"+
 			"&MetricDataQueries.member.1.Id=m1"+
 			"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS"+
@@ -1308,7 +1334,8 @@ func TestHandler_DescribeAnomalyDetectors_WithDimensions(t *testing.T) {
 
 	h := newCWHandler()
 
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutAnomalyDetector&Namespace=App&MetricName=CPU&Stat=Average"+
 			"&SingleMetricAnomalyDetector.Dimensions.member.1.Name=Host"+
 			"&SingleMetricAnomalyDetector.Dimensions.member.1.Value=web1",
@@ -1323,7 +1350,8 @@ func TestHandler_PutMetricData_MultipleWithMixedDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=Multi"+
 			"&MetricData.member.1.MetricName=Errors"+
 			"&MetricData.member.1.Value=1"+
@@ -1345,13 +1373,15 @@ func TestHandler_GetMetricStatistics_NoDimensions(t *testing.T) {
 
 	h := newCWHandler()
 
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Mem&MetricData.member.1.Value=512"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricStatistics"+
 			"&Namespace=NS&MetricName=Mem"+
 			"&StartTime=2024-01-01T00:00:00Z"+

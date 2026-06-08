@@ -15,7 +15,7 @@ import (
 // Helpers
 // ---------------------------------------------------------------------------
 
-func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string {
+func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string { //nolint:unparam // existing issue.
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateVolume", map[string]any{
 		"VolumeType":   volType,
@@ -62,10 +62,10 @@ func TestFSx_CopyBackup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(h *fsx.Handler) string
-		wantCode int
+		name     string
 		wantErr  string
+		wantCode int
 	}{
 		{
 			name: "copies backup and returns new BackupId",
@@ -111,10 +111,10 @@ func TestFSx_Aliases(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		lifecycle string
 		aliases   []string
 		wantCount int
 		wantCode  int
-		lifecycle string
 	}{
 		{
 			name:      "associate single alias",
@@ -197,7 +197,7 @@ func TestFSx_AliasesLifecycle(t *testing.T) {
 		rec2 := doFSxRequest(t, h, "DescribeFileSystemAliases", map[string]any{"FileSystemId": fsID})
 		var out2 map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
-		assert.Len(t, out2["Aliases"].([]any), 0)
+		assert.Empty(t, out2["Aliases"].([]any))
 	})
 }
 
@@ -210,9 +210,9 @@ func TestFSx_DataRepositoryAssociation(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		wantCode int
 		fsPath   string
 		repoPath string
+		wantCode int
 	}{
 		{
 			name:     "create returns AssociationId",
@@ -452,7 +452,7 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
-		assert.Equal(t, float64(2400), ur["FileCache"].(map[string]any)["StorageCapacityGiB"])
+		assert.InDelta(t, float64(2400), ur["FileCache"].(map[string]any)["StorageCapacityGiB"], 0.0001)
 
 		// delete
 		rec3 := doFSxRequest(t, h, "DeleteFileCache", map[string]any{"FileCacheId": fcID})
@@ -968,7 +968,7 @@ func TestFSx_S3AccessPointLifecycle(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var dr2 map[string]any
 		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &dr2))
-		assert.Len(t, dr2["S3AccessPoints"].([]any), 0)
+		assert.Empty(t, dr2["S3AccessPoints"].([]any))
 	})
 }
 

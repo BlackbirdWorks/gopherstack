@@ -215,9 +215,7 @@ const (
 	statusActive    = "ACTIVE"
 )
 
-var (
-	errInvalidRequest = errors.New("invalid request")
-)
+var errInvalidRequest = errors.New("invalid request")
 
 // Handler is the Echo HTTP handler for AWS Backup operations (REST-JSON protocol).
 type Handler struct {

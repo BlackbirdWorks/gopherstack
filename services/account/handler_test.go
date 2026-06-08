@@ -16,6 +16,7 @@ import (
 
 func newTestHandler(t *testing.T) *account.Handler {
 	t.Helper()
+
 	return account.NewHandler(account.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
@@ -37,6 +38,7 @@ func doRequest(t *testing.T, h *account.Handler, method, path string, body any) 
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -55,7 +57,7 @@ func TestHandler_Reset(t *testing.T) {
 func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
-	assert.Greater(t, h.MatchPriority(), 0)
+	assert.Positive(t, h.MatchPriority())
 }
 
 func TestHandler_GetSupportedOperations(t *testing.T) {
@@ -126,7 +128,10 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.authSvc != "" {
-				req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=key/20230101/us-east-1/"+tt.authSvc+"/aws4_request")
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=key/20230101/us-east-1/"+tt.authSvc+"/aws4_request",
+				)
 			}
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -139,18 +144,43 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		method    string
-		path      string
-		wantOp    string
+		name   string
+		method string
+		path   string
+		wantOp string
 	}{
 		{name: "DescribeAccount", method: http.MethodGet, path: "/account", wantOp: "DescribeAccount"},
 		{name: "ListRegions", method: http.MethodGet, path: "/regions", wantOp: "ListRegions"},
-		{name: "GetAlternateContact", method: http.MethodGet, path: "/account/alternateContact", wantOp: "GetAlternateContact"},
-		{name: "PutAlternateContact", method: http.MethodPut, path: "/account/alternateContact", wantOp: "PutAlternateContact"},
-		{name: "DeleteAlternateContact", method: http.MethodDelete, path: "/account/alternateContact", wantOp: "DeleteAlternateContact"},
-		{name: "GetContactInformation", method: http.MethodGet, path: "/account/contact", wantOp: "GetContactInformation"},
-		{name: "PutContactInformation", method: http.MethodPut, path: "/account/contact", wantOp: "PutContactInformation"},
+		{
+			name:   "GetAlternateContact",
+			method: http.MethodGet,
+			path:   "/account/alternateContact",
+			wantOp: "GetAlternateContact",
+		},
+		{
+			name:   "PutAlternateContact",
+			method: http.MethodPut,
+			path:   "/account/alternateContact",
+			wantOp: "PutAlternateContact",
+		},
+		{
+			name:   "DeleteAlternateContact",
+			method: http.MethodDelete,
+			path:   "/account/alternateContact",
+			wantOp: "DeleteAlternateContact",
+		},
+		{
+			name:   "GetContactInformation",
+			method: http.MethodGet,
+			path:   "/account/contact",
+			wantOp: "GetContactInformation",
+		},
+		{
+			name:   "PutContactInformation",
+			method: http.MethodPut,
+			path:   "/account/contact",
+			wantOp: "PutContactInformation",
+		},
 		{name: "Unknown", method: http.MethodGet, path: "/unknown-path", wantOp: "Unknown"},
 	}
 
@@ -245,7 +275,13 @@ func TestHandler_AlternateContact_PutGetDelete(t *testing.T) {
 			h := newTestHandler(t)
 
 			// Get before put → not found
-			getRec := doRequest(t, h, http.MethodGet, "/account/alternateContact?alternateContactType="+tt.contactType, nil)
+			getRec := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/account/alternateContact?alternateContactType="+tt.contactType,
+				nil,
+			)
 			assert.Equal(t, http.StatusNotFound, getRec.Code)
 
 			// Put contact
@@ -259,7 +295,13 @@ func TestHandler_AlternateContact_PutGetDelete(t *testing.T) {
 			assert.Equal(t, http.StatusOK, putRec.Code)
 
 			// Get after put
-			getRec2 := doRequest(t, h, http.MethodGet, "/account/alternateContact?alternateContactType="+tt.contactType, nil)
+			getRec2 := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/account/alternateContact?alternateContactType="+tt.contactType,
+				nil,
+			)
 			require.Equal(t, http.StatusOK, getRec2.Code)
 
 			var out struct {
@@ -269,11 +311,23 @@ func TestHandler_AlternateContact_PutGetDelete(t *testing.T) {
 			assert.Equal(t, "Test Contact", out.AlternateContact["Name"])
 
 			// Delete
-			delRec := doRequest(t, h, http.MethodDelete, "/account/alternateContact?alternateContactType="+tt.contactType, nil)
+			delRec := doRequest(
+				t,
+				h,
+				http.MethodDelete,
+				"/account/alternateContact?alternateContactType="+tt.contactType,
+				nil,
+			)
 			assert.Equal(t, http.StatusOK, delRec.Code)
 
 			// Get after delete → not found
-			getRec3 := doRequest(t, h, http.MethodGet, "/account/alternateContact?alternateContactType="+tt.contactType, nil)
+			getRec3 := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/account/alternateContact?alternateContactType="+tt.contactType,
+				nil,
+			)
 			assert.Equal(t, http.StatusNotFound, getRec3.Code)
 		})
 	}
@@ -298,14 +352,14 @@ func TestHandler_ContactInformation_PutGet(t *testing.T) {
 
 	// Put contact info
 	putRec := doRequest(t, h, http.MethodPut, "/account/contact", map[string]any{
-		"FullName":   "ACME Corporation",
-		"AddressLine1": "123 Main St",
-		"City":       "Seattle",
+		"FullName":      "ACME Corporation",
+		"AddressLine1":  "123 Main St",
+		"City":          "Seattle",
 		"StateOrRegion": "WA",
-		"PostalCode": "98101",
-		"CountryCode": "US",
-		"PhoneNumber": "+1-555-555-5555",
-		"WebsiteUrl": "https://example.com",
+		"PostalCode":    "98101",
+		"CountryCode":   "US",
+		"PhoneNumber":   "+1-555-555-5555",
+		"WebsiteUrl":    "https://example.com",
 	})
 	assert.Equal(t, http.StatusOK, putRec.Code)
 
@@ -368,7 +422,7 @@ func TestBackend_PutContactInformation_Get(t *testing.T) {
 	b := account.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err := b.GetContactInformation()
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	err = b.PutContactInformation(&account.ContactInformation{
 		FullName: "Test Corp",

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,7 +53,7 @@ func TestWithService_TagsEveryRecord(t *testing.T) {
 			out := buf.String()
 
 			for _, want := range tc.wantContain {
-				assert.True(t, strings.Contains(out, want), "missing %q in %q", want, out)
+				assert.Contains(t, out, want, "missing %q in %q", want, out)
 			}
 		})
 	}

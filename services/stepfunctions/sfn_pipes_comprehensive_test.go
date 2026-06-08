@@ -146,7 +146,13 @@ func TestParallelState_WithCatch(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "parallel-catch-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"parallel-catch-"+tt.name,
+				tt.definition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "exec-"+tt.name, tt.input)
@@ -190,7 +196,13 @@ func TestExecutionHistory_Events(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "hist-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"hist-"+tt.name,
+				tt.definition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
@@ -278,7 +290,13 @@ func TestStateMachineVersions_Lifecycle(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "ver-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"ver-sm-"+tt.name,
+				exprPassDef,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			var lastVersionARN string
@@ -366,7 +384,13 @@ func TestChoiceState_AndOrCombiners(t *testing.T) {
 			t.Parallel()
 
 			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "choice-"+tt.name, choiceAndOrDef, "arn:role", "EXPRESS")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"choice-"+tt.name,
+				choiceAndOrDef,
+				"arn:role",
+				"EXPRESS",
+			)
 			require.NoError(t, err)
 
 			result, err := b.StartSyncExecution(sm.StateMachineArn, "", tt.input)

@@ -25,6 +25,7 @@ func mkDir(t *testing.T, h *directoryservice.Handler) string {
 	id, ok := resp["DirectoryId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)
+
 	return id
 }
 
@@ -930,10 +931,10 @@ func TestAppendixA_CreateComputer(t *testing.T) {
 	dirID := mkDir(t, h)
 
 	tests := []struct {
-		name     string
 		body     any
-		wantCode int
 		check    func(t *testing.T, resp map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name: "creates computer returns ComputerName",
@@ -1057,8 +1058,8 @@ func TestAppendixA_ResetUserPassword(t *testing.T) {
 	dirID := mkDir(t, h)
 
 	tests := []struct {
-		name     string
 		body     any
+		name     string
 		wantCode int
 	}{
 		{
@@ -1090,10 +1091,10 @@ func TestAppendixA_ConnectDirectory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     any
-		wantCode int
 		check    func(t *testing.T, resp map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name: "creates ADConnector and returns DirectoryId",

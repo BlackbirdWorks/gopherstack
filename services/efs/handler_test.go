@@ -918,7 +918,8 @@ func TestReplicationConfiguration(t *testing.T) {
 				fsID := parseResp(t, rec)["FileSystemId"].(string)
 
 				// Create replication configuration.
-				rec2 := doREST(t, h, http.MethodPost,
+				rec2 := doREST(
+					t, h, http.MethodPost,
 					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
 					map[string]any{
 						"Destinations": []map[string]any{
@@ -934,7 +935,8 @@ func TestReplicationConfiguration(t *testing.T) {
 				assert.Len(t, dests, 1)
 
 				// Describe by filesystem ID.
-				rec3 := doREST(t, h, http.MethodGet,
+				rec3 := doREST(
+					t, h, http.MethodGet,
 					"/2015-02-01/file-systems/replication-configurations?FileSystemId="+fsID,
 					nil,
 				)
@@ -944,14 +946,16 @@ func TestReplicationConfiguration(t *testing.T) {
 				assert.Len(t, replications, 1)
 
 				// Delete.
-				rec4 := doREST(t, h, http.MethodDelete,
+				rec4 := doREST(
+					t, h, http.MethodDelete,
 					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
 					nil,
 				)
 				assert.Equal(t, http.StatusNoContent, rec4.Code)
 
 				// Describe after delete returns empty.
-				rec5 := doREST(t, h, http.MethodGet,
+				rec5 := doREST(
+					t, h, http.MethodGet,
 					"/2015-02-01/file-systems/replication-configurations?FileSystemId="+fsID,
 					nil,
 				)
@@ -966,7 +970,8 @@ func TestReplicationConfiguration(t *testing.T) {
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
 
-				rec := doREST(t, h, http.MethodPost,
+				rec := doREST(
+					t, h, http.MethodPost,
 					"/2015-02-01/file-systems/fs-notexist/replication-configuration",
 					map[string]any{"Destinations": []map[string]any{{"Region": "us-west-2"}}},
 				)
@@ -1005,7 +1010,8 @@ func TestReplicationConfiguration(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 				fsID := parseResp(t, rec)["FileSystemId"].(string)
 
-				rec2 := doREST(t, h, http.MethodDelete,
+				rec2 := doREST(
+					t, h, http.MethodDelete,
 					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
 					nil,
 				)
@@ -1024,7 +1030,8 @@ func TestReplicationConfiguration(t *testing.T) {
 					require.Equal(t, http.StatusCreated, r.Code)
 					fsID := parseResp(t, r)["FileSystemId"].(string)
 
-					doREST(t, h, http.MethodPost,
+					doREST(
+						t, h, http.MethodPost,
 						"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
 						map[string]any{"Destinations": []map[string]any{{"Region": "eu-west-1"}}},
 					)

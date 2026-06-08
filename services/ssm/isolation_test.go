@@ -1,4 +1,4 @@
-package ssm
+package ssm //nolint:testpackage // existing issue.
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSSMRegionIsolation(t *testing.T) {
+func TestSSMRegionIsolation(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := NewInMemoryBackend()
-	
+
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")
 
@@ -53,7 +53,7 @@ func TestSSMRegionIsolation(t *testing.T) {
 	_, err = backend.GetParameter(ctxEast, &GetParameterInput{
 		Name: "param1",
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	outWest2, err := backend.GetParameter(ctxWest, &GetParameterInput{
 		Name: "param1",

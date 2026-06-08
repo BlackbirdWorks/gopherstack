@@ -37,10 +37,12 @@ func TestStepFunctionsRegionIsolation(t *testing.T) {
 			regionB: "eu-west-1",
 			createFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) error {
 				_, err := b.CreateStateMachine(ctx, "iso-sm", isolationDef, isolationRoleARN, "STANDARD")
+
 				return err
 			},
 			listFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) (int, error) {
 				sms, _, err := b.ListStateMachines(ctx, "", 0)
+
 				return len(sms), err
 			},
 		},
@@ -50,10 +52,12 @@ func TestStepFunctionsRegionIsolation(t *testing.T) {
 			regionB: "ap-southeast-1",
 			createFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) error {
 				_, err := b.CreateActivity(ctx, "iso-activity")
+
 				return err
 			},
 			listFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) (int, error) {
 				acts, _, err := b.ListActivities(ctx, "", 0)
+
 				return len(acts), err
 			},
 		},
@@ -63,10 +67,12 @@ func TestStepFunctionsRegionIsolation(t *testing.T) {
 			regionB: "us-west-2",
 			createFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) error {
 				_, err := b.CreateStateMachine(ctx, "shared-name-sm", isolationDef, isolationRoleARN, "STANDARD")
+
 				return err
 			},
 			listFn: func(b *stepfunctions.InMemoryBackend, ctx context.Context) (int, error) {
 				sms, _, err := b.ListStateMachines(ctx, "", 0)
+
 				return len(sms), err
 			},
 		},

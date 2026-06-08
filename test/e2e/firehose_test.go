@@ -18,7 +18,9 @@ import (
 func TestFirehoseDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.FirehoseHandler.Backend.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{Name: "test-delivery-stream"})
+	_, err := stack.FirehoseHandler.Backend.CreateDeliveryStream(
+		firehosepkg.CreateDeliveryStreamInput{Name: "test-delivery-stream"},
+	)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

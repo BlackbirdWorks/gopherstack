@@ -67,7 +67,8 @@ func (h *S3Handler) dispatchAccessLog(
 		}); putErr != nil {
 			// Logging failures must never break the source request, but they
 			// are worth surfacing for the operator.
-			logger.Load(dispatchCtx).WarnContext(dispatchCtx,
+			logger.Load(dispatchCtx).WarnContext(
+				dispatchCtx,
 				"S3 access log dispatch failed",
 				"sourceBucket", sourceBucket,
 				"targetBucket", target,

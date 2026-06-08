@@ -986,12 +986,9 @@ func (h *Handler) handleModifyVpcPeeringConnectionOptions(
 		return nil, err
 	}
 	resp := &modifyVpcPeeringConnectionOptionsResponse{RequestID: reqID}
-	resp.RequesterPeeringConnectionOptions.AllowDNSResolutionFromRemoteVPC =
-		opts.AllowDNSResolutionFromRemoteVPC
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVPC =
-		opts.AllowEgressFromLocalClassicLinkToRemoteVPC
-	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalVPCToRemoteClassicLink =
-		opts.AllowEgressFromLocalVPCToRemoteClassicLink
+	resp.RequesterPeeringConnectionOptions.AllowDNSResolutionFromRemoteVPC = opts.AllowDNSResolutionFromRemoteVPC
+	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalClassicLinkToRemoteVPC = opts.AllowEgressFromLocalClassicLinkToRemoteVPC //nolint:lll // existing issue.
+	resp.RequesterPeeringConnectionOptions.AllowEgressFromLocalVPCToRemoteClassicLink = opts.AllowEgressFromLocalVPCToRemoteClassicLink //nolint:lll // existing issue.
 
 	return resp, nil
 }

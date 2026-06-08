@@ -523,7 +523,8 @@ func TestRefinement1_GetTableMetadataLocation(t *testing.T) {
 				if tt.setMeta != "" {
 					table := getTableHelper(t, h, bucketARN, "ns1", "t1")
 					_, err := h.Backend.UpdateTableMetadataLocation(
-						bucketARN, []string{"ns1"}, "t1", tt.setMeta, table["versionToken"].(string))
+						bucketARN, []string{"ns1"}, "t1", tt.setMeta, table["versionToken"].(string),
+					)
 					require.NoError(t, err)
 				}
 

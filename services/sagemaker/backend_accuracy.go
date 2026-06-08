@@ -572,7 +572,8 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 			tj.ModelArtifacts.S3ModelArtifacts = tj.OutputDataConfig.S3OutputPath + "/output/model.tar.gz"
 		}
 
-		tj.SecondaryStatusTransitions = append(tj.SecondaryStatusTransitions,
+		tj.SecondaryStatusTransitions = append(
+			tj.SecondaryStatusTransitions,
 			SecondaryStatusTransition{StartTime: now, EndTime: &now, Status: algorithmStatusCompleted},
 		)
 	})

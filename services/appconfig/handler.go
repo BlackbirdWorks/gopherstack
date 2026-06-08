@@ -788,6 +788,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 	}
 }
+
 func notFoundResponse(c *echo.Context, err error) error {
 	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
 }
@@ -956,7 +957,6 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	envs, outToken, err := h.Backend.ListEnvironments(applicationID, nextToken, maxResults)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1097,7 +1097,6 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		nextToken,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1267,7 +1266,6 @@ func (h *Handler) handleListHostedConfigurationVersions(
 		versionLabel,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1514,7 +1512,6 @@ func (h *Handler) handleListDeployments(
 		nextToken,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)

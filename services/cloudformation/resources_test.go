@@ -761,23 +761,30 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 	b := newServiceBackends()
 	b.EventBridge = ebbackend.NewHandler(
-		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
+	)
 	b.StepFunctions = sfnbackend.NewHandler(
-		sfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+		sfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
+	)
 	b.CloudWatchLogs = cwlogsbackend.NewHandler(
-		cwlogsbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+		cwlogsbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
+	)
 	b.APIGateway = apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend())
 	b.IAM = iambackend.NewHandler(iambackend.NewInMemoryBackendWithConfig("000000000000"))
 	b.EC2 = ec2backend.NewHandler(ec2backend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Kinesis = kinesisbackend.NewHandler(
-		kinesisbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+		kinesisbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
+	)
 	b.CloudWatch = cloudwatchbackend.NewHandler(
-		cloudwatchbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+		cloudwatchbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
+	)
 	b.Route53 = route53backend.NewHandler(route53backend.NewInMemoryBackend())
 	b.ElastiCache = elasticachebackend.NewHandler(
-		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1"))
+		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1"),
+	)
 	b.Scheduler = schedulerbackend.NewHandler(
-		schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 
 	return b
 }
@@ -787,25 +794,34 @@ func newPhase2ServiceBackends() *cloudformation.ServiceBackends {
 	b := newExtendedServiceBackends()
 	b.RDS = rdsbackend.NewHandler(rdsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.ECS = ecsbackend.NewHandler(
-		ecsbackend.NewInMemoryBackend("000000000000", "us-east-1", nil))
+		ecsbackend.NewInMemoryBackend("000000000000", "us-east-1", nil),
+	)
 	b.ECR = ecrbackend.NewHandler(
-		ecrbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), nil)
+		ecrbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), nil,
+	)
 	b.Redshift = redshiftbackend.NewHandler(
-		redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.OpenSearch = opensearchbackend.NewHandler(
-		opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.Firehose = firehosebackend.NewHandler(
-		firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.Route53Resolver = route53resolverbackend.NewHandler(
-		route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.SWF = swfbackend.NewHandler(swfbackend.NewInMemoryBackend())
 	b.AppSync = appsyncbackend.NewHandler(
-		appsyncbackend.NewInMemoryBackend("000000000000", "us-east-1", ""))
+		appsyncbackend.NewInMemoryBackend("000000000000", "us-east-1", ""),
+	)
 	b.SES = sesbackend.NewHandler(sesbackend.NewInMemoryBackend())
 	b.ACM = acmbackend.NewHandler(
-		acmbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		acmbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.CognitoIDP = cognitoidpbackend.NewHandler(
-		cognitoidpbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), "us-east-1")
+		cognitoidpbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), "us-east-1",
+	)
 
 	return b
 }
@@ -2227,8 +2243,10 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 		logicalID    string
 		resourceType string
 	}{
-		{name: "rds_db_instance", logicalID: "MyDB", resourceType: "AWS::RDS::DBInstance",
-			props: map[string]any{"DBInstanceIdentifier": "stub-db", "Engine": "postgres"}},
+		{
+			name: "rds_db_instance", logicalID: "MyDB", resourceType: "AWS::RDS::DBInstance",
+			props: map[string]any{"DBInstanceIdentifier": "stub-db", "Engine": "postgres"},
+		},
 		{
 			name:         "rds_subnet_group",
 			logicalID:    "MySG",
@@ -2239,10 +2257,17 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 				"SubnetIds":                []any{"s-1"},
 			},
 		},
-		{name: "rds_parameter_group", logicalID: "MyPG", resourceType: "AWS::RDS::DBParameterGroup",
-			props: map[string]any{"DBParameterGroupName": "stub-pg", "Family": "postgres14", "Description": "desc"}},
-		{name: "elasticache_replication_group", logicalID: "MyRG", resourceType: "AWS::ElastiCache::ReplicationGroup",
-			props: map[string]any{"ReplicationGroupId": "stub-rg", "ReplicationGroupDescription": "desc"}},
+		{
+			name: "rds_parameter_group", logicalID: "MyPG", resourceType: "AWS::RDS::DBParameterGroup",
+			props: map[string]any{"DBParameterGroupName": "stub-pg", "Family": "postgres14", "Description": "desc"},
+		},
+		{
+			name:         "elasticache_replication_group",
+			logicalID:    "MyRG",
+			resourceType: "AWS::ElastiCache::ReplicationGroup",
+
+			props: map[string]any{"ReplicationGroupId": "stub-rg", "ReplicationGroupDescription": "desc"},
+		},
 		{
 			name:         "elasticache_subnet_group",
 			logicalID:    "MyECSubnet",
@@ -2253,10 +2278,14 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 				"SubnetIds":                   []any{"s-1"},
 			},
 		},
-		{name: "ecs_cluster", logicalID: "MyCluster", resourceType: "AWS::ECS::Cluster",
-			props: map[string]any{"ClusterName": "stub-cluster"}},
-		{name: "ecs_task_definition", logicalID: "MyTD", resourceType: "AWS::ECS::TaskDefinition",
-			props: map[string]any{"Family": "stub-family"}},
+		{
+			name: "ecs_cluster", logicalID: "MyCluster", resourceType: "AWS::ECS::Cluster",
+			props: map[string]any{"ClusterName": "stub-cluster"},
+		},
+		{
+			name: "ecs_task_definition", logicalID: "MyTD", resourceType: "AWS::ECS::TaskDefinition",
+			props: map[string]any{"Family": "stub-family"},
+		},
 		{
 			name:         "ecs_service",
 			logicalID:    "MySvc",
@@ -2267,8 +2296,10 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 				"TaskDefinition": "stub-td",
 			},
 		},
-		{name: "ecr_repository", logicalID: "MyRepo", resourceType: "AWS::ECR::Repository",
-			props: map[string]any{"RepositoryName": "stub-repo"}},
+		{
+			name: "ecr_repository", logicalID: "MyRepo", resourceType: "AWS::ECR::Repository",
+			props: map[string]any{"RepositoryName": "stub-repo"},
+		},
 		{
 			name:         "redshift_cluster",
 			logicalID:    "MyRS",
@@ -2280,33 +2311,59 @@ func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
 				"MasterUsername":    "admin",
 			},
 		},
-		{name: "opensearch_domain", logicalID: "MyDomain", resourceType: "AWS::OpenSearch::Domain",
-			props: map[string]any{"DomainName": "stub-os"}},
-		{name: "firehose_delivery_stream", logicalID: "MyStream", resourceType: "AWS::Firehose::DeliveryStream",
-			props: map[string]any{"DeliveryStreamName": "stub-fh"}},
-		{name: "route53_healthcheck", logicalID: "MyHC", resourceType: "AWS::Route53::HealthCheck",
-			props: map[string]any{"HealthCheckConfig": map[string]any{"Type": "HTTPS"}}},
-		{name: "route53resolver_endpoint", logicalID: "MyEP", resourceType: "AWS::Route53Resolver::ResolverEndpoint",
-			props: map[string]any{"Name": "stub-ep", "Direction": "INBOUND"}},
-		{name: "route53resolver_rule", logicalID: "MyRule", resourceType: "AWS::Route53Resolver::ResolverRule",
-			props: map[string]any{"Name": "stub-rule", "DomainName": "example.internal", "RuleType": "FORWARD"}},
-		{name: "swf_domain", logicalID: "MyDomain", resourceType: "AWS::SWF::Domain",
-			props: map[string]any{"Name": "stub-domain"}},
-		{name: "appsync_graphql_api", logicalID: "MyAPI", resourceType: "AWS::AppSync::GraphQLApi",
-			props: map[string]any{"Name": "stub-api", "AuthenticationType": "API_KEY"}},
-		{name: "ses_email_identity", logicalID: "MyId", resourceType: "AWS::SES::EmailIdentity",
-			props: map[string]any{"EmailIdentity": "stub@example.com"}},
-		{name: "acm_certificate", logicalID: "MyCert", resourceType: "AWS::ACM::Certificate",
-			props: map[string]any{"DomainName": "stub.example.com"}},
-		{name: "cognito_user_pool", logicalID: "MyPool", resourceType: "AWS::Cognito::UserPool",
-			props: map[string]any{"PoolName": "stub-pool"}},
-		{name: "cognito_user_pool_client", logicalID: "MyClient", resourceType: "AWS::Cognito::UserPoolClient",
-			props: map[string]any{"ClientName": "stub-client", "UserPoolId": "us-east-1_stubpool"}},
+		{
+			name: "opensearch_domain", logicalID: "MyDomain", resourceType: "AWS::OpenSearch::Domain",
+			props: map[string]any{"DomainName": "stub-os"},
+		},
+		{
+			name: "firehose_delivery_stream", logicalID: "MyStream", resourceType: "AWS::Firehose::DeliveryStream",
+			props: map[string]any{"DeliveryStreamName": "stub-fh"},
+		},
+		{
+			name: "route53_healthcheck", logicalID: "MyHC", resourceType: "AWS::Route53::HealthCheck",
+			props: map[string]any{"HealthCheckConfig": map[string]any{"Type": "HTTPS"}},
+		},
+		{
+			name: "route53resolver_endpoint", logicalID: "MyEP", resourceType: "AWS::Route53Resolver::ResolverEndpoint",
+			props: map[string]any{"Name": "stub-ep", "Direction": "INBOUND"},
+		},
+		{
+			name: "route53resolver_rule", logicalID: "MyRule", resourceType: "AWS::Route53Resolver::ResolverRule",
+			props: map[string]any{"Name": "stub-rule", "DomainName": "example.internal", "RuleType": "FORWARD"},
+		},
+		{
+			name: "swf_domain", logicalID: "MyDomain", resourceType: "AWS::SWF::Domain",
+			props: map[string]any{"Name": "stub-domain"},
+		},
+		{
+			name: "appsync_graphql_api", logicalID: "MyAPI", resourceType: "AWS::AppSync::GraphQLApi",
+			props: map[string]any{"Name": "stub-api", "AuthenticationType": "API_KEY"},
+		},
+		{
+			name: "ses_email_identity", logicalID: "MyId", resourceType: "AWS::SES::EmailIdentity",
+			props: map[string]any{"EmailIdentity": "stub@example.com"},
+		},
+		{
+			name: "acm_certificate", logicalID: "MyCert", resourceType: "AWS::ACM::Certificate",
+			props: map[string]any{"DomainName": "stub.example.com"},
+		},
+		{
+			name: "cognito_user_pool", logicalID: "MyPool", resourceType: "AWS::Cognito::UserPool",
+			props: map[string]any{"PoolName": "stub-pool"},
+		},
+		{
+			name: "cognito_user_pool_client", logicalID: "MyClient", resourceType: "AWS::Cognito::UserPoolClient",
+			props: map[string]any{"ClientName": "stub-client", "UserPoolId": "us-east-1_stubpool"},
+		},
 		{name: "ec2_eip", logicalID: "MyEIP", resourceType: "AWS::EC2::EIP", props: map[string]any{}},
-		{name: "ec2_nat_gateway", logicalID: "MyNGW", resourceType: "AWS::EC2::NatGateway",
-			props: map[string]any{"SubnetId": "subnet-1", "AllocationId": "eipalloc-abc123"}},
-		{name: "cloudwatch_composite_alarm", logicalID: "MyCA", resourceType: "AWS::CloudWatch::CompositeAlarm",
-			props: map[string]any{"AlarmName": "stub-composite", "AlarmRule": "ALARM(foo)"}},
+		{
+			name: "ec2_nat_gateway", logicalID: "MyNGW", resourceType: "AWS::EC2::NatGateway",
+			props: map[string]any{"SubnetId": "subnet-1", "AllocationId": "eipalloc-abc123"},
+		},
+		{
+			name: "cloudwatch_composite_alarm", logicalID: "MyCA", resourceType: "AWS::CloudWatch::CompositeAlarm",
+			props: map[string]any{"AlarmName": "stub-composite", "AlarmRule": "ALARM(foo)"},
+		},
 	}
 
 	for _, tt := range tests {

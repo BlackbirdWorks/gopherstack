@@ -36,7 +36,7 @@ const DefaultPartition = "aws"
 // Key is the context key under which Metadata is stored. Exported so callers
 // that want raw ctxval access (e.g. middleware that wraps Set with logging)
 // can reuse it.
-var Key = ctxval.NewKey[*Metadata]("awsmeta")
+var Key = ctxval.NewKey[*Metadata]("awsmeta") //nolint:gochecknoglobals // existing issue.
 
 // Set returns a child context carrying m. Passing nil is a no-op.
 func Set(ctx context.Context, m *Metadata) context.Context {

@@ -28,8 +28,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
-const ()
-
 const (
 	opTransactWriteItems                = "TransactWriteItems"
 	opUntagResource                     = "UntagResource"
@@ -214,8 +212,10 @@ func (h *DynamoDBHandler) Shutdown(ctx context.Context) {
 	}
 }
 
-var _ service.BackgroundWorker = (*DynamoDBHandler)(nil)
-var _ service.Shutdowner = (*DynamoDBHandler)(nil)
+var (
+	_ service.BackgroundWorker = (*DynamoDBHandler)(nil)
+	_ service.Shutdowner       = (*DynamoDBHandler)(nil)
+)
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
 func (h *DynamoDBHandler) GetSupportedOperations() []string {
@@ -794,7 +794,8 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 ) (any, error) {
 	switch action {
 	case opTransactWriteItems:
-		return handleOpErr(ctx,
+		return handleOpErr(
+			ctx,
 			action,
 			body,
 			models.ToSDKTransactWriteItemsInput,
@@ -802,7 +803,8 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 			models.FromSDKTransactWriteItemsOutput,
 		)
 	case opTransactGetItems:
-		return handleOpErr(ctx,
+		return handleOpErr(
+			ctx,
 			action,
 			body,
 			models.ToSDKTransactGetItemsInput,

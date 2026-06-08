@@ -81,7 +81,8 @@ func TestListMetrics_MultiDimFilter_AllMustMatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	p, err := b.ListMetrics("Svc", "Req",
+	p, err := b.ListMetrics(
+		"Svc", "Req",
 		[]cloudwatch.Dimension{{Name: "A", Value: "1"}, {Name: "B", Value: "2"}},
 		"", 0,
 	)
@@ -94,7 +95,8 @@ func TestHandler_ListMetrics_PartialDimFilter(t *testing.T) {
 
 	h := newCWHandler()
 	// Store metric with two dimensions.
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=CPU"+
 			"&MetricData.member.1.Value=50"+
@@ -104,7 +106,8 @@ func TestHandler_ListMetrics_PartialDimFilter(t *testing.T) {
 	)
 
 	// Filter by just Env=prod (partial).
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=ListMetrics&Namespace=NS&MetricName=CPU"+
 			"&Dimensions.member.1.Name=Env&Dimensions.member.1.Value=prod",
 	)
@@ -120,7 +123,8 @@ func TestHandler_GetMetricStatistics_ExtendedStatistics_InResponse(t *testing.T)
 	t.Parallel()
 
 	h := newCWHandler()
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Latency&MetricData.member.1.Value=10"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z"+
@@ -130,7 +134,8 @@ func TestHandler_GetMetricStatistics_ExtendedStatistics_InResponse(t *testing.T)
 			"&MetricData.member.3.Timestamp=2024-01-01T00:00:32Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricStatistics&Namespace=NS&MetricName=Latency"+
 			"&StartTime=2024-01-01T00:00:00Z&EndTime=2024-01-01T00:02:00Z&Period=60"+
 			"&ExtendedStatistics.member.1=p99&ExtendedStatistics.member.2=p50",
@@ -559,14 +564,16 @@ func TestHandler_GetMetricData_ConstantExpression(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Hits"+
 			"&MetricData.member.1.Value=10"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricData"+
 			"&MetricDataQueries.member.1.Id=m1"+
 			"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS"+
@@ -591,7 +598,8 @@ func TestHandler_GetMetricData_AvgMetricsExpression(t *testing.T) {
 	postForm(t, h, "Action=PutMetricData&Namespace=NS"+
 		"&MetricData.member.1.MetricName=B&MetricData.member.1.Value=30&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z")
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricData"+
 			"&MetricDataQueries.member.1.Id=m1&MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS"+
 			"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=A"+
@@ -616,7 +624,8 @@ func TestHandler_PutMetricData_StatisticSetOnly_Accepted(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=App"+
 			"&MetricData.member.1.MetricName=Reqs"+
 			"&MetricData.member.1.StatisticValues.SampleCount=5"+
@@ -634,7 +643,8 @@ func TestHandler_PutMetricData_StatisticSetAndValue_Rejected(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=App"+
 			"&MetricData.member.1.MetricName=Bad"+
 			"&MetricData.member.1.Value=1.0"+
@@ -699,7 +709,8 @@ func TestHandler_PutMetricData_UnitParsed(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
-	postForm(t, h,
+	postForm(
+		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Mem"+
 			"&MetricData.member.1.Value=1024"+
@@ -707,7 +718,8 @@ func TestHandler_PutMetricData_UnitParsed(t *testing.T) {
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
 
-	rec := postForm(t, h,
+	rec := postForm(
+		t, h,
 		"Action=GetMetricStatistics&Namespace=NS&MetricName=Mem"+
 			"&StartTime=2023-12-31T00:00:00Z&EndTime=2024-01-02T00:00:00Z"+
 			"&Period=86400&Statistics.member.1=Sum",
@@ -809,12 +821,14 @@ func TestHandler_SetAlarmState_AllStates(t *testing.T) {
 			t.Parallel()
 
 			h := newCWHandler()
-			postForm(t, h,
+			postForm(
+				t, h,
 				"Action=PutMetricAlarm&AlarmName=a&Namespace=NS&MetricName=M"+
 					"&ComparisonOperator=GreaterThanThreshold&Threshold=50&EvaluationPeriods=1",
 			)
 
-			rec := postForm(t, h,
+			rec := postForm(
+				t, h,
 				"Action=SetAlarmState&AlarmName=a&StateValue="+state+"&StateReason=test",
 			)
 			assert.Equal(t, 200, rec.Code, "state=%s", state)
@@ -1468,8 +1482,10 @@ func TestBackend_ListMetrics_Pagination(t *testing.T) {
 
 	for i := range 10 {
 		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
-			{MetricName: fmt.Sprintf("M%02d", i), Value: float64(i), Count: 1,
-				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts},
+			{
+				MetricName: fmt.Sprintf("M%02d", i), Value: float64(i), Count: 1,
+				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts,
+			},
 		})
 		require.NoError(t, err)
 	}

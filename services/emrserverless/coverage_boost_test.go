@@ -1,7 +1,6 @@
 package emrserverless_test
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,8 +53,8 @@ func TestProvider_Init_WithConfig(t *testing.T) {
 		wantRegion string
 	}{
 		{
-			name: "with_config_provider",
-			cfg:  &mockConfigProvider{accountID: "111111111111", region: "eu-west-1"},
+			name:       "with_config_provider",
+			cfg:        &mockConfigProvider{accountID: "111111111111", region: "eu-west-1"},
 			wantRegion: "eu-west-1",
 		},
 		{
@@ -99,33 +98,88 @@ func TestHandler_ExtractOperation_UnknownMethods(t *testing.T) {
 		wantOp string
 	}{
 		// parseTagRoute unknown method
-		{name: "tag_patch_returns_unknown", method: http.MethodPatch, path: "/tags/arn:aws:emr-serverless:us-east-1:000:x", wantOp: "Unknown"},
+		{
+			name:   "tag_patch_returns_unknown",
+			method: http.MethodPatch,
+			path:   "/tags/arn:aws:emr-serverless:us-east-1:000:x",
+			wantOp: "Unknown",
+		},
 		// parseApplicationsCollection unknown method
 		{name: "applications_put_returns_unknown", method: http.MethodPut, path: "/applications", wantOp: "Unknown"},
 		// parseSingleAppRoute unknown method
-		{name: "single_app_post_returns_unknown", method: http.MethodPost, path: "/applications/abc", wantOp: "Unknown"},
+		{
+			name:   "single_app_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc",
+			wantOp: "Unknown",
+		},
 		// parseJobRunSubRoute non-GET
-		{name: "job_run_sub_post_returns_unknown", method: http.MethodPost, path: "/applications/abc/jobruns/jr1/dashboard", wantOp: "Unknown"},
+		{
+			name:   "job_run_sub_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/jobruns/jr1/dashboard",
+			wantOp: "Unknown",
+		},
 		// parseJobRunSubRoute unknown action
-		{name: "job_run_sub_unknown_action", method: http.MethodGet, path: "/applications/abc/jobruns/jr1/unknown", wantOp: "Unknown"},
+		{
+			name:   "job_run_sub_unknown_action",
+			method: http.MethodGet,
+			path:   "/applications/abc/jobruns/jr1/unknown",
+			wantOp: "Unknown",
+		},
 		// parseJobRunRoute unknown method for jobruns
-		{name: "job_run_put_returns_unknown", method: http.MethodPut, path: "/applications/abc/jobruns/jr1", wantOp: "Unknown"},
+		{
+			name:   "job_run_put_returns_unknown",
+			method: http.MethodPut,
+			path:   "/applications/abc/jobruns/jr1",
+			wantOp: "Unknown",
+		},
 		// parseJobRunRoute non-sessions sub
 		{name: "job_run_unknown_sub", method: http.MethodGet, path: "/applications/abc/other/jr1", wantOp: "Unknown"},
 		// parseAppSubRoute unknown sub
 		{name: "app_unknown_sub", method: http.MethodGet, path: "/applications/abc/nonexistent", wantOp: "Unknown"},
 		// parseAppSubRoute dashboard non-GET
-		{name: "app_dashboard_post_returns_unknown", method: http.MethodPost, path: "/applications/abc/dashboard", wantOp: "Unknown"},
+		{
+			name:   "app_dashboard_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/dashboard",
+			wantOp: "Unknown",
+		},
 		// parseAppSubRoute start non-POST
-		{name: "app_start_get_returns_unknown", method: http.MethodGet, path: "/applications/abc/start", wantOp: "Unknown"},
+		{
+			name:   "app_start_get_returns_unknown",
+			method: http.MethodGet,
+			path:   "/applications/abc/start",
+			wantOp: "Unknown",
+		},
 		// parseAppSubRoute stop non-POST
-		{name: "app_stop_get_returns_unknown", method: http.MethodGet, path: "/applications/abc/stop", wantOp: "Unknown"},
+		{
+			name:   "app_stop_get_returns_unknown",
+			method: http.MethodGet,
+			path:   "/applications/abc/stop",
+			wantOp: "Unknown",
+		},
 		// parseJobRunSubRoute non-jobruns sub
-		{name: "session_sub_endpoint_non_get", method: http.MethodPost, path: "/applications/abc/sessions/s1/endpoint", wantOp: "Unknown"},
+		{
+			name:   "session_sub_endpoint_non_get",
+			method: http.MethodPost,
+			path:   "/applications/abc/sessions/s1/endpoint",
+			wantOp: "Unknown",
+		},
 		// parseJobRunSubRoute sessions non-endpoint action
-		{name: "session_sub_other_action", method: http.MethodGet, path: "/applications/abc/sessions/s1/other", wantOp: "Unknown"},
+		{
+			name:   "session_sub_other_action",
+			method: http.MethodGet,
+			path:   "/applications/abc/sessions/s1/other",
+			wantOp: "Unknown",
+		},
 		// parseJobRunRoute sessions non-GET non-DELETE
-		{name: "session_route_post_returns_unknown", method: http.MethodPost, path: "/applications/abc/sessions/s1", wantOp: "Unknown"},
+		{
+			name:   "session_route_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/sessions/s1",
+			wantOp: "Unknown",
+		},
 	}
 
 	for _, tt := range tests {
@@ -413,6 +467,7 @@ func TestHandler_TerminateSession_Errors(t *testing.T) {
 			name: "session_not_found",
 			setup: func(h *emrserverless.Handler) (string, string) {
 				appID := createStartedApp(t, h)
+
 				return appID, "nonexistent-session"
 			},
 			wantStatus: http.StatusNotFound,
@@ -424,6 +479,7 @@ func TestHandler_TerminateSession_Errors(t *testing.T) {
 				sessionID, _ := startSession(t, h, appID, "term-token")
 				rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/sessions/"+sessionID, nil)
 				require.Equal(t, http.StatusOK, rec.Code)
+
 				return appID, sessionID
 			},
 			wantStatus: http.StatusBadRequest,
@@ -463,6 +519,7 @@ func TestHandler_GetSession_Errors(t *testing.T) {
 			name: "session_not_found",
 			setup: func(h *emrserverless.Handler) (string, string) {
 				appID := createStartedApp(t, h)
+
 				return appID, "nonexistent-session"
 			},
 			wantStatus: http.StatusNotFound,
@@ -512,6 +569,7 @@ func TestHandler_GetSessionEndpoint_Errors(t *testing.T) {
 			name: "session_not_found",
 			setup: func(h *emrserverless.Handler) (string, string) {
 				appID := createStartedApp(t, h)
+
 				return appID, "nonexistent-session"
 			},
 			wantStatus: http.StatusNotFound,
@@ -606,7 +664,7 @@ func TestBackend_GetJobRun_NoRunsForApp(t *testing.T) {
 	// No job runs have been started so the inner map doesn't exist.
 	_, err = b.GetJobRun(app.ApplicationID, "nonexistent-run")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, emrserverless.ErrNotFound))
+	assert.ErrorIs(t, err, emrserverless.ErrNotFound)
 }
 
 // --- GetDashboardForJobRun when application has no job run map ---
@@ -620,7 +678,7 @@ func TestBackend_GetDashboardForJobRun_NoRunsForApp(t *testing.T) {
 
 	_, err = b.GetDashboardForJobRun(app.ApplicationID, "nonexistent-run")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, emrserverless.ErrNotFound))
+	assert.ErrorIs(t, err, emrserverless.ErrNotFound)
 }
 
 // --- ListJobRunAttempts when application has no job run map ---
@@ -634,7 +692,7 @@ func TestBackend_ListJobRunAttempts_NoRunsForApp(t *testing.T) {
 
 	_, _, err = b.ListJobRunAttempts(app.ApplicationID, "nonexistent-run", "", 0)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, emrserverless.ErrNotFound))
+	assert.ErrorIs(t, err, emrserverless.ErrNotFound)
 }
 
 // --- CancelJobRun when application has no job run map ---
@@ -648,7 +706,7 @@ func TestBackend_CancelJobRun_NoRunsForApp(t *testing.T) {
 
 	_, err = b.CancelJobRun(app.ApplicationID, "nonexistent-run")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, emrserverless.ErrNotFound))
+	assert.ErrorIs(t, err, emrserverless.ErrNotFound)
 }
 
 // --- findTagsByARN uncovered branches (jobRunARNs key exists but maps don't) ---

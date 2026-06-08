@@ -118,7 +118,12 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 			t.Parallel()
 
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			p, err := b.CreateLifecyclePolicy("snap-policy", "arn:aws:iam::000000000000:role/r", "ENABLED", map[string]string{"k": "v"})
+			p, err := b.CreateLifecyclePolicy(
+				"snap-policy",
+				"arn:aws:iam::000000000000:role/r",
+				"ENABLED",
+				map[string]string{"k": "v"},
+			)
 			require.NoError(t, err)
 
 			snap := b.Snapshot()
@@ -127,6 +132,7 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 			if tc.badJSON {
 				err = b.Restore([]byte("not json"))
 				assert.Error(t, err)
+
 				return
 			}
 
@@ -232,7 +238,11 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}{
 		{name: "matches /policies", path: "/policies", want: true},
 		{name: "matches /policies/policy-xxx", path: "/policies/policy-0000000000000001", want: true},
-		{name: "matches /tags/ with dlm ARN", path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1", want: true},
+		{
+			name: "matches /tags/ with dlm ARN",
+			path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+			want: true,
+		},
 		{name: "does not match /tags/ non-dlm ARN", path: "/tags/arn:aws:s3:::bucket", want: false},
 		{name: "does not match unrelated path", path: "/ec2/instances", want: false},
 		{name: "does not match empty path", path: "/", want: false},
@@ -281,14 +291,54 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{name: "POST /policies → CreateLifecyclePolicy", method: http.MethodPost, path: "/policies", want: "CreateLifecyclePolicy"},
-		{name: "GET /policies → GetLifecyclePolicies", method: http.MethodGet, path: "/policies", want: "GetLifecyclePolicies"},
-		{name: "GET /policies/id → GetLifecyclePolicy", method: http.MethodGet, path: "/policies/policy-abc", want: "GetLifecyclePolicy"},
-		{name: "DELETE /policies/id → DeleteLifecyclePolicy", method: http.MethodDelete, path: "/policies/policy-abc", want: "DeleteLifecyclePolicy"},
-		{name: "PATCH /policies/id → UpdateLifecyclePolicy", method: http.MethodPatch, path: "/policies/policy-abc", want: "UpdateLifecyclePolicy"},
-		{name: "POST /tags/arn → TagResource", method: http.MethodPost, path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1", want: "TagResource"},
-		{name: "DELETE /tags/arn → UntagResource", method: http.MethodDelete, path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1", want: "UntagResource"},
-		{name: "GET /tags/arn → ListTagsForResource", method: http.MethodGet, path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1", want: "ListTagsForResource"},
+		{
+			name:   "POST /policies → CreateLifecyclePolicy",
+			method: http.MethodPost,
+			path:   "/policies",
+			want:   "CreateLifecyclePolicy",
+		},
+		{
+			name:   "GET /policies → GetLifecyclePolicies",
+			method: http.MethodGet,
+			path:   "/policies",
+			want:   "GetLifecyclePolicies",
+		},
+		{
+			name:   "GET /policies/id → GetLifecyclePolicy",
+			method: http.MethodGet,
+			path:   "/policies/policy-abc",
+			want:   "GetLifecyclePolicy",
+		},
+		{
+			name:   "DELETE /policies/id → DeleteLifecyclePolicy",
+			method: http.MethodDelete,
+			path:   "/policies/policy-abc",
+			want:   "DeleteLifecyclePolicy",
+		},
+		{
+			name:   "PATCH /policies/id → UpdateLifecyclePolicy",
+			method: http.MethodPatch,
+			path:   "/policies/policy-abc",
+			want:   "UpdateLifecyclePolicy",
+		},
+		{
+			name:   "POST /tags/arn → TagResource",
+			method: http.MethodPost,
+			path:   "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+			want:   "TagResource",
+		},
+		{
+			name:   "DELETE /tags/arn → UntagResource",
+			method: http.MethodDelete,
+			path:   "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+			want:   "UntagResource",
+		},
+		{
+			name:   "GET /tags/arn → ListTagsForResource",
+			method: http.MethodGet,
+			path:   "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+			want:   "ListTagsForResource",
+		},
 	}
 
 	for _, tc := range tests {
@@ -312,7 +362,11 @@ func TestHandler_ExtractResource(t *testing.T) {
 		path string
 		want string
 	}{
-		{name: "extracts resource from /tags/ path", path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1", want: "arn:aws:dlm:us-east-1:000000000000:policy/policy-1"},
+		{
+			name: "extracts resource from /tags/ path",
+			path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+			want: "arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
+		},
 		{name: "extracts policy id from /policies/ path", path: "/policies/policy-abc", want: "policy-abc"},
 		{name: "returns full path for /policies base", path: "/policies", want: "/policies"},
 	}
@@ -341,8 +395,8 @@ func TestHandler_MapError_InternalError(t *testing.T) {
 		name     string
 		path     string
 		method   string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{
 			// Trigger mapError with an error that is neither ErrNotFound nor ErrInvalidParameter.
@@ -656,8 +710,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		ctx     *service.AppContext
+		name    string
 		wantErr bool
 	}{
 		{
@@ -679,10 +733,10 @@ func TestProvider_Init(t *testing.T) {
 			p := &dlm.Provider{}
 			got, err := p.Init(tc.ctx)
 			if tc.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, got)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, got)
 			}
 		})
@@ -777,7 +831,12 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 			t.Parallel()
 
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			p, err := b.CreateLifecyclePolicy("original description", "arn:aws:iam::000000000000:role/original", "ENABLED", nil)
+			p, err := b.CreateLifecyclePolicy(
+				"original description",
+				"arn:aws:iam::000000000000:role/original",
+				"ENABLED",
+				nil,
+			)
 			require.NoError(t, err)
 
 			err = b.UpdateLifecyclePolicy(p.PolicyID, tc.updateDesc, tc.updateRole, tc.updateState)

@@ -1,4 +1,4 @@
-package secretsmanager
+package secretsmanager //nolint:testpackage // existing issue.
 
 import (
 	"runtime"

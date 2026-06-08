@@ -1342,7 +1342,8 @@ func TestBatch2_FirehoseSubscriptionAutoConfirmed(t *testing.T) {
 	tp, err := b.CreateTopic("firehose-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "firehose",
+	sub, err := b.Subscribe(
+		tp.TopicArn, "firehose",
 		"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream",
 		"",
 	)
@@ -1384,7 +1385,8 @@ func TestBatch2_FirehoseSubscriptionWithFilterPolicy(t *testing.T) {
 	tp, err := b.CreateTopic("firehose-fp-topic", nil)
 	require.NoError(t, err)
 
-	_, err = b.Subscribe(tp.TopicArn, "firehose",
+	_, err = b.Subscribe(
+		tp.TopicArn, "firehose",
 		"arn:aws:firehose:us-east-1:000000000000:deliverystream/filtered",
 		`{"source":["app"]}`,
 	)

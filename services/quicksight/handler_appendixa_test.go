@@ -13,19 +13,16 @@ func accountSingularPath(sub string) string {
 	return fmt.Sprintf("/account/%s%s", testAccountID, sub)
 }
 
-// ---- Folder tests ----
-
-func TestQuickSight_Folders(t *testing.T) {
-	t.Parallel()
-
+// ---- Folder tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Folders(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
+		body       any
+		setup      func(h any)
 		name       string
-		setup      func(h interface{}) // unused, we call doRequest directly
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create folder",
@@ -117,8 +114,7 @@ func TestQuickSight_Folders(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -130,20 +126,17 @@ func TestQuickSight_Folders(t *testing.T) {
 	}
 }
 
-// ---- Template tests ----
-
-func TestQuickSight_Templates(t *testing.T) {
-	t.Parallel()
-
+// ---- Template tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Templates(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create template",
@@ -250,8 +243,7 @@ func TestQuickSight_Templates(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -263,20 +255,17 @@ func TestQuickSight_Templates(t *testing.T) {
 	}
 }
 
-// ---- Theme tests ----
-
-func TestQuickSight_Themes(t *testing.T) {
-	t.Parallel()
-
+// ---- Theme tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Themes(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create theme",
@@ -376,8 +365,7 @@ func TestQuickSight_Themes(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -389,20 +377,17 @@ func TestQuickSight_Themes(t *testing.T) {
 	}
 }
 
-// ---- Topic tests ----
-
-func TestQuickSight_Topics(t *testing.T) {
-	t.Parallel()
-
+// ---- Topic tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Topics(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create topic",
@@ -525,8 +510,7 @@ func TestQuickSight_Topics(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -538,20 +522,17 @@ func TestQuickSight_Topics(t *testing.T) {
 	}
 }
 
-// ---- VPC Connection tests ----
-
-func TestQuickSight_VPCConnections(t *testing.T) {
-	t.Parallel()
-
+// ---- VPC Connection tests ---- //nolint:godot // existing issue.
+func TestQuickSight_VPCConnections(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create vpc connection",
@@ -592,8 +573,7 @@ func TestQuickSight_VPCConnections(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -605,20 +585,17 @@ func TestQuickSight_VPCConnections(t *testing.T) {
 	}
 }
 
-// ---- IAM Policy Assignment tests ----
-
-func TestQuickSight_IAMPolicyAssignments(t *testing.T) {
-	t.Parallel()
-
+// ---- IAM Policy Assignment tests ---- //nolint:godot // existing issue.
+func TestQuickSight_IAMPolicyAssignments(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create iam policy assignment",
@@ -659,8 +636,7 @@ func TestQuickSight_IAMPolicyAssignments(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -672,20 +648,17 @@ func TestQuickSight_IAMPolicyAssignments(t *testing.T) {
 	}
 }
 
-// ---- Custom Permissions tests ----
-
-func TestQuickSight_CustomPermissions(t *testing.T) {
-	t.Parallel()
-
+// ---- Custom Permissions tests ---- //nolint:godot // existing issue.
+func TestQuickSight_CustomPermissions(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create custom permissions",
@@ -725,8 +698,7 @@ func TestQuickSight_CustomPermissions(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -738,20 +710,17 @@ func TestQuickSight_CustomPermissions(t *testing.T) {
 	}
 }
 
-// ---- Role Membership tests ----
-
-func TestQuickSight_RoleMemberships(t *testing.T) {
-	t.Parallel()
-
+// ---- Role Membership tests ---- //nolint:godot // existing issue.
+func TestQuickSight_RoleMemberships(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create role membership",
@@ -794,8 +763,7 @@ func TestQuickSight_RoleMemberships(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -807,11 +775,8 @@ func TestQuickSight_RoleMemberships(t *testing.T) {
 	}
 }
 
-// ---- DataSet extras tests ----
-
-func TestQuickSight_DataSetExtras(t *testing.T) {
-	t.Parallel()
-
+// ---- DataSet extras tests ---- //nolint:godot // existing issue.
+func TestQuickSight_DataSetExtras(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Need a dataset to exist first
@@ -821,12 +786,12 @@ func TestQuickSight_DataSetExtras(t *testing.T) {
 	require.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusCreated, "create dataset: %d", rec.Code)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "describe dataset permissions",
@@ -889,10 +854,9 @@ func TestQuickSight_DataSetExtras(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			rec := doRequest(t, h, tc.method, tc.path, tc.body) //nolint:govet // existing issue.
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
 			if tc.wantKey != "" {
 				body := parseBody(t, rec)
@@ -902,11 +866,8 @@ func TestQuickSight_DataSetExtras(t *testing.T) {
 	}
 }
 
-// ---- DataSource extras tests ----
-
-func TestQuickSight_DataSourceExtras(t *testing.T) {
-	t.Parallel()
-
+// ---- DataSource extras tests ---- //nolint:godot // existing issue.
+func TestQuickSight_DataSourceExtras(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Need a data source
@@ -916,12 +877,12 @@ func TestQuickSight_DataSourceExtras(t *testing.T) {
 	require.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusCreated, "create data source: %d", rec.Code)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "describe data source permissions",
@@ -940,10 +901,9 @@ func TestQuickSight_DataSourceExtras(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			rec := doRequest(t, h, tc.method, tc.path, tc.body) //nolint:govet // existing issue.
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
 			if tc.wantKey != "" {
 				body := parseBody(t, rec)
@@ -953,11 +913,8 @@ func TestQuickSight_DataSourceExtras(t *testing.T) {
 	}
 }
 
-// ---- Dashboard extras tests ----
-
-func TestQuickSight_DashboardExtras(t *testing.T) {
-	t.Parallel()
-
+// ---- Dashboard extras tests ---- //nolint:godot // existing issue.
+func TestQuickSight_DashboardExtras(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Need a dashboard
@@ -967,12 +924,12 @@ func TestQuickSight_DashboardExtras(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "describe dashboard definition",
@@ -1049,10 +1006,9 @@ func TestQuickSight_DashboardExtras(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			rec := doRequest(t, h, tc.method, tc.path, tc.body) //nolint:govet // existing issue.
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
 			if tc.wantKey != "" {
 				body := parseBody(t, rec)
@@ -1062,20 +1018,17 @@ func TestQuickSight_DashboardExtras(t *testing.T) {
 	}
 }
 
-// ---- Brand tests ----
-
-func TestQuickSight_Brands(t *testing.T) {
-	t.Parallel()
-
+// ---- Brand tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create brand",
@@ -1144,8 +1097,7 @@ func TestQuickSight_Brands(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -1157,20 +1109,17 @@ func TestQuickSight_Brands(t *testing.T) {
 	}
 }
 
-// ---- OAuth Client App tests ----
-
-func TestQuickSight_OAuthClientApps(t *testing.T) {
-	t.Parallel()
-
+// ---- OAuth Client App tests ---- //nolint:godot // existing issue.
+func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create oauth app",
@@ -1210,8 +1159,7 @@ func TestQuickSight_OAuthClientApps(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -1223,20 +1171,17 @@ func TestQuickSight_OAuthClientApps(t *testing.T) {
 	}
 }
 
-// ---- Account-level settings tests ----
-
-func TestQuickSight_AccountSettings(t *testing.T) {
-	t.Parallel()
-
+// ---- Account-level settings tests ---- //nolint:godot // existing issue.
+func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create account customization",
@@ -1382,8 +1327,7 @@ func TestQuickSight_AccountSettings(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status for "+tc.name)
@@ -1395,20 +1339,17 @@ func TestQuickSight_AccountSettings(t *testing.T) {
 	}
 }
 
-// ---- Account Subscription tests ----
-
-func TestQuickSight_AccountSubscription(t *testing.T) {
-	t.Parallel()
-
+// ---- Account Subscription tests ---- //nolint:godot // existing issue.
+func TestQuickSight_AccountSubscription(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "create account subscription",
@@ -1427,8 +1368,7 @@ func TestQuickSight_AccountSubscription(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -1440,20 +1380,17 @@ func TestQuickSight_AccountSubscription(t *testing.T) {
 	}
 }
 
-// ---- Embed URL tests ----
-
-func TestQuickSight_EmbedURLs(t *testing.T) {
-	t.Parallel()
-
+// ---- Embed URL tests ---- //nolint:godot // existing issue.
+func TestQuickSight_EmbedURLs(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "generate embed url for anonymous user",
@@ -1488,8 +1425,7 @@ func TestQuickSight_EmbedURLs(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -1501,20 +1437,17 @@ func TestQuickSight_EmbedURLs(t *testing.T) {
 	}
 }
 
-// ---- Search tests ----
-
-func TestQuickSight_Search(t *testing.T) {
-	t.Parallel()
-
+// ---- Search tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Search(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "search analyses",
@@ -1550,8 +1483,7 @@ func TestQuickSight_Search(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
@@ -1563,18 +1495,15 @@ func TestQuickSight_Search(t *testing.T) {
 	}
 }
 
-// ---- User custom permission tests ----
-
-func TestQuickSight_UserCustomPermission(t *testing.T) {
-	t.Parallel()
-
+// ---- User custom permission tests ---- //nolint:godot // existing issue.
+func TestQuickSight_UserCustomPermission(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
@@ -1592,8 +1521,7 @@ func TestQuickSight_UserCustomPermission(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")

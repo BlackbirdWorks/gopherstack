@@ -33,6 +33,7 @@ func (b *InMemoryBackend) CommandCount() int {
 	for _, cmds := range b.commands {
 		total += len(cmds)
 	}
+
 	return total
 }
 
@@ -45,6 +46,7 @@ func (b *InMemoryBackend) CommandInvocationCount() int {
 	for _, invs := range b.commandInvocations {
 		total += len(invs)
 	}
+
 	return total
 }
 
@@ -59,6 +61,7 @@ func (b *InMemoryBackend) SetCommandExpiresAfter(cmdID string, expiresAfter floa
 		if cmd, ok := cmds[cmdID]; ok {
 			cmd.ExpiresAfter = expiresAfter
 			cmds[cmdID] = cmd
+
 			return
 		}
 	}

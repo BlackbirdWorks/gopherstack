@@ -137,10 +137,9 @@ type DatasourcePackageIngestDetail struct {
 
 // MembershipDatasources holds datasource package info for a member or graph.
 type MembershipDatasources struct {
-	AccountID string
-	GraphARN  string
-	// DatasourcePackageIngestStates maps package name → ingest state.
 	DatasourcePackageIngestStates map[string]string
+	AccountID                     string
+	GraphARN                      string
 }
 
 // OrgAdmin represents a Detective organization administrator account.

@@ -692,7 +692,10 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 }
 
 // ListEventBuses returns event buses optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEventBuses(ctx context.Context, namePrefix, nextToken string) ([]EventBus, string, error) {
+func (b *InMemoryBackend) ListEventBuses(
+	ctx context.Context,
+	namePrefix, nextToken string,
+) ([]EventBus, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListEventBuses")
@@ -1193,7 +1196,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 }
 
 // GetEventLog returns a copy of the current event log.
-func (b *InMemoryBackend) GetEventLog(ctx context.Context) []EventLogEntry {
+func (b *InMemoryBackend) GetEventLog(ctx context.Context) []EventLogEntry { //nolint:revive // existing issue.
 	b.mu.RLock("GetEventLog")
 	defer b.mu.RUnlock()
 
@@ -2375,7 +2378,10 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 }
 
 // TestEventPattern tests an event pattern against an event JSON string.
-func (b *InMemoryBackend) TestEventPattern(ctx context.Context, pattern, event string) (bool, error) {
+func (b *InMemoryBackend) TestEventPattern(
+	ctx context.Context, //nolint:revive // existing issue.
+	pattern, event string,
+) (bool, error) {
 	if pattern == "" {
 		return false, fmt.Errorf("%w: EventPattern is required", ErrInvalidParameter)
 	}
@@ -2586,7 +2592,10 @@ func (b *InMemoryBackend) pipeARN(name string) string {
 }
 
 // CreatePipe creates a new EventBridge Pipe.
-func (b *InMemoryBackend) CreatePipe(ctx context.Context, input CreatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) CreatePipe(
+	ctx context.Context, //nolint:revive // existing issue.
+	input CreatePipeInput,
+) (*Pipe, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2636,7 +2645,7 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, input CreatePipeInput)
 }
 
 // DeletePipe removes an EventBridge Pipe.
-func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) error {
+func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) error { //nolint:revive // existing issue.
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2656,7 +2665,10 @@ func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) error {
 }
 
 // DescribePipe returns a single EventBridge Pipe by name.
-func (b *InMemoryBackend) DescribePipe(ctx context.Context, name string) (*Pipe, error) {
+func (b *InMemoryBackend) DescribePipe(
+	ctx context.Context, //nolint:revive // existing issue.
+	name string,
+) (*Pipe, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2675,7 +2687,10 @@ func (b *InMemoryBackend) DescribePipe(ctx context.Context, name string) (*Pipe,
 }
 
 // ListPipes returns EventBridge Pipes optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListPipes(ctx context.Context, namePrefix, nextToken string) ([]Pipe, string, error) {
+func (b *InMemoryBackend) ListPipes(
+	ctx context.Context, //nolint:revive // existing issue.
+	namePrefix, nextToken string,
+) ([]Pipe, string, error) {
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
 
@@ -2694,7 +2709,10 @@ func (b *InMemoryBackend) ListPipes(ctx context.Context, namePrefix, nextToken s
 }
 
 // UpdatePipe updates an existing EventBridge Pipe.
-func (b *InMemoryBackend) UpdatePipe(ctx context.Context, input UpdatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) UpdatePipe(
+	ctx context.Context, //nolint:revive // existing issue.
+	input UpdatePipeInput,
+) (*Pipe, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -2995,7 +3013,10 @@ func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language stri
 }
 
 // CreateRegistry creates a new schema registry.
-func (b *InMemoryBackend) CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) CreateRegistry(
+	ctx context.Context, //nolint:revive // existing issue.
+	input CreateRegistryInput,
+) (*SchemaRegistry, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3033,7 +3054,10 @@ func (b *InMemoryBackend) CreateRegistry(ctx context.Context, input CreateRegist
 }
 
 // DeleteRegistry deletes a registry and all its schemas and versions.
-func (b *InMemoryBackend) DeleteRegistry(ctx context.Context, registryName string) error {
+func (b *InMemoryBackend) DeleteRegistry(
+	ctx context.Context, //nolint:revive // existing issue.
+	registryName string,
+) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3073,7 +3097,10 @@ func (b *InMemoryBackend) DeleteRegistry(ctx context.Context, registryName strin
 }
 
 // DescribeRegistry returns a single schema registry.
-func (b *InMemoryBackend) DescribeRegistry(ctx context.Context, registryName string) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) DescribeRegistry(
+	ctx context.Context, //nolint:revive // existing issue.
+	registryName string,
+) (*SchemaRegistry, error) {
 	if registryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3092,7 +3119,7 @@ func (b *InMemoryBackend) DescribeRegistry(ctx context.Context, registryName str
 }
 
 // ListRegistries returns schema registries optionally filtered by name prefix.
-func (b *InMemoryBackend) ListRegistries(ctx context.Context,
+func (b *InMemoryBackend) ListRegistries(ctx context.Context, //nolint:revive // existing issue.
 	namePrefix, nextToken string,
 ) ([]SchemaRegistry, string, error) {
 	b.mu.RLock("ListRegistries")
@@ -3113,7 +3140,10 @@ func (b *InMemoryBackend) ListRegistries(ctx context.Context,
 }
 
 // UpdateRegistry updates an existing schema registry description.
-func (b *InMemoryBackend) UpdateRegistry(ctx context.Context, input UpdateRegistryInput) (*SchemaRegistry, error) {
+func (b *InMemoryBackend) UpdateRegistry(
+	ctx context.Context, //nolint:revive // existing issue.
+	input UpdateRegistryInput,
+) (*SchemaRegistry, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3134,7 +3164,10 @@ func (b *InMemoryBackend) UpdateRegistry(ctx context.Context, input UpdateRegist
 }
 
 // CreateSchema creates a new schema (version "1") within a registry.
-func (b *InMemoryBackend) CreateSchema(ctx context.Context, input CreateSchemaInput) (*Schema, error) {
+func (b *InMemoryBackend) CreateSchema(
+	ctx context.Context, //nolint:revive // existing issue.
+	input CreateSchemaInput,
+) (*Schema, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3215,7 +3248,10 @@ func (b *InMemoryBackend) CreateSchema(ctx context.Context, input CreateSchemaIn
 }
 
 // DeleteSchema deletes a schema and all its versions.
-func (b *InMemoryBackend) DeleteSchema(ctx context.Context, registryName, schemaName string) error {
+func (b *InMemoryBackend) DeleteSchema(
+	ctx context.Context, //nolint:revive // existing issue.
+	registryName, schemaName string,
+) error {
 	if registryName == "" {
 		return fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3256,7 +3292,7 @@ func (b *InMemoryBackend) DeleteSchema(ctx context.Context, registryName, schema
 }
 
 // DescribeSchema returns the current (or requested version of) a schema.
-func (b *InMemoryBackend) DescribeSchema(ctx context.Context,
+func (b *InMemoryBackend) DescribeSchema(ctx context.Context, //nolint:revive // existing issue.
 	registryName, schemaName, schemaVersion string,
 ) (*Schema, error) {
 	if registryName == "" {
@@ -3309,7 +3345,7 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context,
 }
 
 // ListSchemas returns schemas in a registry optionally filtered by name prefix.
-func (b *InMemoryBackend) ListSchemas(ctx context.Context,
+func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // existing issue.
 	registryName, namePrefix, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3338,7 +3374,7 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context,
 }
 
 // SearchSchemas searches schemas in a registry by keyword match against schema name or content.
-func (b *InMemoryBackend) SearchSchemas(ctx context.Context,
+func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // existing issue.
 	registryName, keywords, nextToken string,
 ) ([]Schema, string, error) {
 	if registryName == "" {
@@ -3371,7 +3407,10 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context,
 }
 
 // UpdateSchema creates a new version of an existing schema.
-func (b *InMemoryBackend) UpdateSchema(ctx context.Context, input UpdateSchemaInput) (*Schema, error) {
+func (b *InMemoryBackend) UpdateSchema(
+	ctx context.Context, //nolint:revive // existing issue.
+	input UpdateSchemaInput,
+) (*Schema, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3439,7 +3478,7 @@ func (b *InMemoryBackend) UpdateSchema(ctx context.Context, input UpdateSchemaIn
 }
 
 // ListSchemaVersions returns all versions of a schema.
-func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context,
+func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:revive // existing issue.
 	registryName, schemaName, nextToken string,
 ) ([]SchemaVersion, string, error) {
 	if registryName == "" {
@@ -3480,7 +3519,7 @@ func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context,
 }
 
 // DescribeSchemaVersion returns a specific schema version.
-func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context,
+func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context, //nolint:revive // existing issue.
 	registryName, schemaName, schemaVersion string,
 ) (*SchemaVersion, error) {
 	if registryName == "" {
@@ -3518,7 +3557,7 @@ func (b *InMemoryBackend) DescribeSchemaVersion(ctx context.Context,
 
 // DeleteSchemaVersion deletes a specific version of a schema.
 // AWS rejects deletion of the last remaining version (BadRequestException).
-func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context,
+func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context, //nolint:revive // existing issue.
 	registryName, schemaName, schemaVersion string,
 ) error {
 	if registryName == "" {
@@ -3603,7 +3642,10 @@ func (b *InMemoryBackend) maybeUpdateSchemaAfterVersionDelete(
 
 // GetDiscoveredSchema generates a schema skeleton from one or more event JSON strings.
 // Returns a minimal OpenApi3 schema template (real schema inference is out of scope).
-func (b *InMemoryBackend) GetDiscoveredSchema(ctx context.Context, input GetDiscoveredSchemaInput) (string, error) {
+func (b *InMemoryBackend) GetDiscoveredSchema(
+	ctx context.Context, //nolint:revive // existing issue.
+	input GetDiscoveredSchemaInput,
+) (string, error) {
 	if len(input.Events) == 0 {
 		return "", fmt.Errorf("%w: at least one event is required", ErrInvalidParameter)
 	}
@@ -3620,7 +3662,10 @@ func (b *InMemoryBackend) GetDiscoveredSchema(ctx context.Context, input GetDisc
 }
 
 // PutCodeBinding triggers code binding generation for a schema version.
-func (b *InMemoryBackend) PutCodeBinding(ctx context.Context, input PutCodeBindingInput) (*CodeBinding, error) {
+func (b *InMemoryBackend) PutCodeBinding(
+	ctx context.Context, //nolint:revive // existing issue.
+	input PutCodeBindingInput,
+) (*CodeBinding, error) {
 	if input.RegistryName == "" {
 		return nil, fmt.Errorf("%w: RegistryName is required", ErrInvalidParameter)
 	}
@@ -3675,7 +3720,7 @@ func (b *InMemoryBackend) PutCodeBinding(ctx context.Context, input PutCodeBindi
 }
 
 // DescribeCodeBinding returns the status of a code binding.
-func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context,
+func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context, //nolint:revive // existing issue.
 	input DescribeCodeBindingInput,
 ) (*CodeBinding, error) {
 	if input.RegistryName == "" {
@@ -3706,7 +3751,7 @@ func (b *InMemoryBackend) DescribeCodeBinding(ctx context.Context,
 }
 
 // ListCodeBindings returns all code bindings for a given schema (optionally filtered by version).
-func (b *InMemoryBackend) ListCodeBindings(ctx context.Context,
+func (b *InMemoryBackend) ListCodeBindings(ctx context.Context, //nolint:revive // existing issue.
 	input ListCodeBindingsInput,
 ) ([]CodeBinding, string, error) {
 	if input.RegistryName == "" {
@@ -3744,7 +3789,7 @@ func (b *InMemoryBackend) ListCodeBindings(ctx context.Context,
 
 // GetCodeBindingSource returns placeholder source code for a generated code binding.
 // Real source generation is out of scope for in-process emulation.
-func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context,
+func (b *InMemoryBackend) GetCodeBindingSource(ctx context.Context, //nolint:revive // existing issue.
 	registryName, schemaName, language, schemaVersion string,
 ) (string, error) {
 	if registryName == "" {

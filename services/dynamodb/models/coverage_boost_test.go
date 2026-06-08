@@ -368,10 +368,10 @@ func TestFromSDKScanOutputWithLastEvaluatedKey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input             *dynamodb_sdk.ScanOutput
-		name              string
-		wantLastEvalKey   bool
-		wantItemsLen      int
+		input           *dynamodb_sdk.ScanOutput
+		name            string
+		wantLastEvalKey bool
+		wantItemsLen    int
 	}{
 		{
 			name: "with_last_evaluated_key",
@@ -717,9 +717,9 @@ func TestFromSDKAttributeValueDefault(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input    types.AttributeValue
-		name     string
-		wantNil  bool
+		input   types.AttributeValue
+		name    string
+		wantNil bool
 	}{
 		{
 			name:    "nil_input_returns_nil",

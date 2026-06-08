@@ -53,6 +53,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 						Bucket: aws.String("tr-days"),
 						Key:    aws.String("old-obj.txt"),
 					})
+
 					return err == nil && string(out.StorageClass) == "GLACIER"
 				}, 500*time.Millisecond, 10*time.Millisecond, "object must be transitioned to GLACIER")
 			},
@@ -80,6 +81,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 				// Wait for transition to fire.
 				require.Eventually(t, func() bool {
 					history := s3.StorageClassTransitionsForObject(b, "tr-hist", "doc.txt")
+
 					return len(history) >= 1
 				}, 500*time.Millisecond, 10*time.Millisecond, "transition history must be recorded")
 
@@ -115,6 +117,7 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 						Bucket: aws.String("tr-date"),
 						Key:    aws.String("archive.bin"),
 					})
+
 					return err == nil && string(out.StorageClass) == "DEEP_ARCHIVE"
 				}, 500*time.Millisecond, 10*time.Millisecond, "object must be transitioned to DEEP_ARCHIVE")
 			},
@@ -282,6 +285,7 @@ func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
 						return true
 					}
 				}
+
 				return false
 			}, 500*time.Millisecond, 10*time.Millisecond, "noncurrent version must be transitioned to GLACIER")
 

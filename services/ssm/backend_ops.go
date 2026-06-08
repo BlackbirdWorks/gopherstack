@@ -95,7 +95,10 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 // This is a lightweight implementation that acknowledges the request and
 // returns success without modifying stored state (the AWS API is complex
 // and review state is not tracked in this in-memory implementation).
-func (b *InMemoryBackend) UpdateDocumentMetadata(ctx context.Context, input *UpdateDocumentMetadataInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateDocumentMetadata(
+	ctx context.Context,
+	input *UpdateDocumentMetadataInput,
+) (*StubOutput, error) {
 	if input.Name == "" {
 		return &StubOutput{}, nil
 	}
@@ -242,7 +245,10 @@ func (b *InMemoryBackend) GetInventory(ctx context.Context, input *GetInventoryI
 
 // GetInventorySchema returns the built-in AWS SSM inventory schema types.
 // When TypeName is provided, only schemas matching that prefix are returned.
-func (b *InMemoryBackend) GetInventorySchema(_ context.Context, input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error) {
+func (b *InMemoryBackend) GetInventorySchema(
+	_ context.Context,
+	input *GetInventorySchemaInput,
+) (*GetInventorySchemaOutput, error) {
 	all := []InventorySchemaItem{
 		{TypeName: "AWS:Application", Version: inventorySchemaV11},
 		{TypeName: "AWS:AWSComponent", Version: inventorySchemaV10},

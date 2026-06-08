@@ -110,9 +110,9 @@ type getExecutionHistoryInput struct {
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
 	Backend       StorageBackend
-	DefaultRegion string
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
+	DefaultRegion string
 }
 
 // NewHandler creates a new Step Functions handler.

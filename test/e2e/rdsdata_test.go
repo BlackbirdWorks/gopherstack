@@ -66,21 +66,24 @@ func TestRDSDataDashboard_SQLRunner(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "SQL Runner"}).WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(30000),
-	})
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "SQL Runner"}).
+		WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(30000),
+		})
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Transaction Browser"}).WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(10000),
-	})
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Transaction Browser"}).
+		WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(10000),
+		})
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Statement History"}).WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(10000),
-	})
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Statement History"}).
+		WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(10000),
+		})
 	require.NoError(t, err)
 }

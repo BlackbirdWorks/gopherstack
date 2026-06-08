@@ -80,10 +80,17 @@ type StorageBackend interface {
 	ListEntitledApplications(entitlementName, stackName string) ([]*EntitledApplication, error)
 
 	// DirectoryConfigs
-	CreateDirectoryConfig(name string, ouDNs []string) (*DirectoryConfig, error)
+	CreateDirectoryConfig(
+		name string,
+		ouDNs []string, //nolint:revive,staticcheck // existing issue.
+	) (*DirectoryConfig, error)
+
 	DeleteDirectoryConfig(name string) error
 	DescribeDirectoryConfigs(names []string) ([]*DirectoryConfig, error)
-	UpdateDirectoryConfig(name string, ouDNs []string) (*DirectoryConfig, error)
+	UpdateDirectoryConfig(
+		name string,
+		ouDNs []string, //nolint:revive,staticcheck // existing issue.
+	) (*DirectoryConfig, error)
 
 	// Images
 	CopyImage(sourceName, destName, destRegion, description string) (*Image, error)
@@ -208,13 +215,13 @@ type AppBlockBuilderAppBlockAssociation struct {
 type Application struct {
 	CreatedTime time.Time
 	Tags        map[string]string
-	Platforms   []string
 	Name        string
 	Arn         string
 	DisplayName string
 	Description string
 	LaunchPath  string
 	AppBlockArn string
+	Platforms   []string
 }
 
 // ApplicationFleetAssociation represents an Application-Fleet link.
@@ -233,12 +240,12 @@ type EntitlementAttribute struct {
 // Entitlement controls application access based on user attributes.
 type Entitlement struct {
 	CreatedTime    time.Time
-	Attributes     []EntitlementAttribute
+	LastModifiedAt time.Time
 	Name           string
 	StackName      string
 	Description    string
 	AppVisibility  string
-	LastModifiedAt time.Time
+	Attributes     []EntitlementAttribute
 }
 
 // EntitledApplication is an application visible to an entitled user.
@@ -249,9 +256,9 @@ type EntitledApplication struct {
 // DirectoryConfig holds Active Directory connection details.
 type DirectoryConfig struct {
 	CreatedTime                          time.Time
-	OrganizationalUnitDistinguishedNames []string
 	DirectoryName                        string
 	Arn                                  string
+	OrganizationalUnitDistinguishedNames []string
 }
 
 // Image holds AppStream 2.0 image details.
@@ -269,8 +276,8 @@ type Image struct {
 
 // SharedImagePermissions represents per-account sharing for an image.
 type SharedImagePermissions struct {
-	SharedAccountID  string
 	ImagePermissions *ImagePermissions
+	SharedAccountID  string
 }
 
 // ImagePermissions controls how an image may be used.

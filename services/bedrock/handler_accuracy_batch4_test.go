@@ -229,7 +229,8 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 	policyARN := out["policyArn"].(string)
 
 	// Update description (ARP update uses PUT)
-	updateRec := doRequest(t, h, http.MethodPut,
+	updateRec := doRequest(
+		t, h, http.MethodPut,
 		"/automated-reasoning-policies/"+policyARN,
 		map[string]any{"description": "updated description"},
 	)
@@ -323,7 +324,8 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	policyARN := out["policyArn"].(string)
 
 	// Create test case (needs URL-encoded ARN in path)
-	tcRec := doRequest(t, h, http.MethodPost,
+	tcRec := doRequest(
+		t, h, http.MethodPost,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases",
 		map[string]any{"input": "Is 2 + 2 = 4?"},
 	)
@@ -360,7 +362,8 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	policyARN := out["policyArn"].(string)
 
 	// Update annotations (needs URL-encoded ARN)
-	updateRec := doRequest(t, h, http.MethodPut,
+	updateRec := doRequest(
+		t, h, http.MethodPut,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations",
 		map[string]any{"annotations": []map[string]any{
 			{"key": "env", "value": "prod"},
@@ -460,7 +463,8 @@ func TestAccuracy_PromptRouter_ListAfterDelete(t *testing.T) {
 
 	// Create two routers
 	for i := range 2 {
-		doRequest(t, h, http.MethodPost, "/prompt-routers",
+		doRequest(
+			t, h, http.MethodPost, "/prompt-routers",
 			map[string]any{"promptRouterName": "router-del"},
 		)
 		_ = i

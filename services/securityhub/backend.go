@@ -224,8 +224,8 @@ var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup d
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	standardsSubscriptions map[string]*StandardsSubscription
-	controlOverrides       map[string]*StandardsControl
+	configPolicyAssocs     map[string]*ConfigurationPolicyAssociation
+	orgConfig              *OrgConfig
 	tags                   map[string]map[string]string
 	automationRules        map[string]*AutomationRule
 	hub                    *Hub
@@ -235,39 +235,35 @@ type InMemoryBackend struct {
 	productSubscriptions   map[string]string
 	mu                     *lockmetrics.RWMutex
 	actionTargets          map[string]*ActionTarget
-	// Members / Invitations / Admin
-	members          map[string]*Member
-	invitations      map[string]*Invitation
-	adminAccount     *AdminAccount
-	orgConfig        *OrgConfig
-	orgAdminAccounts map[string]string
-	memberSeq        int
-	// Finding Aggregator
-	findingAggregators   map[string]*FindingAggregator
-	findingAggregatorSeq int
-	// Configuration Policy
-	configPolicies     map[string]*ConfigurationPolicy
-	configPolicyAssocs map[string]*ConfigurationPolicyAssociation
-	configPolicySeq    int
-	// V2 resources
-	hubV2                 *HubV2
-	aggregatorsV2         map[string]*AggregatorV2
-	automationRulesV2     map[string]*AutomationRuleV2
-	connectorsV2          map[string]*ConnectorV2
-	ticketsV2             map[string]*TicketV2
-	recommendedPoliciesV2 map[string]*RecommendedPolicyV2
-	aggregatorV2Seq       int
-	automationRuleV2Seq   int
-	connectorV2Seq        int
-	ticketV2Seq           int
-	accountID             string
-	region                string
-	standardsSeq          int
-	actionTargetSeq       int
-	insightSeq            int
-	automationRuleSeq     int
-	hubEnabled            bool
-	hubV2Enabled          bool
+	members                map[string]*Member
+	invitations            map[string]*Invitation
+	adminAccount           *AdminAccount
+	configPolicies         map[string]*ConfigurationPolicy
+	orgAdminAccounts       map[string]string
+	recommendedPoliciesV2  map[string]*RecommendedPolicyV2
+	findingAggregators     map[string]*FindingAggregator
+	controlOverrides       map[string]*StandardsControl
+	ticketsV2              map[string]*TicketV2
+	connectorsV2           map[string]*ConnectorV2
+	standardsSubscriptions map[string]*StandardsSubscription
+	hubV2                  *HubV2
+	aggregatorsV2          map[string]*AggregatorV2
+	automationRulesV2      map[string]*AutomationRuleV2
+	region                 string
+	accountID              string
+	aggregatorV2Seq        int
+	connectorV2Seq         int
+	automationRuleV2Seq    int
+	configPolicySeq        int
+	memberSeq              int
+	findingAggregatorSeq   int
+	ticketV2Seq            int
+	standardsSeq           int
+	actionTargetSeq        int
+	insightSeq             int
+	automationRuleSeq      int
+	hubEnabled             bool
+	hubV2Enabled           bool
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
@@ -478,7 +474,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
@@ -693,7 +689,7 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 			failedCount++
 			failedFindings = append(failedFindings, map[string]any{
 				"Id":            id,
-				"ProductArn":    productArn,
+				"ProductArn":    productArn, //nolint:goconst // existing issue.
 				keyErrorCode:    "InternalException",
 				keyErrorMessage: "ProductArn and Id are required",
 			})

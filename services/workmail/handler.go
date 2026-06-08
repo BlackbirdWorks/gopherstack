@@ -155,7 +155,7 @@ func isUnknownOp(err error) bool {
 }
 
 // buildOps constructs the operation dispatch table.
-func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // existing issue.
 	return map[string]service.JSONOpFunc{
 		// Organizations
 		"CreateOrganization":   service.WrapOp(h.handleCreateOrganization),
@@ -1673,10 +1673,10 @@ type lambdaProviderJSON struct {
 }
 
 type createAvailabilityConfigReq struct {
-	OrganizationID string              `json:"OrganizationId"`
-	DomainName     string              `json:"DomainName"`
 	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
 	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
 }
 
 func (h *Handler) handleCreateAvailabilityConfiguration(
@@ -1713,10 +1713,10 @@ func (h *Handler) handleDeleteAvailabilityConfiguration(
 }
 
 type updateAvailabilityConfigReq struct {
-	OrganizationID string              `json:"OrganizationId"`
-	DomainName     string              `json:"DomainName"`
 	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
 	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
 }
 
 func (h *Handler) handleUpdateAvailabilityConfiguration(
@@ -1749,17 +1749,17 @@ type listAvailabilityConfigsReq struct {
 }
 
 type availabilityConfigJSON struct {
+	EwsProvider    *json.RawMessage `json:"EwsProvider,omitempty"`
+	LambdaProvider *json.RawMessage `json:"LambdaProvider,omitempty"`
 	DomainName     string           `json:"DomainName"`
 	ProviderType   string           `json:"ProviderType"`
 	DateCreated    int64            `json:"DateCreated"`
 	DateModified   int64            `json:"DateModified"`
-	EwsProvider    *json.RawMessage `json:"EwsProvider,omitempty"`
-	LambdaProvider *json.RawMessage `json:"LambdaProvider,omitempty"`
 }
 
 type listAvailabilityConfigsResp struct {
-	AvailabilityConfigurations []availabilityConfigJSON `json:"AvailabilityConfigurations"`
 	NextToken                  string                   `json:"NextToken,omitempty"`
+	AvailabilityConfigurations []availabilityConfigJSON `json:"AvailabilityConfigurations"`
 }
 
 func (h *Handler) handleListAvailabilityConfigurations(
@@ -1781,7 +1781,7 @@ func (h *Handler) handleListAvailabilityConfigurations(
 			DateCreated:  c.DateCreated.Unix(),
 			DateModified: c.DateModified.Unix(),
 		}
-		if c.ProviderType == "EWS" {
+		if c.ProviderType == "EWS" { //nolint:goconst // existing issue.
 			raw, _ := json.Marshal(map[string]string{
 				"EwsEndpoint": c.EwsEndpoint,
 				"EwsUsername": c.EwsUsername,
@@ -1800,15 +1800,15 @@ func (h *Handler) handleListAvailabilityConfigurations(
 }
 
 type testAvailabilityConfigReq struct {
-	OrganizationID string              `json:"OrganizationId"`
-	DomainName     string              `json:"DomainName"`
 	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
 	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
 }
 
 type testAvailabilityConfigResp struct {
-	TestPassed    bool   `json:"TestPassed"`
 	FailureReason string `json:"FailureReason,omitempty"`
+	TestPassed    bool   `json:"TestPassed"`
 }
 
 func (h *Handler) handleTestAvailabilityConfiguration(
@@ -1840,7 +1840,7 @@ type createMobileDeviceAccessRuleReq struct {
 }
 
 type createMobileDeviceAccessRuleResp struct {
-	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"`
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCreateMobileDeviceAccessRule(
@@ -1860,7 +1860,7 @@ func (h *Handler) handleCreateMobileDeviceAccessRule(
 
 type deleteMobileDeviceAccessRuleReq struct {
 	OrganizationID           string `json:"OrganizationId"`
-	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"`
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteMobileDeviceAccessRule(
@@ -1871,7 +1871,7 @@ func (h *Handler) handleDeleteMobileDeviceAccessRule(
 
 type updateMobileDeviceAccessRuleReq struct {
 	OrganizationID            string   `json:"OrganizationId"`
-	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"`
+	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
 	Name                      string   `json:"Name"`
 	Effect                    string   `json:"Effect"`
 	Description               string   `json:"Description"`
@@ -1900,7 +1900,7 @@ type listMobileDeviceAccessRulesReq struct {
 }
 
 type mobileDeviceAccessRuleJSON struct {
-	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"`
+	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
 	Name                      string   `json:"Name"`
 	Effect                    string   `json:"Effect"`
 	Description               string   `json:"Description,omitempty"`
@@ -1963,7 +1963,7 @@ type getMobileDeviceAccessEffectReq struct {
 }
 
 type mobileDeviceMatchedRuleJSON struct {
-	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"`
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
 	Name                     string `json:"Name"`
 }
 
@@ -1996,8 +1996,8 @@ func (h *Handler) handleGetMobileDeviceAccessEffect(
 
 type putMobileDeviceAccessOverrideReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	UserId         string `json:"UserId"`
-	DeviceId       string `json:"DeviceId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
 	Effect         string `json:"Effect"`
 	Description    string `json:"Description"`
 }
@@ -2012,8 +2012,8 @@ func (h *Handler) handlePutMobileDeviceAccessOverride(
 
 type deleteMobileDeviceAccessOverrideReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	UserId         string `json:"UserId"`
-	DeviceId       string `json:"DeviceId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteMobileDeviceAccessOverride(
@@ -2026,13 +2026,13 @@ func (h *Handler) handleDeleteMobileDeviceAccessOverride(
 
 type getMobileDeviceAccessOverrideReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	UserId         string `json:"UserId"`
-	DeviceId       string `json:"DeviceId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type mobileDeviceAccessOverrideJSON struct {
-	UserId       string `json:"UserId"`
-	DeviceId     string `json:"DeviceId"`
+	UserId       string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId     string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
 	Effect       string `json:"Effect"`
 	Description  string `json:"Description,omitempty"`
 	DateCreated  int64  `json:"DateCreated"`
@@ -2059,15 +2059,15 @@ func (h *Handler) handleGetMobileDeviceAccessOverride(
 
 type listMobileDeviceAccessOverridesReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	UserId         string `json:"UserId"`
-	DeviceId       string `json:"DeviceId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
 	MaxResults     *int32 `json:"MaxResults"`
 	NextToken      string `json:"NextToken"`
 }
 
 type listMobileDeviceAccessOverridesResp struct {
-	Overrides []mobileDeviceAccessOverrideJSON `json:"Overrides"`
 	NextToken string                           `json:"NextToken,omitempty"`
+	Overrides []mobileDeviceAccessOverrideJSON `json:"Overrides"`
 }
 
 func (h *Handler) handleListMobileDeviceAccessOverrides(
@@ -2177,9 +2177,9 @@ func (h *Handler) handleDescribeInboundDmarcSettings(
 // ---- Retention Policies ----
 
 type folderConfigJSON struct {
+	Period *int32 `json:"Period,omitempty"`
 	Name   string `json:"Name"`
 	Action string `json:"Action"`
-	Period *int32 `json:"Period,omitempty"`
 }
 
 type putRetentionPolicyReq struct {
@@ -2209,7 +2209,7 @@ func (h *Handler) handlePutRetentionPolicy(
 
 type deleteRetentionPolicyReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	Id             string `json:"Id"`
+	Id             string `json:"Id"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeleteRetentionPolicy(
@@ -2223,7 +2223,7 @@ type getDefaultRetentionPolicyReq struct {
 }
 
 type getDefaultRetentionPolicyResp struct {
-	Id                   string             `json:"Id,omitempty"`
+	Id                   string             `json:"Id,omitempty"` //nolint:revive,staticcheck // existing issue.
 	Name                 string             `json:"Name,omitempty"`
 	Description          string             `json:"Description,omitempty"`
 	FolderConfigurations []folderConfigJSON `json:"FolderConfigurations"`
@@ -2257,7 +2257,7 @@ func (h *Handler) handleGetDefaultRetentionPolicy(
 
 type startMailboxExportJobReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	EntityId       string `json:"EntityId"`
+	EntityId       string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
 	Description    string `json:"Description"`
 	RoleArn        string `json:"RoleArn"`
 	KmsKeyArn      string `json:"KmsKeyArn"`
@@ -2266,7 +2266,7 @@ type startMailboxExportJobReq struct {
 }
 
 type startMailboxExportJobResp struct {
-	JobId string `json:"JobId"`
+	JobId string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleStartMailboxExportJob(
@@ -2285,7 +2285,7 @@ func (h *Handler) handleStartMailboxExportJob(
 
 type cancelMailboxExportJobReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	JobId          string `json:"JobId"`
+	JobId          string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleCancelMailboxExportJob(
@@ -2296,23 +2296,23 @@ func (h *Handler) handleCancelMailboxExportJob(
 
 type describeMailboxExportJobReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	JobId          string `json:"JobId"`
+	JobId          string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type describeMailboxExportJobResp struct {
-	JobId             string `json:"JobId,omitempty"`
-	EntityId          string `json:"EntityId,omitempty"`
+	S3Prefix          string `json:"S3Prefix,omitempty"`
+	EntityId          string `json:"EntityId,omitempty"` //nolint:revive,staticcheck // existing issue.
 	Description       string `json:"Description,omitempty"`
 	RoleArn           string `json:"RoleArn,omitempty"`
 	KmsKeyArn         string `json:"KmsKeyArn,omitempty"`
 	S3BucketName      string `json:"S3BucketName,omitempty"`
-	S3Prefix          string `json:"S3Prefix,omitempty"`
+	JobId             string `json:"JobId,omitempty"` //nolint:revive,staticcheck // existing issue.
 	S3Path            string `json:"S3Path,omitempty"`
-	EstimatedProgress int32  `json:"EstimatedProgress"`
 	State             string `json:"State,omitempty"`
 	ErrorInfo         string `json:"ErrorInfo,omitempty"`
 	StartTime         int64  `json:"StartTime,omitempty"`
 	EndTime           int64  `json:"EndTime,omitempty"`
+	EstimatedProgress int32  `json:"EstimatedProgress"`
 }
 
 func (h *Handler) handleDescribeMailboxExportJob(
@@ -2350,8 +2350,8 @@ type listMailboxExportJobsReq struct {
 }
 
 type mailboxExportJobSummaryJSON struct {
-	JobId        string `json:"JobId"`
-	EntityId     string `json:"EntityId"`
+	JobId        string `json:"JobId"`    //nolint:revive,staticcheck // existing issue.
+	EntityId     string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
 	Description  string `json:"Description,omitempty"`
 	S3BucketName string `json:"S3BucketName,omitempty"`
 	State        string `json:"State"`
@@ -2360,8 +2360,8 @@ type mailboxExportJobSummaryJSON struct {
 }
 
 type listMailboxExportJobsResp struct {
-	Jobs      []mailboxExportJobSummaryJSON `json:"Jobs"`
 	NextToken string                        `json:"NextToken,omitempty"`
+	Jobs      []mailboxExportJobSummaryJSON `json:"Jobs"`
 }
 
 func (h *Handler) handleListMailboxExportJobs(
@@ -2434,15 +2434,15 @@ type identityCenterConfigJSON struct {
 }
 
 type personalAccessTokenConfigJSON struct {
-	Status         string `json:"Status"`
 	LifetimeInDays *int32 `json:"LifetimeInDays,omitempty"`
+	Status         string `json:"Status"`
 }
 
 type putIdentityProviderConfigReq struct {
-	OrganizationID                   string                         `json:"OrganizationId"`
-	AuthenticationMode               string                         `json:"AuthenticationMode"`
 	IdentityCenterConfiguration      *identityCenterConfigJSON      `json:"IdentityCenterConfiguration"`
 	PersonalAccessTokenConfiguration *personalAccessTokenConfigJSON `json:"PersonalAccessTokenConfiguration"`
+	OrganizationID                   string                         `json:"OrganizationId"`
+	AuthenticationMode               string                         `json:"AuthenticationMode"`
 }
 
 func (h *Handler) handlePutIdentityProviderConfiguration(
@@ -2481,9 +2481,9 @@ type describeIdentityProviderConfigReq struct {
 }
 
 type describeIdentityProviderConfigResp struct {
-	AuthenticationMode               string                         `json:"AuthenticationMode,omitempty"`
 	IdentityCenterConfiguration      *identityCenterConfigJSON      `json:"IdentityCenterConfiguration,omitempty"`
 	PersonalAccessTokenConfiguration *personalAccessTokenConfigJSON `json:"PersonalAccessTokenConfiguration,omitempty"`
+	AuthenticationMode               string                         `json:"AuthenticationMode,omitempty"`
 }
 
 func (h *Handler) handleDescribeIdentityProviderConfiguration(
@@ -2514,7 +2514,7 @@ func (h *Handler) handleDescribeIdentityProviderConfiguration(
 
 type deletePersonalAccessTokenReq struct {
 	OrganizationID        string `json:"OrganizationId"`
-	PersonalAccessTokenId string `json:"PersonalAccessTokenId"`
+	PersonalAccessTokenId string `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleDeletePersonalAccessToken(
@@ -2525,17 +2525,17 @@ func (h *Handler) handleDeletePersonalAccessToken(
 
 type getPersonalAccessTokenMetadataReq struct {
 	OrganizationID        string `json:"OrganizationId"`
-	PersonalAccessTokenId string `json:"PersonalAccessTokenId"`
+	PersonalAccessTokenId string `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type personalAccessTokenMetadataResp struct {
-	PersonalAccessTokenId string   `json:"PersonalAccessTokenId,omitempty"`
-	UserId                string   `json:"UserId,omitempty"`
+	PersonalAccessTokenId string   `json:"PersonalAccessTokenId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	UserId                string   `json:"UserId,omitempty"`                //nolint:revive // existing issue.
 	Name                  string   `json:"Name,omitempty"`
+	Scopes                []string `json:"Scopes,omitempty"`
 	DateCreated           int64    `json:"DateCreated,omitempty"`
 	DateLastUsed          int64    `json:"DateLastUsed,omitempty"`
 	ExpiresTime           int64    `json:"ExpiresTime,omitempty"`
-	Scopes                []string `json:"Scopes,omitempty"`
 }
 
 func (h *Handler) handleGetPersonalAccessTokenMetadata(
@@ -2559,24 +2559,24 @@ func (h *Handler) handleGetPersonalAccessTokenMetadata(
 
 type listPersonalAccessTokensReq struct {
 	OrganizationID string `json:"OrganizationId"`
-	UserId         string `json:"UserId"`
+	UserId         string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
 	MaxResults     *int32 `json:"MaxResults"`
 	NextToken      string `json:"NextToken"`
 }
 
 type personalAccessTokenSummaryJSON struct {
-	PersonalAccessTokenId string   `json:"PersonalAccessTokenId"`
-	UserId                string   `json:"UserId,omitempty"`
+	PersonalAccessTokenId string   `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
+	UserId                string   `json:"UserId,omitempty"`      //nolint:revive // existing issue.
 	Name                  string   `json:"Name,omitempty"`
+	Scopes                []string `json:"Scopes,omitempty"`
 	DateCreated           int64    `json:"DateCreated,omitempty"`
 	DateLastUsed          int64    `json:"DateLastUsed,omitempty"`
 	ExpiresTime           int64    `json:"ExpiresTime,omitempty"`
-	Scopes                []string `json:"Scopes,omitempty"`
 }
 
 type listPersonalAccessTokensResp struct {
-	PersonalAccessTokenSummaries []personalAccessTokenSummaryJSON `json:"PersonalAccessTokenSummaries"`
 	NextToken                    string                           `json:"NextToken,omitempty"`
+	PersonalAccessTokenSummaries []personalAccessTokenSummaryJSON `json:"PersonalAccessTokenSummaries"`
 }
 
 func (h *Handler) handleListPersonalAccessTokens(
@@ -2610,12 +2610,12 @@ func (h *Handler) handleListPersonalAccessTokens(
 
 type getImpersonationRoleEffectReq struct {
 	OrganizationID      string `json:"OrganizationId"`
-	ImpersonationRoleId string `json:"ImpersonationRoleId"`
+	ImpersonationRoleId string `json:"ImpersonationRoleId"` //nolint:revive,staticcheck // existing issue.
 	TargetUser          string `json:"TargetUser"`
 }
 
 type impersonationMatchedRuleJSON struct {
-	ImpersonationRuleId string `json:"ImpersonationRuleId"`
+	ImpersonationRuleId string `json:"ImpersonationRuleId"` //nolint:revive,staticcheck // existing issue.
 	Name                string `json:"Name,omitempty"`
 }
 
@@ -2649,7 +2649,7 @@ func (h *Handler) handleGetImpersonationRoleEffect(
 
 type assumeImpersonationRoleReq struct {
 	OrganizationID      string `json:"OrganizationId"`
-	ImpersonationRoleId string `json:"ImpersonationRoleId"`
+	ImpersonationRoleId string `json:"ImpersonationRoleId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type assumeImpersonationRoleResp struct {

@@ -1674,7 +1674,8 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 
 	if len(segs) > idxIntegSeg {
 		op, params, ok := parseAPIGWMethodSubPath(
-			method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams)
+			method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams,
+		)
 		if ok || op == apiGWUnknownOp {
 			return op, params, ok
 		}

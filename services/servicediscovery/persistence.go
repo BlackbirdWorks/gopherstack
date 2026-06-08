@@ -2,7 +2,6 @@ package servicediscovery
 
 import (
 	"encoding/json"
-
 	"log/slog"
 )
 

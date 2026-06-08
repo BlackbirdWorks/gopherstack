@@ -31,11 +31,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-type md5ContextKey struct{}
-type sseContextKey struct{}
+type (
+	md5ContextKey struct{}
+	sseContextKey struct{}
+)
 
-var md5Key = md5ContextKey{} //nolint:gochecknoglobals // internal context key
-var sseKey = sseContextKey{} //nolint:gochecknoglobals // internal context key
+var (
+	md5Key = md5ContextKey{} //nolint:gochecknoglobals // internal context key
+	sseKey = sseContextKey{} //nolint:gochecknoglobals // internal context key
+)
 
 // objectVersionIDBytes is the number of random bytes used to generate a version ID.
 // 16 bytes produces a 32-character lowercase hex string.

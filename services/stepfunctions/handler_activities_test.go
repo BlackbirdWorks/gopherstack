@@ -501,7 +501,13 @@ func TestBackend_Reset(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			// Create some resources.
-			sm, err := b.CreateStateMachine(context.Background(), "reset-sm-"+tt.name, exprPassDef, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"reset-sm-"+tt.name,
+				exprPassDef,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			_, err = b.StartExecution(sm.StateMachineArn, "exec-1", `{}`)
@@ -613,7 +619,13 @@ func TestHandler_Persistence_WithActivitiesAndTags(t *testing.T) {
 			_, err := origBk.CreateActivity(context.Background(), tt.actName)
 			require.NoError(t, err)
 
-			sm, err := origBk.CreateStateMachine(context.Background(), "persist-sm", exprPassDef, "arn:role", "STANDARD")
+			sm, err := origBk.CreateStateMachine(
+				context.Background(),
+				"persist-sm",
+				exprPassDef,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			// Tag the SM via the helper.

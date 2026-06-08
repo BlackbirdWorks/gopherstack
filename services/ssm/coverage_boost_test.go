@@ -47,7 +47,7 @@ func TestWithCommandTTL(t *testing.T) {
 			t.Parallel()
 
 			b := ssm.NewInMemoryBackend().WithCommandTTL(tt.ttl)
-			assert.Equal(t, tt.wantTTL, b.GetCommandExpirySecs())
+			assert.InDelta(t, tt.wantTTL, b.GetCommandExpirySecs(), 0.0001)
 		})
 	}
 }
@@ -57,10 +57,10 @@ func TestPutParameter_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errIs   error
 		name    string
 		input   ssm.PutParameterInput
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name: "invalid_data_type",
@@ -169,7 +169,7 @@ func TestPutParameter_Validation(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 			} else {
 				require.NoError(t, err)
@@ -183,10 +183,10 @@ func TestListCommands_Filtered(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		filterByID bool
 		maxResults *int64
+		name       string
 		wantCount  int
+		filterByID bool
 	}{
 		{
 			name:       "no_filter_all_returned",
@@ -201,8 +201,12 @@ func TestListCommands_Filtered(t *testing.T) {
 		{
 			name:       "pagination_max_results_1",
 			filterByID: false,
-			maxResults: func() *int64 { v := int64(1); return &v }(),
-			wantCount:  1,
+			maxResults: func() *int64 {
+				v := int64(1)
+
+				return &v
+			}(),
+			wantCount: 1,
 		},
 	}
 
@@ -528,9 +532,9 @@ func TestCreatePatchBaseline_Validation(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		wantOS        string
 		input         ssm.CreatePatchBaselineInput
 		wantErr       bool
-		wantOS        string
 		expectTagsSet bool
 	}{
 		{
@@ -693,7 +697,11 @@ func TestUpdateMaintenanceWindow(t *testing.T) {
 				Schedule:    "cron(0 3 * * ? *)",
 				Duration:    6,
 				Cutoff:      1,
-				Enabled:     func() *bool { v := false; return &v }(),
+				Enabled: func() *bool {
+					v := false
+
+					return &v
+				}(),
 			},
 			wantErr: false,
 		},
@@ -929,12 +937,12 @@ func TestClassifySSMErrorExtended(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup       func(b *ssm.InMemoryBackend)
 		name        string
 		action      string
 		body        string
-		setup       func(b *ssm.InMemoryBackend)
-		wantCode    int
 		wantErrType string
+		wantCode    int
 	}{
 		{
 			name:        "activation_not_found_via_delete",
@@ -1077,10 +1085,14 @@ func TestListDocumentVersions_Pagination(t *testing.T) {
 			wantToken: false,
 		},
 		{
-			name:       "paginate_2",
-			maxResults: func() *int64 { v := int64(2); return &v }(),
-			wantCount:  2,
-			wantToken:  true,
+			name: "paginate_2",
+			maxResults: func() *int64 {
+				v := int64(2)
+
+				return &v
+			}(),
+			wantCount: 2,
+			wantToken: true,
 		},
 		{
 			name:      "beyond_end",
@@ -1229,8 +1241,14 @@ func TestGetParameterHistory_Pagination(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v1"})
-			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v2", Overwrite: true})
-			_, _ = b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v3", Overwrite: true})
+			_, _ = b.PutParameter(
+				context.TODO(),
+				&ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v2", Overwrite: true},
+			)
+			_, _ = b.PutParameter(
+				context.TODO(),
+				&ssm.PutParameterInput{Name: "/paged", Type: "String", Value: "v3", Overwrite: true},
+			)
 
 			out, err := b.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 				Name:      "/paged",
@@ -1261,8 +1279,8 @@ func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(h *ssm.Handler, b *ssm.InMemoryBackend)
+		name  string
 	}{
 		{
 			name: "reset_clears_parameters",
@@ -1476,9 +1494,13 @@ func TestListDocuments_Pagination(t *testing.T) {
 		wantEmpty  bool
 	}{
 		{
-			name:       "paginate_1",
-			maxResults: func() *int64 { v := int64(1); return &v }(),
-			wantEmpty:  false,
+			name: "paginate_1",
+			maxResults: func() *int64 {
+				v := int64(1)
+
+				return &v
+			}(),
+			wantEmpty: false,
 		},
 		{
 			name:      "beyond_end",

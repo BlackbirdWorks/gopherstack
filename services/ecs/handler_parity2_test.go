@@ -20,10 +20,12 @@ func TestRunTask_ContainersField_Populated(t *testing.T) {
 	tdRec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family": "web",
 		"containerDefinitions": []map[string]any{
-			{"name": "nginx", "image": "nginx:latest", "cpu": 256, "memory": 512,
+			{
+				"name": "nginx", "image": "nginx:latest", "cpu": 256, "memory": 512,
 				"portMappings": []map[string]any{
 					{"containerPort": 80, "protocol": "tcp"},
-				}},
+				},
+			},
 			{"name": "sidecar", "image": "alpine:3", "cpu": 128},
 		},
 	})

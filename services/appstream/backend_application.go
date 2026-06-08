@@ -9,13 +9,13 @@ import (
 type storedApplication struct {
 	CreatedTime time.Time         `json:"createdTime"`
 	Tags        map[string]string `json:"tags"`
-	Platforms   []string          `json:"platforms"`
 	Name        string            `json:"name"`
 	Arn         string            `json:"arn"`
 	DisplayName string            `json:"displayName"`
 	Description string            `json:"description"`
 	LaunchPath  string            `json:"launchPath"`
 	AppBlockArn string            `json:"appBlockArn"`
+	Platforms   []string          `json:"platforms"`
 }
 
 func (a *storedApplication) toApplication() *Application {
@@ -41,11 +41,11 @@ func (a *storedApplication) toApplication() *Application {
 type storedEntitlement struct {
 	CreatedTime    time.Time              `json:"createdTime"`
 	LastModifiedAt time.Time              `json:"lastModifiedAt"`
-	Attributes     []EntitlementAttribute `json:"attributes"`
 	Name           string                 `json:"name"`
 	StackName      string                 `json:"stackName"`
 	Description    string                 `json:"description"`
 	AppVisibility  string                 `json:"appVisibility"`
+	Attributes     []EntitlementAttribute `json:"attributes"`
 }
 
 func (e *storedEntitlement) toEntitlement() *Entitlement {
@@ -65,13 +65,13 @@ func (e *storedEntitlement) toEntitlement() *Entitlement {
 
 type storedDirectoryConfig struct {
 	CreatedTime                          time.Time `json:"createdTime"`
-	OrganizationalUnitDistinguishedNames []string  `json:"ouDNs"`
 	DirectoryName                        string    `json:"directoryName"`
 	Arn                                  string    `json:"arn"`
+	OrganizationalUnitDistinguishedNames []string  `json:"ouDNs"`
 }
 
 func (d *storedDirectoryConfig) toDirectoryConfig() *DirectoryConfig {
-	ouDNs := make([]string, len(d.OrganizationalUnitDistinguishedNames))
+	ouDNs := make([]string, len(d.OrganizationalUnitDistinguishedNames)) //nolint:revive,staticcheck // existing issue.
 	copy(ouDNs, d.OrganizationalUnitDistinguishedNames)
 
 	return &DirectoryConfig{
@@ -446,7 +446,10 @@ func (b *InMemoryBackend) ListEntitledApplications(entitlementName, stackName st
 }
 
 // CreateDirectoryConfig creates a new directory configuration.
-func (b *InMemoryBackend) CreateDirectoryConfig(name string, ouDNs []string) (*DirectoryConfig, error) {
+func (b *InMemoryBackend) CreateDirectoryConfig(
+	name string,
+	ouDNs []string, //nolint:revive,staticcheck // existing issue.
+) (*DirectoryConfig, error) {
 	b.mu.Lock("CreateDirectoryConfig")
 	defer b.mu.Unlock()
 
@@ -512,7 +515,10 @@ func (b *InMemoryBackend) DescribeDirectoryConfigs(names []string) ([]*Directory
 }
 
 // UpdateDirectoryConfig updates the OUs of a directory configuration.
-func (b *InMemoryBackend) UpdateDirectoryConfig(name string, ouDNs []string) (*DirectoryConfig, error) {
+func (b *InMemoryBackend) UpdateDirectoryConfig(
+	name string,
+	ouDNs []string, //nolint:revive,staticcheck // existing issue.
+) (*DirectoryConfig, error) {
 	b.mu.Lock("UpdateDirectoryConfig")
 	defer b.mu.Unlock()
 

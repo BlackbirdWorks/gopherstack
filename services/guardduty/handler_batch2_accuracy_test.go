@@ -80,8 +80,10 @@ func parseTS(t *testing.T, field, value string) time.Time {
 // 1. Detector ID shape
 // ---------------------------------------------------------------------------
 
-var reDetectorID = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var reDetectorARN = regexp.MustCompile(`^arn:aws:guardduty:[a-z0-9-]+:\d{12}:detector/[0-9a-f]{32}$`)
+var (
+	reDetectorID  = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	reDetectorARN = regexp.MustCompile(`^arn:aws:guardduty:[a-z0-9-]+:\d{12}:detector/[0-9a-f]{32}$`)
+)
 
 func TestBatch2_DetectorID_Shape(t *testing.T) {
 	t.Parallel()

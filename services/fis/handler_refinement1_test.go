@@ -216,7 +216,8 @@ func TestRefinement1_ErrValidationMapping(t *testing.T) {
 	tplID := seedTemplate(t, h)
 
 	// CreateTargetAccountConfiguration with empty roleArn → 400
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/123456789012",
 		map[string]any{"roleArn": ""},
 	)
@@ -421,7 +422,8 @@ func TestRefinement1_TargetAccountConfig_RoundTrip(t *testing.T) {
 	description := "cross-account config"
 
 	// Create
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/"+accountID,
 		map[string]any{"roleArn": roleArn, "description": description},
 	)
@@ -483,7 +485,8 @@ func TestRefinement1_UpdateTargetAccountConfiguration(t *testing.T) {
 	tplID := seedTemplate(t, h)
 	accountID := "666666666666"
 
-	doRequest(t, h, http.MethodPost,
+	doRequest(
+		t, h, http.MethodPost,
 		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/"+accountID,
 		map[string]any{
 			"roleArn":     "arn:aws:iam::666666666666:role/OldRole",
@@ -491,7 +494,8 @@ func TestRefinement1_UpdateTargetAccountConfiguration(t *testing.T) {
 		},
 	)
 
-	rec := doRequest(t, h, http.MethodPatch,
+	rec := doRequest(
+		t, h, http.MethodPatch,
 		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/"+accountID,
 		map[string]any{"description": "new desc"},
 	)
@@ -588,7 +592,8 @@ func TestRefinement1_ErrTooManyExperiments_Returns429(t *testing.T) {
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
 
-	rec := doRequest(t, h, http.MethodPost, "/experiments",
+	rec := doRequest(
+		t, h, http.MethodPost, "/experiments",
 		map[string]any{"experimentTemplateId": "EXT-quota1"},
 	)
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
@@ -659,7 +664,8 @@ func TestRefinement1_SafetyLever_PreservedAcrossPersistence(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Engage the lever via HTTP PATCH.
-	rec := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000",
+	rec := doRequest(
+		t, h, http.MethodPatch, "/safetyLevers/000000000000",
 		map[string]any{
 			"updateSafetyLeverStateInput": map[string]any{
 				"status": "engaged",
@@ -693,7 +699,8 @@ func TestRefinement1_DeleteTemplate_HTTP_CascadesConfigs(t *testing.T) {
 	tplID := seedTemplate(t, h)
 
 	// Add a config.
-	doRequest(t, h, http.MethodPost,
+	doRequest(
+		t, h, http.MethodPost,
 		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/888888888888",
 		map[string]any{"roleArn": "arn:aws:iam::888888888888:role/FISRole"},
 	)

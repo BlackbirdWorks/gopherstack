@@ -445,9 +445,9 @@ type EmailMonitoringConfiguration struct {
 
 // FolderConfiguration holds a retention policy folder config.
 type FolderConfiguration struct {
+	Period *int32
 	Name   string
 	Action string
-	Period *int32
 }
 
 // RetentionPolicy holds a retention policy.
@@ -460,28 +460,28 @@ type RetentionPolicy struct {
 
 // MailboxExportJob holds a mailbox export job.
 type MailboxExportJob struct {
-	JobID             string
-	EntityID          string
-	Description       string
+	StartTime         time.Time
+	EndTime           time.Time
+	S3Prefix          string
 	RoleARN           string
 	KmsKeyARN         string
 	S3BucketName      string
-	S3Prefix          string
+	JobID             string
 	S3Path            string
-	EstimatedProgress int32
 	State             string
 	ErrorInfo         string
-	StartTime         time.Time
-	EndTime           time.Time
+	Description       string
+	EntityID          string
+	EstimatedProgress int32
 }
 
 // IdentityProviderConfiguration holds IdP configuration.
 type IdentityProviderConfiguration struct {
+	PATLifetimeDays           *int32
 	AuthMode                  string
 	IdentityCenterAppARN      string
 	IdentityCenterInstanceARN string
 	PATStatus                 string
-	PATLifetimeDays           *int32
 }
 
 // PersonalAccessToken holds PAT metadata.

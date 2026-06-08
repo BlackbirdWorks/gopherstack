@@ -1,4 +1,4 @@
-package eventbridge
+package eventbridge //nolint:testpackage // existing issue.
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEventBridgeRegionIsolation(t *testing.T) {
+func TestEventBridgeRegionIsolation(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	
+
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")
 
@@ -26,7 +26,7 @@ func TestEventBridgeRegionIsolation(t *testing.T) {
 	eastBuses, _, err := backend.ListEventBuses(ctxEast, "", "")
 	require.NoError(t, err)
 	assert.True(t, containsBus(eastBuses, "bus-east"))
-	
+
 	// 4. Verify us-west-2 only sees its bus
 	westBuses, _, err := backend.ListEventBuses(ctxWest, "", "")
 	require.NoError(t, err)
@@ -34,8 +34,8 @@ func TestEventBridgeRegionIsolation(t *testing.T) {
 
 	// 5. Create rule in us-east-1
 	_, err = backend.PutRule(ctxEast, PutRuleInput{
-		Name:         "rule1",
-		EventBusName: "bus-east",
+		Name:               "rule1",
+		EventBusName:       "bus-east",
 		ScheduleExpression: "rate(1 minute)",
 	})
 	require.NoError(t, err)
@@ -57,6 +57,7 @@ func containsBus(buses []EventBus, name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -66,5 +67,6 @@ func containsRule(rules []Rule, name string) bool {
 			return true
 		}
 	}
+
 	return false
 }

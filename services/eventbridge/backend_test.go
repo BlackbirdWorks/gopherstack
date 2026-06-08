@@ -156,7 +156,10 @@ func TestDescribeRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`})
+	_, err := b.PutRule(
+		context.Background(),
+		eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`},
+	)
 	require.NoError(t, err)
 
 	rule, err := b.DescribeRule(context.Background(), "r1", "")
@@ -169,7 +172,10 @@ func TestDeleteRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "del-rule", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(
+		context.Background(),
+		eventbridge.PutRuleInput{Name: "del-rule", ScheduleExpression: "rate(1 minute)"},
+	)
 	require.NoError(t, err)
 
 	err = b.DeleteRule(context.Background(), "del-rule", "")
@@ -183,7 +189,8 @@ func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(),
+	_, err := b.PutRule(
+		context.Background(),
 		eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`},
 	)
 	require.NoError(t, err)
@@ -207,7 +214,10 @@ func TestPutAndListTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "rule-with-targets", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(
+		context.Background(),
+		eventbridge.PutRuleInput{Name: "rule-with-targets", ScheduleExpression: "rate(1 minute)"},
+	)
 	require.NoError(t, err)
 
 	targets := []eventbridge.Target{
@@ -229,7 +239,10 @@ func TestRemoveTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{Name: "rule-remove", ScheduleExpression: "rate(1 minute)"})
+	_, err := b.PutRule(
+		context.Background(),
+		eventbridge.PutRuleInput{Name: "rule-remove", ScheduleExpression: "rate(1 minute)"},
+	)
 	require.NoError(t, err)
 
 	_, err = b.PutTargets(context.Background(), "rule-remove", "", []eventbridge.Target{

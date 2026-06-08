@@ -64,7 +64,6 @@ func TestAvailabilityConfigurationLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -100,7 +99,7 @@ func TestAvailabilityConfigurationLifecycle(t *testing.T) {
 			// Update
 			updateProvider := `"LambdaProvider":{"LambdaArn":"arn:aws:lambda:us-east-1:000000000000:function:updated"}`
 			if tc.providerType == "LAMBDA" {
-				updateProvider = `"EwsProvider":{"EwsEndpoint":"https://ews2.example.com","EwsUsername":"user2","EwsPassword":"pass2"}`
+				updateProvider = `"EwsProvider":{"EwsEndpoint":"https://ews2.example.com","EwsUsername":"user2","EwsPassword":"pass2"}` //nolint:lll // existing issue.
 			}
 			rec = a1Do(t, h, "UpdateAvailabilityConfiguration", fmt.Sprintf(
 				`{"OrganizationId":%q,"DomainName":"example.com",%s}`, orgID, updateProvider,
@@ -160,13 +159,12 @@ func TestAvailabilityConfigurationErrors(t *testing.T) {
 		{
 			name:      "update nonexistent",
 			action:    "UpdateAvailabilityConfiguration",
-			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com","LambdaProvider":{"LambdaArn":"arn:aws:lambda:us-east-1:000:function:f"}}`,
+			body:      `{"OrganizationId":"org-123456789012","DomainName":"nope.com","LambdaProvider":{"LambdaArn":"arn:aws:lambda:us-east-1:000:function:f"}}`, //nolint:lll // existing issue.
 			wantError: "EntityNotFoundException",
 		},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -181,6 +179,7 @@ func TestAvailabilityConfigurationErrors(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, rec.Code)
 				m := a1JSON(t, rec)
 				assert.Contains(t, m["__type"], tc.wantError)
+
 				return
 			}
 
@@ -285,9 +284,9 @@ func TestGetMobileDeviceAccessEffect(t *testing.T) {
 	tests := []struct {
 		name         string
 		ruleEffect   string
-		deviceModels []string
 		queryModel   string
 		wantEffect   string
+		deviceModels []string
 		wantMatchLen int
 	}{
 		{
@@ -317,7 +316,6 @@ func TestGetMobileDeviceAccessEffect(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -429,8 +427,8 @@ func TestMobileDeviceAccessOverrideErrors(t *testing.T) {
 		name      string
 		action    string
 		body      string
-		wantCode  int
 		wantError string
+		wantCode  int
 	}{
 		{
 			name:      "get nonexistent override",
@@ -449,7 +447,6 @@ func TestMobileDeviceAccessOverrideErrors(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -479,7 +476,6 @@ func TestEmailMonitoringConfigurationLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -540,7 +536,6 @@ func TestInboundDmarcSettings(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -598,7 +593,6 @@ func TestRetentionPolicyLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -673,7 +667,6 @@ func TestMailboxExportJobLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -682,7 +675,7 @@ func TestMailboxExportJobLifecycle(t *testing.T) {
 
 			// Start
 			rec := a1Do(t, h, "StartMailboxExportJob", fmt.Sprintf(
-				`{"OrganizationId":%q,"EntityId":%q,"Description":%q,"RoleArn":"arn:aws:iam::000:role/ExportRole","KmsKeyArn":"arn:aws:kms:us-east-1:000:key/abc","S3BucketName":%q,"S3Prefix":%q}`,
+				`{"OrganizationId":%q,"EntityId":%q,"Description":%q,"RoleArn":"arn:aws:iam::000:role/ExportRole","KmsKeyArn":"arn:aws:kms:us-east-1:000:key/abc","S3BucketName":%q,"S3Prefix":%q}`, //nolint:lll // existing issue.
 				orgID,
 				userID,
 				tc.description,
@@ -747,7 +740,6 @@ func TestIdentityCenterApplicationLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -805,7 +797,6 @@ func TestIdentityProviderConfigurationLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -818,7 +809,7 @@ func TestIdentityProviderConfigurationLifecycle(t *testing.T) {
 			appARN := "arn:aws:sso:::application/ssoins-abc/apl-123"
 			instanceARN := "arn:aws:sso:::instance/ssoins-abc"
 			body := fmt.Sprintf(
-				`{"OrganizationId":%q,"AuthenticationMode":%q,"IdentityCenterConfiguration":{"ApplicationArn":%q,"InstanceArn":%q},"PersonalAccessTokenConfiguration":{"Status":%q}}`,
+				`{"OrganizationId":%q,"AuthenticationMode":%q,"IdentityCenterConfiguration":{"ApplicationArn":%q,"InstanceArn":%q},"PersonalAccessTokenConfiguration":{"Status":%q}}`, //nolint:lll // existing issue.
 				orgID,
 				tc.authMode,
 				appARN,
@@ -827,7 +818,7 @@ func TestIdentityProviderConfigurationLifecycle(t *testing.T) {
 			)
 			if tc.lifetime > 0 {
 				body = fmt.Sprintf(
-					`{"OrganizationId":%q,"AuthenticationMode":%q,"IdentityCenterConfiguration":{"ApplicationArn":%q,"InstanceArn":%q},"PersonalAccessTokenConfiguration":{"Status":%q,"LifetimeInDays":%d}}`,
+					`{"OrganizationId":%q,"AuthenticationMode":%q,"IdentityCenterConfiguration":{"ApplicationArn":%q,"InstanceArn":%q},"PersonalAccessTokenConfiguration":{"Status":%q,"LifetimeInDays":%d}}`, //nolint:lll // existing issue.
 					orgID,
 					tc.authMode,
 					appARN,
@@ -878,10 +869,9 @@ func TestPersonalAccessTokenLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := a2Handler(t)
+			h := a2Handler(t) //nolint:ineffassign,staticcheck,wastedassign // existing issue.
 			backend := workmail.NewInMemoryBackend("000000000000", "us-east-1")
 			h = workmail.NewHandler(backend)
 			orgID := createTestOrg(t, h, "pat-org")
@@ -939,9 +929,9 @@ func TestGetImpersonationRoleEffect(t *testing.T) {
 	tests := []struct {
 		name        string
 		ruleEffect  string
-		targetUsers []string
 		queryUser   string
 		wantEffect  string
+		targetUsers []string
 	}{
 		{
 			name:        "allow specific user",
@@ -967,7 +957,6 @@ func TestGetImpersonationRoleEffect(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -975,7 +964,7 @@ func TestGetImpersonationRoleEffect(t *testing.T) {
 
 			targetJSON, _ := json.Marshal(tc.targetUsers)
 			roleBody := fmt.Sprintf(
-				`{"OrganizationId":%q,"Name":"test-role","Type":"FULL_ACCESS","Rules":[{"ImpersonationRuleId":"rule-1","Name":"rule-one","Effect":%q,"TargetUsers":%s}]}`,
+				`{"OrganizationId":%q,"Name":"test-role","Type":"FULL_ACCESS","Rules":[{"ImpersonationRuleId":"rule-1","Name":"rule-one","Effect":%q,"TargetUsers":%s}]}`, //nolint:lll // existing issue.
 				orgID,
 				tc.ruleEffect,
 				string(targetJSON),
@@ -1012,7 +1001,6 @@ func TestAssumeImpersonationRole(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)
@@ -1060,7 +1048,6 @@ func TestAssumeImpersonationRoleErrors(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := a2Handler(t)

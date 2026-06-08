@@ -251,11 +251,11 @@ func (o *storedObservabilityConfiguration) toSummary() ObservabilityConfiguratio
 type storedVpcConnector struct {
 	CreatedAt            time.Time `json:"createdAt"`
 	DeletedAt            time.Time `json:"deletedAt"`
-	SecurityGroups       []string  `json:"securityGroups"`
-	Subnets              []string  `json:"subnets"`
 	VpcConnectorArn      string    `json:"arn"`
 	VpcConnectorName     string    `json:"name"`
 	Status               string    `json:"status"`
+	SecurityGroups       []string  `json:"securityGroups"`
+	Subnets              []string  `json:"subnets"`
 	VpcConnectorRevision int32     `json:"revision"`
 }
 
@@ -811,7 +811,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(data []byte) error { //nolint:gocognit // existing issue.
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -1005,7 +1005,7 @@ func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoSc
 }
 
 // ListAutoScalingConfigurations returns ASG configs with optional name filter.
-func (b *InMemoryBackend) ListAutoScalingConfigurations(
+func (b *InMemoryBackend) ListAutoScalingConfigurations( //nolint:dupl // existing issue.
 	nameFilter string,
 	latestOnly bool,
 	maxResults int32,
@@ -1274,7 +1274,7 @@ func (b *InMemoryBackend) DeleteObservabilityConfiguration(obsArn string) (*Obse
 }
 
 // ListObservabilityConfigurations returns observability configs with optional name filter.
-func (b *InMemoryBackend) ListObservabilityConfigurations(
+func (b *InMemoryBackend) ListObservabilityConfigurations( //nolint:dupl // existing issue.
 	nameFilter string,
 	latestOnly bool,
 	maxResults int32,

@@ -16,7 +16,10 @@ import (
 func TestAWSConfigDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	err := stack.AWSConfigHandler.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config-role")
+	err := stack.AWSConfigHandler.Backend.PutConfigurationRecorder(
+		"default",
+		"arn:aws:iam::000000000000:role/config-role",
+	)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

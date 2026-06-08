@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -117,9 +118,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
 	}
 
-	for k, v := range h.appendixAOps() {
-		ops[k] = v
-	}
+	maps.Copy(ops, h.appendixAOps())
 
 	return ops
 }

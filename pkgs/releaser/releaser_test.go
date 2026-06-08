@@ -69,11 +69,11 @@ func TestGitOperations(t *testing.T) {
 	run(t, "git", "tag", "v0.1.0")
 
 	// Commit with actual file changes
-	require.NoError(t, os.WriteFile("feat.txt", []byte("new feature"), 0644))
+	require.NoError(t, os.WriteFile("feat.txt", []byte("new feature"), 0o644))
 	run(t, "git", "add", "feat.txt")
 	run(t, "git", "commit", "-m", "feat: new feature")
 
-	require.NoError(t, os.WriteFile("fix.txt", []byte("bug fix"), 0644))
+	require.NoError(t, os.WriteFile("fix.txt", []byte("bug fix"), 0o644))
 	run(t, "git", "add", "fix.txt")
 	run(t, "git", "commit", "-m", "fix: bug fix")
 

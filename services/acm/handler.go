@@ -307,8 +307,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 }
 
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) error {
 	const maxTagKeyLength = 128
@@ -492,10 +494,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 	return h.handleOpError(c, action, reqErr)
 }
 
-var (
-	// errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
-	errUnknownACMAction = errors.New("unknown ACM action")
-)
+// errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
+var errUnknownACMAction = errors.New("unknown ACM action")
 
 // acmDispatchTable maps ACM action names to their JSON handler functions.
 //

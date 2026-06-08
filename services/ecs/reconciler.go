@@ -86,7 +86,8 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 
 	for _, snap := range snapshots {
 		if err := r.reconcileService(ctx, log, snap); err != nil {
-			log.WarnContext(ctx, "ECS reconcile error",
+			log.WarnContext(
+				ctx, "ECS reconcile error",
 				"cluster", snap.clusterName,
 				"service", snap.service.ServiceName,
 				"error", err,
@@ -118,7 +119,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 	switch {
 	case running < desired:
 		toStart := desired - running
-		log.DebugContext(ctx, "ECS reconciler: starting tasks",
+		log.DebugContext(
+			ctx, "ECS reconciler: starting tasks",
 			"cluster", snap.clusterName,
 			"service", svc.ServiceName,
 			"desired", desired,
@@ -136,7 +138,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 			case sem <- struct{}{}:
 			default:
 				// Semaphore full — defer remaining launches to next tick.
-				log.DebugContext(ctx, "ECS reconciler: launch semaphore full, deferring",
+				log.DebugContext(
+					ctx, "ECS reconciler: launch semaphore full, deferring",
 					"cluster", snap.clusterName,
 					"service", svc.ServiceName,
 				)
@@ -151,7 +154,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 					snap.clusterName, svc.ServiceName, svc.TaskDefinition,
 				)
 				if err != nil {
-					log.WarnContext(ctx, "ECS reconciler: StartTaskForService failed",
+					log.WarnContext(
+						ctx, "ECS reconciler: StartTaskForService failed",
 						"cluster", snap.clusterName,
 						"service", svc.ServiceName,
 						"error", err,
@@ -164,7 +168,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 
 	case running > desired:
 		toStop := running - desired
-		log.DebugContext(ctx, "ECS reconciler: stopping tasks",
+		log.DebugContext(
+			ctx, "ECS reconciler: stopping tasks",
 			"cluster", snap.clusterName,
 			"service", svc.ServiceName,
 			"desired", desired,
@@ -178,7 +183,8 @@ func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, sna
 
 		for range toStop {
 			if running-1 < minFloor {
-				log.DebugContext(ctx, "ECS reconciler: scale-down capped by MinimumHealthyPercent",
+				log.DebugContext(
+					ctx, "ECS reconciler: scale-down capped by MinimumHealthyPercent",
 					"cluster", snap.clusterName,
 					"service", svc.ServiceName,
 					"running", running,

@@ -110,8 +110,8 @@ type StorageBackend interface {
 	UpdateConnectClientAddIn(addInID, resourceID, name, url string) error
 
 	// Client Branding
-	ImportClientBranding(resourceID string, platforms map[string]map[string]interface{}) error
-	DescribeClientBranding(resourceID string) (map[string]map[string]interface{}, error)
+	ImportClientBranding(resourceID string, platforms map[string]map[string]any) error
+	DescribeClientBranding(resourceID string) (map[string]map[string]any, error)
 	DeleteClientBranding(resourceID string, platforms []string) error
 
 	// Client Properties

@@ -11,14 +11,12 @@ import (
 
 // ---- Traffic Mirror Filter ----
 
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_TrafficMirrorFilter(t *testing.T) {
-	t.Parallel()
+func TestBatch5_TrafficMirrorFilter(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var filterID string
 
-	t.Run("create filter", func(t *testing.T) {
+	t.Run("create filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		f, err := b.CreateTrafficMirrorFilter("test filter")
 		require.NoError(t, err)
 		assert.NotEmpty(t, f.TrafficMirrorFilterID)
@@ -26,51 +24,49 @@ func TestBatch5_TrafficMirrorFilter(t *testing.T) {
 		filterID = f.TrafficMirrorFilterID
 	})
 
-	t.Run("describe returns created filter", func(t *testing.T) {
+	t.Run("describe returns created filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
 		require.Len(t, filters, 1)
 		assert.Equal(t, "test filter", filters[0].Description)
 	})
 
-	t.Run("describe all", func(t *testing.T) {
+	t.Run("describe all", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		filters := b.DescribeTrafficMirrorFilters(nil)
 		assert.NotEmpty(t, filters)
 	})
 
-	t.Run("modify network services add", func(t *testing.T) {
+	t.Run("modify network services add", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyTrafficMirrorFilterNetworkServices(filterID, []string{"amazon-dns"}, nil))
 		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
 		require.Len(t, filters, 1)
 		assert.Contains(t, filters[0].NetworkServices, "amazon-dns")
 	})
 
-	t.Run("modify network services remove", func(t *testing.T) {
+	t.Run("modify network services remove", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyTrafficMirrorFilterNetworkServices(filterID, nil, []string{"amazon-dns"}))
 		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
 		require.Len(t, filters, 1)
 		assert.Empty(t, filters[0].NetworkServices)
 	})
 
-	t.Run("delete filter", func(t *testing.T) {
+	t.Run("delete filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteTrafficMirrorFilter(filterID))
 		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
 		assert.Empty(t, filters)
 	})
 
-	t.Run("delete non-existent returns error", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteTrafficMirrorFilter("tmf-nonexistent"))
 	})
 
-	t.Run("modify non-existent filter returns error", func(t *testing.T) {
+	t.Run("modify non-existent filter returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.ModifyTrafficMirrorFilterNetworkServices("tmf-nonexistent", nil, nil))
 	})
 }
 
 // ---- Traffic Mirror Filter Rule ----
 
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_TrafficMirrorFilterRule(t *testing.T) {
-	t.Parallel()
+func TestBatch5_TrafficMirrorFilterRule(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	f, ferr := b.CreateTrafficMirrorFilter("filter-for-rules")
@@ -79,7 +75,7 @@ func TestBatch5_TrafficMirrorFilterRule(t *testing.T) {
 
 	var ruleID string
 
-	t.Run("create ingress rule", func(t *testing.T) {
+	t.Run("create ingress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		rule, err := b.CreateTrafficMirrorFilterRule(
 			filterID, "ingress", "accept",
 			"10.0.0.0/8", "0.0.0.0/0", "ingress rule",
@@ -92,14 +88,14 @@ func TestBatch5_TrafficMirrorFilterRule(t *testing.T) {
 		ruleID = rule.TrafficMirrorFilterRuleID
 	})
 
-	t.Run("describe rules returns created rule", func(t *testing.T) {
+	t.Run("describe rules returns created rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		rules, err := b.DescribeTrafficMirrorFilterRules(filterID)
 		require.NoError(t, err)
 		require.Len(t, rules, 1)
 		assert.Equal(t, ruleID, rules[0].TrafficMirrorFilterRuleID)
 	})
 
-	t.Run("create egress rule", func(t *testing.T) {
+	t.Run("create egress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.CreateTrafficMirrorFilterRule(
 			filterID, "egress", "reject",
 			"0.0.0.0/0", "0.0.0.0/0", "egress rule",
@@ -112,40 +108,40 @@ func TestBatch5_TrafficMirrorFilterRule(t *testing.T) {
 		assert.Len(t, rules, 2)
 	})
 
-	t.Run("modify rule", func(t *testing.T) {
+	t.Run("modify rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyTrafficMirrorFilterRule(ruleID, "reject", "modified"))
 	})
 
-	t.Run("delete rule", func(t *testing.T) {
+	t.Run("delete rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteTrafficMirrorFilterRule(ruleID))
 		rules, err := b.DescribeTrafficMirrorFilterRules(filterID)
 		require.NoError(t, err)
 		assert.Len(t, rules, 1)
 	})
 
-	t.Run("create rule on non-existent filter returns error", func(t *testing.T) {
-		_, err := b.CreateTrafficMirrorFilterRule(
-			"tmf-nonexistent", "ingress", "accept",
-			"0.0.0.0/0", "0.0.0.0/0", "", 1, 0,
-		)
-		require.Error(t, err)
-	})
+	t.Run( //nolint:paralleltest // existing issue.
+		"create rule on non-existent filter returns error",
+		func(t *testing.T) {
+			_, err := b.CreateTrafficMirrorFilterRule(
+				"tmf-nonexistent", "ingress", "accept",
+				"0.0.0.0/0", "0.0.0.0/0", "", 1, 0,
+			)
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("delete non-existent rule returns error", func(t *testing.T) {
+	t.Run("delete non-existent rule returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteTrafficMirrorFilterRule("tmfr-nonexistent"))
 	})
 }
 
-// ---- Traffic Mirror Target ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_TrafficMirrorTarget(t *testing.T) {
-	t.Parallel()
+// ---- Traffic Mirror Target ----.
+func TestBatch5_TrafficMirrorTarget(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var targetID string
 
-	t.Run("create target with network interface", func(t *testing.T) {
+	t.Run("create target with network interface", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		target, err := b.CreateTrafficMirrorTarget("eni-12345678", "", "test target")
 		require.NoError(t, err)
 		assert.NotEmpty(t, target.TrafficMirrorTargetID)
@@ -153,13 +149,13 @@ func TestBatch5_TrafficMirrorTarget(t *testing.T) {
 		targetID = target.TrafficMirrorTargetID
 	})
 
-	t.Run("describe returns created target", func(t *testing.T) {
+	t.Run("describe returns created target", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		targets := b.DescribeTrafficMirrorTargets([]string{targetID})
 		require.Len(t, targets, 1)
 		assert.Equal(t, "test target", targets[0].Description)
 	})
 
-	t.Run("create target with nlb arn", func(t *testing.T) {
+	t.Run("create target with nlb arn", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		target, err := b.CreateTrafficMirrorTarget(
 			"",
 			"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/test/abc",
@@ -170,32 +166,29 @@ func TestBatch5_TrafficMirrorTarget(t *testing.T) {
 		assert.NotEmpty(t, target.NetworkLoadBalancerArn)
 	})
 
-	t.Run("describe all targets", func(t *testing.T) {
+	t.Run("describe all targets", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		targets := b.DescribeTrafficMirrorTargets(nil)
 		assert.Len(t, targets, 2)
 	})
 
-	t.Run("delete target", func(t *testing.T) {
+	t.Run("delete target", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteTrafficMirrorTarget(targetID))
 		targets := b.DescribeTrafficMirrorTargets(nil)
 		assert.Len(t, targets, 1)
 	})
 
-	t.Run("delete non-existent returns error", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteTrafficMirrorTarget("tmt-nonexistent"))
 	})
 }
 
-// ---- Traffic Mirror Session ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_TrafficMirrorSession(t *testing.T) {
-	t.Parallel()
+// ---- Traffic Mirror Session ----.
+func TestBatch5_TrafficMirrorSession(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var sessionID string
 
-	t.Run("create session", func(t *testing.T) {
+	t.Run("create session", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		s, err := b.CreateTrafficMirrorSession("eni-12345678", "tmt-abc123", "tmf-abc123", "test session", 1)
 		require.NoError(t, err)
 		assert.NotEmpty(t, s.TrafficMirrorSessionID)
@@ -204,51 +197,48 @@ func TestBatch5_TrafficMirrorSession(t *testing.T) {
 		sessionID = s.TrafficMirrorSessionID
 	})
 
-	t.Run("describe returns created session", func(t *testing.T) {
+	t.Run("describe returns created session", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
 		require.Len(t, sessions, 1)
 		assert.Equal(t, "eni-12345678", sessions[0].NetworkInterfaceID)
 	})
 
-	t.Run("modify session description", func(t *testing.T) {
+	t.Run("modify session description", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyTrafficMirrorSession(sessionID, "", "", "modified"))
 		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
 		require.Len(t, sessions, 1)
 		assert.Equal(t, "modified", sessions[0].Description)
 	})
 
-	t.Run("modify session target", func(t *testing.T) {
+	t.Run("modify session target", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyTrafficMirrorSession(sessionID, "tmt-new", "", ""))
 		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
 		require.Len(t, sessions, 1)
 		assert.Equal(t, "tmt-new", sessions[0].TrafficMirrorTargetID)
 	})
 
-	t.Run("delete session", func(t *testing.T) {
+	t.Run("delete session", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteTrafficMirrorSession(sessionID))
 		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
 		assert.Empty(t, sessions)
 	})
 
-	t.Run("delete non-existent returns error", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteTrafficMirrorSession("tms-nonexistent"))
 	})
 
-	t.Run("modify non-existent returns error", func(t *testing.T) {
+	t.Run("modify non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.ModifyTrafficMirrorSession("tms-nonexistent", "", "", "x"))
 	})
 }
 
-// ---- EC2 Fleet ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_Fleet(t *testing.T) {
-	t.Parallel()
+// ---- EC2 Fleet ----.
+func TestBatch5_Fleet(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var fleetID string
 
-	t.Run("create fleet", func(t *testing.T) {
+	t.Run("create fleet", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		f, err := b.CreateFleet("maintain", 5)
 		require.NoError(t, err)
 		assert.NotEmpty(t, f.FleetID)
@@ -258,32 +248,32 @@ func TestBatch5_Fleet(t *testing.T) {
 		fleetID = f.FleetID
 	})
 
-	t.Run("describe returns created fleet", func(t *testing.T) {
+	t.Run("describe returns created fleet", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		fleets := b.DescribeFleets([]string{fleetID})
 		require.Len(t, fleets, 1)
 		assert.Equal(t, "active", fleets[0].FleetState)
 	})
 
-	t.Run("describe all fleets", func(t *testing.T) {
+	t.Run("describe all fleets", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		fleets := b.DescribeFleets(nil)
 		assert.NotEmpty(t, fleets)
 	})
 
-	t.Run("modify fleet capacity", func(t *testing.T) {
+	t.Run("modify fleet capacity", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyFleet(fleetID, 10, ""))
 		fleets := b.DescribeFleets([]string{fleetID})
 		require.Len(t, fleets, 1)
 		assert.Equal(t, 10, fleets[0].TotalTargetCapacity)
 	})
 
-	t.Run("modify fleet excess policy", func(t *testing.T) {
+	t.Run("modify fleet excess policy", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.ModifyFleet(fleetID, 0, "no-termination"))
 		fleets := b.DescribeFleets([]string{fleetID})
 		require.Len(t, fleets, 1)
 		assert.Equal(t, "no-termination", fleets[0].ExcessCapacityTerminationPolicy)
 	})
 
-	t.Run("delete fleet", func(t *testing.T) {
+	t.Run("delete fleet", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		deleted := b.DeleteFleets([]string{fleetID})
 		assert.Len(t, deleted, 1)
 		assert.Equal(t, fleetID, deleted[0])
@@ -291,32 +281,29 @@ func TestBatch5_Fleet(t *testing.T) {
 		assert.Empty(t, fleets)
 	})
 
-	t.Run("delete non-existent fleet returns empty", func(t *testing.T) {
+	t.Run("delete non-existent fleet returns empty", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		deleted := b.DeleteFleets([]string{"fleet-nonexistent"})
 		assert.Empty(t, deleted)
 	})
 
-	t.Run("modify non-existent returns error", func(t *testing.T) {
+	t.Run("modify non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.ModifyFleet("fleet-nonexistent", 1, ""))
 	})
 
-	t.Run("create fleet with default type", func(t *testing.T) {
+	t.Run("create fleet with default type", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		f, err := b.CreateFleet("", 1)
 		require.NoError(t, err)
 		assert.Equal(t, "maintain", f.FleetType)
 	})
 }
 
-// ---- Network Insights Path ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_NetworkInsightsPath(t *testing.T) {
-	t.Parallel()
+// ---- Network Insights Path ----.
+func TestBatch5_NetworkInsightsPath(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var pathID string
 
-	t.Run("create path", func(t *testing.T) {
+	t.Run("create path", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		p, err := b.CreateNetworkInsightsPath("eni-src", "eni-dst", "tcp", 80)
 		require.NoError(t, err)
 		assert.NotEmpty(t, p.NetworkInsightsPathID)
@@ -327,38 +314,35 @@ func TestBatch5_NetworkInsightsPath(t *testing.T) {
 		pathID = p.NetworkInsightsPathID
 	})
 
-	t.Run("describe returns created path", func(t *testing.T) {
+	t.Run("describe returns created path", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		paths := b.DescribeNetworkInsightsPaths([]string{pathID})
 		require.Len(t, paths, 1)
 		assert.Equal(t, "eni-dst", paths[0].DestinationID)
 	})
 
-	t.Run("describe all paths", func(t *testing.T) {
+	t.Run("describe all paths", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		paths := b.DescribeNetworkInsightsPaths(nil)
 		assert.NotEmpty(t, paths)
 	})
 
-	t.Run("delete path", func(t *testing.T) {
+	t.Run("delete path", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteNetworkInsightsPath(pathID))
 		paths := b.DescribeNetworkInsightsPaths([]string{pathID})
 		assert.Empty(t, paths)
 	})
 
-	t.Run("delete non-existent returns error", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteNetworkInsightsPath("nip-nonexistent"))
 	})
 
-	t.Run("create with empty source returns error", func(t *testing.T) {
+	t.Run("create with empty source returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.CreateNetworkInsightsPath("", "dst", "tcp", 80)
 		require.Error(t, err)
 	})
 }
 
-// ---- Network Insights Analysis ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_NetworkInsightsAnalysis(t *testing.T) {
-	t.Parallel()
+// ---- Network Insights Analysis ----.
+func TestBatch5_NetworkInsightsAnalysis(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	path, pathErr := b.CreateNetworkInsightsPath("eni-a", "eni-b", "tcp", 443)
@@ -367,7 +351,7 @@ func TestBatch5_NetworkInsightsAnalysis(t *testing.T) {
 
 	var analysisID string
 
-	t.Run("start analysis", func(t *testing.T) {
+	t.Run("start analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		a, err := b.StartNetworkInsightsAnalysis(pathID)
 		require.NoError(t, err)
 		assert.NotEmpty(t, a.NetworkInsightsAnalysisID)
@@ -377,43 +361,43 @@ func TestBatch5_NetworkInsightsAnalysis(t *testing.T) {
 		analysisID = a.NetworkInsightsAnalysisID
 	})
 
-	t.Run("describe returns analysis", func(t *testing.T) {
+	t.Run("describe returns analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID})
 		require.Len(t, analyses, 1)
 		assert.Equal(t, "succeeded", analyses[0].Status)
 	})
 
-	t.Run("describe all", func(t *testing.T) {
+	t.Run("describe all", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		analyses := b.DescribeNetworkInsightsAnalyses(nil)
 		assert.NotEmpty(t, analyses)
 	})
 
-	t.Run("delete analysis", func(t *testing.T) {
+	t.Run("delete analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteNetworkInsightsAnalysis(analysisID))
 		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID})
 		assert.Empty(t, analyses)
 	})
 
-	t.Run("start analysis on non-existent path returns error", func(t *testing.T) {
-		_, err := b.StartNetworkInsightsAnalysis("nip-nonexistent")
-		require.Error(t, err)
-	})
+	t.Run( //nolint:paralleltest // existing issue.
+		"start analysis on non-existent path returns error",
+		func(t *testing.T) {
+			_, err := b.StartNetworkInsightsAnalysis("nip-nonexistent")
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("delete non-existent analysis returns error", func(t *testing.T) {
+	t.Run("delete non-existent analysis returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteNetworkInsightsAnalysis("nia-nonexistent"))
 	})
 }
 
-// ---- Network Insights Access Scope ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_NetworkInsightsAccessScope(t *testing.T) {
-	t.Parallel()
+// ---- Network Insights Access Scope ----.
+func TestBatch5_NetworkInsightsAccessScope(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var scopeID string
 
-	t.Run("create scope", func(t *testing.T) {
+	t.Run("create scope", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		s, err := b.CreateNetworkInsightsAccessScope()
 		require.NoError(t, err)
 		assert.NotEmpty(t, s.NetworkInsightsAccessScopeID)
@@ -421,13 +405,13 @@ func TestBatch5_NetworkInsightsAccessScope(t *testing.T) {
 		scopeID = s.NetworkInsightsAccessScopeID
 	})
 
-	t.Run("describe returns created scope", func(t *testing.T) {
+	t.Run("describe returns created scope", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		scopes := b.DescribeNetworkInsightsAccessScopes([]string{scopeID})
 		require.Len(t, scopes, 1)
 		assert.Equal(t, scopeID, scopes[0].NetworkInsightsAccessScopeID)
 	})
 
-	t.Run("start scope analysis", func(t *testing.T) {
+	t.Run("start scope analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		a, err := b.StartNetworkInsightsAccessScopeAnalysis(scopeID)
 		require.NoError(t, err)
 		assert.NotEmpty(t, a.NetworkInsightsAccessScopeAnalysisID)
@@ -435,68 +419,68 @@ func TestBatch5_NetworkInsightsAccessScope(t *testing.T) {
 		assert.Equal(t, scopeID, a.NetworkInsightsAccessScopeID)
 	})
 
-	t.Run("describe scope analyses", func(t *testing.T) {
+	t.Run("describe scope analyses", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil)
 		assert.NotEmpty(t, analyses)
 	})
 
-	t.Run("delete scope analysis", func(t *testing.T) {
+	t.Run("delete scope analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil)
 		require.NotEmpty(t, analyses)
 		require.NoError(t, b.DeleteNetworkInsightsAccessScopeAnalysis(analyses[0].NetworkInsightsAccessScopeAnalysisID))
 	})
 
-	t.Run("delete scope", func(t *testing.T) {
+	t.Run("delete scope", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteNetworkInsightsAccessScope(scopeID))
 		scopes := b.DescribeNetworkInsightsAccessScopes([]string{scopeID})
 		assert.Empty(t, scopes)
 	})
 
-	t.Run("start analysis on non-existent scope returns error", func(t *testing.T) {
-		_, err := b.StartNetworkInsightsAccessScopeAnalysis("nias-nonexistent")
-		require.Error(t, err)
-	})
+	t.Run( //nolint:paralleltest // existing issue.
+		"start analysis on non-existent scope returns error",
+		func(t *testing.T) {
+			_, err := b.StartNetworkInsightsAccessScopeAnalysis("nias-nonexistent")
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("delete non-existent scope returns error", func(t *testing.T) {
+	t.Run("delete non-existent scope returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteNetworkInsightsAccessScope("nias-nonexistent"))
 	})
 
-	t.Run("delete non-existent analysis returns error", func(t *testing.T) {
+	t.Run("delete non-existent analysis returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteNetworkInsightsAccessScopeAnalysis("niasa-nonexistent"))
 	})
 }
 
-// ---- BYOIP ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_BYOIP(t *testing.T) {
-	t.Parallel()
+// ---- BYOIP ----.
+func TestBatch5_BYOIP(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	t.Run("provision cidr", func(t *testing.T) {
+	t.Run("provision cidr", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		entry, err := b.ProvisionByoipCidr("198.51.100.0/24", "test provision")
 		require.NoError(t, err)
 		assert.Equal(t, "198.51.100.0/24", entry.Cidr)
 		assert.Equal(t, "pending-provision", entry.State)
 	})
 
-	t.Run("provision empty cidr returns error", func(t *testing.T) {
+	t.Run("provision empty cidr returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.ProvisionByoipCidr("", "")
 		require.Error(t, err)
 	})
 
-	t.Run("deprovision cidr", func(t *testing.T) {
+	t.Run("deprovision cidr", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		entry, err := b.DeprovisionByoipCidr("198.51.100.0/24")
 		require.NoError(t, err)
 		assert.Equal(t, "pending-deprovision", entry.State)
 	})
 
-	t.Run("deprovision non-existent returns error", func(t *testing.T) {
+	t.Run("deprovision non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.DeprovisionByoipCidr("10.0.0.0/8")
 		require.Error(t, err)
 	})
 
-	t.Run("withdraw cidr", func(t *testing.T) {
+	t.Run("withdraw cidr", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		// Re-provision first
 		_, err := b.ProvisionByoipCidr("203.0.113.0/24", "")
 		require.NoError(t, err)
@@ -506,23 +490,20 @@ func TestBatch5_BYOIP(t *testing.T) {
 		assert.Equal(t, "advertised", entry.State)
 	})
 
-	t.Run("withdraw creates entry if not exists", func(t *testing.T) {
+	t.Run("withdraw creates entry if not exists", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		entry, err := b.WithdrawByoipCidr("192.0.2.0/24")
 		require.NoError(t, err)
 		assert.Equal(t, "advertised", entry.State)
 	})
 }
 
-// ---- Carrier Gateway ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_CarrierGateway(t *testing.T) {
-	t.Parallel()
+// ---- Carrier Gateway ----.
+func TestBatch5_CarrierGateway(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	var gwID string
 
-	t.Run("create carrier gateway", func(t *testing.T) {
+	t.Run("create carrier gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		gw, err := b.CreateCarrierGateway("vpc-12345678")
 		require.NoError(t, err)
 		assert.NotEmpty(t, gw.CarrierGatewayID)
@@ -532,18 +513,18 @@ func TestBatch5_CarrierGateway(t *testing.T) {
 		gwID = gw.CarrierGatewayID
 	})
 
-	t.Run("describe returns created gateway", func(t *testing.T) {
+	t.Run("describe returns created gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		gws := b.DescribeCarrierGateways([]string{gwID})
 		require.Len(t, gws, 1)
 		assert.Equal(t, "vpc-12345678", gws[0].VpcID)
 	})
 
-	t.Run("describe all", func(t *testing.T) {
+	t.Run("describe all", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		gws := b.DescribeCarrierGateways(nil)
 		assert.NotEmpty(t, gws)
 	})
 
-	t.Run("create second gateway", func(t *testing.T) {
+	t.Run("create second gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.CreateCarrierGateway("vpc-87654321")
 		require.NoError(t, err)
 
@@ -551,27 +532,24 @@ func TestBatch5_CarrierGateway(t *testing.T) {
 		assert.Len(t, gws, 2)
 	})
 
-	t.Run("delete gateway", func(t *testing.T) {
+	t.Run("delete gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteCarrierGateway(gwID))
 		gws := b.DescribeCarrierGateways([]string{gwID})
 		assert.Empty(t, gws)
 	})
 
-	t.Run("delete non-existent returns error", func(t *testing.T) {
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.DeleteCarrierGateway("cagw-nonexistent"))
 	})
 
-	t.Run("create with empty vpc returns error", func(t *testing.T) {
+	t.Run("create with empty vpc returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.CreateCarrierGateway("")
 		require.Error(t, err)
 	})
 }
 
-// ---- Reserved Instances ----
-
-//nolint:tparallel,paralleltest // subtests share sequential state
-func TestBatch5_ReservedInstances(t *testing.T) {
-	t.Parallel()
+// ---- Reserved Instances ----.
+func TestBatch5_ReservedInstances(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed an offering for purchase
@@ -586,35 +564,35 @@ func TestBatch5_ReservedInstances(t *testing.T) {
 		0.0,
 	)
 
-	t.Run("describe offerings returns seeded offering", func(t *testing.T) {
+	t.Run("describe offerings returns seeded offering", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		offerings := b.DescribeReservedInstancesOfferings("", "", "")
 		assert.NotEmpty(t, offerings)
 	})
 
-	t.Run("describe offerings by instance type", func(t *testing.T) {
+	t.Run("describe offerings by instance type", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		offerings := b.DescribeReservedInstancesOfferings("t3.medium", "", "")
 		require.Len(t, offerings, 1)
 		assert.Equal(t, "t3.medium", offerings[0].InstanceType)
 	})
 
-	t.Run("describe offerings by az", func(t *testing.T) {
+	t.Run("describe offerings by az", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		offerings := b.DescribeReservedInstancesOfferings("", "us-east-1a", "")
 		require.Len(t, offerings, 1)
 	})
 
-	t.Run("describe offerings by product description", func(t *testing.T) {
+	t.Run("describe offerings by product description", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		offerings := b.DescribeReservedInstancesOfferings("", "", "Linux/UNIX")
 		require.Len(t, offerings, 1)
 	})
 
-	t.Run("describe offerings no match", func(t *testing.T) {
+	t.Run("describe offerings no match", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		offerings := b.DescribeReservedInstancesOfferings("m5.xlarge", "", "")
 		assert.Empty(t, offerings)
 	})
 
 	var riID string
 
-	t.Run("purchase offering", func(t *testing.T) {
+	t.Run("purchase offering", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		ri, err := b.PurchaseReservedInstancesOffering("rio-test-offering-001", 3)
 		require.NoError(t, err)
 		assert.NotEmpty(t, ri.ReservedInstancesID)
@@ -623,25 +601,25 @@ func TestBatch5_ReservedInstances(t *testing.T) {
 		riID = ri.ReservedInstancesID
 	})
 
-	t.Run("describe reserved instances", func(t *testing.T) {
+	t.Run("describe reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		ris := b.DescribeReservedInstances(nil)
 		require.Len(t, ris, 1)
 		assert.Equal(t, riID, ris[0].ReservedInstancesID)
 	})
 
-	t.Run("describe reserved instances by id", func(t *testing.T) {
+	t.Run("describe reserved instances by id", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		ris := b.DescribeReservedInstances([]string{riID})
 		require.Len(t, ris, 1)
 	})
 
-	t.Run("purchase non-existent offering returns error", func(t *testing.T) {
+	t.Run("purchase non-existent offering returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		_, err := b.PurchaseReservedInstancesOffering("rio-nonexistent", 1)
 		require.Error(t, err)
 	})
 
 	var listingID string
 
-	t.Run("create listing", func(t *testing.T) {
+	t.Run("create listing", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		l, err := b.CreateReservedInstancesListing(riID, 2)
 		require.NoError(t, err)
 		assert.NotEmpty(t, l.ReservedInstancesListingID)
@@ -649,36 +627,36 @@ func TestBatch5_ReservedInstances(t *testing.T) {
 		listingID = l.ReservedInstancesListingID
 	})
 
-	t.Run("describe listings", func(t *testing.T) {
+	t.Run("describe listings", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		listings := b.DescribeReservedInstancesListings(nil)
 		require.Len(t, listings, 1)
 		assert.Equal(t, listingID, listings[0].ReservedInstancesListingID)
 	})
 
-	t.Run("cancel listing", func(t *testing.T) {
+	t.Run("cancel listing", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.CancelReservedInstancesListing(listingID))
 		listings := b.DescribeReservedInstancesListings([]string{listingID})
 		require.Len(t, listings, 1)
 		assert.Equal(t, "cancelled", listings[0].Status)
 	})
 
-	t.Run("cancel non-existent listing returns error", func(t *testing.T) {
+	t.Run("cancel non-existent listing returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Error(t, b.CancelReservedInstancesListing("rsl-nonexistent"))
 	})
 
-	t.Run("modify reserved instances", func(t *testing.T) {
+	t.Run("modify reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		mod, err := b.ModifyReservedInstances([]string{riID}, "t3.large", 3)
 		require.NoError(t, err)
 		assert.NotEmpty(t, mod.ReservedInstancesModificationID)
 		assert.Equal(t, "fulfilled", mod.Status)
 	})
 
-	t.Run("describe modifications", func(t *testing.T) {
+	t.Run("describe modifications", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		mods := b.DescribeReservedInstancesModifications(nil)
 		assert.NotEmpty(t, mods)
 	})
 
-	t.Run("delete queued reserved instances", func(t *testing.T) {
+	t.Run("delete queued reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		b.DeleteQueuedReservedInstances([]string{riID})
 		ris := b.DescribeReservedInstances([]string{riID})
 		assert.Empty(t, ris)

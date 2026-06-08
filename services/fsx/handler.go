@@ -609,13 +609,13 @@ func (h *Handler) handleDisassociateFileSystemAliases(
 
 type describeFileSystemAliasesInput struct {
 	FileSystemID string `json:"FileSystemId"`
-	MaxResults   int32  `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
 }
 
 type describeFileSystemAliasesOutput struct {
-	Aliases   []FileSystemAlias `json:"Aliases"`
 	NextToken string            `json:"NextToken,omitempty"`
+	Aliases   []FileSystemAlias `json:"Aliases"`
 }
 
 func (h *Handler) handleDescribeFileSystemAliases(
@@ -673,14 +673,14 @@ func (h *Handler) handleDeleteDataRepositoryAssociation(
 // --- DescribeDataRepositoryAssociations ---
 
 type describeDataRepositoryAssociationsInput struct {
+	NextToken      string   `json:"NextToken,omitempty"`
 	AssociationIDs []string `json:"AssociationIds,omitempty"`
 	MaxResults     int32    `json:"MaxResults,omitempty"`
-	NextToken      string   `json:"NextToken,omitempty"`
 }
 
 type describeDataRepositoryAssociationsOutput struct {
-	Associations []*DataRepositoryAssociation `json:"Associations"`
 	NextToken    string                       `json:"NextToken,omitempty"`
+	Associations []*DataRepositoryAssociation `json:"Associations"`
 }
 
 func (h *Handler) handleDescribeDataRepositoryAssociations(
@@ -756,14 +756,14 @@ func (h *Handler) handleCreateDataRepositoryTask(
 // --- DescribeDataRepositoryTasks ---
 
 type describeDataRepositoryTasksInput struct {
+	NextToken  string   `json:"NextToken,omitempty"`
 	TaskIDs    []string `json:"TaskIds,omitempty"`
 	MaxResults int32    `json:"MaxResults,omitempty"`
-	NextToken  string   `json:"NextToken,omitempty"`
 }
 
 type describeDataRepositoryTasksOutput struct {
-	DataRepositoryTasks []*DataRepositoryTask `json:"DataRepositoryTasks"`
 	NextToken           string                `json:"NextToken,omitempty"`
+	DataRepositoryTasks []*DataRepositoryTask `json:"DataRepositoryTasks"`
 }
 
 func (h *Handler) handleDescribeDataRepositoryTasks(
@@ -821,14 +821,14 @@ func (h *Handler) handleDeleteFileCache(
 // --- DescribeFileCaches ---
 
 type describeFileCachesInput struct {
+	NextToken    string   `json:"NextToken,omitempty"`
 	FileCacheIDs []string `json:"FileCacheIds,omitempty"`
 	MaxResults   int32    `json:"MaxResults,omitempty"`
-	NextToken    string   `json:"NextToken,omitempty"`
 }
 
 type describeFileCachesOutput struct {
-	FileCaches []*FileCache `json:"FileCaches"`
 	NextToken  string       `json:"NextToken,omitempty"`
+	FileCaches []*FileCache `json:"FileCaches"`
 }
 
 func (h *Handler) handleDescribeFileCaches(
@@ -904,14 +904,14 @@ func (h *Handler) handleDeleteSnapshot(
 // --- DescribeSnapshots ---
 
 type describeSnapshotsInput struct {
+	NextToken   string   `json:"NextToken,omitempty"`
 	SnapshotIDs []string `json:"SnapshotIds,omitempty"`
 	MaxResults  int32    `json:"MaxResults,omitempty"`
-	NextToken   string   `json:"NextToken,omitempty"`
 }
 
 type describeSnapshotsOutput struct {
-	Snapshots []*Snapshot `json:"Snapshots"`
 	NextToken string      `json:"NextToken,omitempty"`
+	Snapshots []*Snapshot `json:"Snapshots"`
 }
 
 func (h *Handler) handleDescribeSnapshots(
@@ -1008,14 +1008,14 @@ func (h *Handler) handleDeleteStorageVirtualMachine(
 // --- DescribeStorageVirtualMachines ---
 
 type describeStorageVirtualMachinesInput struct {
+	NextToken                string   `json:"NextToken,omitempty"`
 	StorageVirtualMachineIDs []string `json:"StorageVirtualMachineIds,omitempty"`
 	MaxResults               int32    `json:"MaxResults,omitempty"`
-	NextToken                string   `json:"NextToken,omitempty"`
 }
 
 type describeStorageVirtualMachinesOutput struct {
-	StorageVirtualMachines []*StorageVirtualMachine `json:"StorageVirtualMachines"`
 	NextToken              string                   `json:"NextToken,omitempty"`
+	StorageVirtualMachines []*StorageVirtualMachine `json:"StorageVirtualMachines"`
 }
 
 func (h *Handler) handleDescribeStorageVirtualMachines(
@@ -1105,14 +1105,14 @@ func (h *Handler) handleDeleteVolume(_ context.Context, in *deleteVolumeInput) (
 // --- DescribeVolumes ---
 
 type describeVolumesInput struct {
+	NextToken  string   `json:"NextToken,omitempty"`
 	VolumeIDs  []string `json:"VolumeIds,omitempty"`
 	MaxResults int32    `json:"MaxResults,omitempty"`
-	NextToken  string   `json:"NextToken,omitempty"`
 }
 
 type describeVolumesOutput struct {
-	Volumes   []*Volume `json:"Volumes"`
 	NextToken string    `json:"NextToken,omitempty"`
+	Volumes   []*Volume `json:"Volumes"`
 }
 
 func (h *Handler) handleDescribeVolumes(_ context.Context, in *describeVolumesInput) (*describeVolumesOutput, error) {
@@ -1198,14 +1198,14 @@ func (h *Handler) handleDetachAndDeleteS3AccessPoint(
 // --- DescribeS3AccessPointAttachments ---
 
 type describeS3AccessPointAttachmentsInput struct {
+	NextToken  string   `json:"NextToken,omitempty"`
 	Names      []string `json:"Names,omitempty"`
 	MaxResults int32    `json:"MaxResults,omitempty"`
-	NextToken  string   `json:"NextToken,omitempty"`
 }
 
 type describeS3AccessPointAttachmentsOutput struct {
-	S3AccessPoints []*S3AccessPoint `json:"S3AccessPoints"`
 	NextToken      string           `json:"NextToken,omitempty"`
+	S3AccessPoints []*S3AccessPoint `json:"S3AccessPoints"`
 }
 
 func (h *Handler) handleDescribeS3AccessPointAttachments(

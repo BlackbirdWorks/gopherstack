@@ -1288,7 +1288,8 @@ func TestRuntimeServer_HTTPEndpoints(t *testing.T) {
 
 			_ = newTestRuntimeServer(t, tt.port)
 
-			req, err := http.NewRequestWithContext(t.Context(),
+			req, err := http.NewRequestWithContext(
+				t.Context(),
 				tt.method,
 				fmt.Sprintf("http://127.0.0.1:%d%s", tt.port, tt.path),
 				strings.NewReader(tt.body),
@@ -1452,7 +1453,8 @@ func simulateContainerNext(t *testing.T, port int) string {
 	var resp *http.Response
 
 	for range 20 {
-		req, err := http.NewRequestWithContext(t.Context(),
+		req, err := http.NewRequestWithContext(
+			t.Context(),
 			http.MethodGet,
 			fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", port),
 			nil,
@@ -1487,7 +1489,8 @@ func simulateContainerNext(t *testing.T, port int) string {
 func simulateContainerResponse(t *testing.T, port int, requestID, responseBody string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(),
+	req, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/response", port, requestID),
 		strings.NewReader(responseBody),
@@ -1504,7 +1507,8 @@ func simulateContainerResponse(t *testing.T, port int, requestID, responseBody s
 func simulateContainerError(t *testing.T, port int, requestID, errorBody string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(),
+	req, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/error", port, requestID),
 		strings.NewReader(errorBody),
@@ -1766,7 +1770,8 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 			var runtimePort int
 
 			for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
-				req, reqErr := http.NewRequestWithContext(t.Context(),
+				req, reqErr := http.NewRequestWithContext(
+					t.Context(),
 					http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
 				)
 				if reqErr != nil {
@@ -2983,7 +2988,8 @@ func sendContainerResponse(t *testing.T, port int, requestID, responseBody strin
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx,
+	req, err := http.NewRequestWithContext(
+		ctx,
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/response", port, requestID),
 		strings.NewReader(responseBody),

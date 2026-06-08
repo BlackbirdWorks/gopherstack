@@ -1,4 +1,4 @@
-package firehose
+package firehose //nolint:testpackage // existing issue.
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
-func TestFirehoseRegionIsolation(t *testing.T) {
+func TestFirehoseRegionIsolation(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := NewInMemoryBackend(config.DefaultAccountID, "us-east-1")
 	handler := NewHandler(backend)
 	e := echo.New()
@@ -28,7 +28,10 @@ func TestFirehoseRegionIsolation(t *testing.T) {
 		body, _ := json.Marshal(input)
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", firehoseTargetPrefix+"CreateDeliveryStream")
-		req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=AKIA/20260607/%s/firehose/aws4_request", region))
+		req.Header.Set(
+			"Authorization",
+			fmt.Sprintf("AWS4-HMAC-SHA256 Credential=AKIA/20260607/%s/firehose/aws4_request", region),
+		)
 
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -43,7 +46,10 @@ func TestFirehoseRegionIsolation(t *testing.T) {
 		body, _ := json.Marshal(input)
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", firehoseTargetPrefix+"ListDeliveryStreams")
-		req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=AKIA/20260607/%s/firehose/aws4_request", region))
+		req.Header.Set(
+			"Authorization",
+			fmt.Sprintf("AWS4-HMAC-SHA256 Credential=AKIA/20260607/%s/firehose/aws4_request", region),
+		)
 
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -55,6 +61,7 @@ func TestFirehoseRegionIsolation(t *testing.T) {
 		var output listDeliveryStreamsOutput
 		err = json.Unmarshal(rec.Body.Bytes(), &output)
 		require.NoError(t, err)
+
 		return output.DeliveryStreamNames
 	}
 

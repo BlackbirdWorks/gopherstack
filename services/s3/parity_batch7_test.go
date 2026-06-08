@@ -199,6 +199,7 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 			return true // key was deleted
 		}
 		_ = out.Body.Close()
+
 		return false
 	}, 3*time.Second, 50*time.Millisecond, "delete marker should propagate to destination")
 }
@@ -301,6 +302,7 @@ func (c *captureLambdaB7) InvokeFunction(_ context.Context, name, _ string, _ []
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.calls = append(c.calls, name)
+
 	return nil, 200, nil
 }
 

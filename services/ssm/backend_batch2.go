@@ -35,7 +35,10 @@ const (
 // --- ResourceDataSync ---
 
 // CreateResourceDataSync stores a new resource data sync configuration.
-func (b *InMemoryBackend) CreateResourceDataSync(ctx context.Context, input *CreateResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) CreateResourceDataSync(
+	ctx context.Context,
+	input *CreateResourceDataSyncInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("CreateResourceDataSync")
 	defer b.mu.Unlock()
@@ -62,7 +65,10 @@ func (b *InMemoryBackend) CreateResourceDataSync(ctx context.Context, input *Cre
 }
 
 // DeleteResourceDataSync removes a resource data sync by name.
-func (b *InMemoryBackend) DeleteResourceDataSync(ctx context.Context, input *DeleteResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteResourceDataSync(
+	ctx context.Context,
+	input *DeleteResourceDataSyncInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourceDataSync")
 	defer b.mu.Unlock()
@@ -82,7 +88,10 @@ func (b *InMemoryBackend) DeleteResourceDataSync(ctx context.Context, input *Del
 }
 
 // ListResourceDataSync returns all resource data syncs.
-func (b *InMemoryBackend) ListResourceDataSync(ctx context.Context, _ *ListResourceDataSyncInput) (*ListResourceDataSyncOutputFull, error) {
+func (b *InMemoryBackend) ListResourceDataSync(
+	ctx context.Context,
+	_ *ListResourceDataSyncInput,
+) (*ListResourceDataSyncOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListResourceDataSync")
 	defer b.mu.RUnlock()
@@ -101,7 +110,10 @@ func (b *InMemoryBackend) ListResourceDataSync(ctx context.Context, _ *ListResou
 }
 
 // UpdateResourceDataSync updates an existing resource data sync.
-func (b *InMemoryBackend) UpdateResourceDataSync(ctx context.Context, input *UpdateResourceDataSyncInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateResourceDataSync(
+	ctx context.Context,
+	input *UpdateResourceDataSyncInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateResourceDataSync")
 	defer b.mu.Unlock()
@@ -121,7 +133,10 @@ func (b *InMemoryBackend) UpdateResourceDataSync(ctx context.Context, input *Upd
 
 // DeregisterManagedInstance removes the activation associated with a managed instance ID.
 // The InstanceID field is treated as the ActivationID in this in-memory implementation.
-func (b *InMemoryBackend) DeregisterManagedInstance(ctx context.Context, input *DeregisterManagedInstanceInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeregisterManagedInstance(
+	ctx context.Context,
+	input *DeregisterManagedInstanceInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterManagedInstance")
 	defer b.mu.Unlock()
@@ -137,7 +152,10 @@ func (b *InMemoryBackend) DeregisterManagedInstance(ctx context.Context, input *
 }
 
 // UpdateManagedInstanceRole updates the IAM role for a managed instance's activation.
-func (b *InMemoryBackend) UpdateManagedInstanceRole(ctx context.Context, input *UpdateManagedInstanceRoleInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateManagedInstanceRole(
+	ctx context.Context,
+	input *UpdateManagedInstanceRoleInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateManagedInstanceRole")
 	defer b.mu.Unlock()
@@ -154,7 +172,10 @@ func (b *InMemoryBackend) UpdateManagedInstanceRole(ctx context.Context, input *
 // --- Session Manager ---
 
 // DescribeSessions returns sessions from the in-memory store.
-func (b *InMemoryBackend) DescribeSessions(ctx context.Context, input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error) {
+func (b *InMemoryBackend) DescribeSessions(
+	ctx context.Context,
+	input *DescribeSessionsInput,
+) (*DescribeSessionsOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeSessions")
 	defer b.mu.RUnlock()
@@ -175,7 +196,10 @@ func (b *InMemoryBackend) DescribeSessions(ctx context.Context, input *DescribeS
 }
 
 // GetConnectionStatus returns the connection status of a target session.
-func (b *InMemoryBackend) GetConnectionStatus(ctx context.Context, input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error) {
+func (b *InMemoryBackend) GetConnectionStatus(
+	ctx context.Context,
+	input *GetConnectionStatusInput,
+) (*GetConnectionStatusOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetConnectionStatus")
 	defer b.mu.RUnlock()
@@ -195,7 +219,10 @@ func (b *InMemoryBackend) GetConnectionStatus(ctx context.Context, input *GetCon
 }
 
 // GetAccessToken returns a mock access token for an active session.
-func (b *InMemoryBackend) GetAccessToken(_ context.Context, input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error) {
+func (b *InMemoryBackend) GetAccessToken(
+	_ context.Context,
+	input *GetAccessTokenInput,
+) (*GetAccessTokenOutputFull, error) {
 	b.mu.RLock("GetAccessToken")
 	defer b.mu.RUnlock()
 
@@ -207,7 +234,10 @@ func (b *InMemoryBackend) GetAccessToken(_ context.Context, input *GetAccessToke
 }
 
 // ResumeSession resumes a disconnected session.
-func (b *InMemoryBackend) ResumeSession(ctx context.Context, input *ResumeSessionInput) (*ResumeSessionOutputFull, error) {
+func (b *InMemoryBackend) ResumeSession(
+	ctx context.Context,
+	input *ResumeSessionInput,
+) (*ResumeSessionOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("ResumeSession")
 	defer b.mu.Unlock()
@@ -229,7 +259,10 @@ func (b *InMemoryBackend) ResumeSession(ctx context.Context, input *ResumeSessio
 }
 
 // StartAccessRequest creates an access request record.
-func (b *InMemoryBackend) StartAccessRequest(_ context.Context, input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error) {
+func (b *InMemoryBackend) StartAccessRequest(
+	_ context.Context,
+	input *StartAccessRequestInput,
+) (*StartAccessRequestOutputFull, error) {
 	b.mu.Lock("StartAccessRequest")
 	defer b.mu.Unlock()
 
@@ -243,7 +276,10 @@ func (b *InMemoryBackend) StartAccessRequest(_ context.Context, input *StartAcce
 // --- Service Settings ---
 
 // GetServiceSetting returns the value for a service setting.
-func (b *InMemoryBackend) GetServiceSetting(ctx context.Context, input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error) {
+func (b *InMemoryBackend) GetServiceSetting(
+	ctx context.Context,
+	input *GetServiceSettingInput,
+) (*GetServiceSettingOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetServiceSetting")
 	defer b.mu.RUnlock()
@@ -260,7 +296,10 @@ func (b *InMemoryBackend) GetServiceSetting(ctx context.Context, input *GetServi
 }
 
 // UpdateServiceSetting stores a custom value for a service setting.
-func (b *InMemoryBackend) UpdateServiceSetting(ctx context.Context, input *UpdateServiceSettingInput) (*StubOutput, error) {
+func (b *InMemoryBackend) UpdateServiceSetting(
+	ctx context.Context,
+	input *UpdateServiceSettingInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateServiceSetting")
 	defer b.mu.Unlock()
@@ -275,7 +314,10 @@ func (b *InMemoryBackend) UpdateServiceSetting(ctx context.Context, input *Updat
 }
 
 // ResetServiceSetting removes any custom value for a service setting.
-func (b *InMemoryBackend) ResetServiceSetting(ctx context.Context, input *ResetServiceSettingInput) (*ResetServiceSettingOutputFull, error) {
+func (b *InMemoryBackend) ResetServiceSetting(
+	ctx context.Context,
+	input *ResetServiceSettingInput,
+) (*ResetServiceSettingOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("ResetServiceSetting")
 	defer b.mu.Unlock()
@@ -291,7 +333,10 @@ func (b *InMemoryBackend) ResetServiceSetting(ctx context.Context, input *ResetS
 // --- Resource Policies ---
 
 // GetResourcePolicies returns policies attached to a resource.
-func (b *InMemoryBackend) GetResourcePolicies(ctx context.Context, input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error) {
+func (b *InMemoryBackend) GetResourcePolicies(
+	ctx context.Context,
+	input *GetResourcePoliciesInput,
+) (*GetResourcePoliciesOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetResourcePolicies")
 	defer b.mu.RUnlock()
@@ -307,7 +352,10 @@ func (b *InMemoryBackend) GetResourcePolicies(ctx context.Context, input *GetRes
 }
 
 // PutResourcePolicy attaches a policy to a resource.
-func (b *InMemoryBackend) PutResourcePolicy(ctx context.Context, input *PutResourcePolicyInput) (*PutResourcePolicyOutputFull, error) {
+func (b *InMemoryBackend) PutResourcePolicy(
+	ctx context.Context,
+	input *PutResourcePolicyInput,
+) (*PutResourcePolicyOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
@@ -325,7 +373,10 @@ func (b *InMemoryBackend) PutResourcePolicy(ctx context.Context, input *PutResou
 }
 
 // DeleteResourcePolicy removes a policy from a resource.
-func (b *InMemoryBackend) DeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteResourcePolicy(
+	ctx context.Context,
+	input *DeleteResourcePolicyInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
@@ -531,7 +582,10 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 }
 
 // StopAutomationExecution marks an automation execution as stopped.
-func (b *InMemoryBackend) StopAutomationExecution(ctx context.Context, input *StopAutomationExecutionInput) (*StubOutput, error) {
+func (b *InMemoryBackend) StopAutomationExecution(
+	ctx context.Context,
+	input *StopAutomationExecutionInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
@@ -547,7 +601,10 @@ func (b *InMemoryBackend) StopAutomationExecution(ctx context.Context, input *St
 
 // SendAutomationSignal sends a signal to an automation execution.
 // Approve/Reject signals update the execution status accordingly.
-func (b *InMemoryBackend) SendAutomationSignal(ctx context.Context, input *SendAutomationSignalInput) (*StubOutput, error) {
+func (b *InMemoryBackend) SendAutomationSignal(
+	ctx context.Context,
+	input *SendAutomationSignalInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
@@ -630,7 +687,10 @@ func (b *InMemoryBackend) StartExecutionPreview(
 }
 
 // GetExecutionPreview returns an execution preview by ID.
-func (b *InMemoryBackend) GetExecutionPreview(ctx context.Context, input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error) {
+func (b *InMemoryBackend) GetExecutionPreview(
+	ctx context.Context,
+	input *GetExecutionPreviewInput,
+) (*GetExecutionPreviewOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetExecutionPreview")
 	defer b.mu.RUnlock()
@@ -655,7 +715,10 @@ func (b *InMemoryBackend) GetExecutionPreview(ctx context.Context, input *GetExe
 // When CalendarNames is provided, each name is looked up as a ChangeCalendar document.
 // Non-existent names result in an error. The returned state is OPEN unless a
 // ChangeCalendar document explicitly has a Closed state in its content.
-func (b *InMemoryBackend) GetCalendarState(ctx context.Context, input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error) {
+func (b *InMemoryBackend) GetCalendarState(
+	ctx context.Context,
+	input *GetCalendarStateInput,
+) (*GetCalendarStateOutputFull, error) {
 	if len(input.CalendarNames) == 0 {
 		return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
 	}
@@ -700,7 +763,10 @@ func (b *InMemoryBackend) GetOpsSummary(ctx context.Context, _ *GetOpsSummaryInp
 }
 
 // ListOpsMetadata returns all ops metadata entries.
-func (b *InMemoryBackend) ListOpsMetadata(ctx context.Context, _ *ListOpsMetadataInput) (*ListOpsMetadataOutputFull, error) {
+func (b *InMemoryBackend) ListOpsMetadata(
+	ctx context.Context,
+	_ *ListOpsMetadataInput,
+) (*ListOpsMetadataOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListOpsMetadata")
 	defer b.mu.RUnlock()
@@ -747,7 +813,10 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 }
 
 // StartAssociationsOnce triggers a one-time run of the given associations.
-func (b *InMemoryBackend) StartAssociationsOnce(ctx context.Context, input *StartAssociationsOnceInput) (*StubOutput, error) {
+func (b *InMemoryBackend) StartAssociationsOnce(
+	ctx context.Context,
+	input *StartAssociationsOnceInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StartAssociationsOnce")
 	defer b.mu.Unlock()
@@ -976,7 +1045,10 @@ func (b *InMemoryBackend) ListNodes(ctx context.Context, _ *ListNodesInput) (*Li
 }
 
 // ListNodesSummary returns a summary of managed nodes.
-func (b *InMemoryBackend) ListNodesSummary(ctx context.Context, _ *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error) {
+func (b *InMemoryBackend) ListNodesSummary(
+	ctx context.Context,
+	_ *ListNodesSummaryInput,
+) (*ListNodesSummaryOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListNodesSummary")
 	defer b.mu.RUnlock()

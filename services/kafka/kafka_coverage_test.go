@@ -83,27 +83,41 @@ func TestKafkaCoverage2_UpdateOps(t *testing.T) {
 		path string
 	}
 	updateOps := []updateOp{
-		{name: "UpdateBrokerStorage", path: "/v1/clusters/" + encoded + "/nodes/storage",
+		{
+			name: "UpdateBrokerStorage", path: "/v1/clusters/" + encoded + "/nodes/storage",
 			body: map[string]any{
 				"currentVersion":            "1",
 				"targetBrokerEBSVolumeInfo": []map[string]any{{"volumeSizeGB": 100}},
-			}},
-		{name: "UpdateBrokerType", path: "/v1/clusters/" + encoded + "/nodes/type",
-			body: map[string]any{"currentVersion": "1", "targetInstanceType": "kafka.m5.xlarge"}},
-		{name: "UpdateClusterConfiguration", path: "/v1/clusters/" + encoded + "/configuration",
+			},
+		},
+		{
+			name: "UpdateBrokerType", path: "/v1/clusters/" + encoded + "/nodes/type",
+			body: map[string]any{"currentVersion": "1", "targetInstanceType": "kafka.m5.xlarge"},
+		},
+		{
+			name: "UpdateClusterConfiguration", path: "/v1/clusters/" + encoded + "/configuration",
 			body: map[string]any{
 				"currentVersion":        "1",
 				"configurationArn":      "arn:aws:kafka:us-east-1:000:configuration/test/1",
 				"configurationRevision": 1,
-			}},
-		{name: "UpdateClusterKafkaVersion", path: "/v1/clusters/" + encoded + "/version",
-			body: map[string]any{"currentVersion": "1", "targetKafkaVersion": "3.0.0"}},
-		{name: "UpdateConnectivity", path: "/v1/clusters/" + encoded + "/connectivity",
-			body: map[string]any{"currentVersion": "1", "connectivityInfo": map[string]any{}}},
-		{name: "UpdateMonitoring", path: "/v1/clusters/" + encoded + "/monitoring",
-			body: map[string]any{"currentVersion": "1", "openMonitoring": map[string]any{}}},
-		{name: "UpdateSecurity", path: "/v1/clusters/" + encoded + "/security",
-			body: map[string]any{"currentVersion": "1"}},
+			},
+		},
+		{
+			name: "UpdateClusterKafkaVersion", path: "/v1/clusters/" + encoded + "/version",
+			body: map[string]any{"currentVersion": "1", "targetKafkaVersion": "3.0.0"},
+		},
+		{
+			name: "UpdateConnectivity", path: "/v1/clusters/" + encoded + "/connectivity",
+			body: map[string]any{"currentVersion": "1", "connectivityInfo": map[string]any{}},
+		},
+		{
+			name: "UpdateMonitoring", path: "/v1/clusters/" + encoded + "/monitoring",
+			body: map[string]any{"currentVersion": "1", "openMonitoring": map[string]any{}},
+		},
+		{
+			name: "UpdateSecurity", path: "/v1/clusters/" + encoded + "/security",
+			body: map[string]any{"currentVersion": "1"},
+		},
 	}
 
 	for _, op := range updateOps {

@@ -72,7 +72,8 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	// 1. Start Gopherstack with 20s TTL
 	_, ep := startPurgeContainer(t, "20s")
 
-	cfg, err := awsconfig.LoadDefaultConfig(t.Context(),
+	cfg, err := awsconfig.LoadDefaultConfig(
+		t.Context(),
 		awsconfig.WithRegion("us-east-1"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)

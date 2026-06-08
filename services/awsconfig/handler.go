@@ -69,7 +69,8 @@ func (h *Handler) Name() string { return "AWSConfig" }
 func (h *Handler) GetSupportedOperations() []string {
 	const baseOpCount = 21
 	base := make([]string, 0, baseOpCount+len(extendedSupportedOperations()))
-	base = append(base,
+	base = append(
+		base,
 		opPutConfigurationRecorder,
 		opDescribeConfigurationRecorders,
 		opDescribeConfigurationRecorderStatus,

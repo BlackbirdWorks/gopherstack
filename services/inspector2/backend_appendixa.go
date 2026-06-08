@@ -40,11 +40,11 @@ var (
 
 // Member represents an Inspector2 member account.
 type Member struct {
+	UpdatedAt               time.Time `json:"updatedAt"`
 	AccountID               string    `json:"accountId"`
 	DelegatedAdminAccountID string    `json:"delegatedAdminAccountId"`
 	Email                   string    `json:"email"`
 	RelationshipStatus      string    `json:"relationshipStatus"`
-	UpdatedAt               time.Time `json:"updatedAt"`
 }
 
 // DelegatedAdminAccount represents a delegated admin account.
@@ -66,17 +66,17 @@ type OrgEc2DeepInspectionConfig struct {
 
 // Ec2DeepInspectionConfig holds EC2 deep inspection configuration.
 type Ec2DeepInspectionConfig struct {
-	PackagePaths []string `json:"packagePaths"`
 	Status       string   `json:"status"`
 	ErrorMessage string   `json:"errorMessage,omitempty"`
+	PackagePaths []string `json:"packagePaths"`
 }
 
 // MemberEc2DeepInspectionStatus holds EC2 deep inspection status for a member.
 type MemberEc2DeepInspectionStatus struct {
 	AccountID    string   `json:"accountId"`
-	PackagePaths []string `json:"packagePaths"`
 	Status       string   `json:"status"`
 	ErrorMessage string   `json:"errorMessage,omitempty"`
+	PackagePaths []string `json:"packagePaths"`
 }
 
 // EncryptionKey holds an encryption key for a resource type.
@@ -98,10 +98,10 @@ type CisScanConfiguration struct { //nolint:govet // readability
 
 // CisSession represents an active CIS scan session.
 type CisSession struct {
+	StartedAt    time.Time `json:"startedAt"`
 	ScanJobID    string    `json:"scanJobId"`
 	SessionToken string    `json:"sessionToken"`
 	Status       string    `json:"status"`
-	StartedAt    time.Time `json:"startedAt"`
 }
 
 // CodeSecurityIntegration represents a code security integration.
@@ -137,31 +137,31 @@ type CodeSecurityScanConfigurationAssociation struct {
 
 // FindingsReport represents an async findings report job.
 type FindingsReport struct {
+	CreatedAt    time.Time      `json:"createdAt"`
+	Destination  map[string]any `json:"destination,omitempty"`
 	ReportID     string         `json:"reportId"`
 	Status       string         `json:"status"`
 	ErrorCode    string         `json:"errorCode,omitempty"`
 	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Destination  map[string]any `json:"destination,omitempty"`
-	CreatedAt    time.Time      `json:"createdAt"`
 }
 
 // SbomExport represents an async SBOM export job.
 type SbomExport struct {
+	CreatedAt    time.Time      `json:"createdAt"`
+	Destination  map[string]any `json:"destination,omitempty"`
 	ReportID     string         `json:"reportId"`
 	Status       string         `json:"status"`
 	ErrorCode    string         `json:"errorCode,omitempty"`
 	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Destination  map[string]any `json:"destination,omitempty"`
-	CreatedAt    time.Time      `json:"createdAt"`
 }
 
 // CoverageEntry represents a resource covered by Inspector2.
 type CoverageEntry struct {
+	ScanStatus   map[string]any `json:"scanStatus"`
 	AccountID    string         `json:"accountId"`
 	ResourceID   string         `json:"resourceId"`
 	ResourceType string         `json:"resourceType"`
 	ScanType     string         `json:"scanType"`
-	ScanStatus   map[string]any `json:"scanStatus"`
 }
 
 // Vulnerability represents a known vulnerability.
@@ -184,21 +184,21 @@ type AccountPermission struct {
 
 // appendixAState holds all appendix A data.
 type appendixAState struct {
-	Members                  map[string]*Member
-	DelegatedAdmins          map[string]*DelegatedAdminAccount
-	OrgConfig                OrgConfiguration
-	OrgEc2Config             OrgEc2DeepInspectionConfig
-	Ec2DeepConfig            Ec2DeepInspectionConfig
-	MemberEc2Status          map[string]*MemberEc2DeepInspectionStatus
-	EncryptionKeys           map[string]*EncryptionKey
-	CisScanConfigs           map[string]*CisScanConfiguration
-	CisSessions              map[string]*CisSession
 	CodeSecurityIntegrations map[string]*CodeSecurityIntegration
-	CodeSecurityScanConfigs  map[string]*CodeSecurityScanConfiguration
-	ScanConfigAssociations   map[string][]*CodeSecurityScanConfigurationAssociation
-	CodeSecurityScans        map[string]map[string]any
-	FindingsReports          map[string]*FindingsReport
+	CisScanConfigs           map[string]*CisScanConfiguration
 	SbomExports              map[string]*SbomExport
+	FindingsReports          map[string]*FindingsReport
+	CodeSecurityScans        map[string]map[string]any
+	MemberEc2Status          map[string]*MemberEc2DeepInspectionStatus
+	DelegatedAdmins          map[string]*DelegatedAdminAccount
+	CodeSecurityScanConfigs  map[string]*CodeSecurityScanConfiguration
+	EncryptionKeys           map[string]*EncryptionKey
+	Members                  map[string]*Member
+	CisSessions              map[string]*CisSession
+	ScanConfigAssociations   map[string][]*CodeSecurityScanConfigurationAssociation
+	Ec2DeepConfig            Ec2DeepInspectionConfig
+	OrgEc2Config             OrgEc2DeepInspectionConfig
+	OrgConfig                OrgConfiguration
 }
 
 func newAppendixAState() *appendixAState {
@@ -254,7 +254,7 @@ func (b *InMemoryBackend) AssociateMember(accountID string) error {
 	b.ax.Members[accountID] = &Member{
 		AccountID:               accountID,
 		DelegatedAdminAccountID: b.accountID,
-		RelationshipStatus:      "ENABLED",
+		RelationshipStatus:      "ENABLED", //nolint:goconst // existing issue.
 		UpdatedAt:               time.Now().UTC(),
 	}
 
@@ -657,7 +657,7 @@ func (b *InMemoryBackend) StartCisSession(scanJobID, sessionToken string) (*CisS
 	sess := &CisSession{
 		ScanJobID:    scanJobID,
 		SessionToken: sessionToken,
-		Status:       "ACTIVE",
+		Status:       "ACTIVE", //nolint:goconst // existing issue.
 		StartedAt:    time.Now().UTC(),
 	}
 	b.ax.CisSessions[scanJobID] = sess
@@ -693,7 +693,7 @@ func (b *InMemoryBackend) SendCisSessionTelemetry(_ string, _ map[string]any) er
 // GetCisScanReport returns a stub CIS scan report.
 func (b *InMemoryBackend) GetCisScanReport(_ string) (map[string]any, error) {
 	return map[string]any{
-		"status": "SUCCEEDED",
+		"status": "SUCCEEDED", //nolint:goconst // existing issue.
 		"url":    "",
 	}, nil
 }
@@ -1188,7 +1188,7 @@ func (b *InMemoryBackend) ListFindingAggregations(_ string, _ map[string]any) (m
 func (b *InMemoryBackend) ListUsageTotals(_ []string) ([]map[string]any, error) {
 	return []map[string]any{
 		{
-			"accountId": b.accountID,
+			"accountId": b.accountID, //nolint:goconst // existing issue.
 			"status":    "ACTIVE",
 			"usage":     []any{},
 		},
@@ -1238,7 +1238,7 @@ func (b *InMemoryBackend) BatchGetFreeTrialInfo(accountIDs []string) (map[string
 			"accountId": id,
 			"freeTrialInfo": []map[string]any{
 				{
-					"end":    time.Now().UTC().AddDate(0, 0, 30).Format(time.RFC3339),
+					"end":    time.Now().UTC().AddDate(0, 0, 30).Format(time.RFC3339), //nolint:mnd // existing issue.
 					"start":  time.Now().UTC().Format(time.RFC3339),
 					"status": "ACTIVE",
 					"type":   "EC2",

@@ -18,10 +18,10 @@ func TestCrl_ImportGetListUpdateDeleteCycle(t *testing.T) {
 		name           string
 		crlName        string
 		trustAnchorArn string
-		crlData        []byte
-		enabled        bool
 		updateName     string
+		crlData        []byte
 		updateData     []byte
+		enabled        bool
 	}{
 		{
 			name:           "basic import and update",
@@ -113,7 +113,7 @@ func TestCrl_EnableDisable(t *testing.T) {
 			assert.Equal(t, tc.startState, crl.Enabled)
 
 			if tc.startState {
-				disabled, err := b.DisableCrl(crl.CrlID)
+				disabled, err := b.DisableCrl(crl.CrlID) //nolint:govet // existing issue.
 				require.NoError(t, err)
 				assert.False(t, disabled.Enabled)
 
@@ -121,7 +121,7 @@ func TestCrl_EnableDisable(t *testing.T) {
 				require.NoError(t, err)
 				assert.True(t, enabled.Enabled)
 			} else {
-				enabled, err := b.EnableCrl(crl.CrlID)
+				enabled, err := b.EnableCrl(crl.CrlID) //nolint:govet // existing issue.
 				require.NoError(t, err)
 				assert.True(t, enabled.Enabled)
 
@@ -139,14 +139,34 @@ func TestCrl_NotFound(t *testing.T) {
 	b := newBackend(t)
 
 	tests := []struct {
-		name string
 		run  func() error
+		name string
 	}{
-		{"GetCrl", func() error { _, err := b.GetCrl("no-such-id"); return err }},
-		{"UpdateCrl", func() error { _, err := b.UpdateCrl("no-such-id", "name", nil); return err }},
-		{"DeleteCrl", func() error { _, err := b.DeleteCrl("no-such-id"); return err }},
-		{"EnableCrl", func() error { _, err := b.EnableCrl("no-such-id"); return err }},
-		{"DisableCrl", func() error { _, err := b.DisableCrl("no-such-id"); return err }},
+		{name: "GetCrl", run: func() error {
+			_, err := b.GetCrl("no-such-id")
+
+			return err
+		}},
+		{name: "UpdateCrl", run: func() error {
+			_, err := b.UpdateCrl("no-such-id", "name", nil)
+
+			return err
+		}},
+		{name: "DeleteCrl", run: func() error {
+			_, err := b.DeleteCrl("no-such-id")
+
+			return err
+		}},
+		{name: "EnableCrl", run: func() error {
+			_, err := b.EnableCrl("no-such-id")
+
+			return err
+		}},
+		{name: "DisableCrl", run: func() error {
+			_, err := b.DisableCrl("no-such-id")
+
+			return err
+		}},
 	}
 
 	for _, tc := range tests {

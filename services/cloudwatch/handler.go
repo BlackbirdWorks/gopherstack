@@ -24,8 +24,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-const ()
-
 const (
 	opGetMetricWidgetImage    = "GetMetricWidgetImage"
 	opListAlarmMuteRules      = "ListAlarmMuteRules"

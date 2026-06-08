@@ -20,8 +20,10 @@ func TestHandler_Batch1ApplicationVersionState(t *testing.T) {
 			name: "source bundle and processing",
 			create: "&ApplicationName=bundle-app&VersionLabel=v1&Process=true" +
 				"&SourceBundle.S3Bucket=src-bucket&SourceBundle.S3Key=releases%2Fapp.zip",
-			contains: []string{"<Status>Processed</Status>", "<S3Bucket>src-bucket</S3Bucket>",
-				"<S3Key>releases/app.zip</S3Key>"},
+			contains: []string{
+				"<Status>Processed</Status>", "<S3Bucket>src-bucket</S3Bucket>",
+				"<S3Key>releases/app.zip</S3Key>",
+			},
 		},
 		{
 			name: "codecommit source and automatic application",
@@ -29,8 +31,10 @@ func TestHandler_Batch1ApplicationVersionState(t *testing.T) {
 				"&SourceBuildInformation.SourceType=CodeCommit" +
 				"&SourceBuildInformation.SourceRepository=demo-repo" +
 				"&SourceBuildInformation.SourceLocation=main",
-			contains: []string{"<Status>Processed</Status>", "<SourceType>CodeCommit</SourceType>",
-				"<SourceRepository>demo-repo</SourceRepository>", "<SourceLocation>main</SourceLocation>"},
+			contains: []string{
+				"<Status>Processed</Status>", "<SourceType>CodeCommit</SourceType>",
+				"<SourceRepository>demo-repo</SourceRepository>", "<SourceLocation>main</SourceLocation>",
+			},
 			verifyApplication: true,
 		},
 		{
@@ -77,8 +81,10 @@ func TestHandler_Batch1EnvironmentState(t *testing.T) {
 			create: "&CNAMEPrefix=customer-url&PlatformArn=arn%3Aaws%3Aelasticbeanstalk%3Aus-east-1%3Aplatform%2Fgo" +
 				"&VersionLabel=v1&Tier.Name=Worker&Tier.Type=SQS%2FHTTP&Tier.Version=1.1",
 			action: "DescribeEnvironments&ApplicationName=app&EnvironmentNames.member.1=env1",
-			contains: []string{"customer-url.us-east-1.elasticbeanstalk.com", "<PlatformArn>arn:aws:elasticbeanstalk:",
-				"<VersionLabel>v1</VersionLabel>", "<Name>Worker</Name>", "<Version>1.1</Version>"},
+			contains: []string{
+				"customer-url.us-east-1.elasticbeanstalk.com", "<PlatformArn>arn:aws:elasticbeanstalk:",
+				"<VersionLabel>v1</VersionLabel>", "<Name>Worker</Name>", "<Version>1.1</Version>",
+			},
 		},
 		{
 			name: "update options and remove original",
@@ -90,16 +96,20 @@ func TestHandler_Batch1EnvironmentState(t *testing.T) {
 				"&OptionSettings.member.1.OptionName=Subnets&OptionSettings.member.1.Value=subnet-new" +
 				"&OptionsToRemove.member.1.Namespace=aws%3Aec2%3Avpc&OptionsToRemove.member.1.OptionName=VPCId",
 			action: "DescribeConfigurationSettings&ApplicationName=app&EnvironmentName=env1",
-			contains: []string{"<SolutionStackName>stack-b</SolutionStackName>", "<OptionName>Subnets</OptionName>",
+			contains: []string{
+				"<SolutionStackName>stack-b</SolutionStackName>", "<OptionName>Subnets</OptionName>",
 				"<Value>subnet-new</Value>", "<OptionName>EnvironmentType</OptionName>",
-				"<Value>SingleInstance</Value>"},
+				"<Value>SingleInstance</Value>",
+			},
 		},
 		{
 			name:   "worker topology includes queue",
 			create: "&Tier.Name=Worker",
 			action: "DescribeEnvironmentResources&EnvironmentName=env1",
-			contains: []string{"<AutoScalingGroups><member><Name>env1-asg</Name>", "<Queues><member><URL>https://sqs.",
-				"env1</URL>"},
+			contains: []string{
+				"<AutoScalingGroups><member><Name>env1-asg</Name>", "<Queues><member><URL>https://sqs.",
+				"env1</URL>",
+			},
 		},
 	}
 

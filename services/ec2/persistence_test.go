@@ -117,9 +117,9 @@ func TestPersistenceExtended(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		setup  func(b *ec2.InMemoryBackend)
 		verify func(t *testing.T, b *ec2.InMemoryBackend)
+		name   string
 	}{
 		{
 			name: "vpn_gateway_persists",

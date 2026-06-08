@@ -129,10 +129,12 @@ func TestInMemoryBackend_GetParameters(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
 
@@ -149,10 +151,12 @@ func TestInMemoryBackend_ListAll(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
 
@@ -166,10 +170,12 @@ func TestInMemoryBackend_DeleteAll(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
 
@@ -182,11 +188,13 @@ func TestInMemoryBackend_DeleteParameters(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "key1", Type: "String", Value: "v1"},
 	)
 
-	delOut, err := backend.DeleteParameters(context.TODO(),
+	delOut, err := backend.DeleteParameters(
+		context.TODO(),
 		&ssm.DeleteParametersInput{
 			Names: []string{"db-password", "key1", "missing"},
 		},
@@ -217,7 +225,8 @@ func TestHandler_Routing(t *testing.T) {
 			target: "AmazonSSM.GetParameter",
 			body:   `{"Name":"test-param"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "test-param", Type: "String", Value: "test-value"},
 				)
 			},
@@ -821,7 +830,8 @@ func TestHandler_ErrorCases(t *testing.T) {
 			target: "AmazonSSM.PutParameter",
 			body:   `{"Name":"/existing","Type":"String","Value":"v2","Overwrite":false}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"},
 				)
 			},
@@ -903,17 +913,20 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 			t.Parallel()
 
 			backend := ssm.NewInMemoryBackend()
-			_, _ = backend.PutParameter(context.TODO(),
+			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"},
 			)
-			_, _ = backend.PutParameter(context.TODO(),
+			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{
 					Name:  "/app/cache/host",
 					Type:  "SecureString",
 					Value: "cache",
 				},
 			)
-			_, _ = backend.PutParameter(context.TODO(),
+			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"},
 			)
 
@@ -954,7 +967,8 @@ func TestHandler_GetParametersByPathViaHTTP(t *testing.T) {
 
 	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/svc/a", Type: "String", Value: "1"})
 	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/svc/b", Type: "String", Value: "2"})
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "/other/c", Type: "String", Value: "3"},
 	)
 
@@ -972,7 +986,8 @@ func TestHandler_DescribeParametersViaHTTP(t *testing.T) {
 	h, backend := newTestHandler(t)
 
 	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/a", Type: "String", Value: "1"})
-	_, _ = backend.PutParameter(context.TODO(),
+	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "/b", Type: "SecureString", Value: "2"},
 	)
 
@@ -1019,7 +1034,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "GetParameter",
 			body:   `{"Name":"/http/get"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/get", Type: "String", Value: "val"},
 				)
 			},
@@ -1042,10 +1058,12 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "GetParameterHistory",
 			body:   `{"Name":"/http/hist"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/hist", Type: "String", Value: "v1"},
 				)
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{
 						Name:      "/http/hist",
 						Type:      "String",
@@ -1062,7 +1080,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "DeleteParameter",
 			body:   `{"Name":"/http/del"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/del", Type: "String", Value: "v"},
 				)
 			},
@@ -1083,7 +1102,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "AddTagsToResource",
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","Tags":[{"Key":"k","Value":"v"}]}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
 			},
@@ -1094,7 +1114,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "RemoveTagsFromResource",
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","TagKeys":["k"]}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
 				b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
@@ -1108,7 +1129,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "ListTagsForResource",
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(context.TODO(),
+				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
 				b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
@@ -1241,7 +1263,8 @@ func TestTagOperations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	// Verify only team tag remains
-	listOut2, err := backend.ListTagsForResource(context.TODO(),
+	listOut2, err := backend.ListTagsForResource(
+		context.TODO(),
 		&ssm.ListTagsForResourceInput{ResourceID: "my-param"},
 	)
 	require.NoError(t, err)

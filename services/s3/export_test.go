@@ -103,6 +103,7 @@ func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Ti
 	region, ok := b.bucketIndex[bucketName]
 	if !ok {
 		b.mu.RUnlock()
+
 		return
 	}
 	bucket := b.buckets[region][bucketName]
@@ -134,6 +135,7 @@ func StorageClassTransitionsForObject(b *InMemoryBackend, bucketName, key string
 	region, ok := b.bucketIndex[bucketName]
 	if !ok {
 		b.mu.RUnlock()
+
 		return nil
 	}
 	bucket := b.buckets[region][bucketName]

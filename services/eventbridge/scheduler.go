@@ -71,12 +71,16 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 }
 
 // processTick evaluates all scheduled rules and fires any that are due.
-func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired map[string]time.Time) {
+func (s *Scheduler) processTick( //nolint:gocognit // existing issue.
+	ctx context.Context,
+	tick time.Time,
+	lastFired map[string]time.Time,
+) {
 	s.backend.mu.RLock("processTick")
 	type ruleInfo struct {
 		busName string
-		rule    Rule
 		region  string
+		rule    Rule
 	}
 
 	var scheduled []ruleInfo

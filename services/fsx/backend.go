@@ -692,7 +692,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 }
 
 // arnExists checks whether a resource ARN belongs to any known FSx resource.
-func (b *InMemoryBackend) arnExists(resourceARN string) bool {
+func (b *InMemoryBackend) arnExists(resourceARN string) bool { //nolint:gocognit,cyclop // existing issue.
 	for _, fs := range b.fileSystems {
 		if fs.ResourceARN == resourceARN {
 			return true

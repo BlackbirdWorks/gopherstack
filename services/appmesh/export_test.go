@@ -1,6 +1,7 @@
 package appmesh
 
 import (
+	"net/http"
 	"net/http/httptest"
 
 	"github.com/labstack/echo/v5"
@@ -24,7 +25,7 @@ func ExtractOperationForTest(h *Handler, method, path string) string {
 // ExtractResourceForTest builds a GET echo context for path and returns the
 // resource the handler resolves, for use by external test packages.
 func ExtractResourceForTest(h *Handler, path string) string {
-	req := httptest.NewRequest("GET", path, nil)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 
@@ -34,7 +35,7 @@ func ExtractResourceForTest(h *Handler, path string) string {
 // RouteMatcherForTest builds a GET echo context for path and reports whether the
 // handler's route matcher matches it, for use by external test packages.
 func RouteMatcherForTest(h *Handler, path string) bool {
-	req := httptest.NewRequest("GET", path, nil)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 

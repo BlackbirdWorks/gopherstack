@@ -10,11 +10,12 @@ import (
 )
 
 // createGraphForTest creates a graph and returns its ARN.
-func createGraphForTest(t *testing.T, h interface {
+func createGraphForTest(t *testing.T, h interface { //nolint:revive,unused,unparam // existing issue.
 	Handler() interface {
-		ServeHTTP(interface{}, interface{})
+		ServeHTTP(any, any)
 	}
-}) string {
+},
+) string {
 	t.Helper()
 
 	rec := doRequest(t, newTestHandler(t), http.MethodPost, "/graph", map[string]any{})
@@ -23,10 +24,7 @@ func createGraphForTest(t *testing.T, h interface {
 
 	return resp["GraphArn"].(string)
 }
-
-func TestDetective_Invitations(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create a graph so invitations can reference it.
@@ -48,7 +46,7 @@ func TestDetective_Invitations(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		setup    func(h2 interface{})
+		setup    func(h2 any)
 		body     any
 		check    func(t *testing.T, body []byte)
 		method   string
@@ -114,7 +112,7 @@ func TestDetective_Invitations(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
@@ -125,10 +123,7 @@ func TestDetective_Invitations(t *testing.T) {
 		})
 	}
 }
-
-func TestDetective_InvitationLifecycle(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // existing issue.
 	// Admin handler creates graph and invites member.
 	adminH := newTestHandler(t)
 	rec := doRequest(t, adminH, http.MethodPost, "/graph", map[string]any{})
@@ -165,10 +160,7 @@ func TestDetective_InvitationLifecycle(t *testing.T) {
 	member := details[0].(map[string]any)
 	assert.Equal(t, "INVITED", member["Status"])
 }
-
-func TestDetective_Datasources(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create graph.
@@ -321,7 +313,7 @@ func TestDetective_Datasources(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
@@ -332,10 +324,7 @@ func TestDetective_Datasources(t *testing.T) {
 		})
 	}
 }
-
-func TestDetective_StartMonitoringMember(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create graph.
@@ -355,8 +344,8 @@ func TestDetective_StartMonitoringMember(t *testing.T) {
 	})
 
 	tests := []struct {
-		name     string
 		body     any
+		name     string
 		wantCode int
 	}{
 		{
@@ -387,17 +376,14 @@ func TestDetective_StartMonitoringMember(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, http.MethodPost, "/graph/member/monitoringstate", tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
 		})
 	}
 }
-
-func TestDetective_Investigations(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create graph.
@@ -550,7 +536,7 @@ func TestDetective_Investigations(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
@@ -561,10 +547,7 @@ func TestDetective_Investigations(t *testing.T) {
 		})
 	}
 }
-
-func TestDetective_InvestigationGetAndUpdate(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create graph.
@@ -651,7 +634,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
@@ -662,10 +645,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) {
 		})
 	}
 }
-
-func TestDetective_OrgAdmin(t *testing.T) {
-	t.Parallel()
-
+func TestDetective_OrgAdmin(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
 	// Create graph so org config can reference it.
@@ -824,7 +804,7 @@ func TestDetective_OrgAdmin(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests { //nolint:paralleltest // subtests share handler state intentionally
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)

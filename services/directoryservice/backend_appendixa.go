@@ -27,7 +27,7 @@ var (
 
 // --- Stored types for Appendix A ---
 
-type storedIpRoute struct {
+type storedIpRoute struct { //nolint:revive,staticcheck // existing issue.
 	AddedDateTime time.Time `json:"addedDateTime"`
 	DirectoryID   string    `json:"directoryId"`
 	CidrIP        string    `json:"cidrIp"`
@@ -55,8 +55,8 @@ type storedSchemaExtension struct {
 type storedConditionalForwarder struct {
 	DirectoryID      string   `json:"directoryId"`
 	RemoteDomainName string   `json:"remoteDomainName"`
-	DNSIPAddrs       []string `json:"dnsIpAddrs"`
 	ReplicationScope string   `json:"replicationScope"`
+	DNSIPAddrs       []string `json:"dnsIpAddrs"`
 }
 
 type storedLogSubscription struct {
@@ -138,8 +138,8 @@ type storedRadiusSettings struct {
 	DirectoryID            string   `json:"directoryId"`
 	AuthenticationProtocol string   `json:"authenticationProtocol"`
 	DisplayLabel           string   `json:"displayLabel"`
-	RadiusServers          []string `json:"radiusServers"`
 	SharedSecret           string   `json:"sharedSecret"`
+	RadiusServers          []string `json:"radiusServers"`
 	RadiusPort             int32    `json:"radiusPort"`
 	RadiusRetries          int32    `json:"radiusRetries"`
 	RadiusTimeout          int32    `json:"radiusTimeout"`
@@ -186,7 +186,7 @@ type storedHybridADUpdate struct {
 // --- Backend state additions (new maps initialized in NewInMemoryBackend) ---
 
 // IpRoute domain type.
-type IpRoute struct {
+type IpRoute struct { //nolint:revive,staticcheck // existing issue.
 	DirectoryID string
 	CidrIP      string
 	Description string
@@ -196,58 +196,61 @@ type IpRoute struct {
 
 // RegionDescription domain type.
 type RegionDescription struct {
+	LaunchTime  time.Time
 	DirectoryID string
 	RegionName  string
 	RegionType  string
 	Status      string
-	LaunchTime  time.Time
 }
 
 // SchemaExtension domain type.
 type SchemaExtension struct {
+	StartTime   time.Time
+	EndTime     time.Time
 	ExtensionID string
 	DirectoryID string
 	Description string
 	Status      string
-	StartTime   time.Time
-	EndTime     time.Time
 }
 
 // ConditionalForwarder domain type.
 type ConditionalForwarder struct {
 	DirectoryID      string
 	RemoteDomainName string
-	DNSIPAddrs       []string
 	ReplicationScope string
+	DNSIPAddrs       []string
 }
 
 // LogSubscription domain type.
 type LogSubscription struct {
+	CreatedTime  time.Time
 	DirectoryID  string
 	LogGroupName string
-	CreatedTime  time.Time
 }
 
 // EventTopic domain type.
 type EventTopic struct {
+	CreatedDateTime time.Time
 	DirectoryID     string
 	TopicName       string
 	TopicARN        string
 	Status          string
-	CreatedDateTime time.Time
 }
 
 // DomainController domain type.
 type DomainController struct {
+	LaunchTime       time.Time
 	ControllerID     string
 	DirectoryID      string
 	Status           string
 	AvailabilityZone string
-	LaunchTime       time.Time
 }
 
 // TrustInfo domain type.
 type TrustInfo struct {
+	CreatedDateTime      time.Time
+	LastUpdatedDateTime  time.Time
+	StateLastUpdatedTime time.Time
 	TrustID              string
 	DirectoryID          string
 	RemoteDomainName     string
@@ -256,13 +259,12 @@ type TrustInfo struct {
 	TrustState           string
 	SelectiveAuth        string
 	TrustStateReason     string
-	CreatedDateTime      time.Time
-	LastUpdatedDateTime  time.Time
-	StateLastUpdatedTime time.Time
 }
 
 // SharedDirInfo domain type.
 type SharedDirInfo struct {
+	CreatedDateTime     time.Time
+	LastUpdatedDateTime time.Time
 	SharedDirectoryID   string
 	OwnerDirectoryID    string
 	OwnerAccountID      string
@@ -270,55 +272,53 @@ type SharedDirInfo struct {
 	ShareMethod         string
 	ShareStatus         string
 	ShareNotes          string
-	CreatedDateTime     time.Time
-	LastUpdatedDateTime time.Time
 }
 
 // CertInfo domain type (for list).
 type CertInfo struct {
+	ExpiryDateTime time.Time
 	CertificateID  string
 	CommonName     string
 	CertType       string
 	State          string
-	ExpiryDateTime time.Time
 }
 
 // CertDetail domain type (for describe).
 type CertDetail struct {
+	RegisteredDateTime time.Time
+	ExpiryDateTime     time.Time
 	CertificateID      string
 	DirectoryID        string
 	CommonName         string
 	CertType           string
 	State              string
 	CertData           string
-	RegisteredDateTime time.Time
-	ExpiryDateTime     time.Time
 }
 
 // LDAPSSetting domain type.
 type LDAPSSetting struct {
+	LastUpdatedDateTime       time.Time
+	CertificateExpiryDateTime time.Time
 	DirectoryID               string
 	LDAPSType                 string
 	CertificateID             string
 	State                     string
-	LastUpdatedDateTime       time.Time
-	CertificateExpiryDateTime time.Time
 }
 
 // ClientAuthInfo domain type.
 type ClientAuthInfo struct {
+	LastUpdatedDateTime time.Time
 	DirectoryID         string
 	AuthType            string
 	Status              string
-	LastUpdatedDateTime time.Time
 }
 
 // RadiusSettingsInput is used for Enable/Update RADIUS.
 type RadiusSettingsInput struct {
 	AuthenticationProtocol string
 	DisplayLabel           string
-	RadiusServers          []string
 	SharedSecret           string
+	RadiusServers          []string
 	RadiusPort             int32
 	RadiusRetries          int32
 	RadiusTimeout          int32
@@ -350,12 +350,12 @@ type CAEnrollmentPolicy struct {
 
 // ADAssessmentInfo domain type.
 type ADAssessmentInfo struct {
+	StartTime    time.Time
 	AssessmentID string
 	DirectoryID  string
 	Status       string
 	AssessType   string
 	Region       string
-	StartTime    time.Time
 }
 
 // DirectorySetting domain type.
@@ -367,17 +367,19 @@ type DirectorySetting struct {
 
 // SettingEntry domain type.
 type SettingEntry struct {
+	LastUpdatedDateTime time.Time
 	DirectoryID         string
 	Name                string
 	AllowedValues       string
 	AppliedValue        string
 	RequestedValue      string
 	Status              string
-	LastUpdatedDateTime time.Time
 }
 
 // UpdateInfoEntry domain type.
 type UpdateInfoEntry struct {
+	StartTime           time.Time
+	LastUpdatedDateTime time.Time
 	DirectoryID         string
 	UpdateType          string
 	Status              string
@@ -385,8 +387,6 @@ type UpdateInfoEntry struct {
 	PreviousValue       string
 	InitiatedBy         string
 	Region              string
-	StartTime           time.Time
-	LastUpdatedDateTime time.Time
 }
 
 // ComputerInfo is returned by CreateComputer.
@@ -405,7 +405,10 @@ type HybridADUpdateEntry struct {
 // --- IP Routes ---
 
 // AddIpRoutes adds CIDR IP routes to a directory.
-func (b *InMemoryBackend) AddIpRoutes(directoryID string, routes []IpRoute) error {
+func (b *InMemoryBackend) AddIpRoutes( //nolint:revive,staticcheck // existing issue.
+	directoryID string,
+	routes []IpRoute,
+) error {
 	b.mu.Lock("AddIpRoutes")
 	defer b.mu.Unlock()
 
@@ -436,7 +439,10 @@ func (b *InMemoryBackend) AddIpRoutes(directoryID string, routes []IpRoute) erro
 }
 
 // RemoveIpRoutes removes CIDR IP routes from a directory.
-func (b *InMemoryBackend) RemoveIpRoutes(directoryID string, cidrIPs []string) error {
+func (b *InMemoryBackend) RemoveIpRoutes( //nolint:revive,staticcheck // existing issue.
+	directoryID string,
+	cidrIPs []string,
+) error {
 	b.mu.Lock("RemoveIpRoutes")
 	defer b.mu.Unlock()
 
@@ -461,7 +467,11 @@ func (b *InMemoryBackend) RemoveIpRoutes(directoryID string, cidrIPs []string) e
 }
 
 // ListIpRoutes returns IP routes for a directory.
-func (b *InMemoryBackend) ListIpRoutes(directoryID string, limit int32, nextToken string) ([]IpRoute, string, error) {
+func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing issue.
+	directoryID string,
+	limit int32,
+	nextToken string,
+) ([]IpRoute, string, error) {
 	b.mu.RLock("ListIpRoutes")
 	defer b.mu.RUnlock()
 
@@ -479,6 +489,7 @@ func (b *InMemoryBackend) ListIpRoutes(directoryID string, limit int32, nextToke
 		for i, r := range sorted {
 			if r.CidrIP == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -556,7 +567,7 @@ func (b *InMemoryBackend) RemoveRegion(directoryID string) error {
 
 // DescribeRegions returns regions for a directory.
 func (b *InMemoryBackend) DescribeRegions(
-	directoryID, regionName, nextToken string,
+	directoryID, regionName, nextToken string, //nolint:revive // existing issue.
 ) ([]RegionDescription, string, error) {
 	b.mu.RLock("DescribeRegions")
 	defer b.mu.RUnlock()
@@ -579,13 +590,7 @@ func (b *InMemoryBackend) DescribeRegions(
 
 	result := make([]RegionDescription, 0, len(all))
 	for _, r := range all {
-		result = append(result, RegionDescription{
-			DirectoryID: r.DirectoryID,
-			RegionName:  r.RegionName,
-			RegionType:  r.RegionType,
-			Status:      r.Status,
-			LaunchTime:  r.LaunchTime,
-		})
+		result = append(result, RegionDescription(r))
 	}
 
 	return result, "", nil
@@ -657,6 +662,7 @@ func (b *InMemoryBackend) ListSchemaExtensions(
 		for i, e := range all {
 			if e.ExtensionID == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -670,14 +676,7 @@ func (b *InMemoryBackend) ListSchemaExtensions(
 	end := min(start+pageSize, len(all))
 	result := make([]SchemaExtension, 0, end-start)
 	for _, e := range all[start:end] {
-		result = append(result, SchemaExtension{
-			ExtensionID: e.ExtensionID,
-			DirectoryID: e.DirectoryID,
-			Description: e.Description,
-			Status:      e.Status,
-			StartTime:   e.StartTime,
-			EndTime:     e.EndTime,
-		})
+		result = append(result, SchemaExtension(e))
 	}
 
 	var outToken string
@@ -831,7 +830,7 @@ func (b *InMemoryBackend) DeleteLogSubscription(directoryID string) error {
 func (b *InMemoryBackend) ListLogSubscriptions(
 	directoryID string,
 	limit int32,
-	nextToken string,
+	nextToken string, //nolint:revive // existing issue.
 ) ([]LogSubscription, string, error) {
 	b.mu.RLock("ListLogSubscriptions")
 	defer b.mu.RUnlock()
@@ -847,6 +846,7 @@ func (b *InMemoryBackend) ListLogSubscriptions(
 		if all[i].DirectoryID == all[j].DirectoryID {
 			return all[i].LogGroupName < all[j].LogGroupName
 		}
+
 		return all[i].DirectoryID < all[j].DirectoryID
 	})
 
@@ -985,6 +985,7 @@ func (b *InMemoryBackend) DescribeDomainControllers(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1054,7 +1055,7 @@ func (b *InMemoryBackend) UpdateNumberOfDomainControllers(directoryID string, de
 			}
 		}
 		sort.Strings(toRemove)
-		for i := int32(len(toRemove)) - 1; i >= desiredNumber; i-- {
+		for i := int32(len(toRemove)) - 1; i >= desiredNumber; i-- { //nolint:gosec // existing issue.
 			delete(b.domainControllers, toRemove[i])
 		}
 	}
@@ -1084,7 +1085,7 @@ func (b *InMemoryBackend) CreateTrust(
 		TrustDirection:       trustDirection,
 		TrustType:            trustType,
 		TrustState:           "Created",
-		SelectiveAuth:        "Disabled",
+		SelectiveAuth:        "Disabled", //nolint:goconst // existing issue.
 		CreatedDateTime:      now,
 		LastUpdatedDateTime:  now,
 		StateLastUpdatedTime: now,
@@ -1139,6 +1140,7 @@ func (b *InMemoryBackend) DescribeTrusts(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1320,6 +1322,7 @@ func (b *InMemoryBackend) DescribeSharedDirectories(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1423,6 +1426,7 @@ func (b *InMemoryBackend) ListCertificates(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1490,7 +1494,7 @@ func (b *InMemoryBackend) EnableLDAPS(directoryID, ldapsType string) error {
 	key := directoryID + ":" + ldapsType
 	now := time.Now().UTC()
 	if existing, ok := b.ldapsSettings[key]; ok {
-		existing.State = "Enabled"
+		existing.State = "Enabled" //nolint:goconst // existing issue.
 		existing.LastUpdatedDateTime = now
 	} else {
 		b.ldapsSettings[key] = &storedLDAPSSetting{
@@ -1526,8 +1530,8 @@ func (b *InMemoryBackend) DisableLDAPS(directoryID, ldapsType string) error {
 // DescribeLDAPSSettings returns LDAPS settings for a directory.
 func (b *InMemoryBackend) DescribeLDAPSSettings(
 	directoryID, ldapsType string,
-	limit int32,
-	nextToken string,
+	limit int32, //nolint:revive // existing issue.
+	nextToken string, //nolint:revive // existing issue.
 ) ([]LDAPSSetting, string, error) {
 	b.mu.RLock("DescribeLDAPSSettings")
 	defer b.mu.RUnlock()
@@ -1615,8 +1619,8 @@ func (b *InMemoryBackend) DisableClientAuthentication(directoryID, authType stri
 // DescribeClientAuthenticationSettings returns client auth settings.
 func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 	directoryID, authType string,
-	limit int32,
-	nextToken string,
+	limit int32, //nolint:revive // existing issue.
+	nextToken string, //nolint:revive // existing issue.
 ) ([]ClientAuthInfo, string, error) {
 	b.mu.RLock("DescribeClientAuthenticationSettings")
 	defer b.mu.RUnlock()
@@ -1886,6 +1890,7 @@ func (b *InMemoryBackend) ListADAssessments(
 		for i, id := range ids {
 			if id == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1941,7 +1946,7 @@ func (b *InMemoryBackend) CreateHybridAD(
 	b.hybridADUpdates[requestID] = &storedHybridADUpdate{
 		RequestID:   requestID,
 		DirectoryID: d.DirectoryID,
-		Status:      "Updated",
+		Status:      "Updated", //nolint:goconst // existing issue.
 	}
 
 	cp := d.toDirectory()
@@ -2054,7 +2059,7 @@ func (b *InMemoryBackend) UpdateSettings(directoryID string, settings []Director
 
 // DescribeSettings returns directory settings.
 func (b *InMemoryBackend) DescribeSettings(
-	directoryID, status, nextToken string,
+	directoryID, status, nextToken string, //nolint:revive // existing issue.
 ) ([]SettingEntry, string, error) {
 	b.mu.RLock("DescribeSettings")
 	defer b.mu.RUnlock()
@@ -2075,15 +2080,7 @@ func (b *InMemoryBackend) DescribeSettings(
 
 	result := make([]SettingEntry, 0, len(filtered))
 	for _, s := range filtered {
-		result = append(result, SettingEntry{
-			DirectoryID:         s.DirectoryID,
-			Name:                s.Name,
-			AllowedValues:       s.AllowedValues,
-			AppliedValue:        s.AppliedValue,
-			RequestedValue:      s.RequestedValue,
-			Status:              s.Status,
-			LastUpdatedDateTime: s.LastUpdatedDateTime,
-		})
+		result = append(result, SettingEntry(s))
 	}
 
 	return result, "", nil
@@ -2114,7 +2111,7 @@ func (b *InMemoryBackend) UpdateDirectorySetup(directoryID, updateType string, _
 
 // DescribeUpdateDirectory returns update info entries for a directory.
 func (b *InMemoryBackend) DescribeUpdateDirectory(
-	directoryID, updateType, nextToken string,
+	directoryID, updateType, nextToken string, //nolint:revive // existing issue.
 ) ([]UpdateInfoEntry, string, error) {
 	b.mu.RLock("DescribeUpdateDirectory")
 	defer b.mu.RUnlock()

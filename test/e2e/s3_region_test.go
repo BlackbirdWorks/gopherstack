@@ -24,7 +24,8 @@ import (
 func makeS3Client(t *testing.T, serverURL, region string) *s3.Client {
 	t.Helper()
 
-	cfg, err := awscfg.LoadDefaultConfig(context.Background(),
+	cfg, err := awscfg.LoadDefaultConfig(
+		context.Background(),
 		awscfg.WithRegion(region),
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),

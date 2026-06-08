@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -124,9 +125,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeWorkspaceDirectories":       service.WrapOp(h.handleDescribeWorkspaceDirectories),
 	}
 
-	for k, v := range h.buildAppendixAOps() {
-		base[k] = v
-	}
+	maps.Copy(base, h.buildAppendixAOps())
 
 	return base
 }

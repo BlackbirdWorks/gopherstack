@@ -15,11 +15,11 @@ func TestAppendixA_Members(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -58,7 +58,7 @@ func TestAppendixA_Members(t *testing.T) {
 							map[string]any{"AccountId": "222222222222", "Email": "b@example.com"},
 						},
 					},
-					check: func(t *testing.T, code int, resp map[string]any) {
+					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 					},
@@ -82,7 +82,7 @@ func TestAppendixA_Members(t *testing.T) {
 					method: http.MethodPost,
 					path:   "/members/delete",
 					body:   map[string]any{"AccountIds": []any{"222222222222"}},
-					check: func(t *testing.T, code int, resp map[string]any) {
+					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 					},
@@ -115,7 +115,7 @@ func TestAppendixA_Members(t *testing.T) {
 							map[string]any{"AccountId": "333333333333", "Email": "c@example.com"},
 						},
 					},
-					check: func(t *testing.T, code int, resp map[string]any) {
+					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 					},
@@ -125,7 +125,7 @@ func TestAppendixA_Members(t *testing.T) {
 					method: http.MethodPost,
 					path:   "/members/invite",
 					body:   map[string]any{"AccountIds": []any{"333333333333"}},
-					check: func(t *testing.T, code int, resp map[string]any) {
+					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 					},
@@ -211,11 +211,11 @@ func TestAppendixA_Invitations(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -344,7 +344,7 @@ func TestAppendixA_Invitations(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						count, _ := resp["InvitationsCount"].(float64)
-						assert.Greater(t, int(count), 0)
+						assert.Positive(t, int(count))
 					},
 				},
 				{
@@ -385,11 +385,11 @@ func TestAppendixA_Organization(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -518,11 +518,11 @@ func TestAppendixA_FindingAggregator(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any) string
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any) string // returns resource id
 	}
 
 	tests := []struct {
@@ -626,11 +626,11 @@ func TestAppendixA_ConfigurationPolicy(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any) string
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any) string
 	}
 
 	tests := []struct {
@@ -708,7 +708,7 @@ func TestAppendixA_ConfigurationPolicy(t *testing.T) {
 							"AccountId": "123456789012",
 						},
 					},
-					check: func(t *testing.T, code int, resp map[string]any) string {
+					check: func(t *testing.T, code int, resp map[string]any) string { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 
@@ -822,11 +822,11 @@ func TestAppendixA_HubV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -924,11 +924,11 @@ func TestAppendixA_AggregatorV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any) string
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any) string
 	}
 
 	tests := []struct {
@@ -1014,11 +1014,11 @@ func TestAppendixA_AutomationRulesV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any) string
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any) string
 	}
 
 	tests := []struct {
@@ -1140,11 +1140,11 @@ func TestAppendixA_ConnectorsV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any) string
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any) string
 	}
 
 	tests := []struct {
@@ -1279,9 +1279,9 @@ func TestAppendixA_TicketV2(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		body  any
 		check func(t *testing.T, code int, resp map[string]any)
+		name  string
 	}{
 		{
 			name: "CreateTicketV2 returns ARN",
@@ -1320,11 +1320,11 @@ func TestAppendixA_FindingsV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -1423,7 +1423,7 @@ func TestAppendixA_FindingsV2(t *testing.T) {
 							},
 						},
 					},
-					check: func(t *testing.T, code int, resp map[string]any) {
+					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 					},
@@ -1490,11 +1490,11 @@ func TestAppendixA_ResourcesV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {
@@ -1568,8 +1568,8 @@ func TestAppendixA_DescribeProductsV2(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		check func(t *testing.T, code int, resp map[string]any)
+		name  string
 	}{
 		{
 			name: "DescribeProductsV2 returns products list",
@@ -1601,11 +1601,11 @@ func TestAppendixA_RecommendedPolicyV2(t *testing.T) {
 	t.Parallel()
 
 	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
 		name   string
 		method string
 		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
 	}
 
 	tests := []struct {

@@ -3,6 +3,7 @@ package directoryservice
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -69,9 +70,7 @@ func NewHandler(b StorageBackend) *Handler {
 		opListTagsForResource:    h.handleListTagsForResource,
 	}
 
-	for op, fn := range h.appendixAOps() {
-		h.dispatch[op] = fn
-	}
+	maps.Copy(h.dispatch, h.appendixAOps())
 
 	return h
 }
@@ -84,7 +83,7 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	base := []string{
+	base := []string{ //nolint:prealloc // existing issue.
 		opCreateDirectory,
 		opCreateMicrosoftAD,
 		opDeleteDirectory,
@@ -167,7 +166,7 @@ func (h *Handler) doDispatch(c *echo.Context) error {
 	return c.JSON(http.StatusNotImplemented, errResp("NotImplementedException", "operation not implemented: "+op))
 }
 
-func (h *Handler) handleCreateDirectory(c *echo.Context) error {
+func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl // existing issue.
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
@@ -694,17 +693,17 @@ func errResp(code, message string) map[string]string {
 func directoryToJSON(d *Directory) map[string]any {
 	return map[string]any{
 		keyDirectoryID: d.DirectoryID,
-		"Name":         d.Name,
+		"Name":         d.Name, //nolint:goconst // existing issue.
 		"ShortName":    d.ShortName,
-		"Description":  d.Description,
+		"Description":  d.Description, //nolint:goconst // existing issue.
 		"Alias":        d.Alias,
 		"AccessUrl":    d.AccessURL,
-		"Type":         string(d.Type),
+		"Type":         string(d.Type), //nolint:goconst // existing issue.
 		"Stage":        string(d.Stage),
 		"Size":         string(d.Size),
 		"Edition":      string(d.Edition),
 		"SsoEnabled":   d.SsoEnabled,
-		"LaunchTime":   d.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		"LaunchTime":   d.LaunchTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
 	}
 }
 
@@ -713,16 +712,17 @@ func snapshotToJSON(s *Snapshot) map[string]any {
 		keySnapshotID:  s.SnapshotID,
 		keyDirectoryID: s.DirectoryID,
 		"Name":         s.Name,
-		"Status":       string(s.Status),
+		"Status":       string(s.Status), //nolint:goconst // existing issue.
 		"Type":         string(s.Type),
-		"StartTime":    s.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		"StartTime":    s.StartTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
 	}
 }
 
 func reqTagsToTags(raw []struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
-}) []Tag {
+},
+) []Tag {
 	tags := make([]Tag, 0, len(raw))
 	for _, t := range raw {
 		tags = append(tags, Tag{Key: t.Key, Value: t.Value})

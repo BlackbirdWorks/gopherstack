@@ -232,7 +232,8 @@ func TestRefinement1_CreateNode_WithTags(t *testing.T) {
 	h.AccountID = testAccountID
 	h.DefaultRegion = testRegion
 
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/networks/"+n.ID+"/members/"+m.ID+"/nodes",
 		map[string]any{
 			"NodeConfiguration": map[string]any{
@@ -512,7 +513,8 @@ func TestRefinement1_NodeLifecycleViaHTTP(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/networks/"+n.ID+"/members/"+m.ID+"/nodes",
 				map[string]any{
 					"NodeConfiguration": map[string]any{

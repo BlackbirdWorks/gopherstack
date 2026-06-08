@@ -163,7 +163,8 @@ func TestHandler_DisposePackageVersions(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "dp-domain")
 				setupRepo(t, h, "dp-domain", "dp-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t, h, http.MethodGet,
 					"/v1/package/version"+
 						"?domain=dp-domain&repository=dp-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
@@ -264,7 +265,8 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "pva-domain")
 				setupRepo(t, h, "pva-domain", "pva-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t, h, http.MethodGet,
 					"/v1/package/version"+
 						"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
@@ -347,7 +349,8 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "pvr-domain")
 				setupRepo(t, h, "pvr-domain", "pvr-repo")
-				doRequest(t, h, http.MethodGet,
+				doRequest(
+					t, h, http.MethodGet,
 					"/v1/package/version?domain=pvr-domain&repository=pvr-repo&format=npm&package=lodash&version=1.0.0",
 					nil,
 				)
@@ -483,7 +486,8 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 			name: "success",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "lap-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lap-domain",
+				doRequest(
+					t, h, http.MethodPost, "/v1/package-group?domain=lap-domain",
 					map[string]any{"pattern": "/npm/*"},
 				)
 			},
@@ -1161,7 +1165,8 @@ func TestHandler_PutPackageOriginConfiguration(t *testing.T) {
 				tt.setup(h)
 			}
 
-			rec := doRequest(t, h, http.MethodPut, tt.path,
+			rec := doRequest(
+				t, h, http.MethodPut, tt.path,
 				map[string]any{"restrictions": map[string]any{"publish": "ALLOW", "upstream": "ALLOW"}},
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -1192,7 +1197,8 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 			name: "success_update_description",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "upg-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upg-domain",
+				doRequest(
+					t, h, http.MethodPost, "/v1/package-group?domain=upg-domain",
 					map[string]any{"pattern": "/npm/*"},
 				)
 			},
@@ -1204,7 +1210,8 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 			name: "success_update_contact_info",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "upg2-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upg2-domain",
+				doRequest(
+					t, h, http.MethodPost, "/v1/package-group?domain=upg2-domain",
 					map[string]any{"pattern": "/pypi/*"},
 				)
 			},
@@ -1263,7 +1270,8 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 			name: "success",
 			setup: func(h *codeartifact.Handler) {
 				setupDomain(t, h, "upgoc-domain")
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=upgoc-domain",
+				doRequest(
+					t, h, http.MethodPost, "/v1/package-group?domain=upgoc-domain",
 					map[string]any{"pattern": "/npm/*"},
 				)
 			},
@@ -1296,7 +1304,8 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 				tt.setup(h)
 			}
 
-			rec := doRequest(t, h, http.MethodPut, tt.path,
+			rec := doRequest(
+				t, h, http.MethodPut, tt.path,
 				map[string]any{"restrictions": map[string]any{"publish": map[string]any{"restrictionMode": "ALLOW"}}},
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)

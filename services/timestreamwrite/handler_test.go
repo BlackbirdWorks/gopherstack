@@ -72,9 +72,11 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{name: "matching target", target: "Timestream_20181101.CreateDatabase", want: true},
 		{name: "non-matching target", target: "SageMaker.ListModels", want: false},
 		{name: "empty target", target: "", want: false},
-		{name: "timestream query operation not matched",
+		{
+			name:   "timestream query operation not matched",
 			target: "Timestream_20181101.ListScheduledQueries",
-			want:   false},
+			want:   false,
+		},
 		{name: "timestream write operation matched", target: "Timestream_20181101.WriteRecords", want: true},
 	}
 

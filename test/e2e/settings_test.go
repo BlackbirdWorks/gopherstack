@@ -133,7 +133,11 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 
 	isDisabled, err := saveBtn.IsDisabled()
 	require.NoError(t, err)
-	require.False(t, isDisabled, "save button should be enabled after changing settings when arriving via navbar navigation")
+	require.False(
+		t,
+		isDisabled,
+		"save button should be enabled after changing settings when arriving via navbar navigation",
+	)
 }
 
 func TestE2E_SettingsPage_SaveAutoPurgeTTL_PersistsAfterRefresh(t *testing.T) {

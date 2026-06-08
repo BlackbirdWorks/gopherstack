@@ -125,6 +125,7 @@ func CreateInvitation(
 ) *ResourceShareInvitation {
 	return b.CreateInvitation(shareARN, shareNm, senderAcctID, receiverAcctID)
 }
+
 func NewTestInvitation(invARN, shareARN, shareName string) *ResourceShareInvitation {
 	now := time.Now()
 

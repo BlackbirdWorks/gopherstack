@@ -6,16 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
-
-	"log/slog"
-
-	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -892,7 +890,8 @@ func warmWithHCL(tofuBin, cacheDir, hcl string, seedLockFile []byte, logger *slo
 
 	cmd := exec.Command(tofuBin, "init", "-no-color")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+cacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",

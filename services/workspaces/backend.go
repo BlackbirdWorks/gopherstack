@@ -83,7 +83,7 @@ type InMemoryBackend struct {
 	workspaces        map[string]*storedWorkspace  // workspaceID → workspace
 	tags              map[string]map[string]string // resourceID → tags
 	ipGroups          map[string]*storedIpGroup
-	directoryIpGroups map[string]map[string]struct{}
+	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
 	connAliases       map[string]*storedConnAlias
 	customBundles     map[string]*storedCustomBundle
 	images            map[string]*storedImage

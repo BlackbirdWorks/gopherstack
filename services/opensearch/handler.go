@@ -3424,7 +3424,6 @@ func (h *Handler) dispatchDomainGetUpgradeRoutes(
 		// GetUpgradeStatus
 		domainName, _ := strings.CutSuffix(trimmed, "/upgrades")
 		upgradeName, upgradeStatus, upgradeStep, err := h.Backend.GetUpgradeStatus(domainName)
-
 		if err != nil {
 			upgradeName, upgradeStatus, upgradeStep = "INITIAL", upgradeStatusSucceeded, upgradeStepUpgrade
 		}

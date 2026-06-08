@@ -76,7 +76,7 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 }
 
 // initSnapshotNewFields initializes nil maps for newer resource types.
-func initSnapshotNewFields(snap *backendSnapshot) {
+func initSnapshotNewFields(snap *backendSnapshot) { //nolint:gocognit,cyclop // existing issue.
 	if snap.Activations == nil {
 		snap.Activations = make(map[string]map[string]Activation)
 	}

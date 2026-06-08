@@ -43,7 +43,8 @@ type planResult struct {
 // invocations: automation mode, shared provider-cache path, and the lock-file
 // break flag required when multiple tests share the cache.
 func tofuEnv() []string {
-	return append(os.Environ(),
+	return append(
+		os.Environ(),
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",

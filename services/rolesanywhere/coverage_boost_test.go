@@ -24,6 +24,7 @@ import (
 func newTestHandler(t *testing.T) *rolesanywhere.Handler {
 	t.Helper()
 	b := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
+
 	return rolesanywhere.NewHandler(b)
 }
 
@@ -63,7 +64,7 @@ func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Greater(t, h.MatchPriority(), 0)
+	assert.Positive(t, h.MatchPriority())
 }
 
 func TestHandler_Reset(t *testing.T) {
@@ -159,8 +160,18 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"GET /trustanchor/id → GetTrustAnchor", http.MethodGet, "/trustanchor/abc", "GetTrustAnchor"},
 		{"DELETE /trustanchor/id → DeleteTrustAnchor", http.MethodDelete, "/trustanchor/abc", "DeleteTrustAnchor"},
 		{"PATCH /trustanchor/id → UpdateTrustAnchor", http.MethodPatch, "/trustanchor/abc", "UpdateTrustAnchor"},
-		{"POST /trustanchor/id/enable → EnableTrustAnchor", http.MethodPost, "/trustanchor/abc/enable", "EnableTrustAnchor"},
-		{"POST /trustanchor/id/disable → DisableTrustAnchor", http.MethodPost, "/trustanchor/abc/disable", "DisableTrustAnchor"},
+		{
+			"POST /trustanchor/id/enable → EnableTrustAnchor",
+			http.MethodPost,
+			"/trustanchor/abc/enable",
+			"EnableTrustAnchor",
+		},
+		{
+			"POST /trustanchor/id/disable → DisableTrustAnchor",
+			http.MethodPost,
+			"/trustanchor/abc/disable",
+			"DisableTrustAnchor",
+		},
 		{"GET /profiles → ListProfiles", http.MethodGet, "/profiles", "ListProfiles"},
 		{"POST /profiles → CreateProfile", http.MethodPost, "/profiles", "CreateProfile"},
 		{"GET /profile/id → GetProfile", http.MethodGet, "/profile/abc", "GetProfile"},
@@ -177,13 +188,38 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"POST /crl/id/disable → DisableCrl", http.MethodPost, "/crl/abc/disable", "DisableCrl"},
 		{"GET /subjects → ListSubjects", http.MethodGet, "/subjects", "ListSubjects"},
 		{"GET /subject/id → GetSubject", http.MethodGet, "/subject/abc", "GetSubject"},
-		{"PUT /profiles/id/mappings → PutAttributeMapping", http.MethodPut, "/profiles/abc/mappings", "PutAttributeMapping"},
-		{"DELETE /profiles/id/mappings → DeleteAttributeMapping", http.MethodDelete, "/profiles/abc/mappings", "DeleteAttributeMapping"},
-		{"PATCH /put-notifications-settings → PutNotificationSettings", http.MethodPatch, "/put-notifications-settings", "PutNotificationSettings"},
-		{"PATCH /reset-notifications-settings → ResetNotificationSettings", http.MethodPatch, "/reset-notifications-settings", "ResetNotificationSettings"},
+		{
+			"PUT /profiles/id/mappings → PutAttributeMapping",
+			http.MethodPut,
+			"/profiles/abc/mappings",
+			"PutAttributeMapping",
+		},
+		{
+			"DELETE /profiles/id/mappings → DeleteAttributeMapping",
+			http.MethodDelete,
+			"/profiles/abc/mappings",
+			"DeleteAttributeMapping",
+		},
+		{
+			"PATCH /put-notifications-settings → PutNotificationSettings",
+			http.MethodPatch,
+			"/put-notifications-settings",
+			"PutNotificationSettings",
+		},
+		{
+			"PATCH /reset-notifications-settings → ResetNotificationSettings",
+			http.MethodPatch,
+			"/reset-notifications-settings",
+			"ResetNotificationSettings",
+		},
 		{"POST /TagResource → TagResource", http.MethodPost, "/TagResource", "TagResource"},
 		{"POST /UntagResource → UntagResource", http.MethodPost, "/UntagResource", "UntagResource"},
-		{"GET /ListTagsForResource → ListTagsForResource", http.MethodGet, "/ListTagsForResource", "ListTagsForResource"},
+		{
+			"GET /ListTagsForResource → ListTagsForResource",
+			http.MethodGet,
+			"/ListTagsForResource",
+			"ListTagsForResource",
+		},
 		{"unknown path → Unknown", http.MethodGet, "/unknown-path", "Unknown"},
 		{"wrong method on TagResource → Unknown", http.MethodGet, "/TagResource", "Unknown"},
 	}
@@ -265,8 +301,8 @@ func TestHandler_TrustAnchor_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 		wantGet    int
 	}{
@@ -373,17 +409,47 @@ func TestHandler_TrustAnchor_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
-		{"get nonexistent → 404", http.MethodGet, "/trustanchor/no-such-id", nil, http.StatusNotFound},
-		{"delete nonexistent → 404", http.MethodDelete, "/trustanchor/no-such-id", nil, http.StatusNotFound},
-		{"enable nonexistent → 404", http.MethodPost, "/trustanchor/no-such-id/enable", nil, http.StatusNotFound},
-		{"disable nonexistent → 404", http.MethodPost, "/trustanchor/no-such-id/disable", nil, http.StatusNotFound},
-		{"update nonexistent → 404", http.MethodPatch, "/trustanchor/no-such-id", map[string]any{"name": "x"}, http.StatusNotFound},
+		{
+			name:       "get nonexistent → 404",
+			method:     http.MethodGet,
+			path:       "/trustanchor/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete nonexistent → 404",
+			method:     http.MethodDelete,
+			path:       "/trustanchor/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "enable nonexistent → 404",
+			method:     http.MethodPost,
+			path:       "/trustanchor/no-such-id/enable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "disable nonexistent → 404",
+			method:     http.MethodPost,
+			path:       "/trustanchor/no-such-id/disable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "update nonexistent → 404",
+			method:     http.MethodPatch,
+			path:       "/trustanchor/no-such-id",
+			body:       map[string]any{"name": "x"},
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -444,7 +510,7 @@ func TestHandler_ListTrustAnchors_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
 					"name":   "anchor-page-" + string(rune('a'+i)),
 					"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
@@ -466,8 +532,8 @@ func TestHandler_Profile_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 	}{
 		{
@@ -535,17 +601,47 @@ func TestHandler_Profile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
-		{"get nonexistent profile → 404", http.MethodGet, "/profile/no-such-id", nil, http.StatusNotFound},
-		{"delete nonexistent profile → 404", http.MethodDelete, "/profile/no-such-id", nil, http.StatusNotFound},
-		{"enable nonexistent profile → 404", http.MethodPost, "/profile/no-such-id/enable", nil, http.StatusNotFound},
-		{"disable nonexistent profile → 404", http.MethodPost, "/profile/no-such-id/disable", nil, http.StatusNotFound},
-		{"update nonexistent profile → 404", http.MethodPatch, "/profile/no-such-id", map[string]any{"name": "x"}, http.StatusNotFound},
+		{
+			name:       "get nonexistent profile → 404",
+			method:     http.MethodGet,
+			path:       "/profile/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete nonexistent profile → 404",
+			method:     http.MethodDelete,
+			path:       "/profile/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "enable nonexistent profile → 404",
+			method:     http.MethodPost,
+			path:       "/profile/no-such-id/enable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "disable nonexistent profile → 404",
+			method:     http.MethodPost,
+			path:       "/profile/no-such-id/disable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "update nonexistent profile → 404",
+			method:     http.MethodPatch,
+			path:       "/profile/no-such-id",
+			body:       map[string]any{"name": "x"},
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -617,8 +713,8 @@ func TestHandler_CRL_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 	}{
 		{
@@ -682,17 +778,47 @@ func TestHandler_CRL_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
-		{"get nonexistent crl → 404", http.MethodGet, "/crl/no-such-id", nil, http.StatusNotFound},
-		{"delete nonexistent crl → 404", http.MethodDelete, "/crl/no-such-id", nil, http.StatusNotFound},
-		{"enable nonexistent crl → 404", http.MethodPost, "/crl/no-such-id/enable", nil, http.StatusNotFound},
-		{"disable nonexistent crl → 404", http.MethodPost, "/crl/no-such-id/disable", nil, http.StatusNotFound},
-		{"update nonexistent crl → 404", http.MethodPatch, "/crl/no-such-id", map[string]any{"name": "x"}, http.StatusNotFound},
+		{
+			name:       "get nonexistent crl → 404",
+			method:     http.MethodGet,
+			path:       "/crl/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete nonexistent crl → 404",
+			method:     http.MethodDelete,
+			path:       "/crl/no-such-id",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "enable nonexistent crl → 404",
+			method:     http.MethodPost,
+			path:       "/crl/no-such-id/enable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "disable nonexistent crl → 404",
+			method:     http.MethodPost,
+			path:       "/crl/no-such-id/disable",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "update nonexistent crl → 404",
+			method:     http.MethodPatch,
+			path:       "/crl/no-such-id",
+			body:       map[string]any{"name": "x"},
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -852,7 +978,11 @@ func TestHandler_AttributeMapping_InvalidJSON(t *testing.T) {
 
 			h := newTestHandler(t)
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPut, "/profiles/some-id/mappings", bytes.NewReader([]byte(`{invalid`)))
+			req := httptest.NewRequest(
+				http.MethodPut,
+				"/profiles/some-id/mappings",
+				bytes.NewReader([]byte(`{invalid`)),
+			)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -866,25 +996,25 @@ func TestHandler_AttributeMapping_ProfileNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
-			"put mapping nonexistent profile → 404",
-			http.MethodPut,
-			"/profiles/no-such-profile/mappings",
-			map[string]any{"certificateField": "x509Subject", "mappingRules": []any{}},
-			http.StatusNotFound,
+			name:       "put mapping nonexistent profile → 404",
+			method:     http.MethodPut,
+			path:       "/profiles/no-such-profile/mappings",
+			body:       map[string]any{"certificateField": "x509Subject", "mappingRules": []any{}},
+			wantStatus: http.StatusNotFound,
 		},
 		{
-			"delete mapping nonexistent profile → 404",
-			http.MethodDelete,
-			"/profiles/no-such-profile/mappings?certificateField=x509Subject",
-			nil,
-			http.StatusNotFound,
+			name:       "delete mapping nonexistent profile → 404",
+			method:     http.MethodDelete,
+			path:       "/profiles/no-such-profile/mappings?certificateField=x509Subject",
+			body:       nil,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -986,22 +1116,22 @@ func TestHandler_NotificationSettings_TrustAnchorNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
-			"put notifications nonexistent anchor → 404",
-			"/put-notifications-settings",
-			map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettings": []any{}},
-			http.StatusNotFound,
+			name:       "put notifications nonexistent anchor → 404",
+			path:       "/put-notifications-settings",
+			body:       map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettings": []any{}},
+			wantStatus: http.StatusNotFound,
 		},
 		{
-			"reset notifications nonexistent anchor → 404",
-			"/reset-notifications-settings",
-			map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettingKeys": []any{}},
-			http.StatusNotFound,
+			name:       "reset notifications nonexistent anchor → 404",
+			path:       "/reset-notifications-settings",
+			body:       map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettingKeys": []any{}},
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -1310,10 +1440,10 @@ func TestBackend_TagResource_Upsert(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantValues map[string]string
 		name       string
 		initial    []rolesanywhere.TagEntry
 		updates    []rolesanywhere.TagEntry
-		wantValues map[string]string
 	}{
 		{
 			name:    "update existing key preserves other keys",
@@ -1362,13 +1492,13 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		newName           string
-		roleArns          []string
-		managedPolicyArns []string
-		sessionPolicy     string
 		requireIP         *bool
 		dur               *int32
+		name              string
+		newName           string
+		sessionPolicy     string
+		roleArns          []string
+		managedPolicyArns []string
 	}{
 		{
 			name:              "update all fields",
@@ -1376,8 +1506,8 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 			roleArns:          []string{"arn:aws:iam::123:role/NewRole"},
 			managedPolicyArns: []string{"arn:aws:iam::123:policy/Managed"},
 			sessionPolicy:     `{"Version":"2012-10-17"}`,
-			requireIP:         boolPtr(true),
-			dur:               int32Ptr(7200),
+			requireIP:         new(true),
+			dur:               new(int32(7200)),
 		},
 	}
 
@@ -1388,7 +1518,15 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 			b := newBackend(t)
 			p, _ := b.CreateProfile("base-profile", []string{"arn:aws:iam::123:role/OldRole"}, nil, nil, nil, "", false)
 
-			updated, err := b.UpdateProfile(p.ProfileID, tt.newName, tt.roleArns, tt.dur, tt.managedPolicyArns, tt.sessionPolicy, tt.requireIP)
+			updated, err := b.UpdateProfile(
+				p.ProfileID,
+				tt.newName,
+				tt.roleArns,
+				tt.dur,
+				tt.managedPolicyArns,
+				tt.sessionPolicy,
+				tt.requireIP,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.newName, updated.Name)
 			assert.Equal(t, tt.roleArns, updated.RoleArns)
@@ -1427,8 +1565,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		ctx     *service.AppContext
+		name    string
 		wantErr bool
 	}{
 		{
@@ -1455,10 +1593,10 @@ func TestProvider_Init(t *testing.T) {
 			p := &rolesanywhere.Provider{}
 			got, err := p.Init(tt.ctx)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, got)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, got)
 			}
 		})
@@ -1474,5 +1612,6 @@ func (f *fakeConfigProvider) GetGlobalConfig() *config.GlobalConfig {
 
 // ---- helpers ----
 
-func boolPtr(b bool) *bool    { return &b }
-func int32Ptr(i int32) *int32 { return &i }
+func boolPtr(b bool) *bool { return new(b) } //nolint:unused // existing issue.
+
+func int32Ptr(i int32) *int32 { return new(i) } //nolint:unused // existing issue.

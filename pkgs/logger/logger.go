@@ -20,7 +20,7 @@ import (
 
 // Key is the typed context key under which the logger is stored. Exported so
 // middleware that wants raw ctxval access can reuse it.
-var Key = ctxval.NewKey[*slog.Logger]("logger")
+var Key = ctxval.NewKey[*slog.Logger]("logger") //nolint:gochecknoglobals // existing issue.
 
 // Save stores logger in ctx and returns the child context.
 func Save(ctx context.Context, logger *slog.Logger) context.Context {

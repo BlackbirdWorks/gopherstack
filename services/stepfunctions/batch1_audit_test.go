@@ -712,7 +712,13 @@ func TestAudit_DescribeStateMachineForExecution(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(context.Background(), "dsm-for-exec-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"dsm-for-exec-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 	defer b.Destroy()
 

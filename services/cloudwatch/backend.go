@@ -2301,6 +2301,7 @@ func (b *InMemoryBackend) GetDashboardARNs(names []string) []string {
 
 	return arns
 }
+
 func (b *InMemoryBackend) PutAnomalyDetector(detector *AnomalyDetector) error {
 	if detector.Namespace == "" || detector.MetricName == "" {
 		return fmt.Errorf("%w: Namespace and MetricName are required", ErrValidation)
@@ -2331,8 +2332,10 @@ func (b *InMemoryBackend) ListMetricStreams(
 	return page.New(result, nextToken, maxResults, cwDefaultListMetricStreamsLimit), nil
 }
 
-const metricStreamStateRunning = "RUNNING"
-const metricStreamStateStopped = "STOPPED"
+const (
+	metricStreamStateRunning = "RUNNING"
+	metricStreamStateStopped = "STOPPED"
+)
 
 // StartMetricStreams sets the State of the named streams to RUNNING.
 // Names that do not exist are silently ignored (AWS behaviour).

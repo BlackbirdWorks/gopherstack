@@ -770,7 +770,8 @@ func TestAudit_NodeSummaryAvailabilityZone(t *testing.T) {
 			h.DefaultRegion = testRegion
 
 			// Create node with AZ
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID),
 				map[string]any{
 					"NodeConfiguration": map[string]any{

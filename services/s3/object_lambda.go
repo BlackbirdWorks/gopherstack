@@ -93,6 +93,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 ) {
 	if h.notifier == nil {
 		WriteError(ctx, w, r, ErrNoSuchKey)
+
 		return
 	}
 
@@ -112,6 +113,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	if err != nil {
 		h.pendingObjectLambdaRequests.Delete(token)
 		WriteError(ctx, w, r, err)
+
 		return
 	}
 
@@ -137,6 +139,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	case resp := <-ch:
 		if resp.err != nil {
 			WriteError(ctx, w, r, resp.err)
+
 			return
 		}
 		for k, vals := range resp.headers {
@@ -174,12 +177,14 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 	if token == "" {
 		// No pending request token; return 200 as a no-op stub.
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
 	ch, ok := h.resolveObjectLambdaRequest(token)
 	if !ok {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -187,6 +192,7 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 	if err != nil {
 		ch <- objectLambdaResponse{err: err}
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 

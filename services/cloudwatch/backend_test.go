@@ -1918,8 +1918,10 @@ func TestCloudWatchBackend_DimensionlessVsDimensioned(t *testing.T) {
 
 	_, err := b.PutMetricData("MyNS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
-		{MetricName: "M", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts,
-			Dimensions: []cloudwatch.Dimension{{Name: "D", Value: "v"}}},
+		{
+			MetricName: "M", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts,
+			Dimensions: []cloudwatch.Dimension{{Name: "D", Value: "v"}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -2158,8 +2160,10 @@ func TestCloudWatchBackend_ListMetrics_ReturnsDimensions(t *testing.T) {
 	}
 
 	_, err := b.PutMetricData("Infra", []cloudwatch.MetricDatum{
-		{MetricName: "Errors", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
-			Timestamp: time.Now(), Dimensions: dims},
+		{
+			MetricName: "Errors", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
+			Timestamp: time.Now(), Dimensions: dims,
+		},
 	})
 	require.NoError(t, err)
 
@@ -2176,8 +2180,10 @@ func TestCloudWatchBackend_StorageResolution_StoredOnDatum(t *testing.T) {
 	ts := time.Now().UTC()
 
 	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
-		{MetricName: "Ticks", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
-			Timestamp: ts, StorageResolution: 1},
+		{
+			MetricName: "Ticks", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
+			Timestamp: ts, StorageResolution: 1,
+		},
 	})
 	require.NoError(t, err)
 
@@ -2199,10 +2205,14 @@ func TestCloudWatchBackend_GetInsightRuleContributors(t *testing.T) {
 
 	ts := time.Now().UTC().Add(-30 * time.Second)
 	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
-		{MetricName: "Hits", Value: 10, Count: 10, Sum: 100, Min: 8, Max: 12, Timestamp: ts,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}}},
-		{MetricName: "Hits", Value: 5, Count: 5, Sum: 50, Min: 9, Max: 11, Timestamp: ts,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h2"}}},
+		{
+			MetricName: "Hits", Value: 10, Count: 10, Sum: 100, Min: 8, Max: 12, Timestamp: ts,
+			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},
+		},
+		{
+			MetricName: "Hits", Value: 5, Count: 5, Sum: 50, Min: 9, Max: 11, Timestamp: ts,
+			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h2"}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -2231,8 +2241,10 @@ func TestCloudWatchBackend_DimensionOrderNormalized(t *testing.T) {
 	dims2 := []cloudwatch.Dimension{{Name: "A", Value: "1"}, {Name: "B", Value: "2"}}
 
 	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
-		{MetricName: "M", Value: 42, Count: 1, Sum: 42, Min: 42, Max: 42,
-			Timestamp: ts, Dimensions: dims1},
+		{
+			MetricName: "M", Value: 42, Count: 1, Sum: 42, Min: 42, Max: 42,
+			Timestamp: ts, Dimensions: dims1,
+		},
 	})
 	require.NoError(t, err)
 
