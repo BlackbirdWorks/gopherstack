@@ -120,7 +120,7 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			if tc.check != nil {
 				tc.check(t, rec2.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -321,7 +321,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			if tc.check != nil {
 				tc.check(t, rec2.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -380,7 +380,7 @@ func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest /
 		t.Run(tc.name, func(t *testing.T) {
 			rec2 := doRequest(t, h, http.MethodPost, "/graph/member/monitoringstate", tc.body)
 			assert.Equal(t, tc.wantCode, rec2.Code)
-		})
+		}()
 	}
 }
 func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -544,7 +544,7 @@ func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // exist
 			if tc.check != nil {
 				tc.check(t, rec2.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -642,7 +642,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 			if tc.check != nil {
 				tc.check(t, rec2.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestDetective_OrgAdmin(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -812,6 +812,6 @@ func TestDetective_OrgAdmin(t *testing.T) { //nolint:paralleltest // existing is
 			if tc.check != nil {
 				tc.check(t, rec2.Body.Bytes())
 			}
-		})
+		}()
 	}
 }

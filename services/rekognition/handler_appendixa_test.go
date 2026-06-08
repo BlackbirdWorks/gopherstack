@@ -110,7 +110,7 @@ func TestAppendixA_Projects(t *testing.T) { //nolint:paralleltest // existing is
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestAppendixA_Project_DeleteSuccess(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -199,7 +199,7 @@ func TestAppendixA_ProjectVersions(t *testing.T) { //nolint:paralleltest // exis
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestAppendixA_ProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -372,7 +372,7 @@ func TestAppendixA_ProjectPolicies(t *testing.T) { //nolint:paralleltest // exis
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 
@@ -427,7 +427,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 			if tc.check != nil {
 				datasetARN = tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 
 	// DescribeDataset
@@ -445,7 +445,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 		desc := resp["DatasetDescription"].(map[string]any)
 		assert.Equal(t, "CREATE_COMPLETE", desc["Status"])
 		assert.Equal(t, "TRAIN", desc["DatasetType"])
-	})
+	}()
 
 	// UpdateDatasetEntries
 	t.Run("UpdateDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -454,7 +454,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 			"Changes":    []byte(`{"source-ref": "s3://bucket/img.jpg"}`),
 		})
 		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	}()
 
 	// ListDatasetEntries
 	t.Run("ListDatasetEntries returns entries", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -469,7 +469,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 		assert.NotNil(t, resp["DatasetEntries"])
-	})
+	}()
 
 	// ListDatasetLabels
 	t.Run("ListDatasetLabels returns empty list", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -484,7 +484,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 		assert.NotNil(t, resp["DatasetLabelStats"])
-	})
+	}()
 
 	// DistributeDatasetEntries
 	t.Run("DistributeDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -494,7 +494,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 			},
 		})
 		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	}()
 
 	// DeleteDataset
 	t.Run("DeleteDataset removes dataset", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -509,7 +509,7 @@ func TestAppendixA_Datasets(t *testing.T) { //nolint:paralleltest // existing is
 		// DescribeDataset should now return not found
 		rec = doRequest(t, h, "DescribeDataset", map[string]any{"DatasetArn": datasetARN})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+	}()
 }
 func TestAppendixA_Dataset_MissingProjectArn(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
@@ -545,7 +545,7 @@ func TestAppendixA_Dataset_MissingProjectArn(t *testing.T) { //nolint:parallelte
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.action, tc.body)
 			assert.Equal(t, http.StatusBadRequest, rec.Code, tc.name)
-		})
+		}()
 	}
 }
 
@@ -616,7 +616,7 @@ func TestAppendixA_Users(t *testing.T) { //nolint:paralleltest // existing issue
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestAppendixA_AssociateFaces(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -655,7 +655,7 @@ func TestAppendixA_AssociateFaces(t *testing.T) { //nolint:paralleltest // exist
 		associated, ok := resp["AssociatedFaces"].([]any)
 		require.True(t, ok)
 		assert.Len(t, associated, 1)
-	})
+	}()
 
 	// AssociateFaces with unknown face
 	t.Run("AssociateFaces unknown face is unsuccessful", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -671,7 +671,7 @@ func TestAppendixA_AssociateFaces(t *testing.T) { //nolint:paralleltest // exist
 		unsuccessful, ok := resp["UnsuccessfulFaceAssociations"].([]any)
 		require.True(t, ok)
 		assert.Len(t, unsuccessful, 1)
-	})
+	}()
 
 	// DisassociateFaces
 	t.Run("DisassociateFaces removes associated face", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -687,7 +687,7 @@ func TestAppendixA_AssociateFaces(t *testing.T) { //nolint:paralleltest // exist
 		disassociated, ok := resp["DisassociatedFaces"].([]any)
 		require.True(t, ok)
 		assert.Len(t, disassociated, 1)
-	})
+	}()
 }
 func TestAppendixA_SearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
@@ -773,7 +773,7 @@ func TestAppendixA_SearchUsers(t *testing.T) { //nolint:paralleltest // existing
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 
@@ -820,7 +820,7 @@ func TestAppendixA_FaceLiveness(t *testing.T) { //nolint:paralleltest // existin
 				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 				sessionID = resp["SessionId"].(string)
 			}
-		})
+		}()
 	}
 
 	t.Run("GetFaceLivenessSessionResults returns result", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -831,7 +831,7 @@ func TestAppendixA_FaceLiveness(t *testing.T) { //nolint:paralleltest // existin
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 		assert.Equal(t, "SUCCEEDED", resp["Status"])
 		assert.Equal(t, sessionID, resp["SessionId"])
-	})
+	}()
 
 	t.Run( //nolint:paralleltest // existing issue.
 		"GetFaceLivenessSessionResults unknown session returns error",
@@ -991,7 +991,7 @@ func TestAppendixA_ImageAnalysis(t *testing.T) { //nolint:paralleltest // existi
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 
@@ -1126,7 +1126,7 @@ func TestAppendixA_AsyncVideoJobs(t *testing.T) { //nolint:paralleltest // exist
 			if flow.checkGet != nil {
 				flow.checkGet(t, rec.Body.Bytes())
 			}
-		})
+		}()
 	}
 }
 func TestAppendixA_AsyncJob_NotFound(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1147,7 +1147,7 @@ func TestAppendixA_AsyncJob_NotFound(t *testing.T) { //nolint:paralleltest // ex
 		t.Run(action+"_unknown_job", func(t *testing.T) {
 			rec := doRequest(t, h, action, map[string]any{"JobId": "00000000-0000-0000-0000-000000000000"})
 			assert.Equal(t, http.StatusBadRequest, rec.Code, action)
-		})
+		}()
 	}
 }
 func TestAppendixA_AsyncJob_MissingJobId(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1168,7 +1168,7 @@ func TestAppendixA_AsyncJob_MissingJobId(t *testing.T) { //nolint:paralleltest /
 		t.Run(action+"_missing_job_id", func(t *testing.T) {
 			rec := doRequest(t, h, action, map[string]any{})
 			assert.Equal(t, http.StatusBadRequest, rec.Code, action)
-		})
+		}()
 	}
 }
 
@@ -1197,7 +1197,7 @@ func TestAppendixA_MediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // ex
 		assert.Equal(t, jobID, resp["JobId"])
 		assert.Equal(t, "my-analysis", resp["JobName"])
 		assert.Equal(t, "SUCCEEDED", resp["Status"])
-	})
+	}()
 
 	// List jobs
 	t.Run("ListMediaAnalysisJobs returns job", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1209,7 +1209,7 @@ func TestAppendixA_MediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // ex
 		jobs, ok := resp["MediaAnalysisJobs"].([]any)
 		require.True(t, ok)
 		assert.Len(t, jobs, 1)
-	})
+	}()
 
 	// Not found
 	t.Run("GetMediaAnalysisJob unknown returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1220,13 +1220,13 @@ func TestAppendixA_MediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // ex
 			map[string]any{"JobId": "does-not-exist"},
 		)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+	}()
 
 	// Missing ID
 	t.Run("GetMediaAnalysisJob missing ID returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		rec := doRequest(t, h, "GetMediaAnalysisJob", map[string]any{}) //nolint:govet // existing issue.
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+	}()
 }
 
 // faceModelVersion re-exported for use in tests.

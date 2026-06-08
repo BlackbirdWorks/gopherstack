@@ -122,7 +122,7 @@ func TestQuickSight_Folders(t *testing.T) { //nolint:paralleltest // existing is
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -251,7 +251,7 @@ func TestQuickSight_Templates(t *testing.T) { //nolint:paralleltest // existing 
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -373,7 +373,7 @@ func TestQuickSight_Themes(t *testing.T) { //nolint:paralleltest // existing iss
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -518,7 +518,7 @@ func TestQuickSight_Topics(t *testing.T) { //nolint:paralleltest // existing iss
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -581,7 +581,7 @@ func TestQuickSight_VPCConnections(t *testing.T) { //nolint:paralleltest // exis
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -644,7 +644,7 @@ func TestQuickSight_IAMPolicyAssignments(t *testing.T) { //nolint:paralleltest /
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -706,7 +706,7 @@ func TestQuickSight_CustomPermissions(t *testing.T) { //nolint:paralleltest // e
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -771,7 +771,7 @@ func TestQuickSight_RoleMemberships(t *testing.T) { //nolint:paralleltest // exi
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -862,7 +862,7 @@ func TestQuickSight_DataSetExtras(t *testing.T) { //nolint:paralleltest // exist
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -909,7 +909,7 @@ func TestQuickSight_DataSourceExtras(t *testing.T) { //nolint:paralleltest // ex
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1014,7 +1014,7 @@ func TestQuickSight_DashboardExtras(t *testing.T) { //nolint:paralleltest // exi
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1105,7 +1105,7 @@ func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing iss
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1167,7 +1167,7 @@ func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // exi
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1335,7 +1335,7 @@ func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // exi
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1376,7 +1376,7 @@ func TestQuickSight_AccountSubscription(t *testing.T) { //nolint:paralleltest //
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1433,7 +1433,7 @@ func TestQuickSight_EmbedURLs(t *testing.T) { //nolint:paralleltest // existing 
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1491,7 +1491,7 @@ func TestQuickSight_Search(t *testing.T) { //nolint:paralleltest // existing iss
 				body := parseBody(t, rec)
 				assert.Contains(t, body, tc.wantKey)
 			}
-		})
+		}()
 	}
 }
 
@@ -1525,6 +1525,6 @@ func TestQuickSight_UserCustomPermission(t *testing.T) { //nolint:paralleltest /
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantStatus, rec.Code, "status")
-		})
+		}()
 	}
 }

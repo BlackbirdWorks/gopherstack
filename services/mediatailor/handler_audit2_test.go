@@ -97,7 +97,7 @@ func TestAudit2_LiveSource_Create(t *testing.T) { //nolint:paralleltest // exist
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 }
 
@@ -187,7 +187,7 @@ func TestAudit2_LiveSource_NotFound(t *testing.T) { //nolint:paralleltest // exi
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		})
+		}()
 	}
 }
 
@@ -227,7 +227,7 @@ func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // e
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 
 	// get
@@ -290,7 +290,7 @@ func TestAudit2_PrefetchSchedule_NotFound(t *testing.T) { //nolint:paralleltest 
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		})
+		}()
 	}
 }
 
@@ -378,7 +378,7 @@ func TestAudit2_Program_NotFound(t *testing.T) { //nolint:paralleltest // existi
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		})
+		}()
 	}
 }
 
@@ -437,7 +437,7 @@ func TestAudit2_ChannelPolicy_FullCycle(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 }
 func TestAudit2_ChannelPolicy_NotFound(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -476,7 +476,7 @@ func TestAudit2_ChannelPolicy_NotFound(t *testing.T) { //nolint:paralleltest // 
 
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		})
+		}()
 	}
 }
 
@@ -562,7 +562,7 @@ func TestAudit2_Function_CRUD(t *testing.T) { //nolint:paralleltest // existing 
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 }
 func TestAudit2_Function_NotFound(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -591,7 +591,7 @@ func TestAudit2_Function_NotFound(t *testing.T) { //nolint:paralleltest // exist
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		})
+		}()
 	}
 }
 func TestAudit2_Function_MissingType(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -660,7 +660,7 @@ func TestAudit2_ConfigureLogsForChannel(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 }
 func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -707,6 +707,6 @@ func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:p
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		})
+		}()
 	}
 }

@@ -113,16 +113,13 @@ func (h *Handler) dispatchAppendixA( //nolint:cyclop,funlen // existing issue.
 		r, c := h.handleCheckAccessNotGranted(body)
 		return r, c, true, nil
 
-
 	case opCheckNoNewAccess:
 		r, c := h.handleCheckNoNewAccess(body)
 		return r, c, true, nil
 
-
 	case opCheckNoPublicAccess:
 		r, c := h.handleCheckNoPublicAccess(body)
 		return r, c, true, nil
-
 
 	case opCreateAccessPreview:
 		r, c, e := h.handleCreateAccessPreview(body)

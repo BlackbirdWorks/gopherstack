@@ -171,7 +171,7 @@ func TestIpGroupCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 			if len(afterDelete.Result) != 0 {
 				t.Fatalf("expected 0 groups after delete, got %d", len(afterDelete.Result))
 			}
-		})
+		}()
 	}
 }
 
@@ -268,7 +268,7 @@ func TestConnectionAliasCRUD(t *testing.T) { //nolint:paralleltest // existing i
 			if rec7.Code != http.StatusOK {
 				t.Fatalf("delete: expected 200, got %d", rec7.Code)
 			}
-		})
+		}()
 	}
 }
 
@@ -328,7 +328,7 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 			if rec3.Code != http.StatusOK {
 				t.Fatalf("delete: expected 200, got %d", rec3.Code)
 			}
-		})
+		}()
 	}
 }
 
@@ -425,7 +425,7 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			}
 
 			tc.check(t, rec.Body.Bytes())
-		})
+		}()
 	}
 }
 func TestWorkspaceImageDescribeAndPermissions(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -609,7 +609,7 @@ func TestWorkspacesPoolCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			if rec8.Code != http.StatusOK {
 				t.Fatalf("terminate: expected 200, got %d", rec8.Code)
 			}
-		})
+		}()
 	}
 }
 
@@ -652,7 +652,7 @@ func TestDirectoryRegistration(t *testing.T) { //nolint:paralleltest // existing
 			if rec2.Code != http.StatusOK {
 				t.Fatalf("deregister: expected 200, got %d", rec2.Code)
 			}
-		})
+		}()
 	}
 }
 
@@ -794,7 +794,7 @@ func TestConnectClientAddInCRUD(t *testing.T) { //nolint:paralleltest // existin
 			if len(afterDel.AddIns) != 0 {
 				t.Fatalf("expected 0 add-ins after delete, got %d", len(afterDel.AddIns))
 			}
-		})
+		}()
 	}
 }
 
@@ -912,7 +912,7 @@ func TestClientProperties(t *testing.T) { //nolint:paralleltest // existing issu
 			if got != tc.reconnectEnabled {
 				t.Fatalf("expected %s, got %s", tc.reconnectEnabled, got)
 			}
-		})
+		}()
 	}
 }
 
@@ -997,7 +997,7 @@ func TestDirectoryModifyOps(t *testing.T) { //nolint:paralleltest // existing is
 			if rec.Code != http.StatusOK {
 				t.Fatalf("%s: expected 200, got %d: %s", tc.op, rec.Code, rec.Body)
 			}
-		})
+		}()
 	}
 }
 
@@ -1108,7 +1108,7 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 			if delOut.AccountLink["Status"] != "DELETED" {
 				t.Fatalf("expected DELETED, got %s", delOut.AccountLink["Status"])
 			}
-		})
+		}()
 	}
 }
 
@@ -1242,7 +1242,7 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			tc.fn(t)
-		})
+		}()
 	}
 }
 
@@ -1297,7 +1297,7 @@ func TestWorkspaceLevelOps(t *testing.T) { //nolint:paralleltest // existing iss
 			if r.Code != http.StatusOK {
 				t.Fatalf("%s: expected 200, got %d: %s", tc.op, r.Code, r.Body)
 			}
-		})
+		}()
 	}
 }
 func TestMigrateWorkspace(t *testing.T) { //nolint:paralleltest // existing issue.

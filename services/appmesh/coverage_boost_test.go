@@ -28,7 +28,7 @@ func TestBackend_AccountIDRegionReset(t *testing.T) { //nolint:paralleltest // e
 			b := appmesh.NewInMemoryBackend(tt.accountID, tt.region)
 			assert.Equal(t, tt.accountID, b.AccountID())
 			assert.Equal(t, tt.region, b.Region())
-		})
+		}()
 	}
 }
 
@@ -82,40 +82,40 @@ func TestErrIs(t *testing.T) { //nolint:paralleltest // existing issue.
 		t.Run(tt.name, func(t *testing.T) {
 			got := appmesh.ErrIs(tt.err, tt.sentinel)
 			assert.Equal(t, tt.want, got)
-		})
+		}()
 	}
 }
 
 // ─── Backend Update operations (0% coverage) ───────────────────────────────── //nolint:godot // existing issue.
 func TestBackend_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		name      string
-		meshName  string
-		vrName    string
-		setup     func(b *appmesh.InMemoryBackend)
-		wantErr   error
-		wantNil   bool
+		name     string
+		meshName string
+		vrName   string
+		setup    func(b *appmesh.InMemoryBackend)
+		wantErr  error
+		wantNil  bool
 	}{
 		{
-			name:    "mesh not found",
+			name:     "mesh not found",
 			meshName: "no-mesh",
 			vrName:   "vr1",
 			setup:    func(b *appmesh.InMemoryBackend) {}, //nolint:revive // existing issue.
 			wantErr:  appmesh.ErrMeshNotFound,
 		},
 		{
-			name:    "virtual router not found",
+			name:     "virtual router not found",
 			meshName: "m1",
-			vrName:  "no-vr",
+			vrName:   "no-vr",
 			setup: func(b *appmesh.InMemoryBackend) {
 				_, _ = b.CreateMesh("m1", nil, nil)
 			},
 			wantErr: appmesh.ErrVirtualRouterNotFound,
 		},
 		{
-			name:    "success",
+			name:     "success",
 			meshName: "m1",
-			vrName:  "vr1",
+			vrName:   "vr1",
 			setup: func(b *appmesh.InMemoryBackend) {
 				_, _ = b.CreateMesh("m1", nil, nil)
 				_, _ = b.CreateVirtualRouter("m1", "vr1", nil, nil)
@@ -135,7 +135,7 @@ func TestBackend_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // ex
 			}
 			require.NoError(t, err)
 			assert.NotNil(t, vr)
-		})
+		}()
 	}
 }
 
@@ -202,7 +202,7 @@ func TestBackend_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing i
 			require.NoError(t, err)
 			assert.NotNil(t, r)
 			assert.Equal(t, int64(2), r.Meta.Version)
-		})
+		}()
 	}
 }
 
@@ -252,7 +252,7 @@ func TestBackend_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // e
 			}
 			require.NoError(t, err)
 			assert.NotNil(t, vs)
-		})
+		}()
 	}
 }
 
@@ -302,7 +302,7 @@ func TestBackend_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // e
 			}
 			require.NoError(t, err)
 			assert.NotNil(t, vg)
-		})
+		}()
 	}
 }
 
@@ -369,7 +369,7 @@ func TestBackend_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // exi
 			require.NoError(t, err)
 			assert.NotNil(t, gr)
 			assert.Equal(t, int64(2), gr.Meta.Version)
-		})
+		}()
 	}
 }
 
@@ -455,7 +455,7 @@ func TestBackend_PaginationViaListMeshes(t *testing.T) { //nolint:paralleltest /
 			} else {
 				assert.Empty(t, next)
 			}
-		})
+		}()
 	}
 }
 
@@ -502,7 +502,7 @@ func TestBackend_ArnLookupAllResourceTypes(t *testing.T) { //nolint:paralleltest
 			// TagResource exercises arnExists which calls all arnIn* helpers.
 			err := b.TagResource(tt.arn, map[string]string{"test": "value"}) //nolint:govet // existing issue.
 			assert.NoError(t, err, "TagResource should succeed for valid ARN: %s", tt.arn)
-		})
+		}()
 	}
 }
 
@@ -566,7 +566,7 @@ func TestAppMesh_UpdateVirtualRouter(t *testing.T) { //nolint:paralleltest // ex
 				require.True(t, ok)
 				assert.Equal(t, tt.vrName, vr["virtualRouterName"])
 			}
-		})
+		}()
 	}
 }
 
@@ -632,7 +632,7 @@ func TestAppMesh_UpdateRoute(t *testing.T) { //nolint:paralleltest // existing i
 				body := getBody(t, rec)
 				assert.Equal(t, tt.wantCode, body["code"])
 			}
-		})
+		}()
 	}
 }
 
@@ -679,7 +679,7 @@ func TestAppMesh_UpdateVirtualService(t *testing.T) { //nolint:paralleltest // e
 				body := getBody(t, rec)
 				assert.Equal(t, tt.wantCode, body["code"])
 			}
-		})
+		}()
 	}
 }
 
@@ -726,7 +726,7 @@ func TestAppMesh_UpdateVirtualGateway(t *testing.T) { //nolint:paralleltest // e
 				body := getBody(t, rec)
 				assert.Equal(t, tt.wantCode, body["code"])
 			}
-		})
+		}()
 	}
 }
 
@@ -779,7 +779,7 @@ func TestAppMesh_UpdateGatewayRoute(t *testing.T) { //nolint:paralleltest // exi
 				body := getBody(t, rec)
 				assert.Equal(t, tt.wantCode, body["code"])
 			}
-		})
+		}()
 	}
 }
 
@@ -807,7 +807,7 @@ func TestAppMesh_MethodNotAllowed(t *testing.T) { //nolint:paralleltest // exist
 			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 			body := getBody(t, rec)
 			assert.Equal(t, "MethodNotAllowedException", body["code"])
-		})
+		}()
 	}
 }
 
@@ -817,18 +817,21 @@ func TestAppMesh_HandlerMetadata(t *testing.T) { //nolint:paralleltest // existi
 
 	t.Run("Name", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		assert.Equal(t, "AppMesh", h.Name())
-	})
+	}()
+
+	func() {
+		t.Logf("Subtest: %v", "GetSupportedOperations")
 
 	t.Run("GetSupportedOperations", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		ops := h.GetSupportedOperations()
 		assert.NotEmpty(t, ops)
 		assert.Contains(t, ops, "CreateMesh")
 		assert.Contains(t, ops, "UpdateGatewayRoute")
-	})
+	}()
 
 	t.Run("MatchPriority", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		assert.Positive(t, h.MatchPriority())
-	})
+	}()
 }
 
 func TestAppMesh_ExtractOperation(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -888,15 +891,15 @@ func TestAppMesh_ExtractOperation(t *testing.T) { //nolint:paralleltest // exist
 			h := newTestHandler()
 			op := appmesh.ExtractOperationForTest(h, tt.method, tt.path)
 			assert.Equal(t, tt.want, op)
-		})
+		}()
 	}
 }
 
 func TestAppMesh_ExtractResource(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
-		name   string
-		path   string
-		want   string
+		name string
+		path string
+		want string
 	}{
 		{"mesh name extracted", "/v20190125/meshes/my-mesh", "my-mesh"},
 		{"collection path no name", "/v20190125/meshes", ""},
@@ -907,7 +910,7 @@ func TestAppMesh_ExtractResource(t *testing.T) { //nolint:paralleltest // existi
 			h := newTestHandler()
 			got := appmesh.ExtractResourceForTest(h, tt.path)
 			assert.Equal(t, tt.want, got)
-		})
+		}()
 	}
 }
 
@@ -927,7 +930,7 @@ func TestAppMesh_RouteMatcher(t *testing.T) { //nolint:paralleltest // existing 
 			h := newTestHandler()
 			got := appmesh.RouteMatcherForTest(h, tt.path)
 			assert.Equal(t, tt.want, got)
-		})
+		}()
 	}
 }
 
@@ -951,7 +954,7 @@ func TestAppMesh_UnknownPaths(t *testing.T) { //nolint:paralleltest // existing 
 			h := newTestHandler()
 			rec := doRequest(t, h, tt.method, tt.path, nil)
 			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
+		}()
 	}
 }
 
@@ -1057,7 +1060,7 @@ func TestAppMesh_DuplicateCreateErrors(t *testing.T) { //nolint:paralleltest // 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			body := getBody(t, rec)
 			assert.Equal(t, tt.wantCode, body["code"])
-		})
+		}()
 	}
 }
 
@@ -1079,7 +1082,7 @@ func TestAppMesh_RouteOpsOnMissingVirtualRouter(t *testing.T) { //nolint:paralle
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 			body := getBody(t, rec)
 			assert.Equal(t, "NotFoundException", body["code"])
-		})
+		}()
 	}
 }
 
@@ -1200,7 +1203,7 @@ func TestAppMesh_MethodNotAllowedNestedCollections(t *testing.T) { //nolint:para
 			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 			body := getBody(t, rec)
 			assert.Equal(t, "MethodNotAllowedException", body["code"])
-		})
+		}()
 	}
 }
 
