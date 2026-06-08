@@ -2706,7 +2706,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrDomainNameAccessAssociationNotFound),
 		errors.Is(reqErr, ErrModelNotFound),
 		errors.Is(reqErr, ErrUsagePlanNotFound),
-		errors.Is(reqErr, ErrUsagePlanKeyNotFound):
+		errors.Is(reqErr, ErrUsagePlanKeyNotFound),
+		errors.Is(reqErr, ErrStageNotFound),
+		errors.Is(reqErr, ErrNotFound):
 		errType = "NotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrAlreadyExists):
@@ -3208,7 +3210,7 @@ func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusAccepted, map[string]any{}, nil
+			return http.StatusNoContent, map[string]any{}, nil
 		},
 		opGetDocumentationVersion: func(b []byte) (int, any, error) {
 			var input getDocumentationVersionInput
@@ -3243,7 +3245,7 @@ func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusAccepted, map[string]any{}, nil
+			return http.StatusNoContent, map[string]any{}, nil
 		},
 	}
 }
@@ -3616,7 +3618,7 @@ func (h *Handler) updatePatchActionsMisc1() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusAccepted, nil, nil
+			return http.StatusNoContent, nil, nil
 		},
 	}
 }
@@ -3668,7 +3670,7 @@ func (h *Handler) updatePatchActionsMisc2() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusAccepted, nil, nil
+			return http.StatusNoContent, nil, nil
 		},
 		opGetUsage: func(b []byte) (int, any, error) {
 			var input GetUsageInput

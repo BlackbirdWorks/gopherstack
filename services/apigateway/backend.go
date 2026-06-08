@@ -2987,13 +2987,20 @@ func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string,
 		return "", fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	m, ok := d.models[modelName]
-	if !ok {
+	var model *Model
+	for _, m := range d.models {
+		if m.Name == modelName {
+			model = m
+			break
+		}
+	}
+
+	if model == nil {
 		return "", fmt.Errorf("%w: model %s not found", ErrNotFound, modelName)
 	}
 
-	if m.Schema != "" {
-		return m.Schema, nil
+	if model.Schema != "" {
+		return model.Schema, nil
 	}
 
 	return "#set($inputRoot = $input.path('$'))\n{}", nil

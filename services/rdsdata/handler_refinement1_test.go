@@ -434,7 +434,7 @@ func TestRefinement1_Snapshot_PreservesCounter(t *testing.T) {
 
 	// Create 3 transactions so counter is at 3.
 	for range 3 {
-		_, err := b.BeginTransaction(context.Background(), "arn")
+		_, err := b.BeginTransaction("arn")
 		require.NoError(t, err)
 	}
 
@@ -445,7 +445,7 @@ func TestRefinement1_Snapshot_PreservesCounter(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// After restore, the next transaction ID should continue from 4.
-	txID, err := b2.BeginTransaction(context.Background(), "arn")
+	txID, err := b2.BeginTransaction("arn")
 	require.NoError(t, err)
 	assert.Equal(t, "txn-000004", txID)
 }
@@ -495,7 +495,7 @@ func TestRefinement1_ListExecutedStatements_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	stmts := b.ListExecutedStatements(context.Background())
+	stmts := b.ListExecutedStatements()
 	assert.NotNil(t, stmts)
 	assert.Empty(t, stmts)
 }
@@ -505,7 +505,7 @@ func TestRefinement1_ListTransactions_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	txns := b.ListTransactions(context.Background())
+	txns := b.ListTransactions()
 	assert.NotNil(t, txns)
 	assert.Empty(t, txns)
 }

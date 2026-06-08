@@ -416,11 +416,9 @@ func parseJobOp(method, name, subOp string) string {
 	case subOp == "jobRuns" && method == http.MethodGet:
 
 		return opListJobRuns
-	case subOp == segJobRun && method == http.MethodGet:
-
+	case strings.HasPrefix(subOp, "jobRun/") && method == http.MethodGet:
 		return opDescribeJobRun
-	case subOp == segJobRun && method == http.MethodPost:
-
+	case strings.HasPrefix(subOp, "jobRun/") && method == http.MethodPost:
 		return opStopJobRun
 	case method == http.MethodGet && name == "":
 
@@ -475,13 +473,13 @@ func enrichDataBrewSubOpBody(path string, body []byte) []byte {
 	}
 
 	// e.g. /databrew/v1/jobs/{Name}/jobRun/{RunId}
-	if len(segments) >= 6 && segments[4] == segJobRun {
-		runIDJSON, _ := json.Marshal(segments[5])
+	if len(segments) >= 7 && segments[5] == "jobRun" {
+		runIDJSON, _ := json.Marshal(segments[6])
 		m["RunId"] = runIDJSON
 	}
 	// e.g. /databrew/v1/recipes/{Name}/recipeVersion/{RecipeVersion}
-	if len(segments) >= 6 && segments[4] == "recipeVersion" {
-		versionJSON, _ := json.Marshal(segments[5])
+	if len(segments) >= 7 && segments[5] == "recipeVersion" {
+		versionJSON, _ := json.Marshal(segments[6])
 		m["RecipeVersion"] = versionJSON
 	}
 	// tags ResourceArn

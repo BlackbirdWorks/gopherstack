@@ -951,7 +951,9 @@ func TestHandler_DisableImportFindingsForProduct(t *testing.T) {
 			doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
 
 			// Enable first
-			enableRec := doRequest(t, h, http.MethodPost, "/productSubscriptions/arn:aws:securityhub:us-east-1::product/aws/guardduty/subscription", nil)
+			enableRec := doRequest(t, h, http.MethodPost, "/productSubscriptions", map[string]any{
+				"ProductArn": "arn:aws:securityhub:us-east-1::product/aws/guardduty",
+			})
 			require.Equal(t, http.StatusOK, enableRec.Code)
 
 			var enableResp map[string]any
@@ -980,9 +982,10 @@ func TestHandler_UpdateSecurityControl(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPatch, "/securityControls/CloudTrail.1", map[string]any{
-				"Parameters":       map[string]any{"key": "value"},
-				"LastUpdateReason": "Testing",
+			rec := doRequest(t, h, http.MethodPatch, "/securityControl/update", map[string]any{
+				"SecurityControlId": "CloudTrail.1",
+				"Parameters":        map[string]any{"key": "value"},
+				"LastUpdateReason":  "Testing",
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
@@ -1005,7 +1008,7 @@ func TestHandler_BatchUpdateAutomationRules(t *testing.T) {
 			h := newTestHandler(t)
 
 			// Create a rule first
-			createRec := doRequest(t, h, http.MethodPost, "/automationRules", map[string]any{
+			createRec := doRequest(t, h, http.MethodPost, "/automationrules/create", map[string]any{
 				"RuleName":   "TestRule",
 				"RuleStatus": "ENABLED",
 				"RuleOrder":  float64(1),
@@ -1019,7 +1022,7 @@ func TestHandler_BatchUpdateAutomationRules(t *testing.T) {
 			ruleArn, _ := createResp["RuleArn"].(string)
 			require.NotEmpty(t, ruleArn)
 
-			rec := doRequest(t, h, http.MethodPatch, "/automationRules", map[string]any{
+			rec := doRequest(t, h, http.MethodPatch, "/automationrules/update", map[string]any{
 				"UpdateAutomationRulesRequestItems": []any{
 					map[string]any{
 						"RuleArn":     ruleArn,
@@ -1151,104 +1154,50 @@ func TestHandler_DeclineDeleteInvitations(t *testing.T) {
 func TestHandler_UpdateAggregatorV2(t *testing.T) {
 	t.Parallel()
 
-	type step struct {
-		name   string
-		method string
-		path   string
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
-	}
+	t.Run("create then update AggregatorV2", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
 
-	tests := []struct {
-		name  string
-		steps []step
-	}{
-		{
-			name: "create then update AggregatorV2",
-			steps: []step{
-				{
-					name:   "create",
-					method: http.MethodPost,
-					path:   "/aggregatorv2/create",
-					body: map[string]any{
-						"RegionLinkingMode": "ALL_REGIONS",
-						"Regions":           []any{},
-					},
-					check: func(t *testing.T, code int, resp map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-				{
-					name:   "update",
-					method: http.MethodPatch,
-					path:   "/aggregatorv2/update/aggregator-v2-1",
-					body: map[string]any{
-						"RegionLinkingMode": "SPECIFIED_REGIONS",
-						"Regions":           []any{"us-west-2"},
-					},
-					check: func(t *testing.T, code int, resp map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-						assert.Equal(t, "SPECIFIED_REGIONS", resp["RegionLinkingMode"])
-					},
-				},
-			},
-		},
-		{
-			name: "delete AggregatorV2",
-			steps: []step{
-				{
-					name:   "create",
-					method: http.MethodPost,
-					path:   "/aggregatorv2/create",
-					body: map[string]any{
-						"RegionLinkingMode": "ALL_REGIONS",
-						"Regions":           []any{},
-					},
-					check: func(t *testing.T, code int, _ map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-				{
-					name:   "delete",
-					method: http.MethodDelete,
-					path:   "/aggregatorv2/delete/aggregator-v2-1",
-					body:   nil,
-					check: func(t *testing.T, code int, _ map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-				{
-					name:   "get after delete returns 404",
-					method: http.MethodGet,
-					path:   "/aggregatorv2/get/aggregator-v2-1",
-					body:   nil,
-					check: func(t *testing.T, code int, _ map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusNotFound, code)
-					},
-				},
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-
-			for _, s := range tc.steps {
-				rec := doRequest(t, h, s.method, s.path, s.body)
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				s.check(t, rec.Code, resp)
-			}
+		rec := doRequest(t, h, http.MethodPost, "/aggregatorv2/create", map[string]any{
+			"RegionLinkingMode": "ALL_REGIONS",
+			"Regions":           []any{},
 		})
-	}
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		arn := resp["AggregatorV2Arn"].(string)
+
+		rec2 := doRequest(t, h, http.MethodPatch, "/aggregatorv2/update/"+arn, map[string]any{
+			"RegionLinkingMode": "SPECIFIED_REGIONS",
+			"Regions":           []any{"us-west-2"},
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+		var resp2 map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.Equal(t, "SPECIFIED_REGIONS", resp2["RegionLinkingMode"])
+	})
+
+	t.Run("delete AggregatorV2", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		rec := doRequest(t, h, http.MethodPost, "/aggregatorv2/create", map[string]any{
+			"RegionLinkingMode": "ALL_REGIONS",
+			"Regions":           []any{},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		arn := resp["AggregatorV2Arn"].(string)
+
+		rec2 := doRequest(t, h, http.MethodDelete, "/aggregatorv2/delete/"+arn, nil)
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		rec3 := doRequest(t, h, http.MethodGet, "/aggregatorv2/get/"+arn, nil)
+		require.Equal(t, http.StatusNotFound, rec3.Code)
+	})
 }
 
 func TestHandler_DisableSecurityHubV2(t *testing.T) {

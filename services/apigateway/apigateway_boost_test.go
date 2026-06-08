@@ -689,7 +689,7 @@ func TestBoost_GetModelTemplate(t *testing.T) {
 			wantCode:     http.StatusOK,
 			useValid:     true,
 			schema:       `{"type":"object"}`,
-			wantContains: `{"type":"object"}`,
+			wantContains: `{\"type\":\"object\"}`,
 		},
 		{
 			name:         "without_schema_default",

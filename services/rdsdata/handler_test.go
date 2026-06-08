@@ -2,7 +2,6 @@ package rdsdata_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -709,14 +708,13 @@ func TestBackend_ListExecutedStatements(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, _, _, err := b.ExecuteStatement(
-		context.Background(),
 		"arn:aws:rds:us-east-1:000000000000:cluster:test",
 		"SELECT 1",
 		"",
 	)
 	require.NoError(t, err)
 
-	stmts := b.ListExecutedStatements(context.Background())
+	stmts := b.ListExecutedStatements()
 	require.Len(t, stmts, 1)
 	assert.Equal(t, "SELECT 1", stmts[0].SQL)
 }
@@ -726,10 +724,10 @@ func TestBackend_ListTransactions(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	txID, err := b.BeginTransaction(context.Background(), "arn:aws:rds:us-east-1:000000000000:cluster:test")
+	txID, err := b.BeginTransaction("arn:aws:rds:us-east-1:000000000000:cluster:test")
 	require.NoError(t, err)
 
-	txns := b.ListTransactions(context.Background())
+	txns := b.ListTransactions()
 	assert.Contains(t, txns, txID)
 }
 

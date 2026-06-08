@@ -105,7 +105,7 @@ func (h *Handler) vpcLinkActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusAccepted, nil, nil
+			return http.StatusNoContent, nil, nil
 		},
 		opGetVpcLink: func(b []byte) (int, any, error) {
 			var input getVpcLinkInput
