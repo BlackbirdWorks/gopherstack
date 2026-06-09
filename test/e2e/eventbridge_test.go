@@ -18,7 +18,7 @@ import (
 func TestEventBridgeDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EventBridgeHandler.Backend.CreateEventBus("test-bus", "a test event bus")
+	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), "test-bus", "a test event bus")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
@@ -55,10 +55,10 @@ func TestEventBridgeDashboard(t *testing.T) {
 func TestEventBridgeDashboard_Rules(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EventBridgeHandler.Backend.CreateEventBus("rules-bus", "")
+	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), "rules-bus", "")
 	require.NoError(t, err)
 
-	_, err = stack.EventBridgeHandler.Backend.PutRule(ebbackend.PutRuleInput{
+	_, err = stack.EventBridgeHandler.Backend.PutRule(t.Context(), ebbackend.PutRuleInput{
 		Name:               "test-rule",
 		EventBusName:       "rules-bus",
 		State:              "ENABLED",

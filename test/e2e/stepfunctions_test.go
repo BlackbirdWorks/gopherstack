@@ -17,6 +17,7 @@ func TestStepFunctionsDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine(
+		t.Context(),
 		"test-state-machine",
 		`{"Comment":"test","StartAt":"Hello","States":{"Hello":{"Type":"Pass","End":true}}}`,
 		"arn:aws:iam::000000000000:role/sfn-role",

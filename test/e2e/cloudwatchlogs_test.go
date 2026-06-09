@@ -16,7 +16,7 @@ import (
 func TestCloudWatchLogsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup("/test/e2e-log-group", "", "")
+	_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup(t.Context(), "/test/e2e-log-group", "", "")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

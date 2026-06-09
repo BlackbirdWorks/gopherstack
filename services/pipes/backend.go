@@ -31,6 +31,7 @@ const (
 	stateStopFailed   = "STOP_FAILED"
 
 	// stateTransitionDelay is the simulated delay for async state transitions.
+	stateTransitionDelay = 10 * time.Millisecond
 
 	maxPipeNameLen  = 64
 	maxTagKeyLen    = 128
@@ -860,12 +861,12 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
 // cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
 // can wait for it.
-func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) { //nolint:unparam // existing issue.
+func (b *InMemoryBackend) runDelayed(fn func()) {
 	b.wg.Go(func() {
 		select {
 		case <-b.svcCtx.Done():
 			return
-		case <-time.After(delay):
+		case <-time.After(stateTransitionDelay):
 		}
 
 		fn()
@@ -987,7 +988,7 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	b.pipeARNIndex[pipeARN] = in.Name
 
 	cp := clonePipe(p)
-	b.runDelayed(0, func() {
+	b.runDelayed(func() {
 		b.completeCreateTransition(in.Name, in.DesiredState)
 	})
 
@@ -1227,7 +1228,7 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	b.runDelayed(0, func() {
+	b.runDelayed(func() {
 		b.completeUpdateTransition(name, prevDesiredState)
 	})
 
@@ -1259,7 +1260,7 @@ func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
-	b.runDelayed(0, func() {
+	b.runDelayed(func() {
 		b.completeDeleteTransition(name)
 	})
 
@@ -1298,7 +1299,7 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to RUNNING asynchronously.
-	b.runDelayed(0, func() {
+	b.runDelayed(func() {
 		b.completeStartTransition(name)
 	})
 
@@ -1337,7 +1338,7 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	// Complete the transition to STOPPED asynchronously.
-	b.runDelayed(0, func() {
+	b.runDelayed(func() {
 		b.completeStopTransition(name)
 	})
 

@@ -17,7 +17,7 @@ func TestMediaStoreDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.MediaStoreHandler.Backend.CreateContainer(
-		"us-east-1",
+		t.Context(),
 		"000000000000",
 		"e2e-test-container",
 		nil,
