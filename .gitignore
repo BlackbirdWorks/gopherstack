@@ -44,3 +44,4 @@ e2e.test
 .dolt/
 *.db
 .beads-credential-key
+*.py
