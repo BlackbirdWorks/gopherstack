@@ -48,7 +48,7 @@ func TestBatch2_PauseService_StateGuard(t *testing.T) { //nolint:paralleltest //
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
-		}()
+		})
 	}
 }
 func TestBatch2_ResumeService_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -88,7 +88,7 @@ func TestBatch2_ResumeService_StateGuard(t *testing.T) { //nolint:paralleltest /
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
-		}()
+		})
 	}
 }
 func TestBatch2_UpdateService_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -131,7 +131,7 @@ func TestBatch2_UpdateService_StateGuard(t *testing.T) { //nolint:paralleltest /
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
-		}()
+		})
 	}
 }
 func TestBatch2_StartDeployment_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -171,7 +171,7 @@ func TestBatch2_StartDeployment_StateGuard(t *testing.T) { //nolint:paralleltest
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
-		}()
+		})
 	}
 }
 
@@ -219,7 +219,7 @@ func TestAutoScalingConfigurationCRUD(t *testing.T) { //nolint:paralleltest // e
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -306,7 +306,7 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -395,7 +395,7 @@ func TestListServicesForAutoScalingConfiguration(t *testing.T) { //nolint:parall
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 
@@ -446,7 +446,7 @@ func TestConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -529,7 +529,7 @@ func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing 
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 
@@ -578,7 +578,7 @@ func TestObservabilityConfigurationCRUD(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -661,7 +661,7 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 
@@ -718,7 +718,7 @@ func TestVpcConnectorCRUD(t *testing.T) { //nolint:paralleltest // existing issu
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -816,7 +816,7 @@ func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 
@@ -877,7 +877,7 @@ func TestVpcIngressConnectionCRUD(t *testing.T) { //nolint:paralleltest // exist
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1008,7 +1008,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 
@@ -1072,7 +1072,7 @@ func TestCustomDomainAssociateDescribeDisassociate(t *testing.T) { //nolint:para
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }
 func TestCustomDomainDescribeAndDisassociate(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -1150,6 +1150,6 @@ func TestCustomDomainDescribeAndDisassociate(t *testing.T) { //nolint:parallelte
 			if tc.check != nil {
 				tc.check(t, rec.Body.Bytes())
 			}
-		}()
+		})
 	}
 }

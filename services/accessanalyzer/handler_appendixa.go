@@ -110,16 +110,19 @@ func (h *Handler) dispatchAppendixA( //nolint:cyclop,funlen // existing issue.
 		return nil, c, true, e
 
 	case opCheckAccessNotGranted:
-		r, c := h.handleCheckAccessNotGranted(body)
-		return r, c, true, nil
+		r, c, err := h.handleCheckAccessNotGranted(body)
+
+		return r, c, true, err
 
 	case opCheckNoNewAccess:
-		r, c := h.handleCheckNoNewAccess(body)
-		return r, c, true, nil
+		r, c, err := h.handleCheckNoNewAccess(body)
+
+		return r, c, true, err
 
 	case opCheckNoPublicAccess:
-		r, c := h.handleCheckNoPublicAccess(body)
-		return r, c, true, nil
+		r, c, err := h.handleCheckNoPublicAccess(body)
+
+		return r, c, true, err
 
 	case opCreateAccessPreview:
 		r, c, e := h.handleCreateAccessPreview(body)
@@ -207,9 +210,9 @@ func (h *Handler) dispatchAppendixA( //nolint:cyclop,funlen // existing issue.
 		return r, c, true, e
 
 	case opValidatePolicy:
-		r, c := h.handleValidatePolicy(body)
-		return r, c, true, nil
+		r, c, err := h.handleValidatePolicy(body)
 
+		return r, c, true, err
 	}
 
 	return nil, 0, false, nil
@@ -255,7 +258,7 @@ func (h *Handler) handleCheckNoNewAccess(_ []byte) (any, int, error) { //nolint:
 	return map[string]any{
 		"result":  "PASS",
 		"message": "The updated policy does not grant new access.",
-	}, http.StatusOK
+	}, http.StatusOK, nil
 }
 
 func (h *Handler) handleCheckNoPublicAccess(_ []byte) (any, int, error) { //nolint:unparam // existing issue.
@@ -263,7 +266,7 @@ func (h *Handler) handleCheckNoPublicAccess(_ []byte) (any, int, error) { //noli
 		"result":  "PASS",
 		"message": "The policy does not grant public access.",
 		"reasons": []any{},
-	}, http.StatusOK
+	}, http.StatusOK, nil
 }
 
 func (h *Handler) handleCreateAccessPreview(body []byte) (any, int, error) {
@@ -651,7 +654,7 @@ func (h *Handler) handleValidatePolicy(_ []byte) (any, int, error) { //nolint:un
 	return map[string]any{
 		"findings":  []any{},
 		"nextToken": "",
-	}, http.StatusOK
+	}, http.StatusOK, nil
 }
 
 // ---- JSON serialization helpers ----

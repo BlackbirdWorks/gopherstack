@@ -24,11 +24,17 @@ import (
 func newTestHandler(t *testing.T) *rolesanywhere.Handler {
 	t.Helper()
 	b := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
+
 	return rolesanywhere.NewHandler(b)
 }
 
 // doREST sends an HTTP request to the handler and returns the response recorder.
-func doREST(t *testing.T, h *rolesanywhere.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doREST(
+	t *testing.T,
+	h *rolesanywhere.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -154,20 +160,65 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		path   string
 		wantOp string
 	}{
-		{"GET /trustanchors → ListTrustAnchors", http.MethodGet, "/trustanchors", "ListTrustAnchors"},
-		{"POST /trustanchors → CreateTrustAnchor", http.MethodPost, "/trustanchors", "CreateTrustAnchor"},
-		{"GET /trustanchor/id → GetTrustAnchor", http.MethodGet, "/trustanchor/abc", "GetTrustAnchor"},
-		{"DELETE /trustanchor/id → DeleteTrustAnchor", http.MethodDelete, "/trustanchor/abc", "DeleteTrustAnchor"},
-		{"PATCH /trustanchor/id → UpdateTrustAnchor", http.MethodPatch, "/trustanchor/abc", "UpdateTrustAnchor"},
-		{"POST /trustanchor/id/enable → EnableTrustAnchor", http.MethodPost, "/trustanchor/abc/enable", "EnableTrustAnchor"},
-		{"POST /trustanchor/id/disable → DisableTrustAnchor", http.MethodPost, "/trustanchor/abc/disable", "DisableTrustAnchor"},
+		{
+			"GET /trustanchors → ListTrustAnchors",
+			http.MethodGet,
+			"/trustanchors",
+			"ListTrustAnchors",
+		},
+		{
+			"POST /trustanchors → CreateTrustAnchor",
+			http.MethodPost,
+			"/trustanchors",
+			"CreateTrustAnchor",
+		},
+		{
+			"GET /trustanchor/id → GetTrustAnchor",
+			http.MethodGet,
+			"/trustanchor/abc",
+			"GetTrustAnchor",
+		},
+		{
+			"DELETE /trustanchor/id → DeleteTrustAnchor",
+			http.MethodDelete,
+			"/trustanchor/abc",
+			"DeleteTrustAnchor",
+		},
+		{
+			"PATCH /trustanchor/id → UpdateTrustAnchor",
+			http.MethodPatch,
+			"/trustanchor/abc",
+			"UpdateTrustAnchor",
+		},
+		{
+			"POST /trustanchor/id/enable → EnableTrustAnchor",
+			http.MethodPost,
+			"/trustanchor/abc/enable",
+			"EnableTrustAnchor",
+		},
+		{
+			"POST /trustanchor/id/disable → DisableTrustAnchor",
+			http.MethodPost,
+			"/trustanchor/abc/disable",
+			"DisableTrustAnchor",
+		},
 		{"GET /profiles → ListProfiles", http.MethodGet, "/profiles", "ListProfiles"},
 		{"POST /profiles → CreateProfile", http.MethodPost, "/profiles", "CreateProfile"},
 		{"GET /profile/id → GetProfile", http.MethodGet, "/profile/abc", "GetProfile"},
 		{"DELETE /profile/id → DeleteProfile", http.MethodDelete, "/profile/abc", "DeleteProfile"},
 		{"PATCH /profile/id → UpdateProfile", http.MethodPatch, "/profile/abc", "UpdateProfile"},
-		{"POST /profile/id/enable → EnableProfile", http.MethodPost, "/profile/abc/enable", "EnableProfile"},
-		{"POST /profile/id/disable → DisableProfile", http.MethodPost, "/profile/abc/disable", "DisableProfile"},
+		{
+			"POST /profile/id/enable → EnableProfile",
+			http.MethodPost,
+			"/profile/abc/enable",
+			"EnableProfile",
+		},
+		{
+			"POST /profile/id/disable → DisableProfile",
+			http.MethodPost,
+			"/profile/abc/disable",
+			"DisableProfile",
+		},
 		{"GET /crls → ListCrls", http.MethodGet, "/crls", "ListCrls"},
 		{"POST /crls → ImportCrl", http.MethodPost, "/crls", "ImportCrl"},
 		{"GET /crl/id → GetCrl", http.MethodGet, "/crl/abc", "GetCrl"},
@@ -177,13 +228,38 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"POST /crl/id/disable → DisableCrl", http.MethodPost, "/crl/abc/disable", "DisableCrl"},
 		{"GET /subjects → ListSubjects", http.MethodGet, "/subjects", "ListSubjects"},
 		{"GET /subject/id → GetSubject", http.MethodGet, "/subject/abc", "GetSubject"},
-		{"PUT /profiles/id/mappings → PutAttributeMapping", http.MethodPut, "/profiles/abc/mappings", "PutAttributeMapping"},
-		{"DELETE /profiles/id/mappings → DeleteAttributeMapping", http.MethodDelete, "/profiles/abc/mappings", "DeleteAttributeMapping"},
-		{"PATCH /put-notifications-settings → PutNotificationSettings", http.MethodPatch, "/put-notifications-settings", "PutNotificationSettings"},
-		{"PATCH /reset-notifications-settings → ResetNotificationSettings", http.MethodPatch, "/reset-notifications-settings", "ResetNotificationSettings"},
+		{
+			"PUT /profiles/id/mappings → PutAttributeMapping",
+			http.MethodPut,
+			"/profiles/abc/mappings",
+			"PutAttributeMapping",
+		},
+		{
+			"DELETE /profiles/id/mappings → DeleteAttributeMapping",
+			http.MethodDelete,
+			"/profiles/abc/mappings",
+			"DeleteAttributeMapping",
+		},
+		{
+			"PATCH /put-notifications-settings → PutNotificationSettings",
+			http.MethodPatch,
+			"/put-notifications-settings",
+			"PutNotificationSettings",
+		},
+		{
+			"PATCH /reset-notifications-settings → ResetNotificationSettings",
+			http.MethodPatch,
+			"/reset-notifications-settings",
+			"ResetNotificationSettings",
+		},
 		{"POST /TagResource → TagResource", http.MethodPost, "/TagResource", "TagResource"},
 		{"POST /UntagResource → UntagResource", http.MethodPost, "/UntagResource", "UntagResource"},
-		{"GET /ListTagsForResource → ListTagsForResource", http.MethodGet, "/ListTagsForResource", "ListTagsForResource"},
+		{
+			"GET /ListTagsForResource → ListTagsForResource",
+			http.MethodGet,
+			"/ListTagsForResource",
+			"ListTagsForResource",
+		},
 		{"unknown path → Unknown", http.MethodGet, "/unknown-path", "Unknown"},
 		{"wrong method on TagResource → Unknown", http.MethodGet, "/TagResource", "Unknown"},
 	}
@@ -265,8 +341,8 @@ func TestHandler_TrustAnchor_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 		wantGet    int
 	}{
@@ -306,7 +382,13 @@ func TestHandler_TrustAnchor_CRUD(t *testing.T) {
 			assert.Equal(t, http.StatusOK, recList.Code)
 
 			// Update.
-			recUpdate := doREST(t, h, http.MethodPatch, "/trustanchor/"+id, map[string]any{"name": "renamed-anchor"})
+			recUpdate := doREST(
+				t,
+				h,
+				http.MethodPatch,
+				"/trustanchor/"+id,
+				map[string]any{"name": "renamed-anchor"},
+			)
 			assert.Equal(t, http.StatusOK, recUpdate.Code)
 
 			// Enable / Disable.
@@ -373,10 +455,10 @@ func TestHandler_TrustAnchor_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
@@ -474,7 +556,7 @@ func TestHandler_ListTrustAnchors_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
 					"name":   "anchor-page-" + string(rune('a'+i)),
 					"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
@@ -496,8 +578,8 @@ func TestHandler_Profile_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 	}{
 		{
@@ -565,10 +647,10 @@ func TestHandler_Profile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
@@ -629,7 +711,12 @@ func TestHandler_Profile_InvalidJSON(t *testing.T) {
 		wantStatus int
 	}{
 		{"create profile with invalid json", "/profiles", http.MethodPost, http.StatusBadRequest},
-		{"update profile with invalid json", "/profile/some-id", http.MethodPatch, http.StatusBadRequest},
+		{
+			"update profile with invalid json",
+			"/profile/some-id",
+			http.MethodPatch,
+			http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -677,8 +764,8 @@ func TestHandler_CRL_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		createBody map[string]any
+		name       string
 		wantCreate int
 	}{
 		{
@@ -717,7 +804,13 @@ func TestHandler_CRL_CRUD(t *testing.T) {
 			assert.Equal(t, http.StatusOK, recList.Code)
 
 			// Update.
-			recUpdate := doREST(t, h, http.MethodPatch, "/crl/"+id, map[string]any{"name": "updated-crl"})
+			recUpdate := doREST(
+				t,
+				h,
+				http.MethodPatch,
+				"/crl/"+id,
+				map[string]any{"name": "updated-crl"},
+			)
 			assert.Equal(t, http.StatusOK, recUpdate.Code)
 
 			// Disable / Enable.
@@ -742,10 +835,10 @@ func TestHandler_CRL_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
@@ -907,10 +1000,16 @@ func TestHandler_AttributeMapping_CRUD(t *testing.T) {
 			profileID := p["profileId"].(string)
 
 			// Put mapping.
-			recPut := doREST(t, h, http.MethodPut, "/profiles/"+profileID+"/mappings", map[string]any{
-				"certificateField": "x509Subject",
-				"mappingRules":     []map[string]any{{"specifier": "CN"}},
-			})
+			recPut := doREST(
+				t,
+				h,
+				http.MethodPut,
+				"/profiles/"+profileID+"/mappings",
+				map[string]any{
+					"certificateField": "x509Subject",
+					"mappingRules":     []map[string]any{{"specifier": "CN"}},
+				},
+			)
 			assert.Equal(t, tt.wantStatus, recPut.Code)
 
 			var putResp map[string]any
@@ -942,7 +1041,11 @@ func TestHandler_AttributeMapping_InvalidJSON(t *testing.T) {
 
 			h := newTestHandler(t)
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPut, "/profiles/some-id/mappings", bytes.NewReader([]byte(`{invalid`)))
+			req := httptest.NewRequest(
+				http.MethodPut,
+				"/profiles/some-id/mappings",
+				bytes.NewReader([]byte(`{invalid`)),
+			)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -956,10 +1059,10 @@ func TestHandler_AttributeMapping_ProfileNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		method     string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
@@ -1033,12 +1136,18 @@ func TestHandler_NotificationSettings_PutReset(t *testing.T) {
 			assert.Contains(t, putResp, "trustAnchor")
 
 			// Reset notification settings.
-			recReset := doREST(t, h, http.MethodPatch, "/reset-notifications-settings", map[string]any{
-				"trustAnchorId": taID,
-				"notificationSettingKeys": []map[string]any{
-					{"event": "CA_CERTIFICATE_EXPIRY"},
+			recReset := doREST(
+				t,
+				h,
+				http.MethodPatch,
+				"/reset-notifications-settings",
+				map[string]any{
+					"trustAnchorId": taID,
+					"notificationSettingKeys": []map[string]any{
+						{"event": "CA_CERTIFICATE_EXPIRY"},
+					},
 				},
-			})
+			)
 			assert.Equal(t, tt.wantStatus, recReset.Code)
 		})
 	}
@@ -1052,8 +1161,16 @@ func TestHandler_NotificationSettings_InvalidJSON(t *testing.T) {
 		path       string
 		wantStatus int
 	}{
-		{"put notifications invalid json → 400", "/put-notifications-settings", http.StatusBadRequest},
-		{"reset notifications invalid json → 400", "/reset-notifications-settings", http.StatusBadRequest},
+		{
+			"put notifications invalid json → 400",
+			"/put-notifications-settings",
+			http.StatusBadRequest,
+		},
+		{
+			"reset notifications invalid json → 400",
+			"/reset-notifications-settings",
+			http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1062,7 +1179,11 @@ func TestHandler_NotificationSettings_InvalidJSON(t *testing.T) {
 
 			h := newTestHandler(t)
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPatch, tt.path, bytes.NewReader([]byte(`{invalid`)))
+			req := httptest.NewRequest(
+				http.MethodPatch,
+				tt.path,
+				bytes.NewReader([]byte(`{invalid`)),
+			)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -1076,21 +1197,27 @@ func TestHandler_NotificationSettings_TrustAnchorNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       any
 		name       string
 		path       string
-		body       any
 		wantStatus int
 	}{
 		{
-			name:       "put notifications nonexistent anchor → 404",
-			path:       "/put-notifications-settings",
-			body:       map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettings": []any{}},
+			name: "put notifications nonexistent anchor → 404",
+			path: "/put-notifications-settings",
+			body: map[string]any{
+				"trustAnchorId":        "no-such-anchor",
+				"notificationSettings": []any{},
+			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "reset notifications nonexistent anchor → 404",
-			path:       "/reset-notifications-settings",
-			body:       map[string]any{"trustAnchorId": "no-such-anchor", "notificationSettingKeys": []any{}},
+			name: "reset notifications nonexistent anchor → 404",
+			path: "/reset-notifications-settings",
+			body: map[string]any{
+				"trustAnchorId":           "no-such-anchor",
+				"notificationSettingKeys": []any{},
+			},
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -1145,11 +1272,23 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 			assert.Len(t, tags, 2)
 
 			// Untag resource.
-			recUntag := doREST(t, h, http.MethodPost, "/UntagResource?resourceArn="+resARN+"&tagKeys=env", nil)
+			recUntag := doREST(
+				t,
+				h,
+				http.MethodPost,
+				"/UntagResource?resourceArn="+resARN+"&tagKeys=env",
+				nil,
+			)
 			assert.Equal(t, http.StatusOK, recUntag.Code)
 
 			// Verify tag removed.
-			recList2 := doREST(t, h, http.MethodGet, "/ListTagsForResource?resourceArn="+resARN, nil)
+			recList2 := doREST(
+				t,
+				h,
+				http.MethodGet,
+				"/ListTagsForResource?resourceArn="+resARN,
+				nil,
+			)
 			require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listResp))
 			tags2 := listResp["tags"].([]any)
 			assert.Len(t, tags2, 1)
@@ -1173,7 +1312,11 @@ func TestHandler_TagResource_InvalidJSON(t *testing.T) {
 
 			h := newTestHandler(t)
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPost, "/TagResource", bytes.NewReader([]byte(`{invalid`)))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/TagResource",
+				bytes.NewReader([]byte(`{invalid`)),
+			)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -1199,7 +1342,13 @@ func TestHandler_Tags_EmptyList(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doREST(t, h, http.MethodGet, "/ListTagsForResource?resourceArn=arn:aws:unknown", nil)
+			rec := doREST(
+				t,
+				h,
+				http.MethodGet,
+				"/ListTagsForResource?resourceArn=arn:aws:unknown",
+				nil,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -1400,14 +1549,17 @@ func TestBackend_TagResource_Upsert(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantValues map[string]string
 		name       string
 		initial    []rolesanywhere.TagEntry
 		updates    []rolesanywhere.TagEntry
-		wantValues map[string]string
 	}{
 		{
-			name:    "update existing key preserves other keys",
-			initial: []rolesanywhere.TagEntry{{Key: "env", Value: "dev"}, {Key: "team", Value: "ops"}},
+			name: "update existing key preserves other keys",
+			initial: []rolesanywhere.TagEntry{
+				{Key: "env", Value: "dev"},
+				{Key: "team", Value: "ops"},
+			},
 			updates: []rolesanywhere.TagEntry{{Key: "env", Value: "prod"}},
 			wantValues: map[string]string{
 				"env":  "prod",
@@ -1452,13 +1604,13 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		newName           string
-		roleArns          []string
-		managedPolicyArns []string
-		sessionPolicy     string
 		requireIP         *bool
 		dur               *int32
+		name              string
+		newName           string
+		sessionPolicy     string
+		roleArns          []string
+		managedPolicyArns []string
 	}{
 		{
 			name:              "update all fields",
@@ -1476,9 +1628,25 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			p, _ := b.CreateProfile("base-profile", []string{"arn:aws:iam::123:role/OldRole"}, nil, nil, nil, "", false)
+			p, _ := b.CreateProfile(
+				"base-profile",
+				[]string{"arn:aws:iam::123:role/OldRole"},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+			)
 
-			updated, err := b.UpdateProfile(p.ProfileID, tt.newName, tt.roleArns, tt.dur, tt.managedPolicyArns, tt.sessionPolicy, tt.requireIP)
+			updated, err := b.UpdateProfile(
+				p.ProfileID,
+				tt.newName,
+				tt.roleArns,
+				tt.dur,
+				tt.managedPolicyArns,
+				tt.sessionPolicy,
+				tt.requireIP,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.newName, updated.Name)
 			assert.Equal(t, tt.roleArns, updated.RoleArns)
@@ -1517,8 +1685,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		ctx     *service.AppContext
+		name    string
 		wantErr bool
 	}{
 		{

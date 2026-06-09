@@ -97,7 +97,7 @@ func TestAudit2_LiveSource_Create(t *testing.T) { //nolint:paralleltest // exist
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 }
 
@@ -187,14 +187,14 @@ func TestAudit2_LiveSource_NotFound(t *testing.T) { //nolint:paralleltest // exi
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		}()
+		})
 	}
 }
 
 // --- PrefetchSchedule tests --- //nolint:godot // existing issue.
 func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
-	createTestPlaybackConfig(t, h)
+	createTestPlaybackConfig(t, h, "config1")
 
 	tests := []struct {
 		check    func(t *testing.T, rec *httptest.ResponseRecorder)
@@ -219,7 +219,7 @@ func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // e
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h2 := newTestHandler(t)
-			createTestPlaybackConfig(t, h2)
+			createTestPlaybackConfig(t, h2, "config1")
 
 			rec := doRequest(t, h2, http.MethodPost, "/prefetchSchedule/pc1/sched1", nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -227,7 +227,7 @@ func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // e
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 
 	// get
@@ -286,18 +286,18 @@ func TestAudit2_PrefetchSchedule_NotFound(t *testing.T) { //nolint:paralleltest 
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestPlaybackConfig(t, h)
+			createTestPlaybackConfig(t, h, "config1")
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		}()
+		})
 	}
 }
 
 // --- Program tests --- //nolint:godot // existing issue.
 func TestAudit2_Program_CRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
-	createTestChannel(t, h)
+	createTestChannel(t, h, "ch1")
 
 	// create program
 	rec := doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", map[string]any{
@@ -374,18 +374,18 @@ func TestAudit2_Program_NotFound(t *testing.T) { //nolint:paralleltest // existi
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestChannel(t, h)
+			createTestChannel(t, h, "ch1")
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		}()
+		})
 	}
 }
 
 // --- ChannelPolicy tests --- //nolint:godot // existing issue.
 func TestAudit2_ChannelPolicy_FullCycle(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
-	createTestChannel(t, h)
+	createTestChannel(t, h, "ch1")
 
 	tests := []struct {
 		check    func(t *testing.T, rec *httptest.ResponseRecorder)
@@ -437,7 +437,7 @@ func TestAudit2_ChannelPolicy_FullCycle(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 }
 func TestAudit2_ChannelPolicy_NotFound(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -472,11 +472,11 @@ func TestAudit2_ChannelPolicy_NotFound(t *testing.T) { //nolint:paralleltest // 
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestChannel(t, h)
+			createTestChannel(t, h, "ch1")
 
 			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		}()
+		})
 	}
 }
 
@@ -562,7 +562,7 @@ func TestAudit2_Function_CRUD(t *testing.T) { //nolint:paralleltest // existing 
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 }
 func TestAudit2_Function_NotFound(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -591,7 +591,7 @@ func TestAudit2_Function_NotFound(t *testing.T) { //nolint:paralleltest // exist
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
-		}()
+		})
 	}
 }
 func TestAudit2_Function_MissingType(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -652,7 +652,7 @@ func TestAudit2_ConfigureLogsForChannel(t *testing.T) { //nolint:paralleltest //
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestChannel(t, h)
+			createTestChannel(t, h, "ch1")
 
 			rec := doRequest(t, h, http.MethodPut, "/configureLogs/channel", tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -660,7 +660,7 @@ func TestAudit2_ConfigureLogsForChannel(t *testing.T) { //nolint:paralleltest //
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 }
 func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -699,7 +699,7 @@ func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:p
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestPlaybackConfig(t, h)
+			createTestPlaybackConfig(t, h, "config1")
 
 			rec := doRequest(t, h, http.MethodPut, "/configureLogs/playbackConfiguration", tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -707,6 +707,6 @@ func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:p
 			if tc.check != nil {
 				tc.check(t, rec)
 			}
-		}()
+		})
 	}
 }

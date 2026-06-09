@@ -2,7 +2,7 @@ module github.com/blackbirdworks/gopherstack
 
 go 1.26
 
-toolchain go1.26.3
+toolchain go1.26.4
 
 require (
 	github.com/alecthomas/kong v1.15.0
@@ -168,6 +168,7 @@ require github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.48.0
+	github.com/aws/aws-sdk-go-v2/service/appmesh v1.36.2
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.2
 	github.com/aws/aws-sdk-go-v2/service/comprehend v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/databrew v1.40.0
@@ -193,14 +194,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/translate v1.34.2
 	github.com/aws/aws-sdk-go-v2/service/waf v1.30.24
 	github.com/aws/aws-sdk-go-v2/service/workmail v1.37.2
+	github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3
 )
 
-require github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3 // indirect
-
-require (
-	github.com/aws/aws-sdk-go-v2/service/appmesh v1.36.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3 // indirect
-)
+require github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2

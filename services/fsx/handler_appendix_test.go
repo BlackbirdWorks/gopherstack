@@ -496,7 +496,7 @@ func TestFSx_Snapshot(t *testing.T) {
 			var body map[string]any
 			if !tc.wantErr {
 				fsID := createFS(t, h, "ONTAP")
-				volID := createVolume(t, h, fsID, "vol1")
+				volID := createVolume(t, h, fsID, "ONTAP", "vol1")
 				body = map[string]any{"VolumeId": volID, "Name": "snap1"}
 			} else {
 				body = map[string]any{"Name": "snap1"}
@@ -525,7 +525,7 @@ func TestFSx_SnapshotLifecycle(t *testing.T) {
 		h := newTestHandler(t)
 		b := fsx.GetBackend(h)
 		fsID := createFS(t, h, "ONTAP")
-		volID := createVolume(t, h, fsID, "vol1")
+		volID := createVolume(t, h, fsID, "ONTAP", "vol1")
 
 		rec := doFSxRequest(t, h, "CreateSnapshot", map[string]any{
 			"VolumeId": volID,
@@ -738,7 +738,7 @@ func TestFSx_VolumeLifecycle(t *testing.T) {
 		h := newTestHandler(t)
 		b := fsx.GetBackend(h)
 		fsID := createFS(t, h, "ONTAP")
-		volID := createVolume(t, h, fsID, "vol1")
+		volID := createVolume(t, h, fsID, "ONTAP", "vol1")
 
 		assert.Equal(t, 1, fsx.VolumeCount(b))
 
@@ -827,7 +827,7 @@ func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		fsID := createFS(t, h, "ONTAP")
-		volID := createVolume(t, h, fsID, "vol1")
+		volID := createVolume(t, h, fsID, "ONTAP", "vol1")
 
 		// create snapshot
 		rec := doFSxRequest(t, h, "CreateSnapshot", map[string]any{
@@ -858,7 +858,7 @@ func TestFSx_CopySnapshotAndUpdateVolume(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		fsID := createFS(t, h, "ONTAP")
-		volID := createVolume(t, h, fsID, "vol1")
+		volID := createVolume(t, h, fsID, "ONTAP", "vol1")
 
 		rec := doFSxRequest(t, h, "CreateSnapshot", map[string]any{
 			"VolumeId": volID,
