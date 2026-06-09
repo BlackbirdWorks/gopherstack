@@ -1094,7 +1094,7 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 	}
 
 	var count int
-	if _, err = fmt.Sscanf(countStr, "%d", &count); err != nil || count <= 0 {
+	if _, err = fmt.Sscanf(countStr, "%d", &count); err != nil || count <= 0 || count > 256 {
 		return ""
 	}
 

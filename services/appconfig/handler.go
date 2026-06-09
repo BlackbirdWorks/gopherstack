@@ -1651,8 +1651,8 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nameFilter := q.Get("name")
 	var versionNumber int32
 	if s := q.Get("extension_version_number"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			versionNumber = int32(n) //nolint:gosec // version number bounded by API constraints
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n > 0 {
+			versionNumber = int32(n)
 		}
 	}
 	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter, versionNumber)

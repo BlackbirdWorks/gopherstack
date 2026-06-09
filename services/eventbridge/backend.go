@@ -586,7 +586,11 @@ func indexKeysFromRule(rule *Rule) []ruleIndexKey {
 		detailTypes = rule.compiledPattern.detailTypeExactValues
 	}
 
-	keys := make([]ruleIndexKey, 0, len(sources)*len(detailTypes))
+	size := len(sources) * len(detailTypes)
+	if size > 10000 || size < 0 {
+		size = 0
+	}
+	keys := make([]ruleIndexKey, 0, size)
 	for _, source := range sources {
 		for _, detailType := range detailTypes {
 			keys = append(keys, ruleIndexKey{

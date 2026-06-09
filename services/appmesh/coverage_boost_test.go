@@ -534,11 +534,11 @@ func TestBackend_ArnLookupAllResourceTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// TagResource exercises arnExists which calls all arnIn* helpers.
-			err = b.TagResource(
+			tagErr := b.TagResource(
 				tt.arn,
 				map[string]string{"test": "value"},
 			)
-			assert.NoError(t, err, "TagResource should succeed for valid ARN: %s", tt.arn)
+			assert.NoError(t, tagErr, "TagResource should succeed for valid ARN: %s", tt.arn)
 		})
 	}
 }
