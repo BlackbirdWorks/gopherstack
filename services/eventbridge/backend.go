@@ -587,7 +587,8 @@ func indexKeysFromRule(rule *Rule) []ruleIndexKey {
 	}
 
 	size := len(sources) * len(detailTypes)
-	if size > 10000 || size < 0 {
+	const maxSize = 10000
+	if size > maxSize || size < 0 {
 		size = 0
 	}
 	keys := make([]ruleIndexKey, 0, size)
