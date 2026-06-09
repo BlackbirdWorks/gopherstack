@@ -10,10 +10,10 @@ import (
 // IAM policy Condition blocks. All fields are optional; missing keys simply
 // fail to match condition operators that require them.
 type ConditionContext struct {
-	Extra    map[string]string
-	SourceIP string
-	Username string
-	UserID   string
+	Extra    map[string]string `json:"extra,omitempty"`
+	SourceIP string            `json:"sourceIP,omitempty"`
+	Username string            `json:"username,omitempty"`
+	UserID   string            `json:"userID,omitempty"`
 }
 
 // conditionMatches returns true if all condition operators in the map are satisfied

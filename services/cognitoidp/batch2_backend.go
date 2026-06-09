@@ -35,7 +35,7 @@ type SmsMfaConfiguration struct {
 
 // SoftwareTokenMfaConfiguration holds TOTP MFA settings for a user pool.
 type SoftwareTokenMfaConfiguration struct {
-	Enabled bool `json:"Enabled"`
+	Enabled bool `json:"Enabled,omitempty"`
 }
 
 // EmailMfaConfiguration holds email OTP MFA settings for a user pool.
@@ -46,10 +46,10 @@ type EmailMfaConfiguration struct {
 
 // UserPoolMfaFullConfig holds the complete MFA configuration for a pool.
 type UserPoolMfaFullConfig struct {
-	SmsMfaConfiguration   *SmsMfaConfiguration
-	SoftwareTokenMfa      *SoftwareTokenMfaConfiguration
-	EmailMfaConfiguration *EmailMfaConfiguration
-	MfaConfiguration      string
+	SmsMfaConfiguration   *SmsMfaConfiguration           `json:"smsMfaConfiguration,omitempty"`
+	SoftwareTokenMfa      *SoftwareTokenMfaConfiguration `json:"softwareTokenMfa,omitempty"`
+	EmailMfaConfiguration *EmailMfaConfiguration         `json:"emailMfaConfiguration,omitempty"`
+	MfaConfiguration      string                         `json:"mfaConfiguration,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -58,8 +58,8 @@ type UserPoolMfaFullConfig struct {
 
 // attrVerificationEntry stores a pending attribute verification code.
 type attrVerificationEntry struct {
-	ExpiresAt time.Time
-	Code      string
+	ExpiresAt time.Time `json:"expiresAt"`
+	Code      string    `json:"code,omitempty"`
 }
 
 // attrVerificationTTL is how long attribute verification codes remain valid.
@@ -92,7 +92,7 @@ const cloudFrontDistIDLen = 13
 
 // CompromisedCredentialsActions defines what action to take for compromised credentials.
 type CompromisedCredentialsActions struct {
-	EventAction string `json:"EventAction"` // "BLOCK" | "NO_ACTION"
+	EventAction string `json:"EventAction,omitempty"` // "BLOCK" | "NO_ACTION"
 }
 
 // CompromisedCredentialsRiskConfig holds the compromised credentials risk configuration.
@@ -103,8 +103,8 @@ type CompromisedCredentialsRiskConfig struct {
 
 // AccountTakeoverActionType defines an action for a specific risk level.
 type AccountTakeoverActionType struct {
-	EventAction string `json:"EventAction"`
-	Notify      bool   `json:"Notify"`
+	EventAction string `json:"EventAction,omitempty"`
+	Notify      bool   `json:"Notify,omitempty"`
 }
 
 // AccountTakeoverActions defines actions per risk level.
@@ -139,17 +139,17 @@ type AccountTakeoverRiskConfig struct {
 
 // RiskExceptionConfig holds IP range exception configuration for adaptive authentication.
 type RiskExceptionConfig struct {
-	BlockedIPRangeList []string
-	SkippedIPRangeList []string
+	BlockedIPRangeList []string `json:"blockedIPRangeList,omitempty"`
+	SkippedIPRangeList []string `json:"skippedIPRangeList,omitempty"`
 }
 
 // TypedRiskConfiguration holds fully typed risk config fields.
 type TypedRiskConfiguration struct {
-	CompromisedCredentialsRiskConfig *CompromisedCredentialsRiskConfig
-	AccountTakeoverRiskConfig        *AccountTakeoverRiskConfig
-	RiskExceptionConfiguration       *RiskExceptionConfig
-	UserPoolID                       string
-	ClientID                         string
+	CompromisedCredentialsRiskConfig *CompromisedCredentialsRiskConfig `json:"compromisedCredentialsRiskConfig,omitempty"`
+	AccountTakeoverRiskConfig        *AccountTakeoverRiskConfig        `json:"accountTakeoverRiskConfig,omitempty"`
+	RiskExceptionConfiguration       *RiskExceptionConfig              `json:"riskExceptionConfiguration,omitempty"`
+	UserPoolID                       string                            `json:"userPoolID,omitempty"`
+	ClientID                         string                            `json:"clientID,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

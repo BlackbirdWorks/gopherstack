@@ -4,30 +4,38 @@ import (
 	"encoding/json"
 )
 
+//nolint:govet // fieldalignment is ignored for this struct
 type backendSnapshot struct {
-	RolePolicies          map[string][]string                  `json:"rolePolicies"`
-	GroupPolicies         map[string][]string                  `json:"groupPolicies"`
-	Policies              map[string]Policy                    `json:"policies"`
-	Groups                map[string]Group                     `json:"groups"`
-	AccessKeys            map[string]AccessKey                 `json:"accessKeys"`
-	InstanceProfiles      map[string]InstanceProfile           `json:"instanceProfiles"`
-	SAMLProviders         map[string]SAMLProvider              `json:"samlProviders"`
-	OIDCProviders         map[string]OIDCProvider              `json:"oidcProviders"`
-	LoginProfiles         map[string]LoginProfile              `json:"loginProfiles"`
-	GroupMembers          map[string][]string                  `json:"groupMembers"`
-	Roles                 map[string]Role                      `json:"roles"`
-	Users                 map[string]User                      `json:"users"`
-	UserPolicies          map[string][]string                  `json:"userPolicies"`
-	UserInlinePolicies    map[string]map[string]string         `json:"userInlinePolicies"`
-	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies"`
-	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies"`
-	DelegationRequests    map[string]DelegationRequest         `json:"delegationRequests"`
-	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions"`
-	PolicyVersionCounters map[string]int                       `json:"policyVersionCounters"`
-	ServiceSpecificCreds  map[string]ServiceSpecificCredential `json:"serviceSpecificCreds"`
-	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices"`
-	AccountID             string                               `json:"accountID"`
-	AccountAliases        []string                             `json:"accountAliases"`
+	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
+	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
+	Policies              map[string]Policy                    `json:"policies,omitempty"`
+	Groups                map[string]Group                     `json:"groups,omitempty"`
+	AccessKeys            map[string]AccessKey                 `json:"accessKeys,omitempty"`
+	InstanceProfiles      map[string]InstanceProfile           `json:"instanceProfiles,omitempty"`
+	SAMLProviders         map[string]SAMLProvider              `json:"samlProviders,omitempty"`
+	OIDCProviders         map[string]OIDCProvider              `json:"oidcProviders,omitempty"`
+	LoginProfiles         map[string]LoginProfile              `json:"loginProfiles,omitempty"`
+	GroupMembers          map[string][]string                  `json:"groupMembers,omitempty"`
+	Roles                 map[string]Role                      `json:"roles,omitempty"`
+	Users                 map[string]User                      `json:"users,omitempty"`
+	UserPolicies          map[string][]string                  `json:"userPolicies,omitempty"`
+	UserInlinePolicies    map[string]map[string]string         `json:"userInlinePolicies,omitempty"`
+	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
+	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies,omitempty"`
+	DelegationRequests    map[string]DelegationRequest         `json:"delegationRequests,omitempty"`
+	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions,omitempty"`
+	PolicyVersionCounters map[string]int                       `json:"policyVersionCounters,omitempty"`
+	ServiceSpecificCreds  map[string]ServiceSpecificCredential `json:"serviceSpecificCreds,omitempty"`
+	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
+	AccountID             string                               `json:"accountID,omitempty"`
+	AccountAliases        []string                             `json:"accountAliases,omitempty"`
+	PolicyByARN           map[string]string                    `json:"policyByARN,omitempty"`
+	RoleByARN             map[string]string                    `json:"roleByARN,omitempty"`
+	PolicyAttachments     map[string]policyAttachmentRefs      `json:"policyAttachments,omitempty"`
+	DeletedV1Policies     map[string]bool                      `json:"deletedV1Policies,omitempty"`
+	SigningCertificates   map[string]SigningCertificate        `json:"signingCertificates,omitempty"`
+	ServerCertificates    map[string]ServerCertificate         `json:"serverCertificates,omitempty"`
+	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -60,6 +68,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		VirtualMFADevices:     b.virtualMFADevices,
 		DelegationRequests:    b.delegationRequests,
 		AccountID:             b.accountID,
+		PolicyByARN:           b.policyByARN,
+		RoleByARN:             b.roleByARN,
+		PolicyAttachments:     b.policyAttachments,
+		DeletedV1Policies:     b.deletedV1Policies,
+		SigningCertificates:   b.signingCertificates,
+		ServerCertificates:    b.serverCertificates,
+		PasswordPolicy:        b.passwordPolicy,
 	}
 
 	data, err := json.Marshal(snap)
@@ -108,6 +123,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.delegationRequests = snap.DelegationRequests
 	b.accountID = snap.AccountID
 	b.rebuildIndexesLocked()
+
+	if snap.PolicyByARN != nil {
+		b.policyByARN = snap.PolicyByARN
+	} else {
+		b.policyByARN = make(map[string]string)
+	}
+	if snap.RoleByARN != nil {
+		b.roleByARN = snap.RoleByARN
+	} else {
+		b.roleByARN = make(map[string]string)
+	}
+	if snap.PolicyAttachments != nil {
+		b.policyAttachments = snap.PolicyAttachments
+	} else {
+		b.policyAttachments = make(map[string]policyAttachmentRefs)
+	}
+	if snap.DeletedV1Policies != nil {
+		b.deletedV1Policies = snap.DeletedV1Policies
+	} else {
+		b.deletedV1Policies = make(map[string]bool)
+	}
+	if snap.SigningCertificates != nil {
+		b.signingCertificates = snap.SigningCertificates
+	} else {
+		b.signingCertificates = make(map[string]SigningCertificate)
+	}
+	if snap.ServerCertificates != nil {
+		b.serverCertificates = snap.ServerCertificates
+	} else {
+		b.serverCertificates = make(map[string]ServerCertificate)
+	}
+	b.passwordPolicy = snap.PasswordPolicy
 
 	return nil
 }

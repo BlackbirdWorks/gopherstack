@@ -14,68 +14,68 @@ import (
 
 // IdentityProvider represents a federated identity provider attached to a user pool.
 type IdentityProvider struct {
-	ProviderDetails  map[string]string
-	AttributeMapping map[string]string
-	CreatedAt        time.Time
-	LastModifiedAt   time.Time
-	UserPoolID       string
-	ProviderName     string
-	ProviderType     string
-	IdpIdentifiers   []string
+	ProviderDetails  map[string]string `json:"providerDetails,omitempty"`
+	AttributeMapping map[string]string `json:"attributeMapping,omitempty"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	LastModifiedAt   time.Time         `json:"lastModifiedAt"`
+	UserPoolID       string            `json:"userPoolID,omitempty"`
+	ProviderName     string            `json:"providerName,omitempty"`
+	ProviderType     string            `json:"providerType,omitempty"`
+	IdpIdentifiers   []string          `json:"idpIdentifiers,omitempty"`
 }
 
 // UserPoolDomain holds the custom domain configuration for a user pool.
 type UserPoolDomain struct {
-	Domain                 string
-	UserPoolID             string
-	CloudFrontDistribution string
-	CertificateArn         string
-	Status                 string
+	Domain                 string `json:"domain,omitempty"`
+	UserPoolID             string `json:"userPoolID,omitempty"`
+	CloudFrontDistribution string `json:"cloudFrontDistribution,omitempty"`
+	CertificateArn         string `json:"certificateArn,omitempty"`
+	Status                 string `json:"status,omitempty"`
 }
 
 // RiskConfiguration stores adaptive authentication settings for a pool or client.
 type RiskConfiguration struct {
 	// Stored as an opaque blob; individual fields not needed for emulation.
-	Raw map[string]any
+	Raw map[string]any `json:"raw,omitempty"`
 }
 
 // LogDeliveryConfig holds log delivery destination configuration for a pool.
 type LogDeliveryConfig struct {
-	Raw map[string]any
+	Raw map[string]any `json:"raw,omitempty"`
 }
 
 // UICustomization stores hosted-UI CSS and logo settings for a pool or client.
 type UICustomization struct {
-	CreatedAt      time.Time
-	LastModifiedAt time.Time
-	UserPoolID     string
-	ClientID       string
-	CSS            string
-	ImageURL       string
+	CreatedAt      time.Time `json:"createdAt"`
+	LastModifiedAt time.Time `json:"lastModifiedAt"`
+	UserPoolID     string    `json:"userPoolID,omitempty"`
+	ClientID       string    `json:"clientID,omitempty"`
+	CSS            string    `json:"css,omitempty"`
+	ImageURL       string    `json:"imageURL,omitempty"`
 }
 
 // ManagedLoginBranding stores managed login branding for a pool client.
 type ManagedLoginBranding struct {
-	CreatedAt              time.Time
-	LastModifiedAt         time.Time
-	ManagedLoginBrandingID string
-	UserPoolID             string
-	ClientID               string
+	CreatedAt              time.Time `json:"createdAt"`
+	LastModifiedAt         time.Time `json:"lastModifiedAt"`
+	ManagedLoginBrandingID string    `json:"managedLoginBrandingID,omitempty"`
+	UserPoolID             string    `json:"userPoolID,omitempty"`
+	ClientID               string    `json:"clientID,omitempty"`
 }
 
 // Terms stores the terms and conditions text for a user pool.
 type Terms struct {
-	UserPoolID string
-	Text       string
+	UserPoolID string `json:"userPoolID,omitempty"`
+	Text       string `json:"text,omitempty"`
 }
 
 // UserImportJob represents a bulk user import job.
 type UserImportJob struct {
-	CreatedAt  time.Time
-	JobID      string
-	JobName    string
-	UserPoolID string
-	Status     string // Created | Pending | InProgress | Stopping | Stopped | Succeeded | Failed | Expired
+	CreatedAt  time.Time `json:"createdAt"`
+	JobID      string    `json:"jobID,omitempty"`
+	JobName    string    `json:"jobName,omitempty"`
+	UserPoolID string    `json:"userPoolID,omitempty"`
+	Status     string    `json:"status,omitempty"` // Created | Pending | InProgress | Stopping ...
 }
 
 // ---------------------------------------------------------------------------

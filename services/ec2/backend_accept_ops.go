@@ -35,90 +35,90 @@ var (
 // AddressTransfer represents a pending Elastic IP address transfer.
 type AddressTransfer struct {
 	TransferOfferExpiry time.Time `json:"transferOfferExpiry"`
-	AllocationID        string    `json:"allocationID"`
-	PublicIP            string    `json:"publicIP"`
-	TransferAccountID   string    `json:"transferAccountID"`
-	TransferOfferStatus string    `json:"transferOfferStatus"`
+	AllocationID        string    `json:"allocationID,omitempty"`
+	PublicIP            string    `json:"publicIP,omitempty"`
+	TransferAccountID   string    `json:"transferAccountID,omitempty"`
+	TransferOfferStatus string    `json:"transferOfferStatus,omitempty"`
 }
 
 // CapacityReservation represents an EC2 Capacity Reservation.
 type CapacityReservation struct {
 	CreateTime             time.Time `json:"createTime"`
-	CapacityReservationID  string    `json:"capacityReservationID"`
-	InstanceType           string    `json:"instanceType"`
-	AvailabilityZone       string    `json:"availabilityZone"`
-	OwnedBy                string    `json:"ownedBy"`
-	State                  string    `json:"state"`
-	AvailableInstanceCount int       `json:"availableInstanceCount"`
-	TotalInstanceCount     int       `json:"totalInstanceCount"`
+	CapacityReservationID  string    `json:"capacityReservationID,omitempty"`
+	InstanceType           string    `json:"instanceType,omitempty"`
+	AvailabilityZone       string    `json:"availabilityZone,omitempty"`
+	OwnedBy                string    `json:"ownedBy,omitempty"`
+	State                  string    `json:"state,omitempty"`
+	AvailableInstanceCount int       `json:"availableInstanceCount,omitempty"`
+	TotalInstanceCount     int       `json:"totalInstanceCount,omitempty"`
 }
 
 // ReservedInstancesExchange represents a completed reserved instances exchange.
 type ReservedInstancesExchange struct {
-	ExchangeID              string   `json:"exchangeID"`
-	Status                  string   `json:"status"`
-	ReservedInstanceIDs     []string `json:"reservedInstanceIDs"`
-	TargetReservedInstances []string `json:"targetReservedInstances"`
+	ExchangeID              string   `json:"exchangeID,omitempty"`
+	Status                  string   `json:"status,omitempty"`
+	ReservedInstanceIDs     []string `json:"reservedInstanceIDs,omitempty"`
+	TargetReservedInstances []string `json:"targetReservedInstances,omitempty"`
 }
 
 // TransitGatewayMulticastDomainAssociation represents a multicast domain association.
 type TransitGatewayMulticastDomainAssociation struct {
-	TransitGatewayMulticastDomainID string `json:"transitGatewayMulticastDomainID"`
-	TransitGatewayAttachmentID      string `json:"transitGatewayAttachmentID"`
-	SubnetID                        string `json:"subnetID"`
-	State                           string `json:"state"`
+	TransitGatewayMulticastDomainID string `json:"transitGatewayMulticastDomainID,omitempty"`
+	TransitGatewayAttachmentID      string `json:"transitGatewayAttachmentID,omitempty"`
+	SubnetID                        string `json:"subnetID,omitempty"`
+	State                           string `json:"state,omitempty"`
 }
 
 // TransitGatewayPeeringAttachment represents a TGW peering attachment.
 type TransitGatewayPeeringAttachment struct {
 	CreationTime               time.Time `json:"creationTime"`
-	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID"`
-	RequesterTransitGatewayID  string    `json:"requesterTransitGatewayID"`
-	AccepterTransitGatewayID   string    `json:"accepterTransitGatewayID"`
-	State                      string    `json:"state"`
+	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
+	RequesterTransitGatewayID  string    `json:"requesterTransitGatewayID,omitempty"`
+	AccepterTransitGatewayID   string    `json:"accepterTransitGatewayID,omitempty"`
+	State                      string    `json:"state,omitempty"`
 }
 
 // TransitGatewayVpcAttachment represents a TGW VPC attachment.
 type TransitGatewayVpcAttachment struct {
 	CreationTime               time.Time `json:"creationTime"`
-	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID"`
-	TransitGatewayID           string    `json:"transitGatewayID"`
-	VpcID                      string    `json:"vpcID"`
-	State                      string    `json:"state"`
+	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
+	TransitGatewayID           string    `json:"transitGatewayID,omitempty"`
+	VpcID                      string    `json:"vpcID,omitempty"`
+	State                      string    `json:"state,omitempty"`
 }
 
 // VpcEndpointConnection represents a VPC endpoint connection to a service.
 type VpcEndpointConnection struct {
 	CreationTime  time.Time `json:"creationTime"`
-	ServiceID     string    `json:"serviceID"`
-	VpcEndpointID string    `json:"vpcEndpointID"`
-	State         string    `json:"state"`
+	ServiceID     string    `json:"serviceID,omitempty"`
+	VpcEndpointID string    `json:"vpcEndpointID,omitempty"`
+	State         string    `json:"state,omitempty"`
 }
 
 // VpcPeeringConnection represents a VPC peering connection.
 type VpcPeeringConnection struct {
 	ExpirationTime         time.Time `json:"expirationTime"`
-	VpcPeeringConnectionID string    `json:"vpcPeeringConnectionID"`
-	RequesterVpcID         string    `json:"requesterVpcID"`
-	AccepterVpcID          string    `json:"accepterVpcID"`
-	State                  string    `json:"state"`
+	VpcPeeringConnectionID string    `json:"vpcPeeringConnectionID,omitempty"`
+	RequesterVpcID         string    `json:"requesterVpcID,omitempty"`
+	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
+	State                  string    `json:"state,omitempty"`
 }
 
 // ByoipCidr represents a Bring Your Own IP (BYOIP) CIDR entry.
 type ByoipCidr struct {
-	Cidr          string `json:"cidr"`
-	State         string `json:"state"`
-	StatusMessage string `json:"statusMessage"`
+	Cidr          string `json:"cidr,omitempty"`
+	State         string `json:"state,omitempty"`
+	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
 // Host represents a Dedicated Host.
 type Host struct {
-	HostID           string    `json:"hostID"`
-	InstanceType     string    `json:"instanceType"`
-	AvailabilityZone string    `json:"availabilityZone"`
-	State            string    `json:"state"`
+	HostID           string    `json:"hostID,omitempty"`
+	InstanceType     string    `json:"instanceType,omitempty"`
+	AvailabilityZone string    `json:"availabilityZone,omitempty"`
+	State            string    `json:"state,omitempty"`
 	AllocationTime   time.Time `json:"allocationTime"`
-	OwnedBy          string    `json:"ownedBy"`
+	OwnedBy          string    `json:"ownedBy,omitempty"`
 }
 
 // ---- Reset ----

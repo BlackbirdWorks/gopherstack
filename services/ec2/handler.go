@@ -28,7 +28,7 @@ const (
 
 // Handler is the Echo HTTP handler for EC2 operations.
 type Handler struct {
-	Backend Backend
+	Backend Backend `json:"backend"`
 	ops     map[string]ec2ActionFn
 	janitor *Janitor
 	// svcCtx is the service-lifetime context derived from the root service
@@ -37,8 +37,8 @@ type Handler struct {
 	// context but should still be cancelled at service shutdown.
 	// Falls back to context.Background until StartWorker has run.
 	svcCtx    context.Context
-	AccountID string
-	Region    string
+	AccountID string `json:"accountID,omitempty"`
+	Region    string `json:"region,omitempty"`
 }
 
 // NewHandler creates a new EC2 handler with the given backend.
@@ -766,8 +766,8 @@ type describeVpcAttributeResponse struct {
 
 // namedBoolAttr is a boolean attribute element whose XML element name is set dynamically.
 type namedBoolAttr struct {
-	XMLName xml.Name
-	Value   string `xml:"value"`
+	XMLName xml.Name `json:"xmlName"`
+	Value   string   `json:"value,omitempty" xml:"value"`
 }
 
 func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any, error) {
@@ -1686,8 +1686,8 @@ type describeLaunchTemplatesResponse struct {
 // namedStringAttr is a string attribute element whose XML element name is set dynamically.
 // Used for DescribeInstanceAttribute where the attribute name becomes the element name.
 type namedStringAttr struct {
-	XMLName xml.Name
-	Value   string `xml:"value"`
+	XMLName xml.Name `json:"xmlName"`
+	Value   string   `json:"value,omitempty" xml:"value"`
 }
 
 type describeInstanceAttributeResponse struct {

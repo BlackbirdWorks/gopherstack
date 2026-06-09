@@ -31,36 +31,36 @@ var (
 // FlowLog represents a VPC Flow Log record.
 type FlowLog struct {
 	CreationTime       time.Time `json:"creationTime"`
-	FlowLogID          string    `json:"flowLogId"`
-	ResourceID         string    `json:"resourceId"`
-	TrafficType        string    `json:"trafficType"`
-	LogDestinationType string    `json:"logDestinationType"`
-	LogDestination     string    `json:"logDestination"`
-	FlowLogStatus      string    `json:"flowLogStatus"`
+	FlowLogID          string    `json:"flowLogId,omitempty"`
+	ResourceID         string    `json:"resourceId,omitempty"`
+	TrafficType        string    `json:"trafficType,omitempty"`
+	LogDestinationType string    `json:"logDestinationType,omitempty"`
+	LogDestination     string    `json:"logDestination,omitempty"`
+	FlowLogStatus      string    `json:"flowLogStatus,omitempty"`
 }
 
 // DhcpConfiguration is a single key-value configuration inside a DHCP options set.
 type DhcpConfiguration struct {
-	Key    string   `json:"key"`
-	Values []string `json:"values"`
+	Key    string   `json:"key,omitempty"`
+	Values []string `json:"values,omitempty"`
 }
 
 // DhcpOptions represents an EC2 DHCP options set.
 type DhcpOptions struct {
-	DhcpOptionsID    string              `json:"dhcpOptionsId"`
-	Configurations   []DhcpConfiguration `json:"configurations"`
-	AssociatedVPCIDs []string            `json:"associatedVpcIds"`
+	DhcpOptionsID    string              `json:"dhcpOptionsId,omitempty"`
+	Configurations   []DhcpConfiguration `json:"configurations,omitempty"`
+	AssociatedVPCIDs []string            `json:"associatedVpcIds,omitempty"`
 }
 
 // LaunchTemplateVersion holds the versioned launch template data.
 type LaunchTemplateVersion struct {
 	CreateTime         time.Time `json:"createTime"`
-	LaunchTemplateID   string    `json:"launchTemplateId"`
-	LaunchTemplateName string    `json:"launchTemplateName"`
-	ImageID            string    `json:"imageId"`
-	InstanceType       string    `json:"instanceType"`
+	LaunchTemplateID   string    `json:"launchTemplateId,omitempty"`
+	LaunchTemplateName string    `json:"launchTemplateName,omitempty"`
+	ImageID            string    `json:"imageId,omitempty"`
+	InstanceType       string    `json:"instanceType,omitempty"`
 	VersionNumber      int64     `json:"versionNumber"`
-	DefaultVersion     bool      `json:"defaultVersion"`
+	DefaultVersion     bool      `json:"defaultVersion,omitempty"`
 }
 
 // ---- Transit Gateway VPC Attachments ----

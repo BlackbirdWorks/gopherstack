@@ -19,9 +19,9 @@ type CreateAccountAliasResponse struct {
 // StoredPolicyVersion is the in-memory representation of a managed policy version.
 type StoredPolicyVersion struct {
 	CreateDate       time.Time `json:"CreateDate"`
-	PolicyDocument   string    `json:"PolicyDocument"`
-	VersionID        string    `json:"VersionId"`
-	IsDefaultVersion bool      `json:"IsDefaultVersion"`
+	PolicyDocument   string    `json:"PolicyDocument,omitempty"`
+	VersionID        string    `json:"VersionId,omitempty"`
+	IsDefaultVersion bool      `json:"IsDefaultVersion,omitempty"`
 }
 
 // CreatePolicyVersionResult contains the created policy version details.
@@ -57,12 +57,12 @@ type CreateServiceLinkedRoleResponse struct {
 // ServiceSpecificCredential represents a service-specific credential for an IAM user.
 type ServiceSpecificCredential struct {
 	CreateDate                  time.Time `json:"CreateDate"`
-	UserName                    string    `json:"UserName"`
-	ServiceName                 string    `json:"ServiceName"`
-	ServiceUserName             string    `json:"ServiceUserName"`
-	ServicePassword             string    `json:"ServicePassword"`
-	ServiceSpecificCredentialID string    `json:"ServiceSpecificCredentialId"`
-	Status                      string    `json:"Status"`
+	UserName                    string    `json:"UserName,omitempty"`
+	ServiceName                 string    `json:"ServiceName,omitempty"`
+	ServiceUserName             string    `json:"ServiceUserName,omitempty"`
+	ServicePassword             string    `json:"ServicePassword,omitempty"`
+	ServiceSpecificCredentialID string    `json:"ServiceSpecificCredentialId,omitempty"`
+	Status                      string    `json:"Status,omitempty"`
 }
 
 // ServiceSpecificCredentialXML is the XML representation of a service-specific credential.
@@ -101,11 +101,11 @@ const (
 // VirtualMFADevice represents an IAM virtual MFA device.
 type VirtualMFADevice struct {
 	CreateDate           time.Time `json:"CreateDate"`
-	SerialNumber         string    `json:"SerialNumber"`
-	VirtualMFADeviceName string    `json:"VirtualMFADeviceName"`
-	Path                 string    `json:"Path"`
+	SerialNumber         string    `json:"SerialNumber,omitempty"`
+	VirtualMFADeviceName string    `json:"VirtualMFADeviceName,omitempty"`
+	Path                 string    `json:"Path,omitempty"`
 	// Status tracks the MFA device lifecycle: not_assigned → Active → Deactivated.
-	Status           string `json:"Status"`
+	Status           string `json:"Status,omitempty"`
 	Base32StringSeed string `json:"Base32StringSeed,omitempty"`
 	QRCodePNG        string `json:"QRCodePNG,omitempty"`
 }
@@ -135,9 +135,9 @@ type CreateVirtualMFADeviceResponse struct {
 // DelegationRequest represents an IAM delegation request (stub).
 type DelegationRequest struct {
 	CreateDate      time.Time `json:"CreateDate"`
-	DelegationID    string    `json:"DelegationId"`
-	TargetAccountID string    `json:"TargetAccountId"`
-	Status          string    `json:"Status"`
+	DelegationID    string    `json:"DelegationId,omitempty"`
+	TargetAccountID string    `json:"TargetAccountId,omitempty"`
+	Status          string    `json:"Status,omitempty"`
 	PolicyArn       string    `json:"PolicyArn,omitempty"`
 }
 

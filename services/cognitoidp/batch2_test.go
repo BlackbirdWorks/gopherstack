@@ -34,7 +34,7 @@ func TestBatch2_GetUserPoolMfaConfig_DefaultsToOFF(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		MfaConfiguration string `json:"MfaConfiguration"`
+		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "OFF", out.MfaConfiguration)
@@ -62,11 +62,11 @@ func TestBatch2_SetGetMfaConfig_SmsMfaConfiguration(t *testing.T) {
 	var setOut struct {
 		SmsMfaConfiguration *struct {
 			SmsConfiguration *struct {
-				SnsCallerArn string `json:"SnsCallerArn"`
+				SnsCallerArn string `json:"SnsCallerArn,omitempty"`
 			} `json:"SmsConfiguration"`
-			SmsAuthenticationMessage string `json:"SmsAuthenticationMessage"`
+			SmsAuthenticationMessage string `json:"SmsAuthenticationMessage,omitempty"`
 		} `json:"SmsMfaConfiguration"`
-		MfaConfiguration string `json:"MfaConfiguration"`
+		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
 	assert.Equal(t, "ON", setOut.MfaConfiguration)
@@ -83,9 +83,9 @@ func TestBatch2_SetGetMfaConfig_SmsMfaConfiguration(t *testing.T) {
 
 	var getOut struct {
 		SmsMfaConfiguration *struct {
-			SmsAuthenticationMessage string `json:"SmsAuthenticationMessage"`
+			SmsAuthenticationMessage string `json:"SmsAuthenticationMessage,omitempty"`
 		} `json:"SmsMfaConfiguration"`
-		MfaConfiguration string `json:"MfaConfiguration"`
+		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
 	assert.Equal(t, "ON", getOut.MfaConfiguration)
@@ -110,9 +110,9 @@ func TestBatch2_SetGetMfaConfig_SoftwareTokenMfa(t *testing.T) {
 
 	var setOut struct {
 		SoftwareTokenMfaConfiguration *struct {
-			Enabled bool `json:"Enabled"`
+			Enabled bool `json:"Enabled,omitempty"`
 		} `json:"SoftwareTokenMfaConfiguration"`
-		MfaConfiguration string `json:"MfaConfiguration"`
+		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
 	assert.Equal(t, "OPTIONAL", setOut.MfaConfiguration)
@@ -127,7 +127,7 @@ func TestBatch2_SetGetMfaConfig_SoftwareTokenMfa(t *testing.T) {
 
 	var getOut struct {
 		SoftwareTokenMfaConfiguration *struct {
-			Enabled bool `json:"Enabled"`
+			Enabled bool `json:"Enabled,omitempty"`
 		} `json:"SoftwareTokenMfaConfiguration"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
@@ -153,8 +153,8 @@ func TestBatch2_SetGetMfaConfig_EmailMfa(t *testing.T) {
 
 	var setOut struct {
 		EmailMfaConfiguration *struct {
-			Message string `json:"Message"`
-			Subject string `json:"Subject"`
+			Message string `json:"Message,omitempty"`
+			Subject string `json:"Subject,omitempty"`
 		} `json:"EmailMfaConfiguration"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
@@ -246,12 +246,12 @@ func TestBatch2_UICustomization_SetGet_WithImageUrl(t *testing.T) {
 
 	var setOut struct {
 		UICustomization *struct {
-			UserPoolID       string  `json:"UserPoolId"`
-			ClientID         string  `json:"ClientId"`
-			CSS              string  `json:"CSS"`
-			ImageURL         string  `json:"ImageUrl"`
-			CreationDate     float64 `json:"CreationDate"`
-			LastModifiedDate float64 `json:"LastModifiedDate"`
+			UserPoolID       string  `json:"UserPoolId,omitempty"`
+			ClientID         string  `json:"ClientId,omitempty"`
+			CSS              string  `json:"CSS,omitempty"`
+			ImageURL         string  `json:"ImageUrl,omitempty"`
+			CreationDate     float64 `json:"CreationDate,omitempty"`
+			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
@@ -272,9 +272,9 @@ func TestBatch2_UICustomization_SetGet_WithImageUrl(t *testing.T) {
 
 	var getOut struct {
 		UICustomization *struct {
-			CSS              string  `json:"CSS"`
-			ImageURL         string  `json:"ImageUrl"`
-			LastModifiedDate float64 `json:"LastModifiedDate"`
+			CSS              string  `json:"CSS,omitempty"`
+			ImageURL         string  `json:"ImageUrl,omitempty"`
+			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
@@ -297,8 +297,8 @@ func TestBatch2_UICustomization_Get_Empty(t *testing.T) {
 
 	var out struct {
 		UICustomization *struct {
-			UserPoolID string `json:"UserPoolId"`
-			CSS        string `json:"CSS"`
+			UserPoolID string `json:"UserPoolId,omitempty"`
+			CSS        string `json:"CSS,omitempty"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -377,11 +377,11 @@ func TestBatch2_IdentityProvider_SAML_WithAttributeMapping(t *testing.T) {
 
 	var createOut struct {
 		IdentityProvider *struct {
-			ProviderName     string            `json:"ProviderName"`
-			ProviderType     string            `json:"ProviderType"`
-			AttributeMapping map[string]string `json:"AttributeMapping"`
-			IdpIdentifiers   []string          `json:"IdpIdentifiers"`
-			CreationDate     float64           `json:"CreationDate"`
+			ProviderName     string            `json:"ProviderName,omitempty"`
+			ProviderType     string            `json:"ProviderType,omitempty"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			IdpIdentifiers   []string          `json:"IdpIdentifiers,omitempty"`
+			CreationDate     float64           `json:"CreationDate,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
@@ -419,9 +419,9 @@ func TestBatch2_IdentityProvider_OIDC_WithScopes(t *testing.T) {
 
 	var out struct {
 		IdentityProvider *struct {
-			AttributeMapping map[string]string `json:"AttributeMapping"`
-			ProviderName     string            `json:"ProviderName"`
-			ProviderType     string            `json:"ProviderType"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			ProviderName     string            `json:"ProviderName,omitempty"`
+			ProviderType     string            `json:"ProviderType,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -465,8 +465,8 @@ func TestBatch2_IdentityProvider_Social_Google(t *testing.T) {
 
 	var descOut struct {
 		IdentityProvider *struct {
-			AttributeMapping map[string]string `json:"AttributeMapping"`
-			ProviderDetails  map[string]string `json:"ProviderDetails"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			ProviderDetails  map[string]string `json:"ProviderDetails,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
@@ -509,8 +509,8 @@ func TestBatch2_IdentityProvider_Update_AttributeMapping(t *testing.T) {
 
 	var updOut struct {
 		IdentityProvider *struct {
-			AttributeMapping map[string]string `json:"AttributeMapping"`
-			IdpIdentifiers   []string          `json:"IdpIdentifiers"`
+			AttributeMapping map[string]string `json:"AttributeMapping,omitempty"`
+			IdpIdentifiers   []string          `json:"IdpIdentifiers,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updOut))
@@ -546,7 +546,7 @@ func TestBatch2_IdentityProvider_GetByIdentifier(t *testing.T) {
 
 	var out struct {
 		IdentityProvider *struct {
-			ProviderName string `json:"ProviderName"`
+			ProviderName string `json:"ProviderName,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -586,10 +586,10 @@ func TestBatch2_IdentityProvider_List_WithTimestamps(t *testing.T) {
 
 	var out struct {
 		Providers []struct {
-			ProviderName     string  `json:"ProviderName"`
-			ProviderType     string  `json:"ProviderType"`
-			CreationDate     float64 `json:"CreationDate"`
-			LastModifiedDate float64 `json:"LastModifiedDate"`
+			ProviderName     string  `json:"ProviderName,omitempty"`
+			ProviderType     string  `json:"ProviderType,omitempty"`
+			CreationDate     float64 `json:"CreationDate,omitempty"`
+			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"Providers"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -651,7 +651,7 @@ func TestBatch2_UserPoolDomain_Managed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		CloudFrontDomain string `json:"CloudFrontDomain"`
+		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	// Managed domains: AWS returns empty CloudFrontDomain (no CloudFront distribution).
@@ -676,7 +676,7 @@ func TestBatch2_UserPoolDomain_Custom_WithCertArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut struct {
-		CloudFrontDomain string `json:"CloudFrontDomain"`
+		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
 	assert.Contains(t, createOut.CloudFrontDomain, "cloudfront.net")
@@ -689,10 +689,10 @@ func TestBatch2_UserPoolDomain_Custom_WithCertArn(t *testing.T) {
 
 	var descOut struct {
 		DomainDescription *struct {
-			Domain                 string `json:"Domain"`
-			UserPoolID             string `json:"UserPoolId"`
-			Status                 string `json:"Status"`
-			CloudFrontDistribution string `json:"CloudFrontDistribution"`
+			Domain                 string `json:"Domain,omitempty"`
+			UserPoolID             string `json:"UserPoolId,omitempty"`
+			Status                 string `json:"Status,omitempty"`
+			CloudFrontDistribution string `json:"CloudFrontDistribution,omitempty"`
 		} `json:"DomainDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
@@ -728,7 +728,7 @@ func TestBatch2_UserPoolDomain_Update_WithCertArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		CloudFrontDomain string `json:"CloudFrontDomain"`
+		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Contains(t, out.CloudFrontDomain, "cloudfront.net")
@@ -791,9 +791,9 @@ func TestBatch2_RiskConfiguration_CompromisedCredentials(t *testing.T) {
 		RiskConfiguration *struct {
 			CompromisedCredentialsRiskConfiguration *struct {
 				Actions *struct {
-					EventAction string `json:"EventAction"`
+					EventAction string `json:"EventAction,omitempty"`
 				} `json:"Actions"`
-				EventFilter []string `json:"EventFilter"`
+				EventFilter []string `json:"EventFilter,omitempty"`
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
 	}
@@ -814,7 +814,7 @@ func TestBatch2_RiskConfiguration_CompromisedCredentials(t *testing.T) {
 		RiskConfiguration *struct {
 			CompromisedCredentialsRiskConfiguration *struct {
 				Actions *struct {
-					EventAction string `json:"EventAction"`
+					EventAction string `json:"EventAction,omitempty"`
 				} `json:"Actions"`
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
@@ -866,21 +866,21 @@ func TestBatch2_RiskConfiguration_AccountTakeover(t *testing.T) {
 			AccountTakeoverRiskConfiguration *struct {
 				Actions *struct {
 					HighAction *struct {
-						EventAction string `json:"EventAction"`
-						Notify      bool   `json:"Notify"`
+						EventAction string `json:"EventAction,omitempty"`
+						Notify      bool   `json:"Notify,omitempty"`
 					} `json:"HighAction"`
 					MediumAction *struct {
-						EventAction string `json:"EventAction"`
+						EventAction string `json:"EventAction,omitempty"`
 					} `json:"MediumAction"`
 					LowAction *struct {
-						Notify bool `json:"Notify"`
+						Notify bool `json:"Notify,omitempty"`
 					} `json:"LowAction"`
 				} `json:"Actions"`
 				NotifyConfiguration *struct {
 					BlockEmail *struct {
-						Subject string `json:"Subject"`
+						Subject string `json:"Subject,omitempty"`
 					} `json:"BlockEmail"`
-					From string `json:"From"`
+					From string `json:"From,omitempty"`
 				} `json:"NotifyConfiguration"`
 			} `json:"AccountTakeoverRiskConfiguration"`
 		} `json:"RiskConfiguration"`
@@ -930,7 +930,7 @@ func TestBatch2_RiskConfiguration_PerClient(t *testing.T) {
 
 	var poolOut struct {
 		RiskConfiguration *struct {
-			CompromisedCredentialsRiskConfiguration *struct{} `json:"CompromisedCredentialsRiskConfiguration"`
+			CompromisedCredentialsRiskConfiguration *struct{} `json:"CompromisedCredentialsRiskConfiguration,omitempty"`
 		} `json:"RiskConfiguration"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &poolOut))
@@ -947,7 +947,7 @@ func TestBatch2_RiskConfiguration_PerClient(t *testing.T) {
 		RiskConfiguration *struct {
 			CompromisedCredentialsRiskConfiguration *struct {
 				Actions *struct {
-					EventAction string `json:"EventAction"`
+					EventAction string `json:"EventAction,omitempty"`
 				} `json:"Actions"`
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
@@ -1153,8 +1153,8 @@ func TestBatch2_AttrVerification_Handler_GetAndVerify(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var signUpResp struct {
-		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
-		UserConfirmed       bool              `json:"UserConfirmed"`
+		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+		UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
 
@@ -1177,7 +1177,7 @@ func TestBatch2_AttrVerification_Handler_GetAndVerify(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var codeOut struct {
-		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
+		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &codeOut))
 	assert.Equal(t, "EMAIL", codeOut.CodeDeliveryDetails["DeliveryMedium"])
@@ -1219,10 +1219,10 @@ func TestBatch2_Group_Create_WithRoleArn(t *testing.T) {
 
 	var out struct {
 		Group *struct {
-			GroupName    string  `json:"GroupName"`
-			RoleArn      string  `json:"RoleArn"`
-			Precedence   int32   `json:"Precedence"`
-			CreationDate float64 `json:"CreationDate"`
+			GroupName    string  `json:"GroupName,omitempty"`
+			RoleArn      string  `json:"RoleArn,omitempty"`
+			Precedence   int32   `json:"Precedence,omitempty"`
+			CreationDate float64 `json:"CreationDate,omitempty"`
 		} `json:"Group"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1258,8 +1258,8 @@ func TestBatch2_Group_Update_WithRoleArn(t *testing.T) {
 
 	var out struct {
 		Group *struct {
-			RoleArn    string `json:"RoleArn"`
-			Precedence int32  `json:"Precedence"`
+			RoleArn    string `json:"RoleArn,omitempty"`
+			Precedence int32  `json:"Precedence,omitempty"`
 		} `json:"Group"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1291,9 +1291,9 @@ func TestBatch2_Group_GetGroup_WithRoleArn(t *testing.T) {
 
 	var out struct {
 		Group *struct {
-			GroupName  string `json:"GroupName"`
-			RoleArn    string `json:"RoleArn"`
-			Precedence int32  `json:"Precedence"`
+			GroupName  string `json:"GroupName,omitempty"`
+			RoleArn    string `json:"RoleArn,omitempty"`
+			Precedence int32  `json:"Precedence,omitempty"`
 		} `json:"Group"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1325,9 +1325,9 @@ func TestBatch2_Group_ListGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 struct {
-		NextToken string `json:"NextToken"`
+		NextToken string `json:"NextToken,omitempty"`
 		Groups    []struct {
-			GroupName string `json:"GroupName"`
+			GroupName string `json:"GroupName,omitempty"`
 		} `json:"Groups"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
@@ -1343,9 +1343,9 @@ func TestBatch2_Group_ListGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 struct {
-		NextToken string `json:"NextToken"`
+		NextToken string `json:"NextToken,omitempty"`
 		Groups    []struct {
-			GroupName string `json:"GroupName"`
+			GroupName string `json:"GroupName,omitempty"`
 		} `json:"Groups"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
@@ -1386,9 +1386,9 @@ func TestBatch2_Group_ListUsersInGroup_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 struct {
-		NextToken string `json:"NextToken"`
+		NextToken string `json:"NextToken,omitempty"`
 		Users     []struct {
-			Username string `json:"Username"`
+			Username string `json:"Username,omitempty"`
 		} `json:"Users"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
@@ -1405,9 +1405,9 @@ func TestBatch2_Group_ListUsersInGroup_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 struct {
-		NextToken string `json:"NextToken"`
+		NextToken string `json:"NextToken,omitempty"`
 		Users     []struct {
-			Username string `json:"Username"`
+			Username string `json:"Username,omitempty"`
 		} `json:"Users"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
@@ -1494,8 +1494,8 @@ func TestBatch2_AdminCreateUser_Suppress(t *testing.T) {
 
 	var out struct {
 		User *struct {
-			Username   string `json:"Username"`
-			UserStatus string `json:"UserStatus"`
+			Username   string `json:"Username,omitempty"`
+			UserStatus string `json:"UserStatus,omitempty"`
 		} `json:"User"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1528,8 +1528,8 @@ func TestBatch2_AdminCreateUser_Resend(t *testing.T) {
 
 	var out struct {
 		User *struct {
-			Username   string `json:"Username"`
-			UserStatus string `json:"UserStatus"`
+			Username   string `json:"Username,omitempty"`
+			UserStatus string `json:"UserStatus,omitempty"`
 		} `json:"User"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1556,7 +1556,7 @@ func TestBatch2_AdminCreateUser_DeliveryMediums(t *testing.T) {
 
 	var out struct {
 		User *struct {
-			Username string `json:"Username"`
+			Username string `json:"Username,omitempty"`
 		} `json:"User"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -1622,7 +1622,7 @@ func TestBatch2_AdminSetUserPassword_Permanent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		UserStatus string `json:"UserStatus"`
+		UserStatus string `json:"UserStatus,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "CONFIRMED", out.UserStatus)
@@ -1658,7 +1658,7 @@ func TestBatch2_AdminSetUserPassword_Temporary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		UserStatus string `json:"UserStatus"`
+		UserStatus string `json:"UserStatus,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "FORCE_CHANGE_PASSWORD", out.UserStatus)

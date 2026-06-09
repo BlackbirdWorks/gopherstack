@@ -23,107 +23,107 @@ var (
 
 // ManagedPrefixList represents a managed prefix list.
 type ManagedPrefixList struct {
-	PrefixListID   string            `json:"prefixListId"`
-	PrefixListName string            `json:"prefixListName"`
-	PrefixListArn  string            `json:"prefixListArn"`
-	AddressFamily  string            `json:"addressFamily"`
-	State          string            `json:"state"`
-	OwnerID        string            `json:"ownerId"`
-	Entries        []PrefixListEntry `json:"entries"`
+	PrefixListID   string            `json:"prefixListId,omitempty"`
+	PrefixListName string            `json:"prefixListName,omitempty"`
+	PrefixListArn  string            `json:"prefixListArn,omitempty"`
+	AddressFamily  string            `json:"addressFamily,omitempty"`
+	State          string            `json:"state,omitempty"`
+	OwnerID        string            `json:"ownerId,omitempty"`
+	Entries        []PrefixListEntry `json:"entries,omitempty"`
 	Version        int64             `json:"version"`
-	MaxEntries     int               `json:"maxEntries"`
+	MaxEntries     int               `json:"maxEntries,omitempty"`
 }
 
 // PrefixListEntry holds a single CIDR entry in a managed prefix list.
 type PrefixListEntry struct {
-	Cidr        string `json:"cidr"`
-	Description string `json:"description"`
+	Cidr        string `json:"cidr,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ClientVpnEndpointID      string              `json:"clientVpnEndpointId"`
-	DNSName                  string              `json:"dnsName"`
-	Status                   string              `json:"status"`
-	Description              string              `json:"description"`
-	ClientCidrBlock          string              `json:"clientCidrBlock"`
-	DNSServers               []string            `json:"dnsServers"`
-	VpnProtocol              string              `json:"vpnProtocol"`
-	AssociatedTargetNetworks []string            `json:"associatedTargetNetworks"`
-	Routes                   []ClientVpnRoute    `json:"routes"`
-	AuthRules                []ClientVpnAuthRule `json:"authRules"`
+	ClientVpnEndpointID      string              `json:"clientVpnEndpointId,omitempty"`
+	DNSName                  string              `json:"dnsName,omitempty"`
+	Status                   string              `json:"status,omitempty"`
+	Description              string              `json:"description,omitempty"`
+	ClientCidrBlock          string              `json:"clientCidrBlock,omitempty"`
+	DNSServers               []string            `json:"dnsServers,omitempty"`
+	VpnProtocol              string              `json:"vpnProtocol,omitempty"`
+	AssociatedTargetNetworks []string            `json:"associatedTargetNetworks,omitempty"`
+	Routes                   []ClientVpnRoute    `json:"routes,omitempty"`
+	AuthRules                []ClientVpnAuthRule `json:"authRules,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.
 type ClientVpnRoute struct {
-	DestinationCidr string `json:"destinationCidr"`
-	Status          string `json:"status"`
-	Description     string `json:"description"`
+	DestinationCidr string `json:"destinationCidr,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Description     string `json:"description,omitempty"`
 }
 
 // ClientVpnAuthRule holds a single authorization rule for a Client VPN endpoint.
 type ClientVpnAuthRule struct {
-	Cidr        string `json:"cidr"`
-	Status      string `json:"status"`
-	Description string `json:"description"`
+	Cidr        string `json:"cidr,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // TransitGatewayConnect represents a TGW connect attachment.
 type TransitGatewayConnect struct {
-	TransitGatewayAttachmentID          string `json:"transitGatewayAttachmentId"`
-	TransportTransitGatewayAttachmentID string `json:"transportTransitGatewayAttachmentId"`
-	TransitGatewayID                    string `json:"transitGatewayId"`
-	State                               string `json:"state"`
+	TransitGatewayAttachmentID          string `json:"transitGatewayAttachmentId,omitempty"`
+	TransportTransitGatewayAttachmentID string `json:"transportTransitGatewayAttachmentId,omitempty"`
+	TransitGatewayID                    string `json:"transitGatewayId,omitempty"`
+	State                               string `json:"state,omitempty"`
 }
 
 // TransitGatewayConnectPeer represents a TGW connect peer.
 type TransitGatewayConnectPeer struct {
-	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId"`
-	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId"`
-	PeerAddress                 string   `json:"peerAddress"`
-	State                       string   `json:"state"`
-	InsideCidrBlocks            []string `json:"insideCidrBlocks"`
+	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId,omitempty"`
+	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId,omitempty"`
+	PeerAddress                 string   `json:"peerAddress,omitempty"`
+	State                       string   `json:"state,omitempty"`
+	InsideCidrBlocks            []string `json:"insideCidrBlocks,omitempty"`
 }
 
 // TransitGatewayPrefixListReference represents a TGW prefix list reference.
 type TransitGatewayPrefixListReference struct {
-	PrefixListID               string `json:"prefixListId"`
-	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableId"`
-	State                      string `json:"state"`
-	Blackhole                  bool   `json:"blackhole"`
+	PrefixListID               string `json:"prefixListId,omitempty"`
+	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableId,omitempty"`
+	State                      string `json:"state,omitempty"`
+	Blackhole                  bool   `json:"blackhole,omitempty"`
 }
 
 // VerifiedAccessEndpoint represents a Verified Access endpoint.
 type VerifiedAccessEndpoint struct {
-	VerifiedAccessEndpointID string `json:"verifiedAccessEndpointId"`
-	VerifiedAccessGroupID    string `json:"verifiedAccessGroupId"`
-	Status                   string `json:"status"`
-	Description              string `json:"description"`
-	EndpointType             string `json:"endpointType"`
+	VerifiedAccessEndpointID string `json:"verifiedAccessEndpointId,omitempty"`
+	VerifiedAccessGroupID    string `json:"verifiedAccessGroupId,omitempty"`
+	Status                   string `json:"status,omitempty"`
+	Description              string `json:"description,omitempty"`
+	EndpointType             string `json:"endpointType,omitempty"`
 }
 
 // VerifiedAccessGroup represents a Verified Access group.
 type VerifiedAccessGroup struct {
-	VerifiedAccessGroupID    string `json:"verifiedAccessGroupId"`
-	VerifiedAccessInstanceID string `json:"verifiedAccessInstanceId"`
-	Status                   string `json:"status"`
-	Description              string `json:"description"`
+	VerifiedAccessGroupID    string `json:"verifiedAccessGroupId,omitempty"`
+	VerifiedAccessInstanceID string `json:"verifiedAccessInstanceId,omitempty"`
+	Status                   string `json:"status,omitempty"`
+	Description              string `json:"description,omitempty"`
 }
 
 // VerifiedAccessInstance represents a Verified Access instance.
 type VerifiedAccessInstance struct {
-	VerifiedAccessInstanceID string   `json:"verifiedAccessInstanceId"`
-	Status                   string   `json:"status"`
-	Description              string   `json:"description"`
-	AttachedTrustProviderIDs []string `json:"attachedTrustProviderIds"`
+	VerifiedAccessInstanceID string   `json:"verifiedAccessInstanceId,omitempty"`
+	Status                   string   `json:"status,omitempty"`
+	Description              string   `json:"description,omitempty"`
+	AttachedTrustProviderIDs []string `json:"attachedTrustProviderIds,omitempty"`
 }
 
 // VerifiedAccessTrustProvider represents a Verified Access trust provider.
 type VerifiedAccessTrustProvider struct {
-	VerifiedAccessTrustProviderID string `json:"verifiedAccessTrustProviderId"`
-	TrustProviderType             string `json:"trustProviderType"`
-	Status                        string `json:"status"`
-	Description                   string `json:"description"`
+	VerifiedAccessTrustProviderID string `json:"verifiedAccessTrustProviderId,omitempty"`
+	TrustProviderType             string `json:"trustProviderType,omitempty"`
+	Status                        string `json:"status,omitempty"`
+	Description                   string `json:"description,omitempty"`
 }
 
 // ---- ManagedPrefixList ----

@@ -40,7 +40,7 @@ const (
 
 // Handler is the Echo HTTP handler for IAM operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend StorageBackend `json:"backend"`
 	actions map[string]iamActionFn
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex

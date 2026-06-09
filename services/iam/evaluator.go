@@ -7,25 +7,25 @@ import (
 
 // PolicyDocument is the parsed representation of an IAM policy JSON document.
 type PolicyDocument struct {
-	Version   string      `json:"Version"`
-	Statement []Statement `json:"Statement"`
+	Version   string      `json:"Version,omitempty"`
+	Statement []Statement `json:"Statement,omitempty"`
 }
 
 // Statement represents a single IAM policy statement.
 type Statement struct {
 	// Action can be a single string or a list of strings.
-	Action any `json:"Action,omitempty"`
+	Action any `json:"Action"`
 	// NotAction matches any action NOT in this set (logical negation of Action).
-	NotAction any `json:"NotAction,omitempty"`
+	NotAction any `json:"NotAction"`
 	// Resource can be a single string or a list of strings.
-	Resource any `json:"Resource,omitempty"`
+	Resource any `json:"Resource"`
 	// NotResource matches any resource NOT in this set (logical negation of Resource).
-	NotResource any `json:"NotResource,omitempty"`
+	NotResource any `json:"NotResource"`
 	// Condition is a map of operator → contextKey → value(s).
 	Condition map[string]map[string]any `json:"Condition,omitempty"`
 	// Principal is ignored in enforcement; stored for completeness.
-	Principal any    `json:"Principal,omitempty"`
-	Effect    string `json:"Effect"`
+	Principal any    `json:"Principal"`
+	Effect    string `json:"Effect,omitempty"`
 }
 
 // anyStrings normalises an IAM field that can be either a single JSON string

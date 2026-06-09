@@ -59,8 +59,8 @@ const (
 
 // InstanceState represents the state of an EC2 instance.
 type InstanceState struct {
-	Name string `json:"name"`
-	Code int    `json:"code"`
+	Name string `json:"name,omitempty"`
+	Code int    `json:"code,omitempty"`
 }
 
 // Well-known instance states.
@@ -80,108 +80,108 @@ type Instance struct {
 	LaunchTime            time.Time     `json:"launchTime"`
 	TerminatedAt          time.Time     `json:"terminatedAt"`
 	PublicDNSName         string        `json:"publicDNSName,omitempty"`
-	KeyName               string        `json:"keyName"`
-	InstanceType          string        `json:"instanceType"`
-	ImageID               string        `json:"imageID"`
-	VPCID                 string        `json:"vpcID"`
-	SubnetID              string        `json:"subnetID"`
+	KeyName               string        `json:"keyName,omitempty"`
+	InstanceType          string        `json:"instanceType,omitempty"`
+	ImageID               string        `json:"imageID,omitempty"`
+	VPCID                 string        `json:"vpcID,omitempty"`
+	SubnetID              string        `json:"subnetID,omitempty"`
 	MetadataOptionsTokens string        `json:"metadataOptionsTokens,omitempty"`
-	ID                    string        `json:"id"`
-	PrivateIP             string        `json:"privateIP"`
+	ID                    string        `json:"id,omitempty"`
+	PrivateIP             string        `json:"privateIP,omitempty"`
 	PublicIPAddress       string        `json:"publicIPAddress,omitempty"`
 	MetadataOptionsState  string        `json:"metadataOptionsState,omitempty"`
 	UserData              string        `json:"userData,omitempty"`
 	SriovNetSupport       string        `json:"sriovNetSupport,omitempty"`
 	ProviderID            string        `json:"providerID,omitempty"`
-	SecurityGroups        []string      `json:"securityGroups"`
+	SecurityGroups        []string      `json:"securityGroups,omitempty"`
 	State                 InstanceState `json:"state"`
 	SSHPort               int           `json:"sshPort,omitempty"`
-	EnaSupport            bool          `json:"enaSupport"`
+	EnaSupport            bool          `json:"enaSupport,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
 type LaunchTemplate struct {
 	CreateTime           time.Time `json:"createTime"`
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	ImageID              string    `json:"imageID"`
-	InstanceType         string    `json:"instanceType"`
-	CreatedBy            string    `json:"createdBy"`
+	ID                   string    `json:"id,omitempty"`
+	Name                 string    `json:"name,omitempty"`
+	ImageID              string    `json:"imageID,omitempty"`
+	InstanceType         string    `json:"instanceType,omitempty"`
+	CreatedBy            string    `json:"createdBy,omitempty"`
 	DefaultVersionNumber int64     `json:"defaultVersionNumber"`
 	LatestVersionNumber  int64     `json:"latestVersionNumber"`
 }
 
 // ImageUsageReport represents a synthetic AMI usage report entry.
 type ImageUsageReport struct {
-	GenerationDate string `json:"generationDate"`
-	ImageID        string `json:"imageID"`
-	State          string `json:"state"`
+	GenerationDate string `json:"generationDate,omitempty"`
+	ImageID        string `json:"imageID,omitempty"`
+	State          string `json:"state,omitempty"`
 }
 
 // VpcEndpoint represents an EC2 VPC endpoint.
 type VpcEndpoint struct {
 	CreateTime      time.Time `json:"createTime"`
-	ID              string    `json:"id"`
-	VPCID           string    `json:"vpcID"`
-	ServiceName     string    `json:"serviceName"`
-	State           string    `json:"state"`
-	VpcEndpointType string    `json:"vpcEndpointType"`
-	SubnetIDs       []string  `json:"subnetIDs"`
+	ID              string    `json:"id,omitempty"`
+	VPCID           string    `json:"vpcID,omitempty"`
+	ServiceName     string    `json:"serviceName,omitempty"`
+	State           string    `json:"state,omitempty"`
+	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
+	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
 }
 
 // NetworkACL represents an EC2 network ACL.
 type NetworkACL struct {
-	ID             string   `json:"id"`
-	VPCID          string   `json:"vpcID"`
-	AssociationIDs []string `json:"associationIDs"`
-	IsDefault      bool     `json:"isDefault"`
+	ID             string   `json:"id,omitempty"`
+	VPCID          string   `json:"vpcID,omitempty"`
+	AssociationIDs []string `json:"associationIDs,omitempty"`
+	IsDefault      bool     `json:"isDefault,omitempty"`
 }
 
 // InstanceStateChange records the state transition for a single instance.
 // It is returned by StartInstances, StopInstances, and TerminateInstances so
 // callers have accurate before/after information without hard-coding states.
 type InstanceStateChange struct {
-	InstanceID    string
-	PreviousState InstanceState
-	CurrentState  InstanceState
+	InstanceID    string        `json:"instanceID,omitempty"`
+	PreviousState InstanceState `json:"previousState"`
+	CurrentState  InstanceState `json:"currentState"`
 }
 
 // SecurityGroupRule represents an inbound or outbound rule.
 // Either IPRange or SourceGroupID is set; both can be empty for protocol-only rules.
 type SecurityGroupRule struct {
-	Protocol           string `json:"protocol"`
-	IPRange            string `json:"ipRange"`
+	Protocol           string `json:"protocol,omitempty"`
+	IPRange            string `json:"ipRange,omitempty"`
 	SourceGroupID      string `json:"sourceGroupId,omitempty"`
 	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
-	FromPort           int    `json:"fromPort"`
-	ToPort             int    `json:"toPort"`
+	FromPort           int    `json:"fromPort,omitempty"`
+	ToPort             int    `json:"toPort,omitempty"`
 }
 
 // SecurityGroup represents an EC2 security group.
 type SecurityGroup struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	Description  string              `json:"description"`
-	VPCID        string              `json:"vpcID"`
-	IngressRules []SecurityGroupRule `json:"ingressRules"`
-	EgressRules  []SecurityGroupRule `json:"egressRules"`
+	ID           string              `json:"id,omitempty"`
+	Name         string              `json:"name,omitempty"`
+	Description  string              `json:"description,omitempty"`
+	VPCID        string              `json:"vpcID,omitempty"`
+	IngressRules []SecurityGroupRule `json:"ingressRules,omitempty"`
+	EgressRules  []SecurityGroupRule `json:"egressRules,omitempty"`
 }
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	ID        string `json:"id"`
-	CIDRBlock string `json:"cidrBlock"`
-	IsDefault bool   `json:"isDefault"`
+	ID        string `json:"id,omitempty"`
+	CIDRBlock string `json:"cidrBlock,omitempty"`
+	IsDefault bool   `json:"isDefault,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID                  string `json:"id"`
-	VPCID               string `json:"vpcID"`
-	CIDRBlock           string `json:"cidrBlock"`
-	AvailabilityZone    string `json:"availabilityZone"`
-	IsDefault           bool   `json:"isDefault"`
-	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch"`
+	ID                  string `json:"id,omitempty"`
+	VPCID               string `json:"vpcID,omitempty"`
+	CIDRBlock           string `json:"cidrBlock,omitempty"`
+	AvailabilityZone    string `json:"availabilityZone,omitempty"`
+	IsDefault           bool   `json:"isDefault,omitempty"`
+	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
@@ -309,8 +309,8 @@ type InMemoryBackend struct {
 	ebsDefaultKmsKeyID                 string
 	imageBlockPublicAccess             string
 	defaultCreditSpec                  string
-	Region                             string
-	AccountID                          string
+	Region                             string `json:"region,omitempty"`
+	AccountID                          string `json:"accountID,omitempty"`
 	freePrivateIPs                     []string
 	nextPrivateIPIndex                 int
 	nextElasticIPIndex                 int
@@ -1203,10 +1203,10 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 
 // TagEntry holds a single resource-tag association returned by DescribeTags.
 type TagEntry struct {
-	ResourceID   string
-	ResourceType string
-	Key          string
-	Value        string
+	ResourceID   string `json:"resourceID,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+	Key          string `json:"key,omitempty"`
+	Value        string `json:"value,omitempty"`
 }
 
 // resourceTypeByID infers the EC2 resource type from the ID prefix.

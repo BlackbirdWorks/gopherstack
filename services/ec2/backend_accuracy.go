@@ -9,11 +9,11 @@ import (
 
 // SpotPriceRecord represents a single spot price history data point.
 type SpotPriceRecord struct {
-	Timestamp          time.Time
-	InstanceType       string
-	AvailabilityZone   string
-	ProductDescription string
-	SpotPrice          string
+	Timestamp          time.Time `json:"timestamp"`
+	InstanceType       string    `json:"instanceType,omitempty"`
+	AvailabilityZone   string    `json:"availabilityZone,omitempty"`
+	ProductDescription string    `json:"productDescription,omitempty"`
+	SpotPrice          string    `json:"spotPrice,omitempty"`
 }
 
 // Instance attribute names accepted by ModifyInstanceAttribute / SetInstanceAttribute.

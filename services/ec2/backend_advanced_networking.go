@@ -53,64 +53,64 @@ const (
 
 // VpnGateway represents a Virtual Private Gateway (VGW).
 type VpnGateway struct {
-	VpnGatewayID    string `json:"vpnGatewayId"`
-	State           string `json:"state"`
-	Type            string `json:"type"`
+	VpnGatewayID    string `json:"vpnGatewayId,omitempty"`
+	State           string `json:"state,omitempty"`
+	Type            string `json:"type,omitempty"`
 	AttachedVPCID   string `json:"attachedVpcId,omitempty"`
 	AttachmentState string `json:"attachmentState,omitempty"`
 }
 
 // CustomerGateway represents a customer gateway.
 type CustomerGateway struct {
-	CustomerGatewayID string `json:"customerGatewayId"`
-	State             string `json:"state"`
-	Type              string `json:"type"`
-	BgpAsn            string `json:"bgpAsn"`
-	IPAddress         string `json:"ipAddress"`
+	CustomerGatewayID string `json:"customerGatewayId,omitempty"`
+	State             string `json:"state,omitempty"`
+	Type              string `json:"type,omitempty"`
+	BgpAsn            string `json:"bgpAsn,omitempty"`
+	IPAddress         string `json:"ipAddress,omitempty"`
 }
 
 // VpnConnection represents a VPN connection.
 type VpnConnection struct {
-	VpnConnectionID   string `json:"vpnConnectionId"`
-	State             string `json:"state"`
-	CustomerGatewayID string `json:"customerGatewayId"`
-	VpnGatewayID      string `json:"vpnGatewayId"`
-	Type              string `json:"type"`
+	VpnConnectionID   string `json:"vpnConnectionId,omitempty"`
+	State             string `json:"state,omitempty"`
+	CustomerGatewayID string `json:"customerGatewayId,omitempty"`
+	VpnGatewayID      string `json:"vpnGatewayId,omitempty"`
+	Type              string `json:"type,omitempty"`
 }
 
 // VpcEndpointServiceConfig represents a VPC endpoint service configuration.
 type VpcEndpointServiceConfig struct {
-	ServiceID               string   `json:"serviceId"`
-	ServiceName             string   `json:"serviceName"`
-	ServiceType             string   `json:"serviceType"`
-	NetworkLoadBalancerARNs []string `json:"networkLoadBalancerArns"`
-	AcceptanceRequired      bool     `json:"acceptanceRequired"`
+	ServiceID               string   `json:"serviceId,omitempty"`
+	ServiceName             string   `json:"serviceName,omitempty"`
+	ServiceType             string   `json:"serviceType,omitempty"`
+	NetworkLoadBalancerARNs []string `json:"networkLoadBalancerArns,omitempty"`
+	AcceptanceRequired      bool     `json:"acceptanceRequired,omitempty"`
 }
 
 // Ipam represents an AWS IPAM instance.
 type Ipam struct {
-	IpamID  string `json:"ipamId"`
-	IpamARN string `json:"ipamArn"`
-	State   string `json:"state"`
-	Region  string `json:"region"`
+	IpamID  string `json:"ipamId,omitempty"`
+	IpamARN string `json:"ipamArn,omitempty"`
+	State   string `json:"state,omitempty"`
+	Region  string `json:"region,omitempty"`
 }
 
 // IpamPool represents an IPAM pool.
 type IpamPool struct {
-	IpamPoolID    string `json:"ipamPoolId"`
-	IpamPoolARN   string `json:"ipamPoolArn"`
-	IpamID        string `json:"ipamId"`
-	State         string `json:"state"`
-	Locale        string `json:"locale"`
-	AddressFamily string `json:"addressFamily"`
-	Cidr          string `json:"cidr"`
+	IpamPoolID    string `json:"ipamPoolId,omitempty"`
+	IpamPoolARN   string `json:"ipamPoolArn,omitempty"`
+	IpamID        string `json:"ipamId,omitempty"`
+	State         string `json:"state,omitempty"`
+	Locale        string `json:"locale,omitempty"`
+	AddressFamily string `json:"addressFamily,omitempty"`
+	Cidr          string `json:"cidr,omitempty"`
 }
 
 // IpamPoolAllocation represents an allocated CIDR from an IPAM pool.
 type IpamPoolAllocation struct {
-	IpamPoolAllocationID string `json:"ipamPoolAllocationId"`
-	Cidr                 string `json:"cidr"`
-	Description          string `json:"description"`
+	IpamPoolAllocationID string `json:"ipamPoolAllocationId,omitempty"`
+	Cidr                 string `json:"cidr,omitempty"`
+	Description          string `json:"description,omitempty"`
 }
 
 // ---- Reset helpers ----

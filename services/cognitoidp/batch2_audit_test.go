@@ -56,7 +56,7 @@ func TestBatch2Audit_CreateIdentityProvider_Duplicate_ReturnsDuplicateProviderEx
 				require.Equal(t, http.StatusBadRequest, rec.Code)
 
 				var errResp struct {
-					Code string `json:"__type"`
+					Code string `json:"__type,omitempty"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 				assert.Equal(t, "DuplicateProviderException", errResp.Code)
@@ -132,7 +132,7 @@ func TestBatch2Audit_UpdateIdentityProvider_ReplacesProviderDetails(t *testing.T
 
 				var out struct {
 					IdentityProvider *struct {
-						ProviderDetails map[string]string `json:"ProviderDetails"`
+						ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
 					} `json:"IdentityProvider"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -223,8 +223,8 @@ func TestBatch2Audit_SetRiskConfiguration_PersistsRiskExceptionConfiguration(t *
 			var setOut struct {
 				RiskConfiguration *struct {
 					RiskExceptionConfiguration *struct {
-						BlockedIPRangeList []string `json:"BlockedIPRangeList"`
-						SkippedIPRangeList []string `json:"SkippedIPRangeList"`
+						BlockedIPRangeList []string `json:"BlockedIPRangeList,omitempty"`
+						SkippedIPRangeList []string `json:"SkippedIPRangeList,omitempty"`
 					} `json:"RiskExceptionConfiguration"`
 				} `json:"RiskConfiguration"`
 			}
@@ -263,8 +263,8 @@ func TestBatch2Audit_SetRiskConfiguration_PersistsRiskExceptionConfiguration(t *
 			var descOut struct {
 				RiskConfiguration *struct {
 					RiskExceptionConfiguration *struct {
-						BlockedIPRangeList []string `json:"BlockedIPRangeList"`
-						SkippedIPRangeList []string `json:"SkippedIPRangeList"`
+						BlockedIPRangeList []string `json:"BlockedIPRangeList,omitempty"`
+						SkippedIPRangeList []string `json:"SkippedIPRangeList,omitempty"`
 					} `json:"RiskExceptionConfiguration"`
 				} `json:"RiskConfiguration"`
 			}
@@ -313,7 +313,7 @@ func TestBatch2Audit_Group_LastModifiedDate_Present(t *testing.T) {
 			case "CreateGroup":
 				var out struct {
 					Group *struct {
-						LastModifiedDate float64 `json:"LastModifiedDate"`
+						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
 				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
@@ -329,7 +329,7 @@ func TestBatch2Audit_Group_LastModifiedDate_Present(t *testing.T) {
 
 				var out struct {
 					Group *struct {
-						LastModifiedDate float64 `json:"LastModifiedDate"`
+						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -346,7 +346,7 @@ func TestBatch2Audit_Group_LastModifiedDate_Present(t *testing.T) {
 
 				var out struct {
 					Group *struct {
-						LastModifiedDate float64 `json:"LastModifiedDate"`
+						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -361,8 +361,8 @@ func TestBatch2Audit_Group_LastModifiedDate_Present(t *testing.T) {
 
 				var out struct {
 					Groups []struct {
-						GroupName        string  `json:"GroupName"`
-						LastModifiedDate float64 `json:"LastModifiedDate"`
+						GroupName        string  `json:"GroupName,omitempty"`
+						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Groups"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -421,7 +421,7 @@ func TestBatch2Audit_CreateUserPoolDomain_ManagedDomain_EmptyCloudFrontDomain(t 
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				CloudFrontDomain string `json:"CloudFrontDomain"`
+				CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 

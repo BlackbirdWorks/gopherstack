@@ -704,11 +704,11 @@ func TestHandler_CreateUserPool_WithPasswordPolicy(t *testing.T) {
 		UserPool struct {
 			Policies *struct {
 				PasswordPolicy *struct {
-					MinimumLength  int  `json:"MinimumLength"`
-					RequireNumbers bool `json:"RequireNumbers"`
+					MinimumLength  int  `json:"MinimumLength,omitempty"`
+					RequireNumbers bool `json:"RequireNumbers,omitempty"`
 				} `json:"PasswordPolicy"`
 			} `json:"Policies"`
-			AutoVerifiedAttributes []string `json:"AutoVerifiedAttributes"`
+			AutoVerifiedAttributes []string `json:"AutoVerifiedAttributes,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -736,9 +736,9 @@ func TestHandler_CreateUserPoolClient_WithOAuthFields(t *testing.T) {
 
 	var resp struct {
 		UserPoolClient struct {
-			AllowedOAuthFlows  []string `json:"AllowedOAuthFlows"`
-			AllowedOAuthScopes []string `json:"AllowedOAuthScopes"`
-			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows"`
+			AllowedOAuthFlows  []string `json:"AllowedOAuthFlows,omitempty"`
+			AllowedOAuthScopes []string `json:"AllowedOAuthScopes,omitempty"`
+			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -769,8 +769,8 @@ func TestHandler_GetUser_WithMFAFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		PreferredMfaSetting string   `json:"PreferredMfaSetting"`
-		UserMFASettingList  []string `json:"UserMFASettingList"`
+		PreferredMfaSetting string   `json:"PreferredMfaSetting,omitempty"`
+		UserMFASettingList  []string `json:"UserMFASettingList,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, []string{"SOFTWARE_TOKEN_MFA"}, resp.UserMFASettingList)
@@ -805,8 +805,8 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, setMFARec.Code)
 
 	var mfaInitResp struct {
-		ChallengeName *string `json:"ChallengeName"`
-		Session       *string `json:"Session"`
+		ChallengeName *string `json:"ChallengeName,omitempty"`
+		Session       *string `json:"Session,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(setMFARec.Body.Bytes(), &mfaInitResp))
 	require.NotNil(t, mfaInitResp.ChallengeName)
@@ -824,7 +824,7 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 
 	var tokenResp struct {
 		AuthenticationResult *struct {
-			AccessToken string `json:"AccessToken"`
+			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
 	require.NoError(t, json.Unmarshal(respondRec.Body.Bytes(), &tokenResp))
@@ -851,8 +851,8 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, initRec.Code)
 
 	var initResp struct {
-		ChallengeName *string `json:"ChallengeName"`
-		Session       *string `json:"Session"`
+		ChallengeName *string `json:"ChallengeName,omitempty"`
+		Session       *string `json:"Session,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
 	require.NotNil(t, initResp.ChallengeName)
@@ -868,7 +868,7 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 
 	var tokenResp struct {
 		AuthenticationResult *struct {
-			AccessToken string `json:"AccessToken"`
+			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
 	require.NoError(t, json.Unmarshal(respRec.Body.Bytes(), &tokenResp))
@@ -891,7 +891,7 @@ func TestHandler_DescribeUserPool_IncludesPolicy(t *testing.T) {
 
 	var createResp struct {
 		UserPool struct {
-			ID string `json:"Id"`
+			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -903,7 +903,7 @@ func TestHandler_DescribeUserPool_IncludesPolicy(t *testing.T) {
 		UserPool struct {
 			Policies *struct {
 				PasswordPolicy *struct {
-					MinimumLength int `json:"MinimumLength"`
+					MinimumLength int `json:"MinimumLength,omitempty"`
 				} `json:"PasswordPolicy"`
 			} `json:"Policies"`
 		} `json:"UserPool"`
@@ -931,7 +931,7 @@ func TestHandler_DescribeUserPoolClient_IncludesOAuthFields(t *testing.T) {
 
 	var createResp struct {
 		UserPoolClient struct {
-			ClientID string `json:"ClientId"`
+			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -944,9 +944,9 @@ func TestHandler_DescribeUserPoolClient_IncludesOAuthFields(t *testing.T) {
 
 	var resp struct {
 		UserPoolClient struct {
-			AllowedOAuthFlows  []string `json:"AllowedOAuthFlows"`
-			AllowedOAuthScopes []string `json:"AllowedOAuthScopes"`
-			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows"`
+			AllowedOAuthFlows  []string `json:"AllowedOAuthFlows,omitempty"`
+			AllowedOAuthScopes []string `json:"AllowedOAuthScopes,omitempty"`
+			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -973,7 +973,7 @@ func TestHandler_AdminCreateUser_PolicyEnforced(t *testing.T) {
 
 	var poolResp struct {
 		UserPool struct {
-			ID string `json:"Id"`
+			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
@@ -1012,7 +1012,7 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 
 	var poolResp struct {
 		UserPool struct {
-			ID string `json:"Id"`
+			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
@@ -1025,7 +1025,7 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 
 	var clientResp struct {
 		UserPoolClient struct {
-			ClientID string `json:"ClientId"`
+			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
@@ -1070,9 +1070,9 @@ func TestHandler_ResourceServers_Accurate(t *testing.T) {
 
 	var resp struct {
 		ResourceServer struct {
-			Name   string `json:"Name"`
+			Name   string `json:"Name,omitempty"`
 			Scopes []struct {
-				ScopeName string `json:"ScopeName"`
+				ScopeName string `json:"ScopeName,omitempty"`
 			} `json:"Scopes"`
 		} `json:"ResourceServer"`
 	}
@@ -1095,7 +1095,7 @@ func TestHandler_AssociateSoftwareToken_Accurate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		SecretCode string `json:"SecretCode"`
+		SecretCode string `json:"SecretCode,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.SecretCode)
@@ -1121,7 +1121,7 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Status string `json:"Status"`
+		Status string `json:"Status,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "SUCCESS", resp.Status)
@@ -1137,7 +1137,7 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 
 	var poolResp struct {
 		UserPool struct {
-			ID string `json:"Id"`
+			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
@@ -1151,7 +1151,7 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 
 	var clientResp struct {
 		UserPoolClient struct {
-			ClientID string `json:"ClientId"`
+			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
@@ -1172,8 +1172,8 @@ func signUpAndConfirmViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, u
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var signUpResp struct {
-		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
-		UserConfirmed       bool              `json:"UserConfirmed"`
+		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+		UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
 
@@ -1205,7 +1205,7 @@ func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username str
 
 	var resp struct {
 		AuthenticationResult *struct {
-			AccessToken string `json:"AccessToken"`
+			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -1351,7 +1351,7 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 
 	var poolResp struct {
 		UserPool struct {
-			ID string `json:"Id"`
+			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
 	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
@@ -1366,8 +1366,8 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 
 	var clientResp struct {
 		UserPoolClient struct {
-			ClientID     string `json:"ClientId"`
-			ClientSecret string `json:"ClientSecret"`
+			ClientID     string `json:"ClientId,omitempty"`
+			ClientSecret string `json:"ClientSecret,omitempty"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
@@ -1385,7 +1385,7 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, signUpRec.Code, "SignUp: %s", signUpRec.Body.String())
 
 	var signUpResp struct {
-		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
+		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(signUpRec.Body.Bytes(), &signUpResp))
 	code := signUpResp.CodeDeliveryDetails["ConfirmationCode"]

@@ -456,8 +456,8 @@ func TestHandler_VerifyUserAttribute(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var signUpResp struct {
-			CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
-			UserConfirmed       bool              `json:"UserConfirmed"`
+			CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+			UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
 

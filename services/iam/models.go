@@ -17,10 +17,10 @@ const IAMAccountID = config.DefaultAccountID
 type User struct {
 	Tags                map[string]string `json:"Tags,omitempty"`
 	CreateDate          time.Time         `json:"CreateDate"`
-	UserName            string            `json:"UserName"`
-	UserID              string            `json:"UserId"`
-	Arn                 string            `json:"Arn"`
-	Path                string            `json:"Path"`
+	UserName            string            `json:"UserName,omitempty"`
+	UserID              string            `json:"UserId,omitempty"`
+	Arn                 string            `json:"Arn,omitempty"`
+	Path                string            `json:"Path,omitempty"`
 	PermissionsBoundary string            `json:"PermissionsBoundary,omitempty"`
 }
 
@@ -28,16 +28,16 @@ type User struct {
 type Role struct {
 	Tags                     map[string]string `json:"Tags,omitempty"`
 	CreateDate               time.Time         `json:"CreateDate"`
-	RoleName                 string            `json:"RoleName"`
-	RoleID                   string            `json:"RoleId"`
-	Arn                      string            `json:"Arn"`
-	Path                     string            `json:"Path"`
-	AssumeRolePolicyDocument string            `json:"AssumeRolePolicyDocument"`
+	RoleName                 string            `json:"RoleName,omitempty"`
+	RoleID                   string            `json:"RoleId,omitempty"`
+	Arn                      string            `json:"Arn,omitempty"`
+	Path                     string            `json:"Path,omitempty"`
+	AssumeRolePolicyDocument string            `json:"AssumeRolePolicyDocument,omitempty"`
 	PermissionsBoundary      string            `json:"PermissionsBoundary,omitempty"`
 	Description              string            `json:"Description,omitempty"`
 	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
 	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
-	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
+	MaxSessionDuration int32 `json:"MaxSessionDuration"`
 }
 
 // Policy represents an IAM managed policy resource.
@@ -45,66 +45,66 @@ type Policy struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	CreateDate       time.Time         `json:"CreateDate"`
 	UpdateDate       time.Time         `json:"UpdateDate"`
-	PolicyName       string            `json:"PolicyName"`
-	PolicyID         string            `json:"PolicyId"`
-	Arn              string            `json:"Arn"`
-	Path             string            `json:"Path"`
-	PolicyDocument   string            `json:"PolicyDocument"`
-	DefaultVersionID string            `json:"DefaultVersionId"`
-	AttachmentCount  int               `json:"AttachmentCount"`
-	IsAttachable     bool              `json:"IsAttachable"`
+	PolicyName       string            `json:"PolicyName,omitempty"`
+	PolicyID         string            `json:"PolicyId,omitempty"`
+	Arn              string            `json:"Arn,omitempty"`
+	Path             string            `json:"Path,omitempty"`
+	PolicyDocument   string            `json:"PolicyDocument,omitempty"`
+	DefaultVersionID string            `json:"DefaultVersionId,omitempty"`
+	AttachmentCount  int               `json:"AttachmentCount,omitempty"`
+	IsAttachable     bool              `json:"IsAttachable,omitempty"`
 }
 
 // Group represents an IAM group resource.
 type Group struct {
 	Tags       map[string]string `json:"Tags,omitempty"`
 	CreateDate time.Time         `json:"CreateDate"`
-	GroupName  string            `json:"GroupName"`
-	GroupID    string            `json:"GroupId"`
-	Arn        string            `json:"Arn"`
-	Path       string            `json:"Path"`
+	GroupName  string            `json:"GroupName,omitempty"`
+	GroupID    string            `json:"GroupId,omitempty"`
+	Arn        string            `json:"Arn,omitempty"`
+	Path       string            `json:"Path,omitempty"`
 }
 
 // AccessKey represents an IAM access key for a user.
 type AccessKey struct {
 	LastUsedDate        *time.Time `json:"LastUsedDate,omitempty"`
 	CreateDate          time.Time  `json:"CreateDate"`
-	AccessKeyID         string     `json:"AccessKeyId"`
-	SecretAccessKey     string     `json:"SecretAccessKey"`
-	UserName            string     `json:"UserName"`
+	AccessKeyID         string     `json:"AccessKeyId,omitempty"`
+	SecretAccessKey     string     `json:"SecretAccessKey,omitempty"`
+	UserName            string     `json:"UserName,omitempty"`
 	LastUsedRegion      string     `json:"LastUsedRegion,omitempty"`
 	LastUsedServiceName string     `json:"LastUsedServiceName,omitempty"`
-	Status              string     `json:"Status"`
+	Status              string     `json:"Status,omitempty"`
 }
 
 // SigningCertificate represents an IAM X.509 signing certificate.
 type SigningCertificate struct {
 	UploadDate      time.Time `json:"UploadDate"`
-	CertificateID   string    `json:"CertificateId"`
-	UserName        string    `json:"UserName"`
-	CertificateBody string    `json:"CertificateBody"`
-	Status          string    `json:"Status"`
+	CertificateID   string    `json:"CertificateId,omitempty"`
+	UserName        string    `json:"UserName,omitempty"`
+	CertificateBody string    `json:"CertificateBody,omitempty"`
+	Status          string    `json:"Status,omitempty"`
 }
 
 // ServerCertificate represents an IAM server certificate.
 type ServerCertificate struct {
 	UploadDate            time.Time `json:"UploadDate"`
-	ServerCertificateName string    `json:"ServerCertificateName"`
-	ServerCertificateID   string    `json:"ServerCertificateId"`
-	Arn                   string    `json:"Arn"`
-	Path                  string    `json:"Path"`
-	CertificateBody       string    `json:"CertificateBody"`
+	ServerCertificateName string    `json:"ServerCertificateName,omitempty"`
+	ServerCertificateID   string    `json:"ServerCertificateId,omitempty"`
+	Arn                   string    `json:"Arn,omitempty"`
+	Path                  string    `json:"Path,omitempty"`
+	CertificateBody       string    `json:"CertificateBody,omitempty"`
 	CertificateChain      string    `json:"CertificateChain,omitempty"`
 }
 
 // InstanceProfile represents an IAM instance profile.
 type InstanceProfile struct {
 	CreateDate          time.Time `json:"CreateDate"`
-	InstanceProfileName string    `json:"InstanceProfileName"`
-	InstanceProfileID   string    `json:"InstanceProfileId"`
-	Arn                 string    `json:"Arn"`
-	Path                string    `json:"Path"`
-	Roles               []string  `json:"Roles"`
+	InstanceProfileName string    `json:"InstanceProfileName,omitempty"`
+	InstanceProfileID   string    `json:"InstanceProfileId,omitempty"`
+	Arn                 string    `json:"Arn,omitempty"`
+	Path                string    `json:"Path,omitempty"`
+	Roles               []string  `json:"Roles,omitempty"`
 }
 
 // ---- XML response types ----
@@ -243,7 +243,7 @@ type RoleXML struct {
 	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
 	Description              string                  `xml:"Description,omitempty"`
 	Tags                     []TagXML                `xml:"Tags>member,omitempty"`
-	MaxSessionDuration       int32                   `xml:"MaxSessionDuration,omitempty"`
+	MaxSessionDuration       int32                   `xml:"MaxSessionDuration"`
 }
 
 // CreateRoleResponse is the XML response for CreateRole.

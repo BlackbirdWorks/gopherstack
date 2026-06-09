@@ -66,17 +66,17 @@ func newTokenIssuerFromKey(privateKey *rsa.PrivateKey, keyID, issuerURL string) 
 }
 
 type JWKSResponse struct {
-	Keys []JWK `json:"keys"`
+	Keys []JWK `json:"keys,omitempty"`
 }
 
 // JWK represents a JSON Web Key.
 type JWK struct {
-	Kty string `json:"kty"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-	Kid string `json:"kid"`
-	Use string `json:"use"`
-	Alg string `json:"alg"`
+	Kty string `json:"kty,omitempty"`
+	N   string `json:"n,omitempty"`
+	E   string `json:"e,omitempty"`
+	Kid string `json:"kid,omitempty"`
+	Use string `json:"use,omitempty"`
+	Alg string `json:"alg,omitempty"`
 }
 
 // JWKS returns the JSON Web Key Set for this token issuer.
@@ -100,20 +100,20 @@ func (t *tokenIssuer) JWKS() JWKSResponse {
 
 // TokenResult contains the three tokens returned on successful authentication.
 type TokenResult struct {
-	IDToken      string
-	AccessToken  string
-	RefreshToken string
-	ExpiresIn    int32
+	IDToken      string `json:"idToken,omitempty"`
+	AccessToken  string `json:"accessToken,omitempty"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	ExpiresIn    int32  `json:"expiresIn,omitempty"`
 }
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	ClientID string
-	Username string
-	UserSub  string
-	Scopes   []string
-	Groups   []string
-	AuthTime int64
+	ClientID string   `json:"clientID,omitempty"`
+	Username string   `json:"username,omitempty"`
+	UserSub  string   `json:"userSub,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
+	Groups   []string `json:"groups,omitempty"`
+	AuthTime int64    `json:"authTime,omitempty"`
 }
 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.

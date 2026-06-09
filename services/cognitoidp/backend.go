@@ -51,46 +51,46 @@ const (
 
 // SchemaAttribute represents a custom attribute definition for a user pool.
 type SchemaAttribute struct {
-	Name                     string  `json:"Name"`
+	Name                     string  `json:"Name,omitempty"`
 	AttributeDataType        string  `json:"AttributeDataType,omitempty"`
 	StringAttributeMinLength int64   `json:"StringAttributeMinLength,omitempty"`
 	StringAttributeMaxLength int64   `json:"StringAttributeMaxLength,omitempty"`
 	NumberAttributeMinValue  float64 `json:"NumberAttributeMinValue,omitempty"`
 	NumberAttributeMaxValue  float64 `json:"NumberAttributeMaxValue,omitempty"`
-	Mutable                  bool    `json:"Mutable"`
-	Required                 bool    `json:"Required"`
-	DeveloperOnlyAttribute   bool    `json:"DeveloperOnlyAttribute"`
+	Mutable                  bool    `json:"Mutable,omitempty"`
+	Required                 bool    `json:"Required,omitempty"`
+	DeveloperOnlyAttribute   bool    `json:"DeveloperOnlyAttribute,omitempty"`
 }
 
 // PasswordPolicy holds the password-complexity requirements for a user pool.
 type PasswordPolicy struct {
-	MinimumLength                 int  `json:"MinimumLength"`
-	RequireUppercase              bool `json:"RequireUppercase"`
-	RequireLowercase              bool `json:"RequireLowercase"`
-	RequireNumbers                bool `json:"RequireNumbers"`
-	RequireSymbols                bool `json:"RequireSymbols"`
-	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays"`
+	MinimumLength                 int  `json:"MinimumLength,omitempty"`
+	RequireUppercase              bool `json:"RequireUppercase,omitempty"`
+	RequireLowercase              bool `json:"RequireLowercase,omitempty"`
+	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
+	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
+	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
-	CreatedAt              time.Time
+	CreatedAt              time.Time `json:"createdAt"`
 	issuer                 *tokenIssuer
-	PasswordPolicy         *PasswordPolicy
-	ID                     string
-	Name                   string
-	ARN                    string
-	MfaConfiguration       string
-	CustomAttributes       []SchemaAttribute
-	AutoVerifiedAttributes []string
+	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
+	ID                     string            `json:"id,omitempty"`
+	Name                   string            `json:"name,omitempty"`
+	ARN                    string            `json:"arn,omitempty"`
+	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
+	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
 	CreatedAt             time.Time `json:"createdAt"`
-	ClientID              string    `json:"clientId"`
-	ClientName            string    `json:"clientName"`
-	UserPoolID            string    `json:"userPoolId"`
+	ClientID              string    `json:"clientId,omitempty"`
+	ClientName            string    `json:"clientName,omitempty"`
+	UserPoolID            string    `json:"userPoolId,omitempty"`
 	ClientSecret          string    `json:"clientSecret,omitempty"`
 	AllowedOAuthFlows     []string  `json:"allowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes    []string  `json:"allowedOAuthScopes,omitempty"`
@@ -100,33 +100,33 @@ type UserPoolClient struct {
 
 // User represents a Cognito user within a pool.
 type User struct {
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	ConfirmCodeExpiresAt time.Time
-	LastAuthTime         time.Time
-	Attributes           map[string]string
-	UserPoolID           string
-	Sub                  string
-	Username             string
-	PasswordHash         string
-	Status               string
-	ConfirmCode          string
-	PreferredMfaSetting  string
-	TOTPSecret           string
-	UserMFASettingList   []string
-	Enabled              bool
-	TOTPVerified         bool
+	CreatedAt            time.Time         `json:"createdAt"`
+	UpdatedAt            time.Time         `json:"updatedAt"`
+	ConfirmCodeExpiresAt time.Time         `json:"confirmCodeExpiresAt"`
+	LastAuthTime         time.Time         `json:"lastAuthTime"`
+	Attributes           map[string]string `json:"attributes,omitempty"`
+	UserPoolID           string            `json:"userPoolID,omitempty"`
+	Sub                  string            `json:"sub,omitempty"`
+	Username             string            `json:"username,omitempty"`
+	PasswordHash         string            `json:"passwordHash,omitempty"`
+	Status               string            `json:"status,omitempty"`
+	ConfirmCode          string            `json:"confirmCode,omitempty"`
+	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
+	TOTPSecret           string            `json:"totpSecret,omitempty"`
+	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
+	Enabled              bool              `json:"enabled,omitempty"`
+	TOTPVerified         bool              `json:"totpVerified,omitempty"`
 }
 
 // Group represents a Cognito User Pool group.
 type Group struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	LastModifiedAt time.Time `json:"lastModifiedAt"`
-	GroupName      string    `json:"groupName"`
-	UserPoolID     string    `json:"userPoolId"`
+	GroupName      string    `json:"groupName,omitempty"`
+	UserPoolID     string    `json:"userPoolId,omitempty"`
 	Description    string    `json:"description,omitempty"`
 	RoleArn        string    `json:"roleArn,omitempty"`
-	Precedence     int32     `json:"precedence"`
+	Precedence     int32     `json:"precedence,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for Cognito IDP resources.
@@ -189,9 +189,9 @@ type InMemoryBackend struct {
 // refreshTokenEntry holds the pool/user context for a refresh token.
 type refreshTokenEntry struct {
 	ExpiresAt time.Time `json:"expiresAt"`
-	PoolID    string    `json:"poolId"`
-	ClientID  string    `json:"clientId"`
-	Username  string    `json:"username"`
+	PoolID    string    `json:"poolId,omitempty"`
+	ClientID  string    `json:"clientId,omitempty"`
+	Username  string    `json:"username,omitempty"`
 }
 
 // mfaSessionTTL is the lifetime of an MFA or challenge session token.
@@ -199,23 +199,23 @@ const mfaSessionTTL = 3 * time.Minute
 
 // mfaSessionEntry holds the pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 type mfaSessionEntry struct {
-	ExpiresAt     time.Time
-	PoolID        string
-	ClientID      string
-	Username      string
-	ChallengeType string // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED", "SMS_MFA", "EMAIL_OTP", "SRP_A"
+	ExpiresAt     time.Time `json:"expiresAt"`
+	PoolID        string    `json:"poolID,omitempty"`
+	ClientID      string    `json:"clientID,omitempty"`
+	Username      string    `json:"username,omitempty"`
+	ChallengeType string    `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
 	// SRPPassword holds the user's password for USER_SRP_AUTH second-step validation.
-	SRPPassword string
+	SRPPassword string `json:"srpPassword,omitempty"`
 }
 
 // AuthResult is the result of a successful authentication or a pending challenge.
 type AuthResult struct {
 	// Tokens is set when authentication is complete.
-	Tokens *TokenResult
+	Tokens *TokenResult `json:"tokens,omitempty"`
 	// MFASession is set when a challenge is required; the caller must respond to it.
-	MFASession string
+	MFASession string `json:"mfaSession,omitempty"`
 	// ChallengeName identifies the type of challenge (SOFTWARE_TOKEN_MFA, NEW_PASSWORD_REQUIRED, etc.).
-	ChallengeName string
+	ChallengeName string `json:"challengeName,omitempty"`
 }
 
 // mfaSessionLen is the character length of randomly generated MFA session tokens.
@@ -1980,10 +1980,10 @@ func userMatchesFilter(u *User, usernamePrefix string, attrFilter [2]string) boo
 
 // PoolMetrics holds aggregate statistics for a user pool.
 type PoolMetrics struct {
-	UserCount        int `json:"userCount"`
-	ClientCount      int `json:"clientCount"`
-	GroupCount       int `json:"groupCount"`
-	ActiveTokenCount int `json:"activeTokenCount"`
+	UserCount        int `json:"userCount,omitempty"`
+	ClientCount      int `json:"clientCount,omitempty"`
+	GroupCount       int `json:"groupCount,omitempty"`
+	ActiveTokenCount int `json:"activeTokenCount,omitempty"`
 }
 
 // AddUserPoolInternal seeds a user pool directly into the backend, bypassing normal

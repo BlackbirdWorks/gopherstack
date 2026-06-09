@@ -60,11 +60,11 @@ const (
 
 // SpotFleetLaunchSpecification is a single launch spec within a spot fleet config.
 type SpotFleetLaunchSpecification struct {
-	ImageID          string  `json:"imageId"`
-	InstanceType     string  `json:"instanceType"`
-	SubnetID         string  `json:"subnetId"`
-	KeyName          string  `json:"keyName"`
-	SpotPrice        string  `json:"spotPrice"`
+	ImageID          string  `json:"imageId,omitempty"`
+	InstanceType     string  `json:"instanceType,omitempty"`
+	SubnetID         string  `json:"subnetId,omitempty"`
+	KeyName          string  `json:"keyName,omitempty"`
+	SpotPrice        string  `json:"spotPrice,omitempty"`
 	WeightedCapacity float64 `json:"weightedCapacity"`
 }
 
@@ -72,25 +72,25 @@ type SpotFleetLaunchSpecification struct {
 type SpotFleetRequestConfig struct {
 	ValidFrom                        time.Time                      `json:"validFrom"`
 	ValidUntil                       time.Time                      `json:"validUntil"`
-	SpotPrice                        string                         `json:"spotPrice"`
-	AllocationStrategy               string                         `json:"allocationStrategy"`
-	ExcessCapacityTerminationPolicy  string                         `json:"excessCapacityTerminationPolicy"`
-	IamFleetRole                     string                         `json:"iamFleetRole"`
-	Type                             string                         `json:"type"`
-	LaunchSpecifications             []SpotFleetLaunchSpecification `json:"launchSpecifications"`
-	TargetCapacity                   int                            `json:"targetCapacity"`
-	TerminateInstancesWithExpiration bool                           `json:"terminateInstancesWithExpiration"`
-	ReplaceUnhealthyInstances        bool                           `json:"replaceUnhealthyInstances"`
+	SpotPrice                        string                         `json:"spotPrice,omitempty"`
+	AllocationStrategy               string                         `json:"allocationStrategy,omitempty"`
+	ExcessCapacityTerminationPolicy  string                         `json:"excessCapacityTerminationPolicy,omitempty"`
+	IamFleetRole                     string                         `json:"iamFleetRole,omitempty"`
+	Type                             string                         `json:"type,omitempty"`
+	LaunchSpecifications             []SpotFleetLaunchSpecification `json:"launchSpecifications,omitempty"`
+	TargetCapacity                   int                            `json:"targetCapacity,omitempty"`
+	TerminateInstancesWithExpiration bool                           `json:"terminateInstancesWithExpiration,omitempty"`
+	ReplaceUnhealthyInstances        bool                           `json:"replaceUnhealthyInstances,omitempty"`
 }
 
 // SpotFleetRequest represents a Spot Fleet request.
 type SpotFleetRequest struct {
 	CreateTime                time.Time              `json:"createTime"`
-	Tags                      map[string]string      `json:"tags"`
-	SpotFleetRequestID        string                 `json:"spotFleetRequestId"`
-	SpotFleetRequestState     string                 `json:"spotFleetRequestState"`
-	ActivityStatus            string                 `json:"activityStatus"`
-	InstanceIDs               []string               `json:"instanceIds"`
+	Tags                      map[string]string      `json:"tags,omitempty"`
+	SpotFleetRequestID        string                 `json:"spotFleetRequestId,omitempty"`
+	SpotFleetRequestState     string                 `json:"spotFleetRequestState,omitempty"`
+	ActivityStatus            string                 `json:"activityStatus,omitempty"`
+	InstanceIDs               []string               `json:"instanceIds,omitempty"`
 	SpotFleetRequestConfig    SpotFleetRequestConfig `json:"spotFleetRequestConfig"`
 	FulfilledCapacity         float64                `json:"fulfilledCapacity"`
 	OnDemandFulfilledCapacity float64                `json:"onDemandFulfilledCapacity"`
@@ -99,8 +99,8 @@ type SpotFleetRequest struct {
 // SpotFleetHistoryRecord is a history event for a spot fleet.
 type SpotFleetHistoryRecord struct {
 	Timestamp        time.Time `json:"timestamp"`
-	EventType        string    `json:"eventType"`
-	EventInformation string    `json:"eventInformation"`
+	EventType        string    `json:"eventType,omitempty"`
+	EventInformation string    `json:"eventInformation,omitempty"`
 }
 
 // spawnFleetInstancesLocked spawns instances to fulfill the spot fleet's TargetCapacity.
@@ -603,18 +603,18 @@ func (b *InMemoryBackend) DescribeSpotFleetRequestHistory(
 
 // SpotFleetCancelResult is the result of a single CancelSpotFleetRequests item.
 type SpotFleetCancelResult struct {
-	SpotFleetRequestID            string `json:"spotFleetRequestId"`
-	CurrentSpotFleetRequestState  string `json:"currentSpotFleetRequestState"`
-	PreviousSpotFleetRequestState string `json:"previousSpotFleetRequestState"`
+	SpotFleetRequestID            string `json:"spotFleetRequestId,omitempty"`
+	CurrentSpotFleetRequestState  string `json:"currentSpotFleetRequestState,omitempty"`
+	PreviousSpotFleetRequestState string `json:"previousSpotFleetRequestState,omitempty"`
 	Error                         string `json:"error,omitempty"`
 }
 
 // SpotFleetInstance is a single instance within a spot fleet.
 type SpotFleetInstance struct {
-	InstanceID            string  `json:"instanceId"`
-	InstanceType          string  `json:"instanceType"`
-	SpotInstanceRequestID string  `json:"spotInstanceRequestId"`
-	InstanceHealth        string  `json:"instanceHealth"`
+	InstanceID            string  `json:"instanceId,omitempty"`
+	InstanceType          string  `json:"instanceType,omitempty"`
+	SpotInstanceRequestID string  `json:"spotInstanceRequestId,omitempty"`
+	InstanceHealth        string  `json:"instanceHealth,omitempty"`
 	WeightedCapacity      float64 `json:"weightedCapacity"`
 }
 

@@ -374,17 +374,17 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 type trustStatement struct {
 	Action    any                       `json:"Action"`
 	Condition map[string]map[string]any `json:"Condition,omitempty"`
-	Effect    string                    `json:"Effect"`
+	Effect    string                    `json:"Effect,omitempty"`
 	Principal trustPrincipal            `json:"Principal"`
 }
 
 // trustPrincipal holds the parsed Principal from a trust policy statement.
 // AWS Principal can be "*", a single ARN string, or a map of type→ARNs.
 type trustPrincipal struct {
-	AWS       []string
-	Service   []string
-	Federated []string
-	AllowAll  bool
+	AWS       []string `json:"aws,omitempty"`
+	Service   []string `json:"service,omitempty"`
+	Federated []string `json:"federated,omitempty"`
+	AllowAll  bool     `json:"allowAll,omitempty"`
 }
 
 // UnmarshalJSON handles the three AWS Principal forms:
@@ -472,7 +472,7 @@ func EvaluateAssumeRoleTrustPolicy(
 	}
 
 	var doc struct {
-		Statement []trustStatement `json:"Statement"`
+		Statement []trustStatement `json:"Statement,omitempty"`
 	}
 
 	expanded := SubstituteVariables(trustPolicyJSON, ctx)

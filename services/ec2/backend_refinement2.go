@@ -13,45 +13,45 @@ import (
 // Snapshot represents an EBS snapshot.
 type Snapshot struct {
 	StartTime   time.Time `json:"startTime"`
-	VolumeID    string    `json:"volumeID"`
-	SnapshotID  string    `json:"snapshotID"`
-	Description string    `json:"description"`
-	State       string    `json:"state"`
-	Progress    string    `json:"progress"`
+	VolumeID    string    `json:"volumeID,omitempty"`
+	SnapshotID  string    `json:"snapshotID,omitempty"`
+	Description string    `json:"description,omitempty"`
+	State       string    `json:"state,omitempty"`
+	Progress    string    `json:"progress,omitempty"`
 	KmsKeyID    string    `json:"kmsKeyId,omitempty"`
-	VolumeSize  int       `json:"volumeSize"`
-	Encrypted   bool      `json:"encrypted"`
+	VolumeSize  int       `json:"volumeSize,omitempty"`
+	Encrypted   bool      `json:"encrypted,omitempty"`
 }
 
 // NACLEntry represents a single NACL rule entry.
 type NACLEntry struct {
-	Protocol   string `json:"protocol"`
-	CIDRBlock  string `json:"cidrBlock"`
-	RuleAction string `json:"ruleAction"`
-	RuleNumber int    `json:"ruleNumber"`
+	Protocol   string `json:"protocol,omitempty"`
+	CIDRBlock  string `json:"cidrBlock,omitempty"`
+	RuleAction string `json:"ruleAction,omitempty"`
+	RuleNumber int    `json:"ruleNumber,omitempty"`
 	FromPort   int    `json:"fromPort,omitempty"`
 	ToPort     int    `json:"toPort,omitempty"`
-	Egress     bool   `json:"egress"`
+	Egress     bool   `json:"egress,omitempty"`
 }
 
 // StoredNetworkACL represents a persisted Network ACL (created explicitly via CreateNetworkAcl).
 type StoredNetworkACL struct {
-	ID             string      `json:"id"`
-	VPCID          string      `json:"vpcID"`
-	AssociationIDs []string    `json:"associationIDs"`
-	Entries        []NACLEntry `json:"entries"`
-	IsDefault      bool        `json:"isDefault"`
+	ID             string      `json:"id,omitempty"`
+	VPCID          string      `json:"vpcID,omitempty"`
+	AssociationIDs []string    `json:"associationIDs,omitempty"`
+	Entries        []NACLEntry `json:"entries,omitempty"`
+	IsDefault      bool        `json:"isDefault,omitempty"`
 }
 
 // SecurityGroupRuleDetail represents a full security group rule record as returned by DescribeSecurityGroupRules.
 type SecurityGroupRuleDetail struct {
-	SecurityGroupRuleID string `json:"securityGroupRuleID"`
-	GroupID             string `json:"groupID"`
-	Protocol            string `json:"protocol"`
+	SecurityGroupRuleID string `json:"securityGroupRuleID,omitempty"`
+	GroupID             string `json:"groupID,omitempty"`
+	Protocol            string `json:"protocol,omitempty"`
 	CIDRIPv4            string `json:"cidrIpv4,omitempty"`
-	FromPort            int    `json:"fromPort"`
-	ToPort              int    `json:"toPort"`
-	IsEgress            bool   `json:"isEgress"`
+	FromPort            int    `json:"fromPort,omitempty"`
+	ToPort              int    `json:"toPort,omitempty"`
+	IsEgress            bool   `json:"isEgress,omitempty"`
 }
 
 // Additional errors for refinement 2 operations.

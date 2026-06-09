@@ -11,8 +11,8 @@ import (
 type SAMLProvider struct {
 	CreateDate           time.Time `json:"CreateDate"`
 	ValidUntil           time.Time `json:"ValidUntil"`
-	Arn                  string    `json:"Arn"`
-	SAMLMetadataDocument string    `json:"SAMLMetadataDocument"`
+	Arn                  string    `json:"Arn,omitempty"`
+	SAMLMetadataDocument string    `json:"SAMLMetadataDocument,omitempty"`
 }
 
 // SAMLProviderListEntryXML is the XML representation of a SAML provider in list responses.
@@ -88,10 +88,10 @@ type ListSAMLProvidersResponse struct {
 // OIDCProvider represents an IAM OpenID Connect identity provider.
 type OIDCProvider struct {
 	CreateDate     time.Time `json:"CreateDate"`
-	Arn            string    `json:"Arn"`
-	URL            string    `json:"Url"`
-	ClientIDList   []string  `json:"ClientIDList"`
-	ThumbprintList []string  `json:"ThumbprintList"`
+	Arn            string    `json:"Arn,omitempty"`
+	URL            string    `json:"Url,omitempty"`
+	ClientIDList   []string  `json:"ClientIDList,omitempty"`
+	ThumbprintList []string  `json:"ThumbprintList,omitempty"`
 }
 
 // OIDCProviderListEntryXML is the XML representation of an OIDC provider in list responses.
@@ -160,8 +160,8 @@ type UpdateOpenIDConnectProviderThumbprintResponse struct {
 // LoginProfile represents an IAM user login profile (console access).
 type LoginProfile struct {
 	CreateDate            time.Time `json:"CreateDate"`
-	UserName              string    `json:"UserName"`
-	PasswordResetRequired bool      `json:"PasswordResetRequired"`
+	UserName              string    `json:"UserName,omitempty"`
+	PasswordResetRequired bool      `json:"PasswordResetRequired,omitempty"`
 }
 
 // LoginProfileXML is the XML representation of a LoginProfile.

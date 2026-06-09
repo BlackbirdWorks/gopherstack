@@ -1452,8 +1452,8 @@ func newSecretAccessKey() (string, error) {
 
 // AttachedPolicy is a simplified representation of an attached managed policy.
 type AttachedPolicy struct {
-	PolicyName string
-	PolicyArn  string
+	PolicyName string `json:"policyName,omitempty"`
+	PolicyArn  string `json:"policyArn,omitempty"`
 }
 
 // ListAttachedUserPolicies returns all policy ARNs attached to the named user.
@@ -1957,72 +1957,72 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 
 // InlinePolicyEntry is an inline policy name/document pair used in AccountAuthorizationDetails.
 type InlinePolicyEntry struct {
-	PolicyName     string
-	PolicyDocument string
+	PolicyName     string `json:"policyName,omitempty"`
+	PolicyDocument string `json:"policyDocument,omitempty"`
 }
 
 // UserDetail holds user data and all associated policies for GetAccountAuthorizationDetails.
 type UserDetail struct {
 	User
 
-	AttachedPolicies []AttachedPolicy
-	InlinePolicies   []InlinePolicyEntry
+	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
+	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
 }
 
 // GroupDetail holds group data and all associated policies for GetAccountAuthorizationDetails.
 type GroupDetail struct {
 	Group
 
-	AttachedPolicies []AttachedPolicy
-	InlinePolicies   []InlinePolicyEntry
+	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
+	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
 }
 
 // RoleDetail holds role data and all associated policies for GetAccountAuthorizationDetails.
 type RoleDetail struct {
 	Role
 
-	AttachedPolicies []AttachedPolicy
-	InlinePolicies   []InlinePolicyEntry
+	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
+	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
 }
 
 // AccountSummary holds summary counts for GetAccountSummary.
 type AccountSummary struct {
-	Users             int
-	Groups            int
-	Roles             int
-	Policies          int
-	InstanceProfiles  int
-	AccessKeysPerUser int
-	ActiveAccessKeys  int
-	AttachedPolicies  int
-	AccountAliases    int
-	OIDCProviders     int
-	SAMLProviders     int
-	MFADevices        int
+	Users             int `json:"users,omitempty"`
+	Groups            int `json:"groups,omitempty"`
+	Roles             int `json:"roles,omitempty"`
+	Policies          int `json:"policies,omitempty"`
+	InstanceProfiles  int `json:"instanceProfiles,omitempty"`
+	AccessKeysPerUser int `json:"accessKeysPerUser,omitempty"`
+	ActiveAccessKeys  int `json:"activeAccessKeys,omitempty"`
+	AttachedPolicies  int `json:"attachedPolicies,omitempty"`
+	AccountAliases    int `json:"accountAliases,omitempty"`
+	OIDCProviders     int `json:"oidcProviders,omitempty"`
+	SAMLProviders     int `json:"samlProviders,omitempty"`
+	MFADevices        int `json:"mfaDevices,omitempty"`
 }
 
 // AccountAuthorizationDetails is the full IAM entity dump returned by GetAccountAuthorizationDetails.
 type AccountAuthorizationDetails struct {
-	Users    []UserDetail
-	Groups   []GroupDetail
-	Roles    []RoleDetail
-	Policies []Policy
+	Users    []UserDetail  `json:"users,omitempty"`
+	Groups   []GroupDetail `json:"groups,omitempty"`
+	Roles    []RoleDetail  `json:"roles,omitempty"`
+	Policies []Policy      `json:"policies,omitempty"`
 }
 
 // SimulationResult is the outcome of evaluating a single action/resource pair.
 type SimulationResult struct {
-	EvalDecisionDetails          map[string]string
-	AllowedByPermissionsBoundary *bool
-	ActionName                   string
-	ResourceName                 string
-	Decision                     string
+	EvalDecisionDetails          map[string]string `json:"evalDecisionDetails,omitempty"`
+	AllowedByPermissionsBoundary *bool             `json:"allowedByPermissionsBoundary,omitempty"`
+	ActionName                   string            `json:"actionName,omitempty"`
+	ResourceName                 string            `json:"resourceName,omitempty"`
+	Decision                     string            `json:"decision,omitempty"`
 }
 
 // namedPolicyDoc pairs a policy source ID with its JSON document.
 type namedPolicyDoc struct {
 	// SourceID is the ARN for managed policies or the inline policy name.
-	SourceID string
-	Doc      string
+	SourceID string `json:"sourceID,omitempty"`
+	Doc      string `json:"doc,omitempty"`
 }
 
 // GetAccountAuthorizationDetails returns a full dump of all IAM entities and their policies.

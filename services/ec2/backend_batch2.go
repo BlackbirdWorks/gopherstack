@@ -35,21 +35,21 @@ const (
 
 // VpcEndpointConnectionNotification tracks a VPC endpoint connection notification.
 type VpcEndpointConnectionNotification struct {
-	ConnectionNotificationID    string   `json:"connectionNotificationID"`
+	ConnectionNotificationID    string   `json:"connectionNotificationID,omitempty"`
 	ServiceID                   string   `json:"serviceID,omitempty"`
 	VpcEndpointID               string   `json:"vpcEndpointID,omitempty"`
-	ConnectionNotificationARN   string   `json:"connectionNotificationARN"`
-	ConnectionNotificationType  string   `json:"connectionNotificationType"`
-	ConnectionNotificationState string   `json:"connectionNotificationState"`
-	ConnectionEvents            []string `json:"connectionEvents"`
+	ConnectionNotificationARN   string   `json:"connectionNotificationARN,omitempty"`
+	ConnectionNotificationType  string   `json:"connectionNotificationType,omitempty"`
+	ConnectionNotificationState string   `json:"connectionNotificationState,omitempty"`
+	ConnectionEvents            []string `json:"connectionEvents,omitempty"`
 }
 
 // SnapshotLock holds lock state for an EBS snapshot.
 type SnapshotLock struct {
 	LockCreatedOn    time.Time `json:"lockCreatedOn"`
 	LockExpiresOn    time.Time `json:"lockExpiresOn"`
-	SnapshotID       string    `json:"snapshotID"`
-	LockState        string    `json:"lockState"`
+	SnapshotID       string    `json:"snapshotID,omitempty"`
+	LockState        string    `json:"lockState,omitempty"`
 	LockDurationDays int       `json:"lockDurationDays,omitempty"`
 }
 
@@ -57,20 +57,20 @@ type SnapshotLock struct {
 type ReplaceRootVolumeTask struct {
 	StartTime               time.Time `json:"startTime"`
 	CompleteTime            time.Time `json:"completeTime"`
-	ReplaceRootVolumeTaskID string    `json:"replaceRootVolumeTaskID"`
-	InstanceID              string    `json:"instanceID"`
-	TaskState               string    `json:"taskState"`
+	ReplaceRootVolumeTaskID string    `json:"replaceRootVolumeTaskID,omitempty"`
+	InstanceID              string    `json:"instanceID,omitempty"`
+	TaskState               string    `json:"taskState,omitempty"`
 	SnapshotID              string    `json:"snapshotID,omitempty"`
 }
 
 // SubnetCIDRReservation tracks a CIDR reservation within a subnet.
 type SubnetCIDRReservation struct {
-	SubnetCIDRReservationID string `json:"subnetCidrReservationID"`
-	SubnetID                string `json:"subnetID"`
-	CIDR                    string `json:"cidr"`
-	ReservationType         string `json:"reservationType"`
+	SubnetCIDRReservationID string `json:"subnetCidrReservationID,omitempty"`
+	SubnetID                string `json:"subnetID,omitempty"`
+	CIDR                    string `json:"cidr,omitempty"`
+	ReservationType         string `json:"reservationType,omitempty"`
 	Description             string `json:"description,omitempty"`
-	OwnerID                 string `json:"ownerID"`
+	OwnerID                 string `json:"ownerID,omitempty"`
 }
 
 // ---- VPC Endpoint Connection Notifications ----
@@ -478,8 +478,8 @@ func (b *InMemoryBackend) DescribeLockedSnapshots(ids []string) []*SnapshotLock 
 
 // CopyVolumesResult holds the result of copying a volume.
 type CopyVolumesResult struct {
-	SourceVolumeID string
-	DestVolumeID   string
+	SourceVolumeID string `json:"sourceVolumeID,omitempty"`
+	DestVolumeID   string `json:"destVolumeID,omitempty"`
 }
 
 // CopyVolumes creates copies of the given volumes.
@@ -744,9 +744,9 @@ func (b *InMemoryBackend) ResetImageAttribute(imageID, attribute string) error {
 
 // InstanceImageMetadataItem holds image-related metadata for a single instance.
 type InstanceImageMetadataItem struct {
-	InstanceID string
-	ImageID    string
-	ImageState string
+	InstanceID string `json:"instanceID,omitempty"`
+	ImageID    string `json:"imageID,omitempty"`
+	ImageState string `json:"imageState,omitempty"`
 }
 
 // DescribeInstanceImageMetadata returns image metadata for instances (or all).

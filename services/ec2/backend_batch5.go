@@ -32,114 +32,114 @@ var (
 
 // TrafficMirrorFilter holds a traffic mirror filter.
 type TrafficMirrorFilter struct {
-	TrafficMirrorFilterID string                     `json:"trafficMirrorFilterId"`
-	Description           string                     `json:"description"`
-	NetworkServices       []string                   `json:"networkServices"`
-	IngressFilterRules    []*TrafficMirrorFilterRule `json:"ingressFilterRules"`
-	EgressFilterRules     []*TrafficMirrorFilterRule `json:"egressFilterRules"`
+	TrafficMirrorFilterID string                     `json:"trafficMirrorFilterId,omitempty"`
+	Description           string                     `json:"description,omitempty"`
+	NetworkServices       []string                   `json:"networkServices,omitempty"`
+	IngressFilterRules    []*TrafficMirrorFilterRule `json:"ingressFilterRules,omitempty"`
+	EgressFilterRules     []*TrafficMirrorFilterRule `json:"egressFilterRules,omitempty"`
 }
 
 // TrafficMirrorFilterRule holds a single traffic mirror filter rule.
 type TrafficMirrorFilterRule struct {
-	TrafficMirrorFilterRuleID string `json:"trafficMirrorFilterRuleId"`
-	TrafficMirrorFilterID     string `json:"trafficMirrorFilterId"`
-	RuleAction                string `json:"ruleAction"`
-	TrafficDirection          string `json:"trafficDirection"`
-	DestinationCidrBlock      string `json:"destinationCidrBlock"`
-	SourceCidrBlock           string `json:"sourceCidrBlock"`
-	Description               string `json:"description"`
-	RuleNumber                int    `json:"ruleNumber"`
-	Protocol                  int    `json:"protocol"`
+	TrafficMirrorFilterRuleID string `json:"trafficMirrorFilterRuleId,omitempty"`
+	TrafficMirrorFilterID     string `json:"trafficMirrorFilterId,omitempty"`
+	RuleAction                string `json:"ruleAction,omitempty"`
+	TrafficDirection          string `json:"trafficDirection,omitempty"`
+	DestinationCidrBlock      string `json:"destinationCidrBlock,omitempty"`
+	SourceCidrBlock           string `json:"sourceCidrBlock,omitempty"`
+	Description               string `json:"description,omitempty"`
+	RuleNumber                int    `json:"ruleNumber,omitempty"`
+	Protocol                  int    `json:"protocol,omitempty"`
 }
 
 // TrafficMirrorSession holds a traffic mirror session.
 type TrafficMirrorSession struct {
-	TrafficMirrorSessionID string `json:"trafficMirrorSessionId"`
-	NetworkInterfaceID     string `json:"networkInterfaceId"`
-	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId"`
-	TrafficMirrorFilterID  string `json:"trafficMirrorFilterId"`
-	Description            string `json:"description"`
-	SessionNumber          int    `json:"sessionNumber"`
+	TrafficMirrorSessionID string `json:"trafficMirrorSessionId,omitempty"`
+	NetworkInterfaceID     string `json:"networkInterfaceId,omitempty"`
+	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId,omitempty"`
+	TrafficMirrorFilterID  string `json:"trafficMirrorFilterId,omitempty"`
+	Description            string `json:"description,omitempty"`
+	SessionNumber          int    `json:"sessionNumber,omitempty"`
 }
 
 // TrafficMirrorTarget holds a traffic mirror target.
 type TrafficMirrorTarget struct {
-	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId"`
-	NetworkInterfaceID     string `json:"networkInterfaceId"`
-	NetworkLoadBalancerArn string `json:"networkLoadBalancerArn"`
-	Description            string `json:"description"`
+	TrafficMirrorTargetID  string `json:"trafficMirrorTargetId,omitempty"`
+	NetworkInterfaceID     string `json:"networkInterfaceId,omitempty"`
+	NetworkLoadBalancerArn string `json:"networkLoadBalancerArn,omitempty"`
+	Description            string `json:"description,omitempty"`
 }
 
 // ---- EC2 Fleet ----
 
 // Fleet holds an EC2 Fleet.
 type Fleet struct {
-	FleetID                          string `json:"fleetId"`
-	FleetState                       string `json:"fleetState"`
-	FleetType                        string `json:"fleetType"`
-	TargetCapacityUnitType           string `json:"targetCapacityUnitType"`
-	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy"`
-	TotalTargetCapacity              int    `json:"totalTargetCapacity"`
-	OnDemandTargetCapacity           int    `json:"onDemandTargetCapacity"`
-	SpotTargetCapacity               int    `json:"spotTargetCapacity"`
-	TerminateInstancesWithExpiration bool   `json:"terminateInstancesWithExpiration"`
+	FleetID                          string `json:"fleetId,omitempty"`
+	FleetState                       string `json:"fleetState,omitempty"`
+	FleetType                        string `json:"fleetType,omitempty"`
+	TargetCapacityUnitType           string `json:"targetCapacityUnitType,omitempty"`
+	ExcessCapacityTerminationPolicy  string `json:"excessCapacityTerminationPolicy,omitempty"`
+	TotalTargetCapacity              int    `json:"totalTargetCapacity,omitempty"`
+	OnDemandTargetCapacity           int    `json:"onDemandTargetCapacity,omitempty"`
+	SpotTargetCapacity               int    `json:"spotTargetCapacity,omitempty"`
+	TerminateInstancesWithExpiration bool   `json:"terminateInstancesWithExpiration,omitempty"`
 }
 
 // ---- Network Insights ----
 
 // NetworkInsightsPath holds a network insights path.
 type NetworkInsightsPath struct {
-	NetworkInsightsPathID  string `json:"networkInsightsPathId"`
-	NetworkInsightsPathArn string `json:"networkInsightsPathArn"`
-	SourceID               string `json:"sourceId"`
-	DestinationID          string `json:"destinationId"`
-	Protocol               string `json:"protocol"`
-	DestinationPort        int    `json:"destinationPort"`
+	NetworkInsightsPathID  string `json:"networkInsightsPathId,omitempty"`
+	NetworkInsightsPathArn string `json:"networkInsightsPathArn,omitempty"`
+	SourceID               string `json:"sourceId,omitempty"`
+	DestinationID          string `json:"destinationId,omitempty"`
+	Protocol               string `json:"protocol,omitempty"`
+	DestinationPort        int    `json:"destinationPort,omitempty"`
 }
 
 // NetworkInsightsAnalysis holds a network insights analysis.
 type NetworkInsightsAnalysis struct {
-	NetworkInsightsAnalysisID string `json:"networkInsightsAnalysisId"`
-	NetworkInsightsPathID     string `json:"networkInsightsPathId"`
-	Status                    string `json:"status"`
-	NetworkPathFound          bool   `json:"networkPathFound"`
+	NetworkInsightsAnalysisID string `json:"networkInsightsAnalysisId,omitempty"`
+	NetworkInsightsPathID     string `json:"networkInsightsPathId,omitempty"`
+	Status                    string `json:"status,omitempty"`
+	NetworkPathFound          bool   `json:"networkPathFound,omitempty"`
 }
 
 // NetworkInsightsAccessScope holds a network insights access scope.
 type NetworkInsightsAccessScope struct {
-	NetworkInsightsAccessScopeID  string `json:"networkInsightsAccessScopeId"`
-	NetworkInsightsAccessScopeArn string `json:"networkInsightsAccessScopeArn"`
+	NetworkInsightsAccessScopeID  string `json:"networkInsightsAccessScopeId,omitempty"`
+	NetworkInsightsAccessScopeArn string `json:"networkInsightsAccessScopeArn,omitempty"`
 }
 
 // NetworkInsightsAccessScopeAnalysis holds an access scope analysis.
 type NetworkInsightsAccessScopeAnalysis struct {
-	NetworkInsightsAccessScopeAnalysisID string `json:"networkInsightsAccessScopeAnalysisId"`
-	NetworkInsightsAccessScopeID         string `json:"networkInsightsAccessScopeId"`
-	Status                               string `json:"status"`
-	AnalyzedEniCount                     int    `json:"analyzedEniCount"`
+	NetworkInsightsAccessScopeAnalysisID string `json:"networkInsightsAccessScopeAnalysisId,omitempty"`
+	NetworkInsightsAccessScopeID         string `json:"networkInsightsAccessScopeId,omitempty"`
+	Status                               string `json:"status,omitempty"`
+	AnalyzedEniCount                     int    `json:"analyzedEniCount,omitempty"`
 }
 
 // ---- Carrier Gateways ----
 
 // CarrierGateway holds a carrier gateway.
 type CarrierGateway struct {
-	CarrierGatewayID string `json:"carrierGatewayId"`
-	VpcID            string `json:"vpcId"`
-	State            string `json:"state"`
-	OwnerID          string `json:"ownerId"`
+	CarrierGatewayID string `json:"carrierGatewayId,omitempty"`
+	VpcID            string `json:"vpcId,omitempty"`
+	State            string `json:"state,omitempty"`
+	OwnerID          string `json:"ownerId,omitempty"`
 }
 
 // ---- Reserved Instances ----
 
 // ReservedInstance holds a reserved instance.
 type ReservedInstance struct {
-	ReservedInstancesID string  `json:"reservedInstancesId"`
-	InstanceType        string  `json:"instanceType"`
-	AvailabilityZone    string  `json:"availabilityZone"`
-	ProductDescription  string  `json:"productDescription"`
-	State               string  `json:"state"`
-	OfferingType        string  `json:"offeringType"`
-	InstanceCount       int     `json:"instanceCount"`
+	ReservedInstancesID string  `json:"reservedInstancesId,omitempty"`
+	InstanceType        string  `json:"instanceType,omitempty"`
+	AvailabilityZone    string  `json:"availabilityZone,omitempty"`
+	ProductDescription  string  `json:"productDescription,omitempty"`
+	State               string  `json:"state,omitempty"`
+	OfferingType        string  `json:"offeringType,omitempty"`
+	InstanceCount       int     `json:"instanceCount,omitempty"`
 	Duration            int64   `json:"duration"`
 	FixedPrice          float64 `json:"fixedPrice"`
 	UsagePrice          float64 `json:"usagePrice"`
@@ -147,11 +147,11 @@ type ReservedInstance struct {
 
 // ReservedInstancesOffering holds a reserved instances offering.
 type ReservedInstancesOffering struct {
-	ReservedInstancesOfferingID string  `json:"reservedInstancesOfferingId"`
-	InstanceType                string  `json:"instanceType"`
-	AvailabilityZone            string  `json:"availabilityZone"`
-	ProductDescription          string  `json:"productDescription"`
-	OfferingType                string  `json:"offeringType"`
+	ReservedInstancesOfferingID string  `json:"reservedInstancesOfferingId,omitempty"`
+	InstanceType                string  `json:"instanceType,omitempty"`
+	AvailabilityZone            string  `json:"availabilityZone,omitempty"`
+	ProductDescription          string  `json:"productDescription,omitempty"`
+	OfferingType                string  `json:"offeringType,omitempty"`
 	Duration                    int64   `json:"duration"`
 	FixedPrice                  float64 `json:"fixedPrice"`
 	UsagePrice                  float64 `json:"usagePrice"`
@@ -159,17 +159,17 @@ type ReservedInstancesOffering struct {
 
 // ReservedInstancesListing holds a reserved instances listing.
 type ReservedInstancesListing struct {
-	ReservedInstancesListingID string `json:"reservedInstancesListingId"`
-	ReservedInstancesID        string `json:"reservedInstancesId"`
-	Status                     string `json:"status"`
-	StatusMessage              string `json:"statusMessage"`
+	ReservedInstancesListingID string `json:"reservedInstancesListingId,omitempty"`
+	ReservedInstancesID        string `json:"reservedInstancesId,omitempty"`
+	Status                     string `json:"status,omitempty"`
+	StatusMessage              string `json:"statusMessage,omitempty"`
 }
 
 // ReservedInstancesModification holds a reserved instances modification.
 type ReservedInstancesModification struct {
-	ReservedInstancesModificationID string `json:"reservedInstancesModificationId"`
-	Status                          string `json:"status"`
-	StatusMessage                   string `json:"statusMessage"`
+	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
+	Status                          string `json:"status,omitempty"`
+	StatusMessage                   string `json:"statusMessage,omitempty"`
 }
 
 // ---- Traffic Mirror backend methods ----
