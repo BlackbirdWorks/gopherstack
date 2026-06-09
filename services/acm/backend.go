@@ -1599,12 +1599,7 @@ func generateKey(keyAlgorithm string) (any, any, string, error) {
 
 	switch keyAlgorithm {
 	case "RSA_1024":
-		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa1024)
-		if rsaErr != nil {
-			return nil, nil, "", rsaErr
-		}
-
-		return privRSA, &privRSA.PublicKey, sigAlgoSHA256WithRSA, nil
+		return nil, nil, "", fmt.Errorf("RSA_1024 is not supported due to weak security")
 	case "RSA_2048":
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa2048)
 		if rsaErr != nil {

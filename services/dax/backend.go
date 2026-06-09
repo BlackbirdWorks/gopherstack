@@ -249,7 +249,7 @@ func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.T
 	}
 	nodes := make([]Node, 0, capacity)
 
-	for i := range input.ReplicationFactor {
+	for i := range capacity {
 		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
 		az := b.Region + "a"
 

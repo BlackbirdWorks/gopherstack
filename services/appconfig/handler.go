@@ -3,6 +3,7 @@ package appconfig
 import (
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1651,7 +1652,7 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nameFilter := q.Get("name")
 	var versionNumber int32
 	if s := q.Get("extension_version_number"); s != "" {
-		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n > 0 {
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n > 0 && n <= math.MaxInt32 {
 			versionNumber = int32(n)
 		}
 	}

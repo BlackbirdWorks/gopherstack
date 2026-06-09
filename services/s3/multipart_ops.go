@@ -309,7 +309,7 @@ func (h *S3Handler) listMultipartUploads(
 
 	var maxUploads *int32
 	if mu := q.Get("max-uploads"); mu != "" {
-		if n, err := strconv.ParseInt(mu, 10, 32); err == nil && n > 0 {
+		if n, err := strconv.ParseInt(mu, 10, 32); err == nil && n > 0 && n <= math.MaxInt32 {
 			v := int32(n)
 			maxUploads = &v
 		}
