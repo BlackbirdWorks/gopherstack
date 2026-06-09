@@ -3,19 +3,23 @@ package elbv2
 import (
 	"encoding/json"
 	"errors"
+	"time"
 )
 
 // errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
 var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
 
+//nolint:govet // large struct
 type backendSnapshot struct {
-	LoadBalancers map[string]*LoadBalancer `json:"loadBalancers"`
-	TargetGroups  map[string]*TargetGroup  `json:"targetGroups"`
-	Listeners     map[string]*Listener     `json:"listeners"`
-	Rules         map[string]*Rule         `json:"rules"`
-	TrustStores   map[string]*TrustStore   `json:"trustStores"`
-	AccountID     string                   `json:"accountID"`
-	Region        string                   `json:"region"`
+	LoadBalancers map[string]*LoadBalancer        `json:"loadBalancers"`
+	TargetGroups  map[string]*TargetGroup         `json:"targetGroups"`
+	Listeners     map[string]*Listener            `json:"listeners"`
+	Rules         map[string]*Rule                `json:"rules"`
+	TrustStores   map[string]*TrustStore          `json:"trustStores"`
+	TargetReadyAt map[string]map[string]time.Time `json:"targetReadyAt"`
+	RuleCounter   int                             `json:"ruleCounter"`
+	AccountID     string                          `json:"accountID"`
+	Region        string                          `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -30,6 +34,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Listeners:     b.listeners,
 		Rules:         b.rules,
 		TrustStores:   b.trustStores,
+		TargetReadyAt: b.targetReadyAt,
+		RuleCounter:   b.ruleCounter,
 		AccountID:     b.accountID,
 		Region:        b.region,
 	}
@@ -79,6 +85,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.listeners = snap.Listeners
 	b.rules = snap.Rules
 	b.trustStores = snap.TrustStores
+	b.targetReadyAt = snap.TargetReadyAt
+	b.ruleCounter = snap.RuleCounter
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
