@@ -1095,11 +1095,11 @@ func resolveCidr(args []any, ctx resolveCtx) string {
 
 	var count int
 	const maxCount = 256
-	if c, err := strconv.Atoi(countStr); err != nil || c <= 0 || c > maxCount {
+	c, countErr := strconv.Atoi(countStr)
+	if countErr != nil || c <= 0 || c > maxCount {
 		return ""
-	} else {
-		count = c
 	}
+	count = c
 
 	// Determine prefix length for subnets.
 	var newBits int

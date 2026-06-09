@@ -1590,16 +1590,17 @@ func (b *InMemoryBackend) FailCertificate(certARN, reason string) error {
 	return nil
 }
 
+var errWeakKey = errors.New("RSA_1024 is not supported due to weak security")
+
 func generateKey(keyAlgorithm string) (any, any, string, error) {
 	const sigAlgoSHA256WithRSA = "SHA256WITHRSA"
-	const rsa1024 = 1024
 	const rsa2048 = 2048
 	const rsa3072 = 3072
 	const rsa4096 = 4096
 
 	switch keyAlgorithm {
 	case "RSA_1024":
-		return nil, nil, "", fmt.Errorf("RSA_1024 is not supported due to weak security")
+		return nil, nil, "", errWeakKey
 	case "RSA_2048":
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa2048)
 		if rsaErr != nil {
