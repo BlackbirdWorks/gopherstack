@@ -37,8 +37,8 @@ func TestIntegration_EC2_InstanceRunningWaiter(t *testing.T) {
 		})
 	})
 
-	// Verify the instance state is running
-	assert.Equal(t, ec2types.InstanceStateNameRunning, out.Instances[0].State.Name)
+	// Verify the instance state is pending
+	assert.Equal(t, ec2types.InstanceStateNamePending, out.Instances[0].State.Name)
 
 	waiter := ec2sdk.NewInstanceRunningWaiter(client, func(o *ec2sdk.InstanceRunningWaiterOptions) {
 		o.MinDelay = 100 * time.Millisecond

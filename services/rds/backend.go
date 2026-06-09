@@ -1059,6 +1059,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		}
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
 	cp := *inst
 
 	b.mu.Unlock()

@@ -589,14 +589,22 @@ func (h *Handler) invokeLambdaRotationSteps(
 			return fmt.Errorf("rotation event marshal: %w", marshalErr)
 		}
 
-		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
+		result, _, invokeErr := h.lambdaInvoker.InvokeFunction(
 			ctx, functionName, "RequestResponse", event,
-		); invokeErr != nil {
+		)
+		if invokeErr != nil {
 			if b, ok := h.Backend.(*InMemoryBackend); ok {
 				_ = b.AbortRotation(input.SecretID, out.VersionID)
 			}
 
 			return fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+		}
+		if len(result) > 0 && string(result) != "{}" && string(result) != "null" {
+			// This is a function error or unexpected result
+			logger.Load(ctx).DebugContext(ctx, "Lambda step returned",
+				"step", step,
+				"result", string(result),
+			)
 		}
 	}
 

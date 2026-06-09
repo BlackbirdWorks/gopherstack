@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -36,9 +37,18 @@ func TestSDK_RDS_FullLifecycle(t *testing.T) {
 	require.NotNil(t, createOut.DBInstance)
 	assert.Equal(t, id, aws.ToString(createOut.DBInstance.DBInstanceIdentifier))
 	assert.Equal(t, "postgres", aws.ToString(createOut.DBInstance.Engine))
-	assert.Equal(t, "available", aws.ToString(createOut.DBInstance.DBInstanceStatus))
+	assert.Equal(t, "creating", aws.ToString(createOut.DBInstance.DBInstanceStatus))
 	assert.NotEmpty(t, createOut.DBInstance.Endpoint.Address)
 	assert.Equal(t, int32(5432), aws.ToInt32(createOut.DBInstance.Endpoint.Port))
+
+	// Wait for the instance to become available
+	waiter := rdssdk.NewDBInstanceAvailableWaiter(client, func(o *rdssdk.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
+	err = waiter.Wait(ctx, &rdssdk.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(id),
+	}, 10*time.Second)
+	require.NoError(t, err, "DBInstanceAvailableWaiter should succeed")
 
 	// DescribeDBInstances by ID
 	descOut, err := client.DescribeDBInstances(ctx, &rdssdk.DescribeDBInstancesInput{

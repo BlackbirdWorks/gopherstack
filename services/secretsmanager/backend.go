@@ -1200,7 +1200,7 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		}, nil
 	}
 
-	versionID, err := b.rotateSecretLocked(secret)
+	versionID, err := b.rotateSecretLocked(secret, input.ClientRequestToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1222,7 +1222,7 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 // rotateSecretLocked creates a new secret version with the AWSPENDING staging label.
 // Callers MUST follow up with finishRotationLocked (to promote to AWSCURRENT) or
 // abortRotationLocked (to discard the pending version). Must be called with b.mu held.
-func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
+func (b *InMemoryBackend) rotateSecretLocked(secret *Secret, token string) (string, error) {
 	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
 	if currentVer == nil {
 		return "", ErrVersionNotFound
@@ -1239,7 +1239,10 @@ func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
 		newSecretBinary = nil
 	}
 
-	versionID := generateVersionID()
+	versionID := token
+	if versionID == "" {
+		versionID = generateVersionID()
+	}
 	newVer := &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  newSecretString,
@@ -2280,7 +2283,7 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 			continue
 		}
 
-		versionID, err := b.rotateSecretLocked(secret)
+		versionID, err := b.rotateSecretLocked(secret, "")
 		if err != nil {
 			continue
 		}
