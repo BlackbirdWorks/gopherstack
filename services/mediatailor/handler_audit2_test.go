@@ -194,7 +194,7 @@ func TestAudit2_LiveSource_NotFound(t *testing.T) { //nolint:paralleltest // exi
 // --- PrefetchSchedule tests --- //nolint:godot // existing issue.
 func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
-	createTestPlaybackConfig(t, h, "config1")
+	createTestPlaybackConfig(t, h, "pc1")
 
 	tests := []struct {
 		check    func(t *testing.T, rec *httptest.ResponseRecorder)
@@ -219,7 +219,7 @@ func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // e
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h2 := newTestHandler(t)
-			createTestPlaybackConfig(t, h2, "config1")
+			createTestPlaybackConfig(t, h2, "pc1")
 
 			rec := doRequest(t, h2, http.MethodPost, "/prefetchSchedule/pc1/sched1", nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -286,7 +286,7 @@ func TestAudit2_PrefetchSchedule_NotFound(t *testing.T) { //nolint:paralleltest 
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestPlaybackConfig(t, h, "config1")
+			createTestPlaybackConfig(t, h, "pc1")
 
 			rec := doRequest(t, h, tc.method, tc.path, nil)
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -699,7 +699,7 @@ func TestAudit2_ConfigureLogsForPlaybackConfiguration(t *testing.T) { //nolint:p
 	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
-			createTestPlaybackConfig(t, h, "config1")
+			createTestPlaybackConfig(t, h, "pc1")
 
 			rec := doRequest(t, h, http.MethodPut, "/configureLogs/playbackConfiguration", tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
