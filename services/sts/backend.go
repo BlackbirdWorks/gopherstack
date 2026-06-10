@@ -201,6 +201,39 @@ func isSessionExpired(s *SessionInfo) bool {
 	return !s.Expiration.IsZero() && !time.Now().UTC().Before(s.Expiration)
 }
 
+// sessionEvictThreshold is the session count above which inserting a new session
+// triggers an opportunistic sweep of expired sessions. This bounds the sessions
+// map even when the background janitor is disabled or runs at a long interval,
+// while keeping the common (small) case allocation-free. The threshold is high
+// enough that the O(n) sweep amortizes cheaply.
+const sessionEvictThreshold = 256
+
+// evictExpiredSessionsLocked removes expired sessions from the map. It is a no-op
+// below sessionEvictThreshold so steady-state inserts stay O(1). The caller must
+// hold b.mu.
+func (b *InMemoryBackend) evictExpiredSessionsLocked() {
+	if len(b.sessions) < sessionEvictThreshold {
+		return
+	}
+
+	for id, session := range b.sessions {
+		if isSessionExpired(session) {
+			delete(b.sessions, id)
+		}
+	}
+}
+
+// storeSession registers a new session under its access key ID, increments the
+// lifetime counter, and opportunistically evicts expired sessions so the map
+// stays bounded even when the background janitor is not running.
+func (b *InMemoryBackend) storeSession(accessKeyID string, session *SessionInfo) {
+	b.mu.Lock()
+	b.evictExpiredSessionsLocked()
+	b.sessions[accessKeyID] = session
+	b.totalSessionsCreated.Add(1)
+	b.mu.Unlock()
+}
+
 // validateRoleArn checks that a role ARN is a valid IAM role ARN:
 // - format: arn:<partition>:iam::<12-digit-account>:role/<name>.
 func validateRoleArn(roleArn string) error {
@@ -510,10 +543,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		Expiration:        expiration,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
@@ -663,10 +693,7 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 		AssumedRoleID:   MockUserID,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	return &GetSessionTokenResponse{
 		Xmlns: STSNamespace,
@@ -748,10 +775,7 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 		Tags:            input.Tags,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	return &GetFederationTokenResponse{
 		Xmlns: STSNamespace,
@@ -921,10 +945,7 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 		SourceIdentity:  input.SourceIdentity,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
@@ -1068,10 +1089,7 @@ func (b *InMemoryBackend) buildSAMLResponse(
 		Tags:            input.Tags,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	issuerParts := strings.Split(input.PrincipalArn, "/")
 	issuer := issuerParts[len(issuerParts)-1]
@@ -1156,10 +1174,7 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		AssumedRoleID:   account + ":" + rootSessionName,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	return &AssumeRootResponse{
 		Xmlns: STSNamespace,
@@ -1217,10 +1232,7 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		AssumedRoleID:   b.accountID + ":" + delegatedSessionName,
 	}
 
-	b.mu.Lock()
-	b.sessions[creds.AccessKeyID] = session
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	b.storeSession(creds.AccessKeyID, session)
 
 	return &GetDelegatedAccessTokenResponse{
 		Xmlns: STSNamespace,

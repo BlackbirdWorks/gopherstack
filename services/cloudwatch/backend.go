@@ -1418,6 +1418,9 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 	for _, name := range alarmNames {
 		delete(b.alarms, name)
 		delete(b.compositeAlarms, name)
+		// Release the per-alarm history so it cannot accumulate across the
+		// lifetime of the backend once the alarm itself is gone.
+		delete(b.alarmHistory, name)
 	}
 
 	return nil

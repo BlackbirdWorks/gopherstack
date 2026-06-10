@@ -16,6 +16,16 @@ func MetricsCount(b *InMemoryBackend, envName string) int {
 	return len(b.metrics[envName])
 }
 
+// MetricsCapacity returns the capacity of the backing slice for an
+// environment's metrics. Used to verify trimming does not retain an oversized
+// backing array (a memory leak even though len() is capped).
+func MetricsCapacity(b *InMemoryBackend, envName string) int {
+	b.mu.RLock("MetricsCapacity")
+	defer b.mu.RUnlock()
+
+	return cap(b.metrics[envName])
+}
+
 // ARNIndexSize returns the number of entries in the ARN index.
 func ARNIndexSize(b *InMemoryBackend) int {
 	b.mu.RLock("ARNIndexSize")

@@ -588,3 +588,19 @@ func ExtractExportARNForTest(out any) string {
 
 	return v.ExportDescription.ExportArn
 }
+
+// ExpireAllShardIteratorsForTest backdates every entry's ExpiresAt so a
+// subsequent Put can be observed to sweep them. Used to test opportunistic
+// eviction without waiting for the real TTL to elapse.
+func (s *ShardIteratorStore) ExpireAllShardIteratorsForTest() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	past := time.Now().Add(-time.Hour)
+	for _, entry := range s.entries {
+		entry.ExpiresAt = past
+	}
+}
+
+// ShardIteratorSweepThresholdForTest exposes the inline-sweep threshold.
+const ShardIteratorSweepThresholdForTest = shardIteratorSweepThreshold

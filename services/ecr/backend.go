@@ -17,6 +17,11 @@ import (
 
 const (
 	layerUploadPartSize = 20 * 1024 * 1024
+	// layerUploadTTL bounds how long an in-progress layer upload is retained
+	// before it is treated as abandoned and pruned. AWS expires unfinished
+	// uploads after a period of inactivity; this prevents the layerUploads map
+	// from leaking entries for uploads that are initiated but never completed.
+	layerUploadTTL      = 24 * time.Hour
 	scanTypeBasic       = "BASIC"
 	mutabilityMutable   = "MUTABLE"
 	mutabilityImmutable = "IMMUTABLE"
@@ -360,6 +365,7 @@ type ImageTagMutabilityExclusionFilter struct {
 }
 
 type layerUploadState struct {
+	CreatedAt      time.Time
 	RepositoryName string
 	Data           []byte
 	Size           int64
@@ -976,8 +982,18 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	uploadID := fmt.Sprintf("upload-%d", time.Now().UnixNano())
-	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName}
+	now := time.Now()
+
+	// Prune abandoned uploads (initiated but never completed) so the map cannot
+	// grow without bound on a long-lived registry.
+	for id, upload := range b.layerUploads {
+		if now.Sub(upload.CreatedAt) > layerUploadTTL {
+			delete(b.layerUploads, id)
+		}
+	}
+
+	uploadID := fmt.Sprintf("upload-%d", now.UnixNano())
+	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName, CreatedAt: now}
 
 	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
 }
@@ -1002,6 +1018,9 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 
 	upload.Data = append(upload.Data, blob...)
 	upload.Size = int64(len(upload.Data))
+	// Refresh the activity timestamp so an in-progress multi-part upload is not
+	// pruned as abandoned while parts are still arriving.
+	upload.CreatedAt = time.Now()
 
 	if lastByte < 0 && len(blob) > 0 {
 		lastByte = upload.Size - 1
