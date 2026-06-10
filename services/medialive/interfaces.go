@@ -103,6 +103,129 @@ type StorageBackend interface {
 	CreateNodeRegistrationScript(clusterID string) (string, error)
 	ListClusterAlerts(clusterID string, maxResults int, nextToken string) ([]map[string]any, string, error)
 
+	// SignalMaps
+	CreateSignalMap(
+		name, description, discoveryEntryPointArn string,
+		cwGroupIDs, ebGroupIDs []string,
+		tags map[string]string,
+	) (*SignalMap, error)
+	GetSignalMap(identifier string) (*SignalMap, error)
+	ListSignalMaps(maxResults int, nextToken string) ([]*SignalMap, string, error)
+	DeleteSignalMap(identifier string) error
+	StartUpdateSignalMap(
+		identifier, name, description string,
+		cwGroupIDs, ebGroupIDs []string,
+	) (*SignalMap, error)
+	StartMonitorDeployment(identifier string) (*SignalMap, error)
+
+	// CloudWatch Alarm Template Groups
+	CreateCloudWatchAlarmTemplateGroup(
+		name, description string,
+		tags map[string]string,
+	) (*CloudWatchAlarmTemplateGroup, error)
+	GetCloudWatchAlarmTemplateGroup(identifier string) (*CloudWatchAlarmTemplateGroup, error)
+	ListCloudWatchAlarmTemplateGroups(
+		maxResults int,
+		nextToken string,
+	) ([]*CloudWatchAlarmTemplateGroup, string, error)
+	UpdateCloudWatchAlarmTemplateGroup(
+		identifier, name, description string,
+	) (*CloudWatchAlarmTemplateGroup, error)
+	DeleteCloudWatchAlarmTemplateGroup(identifier string) error
+
+	// CloudWatch Alarm Templates
+	CreateCloudWatchAlarmTemplate(
+		name string,
+		description string,
+		groupIdentifier string,
+		metricName string,
+		namespace string,
+		statistic string,
+		comparisonOperator string,
+		targetResourceType string,
+		treatMissingData string,
+		threshold float64,
+		evaluationPeriods, datapointsToAlarm, period int32,
+		tags map[string]string,
+	) (*CloudWatchAlarmTemplate, error)
+	GetCloudWatchAlarmTemplate(identifier string) (*CloudWatchAlarmTemplate, error)
+	ListCloudWatchAlarmTemplates(
+		maxResults int,
+		nextToken string,
+	) ([]*CloudWatchAlarmTemplate, string, error)
+	UpdateCloudWatchAlarmTemplate(
+		identifier string,
+		name string,
+		description string,
+		groupIdentifier string,
+		metricName string,
+		namespace string,
+		statistic string,
+		comparisonOperator string,
+		targetResourceType string,
+		treatMissingData string,
+		threshold float64,
+		evaluationPeriods, datapointsToAlarm, period int32,
+	) (*CloudWatchAlarmTemplate, error)
+	DeleteCloudWatchAlarmTemplate(identifier string) error
+
+	// EventBridge Rule Template Groups
+	CreateEventBridgeRuleTemplateGroup(
+		name, description string,
+		tags map[string]string,
+	) (*EventBridgeRuleTemplateGroup, error)
+	GetEventBridgeRuleTemplateGroup(identifier string) (*EventBridgeRuleTemplateGroup, error)
+	ListEventBridgeRuleTemplateGroups(
+		maxResults int,
+		nextToken string,
+	) ([]*EventBridgeRuleTemplateGroup, string, error)
+	UpdateEventBridgeRuleTemplateGroup(
+		identifier, name, description string,
+	) (*EventBridgeRuleTemplateGroup, error)
+	DeleteEventBridgeRuleTemplateGroup(identifier string) error
+
+	// EventBridge Rule Templates
+	CreateEventBridgeRuleTemplate(
+		name, description, groupIdentifier, eventType string,
+		eventTargets []EventBridgeRuleTemplateTarget,
+		tags map[string]string,
+	) (*EventBridgeRuleTemplate, error)
+	GetEventBridgeRuleTemplate(identifier string) (*EventBridgeRuleTemplate, error)
+	ListEventBridgeRuleTemplates(
+		maxResults int,
+		nextToken string,
+	) ([]*EventBridgeRuleTemplate, string, error)
+	UpdateEventBridgeRuleTemplate(
+		identifier, name, description, groupIdentifier, eventType string,
+		eventTargets []EventBridgeRuleTemplateTarget,
+	) (*EventBridgeRuleTemplate, error)
+	DeleteEventBridgeRuleTemplate(identifier string) error
+
+	// Offerings (read-only catalog)
+	ListOfferings(maxResults int, nextToken string) ([]*Offering, string, error)
+	DescribeOffering(offeringID string) (*Offering, error)
+
+	// Reservations
+	PurchaseOffering(
+		offeringID, name string,
+		count int32,
+		tags map[string]string,
+	) (*Reservation, error)
+	ListReservations(maxResults int, nextToken string) ([]*Reservation, string, error)
+	DescribeReservation(reservationID string) (*Reservation, error)
+	DeleteReservation(reservationID string) (*Reservation, error)
+	UpdateReservation(reservationID, name string) (*Reservation, error)
+
+	// Batch ops
+	BatchStart(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
+	BatchStop(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
+	BatchDelete(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
+	BatchUpdateSchedule(
+		channelID string,
+		creates []ScheduleAction,
+		deleteActionNames []string,
+	) (*BatchUpdateScheduleResult, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -297,6 +420,156 @@ type NodeSummary struct {
 	Role            string
 	State           string
 	ConnectionState string
+}
+
+// SignalMap represents a MediaLive signal map resource.
+type SignalMap struct {
+	Tags                            map[string]string
+	Arn                             string
+	ID                              string
+	Name                            string
+	Description                     string
+	DiscoveryEntryPointArn          string
+	Status                          string
+	MonitorDeploymentStatus         string
+	CloudWatchAlarmTemplateGroupIDs []string
+	EventBridgeRuleTemplateGroupIDs []string
+}
+
+// CloudWatchAlarmTemplateGroup is a named group for CloudWatch alarm templates.
+type CloudWatchAlarmTemplateGroup struct {
+	Tags        map[string]string
+	Arn         string
+	ID          string
+	Name        string
+	Description string
+}
+
+// CloudWatchAlarmTemplate is a template for generating CloudWatch alarms.
+type CloudWatchAlarmTemplate struct {
+	Tags               map[string]string
+	Arn                string
+	ID                 string
+	Name               string
+	Description        string
+	GroupID            string
+	GroupIdentifier    string
+	MetricName         string
+	Namespace          string
+	Statistic          string
+	ComparisonOperator string
+	TargetResourceType string
+	TreatMissingData   string
+	Threshold          float64
+	EvaluationPeriods  int32
+	DatapointsToAlarm  int32
+	Period             int32
+}
+
+// EventBridgeRuleTemplateGroup is a named group for EventBridge rule templates.
+type EventBridgeRuleTemplateGroup struct {
+	Tags        map[string]string
+	Arn         string
+	ID          string
+	Name        string
+	Description string
+}
+
+// EventBridgeRuleTemplateTarget is a target ARN for an EventBridge rule.
+type EventBridgeRuleTemplateTarget struct {
+	Arn string `json:"arn"`
+}
+
+// EventBridgeRuleTemplate is a template for EventBridge rules.
+type EventBridgeRuleTemplate struct {
+	Tags            map[string]string
+	Arn             string
+	ID              string
+	Name            string
+	Description     string
+	GroupID         string
+	GroupIdentifier string
+	EventType       string
+	EventTargets    []EventBridgeRuleTemplateTarget
+}
+
+// OfferingResourceSpecification describes the resource type for an offering.
+type OfferingResourceSpecification struct {
+	ResourceType     string `json:"resourceType"`
+	VideoQuality     string `json:"videoQuality"`
+	Resolution       string `json:"resolution"`
+	SpecialFeature   string `json:"specialFeature"`
+	MaximumBitrate   string `json:"maximumBitrate"`
+	MaximumFramerate string `json:"maximumFramerate"`
+	Codec            string `json:"codec"`
+}
+
+// Offering is a pre-defined reserved resource listing from the MediaLive catalog.
+type Offering struct {
+	ResourceSpecification OfferingResourceSpecification
+	Arn                   string
+	OfferingID            string
+	OfferingDescription   string
+	OfferingType          string
+	CurrencyCode          string
+	DurationUnits         string
+	FixedPrice            float64
+	UsagePrice            float64
+	Duration              int32
+}
+
+// Reservation is a purchased Offering.
+type Reservation struct {
+	Tags                  map[string]string
+	ResourceSpecification OfferingResourceSpecification
+	CurrencyCode          string
+	Start                 string
+	Name                  string
+	OfferingID            string
+	OfferingDescription   string
+	OfferingType          string
+	Arn                   string
+	ReservationID         string
+	End                   string
+	Region                string
+	State                 string
+	DurationUnits         string
+	UsagePrice            float64
+	FixedPrice            float64
+	Duration              int32
+	Count                 int32
+}
+
+// BatchSuccessfulResult is a successful result in a batch operation.
+type BatchSuccessfulResult struct {
+	Arn   string
+	ID    string
+	State string
+}
+
+// BatchFailedResult is a failed result in a batch operation.
+type BatchFailedResult struct {
+	Arn  string
+	ID   string
+	Code string
+}
+
+// BatchResult holds results of a batch start/stop/delete.
+type BatchResult struct {
+	Successful []BatchSuccessfulResult
+	Failed     []BatchFailedResult
+}
+
+// ScheduleAction represents a single schedule action for BatchUpdateSchedule.
+type ScheduleAction struct {
+	ActionName string
+	ActionType string
+}
+
+// BatchUpdateScheduleResult holds the result of BatchUpdateSchedule.
+type BatchUpdateScheduleResult struct {
+	Creates []ScheduleAction
+	Deletes []ScheduleAction
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

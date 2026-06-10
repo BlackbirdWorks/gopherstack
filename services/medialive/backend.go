@@ -28,6 +28,16 @@ const (
 	inputTypeUDPPush         = "UDP_PUSH"
 	inputSecurityGroupActive = "IDLE"
 
+	offeringTypeNoUpfront        = "NO_UPFRONT"
+	offeringCurrencyUSD          = "USD"
+	offeringDurationMonths       = "MONTHS"
+	offeringVideoQualityStandard = "STANDARD"
+	offeringUsagePrice           = 0.5
+	offeringUsagePrice2          = 1.5
+	offeringUsagePrice3          = 0.2
+	offeringDuration             = 12
+	batchErrNotFound             = "NOT_FOUND"
+
 	resourceTypeChannel            = "channel"
 	resourceTypeInput              = "input"
 	resourceTypeInputSecurityGroup = "inputSecurityGroup"
@@ -391,45 +401,301 @@ func (n *storedNode) toSummary() *NodeSummary {
 	}
 }
 
+type storedSignalMap struct {
+	Tags                            map[string]string `json:"tags"`
+	Arn                             string            `json:"arn"`
+	ID                              string            `json:"id"`
+	Name                            string            `json:"name"`
+	Description                     string            `json:"description"`
+	DiscoveryEntryPointArn          string            `json:"discoveryEntryPointArn"`
+	Status                          string            `json:"status"`
+	MonitorDeploymentStatus         string            `json:"monitorDeploymentStatus"`
+	CloudWatchAlarmTemplateGroupIDs []string          `json:"cloudWatchAlarmTemplateGroupIds"`
+	EventBridgeRuleTemplateGroupIDs []string          `json:"eventBridgeRuleTemplateGroupIds"`
+}
+
+func (s *storedSignalMap) toSignalMap() *SignalMap {
+	tags := make(map[string]string, len(s.Tags))
+	maps.Copy(tags, s.Tags)
+	cwIDs := make([]string, len(s.CloudWatchAlarmTemplateGroupIDs))
+	copy(cwIDs, s.CloudWatchAlarmTemplateGroupIDs)
+	ebIDs := make([]string, len(s.EventBridgeRuleTemplateGroupIDs))
+	copy(ebIDs, s.EventBridgeRuleTemplateGroupIDs)
+
+	return &SignalMap{
+		Tags:                            tags,
+		CloudWatchAlarmTemplateGroupIDs: cwIDs,
+		EventBridgeRuleTemplateGroupIDs: ebIDs,
+		Arn:                             s.Arn,
+		ID:                              s.ID,
+		Name:                            s.Name,
+		Description:                     s.Description,
+		DiscoveryEntryPointArn:          s.DiscoveryEntryPointArn,
+		Status:                          s.Status,
+		MonitorDeploymentStatus:         s.MonitorDeploymentStatus,
+	}
+}
+
+type storedCloudWatchAlarmTemplateGroup struct {
+	Tags        map[string]string `json:"tags"`
+	Arn         string            `json:"arn"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+}
+
+func (g *storedCloudWatchAlarmTemplateGroup) toGroup() *CloudWatchAlarmTemplateGroup {
+	tags := make(map[string]string, len(g.Tags))
+	maps.Copy(tags, g.Tags)
+
+	return &CloudWatchAlarmTemplateGroup{
+		Tags:        tags,
+		Arn:         g.Arn,
+		ID:          g.ID,
+		Name:        g.Name,
+		Description: g.Description,
+	}
+}
+
+type storedCloudWatchAlarmTemplate struct {
+	Tags               map[string]string `json:"tags"`
+	Arn                string            `json:"arn"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Description        string            `json:"description"`
+	GroupID            string            `json:"groupId"`
+	GroupIdentifier    string            `json:"groupIdentifier"`
+	MetricName         string            `json:"metricName"`
+	Namespace          string            `json:"namespace"`
+	Statistic          string            `json:"statistic"`
+	ComparisonOperator string            `json:"comparisonOperator"`
+	TargetResourceType string            `json:"targetResourceType"`
+	TreatMissingData   string            `json:"treatMissingData"`
+	Threshold          float64           `json:"threshold"`
+	EvaluationPeriods  int32             `json:"evaluationPeriods"`
+	DatapointsToAlarm  int32             `json:"datapointsToAlarm"`
+	Period             int32             `json:"period"`
+}
+
+func (t *storedCloudWatchAlarmTemplate) toTemplate() *CloudWatchAlarmTemplate {
+	tags := make(map[string]string, len(t.Tags))
+	maps.Copy(tags, t.Tags)
+
+	return &CloudWatchAlarmTemplate{
+		Tags: tags, Arn: t.Arn, ID: t.ID, Name: t.Name, Description: t.Description,
+		GroupID: t.GroupID, GroupIdentifier: t.GroupIdentifier,
+		MetricName: t.MetricName, Namespace: t.Namespace, Statistic: t.Statistic,
+		ComparisonOperator: t.ComparisonOperator, TargetResourceType: t.TargetResourceType,
+		TreatMissingData: t.TreatMissingData, Threshold: t.Threshold,
+		EvaluationPeriods: t.EvaluationPeriods, DatapointsToAlarm: t.DatapointsToAlarm, Period: t.Period,
+	}
+}
+
+type storedEventBridgeRuleTemplateGroup struct {
+	Tags        map[string]string `json:"tags"`
+	Arn         string            `json:"arn"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+}
+
+func (g *storedEventBridgeRuleTemplateGroup) toGroup() *EventBridgeRuleTemplateGroup {
+	tags := make(map[string]string, len(g.Tags))
+	maps.Copy(tags, g.Tags)
+
+	return &EventBridgeRuleTemplateGroup{
+		Tags:        tags,
+		Arn:         g.Arn,
+		ID:          g.ID,
+		Name:        g.Name,
+		Description: g.Description,
+	}
+}
+
+type storedEventBridgeRuleTemplate struct {
+	Tags            map[string]string               `json:"tags"`
+	Arn             string                          `json:"arn"`
+	ID              string                          `json:"id"`
+	Name            string                          `json:"name"`
+	Description     string                          `json:"description"`
+	GroupID         string                          `json:"groupId"`
+	GroupIdentifier string                          `json:"groupIdentifier"`
+	EventType       string                          `json:"eventType"`
+	EventTargets    []EventBridgeRuleTemplateTarget `json:"eventTargets"`
+}
+
+func (t *storedEventBridgeRuleTemplate) toTemplate() *EventBridgeRuleTemplate {
+	tags := make(map[string]string, len(t.Tags))
+	maps.Copy(tags, t.Tags)
+	targets := make([]EventBridgeRuleTemplateTarget, len(t.EventTargets))
+	copy(targets, t.EventTargets)
+
+	return &EventBridgeRuleTemplate{
+		Tags: tags, EventTargets: targets, Arn: t.Arn, ID: t.ID, Name: t.Name,
+		Description: t.Description, GroupID: t.GroupID, GroupIdentifier: t.GroupIdentifier,
+		EventType: t.EventType,
+	}
+}
+
+type storedReservation struct {
+	Tags                  map[string]string             `json:"tags"`
+	ResourceSpecification OfferingResourceSpecification `json:"resourceSpecification"`
+	Arn                   string                        `json:"arn"`
+	ReservationID         string                        `json:"reservationId"`
+	Name                  string                        `json:"name"`
+	OfferingID            string                        `json:"offeringId"`
+	OfferingDescription   string                        `json:"offeringDescription"`
+	OfferingType          string                        `json:"offeringType"`
+	CurrencyCode          string                        `json:"currencyCode"`
+	Start                 string                        `json:"start"`
+	End                   string                        `json:"end"`
+	Region                string                        `json:"region"`
+	State                 string                        `json:"state"`
+	DurationUnits         string                        `json:"durationUnits"`
+	FixedPrice            float64                       `json:"fixedPrice"`
+	UsagePrice            float64                       `json:"usagePrice"`
+	Duration              int32                         `json:"duration"`
+	Count                 int32                         `json:"count"`
+}
+
+func (r *storedReservation) toReservation() *Reservation {
+	tags := make(map[string]string, len(r.Tags))
+	maps.Copy(tags, r.Tags)
+
+	return &Reservation{
+		Tags: tags, ResourceSpecification: r.ResourceSpecification,
+		Arn: r.Arn, ReservationID: r.ReservationID, Name: r.Name,
+		OfferingID: r.OfferingID, OfferingDescription: r.OfferingDescription,
+		OfferingType: r.OfferingType, CurrencyCode: r.CurrencyCode,
+		Start: r.Start, End: r.End, Region: r.Region, State: r.State,
+		FixedPrice: r.FixedPrice, UsagePrice: r.UsagePrice,
+		Duration: r.Duration, DurationUnits: r.DurationUnits, Count: r.Count,
+	}
+}
+
+// storedScheduleAction persists one schedule action for a channel.
+type storedScheduleAction struct {
+	ActionName string `json:"actionName"`
+	ActionType string `json:"actionType"`
+}
+
 type snapshot struct {
-	Channels            map[string]*storedChannel            `json:"channels"`
-	Inputs              map[string]*storedInput              `json:"inputs"`
-	InputSecurityGroups map[string]*storedInputSecurityGroup `json:"inputSecurityGroups"`
-	InputDevices        map[string]*storedInputDevice        `json:"inputDevices"`
-	Multiplexes         map[string]*storedMultiplex          `json:"multiplexes"`
-	Clusters            map[string]*storedCluster            `json:"clusters"`
-	Tags                map[string]map[string]string         `json:"tags"`
-	AccountID           string                               `json:"accountId"`
-	Region              string                               `json:"region"`
+	Channels              map[string]*storedChannel                      `json:"channels"`
+	Inputs                map[string]*storedInput                        `json:"inputs"`
+	InputSecurityGroups   map[string]*storedInputSecurityGroup           `json:"inputSecurityGroups"`
+	InputDevices          map[string]*storedInputDevice                  `json:"inputDevices"`
+	Multiplexes           map[string]*storedMultiplex                    `json:"multiplexes"`
+	Clusters              map[string]*storedCluster                      `json:"clusters"`
+	Tags                  map[string]map[string]string                   `json:"tags"`
+	SignalMaps            map[string]*storedSignalMap                    `json:"signalMaps"`
+	CWAlarmTemplateGroups map[string]*storedCloudWatchAlarmTemplateGroup `json:"cwAlarmTemplateGroups"`
+	CWAlarmTemplates      map[string]*storedCloudWatchAlarmTemplate      `json:"cwAlarmTemplates"`
+	EBRuleTemplateGroups  map[string]*storedEventBridgeRuleTemplateGroup `json:"ebRuleTemplateGroups"`
+	EBRuleTemplates       map[string]*storedEventBridgeRuleTemplate      `json:"ebRuleTemplates"`
+	Reservations          map[string]*storedReservation                  `json:"reservations"`
+	ScheduleActions       map[string][]*storedScheduleAction             `json:"scheduleActions"`
+	AccountID             string                                         `json:"accountId"`
+	Region                string                                         `json:"region"`
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu                  *lockmetrics.RWMutex
-	channels            map[string]*storedChannel
-	inputs              map[string]*storedInput
-	inputSecurityGroups map[string]*storedInputSecurityGroup
-	inputDevices        map[string]*storedInputDevice
-	multiplexes         map[string]*storedMultiplex
-	clusters            map[string]*storedCluster
-	tags                map[string]map[string]string
-	accountID           string
-	region              string
+	mu                    *lockmetrics.RWMutex
+	channels              map[string]*storedChannel
+	inputs                map[string]*storedInput
+	inputSecurityGroups   map[string]*storedInputSecurityGroup
+	inputDevices          map[string]*storedInputDevice
+	multiplexes           map[string]*storedMultiplex
+	clusters              map[string]*storedCluster
+	tags                  map[string]map[string]string
+	signalMaps            map[string]*storedSignalMap
+	cwAlarmTemplateGroups map[string]*storedCloudWatchAlarmTemplateGroup
+	cwAlarmTemplates      map[string]*storedCloudWatchAlarmTemplate
+	ebRuleTemplateGroups  map[string]*storedEventBridgeRuleTemplateGroup
+	ebRuleTemplates       map[string]*storedEventBridgeRuleTemplate
+	reservations          map[string]*storedReservation
+	scheduleActions       map[string][]*storedScheduleAction
+	offerings             []*Offering
+	accountID             string
+	region                string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:                  lockmetrics.New("medialive"),
-		channels:            make(map[string]*storedChannel),
-		inputs:              make(map[string]*storedInput),
-		inputSecurityGroups: make(map[string]*storedInputSecurityGroup),
-		inputDevices:        make(map[string]*storedInputDevice),
-		multiplexes:         make(map[string]*storedMultiplex),
-		clusters:            make(map[string]*storedCluster),
-		tags:                make(map[string]map[string]string),
-		accountID:           accountID,
-		region:              region,
+		mu:                    lockmetrics.New("medialive"),
+		channels:              make(map[string]*storedChannel),
+		inputs:                make(map[string]*storedInput),
+		inputSecurityGroups:   make(map[string]*storedInputSecurityGroup),
+		inputDevices:          make(map[string]*storedInputDevice),
+		multiplexes:           make(map[string]*storedMultiplex),
+		clusters:              make(map[string]*storedCluster),
+		tags:                  make(map[string]map[string]string),
+		signalMaps:            make(map[string]*storedSignalMap),
+		cwAlarmTemplateGroups: make(map[string]*storedCloudWatchAlarmTemplateGroup),
+		cwAlarmTemplates:      make(map[string]*storedCloudWatchAlarmTemplate),
+		ebRuleTemplateGroups:  make(map[string]*storedEventBridgeRuleTemplateGroup),
+		ebRuleTemplates:       make(map[string]*storedEventBridgeRuleTemplate),
+		reservations:          make(map[string]*storedReservation),
+		scheduleActions:       make(map[string][]*storedScheduleAction),
+		offerings:             seedOfferings(region),
+		accountID:             accountID,
+		region:                region,
+	}
+}
+
+// seedOfferings returns a small catalog of standard offerings.
+func seedOfferings(region string) []*Offering {
+	hd := OfferingResourceSpecification{
+		ResourceType: "OUTPUT", VideoQuality: offeringVideoQualityStandard, Resolution: "HD",
+		MaximumBitrate: "MAX_20_MBPS", MaximumFramerate: "MAX_30_FPS", Codec: "AVC",
+	}
+	uhd := OfferingResourceSpecification{
+		ResourceType: "OUTPUT", VideoQuality: offeringVideoQualityStandard, Resolution: "UHD",
+		MaximumBitrate: "MAX_50_MBPS", MaximumFramerate: "MAX_60_FPS", Codec: "HEVC",
+	}
+	input := OfferingResourceSpecification{
+		ResourceType: "INPUT", VideoQuality: offeringVideoQualityStandard, Resolution: "HD",
+		MaximumBitrate: "MAX_20_MBPS", MaximumFramerate: "MAX_30_FPS", Codec: "AVC",
+	}
+
+	return []*Offering{
+		{
+			OfferingID:            "87654321",
+			Arn:                   "arn:aws:medialive:" + region + "::offering:87654321",
+			OfferingDescription:   "HD AVC output at 10-20 Mbps, 30 fps, standard VQ in " + region,
+			OfferingType:          offeringTypeNoUpfront,
+			CurrencyCode:          offeringCurrencyUSD,
+			FixedPrice:            0.0,
+			UsagePrice:            offeringUsagePrice,
+			Duration:              offeringDuration,
+			DurationUnits:         offeringDurationMonths,
+			ResourceSpecification: hd,
+		},
+		{
+			OfferingID:            "12345678",
+			Arn:                   "arn:aws:medialive:" + region + "::offering:12345678",
+			OfferingDescription:   "UHD HEVC output at 20-50 Mbps, 60 fps, standard VQ in " + region,
+			OfferingType:          offeringTypeNoUpfront,
+			CurrencyCode:          offeringCurrencyUSD,
+			FixedPrice:            0.0,
+			UsagePrice:            offeringUsagePrice2,
+			Duration:              offeringDuration,
+			DurationUnits:         offeringDurationMonths,
+			ResourceSpecification: uhd,
+		},
+		{
+			OfferingID:            "11223344",
+			Arn:                   "arn:aws:medialive:" + region + "::offering:11223344",
+			OfferingDescription:   "HD AVC input at 10-20 Mbps, 30 fps, standard VQ in " + region,
+			OfferingType:          offeringTypeNoUpfront,
+			CurrencyCode:          offeringCurrencyUSD,
+			FixedPrice:            0.0,
+			UsagePrice:            offeringUsagePrice3,
+			Duration:              offeringDuration,
+			DurationUnits:         offeringDurationMonths,
+			ResourceSpecification: input,
+		},
 	}
 }
 
@@ -451,6 +717,13 @@ func (b *InMemoryBackend) Reset() {
 	b.multiplexes = make(map[string]*storedMultiplex)
 	b.clusters = make(map[string]*storedCluster)
 	b.tags = make(map[string]map[string]string)
+	b.signalMaps = make(map[string]*storedSignalMap)
+	b.cwAlarmTemplateGroups = make(map[string]*storedCloudWatchAlarmTemplateGroup)
+	b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
+	b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
+	b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
+	b.reservations = make(map[string]*storedReservation)
+	b.scheduleActions = make(map[string][]*storedScheduleAction)
 }
 
 // Snapshot serializes current state to JSON.
@@ -459,15 +732,22 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	s := snapshot{
-		Channels:            b.channels,
-		Inputs:              b.inputs,
-		InputSecurityGroups: b.inputSecurityGroups,
-		InputDevices:        b.inputDevices,
-		Multiplexes:         b.multiplexes,
-		Clusters:            b.clusters,
-		Tags:                b.tags,
-		AccountID:           b.accountID,
-		Region:              b.region,
+		Channels:              b.channels,
+		Inputs:                b.inputs,
+		InputSecurityGroups:   b.inputSecurityGroups,
+		InputDevices:          b.inputDevices,
+		Multiplexes:           b.multiplexes,
+		Clusters:              b.clusters,
+		Tags:                  b.tags,
+		SignalMaps:            b.signalMaps,
+		CWAlarmTemplateGroups: b.cwAlarmTemplateGroups,
+		CWAlarmTemplates:      b.cwAlarmTemplates,
+		EBRuleTemplateGroups:  b.ebRuleTemplateGroups,
+		EBRuleTemplates:       b.ebRuleTemplates,
+		Reservations:          b.reservations,
+		ScheduleActions:       b.scheduleActions,
+		AccountID:             b.accountID,
+		Region:                b.region,
 	}
 
 	data, _ := json.Marshal(s)
@@ -500,6 +780,41 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.clusters = make(map[string]*storedCluster)
 	}
 	b.tags = s.Tags
+	if s.SignalMaps != nil {
+		b.signalMaps = s.SignalMaps
+	} else {
+		b.signalMaps = make(map[string]*storedSignalMap)
+	}
+	if s.CWAlarmTemplateGroups != nil {
+		b.cwAlarmTemplateGroups = s.CWAlarmTemplateGroups
+	} else {
+		b.cwAlarmTemplateGroups = make(map[string]*storedCloudWatchAlarmTemplateGroup)
+	}
+	if s.CWAlarmTemplates != nil {
+		b.cwAlarmTemplates = s.CWAlarmTemplates
+	} else {
+		b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
+	}
+	if s.EBRuleTemplateGroups != nil {
+		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
+	} else {
+		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
+	}
+	if s.EBRuleTemplates != nil {
+		b.ebRuleTemplates = s.EBRuleTemplates
+	} else {
+		b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
+	}
+	if s.Reservations != nil {
+		b.reservations = s.Reservations
+	} else {
+		b.reservations = make(map[string]*storedReservation)
+	}
+	if s.ScheduleActions != nil {
+		b.scheduleActions = s.ScheduleActions
+	} else {
+		b.scheduleActions = make(map[string][]*storedScheduleAction)
+	}
 	b.accountID = s.AccountID
 	b.region = s.Region
 
@@ -520,6 +835,30 @@ func (b *InMemoryBackend) inputSecurityGroupARN(id string) string {
 
 func (b *InMemoryBackend) inputDeviceARN(id string) string {
 	return arn.Build("medialive", b.region, b.accountID, resourceTypeInputDevice+":"+id)
+}
+
+func (b *InMemoryBackend) signalMapARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "signal-map:"+id)
+}
+
+func (b *InMemoryBackend) cwAlarmTemplateGroupARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "cloudwatch-alarm-template-group:"+id)
+}
+
+func (b *InMemoryBackend) cwAlarmTemplateARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "cloudwatch-alarm-template:"+id)
+}
+
+func (b *InMemoryBackend) ebRuleTemplateGroupARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "eventbridge-rule-template-group:"+id)
+}
+
+func (b *InMemoryBackend) ebRuleTemplateARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "eventbridge-rule-template:"+id)
+}
+
+func (b *InMemoryBackend) reservationARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "reservation:"+id)
 }
 
 func newID() string {
@@ -1768,4 +2107,1021 @@ func (b *InMemoryBackend) ListClusterAlerts(
 	}
 
 	return []map[string]any{}, "", nil
+}
+
+// --- Signal Map operations ---
+
+// findSignalMap locates a signal map by ID or ARN or name.
+func (b *InMemoryBackend) findSignalMap(identifier string) (*storedSignalMap, bool) {
+	for _, sm := range b.signalMaps {
+		if sm.ID == identifier || sm.Arn == identifier || sm.Name == identifier {
+			return sm, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateSignalMap creates a new signal map.
+func (b *InMemoryBackend) CreateSignalMap(
+	name, description, discoveryEntryPointArn string,
+	cwGroupIDs, ebGroupIDs []string,
+	tags map[string]string,
+) (*SignalMap, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+
+	id := newID()
+	sm := &storedSignalMap{
+		Tags:                            copyTags(tags),
+		CloudWatchAlarmTemplateGroupIDs: append([]string{}, cwGroupIDs...),
+		EventBridgeRuleTemplateGroupIDs: append([]string{}, ebGroupIDs...),
+		Arn:                             b.signalMapARN(id),
+		ID:                              id,
+		Name:                            name,
+		Description:                     description,
+		DiscoveryEntryPointArn:          discoveryEntryPointArn,
+		Status:                          "SUCCEEDED",
+		MonitorDeploymentStatus:         "NOT_DEPLOYED",
+	}
+
+	b.mu.Lock("CreateSignalMap")
+	defer b.mu.Unlock()
+	b.signalMaps[id] = sm
+
+	return sm.toSignalMap(), nil
+}
+
+// GetSignalMap returns a signal map by identifier.
+func (b *InMemoryBackend) GetSignalMap(identifier string) (*SignalMap, error) {
+	b.mu.RLock("GetSignalMap")
+	defer b.mu.RUnlock()
+	sm, ok := b.findSignalMap(identifier)
+	if !ok {
+		return nil, fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
+	}
+
+	return sm.toSignalMap(), nil
+}
+
+// ListSignalMaps returns all signal maps.
+func (b *InMemoryBackend) ListSignalMaps(
+	maxResults int,
+	nextToken string,
+) ([]*SignalMap, string, error) {
+	b.mu.RLock("ListSignalMaps")
+	defer b.mu.RUnlock()
+	all := make([]*storedSignalMap, 0, len(b.signalMaps))
+	for _, sm := range b.signalMaps {
+		all = append(all, sm)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*SignalMap, 0, len(pg.Data))
+	for _, sm := range pg.Data {
+		result = append(result, sm.toSignalMap())
+	}
+
+	return result, pg.Next, nil
+}
+
+// DeleteSignalMap deletes a signal map.
+func (b *InMemoryBackend) DeleteSignalMap(identifier string) error {
+	b.mu.Lock("DeleteSignalMap")
+	defer b.mu.Unlock()
+	sm, ok := b.findSignalMap(identifier)
+	if !ok {
+		return fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
+	}
+	delete(b.signalMaps, sm.ID)
+
+	return nil
+}
+
+// StartUpdateSignalMap updates a signal map's configuration.
+func (b *InMemoryBackend) StartUpdateSignalMap(
+	identifier, name, description string,
+	cwGroupIDs, ebGroupIDs []string,
+) (*SignalMap, error) {
+	b.mu.Lock("StartUpdateSignalMap")
+	defer b.mu.Unlock()
+	sm, ok := b.findSignalMap(identifier)
+	if !ok {
+		return nil, fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
+	}
+	if name != "" {
+		sm.Name = name
+	}
+	if description != "" {
+		sm.Description = description
+	}
+	if cwGroupIDs != nil {
+		sm.CloudWatchAlarmTemplateGroupIDs = append([]string{}, cwGroupIDs...)
+	}
+	if ebGroupIDs != nil {
+		sm.EventBridgeRuleTemplateGroupIDs = append([]string{}, ebGroupIDs...)
+	}
+	sm.Status = "SUCCEEDED"
+
+	return sm.toSignalMap(), nil
+}
+
+// StartMonitorDeployment deploys monitoring for a signal map.
+func (b *InMemoryBackend) StartMonitorDeployment(identifier string) (*SignalMap, error) {
+	b.mu.Lock("StartMonitorDeployment")
+	defer b.mu.Unlock()
+	sm, ok := b.findSignalMap(identifier)
+	if !ok {
+		return nil, fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
+	}
+	sm.MonitorDeploymentStatus = "DEPLOYED"
+
+	return sm.toSignalMap(), nil
+}
+
+// --- CloudWatch Alarm Template Group operations ---
+
+func (b *InMemoryBackend) findCWAlarmTemplateGroup(
+	identifier string,
+) (*storedCloudWatchAlarmTemplateGroup, bool) {
+	for _, g := range b.cwAlarmTemplateGroups {
+		if g.ID == identifier || g.Arn == identifier || g.Name == identifier {
+			return g, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateCloudWatchAlarmTemplateGroup creates a new CW alarm template group.
+func (b *InMemoryBackend) CreateCloudWatchAlarmTemplateGroup(
+	name, description string, tags map[string]string,
+) (*CloudWatchAlarmTemplateGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+	id := newID()
+	g := &storedCloudWatchAlarmTemplateGroup{
+		Tags:        copyTags(tags),
+		Arn:         b.cwAlarmTemplateGroupARN(id),
+		ID:          id,
+		Name:        name,
+		Description: description,
+	}
+	b.mu.Lock("CreateCloudWatchAlarmTemplateGroup")
+	defer b.mu.Unlock()
+	b.cwAlarmTemplateGroups[id] = g
+
+	return g.toGroup(), nil
+}
+
+// GetCloudWatchAlarmTemplateGroup returns a CW alarm template group by identifier.
+func (b *InMemoryBackend) GetCloudWatchAlarmTemplateGroup(
+	identifier string,
+) (*CloudWatchAlarmTemplateGroup, error) {
+	b.mu.RLock("GetCloudWatchAlarmTemplateGroup")
+	defer b.mu.RUnlock()
+	g, ok := b.findCWAlarmTemplateGroup(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: cloudwatch alarm template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+
+	return g.toGroup(), nil
+}
+
+// ListCloudWatchAlarmTemplateGroups returns all CW alarm template groups.
+func (b *InMemoryBackend) ListCloudWatchAlarmTemplateGroups(
+	maxResults int,
+	nextToken string,
+) ([]*CloudWatchAlarmTemplateGroup, string, error) {
+	b.mu.RLock("ListCloudWatchAlarmTemplateGroups")
+	defer b.mu.RUnlock()
+	all := make([]*storedCloudWatchAlarmTemplateGroup, 0, len(b.cwAlarmTemplateGroups))
+	for _, g := range b.cwAlarmTemplateGroups {
+		all = append(all, g)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*CloudWatchAlarmTemplateGroup, 0, len(pg.Data))
+	for _, g := range pg.Data {
+		result = append(result, g.toGroup())
+	}
+
+	return result, pg.Next, nil
+}
+
+// UpdateCloudWatchAlarmTemplateGroup updates a CW alarm template group.
+func (b *InMemoryBackend) UpdateCloudWatchAlarmTemplateGroup(
+	identifier, name, description string,
+) (*CloudWatchAlarmTemplateGroup, error) {
+	b.mu.Lock("UpdateCloudWatchAlarmTemplateGroup")
+	defer b.mu.Unlock()
+	g, ok := b.findCWAlarmTemplateGroup(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: cloudwatch alarm template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	if name != "" {
+		g.Name = name
+	}
+	if description != "" {
+		g.Description = description
+	}
+
+	return g.toGroup(), nil
+}
+
+// DeleteCloudWatchAlarmTemplateGroup deletes a CW alarm template group.
+func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplateGroup(identifier string) error {
+	b.mu.Lock("DeleteCloudWatchAlarmTemplateGroup")
+	defer b.mu.Unlock()
+	g, ok := b.findCWAlarmTemplateGroup(identifier)
+	if !ok {
+		return fmt.Errorf(
+			"%w: cloudwatch alarm template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	delete(b.cwAlarmTemplateGroups, g.ID)
+
+	return nil
+}
+
+// --- CloudWatch Alarm Template operations ---
+
+func (b *InMemoryBackend) findCWAlarmTemplate(
+	identifier string,
+) (*storedCloudWatchAlarmTemplate, bool) {
+	for _, t := range b.cwAlarmTemplates {
+		if t.ID == identifier || t.Arn == identifier || t.Name == identifier {
+			return t, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateCloudWatchAlarmTemplate creates a new CW alarm template.
+func (b *InMemoryBackend) CreateCloudWatchAlarmTemplate(
+	name string,
+	description string,
+	groupIdentifier string,
+	metricName string,
+	namespace string,
+	statistic string,
+	comparisonOperator string,
+	targetResourceType string,
+	treatMissingData string,
+	threshold float64,
+	evaluationPeriods, datapointsToAlarm, period int32,
+	tags map[string]string,
+) (*CloudWatchAlarmTemplate, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+	groupID := groupIdentifier
+	b.mu.Lock("CreateCloudWatchAlarmTemplate")
+	defer b.mu.Unlock()
+	if g, ok := b.findCWAlarmTemplateGroup(groupIdentifier); ok {
+		groupID = g.ID
+	}
+	id := newID()
+	t := &storedCloudWatchAlarmTemplate{
+		Tags: copyTags(
+			tags,
+		), Arn: b.cwAlarmTemplateARN(id), ID: id, Name: name, Description: description,
+		GroupID: groupID, GroupIdentifier: groupIdentifier, MetricName: metricName, Namespace: namespace,
+		Statistic: statistic, ComparisonOperator: comparisonOperator, TargetResourceType: targetResourceType,
+		TreatMissingData: treatMissingData, Threshold: threshold,
+		EvaluationPeriods: evaluationPeriods, DatapointsToAlarm: datapointsToAlarm, Period: period,
+	}
+	b.cwAlarmTemplates[id] = t
+
+	return t.toTemplate(), nil
+}
+
+// GetCloudWatchAlarmTemplate returns a CW alarm template by identifier.
+func (b *InMemoryBackend) GetCloudWatchAlarmTemplate(
+	identifier string,
+) (*CloudWatchAlarmTemplate, error) {
+	b.mu.RLock("GetCloudWatchAlarmTemplate")
+	defer b.mu.RUnlock()
+	t, ok := b.findCWAlarmTemplate(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: cloudwatch alarm template %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+
+	return t.toTemplate(), nil
+}
+
+// ListCloudWatchAlarmTemplates returns all CW alarm templates.
+func (b *InMemoryBackend) ListCloudWatchAlarmTemplates(
+	maxResults int,
+	nextToken string,
+) ([]*CloudWatchAlarmTemplate, string, error) {
+	b.mu.RLock("ListCloudWatchAlarmTemplates")
+	defer b.mu.RUnlock()
+	all := make([]*storedCloudWatchAlarmTemplate, 0, len(b.cwAlarmTemplates))
+	for _, t := range b.cwAlarmTemplates {
+		all = append(all, t)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*CloudWatchAlarmTemplate, 0, len(pg.Data))
+	for _, t := range pg.Data {
+		result = append(result, t.toTemplate())
+	}
+
+	return result, pg.Next, nil
+}
+
+func (b *InMemoryBackend) updateCWTemplateFields(
+	t *storedCloudWatchAlarmTemplate,
+	name string,
+	description string,
+	groupIdentifier string,
+	metricName string,
+	namespace string,
+	statistic string,
+	comparisonOperator string,
+	targetResourceType string,
+	treatMissingData string,
+	threshold float64,
+	evaluationPeriods, datapointsToAlarm, period int32,
+) {
+	if name != "" {
+		t.Name = name
+	}
+	if description != "" {
+		t.Description = description
+	}
+	if groupIdentifier != "" {
+		t.GroupIdentifier = groupIdentifier
+		if g, ok := b.findCWAlarmTemplateGroup(groupIdentifier); ok {
+			t.GroupID = g.ID
+		} else {
+			t.GroupID = groupIdentifier
+		}
+	}
+	if metricName != "" {
+		t.MetricName = metricName
+	}
+	if namespace != "" {
+		t.Namespace = namespace
+	}
+	if statistic != "" {
+		t.Statistic = statistic
+	}
+	if comparisonOperator != "" {
+		t.ComparisonOperator = comparisonOperator
+	}
+	if targetResourceType != "" {
+		t.TargetResourceType = targetResourceType
+	}
+	if treatMissingData != "" {
+		t.TreatMissingData = treatMissingData
+	}
+	if threshold != 0 {
+		t.Threshold = threshold
+	}
+	if evaluationPeriods != 0 {
+		t.EvaluationPeriods = evaluationPeriods
+	}
+	if datapointsToAlarm != 0 {
+		t.DatapointsToAlarm = datapointsToAlarm
+	}
+	if period != 0 {
+		t.Period = period
+	}
+}
+
+// UpdateCloudWatchAlarmTemplate updates a CW alarm template.
+func (b *InMemoryBackend) UpdateCloudWatchAlarmTemplate(
+	identifier string,
+	name string,
+	description string,
+	groupIdentifier string,
+	metricName string,
+	namespace string,
+	statistic string,
+	comparisonOperator string,
+	targetResourceType string,
+	treatMissingData string,
+	threshold float64,
+	evaluationPeriods, datapointsToAlarm, period int32,
+) (*CloudWatchAlarmTemplate, error) {
+	b.mu.Lock("UpdateCloudWatchAlarmTemplate")
+	defer b.mu.Unlock()
+	t, ok := b.findCWAlarmTemplate(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: cloudwatch alarm template %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	b.updateCWTemplateFields(
+		t,
+		name,
+		description,
+		groupIdentifier,
+		metricName,
+		namespace,
+		statistic,
+		comparisonOperator,
+		targetResourceType,
+		treatMissingData,
+		threshold,
+		evaluationPeriods,
+		datapointsToAlarm,
+		period,
+	)
+
+	return t.toTemplate(), nil
+}
+
+// DeleteCloudWatchAlarmTemplate deletes a CW alarm template.
+func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplate(identifier string) error {
+	b.mu.Lock("DeleteCloudWatchAlarmTemplate")
+	defer b.mu.Unlock()
+	t, ok := b.findCWAlarmTemplate(identifier)
+	if !ok {
+		return fmt.Errorf("%w: cloudwatch alarm template %s not found", ErrNotFound, identifier)
+	}
+	delete(b.cwAlarmTemplates, t.ID)
+
+	return nil
+}
+
+// --- EventBridge Rule Template Group operations ---
+
+func (b *InMemoryBackend) findEBRuleTemplateGroup(
+	identifier string,
+) (*storedEventBridgeRuleTemplateGroup, bool) {
+	for _, g := range b.ebRuleTemplateGroups {
+		if g.ID == identifier || g.Arn == identifier || g.Name == identifier {
+			return g, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateEventBridgeRuleTemplateGroup creates a new EB rule template group.
+func (b *InMemoryBackend) CreateEventBridgeRuleTemplateGroup(
+	name, description string, tags map[string]string,
+) (*EventBridgeRuleTemplateGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+	id := newID()
+	g := &storedEventBridgeRuleTemplateGroup{
+		Tags: copyTags(
+			tags,
+		), Arn: b.ebRuleTemplateGroupARN(id), ID: id, Name: name, Description: description,
+	}
+	b.mu.Lock("CreateEventBridgeRuleTemplateGroup")
+	defer b.mu.Unlock()
+	b.ebRuleTemplateGroups[id] = g
+
+	return g.toGroup(), nil
+}
+
+// GetEventBridgeRuleTemplateGroup returns an EB rule template group.
+func (b *InMemoryBackend) GetEventBridgeRuleTemplateGroup(
+	identifier string,
+) (*EventBridgeRuleTemplateGroup, error) {
+	b.mu.RLock("GetEventBridgeRuleTemplateGroup")
+	defer b.mu.RUnlock()
+	g, ok := b.findEBRuleTemplateGroup(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: eventbridge rule template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+
+	return g.toGroup(), nil
+}
+
+// ListEventBridgeRuleTemplateGroups returns all EB rule template groups.
+func (b *InMemoryBackend) ListEventBridgeRuleTemplateGroups(
+	maxResults int,
+	nextToken string,
+) ([]*EventBridgeRuleTemplateGroup, string, error) {
+	b.mu.RLock("ListEventBridgeRuleTemplateGroups")
+	defer b.mu.RUnlock()
+	all := make([]*storedEventBridgeRuleTemplateGroup, 0, len(b.ebRuleTemplateGroups))
+	for _, g := range b.ebRuleTemplateGroups {
+		all = append(all, g)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*EventBridgeRuleTemplateGroup, 0, len(pg.Data))
+	for _, g := range pg.Data {
+		result = append(result, g.toGroup())
+	}
+
+	return result, pg.Next, nil
+}
+
+// UpdateEventBridgeRuleTemplateGroup updates an EB rule template group.
+func (b *InMemoryBackend) UpdateEventBridgeRuleTemplateGroup(
+	identifier, name, description string,
+) (*EventBridgeRuleTemplateGroup, error) {
+	b.mu.Lock("UpdateEventBridgeRuleTemplateGroup")
+	defer b.mu.Unlock()
+	g, ok := b.findEBRuleTemplateGroup(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: eventbridge rule template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	if name != "" {
+		g.Name = name
+	}
+	if description != "" {
+		g.Description = description
+	}
+
+	return g.toGroup(), nil
+}
+
+// DeleteEventBridgeRuleTemplateGroup deletes an EB rule template group.
+func (b *InMemoryBackend) DeleteEventBridgeRuleTemplateGroup(identifier string) error {
+	b.mu.Lock("DeleteEventBridgeRuleTemplateGroup")
+	defer b.mu.Unlock()
+	g, ok := b.findEBRuleTemplateGroup(identifier)
+	if !ok {
+		return fmt.Errorf(
+			"%w: eventbridge rule template group %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	delete(b.ebRuleTemplateGroups, g.ID)
+
+	return nil
+}
+
+// --- EventBridge Rule Template operations ---
+
+func (b *InMemoryBackend) findEBRuleTemplate(
+	identifier string,
+) (*storedEventBridgeRuleTemplate, bool) {
+	for _, t := range b.ebRuleTemplates {
+		if t.ID == identifier || t.Arn == identifier || t.Name == identifier {
+			return t, true
+		}
+	}
+
+	return nil, false
+}
+
+// CreateEventBridgeRuleTemplate creates a new EB rule template.
+func (b *InMemoryBackend) CreateEventBridgeRuleTemplate(
+	name, description, groupIdentifier, eventType string,
+	eventTargets []EventBridgeRuleTemplateTarget,
+	tags map[string]string,
+) (*EventBridgeRuleTemplate, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+	groupID := groupIdentifier
+	b.mu.Lock("CreateEventBridgeRuleTemplate")
+	defer b.mu.Unlock()
+	if g, ok := b.findEBRuleTemplateGroup(groupIdentifier); ok {
+		groupID = g.ID
+	}
+	targets := make([]EventBridgeRuleTemplateTarget, len(eventTargets))
+	copy(targets, eventTargets)
+	id := newID()
+	t := &storedEventBridgeRuleTemplate{
+		Tags: copyTags(
+			tags,
+		), EventTargets: targets, Arn: b.ebRuleTemplateARN(id), ID: id, Name: name,
+		Description: description, GroupID: groupID, GroupIdentifier: groupIdentifier, EventType: eventType,
+	}
+	b.ebRuleTemplates[id] = t
+
+	return t.toTemplate(), nil
+}
+
+// GetEventBridgeRuleTemplate returns an EB rule template.
+func (b *InMemoryBackend) GetEventBridgeRuleTemplate(
+	identifier string,
+) (*EventBridgeRuleTemplate, error) {
+	b.mu.RLock("GetEventBridgeRuleTemplate")
+	defer b.mu.RUnlock()
+	t, ok := b.findEBRuleTemplate(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: eventbridge rule template %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+
+	return t.toTemplate(), nil
+}
+
+// ListEventBridgeRuleTemplates returns all EB rule templates.
+func (b *InMemoryBackend) ListEventBridgeRuleTemplates(
+	maxResults int,
+	nextToken string,
+) ([]*EventBridgeRuleTemplate, string, error) {
+	b.mu.RLock("ListEventBridgeRuleTemplates")
+	defer b.mu.RUnlock()
+	all := make([]*storedEventBridgeRuleTemplate, 0, len(b.ebRuleTemplates))
+	for _, t := range b.ebRuleTemplates {
+		all = append(all, t)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*EventBridgeRuleTemplate, 0, len(pg.Data))
+	for _, t := range pg.Data {
+		result = append(result, t.toTemplate())
+	}
+
+	return result, pg.Next, nil
+}
+
+// UpdateEventBridgeRuleTemplate updates an EB rule template.
+func (b *InMemoryBackend) UpdateEventBridgeRuleTemplate(
+	identifier, name, description, groupIdentifier, eventType string,
+	eventTargets []EventBridgeRuleTemplateTarget,
+) (*EventBridgeRuleTemplate, error) {
+	b.mu.Lock("UpdateEventBridgeRuleTemplate")
+	defer b.mu.Unlock()
+	t, ok := b.findEBRuleTemplate(identifier)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: eventbridge rule template %s not found",
+			ErrNotFound,
+			identifier,
+		)
+	}
+	if name != "" {
+		t.Name = name
+	}
+	if description != "" {
+		t.Description = description
+	}
+	if groupIdentifier != "" {
+		t.GroupIdentifier = groupIdentifier
+		g, found := b.findEBRuleTemplateGroup(groupIdentifier)
+		if found {
+			t.GroupID = g.ID
+		} else {
+			t.GroupID = groupIdentifier
+		}
+	}
+	if eventType != "" {
+		t.EventType = eventType
+	}
+	if eventTargets != nil {
+		t.EventTargets = make([]EventBridgeRuleTemplateTarget, len(eventTargets))
+		copy(t.EventTargets, eventTargets)
+	}
+
+	return t.toTemplate(), nil
+}
+
+// DeleteEventBridgeRuleTemplate deletes an EB rule template.
+func (b *InMemoryBackend) DeleteEventBridgeRuleTemplate(identifier string) error {
+	b.mu.Lock("DeleteEventBridgeRuleTemplate")
+	defer b.mu.Unlock()
+	t, ok := b.findEBRuleTemplate(identifier)
+	if !ok {
+		return fmt.Errorf("%w: eventbridge rule template %s not found", ErrNotFound, identifier)
+	}
+	delete(b.ebRuleTemplates, t.ID)
+
+	return nil
+}
+
+// --- Offering operations ---
+
+// ListOfferings returns the seeded offering catalog.
+func (b *InMemoryBackend) ListOfferings(
+	maxResults int,
+	nextToken string,
+) ([]*Offering, string, error) {
+	b.mu.RLock("ListOfferings")
+	defer b.mu.RUnlock()
+	pg := page.New(b.offerings, nextToken, maxResults, defaultMaxResults)
+	result := make([]*Offering, len(pg.Data))
+	copy(result, pg.Data)
+
+	return result, pg.Next, nil
+}
+
+// DescribeOffering returns a single offering by ID.
+func (b *InMemoryBackend) DescribeOffering(offeringID string) (*Offering, error) {
+	b.mu.RLock("DescribeOffering")
+	defer b.mu.RUnlock()
+	for _, o := range b.offerings {
+		if o.OfferingID == offeringID {
+			cp := *o
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: offering %s not found", ErrNotFound, offeringID)
+}
+
+// --- Reservation operations ---
+
+// PurchaseOffering creates a Reservation from an Offering.
+func (b *InMemoryBackend) PurchaseOffering(
+	offeringID, name string,
+	count int32,
+	tags map[string]string,
+) (*Reservation, error) {
+	b.mu.Lock("PurchaseOffering")
+	defer b.mu.Unlock()
+	var off *Offering
+	for _, o := range b.offerings {
+		if o.OfferingID == offeringID {
+			cp := *o
+			off = &cp
+
+			break
+		}
+	}
+	if off == nil {
+		return nil, fmt.Errorf("%w: offering %s not found", ErrNotFound, offeringID)
+	}
+	if count <= 0 {
+		count = 1
+	}
+	id := newID()
+	r := &storedReservation{
+		Tags:                  copyTags(tags),
+		ResourceSpecification: off.ResourceSpecification,
+		Arn:                   b.reservationARN(id),
+		ReservationID:         id,
+		Name:                  name,
+		OfferingID:            off.OfferingID,
+		OfferingDescription:   off.OfferingDescription,
+		OfferingType:          off.OfferingType,
+		CurrencyCode:          off.CurrencyCode,
+		FixedPrice:            off.FixedPrice,
+		UsagePrice:            off.UsagePrice,
+		Duration:              off.Duration,
+		DurationUnits:         off.DurationUnits,
+		Start:                 "2024-01-01T00:00:00Z",
+		End:                   "2025-01-01T00:00:00Z",
+		Region:                b.region,
+		State:                 "ACTIVE",
+		Count:                 count,
+	}
+	b.reservations[id] = r
+
+	return r.toReservation(), nil
+}
+
+// ListReservations returns all reservations.
+func (b *InMemoryBackend) ListReservations(
+	maxResults int,
+	nextToken string,
+) ([]*Reservation, string, error) {
+	b.mu.RLock("ListReservations")
+	defer b.mu.RUnlock()
+	all := make([]*storedReservation, 0, len(b.reservations))
+	for _, r := range b.reservations {
+		all = append(all, r)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ReservationID < all[j].ReservationID })
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	result := make([]*Reservation, 0, len(pg.Data))
+	for _, r := range pg.Data {
+		result = append(result, r.toReservation())
+	}
+
+	return result, pg.Next, nil
+}
+
+// DescribeReservation returns a single reservation.
+func (b *InMemoryBackend) DescribeReservation(reservationID string) (*Reservation, error) {
+	b.mu.RLock("DescribeReservation")
+	defer b.mu.RUnlock()
+	r, ok := b.reservations[reservationID]
+	if !ok {
+		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
+	}
+
+	return r.toReservation(), nil
+}
+
+// DeleteReservation cancels a reservation.
+func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation, error) {
+	b.mu.Lock("DeleteReservation")
+	defer b.mu.Unlock()
+	r, ok := b.reservations[reservationID]
+	if !ok {
+		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
+	}
+	r.State = "CANCELED"
+	out := r.toReservation()
+	delete(b.reservations, reservationID)
+
+	return out, nil
+}
+
+// UpdateReservation updates a reservation's name.
+func (b *InMemoryBackend) UpdateReservation(reservationID, name string) (*Reservation, error) {
+	b.mu.Lock("UpdateReservation")
+	defer b.mu.Unlock()
+	r, ok := b.reservations[reservationID]
+	if !ok {
+		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
+	}
+	if name != "" {
+		r.Name = name
+	}
+
+	return r.toReservation(), nil
+}
+
+// --- Batch operations ---
+
+func (b *InMemoryBackend) batchSetState(
+	channelIDs, multiplexIDs []string,
+	state string,
+) *BatchResult {
+	var result BatchResult
+	for _, id := range channelIDs {
+		ch, ok := b.channels[id]
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		ch.State = state
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: ch.State},
+		)
+	}
+	for _, id := range multiplexIDs {
+		mx, ok := b.multiplexes[id]
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		mx.State = state
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: mx.State},
+		)
+	}
+
+	return &result
+}
+
+// BatchStart starts channels/inputs/multiplexes in bulk.
+func (b *InMemoryBackend) BatchStart(
+	channelIDs, _, multiplexIDs []string,
+) (*BatchResult, error) {
+	b.mu.Lock("BatchStart")
+	defer b.mu.Unlock()
+
+	return b.batchSetState(channelIDs, multiplexIDs, stateRunning), nil
+}
+
+// BatchStop stops channels/inputs/multiplexes in bulk.
+func (b *InMemoryBackend) BatchStop(
+	channelIDs, _, multiplexIDs []string,
+) (*BatchResult, error) {
+	b.mu.Lock("BatchStop")
+	defer b.mu.Unlock()
+
+	return b.batchSetState(channelIDs, multiplexIDs, stateIdle), nil
+}
+
+// BatchDelete deletes channels/inputs/multiplexes in bulk.
+func (b *InMemoryBackend) BatchDelete(
+	channelIDs, inputIDs, multiplexIDs []string,
+) (*BatchResult, error) {
+	b.mu.Lock("BatchDelete")
+	defer b.mu.Unlock()
+	var result BatchResult
+	for _, id := range channelIDs {
+		ch, ok := b.channels[id]
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		if ch.State == stateRunning {
+			result.Failed = append(
+				result.Failed,
+				BatchFailedResult{ID: id, Arn: ch.ARN, Code: "CONFLICT"},
+			)
+
+			continue
+		}
+		delete(b.channels, id)
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: stateDeleted},
+		)
+	}
+	for _, id := range inputIDs {
+		inp, ok := b.inputs[id]
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		delete(b.inputs, id)
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: inp.ARN, State: stateDeleted},
+		)
+	}
+	for _, id := range multiplexIDs {
+		mx, ok := b.multiplexes[id]
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		if mx.State == stateRunning {
+			result.Failed = append(
+				result.Failed,
+				BatchFailedResult{ID: id, Arn: mx.ARN, Code: "CONFLICT"},
+			)
+
+			continue
+		}
+		delete(b.multiplexes, id)
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: stateDeleted},
+		)
+	}
+
+	return &result, nil
+}
+
+// BatchUpdateSchedule adds/removes schedule actions for a channel.
+func (b *InMemoryBackend) BatchUpdateSchedule(
+	channelID string,
+	creates []ScheduleAction,
+	deleteActionNames []string,
+) (*BatchUpdateScheduleResult, error) {
+	b.mu.Lock("BatchUpdateSchedule")
+	defer b.mu.Unlock()
+	if _, ok := b.channels[channelID]; !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+	actions := b.scheduleActions[channelID]
+	// Remove deleted actions.
+	toDelete := make(map[string]bool, len(deleteActionNames))
+	for _, n := range deleteActionNames {
+		toDelete[n] = true
+	}
+	filtered := actions[:0]
+	for _, a := range actions {
+		if !toDelete[a.ActionName] {
+			filtered = append(filtered, a)
+		}
+	}
+	// Add new actions.
+	var created []ScheduleAction
+	for _, c := range creates {
+		filtered = append(
+			filtered,
+			&storedScheduleAction{ActionName: c.ActionName, ActionType: c.ActionType},
+		)
+		created = append(created, c)
+	}
+	b.scheduleActions[channelID] = filtered
+	// Build deleted list from intersection of requested deletes and what actually existed.
+	var deleted []ScheduleAction
+	for _, n := range deleteActionNames {
+		deleted = append(deleted, ScheduleAction{ActionName: n})
+	}
+
+	return &BatchUpdateScheduleResult{Creates: created, Deletes: deleted}, nil
 }

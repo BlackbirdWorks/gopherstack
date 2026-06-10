@@ -15,16 +15,24 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	pathPrefix               = "/prod/"
-	pathChannels             = "/prod/channels"
-	pathInputs               = "/prod/inputs"
-	pathInputSecurityGroups  = "/prod/inputSecurityGroups"
-	pathInputDevices         = "/prod/inputDevices"
-	pathInputDeviceTransfers = "/prod/inputDeviceTransfers"
-	pathClaimDevice          = "/prod/claimDevice"
-	pathMultiplexes          = "/prod/multiplexes"
-	pathClusters             = "/prod/clusters"
-	pathTags                 = "/prod/tags/"
+	pathPrefix                = "/prod/"
+	pathChannels              = "/prod/channels"
+	pathInputs                = "/prod/inputs"
+	pathInputSecurityGroups   = "/prod/inputSecurityGroups"
+	pathInputDevices          = "/prod/inputDevices"
+	pathInputDeviceTransfers  = "/prod/inputDeviceTransfers"
+	pathClaimDevice           = "/prod/claimDevice"
+	pathMultiplexes           = "/prod/multiplexes"
+	pathClusters              = "/prod/clusters"
+	pathTags                  = "/prod/tags/"
+	pathSignalMaps            = "/prod/signal-maps"
+	pathCWAlarmTemplateGroups = "/prod/cloudwatch-alarm-template-groups"
+	pathCWAlarmTemplates      = "/prod/cloudwatch-alarm-templates"
+	pathEBRuleTemplateGroups  = "/prod/eventbridge-rule-template-groups"
+	pathEBRuleTemplates       = "/prod/eventbridge-rule-templates"
+	pathReservations          = "/prod/reservations"
+	pathOfferings             = "/prod/offerings"
+	pathBatch                 = "/prod/batch"
 
 	subPrograms               = "programs"
 	subStart                  = "start"
@@ -33,18 +41,23 @@ const (
 	subAlerts                 = "alerts"
 	subNodeRegistrationScript = "nodeRegistrationScript"
 	subState                  = "state"
+	subSchedule               = "schedule"
+	subMonitorDeployment      = "monitor-deployment"
+	subPurchase               = "purchase"
 
 	pathSegmentsID      = 1
 	pathSegmentsSub     = 2
 	pathSegmentsNamed   = 3
 	pathSegmentsDeepSub = 4
 
-	keyMessage = "Message"
-	keyArn     = "Arn"
-	keyID      = "Id"
-	keyName    = "Name"
-	keyState   = "State"
-	opUnknown  = "Unknown"
+	keyMessage     = "Message"
+	keyArn         = "Arn"
+	keyID          = "Id"
+	keyName        = "Name"
+	keyState       = "State"
+	keyTags        = "Tags"
+	keyDescription = "Description"
+	opUnknown      = "Unknown"
 
 	opCreateChannel   = "CreateChannel"
 	opDescribeChannel = "DescribeChannel"
@@ -109,6 +122,51 @@ const (
 	opUpdateNodeState = "UpdateNodeState"
 	opDeleteNode      = "DeleteNode"
 	opListNodes       = "ListNodes"
+
+	opCreateSignalMap        = "CreateSignalMap"
+	opGetSignalMap           = "GetSignalMap"
+	opListSignalMaps         = "ListSignalMaps"
+	opDeleteSignalMap        = "DeleteSignalMap"
+	opStartUpdateSignalMap   = "StartUpdateSignalMap"
+	opStartMonitorDeployment = "StartMonitorDeployment"
+
+	opCreateCWAlarmTemplateGroup = "CreateCloudWatchAlarmTemplateGroup"
+	opGetCWAlarmTemplateGroup    = "GetCloudWatchAlarmTemplateGroup"
+	opListCWAlarmTemplateGroups  = "ListCloudWatchAlarmTemplateGroups"
+	opUpdateCWAlarmTemplateGroup = "UpdateCloudWatchAlarmTemplateGroup"
+	opDeleteCWAlarmTemplateGroup = "DeleteCloudWatchAlarmTemplateGroup"
+
+	opCreateCWAlarmTemplate = "CreateCloudWatchAlarmTemplate"
+	opGetCWAlarmTemplate    = "GetCloudWatchAlarmTemplate"
+	opListCWAlarmTemplates  = "ListCloudWatchAlarmTemplates"
+	opUpdateCWAlarmTemplate = "UpdateCloudWatchAlarmTemplate"
+	opDeleteCWAlarmTemplate = "DeleteCloudWatchAlarmTemplate"
+
+	opCreateEBRuleTemplateGroup = "CreateEventBridgeRuleTemplateGroup"
+	opGetEBRuleTemplateGroup    = "GetEventBridgeRuleTemplateGroup"
+	opListEBRuleTemplateGroups  = "ListEventBridgeRuleTemplateGroups"
+	opUpdateEBRuleTemplateGroup = "UpdateEventBridgeRuleTemplateGroup"
+	opDeleteEBRuleTemplateGroup = "DeleteEventBridgeRuleTemplateGroup"
+
+	opCreateEBRuleTemplate = "CreateEventBridgeRuleTemplate"
+	opGetEBRuleTemplate    = "GetEventBridgeRuleTemplate"
+	opListEBRuleTemplates  = "ListEventBridgeRuleTemplates"
+	opUpdateEBRuleTemplate = "UpdateEventBridgeRuleTemplate"
+	opDeleteEBRuleTemplate = "DeleteEventBridgeRuleTemplate"
+
+	opListOfferings    = "ListOfferings"
+	opDescribeOffering = "DescribeOffering"
+	opPurchaseOffering = "PurchaseOffering"
+
+	opListReservations    = "ListReservations"
+	opDescribeReservation = "DescribeReservation"
+	opDeleteReservation   = "DeleteReservation"
+	opUpdateReservation   = "UpdateReservation"
+
+	opBatchDelete         = "BatchDelete"
+	opBatchStart          = "BatchStart"
+	opBatchStop           = "BatchStop"
+	opBatchUpdateSchedule = "BatchUpdateSchedule"
 )
 
 // Handler handles MediaLive HTTP requests.
@@ -185,6 +243,43 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateNodeState,
 		opDeleteNode,
 		opListNodes,
+		opCreateSignalMap,
+		opGetSignalMap,
+		opListSignalMaps,
+		opDeleteSignalMap,
+		opStartUpdateSignalMap,
+		opStartMonitorDeployment,
+		opCreateCWAlarmTemplateGroup,
+		opGetCWAlarmTemplateGroup,
+		opListCWAlarmTemplateGroups,
+		opUpdateCWAlarmTemplateGroup,
+		opDeleteCWAlarmTemplateGroup,
+		opCreateCWAlarmTemplate,
+		opGetCWAlarmTemplate,
+		opListCWAlarmTemplates,
+		opUpdateCWAlarmTemplate,
+		opDeleteCWAlarmTemplate,
+		opCreateEBRuleTemplateGroup,
+		opGetEBRuleTemplateGroup,
+		opListEBRuleTemplateGroups,
+		opUpdateEBRuleTemplateGroup,
+		opDeleteEBRuleTemplateGroup,
+		opCreateEBRuleTemplate,
+		opGetEBRuleTemplate,
+		opListEBRuleTemplates,
+		opUpdateEBRuleTemplate,
+		opDeleteEBRuleTemplate,
+		opListOfferings,
+		opDescribeOffering,
+		opPurchaseOffering,
+		opListReservations,
+		opDescribeReservation,
+		opDeleteReservation,
+		opUpdateReservation,
+		opBatchDelete,
+		opBatchStart,
+		opBatchStop,
+		opBatchUpdateSchedule,
 	}
 }
 
@@ -235,7 +330,6 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if body == nil {
 		body = map[string]any{}
 	}
-
 	handlers := map[string]func() error{
 		opCreateChannel:                func() error { return h.handleCreateChannel(c, body) },
 		opDescribeChannel:              func() error { return h.handleDescribeChannel(c, resource) },
@@ -292,6 +386,43 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opUpdateNodeState:              func() error { return h.handleUpdateNodeState(c, resource, body) },
 		opDeleteNode:                   func() error { return h.handleDeleteNode(c, resource) },
 		opListNodes:                    func() error { return h.handleListNodes(c, resource) },
+		opCreateSignalMap:              func() error { return h.handleCreateSignalMap(c, body) },
+		opGetSignalMap:                 func() error { return h.handleGetSignalMap(c, resource) },
+		opListSignalMaps:               func() error { return h.handleListSignalMaps(c) },
+		opDeleteSignalMap:              func() error { return h.handleDeleteSignalMap(c, resource) },
+		opStartUpdateSignalMap:         func() error { return h.handleStartUpdateSignalMap(c, resource, body) },
+		opStartMonitorDeployment:       func() error { return h.handleStartMonitorDeployment(c, resource) },
+		opCreateCWAlarmTemplateGroup:   func() error { return h.handleCreateCWAlarmTemplateGroup(c, body) },
+		opGetCWAlarmTemplateGroup:      func() error { return h.handleGetCWAlarmTemplateGroup(c, resource) },
+		opListCWAlarmTemplateGroups:    func() error { return h.handleListCWAlarmTemplateGroups(c) },
+		opUpdateCWAlarmTemplateGroup:   func() error { return h.handleUpdateCWAlarmTemplateGroup(c, resource, body) },
+		opDeleteCWAlarmTemplateGroup:   func() error { return h.handleDeleteCWAlarmTemplateGroup(c, resource) },
+		opCreateCWAlarmTemplate:        func() error { return h.handleCreateCWAlarmTemplate(c, body) },
+		opGetCWAlarmTemplate:           func() error { return h.handleGetCWAlarmTemplate(c, resource) },
+		opListCWAlarmTemplates:         func() error { return h.handleListCWAlarmTemplates(c) },
+		opUpdateCWAlarmTemplate:        func() error { return h.handleUpdateCWAlarmTemplate(c, resource, body) },
+		opDeleteCWAlarmTemplate:        func() error { return h.handleDeleteCWAlarmTemplate(c, resource) },
+		opCreateEBRuleTemplateGroup:    func() error { return h.handleCreateEBRuleTemplateGroup(c, body) },
+		opGetEBRuleTemplateGroup:       func() error { return h.handleGetEBRuleTemplateGroup(c, resource) },
+		opListEBRuleTemplateGroups:     func() error { return h.handleListEBRuleTemplateGroups(c) },
+		opUpdateEBRuleTemplateGroup:    func() error { return h.handleUpdateEBRuleTemplateGroup(c, resource, body) },
+		opDeleteEBRuleTemplateGroup:    func() error { return h.handleDeleteEBRuleTemplateGroup(c, resource) },
+		opCreateEBRuleTemplate:         func() error { return h.handleCreateEBRuleTemplate(c, body) },
+		opGetEBRuleTemplate:            func() error { return h.handleGetEBRuleTemplate(c, resource) },
+		opListEBRuleTemplates:          func() error { return h.handleListEBRuleTemplates(c) },
+		opUpdateEBRuleTemplate:         func() error { return h.handleUpdateEBRuleTemplate(c, resource, body) },
+		opDeleteEBRuleTemplate:         func() error { return h.handleDeleteEBRuleTemplate(c, resource) },
+		opListOfferings:                func() error { return h.handleListOfferings(c) },
+		opDescribeOffering:             func() error { return h.handleDescribeOffering(c, resource) },
+		opPurchaseOffering:             func() error { return h.handlePurchaseOffering(c, resource, body) },
+		opListReservations:             func() error { return h.handleListReservations(c) },
+		opDescribeReservation:          func() error { return h.handleDescribeReservation(c, resource) },
+		opDeleteReservation:            func() error { return h.handleDeleteReservation(c, resource) },
+		opUpdateReservation:            func() error { return h.handleUpdateReservation(c, resource, body) },
+		opBatchDelete:                  func() error { return h.handleBatchDelete(c, body) },
+		opBatchStart:                   func() error { return h.handleBatchStart(c, body) },
+		opBatchStop:                    func() error { return h.handleBatchStop(c, body) },
+		opBatchUpdateSchedule:          func() error { return h.handleBatchUpdateSchedule(c, resource, body) },
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -330,6 +461,50 @@ func classifyPath(method, path string) (string, string) {
 
 	if strings.HasPrefix(path, pathTags) {
 		return classifyTagPath(method, path)
+	}
+
+	if op, res, ok := classifySignalMapPath(method, path); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplateGroups,
+		opCreateCWAlarmTemplateGroup, opGetCWAlarmTemplateGroup,
+		opListCWAlarmTemplateGroups, opUpdateCWAlarmTemplateGroup,
+		opDeleteCWAlarmTemplateGroup); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplates,
+		opCreateCWAlarmTemplate, opGetCWAlarmTemplate,
+		opListCWAlarmTemplates, opUpdateCWAlarmTemplate,
+		opDeleteCWAlarmTemplate); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplateGroups,
+		opCreateEBRuleTemplateGroup, opGetEBRuleTemplateGroup,
+		opListEBRuleTemplateGroups, opUpdateEBRuleTemplateGroup,
+		opDeleteEBRuleTemplateGroup); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplates,
+		opCreateEBRuleTemplate, opGetEBRuleTemplate,
+		opListEBRuleTemplates, opUpdateEBRuleTemplate,
+		opDeleteEBRuleTemplate); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyOfferingPath(method, path); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyReservationPath(method, path); ok {
+		return op, res
+	}
+
+	if op, ok := classifyBatchPath(method, path); ok {
+		return op, ""
 	}
 
 	return opUnknown, ""
@@ -431,16 +606,28 @@ func splitMultiplexProgram(resource string) (string, string) {
 
 func classifyChannelPath(method, path string) (string, string, bool) {
 	const prefix = pathChannels + "/"
+	if path == pathChannels {
+		switch method {
+		case http.MethodGet:
+			return opListChannels, "", true
+		case http.MethodPost:
+			return opCreateChannel, "", true
+		}
 
+		return "", "", false
+	}
+
+	return classifyChannelSubPath(method, path, prefix)
+}
+
+func classifyChannelSubPath(method, path, prefix string) (string, string, bool) {
 	switch {
-	case path == pathChannels && method == http.MethodGet:
-		return opListChannels, "", true
-	case path == pathChannels && method == http.MethodPost:
-		return opCreateChannel, "", true
 	case matchSegment(path, prefix, "/start") && method == http.MethodPost:
 		return opStartChannel, extractSegment(path, prefix, "/start"), true
 	case matchSegment(path, prefix, "/stop") && method == http.MethodPost:
 		return opStopChannel, extractSegment(path, prefix, "/stop"), true
+	case matchSegment(path, prefix, "/"+subSchedule) && method == http.MethodPut:
+		return opBatchUpdateSchedule, extractSegment(path, prefix, "/"+subSchedule), true
 	case matchSegment(path, prefix, "") && method == http.MethodGet:
 		return opDescribeChannel, extractSegment(path, prefix, ""), true
 	case matchSegment(path, prefix, "") && method == http.MethodPut:
@@ -578,6 +765,103 @@ func extractSegment(path, prefix, suffix string) string {
 	id, _ := strings.CutSuffix(after, suffix)
 
 	return id
+}
+
+// classifySignalMapPath classifies /prod/signal-maps paths.
+func classifySignalMapPath(method, path string) (string, string, bool) {
+	const prefix = pathSignalMaps + "/"
+
+	switch {
+	case path == pathSignalMaps && method == http.MethodGet:
+		return opListSignalMaps, "", true
+	case path == pathSignalMaps && method == http.MethodPost:
+		return opCreateSignalMap, "", true
+	case matchSegment(path, prefix, "/"+subMonitorDeployment) && method == http.MethodPost:
+		return opStartMonitorDeployment, extractSegment(
+			path,
+			prefix,
+			"/"+subMonitorDeployment,
+		), true
+	case matchSegment(path, prefix, "") && method == http.MethodGet:
+		return opGetSignalMap, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodDelete:
+		return opDeleteSignalMap, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodPatch:
+		return opStartUpdateSignalMap, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifyTemplatePath is a generic classifier for CRUD-only template resources.
+func classifyTemplatePath(
+	method, path, prefix string,
+	createOp, getOp, listOp, updateOp, deleteOp string,
+) (string, string, bool) {
+	pre := prefix + "/"
+
+	switch {
+	case path == prefix && method == http.MethodGet:
+		return listOp, "", true
+	case path == prefix && method == http.MethodPost:
+		return createOp, "", true
+	case matchSegment(path, pre, "") && method == http.MethodGet:
+		return getOp, extractSegment(path, pre, ""), true
+	case matchSegment(path, pre, "") && method == http.MethodDelete:
+		return deleteOp, extractSegment(path, pre, ""), true
+	case matchSegment(path, pre, "") && method == http.MethodPatch:
+		return updateOp, extractSegment(path, pre, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifyOfferingPath classifies /prod/offerings paths.
+func classifyOfferingPath(method, path string) (string, string, bool) {
+	const prefix = pathOfferings + "/"
+
+	switch {
+	case path == pathOfferings && method == http.MethodGet:
+		return opListOfferings, "", true
+	case matchSegment(path, prefix, "/"+subPurchase) && method == http.MethodPost:
+		return opPurchaseOffering, extractSegment(path, prefix, "/"+subPurchase), true
+	case matchSegment(path, prefix, "") && method == http.MethodGet:
+		return opDescribeOffering, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifyReservationPath classifies /prod/reservations paths.
+func classifyReservationPath(method, path string) (string, string, bool) {
+	const prefix = pathReservations + "/"
+
+	switch {
+	case path == pathReservations && method == http.MethodGet:
+		return opListReservations, "", true
+	case matchSegment(path, prefix, "") && method == http.MethodGet:
+		return opDescribeReservation, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodDelete:
+		return opDeleteReservation, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodPut:
+		return opUpdateReservation, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifyBatchPath classifies /prod/batch/* paths.
+func classifyBatchPath(method, path string) (string, bool) {
+	switch {
+	case path == pathBatch+"/delete" && method == http.MethodPost:
+		return opBatchDelete, true
+	case path == pathBatch+"/start" && method == http.MethodPost:
+		return opBatchStart, true
+	case path == pathBatch+"/stop" && method == http.MethodPost:
+		return opBatchStop, true
+	}
+
+	return "", false
 }
 
 func errStatus(err error) int {
@@ -965,7 +1249,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		tags = map[string]string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
+	return c.JSON(http.StatusOK, map[string]any{keyTags: tags})
 }
 
 // --- Multiplex handlers ---
@@ -1376,7 +1660,11 @@ func (h *Handler) handleDescribeInputDevice(c *echo.Context, deviceID string) er
 	return c.JSON(http.StatusOK, toInputDeviceOutput(d))
 }
 
-func (h *Handler) handleUpdateInputDevice(c *echo.Context, deviceID string, body map[string]any) error {
+func (h *Handler) handleUpdateInputDevice(
+	c *echo.Context,
+	deviceID string,
+	body map[string]any,
+) error {
 	name, _ := body["Name"].(string)
 
 	d, err := h.Backend.UpdateInputDevice(deviceID, name)
@@ -1395,7 +1683,11 @@ func (h *Handler) handleRebootInputDevice(c *echo.Context, deviceID string) erro
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleTransferInputDevice(c *echo.Context, deviceID string, body map[string]any) error {
+func (h *Handler) handleTransferInputDevice(
+	c *echo.Context,
+	deviceID string,
+	body map[string]any,
+) error {
 	targetCustomerID, _ := body["TargetCustomerId"].(string)
 	targetRegion, _ := body["TargetRegion"].(string)
 	message, _ := body["TransferMessage"].(string)
@@ -1817,4 +2109,775 @@ func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// --- Signal Map handlers ---
+
+func toSignalMapOutput(sm *SignalMap) map[string]any {
+	tags := sm.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	cwIDs := sm.CloudWatchAlarmTemplateGroupIDs
+	if cwIDs == nil {
+		cwIDs = []string{}
+	}
+	ebIDs := sm.EventBridgeRuleTemplateGroupIDs
+	if ebIDs == nil {
+		ebIDs = []string{}
+	}
+
+	return map[string]any{
+		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
+		keyDescription: sm.Description, "DiscoveryEntryPointArn": sm.DiscoveryEntryPointArn,
+		"Status": sm.Status, "MonitorDeploymentStatus": sm.MonitorDeploymentStatus,
+		"CloudWatchAlarmTemplateGroupIds": cwIDs, "EventBridgeRuleTemplateGroupIds": ebIDs,
+		keyTags: tags,
+	}
+}
+
+func (h *Handler) handleCreateSignalMap(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	discoveryArn, _ := body["DiscoveryEntryPointArn"].(string)
+	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
+	ebGroupIDs := extractStringSlice(body, "EventBridgeRuleTemplateGroupIdentifiers")
+	tags := extractTags(body)
+	sm, err := h.Backend.CreateSignalMap(
+		name,
+		description,
+		discoveryArn,
+		cwGroupIDs,
+		ebGroupIDs,
+		tags,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toSignalMapOutput(sm))
+}
+
+func (h *Handler) handleGetSignalMap(c *echo.Context, identifier string) error {
+	sm, err := h.Backend.GetSignalMap(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toSignalMapOutput(sm))
+}
+
+func (h *Handler) handleListSignalMaps(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListSignalMaps(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, sm := range items {
+		out = append(out, toSignalMapOutput(sm))
+	}
+	resp := map[string]any{"SignalMaps": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDeleteSignalMap(c *echo.Context, identifier string) error {
+	if err := h.Backend.DeleteSignalMap(identifier); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusAccepted, map[string]any{})
+}
+
+func (h *Handler) handleStartUpdateSignalMap(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
+	ebGroupIDs := extractStringSlice(body, "EventBridgeRuleTemplateGroupIdentifiers")
+	sm, err := h.Backend.StartUpdateSignalMap(identifier, name, description, cwGroupIDs, ebGroupIDs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusAccepted, toSignalMapOutput(sm))
+}
+
+func (h *Handler) handleStartMonitorDeployment(c *echo.Context, identifier string) error {
+	sm, err := h.Backend.StartMonitorDeployment(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusAccepted, toSignalMapOutput(sm))
+}
+
+// --- CloudWatch Alarm Template Group handlers ---
+
+func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]any {
+	tags := g.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description, keyTags: tags,
+	}
+}
+
+func (h *Handler) handleCreateCWAlarmTemplateGroup(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	tags := extractTags(body)
+	g, err := h.Backend.CreateCloudWatchAlarmTemplateGroup(name, description, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toCWAlarmTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleGetCWAlarmTemplateGroup(c *echo.Context, identifier string) error {
+	g, err := h.Backend.GetCloudWatchAlarmTemplateGroup(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toCWAlarmTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleListCWAlarmTemplateGroups(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplateGroups(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, g := range items {
+		out = append(out, toCWAlarmTemplateGroupOutput(g))
+	}
+	resp := map[string]any{"CloudWatchAlarmTemplateGroups": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateCWAlarmTemplateGroup(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	g, err := h.Backend.UpdateCloudWatchAlarmTemplateGroup(identifier, name, description)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toCWAlarmTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleDeleteCWAlarmTemplateGroup(c *echo.Context, identifier string) error {
+	if err := h.Backend.DeleteCloudWatchAlarmTemplateGroup(identifier); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- CloudWatch Alarm Template handlers ---
+
+func toCWAlarmTemplateOutput(t *CloudWatchAlarmTemplate) map[string]any {
+	tags := t.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
+		"GroupId": t.GroupID, "GroupIdentifier": t.GroupIdentifier,
+		"MetricName": t.MetricName, "Namespace": t.Namespace,
+		"Statistic": t.Statistic, "ComparisonOperator": t.ComparisonOperator,
+		"TargetResourceType": t.TargetResourceType, "TreatMissingData": t.TreatMissingData,
+		"Threshold": t.Threshold, "EvaluationPeriods": t.EvaluationPeriods,
+		"DatapointsToAlarm": t.DatapointsToAlarm, "Period": t.Period,
+		keyTags: tags,
+	}
+}
+
+func extractCWAlarmTemplateFields(
+	body map[string]any,
+) (string, string, string, string, string, string, string, float64, int32, int32, int32) {
+	groupIdentifier, _ := body["GroupIdentifier"].(string)
+	metricName, _ := body["MetricName"].(string)
+	namespace, _ := body["Namespace"].(string)
+	statistic, _ := body["Statistic"].(string)
+	comparisonOperator, _ := body["ComparisonOperator"].(string)
+	targetResourceType, _ := body["TargetResourceType"].(string)
+	treatMissingData, _ := body["TreatMissingData"].(string)
+	var threshold float64
+	if v, ok := body["Threshold"].(float64); ok {
+		threshold = v
+	}
+	var evalPeriods int32
+	if v, ok := body["EvaluationPeriods"].(float64); ok {
+		evalPeriods = int32(v)
+	}
+	var datapointsToAlarm int32
+	if v, ok := body["DatapointsToAlarm"].(float64); ok {
+		datapointsToAlarm = int32(v)
+	}
+	var period int32
+	if v, ok := body["Period"].(float64); ok {
+		period = int32(v)
+	}
+
+	return groupIdentifier, metricName, namespace, statistic, comparisonOperator,
+		targetResourceType, treatMissingData, threshold, evalPeriods, datapointsToAlarm, period
+}
+
+func (h *Handler) handleCreateCWAlarmTemplate(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	tags := extractTags(body)
+	groupID, metricName, namespace, statistic, compOp,
+		targetType, treatMissing, threshold,
+		evalPeriods, datapointsToAlarm, period :=
+		extractCWAlarmTemplateFields(body)
+	t, err := h.Backend.CreateCloudWatchAlarmTemplate(
+		name,
+		description,
+		groupID,
+		metricName,
+		namespace,
+		statistic,
+		compOp,
+		targetType,
+		treatMissing,
+		threshold,
+		evalPeriods,
+		datapointsToAlarm,
+		period,
+		tags,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toCWAlarmTemplateOutput(t))
+}
+
+func (h *Handler) handleGetCWAlarmTemplate(c *echo.Context, identifier string) error {
+	t, err := h.Backend.GetCloudWatchAlarmTemplate(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toCWAlarmTemplateOutput(t))
+}
+
+func (h *Handler) handleListCWAlarmTemplates(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplates(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, t := range items {
+		out = append(out, toCWAlarmTemplateOutput(t))
+	}
+	resp := map[string]any{"CloudWatchAlarmTemplates": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateCWAlarmTemplate(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	groupID, metricName, namespace, statistic, compOp,
+		targetType, treatMissing, threshold,
+		evalPeriods, datapointsToAlarm, period :=
+		extractCWAlarmTemplateFields(body)
+	t, err := h.Backend.UpdateCloudWatchAlarmTemplate(
+		identifier,
+		name,
+		description,
+		groupID,
+		metricName,
+		namespace,
+		statistic,
+		compOp,
+		targetType,
+		treatMissing,
+		threshold,
+		evalPeriods,
+		datapointsToAlarm,
+		period,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toCWAlarmTemplateOutput(t))
+}
+
+func (h *Handler) handleDeleteCWAlarmTemplate(c *echo.Context, identifier string) error {
+	if err := h.Backend.DeleteCloudWatchAlarmTemplate(identifier); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- EventBridge Rule Template Group handlers ---
+
+func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any {
+	tags := g.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description, keyTags: tags,
+	}
+}
+
+func (h *Handler) handleCreateEBRuleTemplateGroup(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	tags := extractTags(body)
+	g, err := h.Backend.CreateEventBridgeRuleTemplateGroup(name, description, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toEBRuleTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleGetEBRuleTemplateGroup(c *echo.Context, identifier string) error {
+	g, err := h.Backend.GetEventBridgeRuleTemplateGroup(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toEBRuleTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleListEBRuleTemplateGroups(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplateGroups(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, g := range items {
+		out = append(out, toEBRuleTemplateGroupOutput(g))
+	}
+	resp := map[string]any{"EventBridgeRuleTemplateGroups": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateEBRuleTemplateGroup(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	g, err := h.Backend.UpdateEventBridgeRuleTemplateGroup(identifier, name, description)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toEBRuleTemplateGroupOutput(g))
+}
+
+func (h *Handler) handleDeleteEBRuleTemplateGroup(c *echo.Context, identifier string) error {
+	if err := h.Backend.DeleteEventBridgeRuleTemplateGroup(identifier); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- EventBridge Rule Template handlers ---
+
+func toEBRuleTemplateOutput(t *EventBridgeRuleTemplate) map[string]any {
+	tags := t.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	targets := make([]map[string]any, 0, len(t.EventTargets))
+	for _, tgt := range t.EventTargets {
+		targets = append(targets, map[string]any{keyArn: tgt.Arn})
+	}
+
+	return map[string]any{
+		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
+		"GroupId": t.GroupID, "GroupIdentifier": t.GroupIdentifier,
+		"EventType": t.EventType, "EventTargets": targets, keyTags: tags,
+	}
+}
+
+func extractEBTargets(body map[string]any) []EventBridgeRuleTemplateTarget {
+	raw, _ := body["EventTargets"].([]any)
+	targets := make([]EventBridgeRuleTemplateTarget, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		arnVal, _ := m[keyArn].(string)
+		if arnVal != "" {
+			targets = append(targets, EventBridgeRuleTemplateTarget{Arn: arnVal})
+		}
+	}
+
+	return targets
+}
+
+func (h *Handler) handleCreateEBRuleTemplate(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	groupIdentifier, _ := body["GroupIdentifier"].(string)
+	eventType, _ := body["EventType"].(string)
+	targets := extractEBTargets(body)
+	tags := extractTags(body)
+	t, err := h.Backend.CreateEventBridgeRuleTemplate(
+		name,
+		description,
+		groupIdentifier,
+		eventType,
+		targets,
+		tags,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toEBRuleTemplateOutput(t))
+}
+
+func (h *Handler) handleGetEBRuleTemplate(c *echo.Context, identifier string) error {
+	t, err := h.Backend.GetEventBridgeRuleTemplate(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toEBRuleTemplateOutput(t))
+}
+
+func (h *Handler) handleListEBRuleTemplates(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplates(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, t := range items {
+		out = append(out, toEBRuleTemplateOutput(t))
+	}
+	resp := map[string]any{"EventBridgeRuleTemplates": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateEBRuleTemplate(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	description, _ := body[keyDescription].(string)
+	groupIdentifier, _ := body["GroupIdentifier"].(string)
+	eventType, _ := body["EventType"].(string)
+	targets := extractEBTargets(body)
+	t, err := h.Backend.UpdateEventBridgeRuleTemplate(
+		identifier,
+		name,
+		description,
+		groupIdentifier,
+		eventType,
+		targets,
+	)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toEBRuleTemplateOutput(t))
+}
+
+func (h *Handler) handleDeleteEBRuleTemplate(c *echo.Context, identifier string) error {
+	if err := h.Backend.DeleteEventBridgeRuleTemplate(identifier); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Offering handlers ---
+
+func toOfferingOutput(o *Offering) map[string]any {
+	return map[string]any{
+		keyArn: o.Arn, "OfferingId": o.OfferingID,
+		"OfferingDescription": o.OfferingDescription, "OfferingType": o.OfferingType,
+		"CurrencyCode": o.CurrencyCode, "FixedPrice": o.FixedPrice, "UsagePrice": o.UsagePrice,
+		"Duration": o.Duration, "DurationUnits": o.DurationUnits,
+		"ResourceSpecification": map[string]any{
+			"ResourceType":     o.ResourceSpecification.ResourceType,
+			"VideoQuality":     o.ResourceSpecification.VideoQuality,
+			"Resolution":       o.ResourceSpecification.Resolution,
+			"MaximumBitrate":   o.ResourceSpecification.MaximumBitrate,
+			"MaximumFramerate": o.ResourceSpecification.MaximumFramerate,
+			"Codec":            o.ResourceSpecification.Codec,
+		},
+	}
+}
+
+func (h *Handler) handleListOfferings(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListOfferings(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, o := range items {
+		out = append(out, toOfferingOutput(o))
+	}
+	resp := map[string]any{"Offerings": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDescribeOffering(c *echo.Context, offeringID string) error {
+	o, err := h.Backend.DescribeOffering(offeringID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toOfferingOutput(o))
+}
+
+func (h *Handler) handlePurchaseOffering(
+	c *echo.Context,
+	offeringID string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	var count int32 = 1
+	if v, ok := body["Count"].(float64); ok {
+		count = int32(v)
+	}
+	tags := extractTags(body)
+	r, err := h.Backend.PurchaseOffering(offeringID, name, count, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{"Reservation": toReservationOutput(r)})
+}
+
+// --- Reservation handlers ---
+
+func toReservationOutput(r *Reservation) map[string]any {
+	tags := r.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: r.Arn, "ReservationId": r.ReservationID, keyName: r.Name,
+		"OfferingId": r.OfferingID, "OfferingDescription": r.OfferingDescription,
+		"OfferingType": r.OfferingType, "CurrencyCode": r.CurrencyCode,
+		"FixedPrice": r.FixedPrice, "UsagePrice": r.UsagePrice,
+		"Duration": r.Duration, "DurationUnits": r.DurationUnits,
+		"Start": r.Start, "End": r.End, "Region": r.Region, keyState: r.State,
+		"Count": r.Count,
+		"ResourceSpecification": map[string]any{
+			"ResourceType":     r.ResourceSpecification.ResourceType,
+			"VideoQuality":     r.ResourceSpecification.VideoQuality,
+			"Resolution":       r.ResourceSpecification.Resolution,
+			"MaximumBitrate":   r.ResourceSpecification.MaximumBitrate,
+			"MaximumFramerate": r.ResourceSpecification.MaximumFramerate,
+			"Codec":            r.ResourceSpecification.Codec,
+		},
+		keyTags: tags,
+	}
+}
+
+func (h *Handler) handleListReservations(c *echo.Context) error {
+	items, nextToken, err := h.Backend.ListReservations(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, r := range items {
+		out = append(out, toReservationOutput(r))
+	}
+	resp := map[string]any{"Reservations": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDescribeReservation(c *echo.Context, reservationID string) error {
+	r, err := h.Backend.DescribeReservation(reservationID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toReservationOutput(r))
+}
+
+func (h *Handler) handleDeleteReservation(c *echo.Context, reservationID string) error {
+	r, err := h.Backend.DeleteReservation(reservationID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toReservationOutput(r))
+}
+
+func (h *Handler) handleUpdateReservation(
+	c *echo.Context,
+	reservationID string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	r, err := h.Backend.UpdateReservation(reservationID, name)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toReservationOutput(r))
+}
+
+// --- Batch handlers ---
+
+func toBatchResultOutput(result *BatchResult) map[string]any {
+	successful := make([]map[string]any, 0, len(result.Successful))
+	for _, s := range result.Successful {
+		successful = append(
+			successful,
+			map[string]any{keyArn: s.Arn, keyID: s.ID, keyState: s.State},
+		)
+	}
+	failed := make([]map[string]any, 0, len(result.Failed))
+	for _, f := range result.Failed {
+		failed = append(failed, map[string]any{keyArn: f.Arn, keyID: f.ID, "Code": f.Code})
+	}
+
+	return map[string]any{"Successful": successful, "Failed": failed}
+}
+
+func extractStringSlice(body map[string]any, key string) []string {
+	raw, _ := body[key].([]any)
+	result := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
+func (h *Handler) handleBatchStart(c *echo.Context, body map[string]any) error {
+	channelIDs := extractStringSlice(body, "ChannelIds")
+	inputIDs := extractStringSlice(body, "InputIds")
+	multiplexIDs := extractStringSlice(body, "MultiplexIds")
+	result, err := h.Backend.BatchStart(channelIDs, inputIDs, multiplexIDs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toBatchResultOutput(result))
+}
+
+func (h *Handler) handleBatchStop(c *echo.Context, body map[string]any) error {
+	channelIDs := extractStringSlice(body, "ChannelIds")
+	inputIDs := extractStringSlice(body, "InputIds")
+	multiplexIDs := extractStringSlice(body, "MultiplexIds")
+	result, err := h.Backend.BatchStop(channelIDs, inputIDs, multiplexIDs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toBatchResultOutput(result))
+}
+
+func (h *Handler) handleBatchDelete(c *echo.Context, body map[string]any) error {
+	channelIDs := extractStringSlice(body, "ChannelIds")
+	inputIDs := extractStringSlice(body, "InputIds")
+	multiplexIDs := extractStringSlice(body, "MultiplexIds")
+	result, err := h.Backend.BatchDelete(channelIDs, inputIDs, multiplexIDs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toBatchResultOutput(result))
+}
+
+func (h *Handler) handleBatchUpdateSchedule(
+	c *echo.Context,
+	channelID string,
+	body map[string]any,
+) error {
+	var creates []ScheduleAction
+	if rawCreates, ok := body["Creates"].(map[string]any); ok {
+		rawActions, hasActions := rawCreates["ScheduleActions"].([]any)
+		if hasActions {
+			for _, item := range rawActions {
+				m, isMapped := item.(map[string]any)
+				if !isMapped {
+					continue
+				}
+				actionName, _ := m["ActionName"].(string)
+				creates = append(creates, ScheduleAction{ActionName: actionName})
+			}
+		}
+	}
+	var deleteNames []string
+	if rawDeletes, ok := body["Deletes"].(map[string]any); ok {
+		deleteNames = extractStringSlice(rawDeletes, "ActionNames")
+	}
+	result, err := h.Backend.BatchUpdateSchedule(channelID, creates, deleteNames)
+	if err != nil {
+		return respondErr(c, err)
+	}
+	createsOut := make([]map[string]any, 0, len(result.Creates))
+	for _, a := range result.Creates {
+		createsOut = append(createsOut, map[string]any{"ActionName": a.ActionName})
+	}
+	deletesOut := make([]map[string]any, 0, len(result.Deletes))
+	for _, a := range result.Deletes {
+		deletesOut = append(deletesOut, map[string]any{"ActionName": a.ActionName})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"Creates": map[string]any{"ScheduleActions": createsOut},
+		"Deletes": map[string]any{"ScheduleActions": deletesOut},
+	})
 }
