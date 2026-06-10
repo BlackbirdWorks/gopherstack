@@ -126,7 +126,10 @@ func TestIntegration_AppRunner_ConnectionLifecycle(t *testing.T) {
 			connArn := aws.ToString(createOut.Connection.ConnectionArn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteConnection(ctx, &apprunnersdk.DeleteConnectionInput{ConnectionArn: aws.String(connArn)})
+				_, _ = client.DeleteConnection(
+					ctx,
+					&apprunnersdk.DeleteConnectionInput{ConnectionArn: aws.String(connArn)},
+				)
 			})
 
 			listOut, err := client.ListConnections(ctx, &apprunnersdk.ListConnectionsInput{})
@@ -143,7 +146,10 @@ func TestIntegration_AppRunner_ConnectionLifecycle(t *testing.T) {
 
 			assert.True(t, found, "created connection should appear in list")
 
-			_, err = client.DeleteConnection(ctx, &apprunnersdk.DeleteConnectionInput{ConnectionArn: aws.String(connArn)})
+			_, err = client.DeleteConnection(
+				ctx,
+				&apprunnersdk.DeleteConnectionInput{ConnectionArn: aws.String(connArn)},
+			)
 			require.NoError(t, err, "DeleteConnection should succeed")
 		})
 	}

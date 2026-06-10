@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -70,16 +71,11 @@ func TestIntegration_Rekognition_CollectionLifecycle(t *testing.T) {
 			listOut, err := client.ListCollections(ctx, &rekognitionsdk.ListCollectionsInput{})
 			require.NoError(t, err, "ListCollections should succeed")
 
-			found := false
-			for _, id := range listOut.CollectionIds {
-				if id == tt.collectionID {
-					found = true
-
-					break
-				}
-			}
-
-			assert.True(t, found, "created collection should appear in list")
+			assert.True(
+				t,
+				slices.Contains(listOut.CollectionIds, tt.collectionID),
+				"created collection should appear in list",
+			)
 
 			_, err = client.DeleteCollection(ctx, &rekognitionsdk.DeleteCollectionInput{
 				CollectionId: aws.String(tt.collectionID),

@@ -87,19 +87,25 @@ func TestIntegration_Translate_TerminologyLifecycle(t *testing.T) {
 			client := createTranslateClient(t)
 
 			_, err := client.ImportTerminology(ctx, &translatesdk.ImportTerminologyInput{
-				Name:            aws.String(tt.termName),
-				MergeStrategy:   translatetypes.MergeStrategyOverwrite,
-				TerminologyData: &translatetypes.TerminologyData{File: []byte(csv), Format: translatetypes.TerminologyDataFormatCsv},
+				Name:          aws.String(tt.termName),
+				MergeStrategy: translatetypes.MergeStrategyOverwrite,
+				TerminologyData: &translatetypes.TerminologyData{
+					File:   []byte(csv),
+					Format: translatetypes.TerminologyDataFormatCsv,
+				},
 			})
 			require.NoError(t, err, "ImportTerminology should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteTerminology(ctx, &translatesdk.DeleteTerminologyInput{Name: aws.String(tt.termName)})
+				_, _ = client.DeleteTerminology(
+					ctx,
+					&translatesdk.DeleteTerminologyInput{Name: aws.String(tt.termName)},
+				)
 			})
 
 			getOut, err := client.GetTerminology(ctx, &translatesdk.GetTerminologyInput{
-				Name:                   aws.String(tt.termName),
-				TerminologyDataFormat:  translatetypes.TerminologyDataFormatCsv,
+				Name:                  aws.String(tt.termName),
+				TerminologyDataFormat: translatetypes.TerminologyDataFormatCsv,
 			})
 			require.NoError(t, err, "GetTerminology should succeed")
 			require.NotNil(t, getOut.TerminologyProperties)

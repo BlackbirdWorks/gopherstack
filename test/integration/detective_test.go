@@ -35,8 +35,8 @@ func TestIntegration_Detective_GraphLifecycle(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
-		name string
 		tags map[string]string
+		name string
 	}{
 		{name: "full_lifecycle", tags: map[string]string{"Environment": "test"}},
 	}
