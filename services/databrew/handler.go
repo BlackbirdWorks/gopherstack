@@ -146,9 +146,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(c.Request().Host, "databrew.") ||
+		if strings.HasPrefix(c.Request().Host, "databrew.") ||
 			strings.HasPrefix(path, databrewPathPrefix) ||
-			path == "/databrew/v1"
+			path == "/databrew/v1" {
+			return true
+		}
+
+		// Match paths sent by the SDK (e.g. GET /recipes, GET /profileJobs).
+		// Only unambiguous DataBrew-specific segments are listed here.
+		firstSeg, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		switch firstSeg {
+		case segRecipes, segProfileJobs, segRecipeJobs, segRulesets, segProjects:
+			return true
+		}
+
+		return false
 	}
 }
 
@@ -229,11 +241,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 func parseDataBrewRESTPath(method, path string) (string, string) {
-	after := path
-	if strings.HasPrefix(path, databrewPathPrefix) {
-		after = strings.TrimPrefix(path, databrewPathPrefix)
-	} else if strings.HasPrefix(path, "/") {
-		after = strings.TrimPrefix(path, "/")
+	after, ok := strings.CutPrefix(path, databrewPathPrefix)
+	if !ok {
+		after, _ = strings.CutPrefix(path, "/")
 	}
 
 	segments := strings.SplitN(after, "/", minPathSegments+1)
