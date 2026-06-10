@@ -236,9 +236,10 @@ func (b *InMemoryBackend) ListTrustAnchors(pageToken string, maxResults int) ([]
 		return all[i].Name < all[j].Name
 	})
 
-	start, next := paginate(all, pageToken, maxResults, func(t *TrustAnchor) string { return t.TrustAnchorID })
+	getID := func(t *TrustAnchor) string { return t.TrustAnchorID }
+	start, next := paginate(all, pageToken, maxResults, getID)
 
-	return all[start:next], nextTokenFromSlice(all, next), nil
+	return all[start:next], nextTokenFromSlice(all, next, getID), nil
 }
 
 // DeleteTrustAnchor removes a trust anchor.
@@ -378,9 +379,10 @@ func (b *InMemoryBackend) ListProfiles(pageToken string, maxResults int) ([]*Pro
 		return all[i].Name < all[j].Name
 	})
 
-	start, next := paginate(all, pageToken, maxResults, func(p *Profile) string { return p.ProfileID })
+	getID := func(p *Profile) string { return p.ProfileID }
+	start, next := paginate(all, pageToken, maxResults, getID)
 
-	return all[start:next], nextTokenFromSlice(all, next), nil
+	return all[start:next], nextTokenFromSlice(all, next, getID), nil
 }
 
 // DeleteProfile removes a profile.
@@ -605,9 +607,10 @@ func (b *InMemoryBackend) ListCrls(pageToken string, maxResults int) ([]*Crl, st
 		return all[i].Name < all[j].Name
 	})
 
-	start, next := paginate(all, pageToken, maxResults, func(c *Crl) string { return c.CrlID })
+	getID := func(c *Crl) string { return c.CrlID }
+	start, next := paginate(all, pageToken, maxResults, getID)
 
-	return all[start:next], nextTokenFromSlice(all, next), nil
+	return all[start:next], nextTokenFromSlice(all, next, getID), nil
 }
 
 // UpdateCrl updates a CRL's name and/or data.
@@ -707,9 +710,10 @@ func (b *InMemoryBackend) ListSubjects(pageToken string, maxResults int) ([]*Sub
 		return all[i].SubjectID < all[j].SubjectID
 	})
 
-	start, next := paginate(all, pageToken, maxResults, func(s *Subject) string { return s.SubjectID })
+	getID := func(s *Subject) string { return s.SubjectID }
+	start, next := paginate(all, pageToken, maxResults, getID)
 
-	return all[start:next], nextTokenFromSlice(all, next), nil
+	return all[start:next], nextTokenFromSlice(all, next, getID), nil
 }
 
 // ---- Attribute mapping operations ----
@@ -1082,13 +1086,14 @@ func paginate[T any](all []T, pageToken string, maxResults int, getID func(T) st
 	return start, end
 }
 
-// nextTokenFromSlice returns the ID of the element at index next, or "".
-func nextTokenFromSlice[T any](all []T, next int) string {
-	if next < len(all) {
-		// We can't call getID here generically without passing it;
-		// callers handle this differently.
+// nextTokenFromSlice returns the ID of the element at index next (the first
+// item of the next page), or "" when next is at/after the end of the slice and
+// there are no further pages. The page token therefore identifies the first
+// item of the following page, which paginate() locates via getID.
+func nextTokenFromSlice[T any](all []T, next int, getID func(T) string) string {
+	if next < 0 || next >= len(all) {
 		return ""
 	}
 
-	return ""
+	return getID(all[next])
 }
