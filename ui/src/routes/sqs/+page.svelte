@@ -9,6 +9,7 @@ SetQueueAttributesCommand,
 CreateQueueCommand,
 DeleteQueueCommand,
 SendMessageCommand,
+SendMessageBatchCommand,
 ReceiveMessageCommand,
 DeleteMessageCommand,
 PurgeQueueCommand,
@@ -29,7 +30,7 @@ import { toast } from 'svelte-sonner';
 import {
 MessageSquare, Search, RefreshCw, Plus, Trash2, Send, Inbox,
 Flame, ChevronDown, ChevronUp, Copy, Settings, Tag, X, Eye,
-ArrowRightLeft, BookOpen, AlertCircle
+ArrowRightLeft, BookOpen, AlertCircle, Layers, Filter
 } from 'lucide-svelte';
 
 const sqs = getSQSClient();
@@ -63,12 +64,19 @@ let msgDedupId = $state('');
 let msgDelay = $state(0);
 let msgAttrRows = $state<Array<{ key: string; value: string; dataType: string }>>([]);
 
+// Batch send
+let showBatchModal = $state(false);
+let batchSending = $state(false);
+let batchRows = $state<Array<{ id: string; body: string; groupId: string; dedupId: string }>>([]);
+
 // Receive messages
 let messages = $state<Message[]>([]);
 let receivingMessages = $state(false);
 let expandedMsg = $state<string | null>(null);
 let deletingReceipt = $state<string | null>(null);
 let receiveMaxMessages = $state(10);
+// Client-side message filter (body or attribute name/value substring)
+let messageFilter = $state('');
 
 // Edit attributes
 let editAttrs = $state<Record<string, string>>({});
@@ -100,6 +108,20 @@ const typeMatch = filterType === 'all' || (filterType === 'fifo' ? isFifo(q.url)
 return nameMatch && typeMatch;
 })
 );
+
+const filteredMessages = $derived.by(() => {
+const q = messageFilter.trim().toLowerCase();
+if (!q) return messages;
+return messages.filter((m) => {
+if ((m.Body ?? '').toLowerCase().includes(q)) return true;
+if ((m.MessageId ?? '').toLowerCase().includes(q)) return true;
+for (const [name, attr] of Object.entries(m.MessageAttributes ?? {})) {
+if (name.toLowerCase().includes(q)) return true;
+if ((attr.StringValue ?? '').toLowerCase().includes(q)) return true;
+}
+return false;
+});
+});
 
 // ──────────────── Helpers ────────────────
 function queueName(url: string): string {
@@ -291,6 +313,69 @@ msgAttrRows = [...msgAttrRows, { key: '', value: '', dataType: 'String' }];
 
 function removeMsgAttrRow(i: number) {
 msgAttrRows = msgAttrRows.filter((_, idx) => idx !== i);
+}
+
+// ──────────────── Batch Send (SendMessageBatch) ────────────────
+function openBatchModal() {
+batchRows = [
+{ id: 'msg-1', body: '', groupId: '', dedupId: '' },
+{ id: 'msg-2', body: '', groupId: '', dedupId: '' }
+];
+showBatchModal = true;
+}
+
+function addBatchRow() {
+if (batchRows.length >= 10) {
+toast.error('SendMessageBatch accepts at most 10 entries');
+return;
+}
+batchRows = [...batchRows, { id: `msg-${batchRows.length + 1}`, body: '', groupId: '', dedupId: '' }];
+}
+
+function removeBatchRow(i: number) {
+batchRows = batchRows.filter((_, idx) => idx !== i);
+}
+
+async function sendBatch() {
+if (!selectedQueue) return;
+const fifo = isFifo(selectedQueue.url);
+const entries = batchRows
+.filter((r) => r.body.trim())
+.map((r) => ({
+Id: r.id.trim() || crypto.randomUUID().slice(0, 8),
+MessageBody: r.body,
+MessageGroupId: fifo ? (r.groupId.trim() || 'default') : undefined,
+MessageDeduplicationId: fifo && r.dedupId.trim() ? r.dedupId.trim() : undefined
+}));
+if (entries.length === 0) {
+toast.error('Add at least one message body');
+return;
+}
+const ids = entries.map((e) => e.Id);
+if (new Set(ids).size !== ids.length) {
+toast.error('Entry IDs must be unique within the batch');
+return;
+}
+batchSending = true;
+try {
+const res = await sqs.send(new SendMessageBatchCommand({ QueueUrl: selectedQueue.url, Entries: entries }));
+const ok = res.Successful?.length ?? 0;
+const failed = res.Failed?.length ?? 0;
+if (failed > 0) {
+toast.error(`${ok} sent, ${failed} failed: ${res.Failed?.map((f) => `${f.Id}:${f.Message ?? f.Code}`).join('; ')}`);
+} else {
+toast.success(`${ok} message${ok === 1 ? '' : 's'} sent`);
+}
+if (failed === 0) {
+showBatchModal = false;
+batchRows = [];
+}
+await refreshSelectedQueueStats();
+} catch (err: unknown) {
+toast.error(`Batch send failed: ${(err as Error).message}`);
+} finally {
+batchSending = false;
+}
 }
 
 // ──────────────── Receive Messages ────────────────
@@ -766,6 +851,9 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 <button onclick={() => { showSendModal = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
 <Send class="w-4 h-4" />Send
 </button>
+<button onclick={openBatchModal} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
+<Layers class="w-4 h-4" />Batch
+</button>
 <button onclick={() => receiveMessages()} disabled={receivingMessages} class="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1.5 text-sm disabled:opacity-50">
 <Inbox class="w-4 h-4" />{receivingMessages ? '...' : 'Receive'}
 </button>
@@ -850,17 +938,28 @@ class="px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 d
 </select>
 </div>
 {#if messages.length > 0}
-<button onclick={clearMessages} class="ml-auto text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 flex items-center gap-1">
+<div class="relative ml-auto">
+<Filter class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+<input
+type="text"
+bind:value={messageFilter}
+placeholder="Filter by body / attribute..."
+class="pl-7 pr-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-56"
+/>
+</div>
+<button onclick={clearMessages} class="text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 flex items-center gap-1">
 <X class="w-3 h-3" /> Clear ({messages.length})
 </button>
 {/if}
 </div>
 {#if messages.length === 0}
 <p class="text-center text-slate-400 dark:text-slate-500 py-8">No messages received. Click "Receive" to fetch messages.</p>
+{:else if filteredMessages.length === 0}
+<p class="text-center text-slate-400 dark:text-slate-500 py-8">No messages match "{messageFilter}".</p>
 {:else}
 <div class="space-y-2">
-<p class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Received Messages ({messages.length})</p>
-{#each messages as msg}
+<p class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Received Messages ({filteredMessages.length}{filteredMessages.length !== messages.length ? ` of ${messages.length}` : ''})</p>
+{#each filteredMessages as msg}
 <div class="border border-slate-200 dark:border-slate-600 rounded-lg overflow-hidden">
 <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/30">
 <button
@@ -1384,6 +1483,48 @@ class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 
 <button type="submit" disabled={sending} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
 <Send class="w-4 h-4" />
 {sending ? 'Sending...' : 'Send Message'}
+</button>
+</div>
+</form>
+</div>
+</div>
+{/if}
+
+<!-- Batch Send Modal -->
+{#if showBatchModal}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2"><Layers class="w-5 h-5" /> Batch Send</h2>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Send up to 10 messages in one SendMessageBatch call. Each entry needs a unique ID. Empty bodies are skipped.</p>
+<form onsubmit={(e) => { e.preventDefault(); sendBatch(); }} class="space-y-3">
+{#each batchRows as row, i}
+<div class="border border-slate-200 dark:border-slate-600 rounded-lg p-3 space-y-2">
+<div class="flex items-center gap-2">
+<input type="text" bind:value={row.id} placeholder="Entry ID"
+class="w-40 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<span class="text-xs text-slate-400">Entry {i + 1}</span>
+<button type="button" onclick={() => removeBatchRow(i)} class="ml-auto p-1 text-slate-400 hover:text-red-500"><X class="w-4 h-4" /></button>
+</div>
+<textarea bind:value={row.body} rows={2} placeholder="Message body..."
+class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white font-mono text-sm resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
+{#if selectedQueue && isFifo(selectedQueue.url)}
+<div class="grid grid-cols-2 gap-2">
+<input type="text" bind:value={row.groupId} placeholder="Message Group ID"
+class="px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<input type="text" bind:value={row.dedupId} placeholder="Deduplication ID (optional)"
+class="px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+</div>
+{/if}
+</div>
+{/each}
+<button type="button" onclick={addBatchRow} disabled={batchRows.length >= 10} class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 disabled:opacity-40">
+<Plus class="w-4 h-4" /> Add Entry ({batchRows.length}/10)
+</button>
+<div class="flex justify-end gap-3 pt-2">
+<button type="button" onclick={() => { showBatchModal = false; batchRows = []; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+<button type="submit" disabled={batchSending} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+<Layers class="w-4 h-4" />
+{batchSending ? 'Sending...' : 'Send Batch'}
 </button>
 </div>
 </form>
