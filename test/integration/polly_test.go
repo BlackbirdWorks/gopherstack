@@ -44,7 +44,13 @@ func TestIntegration_Polly_SynthesizeSpeech(t *testing.T) {
 		format      pollytypes.OutputFormat
 		contentType string
 	}{
-		{name: "mp3", text: "Hello from Polly", voice: pollytypes.VoiceIdJoanna, format: pollytypes.OutputFormatMp3, contentType: "audio/mpeg"},
+		{
+			name:        "mp3",
+			text:        "Hello from Polly",
+			voice:       pollytypes.VoiceIdJoanna,
+			format:      pollytypes.OutputFormatMp3,
+			contentType: "audio/mpeg",
+		},
 	}
 
 	for _, tt := range tests {
