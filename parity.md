@@ -1267,3 +1267,140 @@ Glacier marker, Bedrock-Runtime body wrapping, Elastic Beanstalk AS fields, Acco
 before applying. Combined, §P + §Q give a downstream agent on the order of ~110 discrete,
 file:line-scoped fixes; the pagination off-by-one and "MaxResults ignored / NextToken absent"
 clusters are the highest-value because they break real multi-page SDK and Terraform listings.
+
+---
+
+# R. Deep-comb backlog — popular-service sub-operations (2026-06-10, pass 6)
+
+Earlier passes sampled the top-level ops of the biggest services; this pass combs their many
+sub-operations. Highest-value findings first (auth correctness, CFN fidelity). Same caveats apply.
+
+## Cognito — authentication correctness (high value; security-relevant)
+
+- **`token_use` claim not validated** — `ParseAccessToken` accepts any well-formed JWT, so an **ID
+  token is accepted where an access token is required** (`GetUser`
+  `services/cognitoidp/backend.go:843-849`, `GlobalSignOut` `:1643-1656`). Add
+  `claims["token_use"] == "access"` enforcement in `tokens.go:212-230`.
+- **`auth_time` not preserved across refresh** — `REFRESH_TOKEN_AUTH` sets `AuthTime: now.Unix()`,
+  overwriting the original (`services/cognitoidp/backend.go:1156`). Store and reuse the original
+  `auth_time` (breaks `GlobalSignOut`-before-revoke semantics otherwise).
+- **`ConfirmSignUp` accepts an empty code** — guard is
+  `if user.ConfirmCode != "" && code != user.ConfirmCode`, so when no code was stored an empty
+  `code` confirms the user (`services/cognitoidp/backend.go:539`). Reject if either side is empty.
+- **`ConfirmSignUp` error ordering** — should return `ExpiredCodeException` before
+  `CodeMismatchException`; currently checks match after expiry inconsistently
+  (`backend.go:535-541`).
+- **Identity pools — empty `Logins` bypasses auth** — `GetCredentialsForIdentity` skips validation
+  when the request `Logins` map is empty even though the identity has logins, handing out creds
+  without a token (`services/cognitoidentity/backend.go:431-436`). Reject with `NotAuthorized`.
+
+## CloudFormation — lifecycle, errors & intrinsics
+
+- **Error-code mapping** — `CreateStack` returns `AlreadyExistsException` for *all* backend errors
+  (incl. insufficient capabilities / bad role ARN) (`services/cloudformation/handler.go:586`);
+  `UpdateStack` collapses everything to `ValidationError` (`:617`). Map
+  `ErrInsufficientCapabilities`→`InsufficientCapabilitiesException`, bad role→`ValidationError`.
+- **HTTP status** — all CFN XML errors use 400; AWS Query/CFN returns most operational errors as
+  200 with the fault in the body (`handler.go:452`) — verify and align.
+- **Unsupported resource type silently succeeds** — `createExtendedResource` returns `("", nil)` for
+  an unknown `AWS::*` type instead of failing the stack
+  (`services/cloudformation/resources.go:185`). Return an error so the stack goes
+  `CREATE_FAILED` as AWS does.
+- **`Fn::GetAtt` on an unknown attribute** silently returns the physical ID instead of erroring
+  (`template.go:881-912`); **`Fn::Sub` `${Logical.Attr}`** doesn't validate the logical ID exists
+  (`template.go:566-568`); **`Fn::ImportValue`** leaves an unresolved sentinel marker in outputs
+  with no downstream error (`template.go:545-554`).
+- **Capabilities** — comparison is case-sensitive (`backend_parity.go:205`; AWS upper-cases) and the
+  `Capabilities` array is `omitempty` so an empty array is dropped from `DescribeStacks`
+  (`handler.go:671`).
+- **Missing response fields** — `DescribeStacks` omits `DisableRollback`
+  (`handler.go:674,692`); `DescribeStackResource` and `ListStackResources` summaries omit
+  `ResourceStatusReason` (`handler.go:1001,1057`).
+- **Pagination** — `ListStacks` ignores `MaxItems`, always returns up to 100
+  (`backend.go:1054`).
+- **Dynamic-ref iteration off-by-one** — the 100-iteration cap exits the loop without erroring on
+  the 100th `{{resolve:…}}` (`dynamic_refs.go:53,107-111`).
+- **ChangeSet `ExecutionStatus`** hardcoded `AVAILABLE` even when there are zero changes (should be
+  `UNAVAILABLE`) (`backend.go:1108`).
+
+## EC2 — sub-resource ops (ClientVPN, ENI, NACL, snapshots, volumes)
+
+- **Missing response fields**: `DescribeClientVpnTargetNetworks` item lacks `AssociationId`/`Status`
+  (`services/ec2/handler_batch4.go:206`); `CreateImage` response lacks `State`
+  (`handler_deepdive_ops.go:162`); `DescribeVpcEndpoints` item lacks `SubnetIds`/`RouteTableIds`
+  (`:179`); `DescribeNetworkAcls` item lacks `Associations` (`handler_refinement2.go:217-221`);
+  subnet-CIDR-reservation items lack `Status` (`handler_batch2.go:350-357`,
+  `handler_batch3.go:330-335`).
+- **Wrong XML element names/case**: ClientVPN routes use `routes` not `clientVpnRouteSet`
+  (`handler_batch4.go:667-668`); VPN-connection route uses `DestinationCIDR` not
+  `destinationCidrBlock` (`handler_batch2.go:384`).
+- **Wrong error codes**: ENI in-use is `InvalidParameterValue.NetworkInterfaceInUse`; AWS uses
+  `InvalidNetworkInterfaceID.InUse` (`backend_ext.go:50`, `handler.go:1178-1179`).
+- **Validation**: `ModifyVolume` silently swallows `strconv.Atoi` parse errors on `Iops`/`Size`
+  (defaults to 0) instead of returning `InvalidParameterValue`
+  (`handler.go:616-617`); `DisassociateClientVpnTargetNetwork` treats the `AssociationId` form value
+  as a subnet ID (`handler_batch4.go:605-620`).
+- **Pagination**: `DescribeSnapshots` (`handler_refinement2.go:72-93`) and `DescribeNetworkAcls`
+  (`handler_deepdive_ops.go:151-155`) responses have no `NextToken`.
+
+## S3 — multipart & sub-resource serialization
+
+- **`ListPartsResult.NextPartNumberMarker` is typed `int` but AWS returns it as a string**
+  (`services/s3/model.go:368`; the handler already string-converts at
+  `multipart_ops.go:415-417`) — change the field type and pass the parsed value through
+  (`multipart_ops.go:391` passes a string where the backend wants int32).
+- **`ListMultipartUploadsResult` has no `CommonPrefixes` field** so delimiter-grouped uploads can't
+  return prefixes (`services/s3/model.go:302-313`).
+- **`CommonPrefixes` should be `omitempty`** on `ListBucketResult`/`ListBucketV2Result` so an empty
+  set omits the element (`model.go:32,48`).
+- **`AbortMultipartUpload` doesn't call `h.setOperation`** so it's missing from operation
+  metrics/console (`multipart_ops.go:275`).
+- **`GetBucketLogging` empty response doesn't set the `xmlns` attribute**
+  (`bucket_ops.go:1358-1362`).
+- **`HeadObject` on a delete marker** returns `MethodNotAllowed` via the generic error path instead
+  of a 404 with `x-amz-delete-marker: true` (`object_ops.go:197-199`, `errors.go:136-140`).
+
+## IAM & DynamoDB sub-ops
+
+- **IAM `GetGroup` ignores `MaxItems`/`Marker`** and returns all members though the response has
+  `IsTruncated`/`Marker` (`services/iam/handler.go:1147-1157`) — add paginated
+  `GetGroupUsers`.
+- **DynamoDB `ItemCollectionMetrics.ItemCollectionKey` is set to the full item** instead of just the
+  partition+sort key (`services/dynamodb/item_ops_crud.go:215`) — extract key attrs via the table
+  key schema (cf. the correct `UpdateItem` path).
+- **DynamoDB LSI 10 GB collection limit not enforced** — `PutItem` never raises
+  `ItemCollectionSizeLimitExceededException` for LSI tables (`item_ops_crud.go:209-218`); and
+  `SizeEstimateRangeGB` is hardcoded `[0,1]`.
+
+## Remaining services (line-level)
+
+- **VerifiedPermissions JSON key case** — list input structs use lowercase `nextToken`/`maxResults`
+  where AWS uses `NextToken`/`MaxResults`
+  (`services/verifiedpermissions/handler.go:335,336,346,347,637,648,658,664,665,675,841,848`);
+  `CreatePolicyStore` doesn't bound `description` length (255) (`:262-270`).
+- **CloudControl** — `ResourceNotFoundException` returns HTTP 404; the CloudControl JSON protocol
+  uses 400 (`services/cloudcontrol/handler.go:144`).
+- **Timestream** — `ListBatchLoadTasks` output struct omits `NextToken`
+  (`services/timestreamwrite/handler.go:1296`); `Query` doesn't return a `NextToken` for paged
+  results (`services/timestreamquery/handler.go:273-310`).
+- **SageMaker Runtime** — the session header formats expiry as RFC3339 rather than an HTTP-date
+  (RFC 7231) (`services/sagemakerruntime/handler.go:228`).
+- **EMR Serverless** — `ListApplications` doesn't bound `maxResults` (1–50)
+  (`services/emrserverless/handler.go:575-582`).
+- **MediaStore Data** — `ListItems` doesn't bound `MaxResults` (≤1000)
+  (`services/mediastoredata/handler.go:269-300`); **MediaStore** returns `BadRequestException` for
+  an unrecognized `X-Amz-Target` where AWS returns `UnrecognizedClientException`
+  (`services/mediastore/handler.go:173`).
+- **IoT Analytics** — list responses use `omitempty` on `Items`, dropping the empty array AWS
+  always returns (`services/iotanalytics/handler.go:556-576`).
+- **Identity Store** — `IsMemberInGroups`/`ListUsers` lack `MaxResults` bound enforcement
+  (`services/identitystore/handler.go:450-452,836-838`).
+
+## Notes on pass 6
+
+The Cognito auth items are the highest-value in this whole document — they're correctness/security
+gaps (token-type confusion, auth bypass with empty logins) that LocalStack's open tier also gets
+wrong, so fixing them is differentiation, not catch-up. The CFN intrinsic-error items make failing
+templates fail *correctly* (today several silently succeed). A handful of EC2/S3/DDB items are
+tagged for shape-verification against the SDK before applying. With §P+§Q+§R the line-level backlog
+now exceeds ~150 discrete fixes.
