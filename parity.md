@@ -94,3 +94,240 @@ A previous version of this document listed WAFv2, S3 Tables and SES handlers (~5
 - `test/integration/appconfigdata_test.go`
 - `test/integration/apigatewaymanagementapi_test.go`
 - `test/integration/acmpca_test.go`
+
+---
+
+# Full-surface parity audit (2026-06-10)
+
+A fresh read-only audit of every `services/*` handler/backend, popular services first,
+then the long tail. Findings are grouped into the four requested buckets. Each item cites
+`file:line` from the code it was read in and is an **open finding** (not yet fixed) unless
+noted. These are candidates for follow-up PRs; nothing below was changed in this commit
+(only this document was edited).
+
+## A. Missing LocalStack functionality / unimplemented SDK operations
+
+These operations are routed (or advertised via `GetSupportedOperations`) but return stubs —
+empty structs, `nil, nil`, or hardcoded values — with no state mutation, so SDK clients get
+a success envelope while nothing happens.
+
+- **Lambda** — durable-execution ops (`GetDurableExecution`, `GetDurableExecutionHistory`,
+  `GetDurableExecutionState`, `StopDurableExecution`, `CheckpointDurableExecution`) and the
+  capacity-provider ops (`Create/Update/Delete/Get/ListCapacityProviders`) are declared
+  supported but dispatch to no-op stubs (`services/lambda/handler_stubs.go:23-100`,
+  `services/lambda/handler.go:270-361`).
+- **SSM** — ~120 operations route to `&StubOutput{}` with no state change
+  (`CreateResourceDataSync`, `DeleteInventory`, `DescribeActivations`, …)
+  (`services/ssm/handler.go:307`, `services/ssm/handler_stubs.go:1-50`).
+- **Glue** — 20+ stubs return empty structs with no data/state, e.g. `GetBlueprintRun`,
+  `GetCatalogImportStatus`, `GetColumnStatisticsTaskRun`, `GetPlan`, `GetSchemaVersionsDiff`,
+  `GetUsageProfile`, plus `CancelMLTaskRun`, `ImportCatalogToGlue`,
+  `StopColumnStatisticsTaskRun` (`services/glue/handler_stubs.go:232-2707`).
+- **Athena** — notebook + named-query ops declared in the `StorageBackend` interface but with
+  no `InMemoryBackend` implementation: `UpdateNamedQuery`, `GetQueryRuntimeStatistics`,
+  `GetNotebookMetadata`, `ListNotebookMetadata`, `ImportNotebook`, `UpdateNotebook`,
+  `UpdateNotebookMetadata` (`services/athena/backend.go:336-340`,
+  `services/athena/handler_extra.go:176-186`).
+- **CloudTrail** — `LookupEvents` unconditionally returns an empty list, ignoring all filters
+  (StartTime/EndTime/LookupAttributes/MaxResults/NextToken); the backend never records events
+  (`services/cloudtrail/backend.go:1589`).
+- **CodePipeline** — `ListActionExecutions`, `ListRuleExecutions`, `ListRuleTypes`,
+  `ListDeployActionExecutionTargets` are empty stubs; no execution/rule tracking
+  (`services/codepipeline/backend.go:1487-1513`).
+- **AppSync** — `EvaluateCode` returns a hardcoded `{"evaluationResult":"{}"}` and never runs
+  the supplied APPSYNC_JS code/context (`services/appsync/backend.go:2460`).
+- **Kafka** — `UpdateConnectivity`, `UpdateMonitoring`, `UpdateRebalancing`, `UpdateSecurity`,
+  `UpdateStorage` are explicit no-ops that ignore input and return fake operation ARNs
+  (`services/kafka/backend.go:1466-1534`).
+- **WAFv2** — ~12 ops return `nil, nil` with no response body where the SDK expects fields such
+  as `LockToken` (e.g. `DeleteWebACL` `handler.go:689`, `DisassociateWebACL` `handler.go:1215`,
+  `UntagResource` `handler.go:1075`); `DescribeManagedRuleGroup` returns a hardcoded 100-WCU
+  stub instead of `WAFNonexistentItemException`; `GenerateMobileSdkReleaseUrl` returns a fake
+  presigned URL (`services/wafv2/handler.go:2272-2298`).
+- **CloudFront** — 60+ stubbed APIs (FieldLevelEncryption, KeyValueStore, StreamingDistribution,
+  TrustStore, ConnectionFunction, …) return minimal empty XML rather than real data or proper
+  errors (`services/cloudfront/handler.go:1966-2261`).
+- **EC2** — `RevokeSecurityGroupEgress` is a no-op that always succeeds; AWS validates the rule
+  and returns `InvalidPermission.NotFound` when absent (`services/ec2/handler.go:884-890`).
+- **API Gateway** — `GetAccount` and `GetUsage` are listed in `GetSupportedOperations` but have
+  no handler in the dispatch table, so they 404 (`services/apigateway/handler.go:738,763`).
+- **ApplicationAutoScaling** — `DescribeScalingActivities` returns an empty list with no
+  activity tracking (`services/applicationautoscaling/handler.go:456`).
+- **EventBridge Pipes** — when enrichment/target invokers are unwired the runner returns
+  `nil, nil`, silently dropping the event instead of erroring
+  (`services/pipes/runner.go:293-328`).
+- **Firehose** — Lambda transformation processors configured via `ProcessorInput` are never
+  invoked on records before delivery; buffer-interval (time-based) flush is not implemented,
+  only size-based (`services/firehose/handler.go:102`, `services/firehose/backend.go`).
+- **CloudFormation** — `DescribeType` returns a stub schema containing only the primary
+  identifier, omitting full property definitions; StackSet drift ops
+  (`DetectStackSetDrift`, `ListStackSetOperations`, `DescribeStackSetOperation`) are routed but
+  unimplemented (`services/cloudformation/handler.go:296-366`).
+- **OpsWorks** — returns `UnsupportedOperationException` for core operations; service is largely
+  unimplemented (`services/opsworks/handler.go:181`).
+
+## B. Incorrect / missing AWS emulation
+
+Behaviour that diverges from real AWS semantics (wrong status/error codes, missing validation,
+dropped data, wrong pagination/response shapes).
+
+- **SNS** — failed HTTP/Lambda/SQS deliveries are dropped: `replayMessagesToSubscription` and
+  the delivery path never consult `RedrivePolicy`/DLQ (`services/sns/backend.go:2811-2870`).
+  `SetSubscriptionAttributes` accepts a `RedrivePolicy` without validating the target SQS DLQ
+  exists (`services/sns/handler.go:1028-1043`). Archive eviction silently drops the oldest
+  messages, so a `ReplayPolicy` subscription misses history (`services/sns/backend.go:3430-3432`).
+- **EventBridge** — same DLQ gap: `deliverToTargetBounded` ignores target `RedrivePolicy`/DLQ on
+  failed Lambda/SQS invocations (`services/eventbridge/delivery.go:146-150`). Malformed event
+  patterns fail compilation silently and the rule simply never matches, with no error surfaced
+  (`services/eventbridge/backend.go:103-114`).
+- **STS** — `GetCallerIdentity` with a mismatched session token returns 403 `AccessDenied`; AWS
+  returns 400 `InvalidClientTokenId` (`services/sts/backend.go:544-586`).
+- **DynamoDB** — accepts `ConsistentRead=true` on GSI/LSI queries; AWS rejects with
+  `ValidationException` (`services/dynamodb/item_ops_query.go:150`). `BatchGetItem` does not
+  reject duplicate keys within one table's `Keys` list and returns the item twice
+  (`services/dynamodb/item_ops_batch.go:29-46`). `UpdateTable` does not re-validate the 20-GSI
+  per-table ceiling on the add path (`services/dynamodb/table_ops.go:82`).
+- **S3** — `CompleteMultipartUpload` does not reject an empty parts list (AWS returns
+  `InvalidRequest`) (`services/s3/backend_memory.go:2043-2087`). S3 Select performs basic
+  CSV/JSON parsing without validating the SQL/FilterExpression, column names, or aggregates
+  (`services/s3/select_sql.go`, `select_json.go`).
+- **Kinesis** — `GetRecords` size cap counts partition-key bytes against the 10 MiB limit; AWS
+  counts data bytes only (`services/kinesis/backend.go:765-783`). `ListStreamConsumers`
+  exclusive-start is `<=` so the consumer equal to `NextToken` can appear on two pages
+  (`services/kinesis/backend.go:1149-1152`). `CreateStream` skips the
+  `[a-zA-Z0-9_.-]{1,128}` name validation (`services/kinesis/handler.go`).
+- **Bedrock** — unknown errors return HTTP 500 instead of 400 for `ValidationException`
+  (`services/bedrock/handler.go:1155-1166`); `CreateProvisionedModelThroughput` lacks the upper
+  `modelUnits` bound (`services/bedrock/backend.go:1015-1021`).
+- **MediaConvert** — `deepCloneValueAt` truncates nested settings beyond depth 20 to `nil`,
+  silently corrupting job settings with no warning (`services/mediaconvert/backend.go:89-96`).
+- **Elasticsearch** — `AssociatePackage` silently ignores a duplicate association; AWS returns
+  `ConflictException` (`services/elasticsearch/backend.go:497-501`).
+- **Neptune** — `ServerlessV2ScalingConfiguration` is accepted on create but ignored by
+  `Create`/`ModifyDBCluster` despite being advertised (`services/neptune/backend.go`).
+- **Account** — `ListRegions` ignores `maxResults`/`nextToken` and returns the full list, breaking
+  AWS's 20-item page boundary (`services/account/backend.go:150`).
+- **MQ** — name-based pagination cursors (`brokers[maxResults-1].BrokerName`) break consistency
+  when items are added/removed between pages; AWS uses opaque tokens
+  (`services/mq/handler.go:555,925`).
+- **RDS** — `DescribeDBParameterGroups`, `DescribeDBClusterParameterGroups`,
+  `DescribeDBParameters`, `DescribeOptionGroups` return all results with no `Marker` pagination
+  (`services/rds/handler.go:1527,1568,1625,1871`).
+- **API Gateway v2** — list operations (`GetAPIs`, etc.) have no `limit`/`position` pagination;
+  `GetModelTemplate` always returns `{}` instead of the model's schema
+  (`services/apigatewayv2/handler.go:1259-1268`).
+- **Glacier** — retrieval jobs are marked `Succeeded` at creation instead of simulating the async
+  retrieval window AWS enforces before `GetJobOutput` (`services/glacier/backend.go:499-502`).
+- **DirectoryService** — unrecognised operations return HTTP 501 `UnimplementedException` rather
+  than an AWS-style `InvalidRequestException` (`services/directoryservice/handler.go:166`).
+- **SecurityHub** — `BatchImportFindings`/`BatchUpdateFindings` append untyped findings without
+  validating required fields (Type, Id), so malformed findings silently succeed
+  (`services/securityhub/handler.go:947-954`).
+
+## C. Performance optimizations
+
+Hotspots that hold locks during expensive work, copy whole maps per call, or scan linearly where
+an index belongs.
+
+- **EventBridge** — `deliverEvents` deep-copies all bus rules and targets on every `PutEvents`
+  (`deepCopyBusRules`/`deepCopyBusTargets`), O(n) per publish on the latency path
+  (`services/eventbridge/backend.go:87-91`).
+- **Step Functions** — every state transition appends to history while holding the global write
+  lock `b.mu`, serialising all concurrent executions
+  (`services/stepfunctions/backend.go:1083-1089`); execution lookup/delete by name is O(n)
+  (`backend.go:151-152`).
+- **EC2** — `DescribeInstances` with no IDs shallow-copies every instance struct under lock, O(n)
+  allocations per call (`services/ec2/backend.go:785-796`).
+- **KMS / CloudWatch** — `findGrantByToken` linear-scans the entire grant map on every
+  encrypt/decrypt and grant-token validation; needs a token→grant index
+  (`services/kms/backend.go:2012-2021`, `services/cloudwatch/handler.go:2012-2021`).
+- **SSM** — `GetParametersByPath` scans all parameters with no prefix/trie index
+  (`services/ssm/backend.go:950-1024`).
+- **CloudWatch Logs** — metric-filter matching is O(filters × events): each filter re-scans all
+  events (`services/cloudwatchlogs/backend.go:1469-1478`).
+- **ECR** — `DescribeImages` rebuilds the full digest→tags reverse map on every call instead of
+  maintaining it incrementally (`services/ecr/backend.go:752-759`).
+- **ECS** — `getServicesForReconciler` iterates all clusters×services into one unbounded slice
+  every reconcile tick (default 5s) (`services/ecs/backend.go:1452-1458`).
+- **Batch** — `DeleteComputeEnvironment` scans all job queues, and `findTagsInCoreResources`
+  scans every environment/queue/job, for want of reverse indexes
+  (`services/batch/backend.go:1027-1037,1494-1522`).
+- **Forecast** — `lookupLocked` linear-scans every resource kind by ARN on each
+  describe/update/delete (`services/forecast/backend.go:236-244`).
+- **OpenSearch** — `ListPackagesForDomain` and `DeleteDomain` scan all package associations
+  instead of a domain→packages index (`services/opensearch/backend.go:643-649,1532-1540`).
+- **Organizations** — `ListTargetsForPolicy` re-resolves summaries per target and
+  `CreateOrganizationalUnit` scans all OUs for the sibling-name check
+  (`services/organizations/backend.go:946-950,1395-1398`).
+- **AppRunner** — `resourceExists` scans six collections per call; needs a unified index
+  (`services/apprunner/backend.go:698-719`).
+- **DMS / ManagedBlockchain / Transfer / AppConfig** — O(n) scans for reference checks or
+  uniqueness: `DeleteReplicationInstance` over tasks (`services/dms/backend.go:419-426`),
+  `CreateNetwork` name check (`services/managedblockchain/backend.go:217-220`),
+  `ImportSSHPublicKey` dup-key scan (`services/transfer/backend.go:2778-2787`),
+  `CreateApplication` name check (`services/appconfig/backend.go:97-101`).
+- **CloudWatch** — metric-datapoint overflow re-slices/copies the retained window per write;
+  a ring buffer would avoid the repeated copy (`services/cloudwatch/backend.go:424-426`).
+- **Glacier / S3** — list ops copy/convert the whole map before applying markers:
+  `ListVaults`/`ListArchives` (`services/glacier/backend.go:346-354`) and
+  `ListMultipartUploads` (`services/s3/backend_memory.go:2298-2320`).
+
+## D. Resource leaks (unbounded growth / un-stopped timers)
+
+State that grows without eviction, or timers/goroutines without stop, when the optional janitor
+is not running or a delete path is missed.
+
+- **ACM** — `time.AfterFunc` certificate timers stored in `b.timers` are only stopped by
+  `sweepTimers` when the janitor is enabled; certs deleted with the janitor off leak goroutines
+  (`services/acm/backend.go:300,673,1381`, `services/acm/janitor.go:77-100`).
+- **Step Functions** — `pendingTaskQueues` channels are never closed on activity delete (goroutine
+  leak), `tasksByToken` never evicts stale tokens, and `executions`/`history` have no TTL/pruning
+  (`services/stepfunctions/backend.go:150-165`).
+- **S3** — `pendingObjectLambdaRequests` (`sync.Map`) has no eviction, leaking on client
+  disconnect before `WriteGetObjectResponse` (`services/s3/object_lambda.go:226`); the object
+  tags map is only purged on bucket deletion, not per-object/version delete
+  (`services/s3/backend_memory.go:3860-3862`).
+- **DynamoDB** — `ShardIteratorStore` only drops expired tokens on explicit `Sweep()`; between
+  janitor runs it accumulates expired iterators (`services/dynamodb/accuracy_audit.go:503-514`);
+  backups are stored indefinitely with no GC.
+- **SSM** — parameter `history`, `documentVersions`, and `commandInvocations` grow without the
+  AWS caps (100 param versions, 1000 docs, 1h command expiry) unless the optional janitor runs
+  (`services/ssm/backend.go:206-281`).
+- **KMS** — `keyMaterialHistory` past `maxKeyMaterialHistoryEntries` (100) discards old material
+  with no migration, breaking decrypt of older ciphertexts (`services/kms/backend.go:124-264`).
+- **CloudWatch / CloudWatch Logs** — `alarmHistory` is bounded per alarm but unbounded across
+  alarms (`services/cloudwatch/backend.go:214`); the parsed-query cache only evicts at the cap,
+  never on TTL (`services/cloudwatchlogs/backend.go:1956-1959`).
+- **EventBridge** — the in-memory event log (`GetEventLog`) has no cap/TTL/pruning
+  (`services/eventbridge/backend.go:1212-1213`).
+- **ECR** — `InitiateLayerUpload` entries in `b.layerUploads` never expire if the upload is never
+  completed (`services/ecr/backend.go:980`).
+- **ECS** — the docker `containers` map only clears on a fully-successful `StopTask`; failed
+  stops leak partial entries (`services/ecs/docker_runner.go:55,108-109,249-255`).
+- **EFS** — `h.archiveData` caches whole archive bodies with no TTL/eviction
+  (`services/efs/handler.go:871-873`).
+- **STS** — `b.sessions` is only swept by the 30s janitor; with the janitor off/long-interval it
+  grows unbounded, and `GetCallerIdentity` check-then-delete is a TOCTOU race
+  (`services/sts/backend.go:514-552`).
+- **KinesisAnalytics / KinesisAnalyticsV2** — `applications`, `snapshots`, and `operations` maps
+  are never pruned on application delete
+  (`services/kinesisanalytics/backend.go:204-206`, `services/kinesisanalyticsv2/backend.go:202-206`).
+- **LakeFormation** — `permissions` is an unbounded `[]*PermissionEntry` slice with no cap/TTL
+  (`services/lakeformation/backend.go:202-241`).
+- **Pinpoint** — `templateVersionHistory`, `campaignActivities`, `journeyRuns`, `appEvents` are
+  append-only with no AWS version caps (`services/pinpoint/backend.go:74-80`).
+- **AppRunner** — `svc.Operations` is appended per operation and never pruned/TTL'd
+  (`services/apprunner/backend.go:441`).
+- **Route53** — the handler-level `tags` map never evicts entries for ARNs whose delete was
+  missed/failed (`services/route53/handler.go:72-89`).
+- **MWAA / Secrets Manager** — MWAA per-environment metrics compaction leaves the backing array
+  oversized (`services/mwaa/backend.go:1140-1144`); Secrets Manager rotation invocations are
+  queued with no per-secret depth limit (`services/secretsmanager/backend.go`).
+
+## Notes on confidence
+
+Items in sections A and B were confirmed by reading the cited handler/backend code. Several
+section-C/D items (e.g. an apparent `Unlock` without `Lock` at
+`services/elasticache/backend.go:502-504`, and the FSx body-stream reuse at
+`services/fsx/handler.go:180-205`) are flagged from a single read and should be re-verified
+against the surrounding `defer`/locking before being treated as confirmed bugs.
