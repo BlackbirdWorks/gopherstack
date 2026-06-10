@@ -80,18 +80,47 @@ func (b *InMemoryBackend) deliverEvents(
 	targets DeliveryTargets,
 	timeout time.Duration,
 ) {
-	b.mu.RLock("deliverEvents")
-	// Deep copy rules and targets within the lock so concurrent mutations to the
-	// inner maps (PutRule/DeleteRule/PutTargets/RemoveTargets) cannot race with
-	// the iteration below.
-	rules := b.rulesStore(region)
-	targetsStore := b.targetsStore(region)
-	busRules := deepCopyBusRules(rules)
-	busRuleIndex := deepCopyRuleIndex(b.ruleIndexStore(region), busRules)
-	busTargets := deepCopyBusTargets(targetsStore)
-	accountID := b.accountID
-	b.mu.RUnlock()
+	groups := b.buildDeliveryPlan(region, entries)
 
+	// Deliver outside the lock. Targets within a rule run concurrently; each
+	// gets its own bounded context so a hung downstream service cannot block
+	// the goroutine beyond the configured timeout.
+	for _, g := range groups {
+		var wg sync.WaitGroup
+		for _, t := range g.targets {
+			target := t
+			envelope := g.envelope
+			wg.Go(func() {
+				deliverToTargetBounded(ctx, target, envelope, targets, timeout)
+			})
+		}
+		wg.Wait()
+	}
+}
+
+// deliveryGroup is one matched rule's delivery work: a shared event envelope and
+// the snapshot of targets to deliver it to.
+type deliveryGroup struct {
+	envelope map[string]any
+	targets  []*Target
+}
+
+// buildDeliveryPlan matches each entry against its bus under the read lock and
+// returns one delivery group per matched rule. Rather than deep-copying every
+// bus's rules, index and targets on the hot path, it snapshots only the matched
+// rules' targets, bounding per-PutEvents work to the buses the entries reference
+// and the rules that matched. Snapshotting under the lock lets delivery run
+// without racing concurrent mutations (PutRule/DeleteRule/PutTargets/RemoveTargets).
+// Groups preserve the original rule-by-rule, entry-by-entry ordering.
+func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry) []deliveryGroup {
+	b.mu.RLock("buildDeliveryPlan")
+	defer b.mu.RUnlock()
+
+	accountID := b.accountID
+	ruleIndex := b.ruleIndexStore(region)
+	targetsStore := b.targetsStore(region)
+
+	var groups []deliveryGroup
 	for _, entry := range entries {
 		busName := entry.EventBusName
 		if busName == "" {
@@ -100,13 +129,8 @@ func (b *InMemoryBackend) deliverEvents(
 
 		busKey := ebBusKey(busName)
 		eventEnvelope := buildEventEnvelope(entry)
-		rules := indexedRulesForEvent(busRuleIndex[busKey], entry.Source, entry.DetailType)
-		for _, rule := range rules {
-			if rule.State != "ENABLED" {
-				continue
-			}
-
-			if rule.EventPattern == "" {
+		for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
+			if rule.State != "ENABLED" || rule.EventPattern == "" {
 				continue
 			}
 
@@ -114,24 +138,33 @@ func (b *InMemoryBackend) deliverEvents(
 				continue
 			}
 
+			storedTargets := targetsStore[b.targetKey(busName, rule.Name)]
+			if len(storedTargets) == 0 {
+				continue
+			}
+
 			// Build the delivery envelope once per matched rule so all targets
 			// for this rule share the same event id, matching AWS behaviour.
-			deliveryEnvelope := buildDeliveryEnvelope(entry, accountID, region)
-
-			// Deliver to all targets for this rule. Each target gets its own
-			// bounded context so a hung downstream service cannot block the
-			// goroutine beyond the configured timeout.
-			key := b.targetKey(busName, rule.Name)
-			var wg sync.WaitGroup
-			for _, t := range busTargets[key] {
-				target := t
-				wg.Go(func() {
-					deliverToTargetBounded(ctx, target, deliveryEnvelope, targets, timeout)
-				})
-			}
-			wg.Wait()
+			groups = append(groups, deliveryGroup{
+				envelope: buildDeliveryEnvelope(entry, accountID, region),
+				targets:  snapshotTargets(storedTargets),
+			})
 		}
 	}
+
+	return groups
+}
+
+// snapshotTargets returns copies of the stored target structs so delivery cannot
+// race a concurrent PutTargets/RemoveTargets mutating the stored values.
+func snapshotTargets(stored map[string]*Target) []*Target {
+	out := make([]*Target, 0, len(stored))
+	for _, t := range stored {
+		targetCopy := *t
+		out = append(out, &targetCopy)
+	}
+
+	return out
 }
 
 const (
@@ -237,50 +270,6 @@ func sendToDLQ(
 	}
 }
 
-// deepCopyBusRules returns a deep copy of the bus-to-rules map so that the
-// caller can iterate it without holding any lock.
-func deepCopyBusRules(src map[string]map[string]*Rule) map[string]map[string]*Rule {
-	dst := make(map[string]map[string]*Rule, len(src))
-	for bus, ruleMap := range src {
-		cp := make(map[string]*Rule, len(ruleMap))
-		for k, v := range ruleMap {
-			r := *v
-			cp[k] = &r
-		}
-		dst[bus] = cp
-	}
-
-	return dst
-}
-
-func deepCopyRuleIndex(
-	src map[string]map[ruleIndexKey]map[string]*Rule,
-	rules map[string]map[string]*Rule,
-) map[string]map[ruleIndexKey]map[string]*Rule {
-	dst := make(map[string]map[ruleIndexKey]map[string]*Rule, len(src))
-	for bus, indexMap := range src {
-		copiedBusRules := rules[bus]
-		copiedIndexMap := make(map[ruleIndexKey]map[string]*Rule, len(indexMap))
-		for indexKey, ruleMap := range indexMap {
-			copiedRuleMap := make(map[string]*Rule, len(ruleMap))
-			for name := range ruleMap {
-				rule, exists := copiedBusRules[name]
-				if exists {
-					copiedRuleMap[name] = rule
-				}
-			}
-			if len(copiedRuleMap) > 0 {
-				copiedIndexMap[indexKey] = copiedRuleMap
-			}
-		}
-		if len(copiedIndexMap) > 0 {
-			dst[bus] = copiedIndexMap
-		}
-	}
-
-	return dst
-}
-
 func indexedRulesForEvent(
 	index map[ruleIndexKey]map[string]*Rule,
 	source, detailType string,
@@ -308,22 +297,6 @@ func indexedRulesForEvent(
 	}
 
 	return rules
-}
-
-// deepCopyBusTargets returns a deep copy of the target-key-to-targets map so
-// that the caller can iterate it without holding any lock.
-func deepCopyBusTargets(src map[string]map[string]*Target) map[string]map[string]*Target {
-	dst := make(map[string]map[string]*Target, len(src))
-	for key, targetMap := range src {
-		cp := make(map[string]*Target, len(targetMap))
-		for k, v := range targetMap {
-			t := *v
-			cp[k] = &t
-		}
-		dst[key] = cp
-	}
-
-	return dst
 }
 
 // buildEventEnvelope creates a JSON string representing the normalized event for pattern matching.

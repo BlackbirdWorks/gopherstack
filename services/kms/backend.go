@@ -235,9 +235,13 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys                 map[string]*Key
-	aliases              map[string]*Alias
-	grants               map[string]*Grant
+	keys    map[string]*Key
+	aliases map[string]*Alias
+	grants  map[string]*Grant
+	// grantsByToken indexes grants by their GrantToken for O(1) lookup on the
+	// encrypt/decrypt grant-validation hot path. Kept consistent with grants on
+	// every create/revoke/retire.
+	grantsByToken        map[string]*Grant
 	policies             map[string]string
 	keyMaterials         map[string]*keyMaterial
 	keyMaterialHistory   map[string][]*keyMaterial
@@ -259,6 +263,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		keys:               make(map[string]*Key),
 		aliases:            make(map[string]*Alias),
 		grants:             make(map[string]*Grant),
+		grantsByToken:      make(map[string]*Grant),
 		policies:           make(map[string]string),
 		keyMaterials:       make(map[string]*keyMaterial),
 		keyMaterialHistory: make(map[string][]*keyMaterial),
@@ -1975,6 +1980,7 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		CreationDate:      UnixTimeFloat(now),
 	}
 	b.grants[grantID] = grant
+	b.grantsByToken[grantToken] = grant
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
@@ -2011,10 +2017,8 @@ func grantConstraintsSatisfied(c *GrantConstraints, encCtx map[string]string) bo
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
 	for _, token := range grantTokens {
-		for _, g := range b.grants {
-			if g.GrantToken == token {
-				return g
-			}
+		if g, ok := b.grantsByToken[token]; ok {
+			return g
 		}
 	}
 
@@ -2124,6 +2128,7 @@ func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
 	}
 
 	delete(b.grants, input.GrantID)
+	delete(b.grantsByToken, grant.GrantToken)
 
 	return nil
 }
@@ -2134,15 +2139,15 @@ func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
 	defer b.mu.Unlock()
 
 	if input.GrantToken != "" {
-		for grantID, g := range b.grants {
-			if g.GrantToken == input.GrantToken {
-				delete(b.grants, grantID)
-
-				return nil
-			}
+		g, ok := b.grantsByToken[input.GrantToken]
+		if !ok {
+			return ErrGrantNotFound
 		}
 
-		return ErrGrantNotFound
+		delete(b.grants, g.GrantID)
+		delete(b.grantsByToken, input.GrantToken)
+
+		return nil
 	}
 
 	if input.GrantID == "" {
@@ -2166,6 +2171,7 @@ func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
 	}
 
 	delete(b.grants, input.GrantID)
+	delete(b.grantsByToken, grant.GrantToken)
 
 	return nil
 }
@@ -2711,6 +2717,7 @@ func (b *InMemoryBackend) Reset() {
 	b.keys = make(map[string]*Key)
 	b.aliases = make(map[string]*Alias)
 	b.grants = make(map[string]*Grant)
+	b.grantsByToken = make(map[string]*Grant)
 	b.policies = make(map[string]string)
 	b.keyMaterials = make(map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string][]*keyMaterial)
