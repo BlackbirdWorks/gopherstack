@@ -148,22 +148,72 @@ current code.
 - **OpsWorks** has real handlers (CreateStack etc.); only genuinely
   unsupported ops return `UnsupportedOperationException`.
 
-### Explicitly deferred (still genuine gaps — for the next agent)
+### Bucket-A residuals — resolved in this PR
 
-- **AppSync `EvaluateCode`** (`services/appsync/backend.go:2459`) — still returns
-  a hardcoded `{"evaluationResult":"{}"}`. A faithful implementation requires a
-  JS interpreter to run the APPSYNC_JS `request`/`response` handler against the
-  supplied context; a partial heuristic (e.g. echoing `ctx.result`) would be a
-  half-broken handler, so it was left as-is rather than shipped incorrectly.
-- **Kafka** `Update{Connectivity,Monitoring,Rebalancing,Security,Storage}`
-  (`services/kafka/backend.go:1466+`) — these validate the cluster and create a
-  real `ClusterOperation` record, but do not persist the specific setting
-  payloads (the handlers do not parse/store them). Functional but not fully
-  field-accurate; revisit if cluster setting round-trips are needed.
-- **CloudFront** long-tail stub APIs (FieldLevelEncryption, KeyValueStore,
-  StreamingDistribution, TrustStore, ConnectionFunction, …) in
-  `services/cloudfront/handler.go` `dispatchStubs*` — still return minimal
-  empty/`<Id>`-only XML rather than real per-resource state. High volume; defer.
-- **EventBridge Pipes** (`services/pipes/runner.go`) — when an enrichment/target
-  invoker is unwired the runner returns `nil, nil` (silent skip) rather than
-  erroring. Low impact; left as-is.
+The four items previously deferred below have now been implemented (real state +
+table-driven tests). The original deferral notes are retained for history under
+"Original deferral notes" at the end of this section.
+
+- **AppSync `EvaluateCode`** (`services/appsync/backend.go`, new
+  `services/appsync/jseval.go`) — no longer returns the hardcoded
+  `{"evaluationResult":"{}"}`. gopherstack does **not** vendor a JavaScript engine
+  (no goja/otto/dop251/v8 in `go.mod`), and pulling in a full JS runtime was judged
+  out of scope for parity work. Instead the backend now runs a faithful evaluator
+  for the documented APPSYNC_JS patterns that resolvers actually use: it selects the
+  `request`/`response` handler (honoring the `function` field), extracts the final
+  `return`, and evaluates object literals, JSON literals, context member
+  expressions (`ctx.arguments.*`, `ctx.args.*`, `ctx.result`, `ctx.prev.result`,
+  `ctx.identity`, `ctx.source`, `ctx.stash.*`), and the pure `util.*` helpers
+  (`util.toJson`, `util.parseJson`, `util.error`, `util.appendError`,
+  `util.unauthorized`). The return value is JSON-serialized into `evaluationResult`.
+  **Honest limitation:** constructs outside that set (arbitrary JS expressions,
+  control flow, loops, local variable bindings, string concatenation, etc.) return
+  `ErrUnsupportedJSCode` (a `BadRequestException`) rather than a fabricated result,
+  so callers can distinguish "evaluated" from "not supported by the emulator". A
+  full JS engine remains the only way to support arbitrary APPSYNC_JS; that is
+  deliberately not done here. Tests: `services/appsync/jseval_test.go`.
+- **Kafka** `Update{Connectivity,Monitoring,Security,Storage}`
+  (`services/kafka/backend.go`) — these now parse the request body (handlers in
+  `handler.go`), persist the specific setting payloads onto the cluster
+  (`ConnectivityInfo`, `EnhancedMonitoring`/`OpenMonitoring`/`LoggingInfo`,
+  `ClientAuthentication`/`EncryptionInfo`, `StorageMode`/EBS volume size +
+  provisioned throughput), and record a `ClusterOperation` whose new
+  `SourceClusterInfo`/`TargetClusterInfo` (`MutableClusterInfo`) reflect the
+  before/after state. `DescribeClusterOperation` returns those. `UpdateRebalancing`
+  is an action with no AWS-exposed per-field setting, so it validates the cluster
+  and records the operation without source/target info (documented in code). Tests:
+  `services/kafka/update_settings_test.go`.
+- **CloudFront** long-tail families — re-audited against the current branch: the
+  named families (FieldLevelEncryption, KeyValueStore, StreamingDistribution,
+  TrustStore, ConnectionFunction, AnycastIPList, ConnectionGroup, resource policy,
+  the `ListDistributionsBy-*` family, distribution tenants, monitoring
+  subscriptions, etc.) are **already backed by real `InMemoryBackend` state** with
+  CRUD, ETag/IfMatch, and AWS-accurate not-found error codes (see `backend.go`,
+  `backend_batch2.go`, `backend_new_ops.go`, `handler_new_ops.go`,
+  `handler_batch2.go`). The `cfStubHelpers` minimal-XML closures in
+  `handler.go`'s `dispatchStubs*` are now dead scaffolding — every operation routes
+  to a real handler. The earlier "still return empty/`<Id>`-only XML" note was stale
+  relative to the D/B/A/C stack already on this branch. No further CloudFront work
+  was required.
+- **EventBridge Pipes** (`services/pipes/runner.go`) — the runner no longer
+  silently drops events. `invokeEnrichment` returns `ErrEnrichmentInvokerUnwired`
+  (invoker not configured) or `ErrUnsupportedPipeEnrichment` (unknown ARN type)
+  instead of `nil, nil`; all target invokers return `ErrTargetInvokerUnwired` when
+  their invoker is unwired instead of a false success. On enrichment or target
+  failure the runner routes the failed batch to the pipe's configured dead-letter
+  queue (`DeadLetterConfig.Arn`, SQS or SNS) via the new `handlePipeFailure` /
+  `sendToDLQ` helpers and deletes the source messages; with no DLQ configured the
+  source messages are retained for the source service's own redelivery. Tests:
+  `services/pipes/runner_dlq_test.go`.
+
+#### Original deferral notes (historical)
+
+- **AppSync `EvaluateCode`** — returned a hardcoded `{"evaluationResult":"{}"}`;
+  deferred because a faithful implementation seemingly required a JS interpreter.
+- **Kafka** `Update{Connectivity,Monitoring,Rebalancing,Security,Storage}` —
+  validated the cluster and created a `ClusterOperation` but did not persist the
+  setting payloads.
+- **CloudFront** long-tail stub APIs — believed to return minimal empty/`<Id>`-only
+  XML; superseded by the real implementations already present on this branch.
+- **EventBridge Pipes** — unwired enrichment/target invoker returned `nil, nil`
+  (silent skip).

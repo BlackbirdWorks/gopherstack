@@ -12,7 +12,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-var ErrUnsupportedPipeTarget = errors.New("pipes: unsupported target ARN")
+var (
+	// ErrUnsupportedPipeTarget is returned when a pipe target ARN service is not
+	// handled by the runner.
+	ErrUnsupportedPipeTarget = errors.New("pipes: unsupported target ARN")
+	// ErrUnsupportedPipeEnrichment is returned when a pipe enrichment ARN service
+	// is not handled by the runner.
+	ErrUnsupportedPipeEnrichment = errors.New("pipes: unsupported enrichment ARN")
+	// ErrEnrichmentInvokerUnwired is returned when an enrichment ARN is recognized
+	// but the corresponding invoker (Lambda/StepFunctions) has not been wired into
+	// the runner. This surfaces a real misconfiguration instead of silently
+	// dropping the event.
+	ErrEnrichmentInvokerUnwired = errors.New("pipes: enrichment invoker not configured")
+	// ErrTargetInvokerUnwired is returned when a target ARN service is recognized but
+	// the corresponding invoker has not been wired into the runner.
+	ErrTargetInvokerUnwired = errors.New("pipes: target invoker not configured")
+)
 
 const (
 	pipeRunnerTickInterval = 1 * time.Second
@@ -262,6 +277,7 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		if enrichErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "pipes: enrichment invocation failed",
 				"pipe", p.Name, "enrichment", p.Enrichment, "error", enrichErr)
+			r.handlePipeFailure(ctx, p, msgs, payload, enrichErr)
 
 			return
 		}
@@ -274,6 +290,7 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: target invocation failed",
 			"pipe", p.Name, "target", p.Target, "error", invokeErr)
+		r.handlePipeFailure(ctx, p, msgs, payload, invokeErr)
 
 		return
 	}
@@ -284,6 +301,57 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 	}
 }
 
+// handlePipeFailure routes a failed batch to the configured dead-letter queue. When
+// a DLQ is configured and the send succeeds, the source messages are deleted so they
+// are not reprocessed in a tight loop. When no DLQ is configured, the messages are
+// left in the source for the source service's own redelivery/visibility handling.
+func (r *Runner) handlePipeFailure(
+	ctx context.Context, p *Pipe, msgs []*SQSMessage, payload []byte, cause error,
+) {
+	if p.DeadLetterConfig == nil || p.DeadLetterConfig.Arn == "" {
+		return
+	}
+
+	dlqARN := p.DeadLetterConfig.Arn
+	if sendErr := r.sendToDLQ(ctx, dlqARN, payload); sendErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "pipes: failed to send to DLQ",
+			"pipe", p.Name, "dlq", dlqARN, "error", sendErr, "cause", cause)
+
+		return
+	}
+
+	receiptHandles := make([]string, len(msgs))
+	for i, m := range msgs {
+		receiptHandles[i] = m.ReceiptHandle
+	}
+
+	if delErr := r.sqsReader.DeletePipeMessages(p.Source, receiptHandles); delErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "pipes: failed to delete source messages after DLQ send",
+			"pipe", p.Name, "source", p.Source, "error", delErr)
+	}
+}
+
+// sendToDLQ delivers a failed payload to the pipe's dead-letter queue. Both SQS
+// queue and SNS topic dead-letter targets are supported.
+func (r *Runner) sendToDLQ(ctx context.Context, dlqARN string, payload []byte) error {
+	switch {
+	case strings.HasPrefix(dlqARN, "arn:aws:sqs:"):
+		if r.sqsSender == nil {
+			return fmt.Errorf("%w: sqs DLQ %q", ErrEnrichmentInvokerUnwired, dlqARN)
+		}
+
+		return r.sqsSender.SendMessage(ctx, dlqARN, string(payload), "", "")
+	case strings.HasPrefix(dlqARN, "arn:aws:sns:"):
+		if r.sns == nil {
+			return fmt.Errorf("%w: sns DLQ %q", ErrEnrichmentInvokerUnwired, dlqARN)
+		}
+
+		return r.sns.PublishMessage(ctx, dlqARN, string(payload))
+	}
+
+	return fmt.Errorf("%w: dead-letter target %q", ErrUnsupportedPipeTarget, dlqARN)
+}
+
 // invokeEnrichment calls the enrichment endpoint and returns the enriched payload.
 func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) ([]byte, error) {
 	enrichARN := p.Enrichment
@@ -291,7 +359,7 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 	switch {
 	case strings.HasPrefix(enrichARN, "arn:aws:lambda:"):
 		if r.lambda == nil {
-			return nil, nil
+			return nil, fmt.Errorf("%w: lambda enrichment %q", ErrEnrichmentInvokerUnwired, enrichARN)
 		}
 
 		invocationType := "RequestResponse"
@@ -313,7 +381,7 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 
 	case strings.HasPrefix(enrichARN, "arn:aws:states:"):
 		if r.sfn == nil {
-			return nil, nil
+			return nil, fmt.Errorf("%w: step functions enrichment %q", ErrEnrichmentInvokerUnwired, enrichARN)
 		}
 
 		input := string(payload)
@@ -324,8 +392,9 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 		return nil, r.sfn.StartExecution(enrichARN, "", input)
 	}
 
-	// Enrichment ARN type not supported by this runner; skip silently.
-	return nil, nil
+	// Enrichment ARN type is not handled by this runner — surface a real error
+	// rather than silently dropping the event.
+	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeEnrichment, enrichARN, p.Name)
 }
 
 func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
@@ -424,7 +493,7 @@ func applyInputTemplate(p *Pipe, defaultPayload []byte) []byte {
 
 func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.lambda == nil {
-		return nil
+		return fmt.Errorf("%w: lambda target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	// Map Pipes InvocationType to Lambda InvocationType.
@@ -459,7 +528,7 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, payload []byte
 
 func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) error {
 	if r.sfn == nil {
-		return nil
+		return fmt.Errorf("%w: step functions target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -481,7 +550,7 @@ func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) err
 
 func (r *Runner) invokeSNSTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.sns == nil {
-		return nil
+		return fmt.Errorf("%w: sns target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -491,7 +560,7 @@ func (r *Runner) invokeSNSTarget(ctx context.Context, p *Pipe, payload []byte) e
 
 func (r *Runner) invokeSQSTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.sqsSender == nil {
-		return nil
+		return fmt.Errorf("%w: sqs target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -507,7 +576,7 @@ func (r *Runner) invokeSQSTarget(ctx context.Context, p *Pipe, payload []byte) e
 
 func (r *Runner) invokeKinesisTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.kinesis == nil {
-		return nil
+		return fmt.Errorf("%w: kinesis target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -523,7 +592,7 @@ func (r *Runner) invokeKinesisTarget(ctx context.Context, p *Pipe, payload []byt
 
 func (r *Runner) invokeEventBridgeTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.eventBus == nil {
-		return nil
+		return fmt.Errorf("%w: eventbridge target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -548,7 +617,7 @@ func (r *Runner) invokeEventBridgeTarget(ctx context.Context, p *Pipe, payload [
 
 func (r *Runner) invokeCloudWatchLogsTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.cwLogs == nil {
-		return nil
+		return fmt.Errorf("%w: cloudwatch logs target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)
@@ -564,7 +633,7 @@ func (r *Runner) invokeCloudWatchLogsTarget(ctx context.Context, p *Pipe, payloa
 
 func (r *Runner) invokeFirehoseTarget(ctx context.Context, p *Pipe, payload []byte) error {
 	if r.firehose == nil {
-		return nil
+		return fmt.Errorf("%w: firehose target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
 	payload = applyInputTemplate(p, payload)

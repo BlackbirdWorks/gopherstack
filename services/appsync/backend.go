@@ -34,6 +34,11 @@ var (
 	ErrInvalidSchema = errors.New("InvalidSchemaError")
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrUnsupportedJSCode is returned when EvaluateCode is given an APPSYNC_JS
+	// construct the emulator's evaluator does not support. The request is
+	// well-formed, but the code uses features beyond the documented patterns the
+	// emulator faithfully evaluates (the emulator does not embed a JS engine).
+	ErrUnsupportedJSCode = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 // LambdaInvoker can invoke a Lambda function by name or ARN.
@@ -2456,16 +2461,27 @@ func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) 
 	return out, nil
 }
 
-// EvaluateCode evaluates APPSYNC_JS code (basic stub — returns empty result).
-func (b *InMemoryBackend) EvaluateCode(code, _, _, _ string) (string, error) {
+// EvaluateCode evaluates an APPSYNC_JS module against the supplied context and
+// returns the JSON-stringified return value of the selected handler.
+//
+// gopherstack does not embed a JavaScript engine, so this evaluates the documented
+// APPSYNC_JS patterns directly (see appsync_js.go). Constructs beyond that set
+// return ErrUnsupportedJSCode rather than a fabricated result, so callers can
+// distinguish "evaluated" from "not supported by the emulator".
+func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime string) (string, error) {
 	if code == "" {
 		return "", fmt.Errorf("%w: code is required", ErrValidation)
 	}
 
-	// Stub: return an empty evaluationResult.
-	result := `{"evaluationResult":"{}"}`
+	if runtime != "" && runtime != "APPSYNC_JS" {
+		return "", fmt.Errorf("%w: unsupported runtime %q", ErrValidation, runtime)
+	}
 
-	return result, nil
+	if function != "" && function != jsHandlerRequest && function != jsHandlerResponse {
+		return "", fmt.Errorf("%w: function must be 'request' or 'response'", ErrValidation)
+	}
+
+	return evaluateAppSyncJS(code, contextJSON, function)
 }
 
 // StartDataSourceIntrospection starts an introspection job for a data source.

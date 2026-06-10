@@ -84,11 +84,11 @@ type StorageBackend interface {
 	UpdateBrokerType(clusterArn, instanceType string) (*ClusterOperation, error)
 	UpdateClusterConfiguration(clusterArn, configArn string, revision int64) (*ClusterOperation, error)
 	UpdateClusterKafkaVersion(clusterArn, targetKafkaVersion string) (*ClusterOperation, error)
-	UpdateConnectivity(clusterArn string) (*ClusterOperation, error)
-	UpdateMonitoring(clusterArn string) (*ClusterOperation, error)
+	UpdateConnectivity(clusterArn string, settings UpdateConnectivitySettings) (*ClusterOperation, error)
+	UpdateMonitoring(clusterArn string, settings UpdateMonitoringSettings) (*ClusterOperation, error)
 	UpdateRebalancing(clusterArn string) (*ClusterOperation, error)
-	UpdateSecurity(clusterArn string) (*ClusterOperation, error)
-	UpdateStorage(clusterArn string) (*ClusterOperation, error)
+	UpdateSecurity(clusterArn string, settings UpdateSecuritySettings) (*ClusterOperation, error)
+	UpdateStorage(clusterArn string, settings UpdateStorageSettings) (*ClusterOperation, error)
 	RebootBroker(clusterArn string, brokerIDs []string) (*ClusterOperation, error)
 
 	// SCRAM secret list
