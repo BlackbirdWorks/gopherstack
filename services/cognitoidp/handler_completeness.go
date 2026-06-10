@@ -402,7 +402,7 @@ type identityProviderSummary struct {
 }
 
 type listIdentityProvidersOutput struct {
-	Providers []identityProviderSummary `json:"Providers,omitempty"`
+	Providers []identityProviderSummary `json:"Providers"`
 }
 
 func (h *Handler) handleListIdentityProviders(
@@ -739,7 +739,7 @@ type listTermsInput struct {
 }
 
 type listTermsOutput struct {
-	Terms []termsType `json:"Terms,omitempty"`
+	Terms []termsType `json:"Terms"`
 }
 
 func (h *Handler) handleListTerms(_ context.Context, in *listTermsInput) (*listTermsOutput, error) {
@@ -1435,7 +1435,7 @@ type listUserPoolClientSecretsInput struct {
 }
 
 type listUserPoolClientSecretsOutput struct {
-	Secrets []string `json:"Secrets,omitempty"`
+	Secrets []string `json:"Secrets"`
 }
 
 func (h *Handler) handleListUserPoolClientSecrets(

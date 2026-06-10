@@ -801,7 +801,7 @@ type signUpAccurateInput struct {
 type signUpAccurateOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	UserSub             string            `json:"UserSub,omitempty"`
-	UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
+	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
 func (h *Handler) handleSignUpAccurate(
@@ -912,7 +912,7 @@ type listUserPoolClientsAccurateInput struct {
 }
 
 type listUserPoolClientsAccurateOutput struct {
-	UserPoolClients []clientDataAccurate `json:"UserPoolClients,omitempty"`
+	UserPoolClients []clientDataAccurate `json:"UserPoolClients"`
 }
 
 func (h *Handler) handleListUserPoolClientsAccurate(

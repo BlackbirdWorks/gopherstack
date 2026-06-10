@@ -461,7 +461,7 @@ type listIdentityProvidersFullInput struct {
 
 type listIdentityProvidersFullOutput struct {
 	NextToken string                        `json:"NextToken,omitempty"`
-	Providers []identityProviderSummaryJSON `json:"Providers,omitempty"`
+	Providers []identityProviderSummaryJSON `json:"Providers"`
 }
 
 type identityProviderSummaryJSON struct {
@@ -1077,7 +1077,7 @@ type listGroupsFullInput struct {
 
 type listGroupsFullOutput struct {
 	NextToken string              `json:"NextToken,omitempty"`
-	Groups    []*groupFullSummary `json:"Groups,omitempty"`
+	Groups    []*groupFullSummary `json:"Groups"`
 }
 
 func (h *Handler) handleListGroupsFull(
