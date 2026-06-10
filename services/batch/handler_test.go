@@ -3142,8 +3142,14 @@ func TestHandler_ListJobs_NoQueue(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// AWS Batch ListJobs requires a grouping key (jobQueue here); without one it
+	// returns a ClientException (HTTP 400), it does not list all jobs.
 	rec = post(t, h, "/v1/listjobs", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// With the queue specified, the submitted job is returned.
+	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "q1"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)

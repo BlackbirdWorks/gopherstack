@@ -433,6 +433,20 @@ func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, user)
 }
 
+// validateMaxResults enforces the AWS Identity Store list MaxResults bound.
+// MaxResults is optional (0 = unset); when supplied it must be 1-100.
+func validateMaxResults(maxResults int32) error {
+	if maxResults == 0 {
+		return nil
+	}
+
+	if maxResults < 1 || maxResults > maxListPageSize {
+		return fmt.Errorf("MaxResults must be between 1 and %d", maxListPageSize)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 	var req listUsersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -441,6 +455,10 @@ func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 
 	if strings.TrimSpace(req.IdentityStoreID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	all := h.Backend.ListUsers(req.IdentityStoreID)
