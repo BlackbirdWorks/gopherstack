@@ -635,3 +635,168 @@ commands each page imports). "Read-only/list-only" means the page imports only `
 commands with search + refresh and no create/edit/delete or detail drill-down. As with the
 backend audit, these are prioritized enhancement candidates for follow-up PRs; no UI code was
 changed in this commit.
+
+---
+
+# Test-coverage & remaining-functionality audit (2026-06-10, pass 2)
+
+Goal: **eclipse LocalStack's coverage entirely.** This pass inventories where gopherstack is
+*not* yet exercised by integration tests or Terraform, and deep-dives the still-thin services
+those gaps correlate with. Counts: **202** SDK-driven tests under `test/integration/`, and a
+Terraform suite under `test/terraform/*` (per-service dirs + `fixtures/*` with
+`success`/`import`/`drift` variants). Only `parity.md` is edited here.
+
+## G. Integration-test coverage gaps (`test/integration/`)
+
+Services with **no SDK-driven integration test** of their own (after accounting for aliased
+coverage — `dynamodb`/`dynamodbstreams` are covered by the `ddb_*` suite and `cognitoidp` by
+`cognito`):
+
+`accessanalyzer`, `account`, `appmesh`, `apprunner`, `appstream`, `comprehend`, `datasync`,
+`dax` (only an in-package `services/dax/dataplane_integration_test.go`, nothing under
+`test/integration/`), `detective`, `directoryservice`, `dlm`, `forecast`, `fsx`, `guardduty`,
+`inspector2`, `macie2`, `medialive`, `mediapackage`, `mediatailor`, `opsworks`, `personalize`,
+`polly`, `qldb`/`qldbsession` (service removed — README only), `quicksight`, `rekognition`,
+`rolesanywhere`, `securityhub`, `translate`, `transcribe`, `waf`, `workmail`, `workspaces`.
+
+Highest-value integration tests to add first (popular + heavily used by IaC/tools):
+- **fsx**, **apprunner**, **appstream**, **workspaces** — large op surfaces (FSx, AppRunner,
+  AppStream, WorkSpaces each have 1000s of LOC) but zero end-to-end create→describe→delete proof.
+- **comprehend / translate / polly / transcribe / rekognition** — exercise the inference ops
+  (even canned) to lock response shapes against the AWS SDK deserialiser.
+- **guardduty / securityhub / inspector2 / macie2 / detective / accessanalyzer** — finding/
+  detector lifecycle round-trips.
+- **datasync / directoryservice / waf (classic) / appmesh** — common in Terraform stacks.
+
+## H. Terraform-test coverage gaps (`test/terraform/`)
+
+Services with **no Terraform fixture or module** (no `test/terraform/<svc>` and no
+`test/terraform/fixtures/<svc>`):
+
+`accessanalyzer`, `account`, `appmesh`, `apprunner`, `appstream`, `comprehend`, `databrew`,
+`datasync`, `dax`, `detective`, `directoryservice`, `dlm`, `forecast`, `fsx`, `guardduty`,
+`inspector2`, `macie2`, `medialive`, `mediapackage`, `mediastoredata`, `mediatailor`,
+`opsworks`, `personalize`, `polly`, `qldb`, `quicksight`, `rekognition`, `rolesanywhere`,
+`securityhub`, `transcribe`, `translate`, `waf`, `workmail`, `workspaces`.
+
+The existing fixtures pattern (`success.tf` + `import.tf` + `drift.tf`) should be replicated for
+these. Terraform is the strongest parity signal because the AWS provider validates response
+shapes, waiters, and `Read`-after-`Create` drift — so each new fixture closes many latent gaps at
+once. Highest-value to add: **fsx**, **apprunner**, **appstream**, **workspaces**, **waf**
+(classic), **datasync**, **directoryservice**, **dlm**, **guardduty**, **securityhub** — all
+appear in real Terraform AWS-provider acceptance suites.
+
+Also worth adding even where a fixture exists today: **multi-resource / cross-service** Terraform
+modules (the `*-comprehensive` and `mega-batch-*` dirs are the right model) for services that
+only have a single-resource `success.tf`.
+
+## I. Op-level functionality gaps in the still-thin (untested) services
+
+These are the services most likely to surprise a real SDK/Terraform client, found by reading
+their handlers/backends. They fall into two buckets — **canned-inference** (returns deterministic
+but non-real results, same as LocalStack) and **empty-stub** (advertised op returns empty/no
+state, which breaks create→describe round-trips).
+
+### Inference / ML (canned results — parity-neutral vs LocalStack, but a chance to exceed it)
+
+- **Comprehend** — `detectSentiment` is keyword-matching with hardcoded 0.99/0.97 scores
+  (`services/comprehend/handler.go:546-567`); `detectEntities` tags every Capitalised word as
+  `PERSON`@0.99 (`handler.go:569-583`); `DetectDominantLanguage` always returns `en`
+  (`handler.go:637-645`). No `BatchDetect*` async job result computation.
+- **Translate** — `translateText` returns the input unchanged (`services/translate/handler.go:487-510`);
+  `translateDocument` echoes the document (`handler.go:512-535`); configured terminologies are
+  ignored by translation.
+- **Polly** — `SynthesizeSpeech` returns a `POLLY:format:rate:voice:text` marker string instead
+  of audio bytes (`services/polly/backend.go:266-296`); speech marks are stubbed `time:0`
+  (`backend.go:692-699`).
+- **Transcribe** — completed jobs carry synthetic text "This is a synthetic transcription result
+  for {job}." (`services/transcribe/backend.go:267-300`); no real media read; call-analytics
+  jobs not actually analysed (`handler.go:809-821`).
+- **Rekognition** — `DetectLabels`/`DetectText`/`DetectModerationLabels`/`RecognizeCelebrities`/
+  `DetectProtectiveEquipment` are routed but return empty result sets
+  (`services/rekognition/handler_appendixa.go`); `SearchFacesByImage` ignores the image and
+  returns a fixed 90.0 similarity (`backend.go:494-521`).
+
+### Security findings (empty-stub — adding seedable findings would *exceed* LocalStack)
+
+- **GuardDuty** — `GetMalwareProtectionPlan`, `SendObjectMalwareScan` are listed in
+  `GetSupportedOperations` but have no handler (`services/guardduty/handler.go:219,262`);
+  member-detector state isn't tracked; member/invitation maps grow unbounded.
+- **SecurityHub** — `BatchGetAutomationRules` returns `[]` (`services/securityhub/backend.go:1786`);
+  `ListEnabledProductsForImport` always empty (`backend.go:1470`); `GetFindingStatistics` returns
+  empty aggregation; `DescribeStandards` returns hardcoded default controls (`backend.go:1136-1164`).
+- **Inspector2** — `ListFindings` is "stub — always empty" (`services/inspector2/backend.go:347`);
+  the `Finding` struct is a "minimal stub" (`backend.go:92`); CIS-scan ops
+  (`GetCisScanReport`/`GetCisScanResultDetails`/`ListCisScans`) return empty
+  (`backend_appendixa.go:693-708`).
+- **Macie2** — `DescribeBuckets`/`GetBucketStatistics`/`SearchResources` explicitly return empty
+  ("no real S3 scanning") (`services/macie2/backend_appendixa.go:1155-1350`).
+- **Detective** — investigations and datasource ingest state are not persisted; `StartInvestigation`
+  mints an ID but stores nothing; `ListIndicators` returns hardcoded stubs
+  (`services/detective/handler.go:1109-1160`).
+- **AccessAnalyzer** — `GetFindingsStatistics` advertised but unrouted (404); `StartResourceScan`
+  is a no-op and findings never transition ACTIVE→ARCHIVED via archive rules
+  (`services/accessanalyzer/handler.go:506-521`).
+
+### Media / data (missing sub-resource ops break Terraform `Read`)
+
+- **MediaTailor** — `DescribeChannel`/`DescribeSourceLocation`/`DescribeVodSource`/
+  `DescribeLiveSource`/`DescribeProgram` return empty objects and `StartChannel`/`StopChannel`
+  don't transition state (`services/mediatailor/handler.go:739-1333`).
+- **MediaPackage** — no PackagingConfiguration CRUD and no `PutLifecyclePolicy`/`GetLifecyclePolicy`;
+  `RotateIngestEndpointCredentials` always succeeds without backing state
+  (`services/mediapackage/handler.go:749-763`).
+- **MediaLive** — `CreateInputDeviceMaintenanceWindow` and `ListClusterAlerts` don't change/return
+  real state.
+- **Forecast** — `GetAccuracyMetrics` returns empty results (`services/forecast/backend.go:333-343`);
+  no Explainability ops.
+- **Personalize** — `GetRecommendations` (the core real-time inference op) is absent from the route
+  table; `DescribeFeatureTransformation` returns a fabricated response
+  (`services/personalize/handler.go:1254-1265`).
+- **DataSync** — `UpdateTaskExecution` mutates no state (`services/datasync/handler.go:907-920`);
+  FSx-Windows location ops missing.
+- **DirectoryService** — certificate ops (`Register/Deregister/Describe/ListCertificate(s)`) and
+  conditional-forwarder ops are absent; `RestoreFromSnapshot` returns success without doing work
+  (`services/directoryservice/handler.go:546-569`).
+- **QuickSight** — asset-bundle export and folder-permission ops delegate to appendix handlers that
+  may not track real state (`services/quicksight/handler_appendixa.go:92-94`); needs op-by-op
+  verification.
+
+### Large surfaces needing op-by-op verification
+
+- **AppStream** (120 backend funcs / ~8.2k LOC) and **WorkSpaces** (96 funcs / ~7.3k LOC) are
+  substantial, but a sub-pass flagged some advertised sub-resource ops (AppBlock/ImageBuilder/
+  Entitlements for AppStream; IpGroups/ConnectionAliases/Bundles/Images/Pools for WorkSpaces) as
+  possibly unrouted to backend methods. These need a precise handler↔backend op diff rather than
+  the size-only check done here, then an integration + Terraform fixture to lock them in.
+- **DAX** — backend `Snapshot()`/`Restore()` persistence hooks are declared but unimplemented
+  (`services/dax/interface.go:60-61`), so DAX state is dropped on snapshot/restore.
+- **QLDB / qldbsession** — service was removed (README only) after AWS's 2025-07-31 deprecation;
+  the empty `services/qldb/` dir is dead weight, not a parity gap.
+
+## J. Eclipsing LocalStack — highest-leverage themes
+
+Consolidated priorities that would push gopherstack past LocalStack's coverage:
+
+1. **Close every empty-stub finding op** in the six security services so detectors/findings can be
+   seeded and round-tripped — LocalStack returns empty here too, so this is pure upside.
+2. **Add Terraform `success`+`import`+`drift` fixtures for the 34 services in §H**, prioritising
+   the ones in the AWS provider's acceptance suite (fsx, apprunner, appstream, workspaces, waf,
+   datasync, directoryservice, dlm, guardduty, securityhub) — Terraform validation closes the most
+   latent shape/waiter gaps per unit of effort.
+3. **Add integration tests for the 33 untested services in §G**, starting with the large-surface
+   ones (fsx, apprunner, appstream, workspaces) where regressions are currently invisible.
+4. **Wire the missing DLQ/RedrivePolicy paths (SNS, EventBridge), pagination (RDS, API Gateway v2,
+   Account, MQ), and persistence hooks (DAX, and any backend whose `persistence.go` omits a field)**
+   from §B/§D — these are correctness gaps a real client will hit immediately.
+5. **Surface the 20 backend-only services in the dashboard (§E)** and add per-service metric charts
+   using the already-defined `OperationSummary`/`RuntimeMetrics` proto — a console that visualises
+   every service is something LocalStack's open tier does not offer.
+
+## Notes on pass 2
+
+The §G/§H service lists are exact (computed from the test tree). §I findings were read from the
+cited handlers/backends; the inference "canned result" items are intentional mocks (flagged as
+opportunities, not bugs). The AppStream/WorkSpaces sub-resource items are flagged as
+*needs-verification* because the size check (120/96 backend funcs) contradicts the raw "unrouted"
+estimate — a precise op diff is required before treating them as confirmed.
