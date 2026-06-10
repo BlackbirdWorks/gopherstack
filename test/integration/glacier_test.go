@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -143,7 +144,8 @@ func TestIntegration_Glacier_JobLifecycle(t *testing.T) {
 	require.NoError(t, err, "InitiateJob should succeed")
 	require.NotEmpty(t, initiateOut.JobId)
 
-	// Describe the job.
+	// Describe the job immediately: AWS retrievals are asynchronous, so a freshly
+	// initiated job starts InProgress and is not yet completed.
 	descJobOut, err := client.DescribeJob(ctx, &glaciersdk.DescribeJobInput{
 		AccountId: aws.String("-"),
 		VaultName: aws.String(vaultName),
@@ -151,7 +153,18 @@ func TestIntegration_Glacier_JobLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err, "DescribeJob should succeed")
 	assert.Equal(t, aws.ToString(initiateOut.JobId), aws.ToString(descJobOut.JobId))
-	assert.True(t, descJobOut.Completed, "job should complete synchronously in the stub")
+
+	// The job promotes to Succeeded only after the simulated retrieval window
+	// (services/glacier defaultRetrievalDelay, ~100ms). Poll until it completes.
+	require.Eventually(t, func() bool {
+		out, getErr := client.DescribeJob(ctx, &glaciersdk.DescribeJobInput{
+			AccountId: aws.String("-"),
+			VaultName: aws.String(vaultName),
+			JobId:     initiateOut.JobId,
+		})
+
+		return getErr == nil && out.Completed && out.StatusCode == glaciertypes.StatusCodeSucceeded
+	}, 10*time.Second, 50*time.Millisecond, "job should reach Succeeded after the retrieval window")
 
 	// List jobs.
 	listJobsOut, err := client.ListJobs(ctx, &glaciersdk.ListJobsInput{
