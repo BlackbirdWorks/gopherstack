@@ -68,6 +68,24 @@ import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
 import { ApplicationAutoScalingClient } from "@aws-sdk/client-application-auto-scaling";
 import { PipesClient } from "@aws-sdk/client-pipes";
 import { SESv2Client } from "@aws-sdk/client-sesv2";
+import { AccessAnalyzerClient } from "@aws-sdk/client-accessanalyzer";
+import { AccountClient } from "@aws-sdk/client-account";
+import { AppMeshClient } from "@aws-sdk/client-app-mesh";
+import { DataBrewClient } from "@aws-sdk/client-databrew";
+import { DataSyncClient } from "@aws-sdk/client-datasync";
+import { DAXClient } from "@aws-sdk/client-dax";
+import { DetectiveClient } from "@aws-sdk/client-detective";
+import { DirectoryServiceClient } from "@aws-sdk/client-directory-service";
+import { DLMClient } from "@aws-sdk/client-dlm";
+import { ForecastClient } from "@aws-sdk/client-forecast";
+import { Macie2Client } from "@aws-sdk/client-macie2";
+import { MediaLiveClient } from "@aws-sdk/client-medialive";
+import { MediaPackageClient } from "@aws-sdk/client-mediapackage";
+import { MediaTailorClient } from "@aws-sdk/client-mediatailor";
+import { PersonalizeClient } from "@aws-sdk/client-personalize";
+import { QuickSightClient } from "@aws-sdk/client-quicksight";
+import { RolesAnywhereClient } from "@aws-sdk/client-rolesanywhere";
+import { WorkMailClient } from "@aws-sdk/client-workmail";
 
 const defaultRegion = "us-east-1";
 
@@ -676,4 +694,76 @@ export function getKinesisAnalyticsV2Client(region?: string): KinesisAnalyticsV2
 
 export function getCostExplorerClient(region?: string): CostExplorerClient {
   return new CostExplorerClient(clientConfig(region));
+}
+
+export function getAccessAnalyzerClient(region?: string): AccessAnalyzerClient {
+  return new AccessAnalyzerClient(clientConfig(region));
+}
+
+export function getAccountClient(region?: string): AccountClient {
+  return new AccountClient(clientConfig(region));
+}
+
+export function getAppMeshClient(region?: string): AppMeshClient {
+  return new AppMeshClient(clientConfig(region));
+}
+
+export function getDataBrewClient(region?: string): DataBrewClient {
+  return new DataBrewClient(clientConfig(region));
+}
+
+export function getDataSyncClient(region?: string): DataSyncClient {
+  return new DataSyncClient(clientConfig(region));
+}
+
+export function getDAXClient(region?: string): DAXClient {
+  return new DAXClient(clientConfig(region));
+}
+
+export function getDetectiveClient(region?: string): DetectiveClient {
+  return new DetectiveClient(clientConfig(region));
+}
+
+export function getDirectoryServiceClient(region?: string): DirectoryServiceClient {
+  return new DirectoryServiceClient(clientConfig(region));
+}
+
+export function getDLMClient(region?: string): DLMClient {
+  return new DLMClient(clientConfig(region));
+}
+
+export function getForecastClient(region?: string): ForecastClient {
+  return new ForecastClient(clientConfig(region));
+}
+
+export function getMacie2Client(region?: string): Macie2Client {
+  return new Macie2Client(clientConfig(region));
+}
+
+export function getMediaLiveClient(region?: string): MediaLiveClient {
+  return new MediaLiveClient(clientConfig(region));
+}
+
+export function getMediaPackageClient(region?: string): MediaPackageClient {
+  return new MediaPackageClient(clientConfig(region));
+}
+
+export function getMediaTailorClient(region?: string): MediaTailorClient {
+  return new MediaTailorClient(clientConfig(region));
+}
+
+export function getPersonalizeClient(region?: string): PersonalizeClient {
+  return new PersonalizeClient(clientConfig(region));
+}
+
+export function getQuickSightClient(region?: string): QuickSightClient {
+  return new QuickSightClient(clientConfig(region));
+}
+
+export function getRolesAnywhereClient(region?: string): RolesAnywhereClient {
+  return new RolesAnywhereClient(clientConfig(region));
+}
+
+export function getWorkMailClient(region?: string): WorkMailClient {
+  return new WorkMailClient(clientConfig(region));
 }
