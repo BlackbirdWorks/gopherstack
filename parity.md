@@ -331,3 +331,307 @@ section-C/D items (e.g. an apparent `Unlock` without `Lock` at
 `services/elasticache/backend.go:502-504`, and the FSx body-stream reuse at
 `services/fsx/handler.go:180-205`) are flagged from a single read and should be re-verified
 against the surrounding `defer`/locking before being treated as confirmed bugs.
+
+---
+
+# Dashboard / Web-UI feature gaps (2026-06-10)
+
+The console is a SvelteKit app (`ui/`); each service has a page at
+`ui/src/routes/<service>/+page.svelte` that drives the local emulator through the AWS JS SDK,
+plus a streaming Connect dashboard (`proto/gopherstack/dashboard/v1/dashboard.proto`) for the
+console request-tap and runtime metrics. The pattern across pages is uneven: a handful are rich
+(create/edit/delete + drill-downs + live views — e.g. `elasticache` 2948 lines, `dynamodb`,
+`s3`), while many are thin **read-only list views** (search + refresh only). This section
+records useful UI features that are missing, audited across all ~143 route pages.
+
+## E. Services with a backend but no dashboard page at all
+
+These have working `services/*` handlers but no `ui/src/routes/<svc>/` page (and no aliased
+page), so they are invisible in the console:
+
+- **accessanalyzer**, **account**, **appmesh**, **databrew**, **datasync**, **dax**,
+  **detective**, **directoryservice**, **dlm**, **forecast**, **macie2**, **medialive**,
+  **mediapackage**, **mediatailor**, **opsworks**, **personalize**, **qldb** (+ **qldbsession**),
+  **quicksight**, **rolesanywhere**, **workmail**.
+
+(Note: `ce`→`costexplorer`, `inspector2`→`inspector`, `kafka`→`msk`, `stepfunctions`→`sfn`,
+`timestreamwrite`→`timestream`, and `dynamodbstreams`→`dynamodb` are covered via aliased/host
+pages and are *not* in the missing list above.)
+
+Also missing at the platform level:
+- **No per-service CloudWatch metric charts** — the dashboard proto exposes `RuntimeMetrics` and
+  per-operation latency (`OperationSummary`) but individual service pages render no time-series
+  graphs; almost every page below repeats "no metrics/monitoring view".
+- **No global resource search / tag explorer** across services (the `resources` /
+  `resourcegroupstaggingapi` pages are list-only).
+
+## F. Missing per-service UI features (popular services first)
+
+### Popular services
+
+- **S3** (`ui/src/routes/s3/+page.svelte`) — inline object **preview/viewer** (text/JSON/image)
+  without download; object **metadata/tag editor**; bucket **storage analytics** (size by
+  prefix, request metrics); **access-logging** config + view; show the **static-website URL**
+  after enabling hosting; batch copy/rename/delete.
+- **DynamoDB** (`.../dynamodb/+page.svelte`) — **query-by-index** view for GSIs/LSIs;
+  **PITR**/backup controls; **auto-scaling** policy config; **global-tables**/replica management;
+  Contributor-Insights tab.
+- **EC2** (`.../ec2/+page.svelte`) — instance **Details** button routes to a non-existent
+  drill-down; no **security-group rule** view/edit; security-groups list is read-only (no
+  create); no subnet create/edit; no Elastic-IP allocate/associate; no metrics/alarms link.
+- **Lambda** (`.../lambda/+page.svelte`) — no **code update** after create (image-only); no
+  **versions/aliases** management; no **event-source-mapping** (trigger) tab; no
+  reserved/provisioned-concurrency UI; no resource-policy view.
+- **IAM** (`.../iam/+page.svelte`) — no **inline-policy** editor; user detail omits **group
+  membership**; no **login-profile**/password or **MFA-device** management; no
+  permission-boundary UI.
+- **SQS** (`.../sqs/+page.svelte`) — no **batch send**; no message **filter/search** by
+  attribute; no **DLQ redrive** action or source-queue mapping; no queue metrics
+  (ApproxNumberOfMessages / age-of-oldest).
+- **SNS** (`.../sns/+page.svelte`) — publish **message-attributes** as structured fields + JSON
+  validation; subscription confirmation flow help; topic metrics; platform-application
+  endpoint/device management.
+- **KMS** (`.../kms/+page.svelte`) — **grants** create/revoke tab; **key-policy** JSON
+  editor/formatter; **key-material import**; ciphertext base64/hex toggle in encrypt/decrypt.
+- **Secrets Manager** (`.../secretsmanager/+page.svelte`) — structured **key-value JSON editor**
+  for secret value; **rotation schedule/Lambda** config form; **replica** add/remove;
+  version **restore** action.
+- **SSM** (`.../ssm/+page.svelte`) — **tree/folder** navigation for `/`-path parameters;
+  parameter **value history/diff**; parameter **policies** (expiration/notification);
+  CSV import/export.
+- **CloudWatch** (`.../cloudwatch/+page.svelte`) — **metric charts**/time-series (alarms list a
+  metric but never graph it); **dashboard widget editor**; metric-stream detail/edit; alarm
+  action presets.
+- **CloudWatch Logs** (`.../cloudwatchlogs/+page.svelte`) — true **live-tail** mode;
+  Insights query **CSV export**; subscription-filter **test/simulate** against sample events;
+  click-through from metric filter to matching events.
+- **Step Functions** (`.../sfn/+page.svelte`) — **execution graph/timeline** visualization;
+  per-state result/variable inspection; **redrive** of failed executions; ASL definition
+  **validator** (definition is read-only); link to execution logs.
+- **RDS** (`.../rds/+page.svelte`) — **parameter-group editor** (groups are list-only);
+  snapshot **restore/clone**; read-replica / proxy endpoints; performance metrics (CPU/IOPS/
+  connections).
+- **ECS** (`.../ecs/+page.svelte`) — inline **task/container log** streaming; **service update**
+  (image / task-def / desired count); container metrics; **ECS-Exec** shell; autoscaling
+  policies.
+- **ECR** (`.../ecr/+page.svelte`) — **scan-result CVE detail** (scans show only status); image
+  **layer/SBOM** inspection; lifecycle-policy **rule builder** + dry-run; `docker pull/push`
+  command snippet; replication-rule UI.
+- **EKS** (`.../eks/+page.svelte`) — **kubeconfig** download / CLI command; kubectl-style
+  pod/workload list; node-group scaling without recreate; node resource-utilization drill-down.
+- **EventBridge** (`.../eventbridge/+page.svelte`) — rule **target** view/edit (Lambda/SQS/SNS/
+  HTTP); **archive replay** UI + progress; event-pattern **visual builder**; DLQ config;
+  API-destination credential rotation.
+- **CloudFormation** (`.../cloudformation/+page.svelte`) — resource-dependency **graph/diagram**;
+  **stack-policy** editor; nested-stack drill-down; drift **side-by-side property diff**;
+  change-set approval workflow.
+- **ElastiCache** (`.../elasticache/+page.svelte`) — cluster **performance metrics**; manual
+  **failover/promote** replica; **parameter-group** value editor/diff; event timeline; user/ACL
+  permission viewer.
+
+### API / app-integration
+
+- **API Gateway** (`.../apigateway/+page.svelte`) — edit REST API (name/endpoint type); per-stage
+  **access/execution logging** toggle; request validators; authorizer cache config.
+- **API Gateway v2** (`.../apigatewayv2/+page.svelte`) — **CORS** config editor; route request
+  validators; integration response mapping editor; authorizer test with sample token.
+- **API Gateway Management** (`.../apigatewaymanagementapi/+page.svelte`) — bulk
+  **disconnect**; message/timeline filter by type/time; connection-history export.
+- **AppSync** (`.../appsync/+page.svelte`) — **data-source** create UI (DynamoDB/Lambda/RDS);
+  GraphQL **schema upload (SDL)**; resolver field-mapping builder; pipeline-function config.
+- **AppConfig** (`.../appconfig/+page.svelte`) — config-profile **JSON/YAML editor**; deployment
+  rollout preview/timeline; strategy simulator. **AppConfigData**
+  (`.../appconfigdata/+page.svelte`) — session content debug; profile-version diff.
+- **Step/Scheduler** (`.../scheduler/+page.svelte`) — execution **history** + next-run countdown;
+  **"run now"** test trigger.
+- **Pipes** (`.../pipes/+page.svelte`) — source/target resource **pickers** (S3/Lambda/DynamoDB);
+  filter/transform expression **editor** (currently raw text).
+
+### Compute / containers / scaling
+
+- **AppRunner** (`.../apprunner/+page.svelte`) — auto-deploy (GitHub/ECR) config; custom-domain
+  mapping; **traffic-split/canary**; health-check editor.
+- **Batch** (`.../batch/+page.svelte`) — job **log/stdout** streaming; job-definition container
+  editor; throughput/health metrics.
+- **AutoScaling** (`.../autoscaling/+page.svelte`) — lifecycle-hook notification config;
+  mixed-instances policy; spot config; bulk instance-protection.
+- **ApplicationAutoScaling** (`.../applicationautoscaling/+page.svelte`) — **scaling-activity
+  timeline**; step-scaling threshold editor; policy adjustment history.
+- **ElasticBeanstalk** (`.../elasticbeanstalk/+page.svelte`) — config-template editor; save
+  environment as template; worker-vs-web tier config.
+- **AppStream** (`.../appstream/+page.svelte`) — **read-only/list-only**: no create stacks/fleets/
+  images, no fleet scale, no session management.
+
+### Data / analytics
+
+- **Athena** (`.../athena/+page.svelte`) — result **export** (CSV/Parquet/JSON); saved-query
+  templates; data-scanned cost display; query scheduling.
+- **Glue** (`.../glue/+page.svelte`) — crawler-target edit; **partition-projection** config;
+  data-quality profiling results/history; catalog tag management.
+- **EMR** (`.../emr/+page.svelte`) — autoscaling-policy editor; bootstrap-action add/remove;
+  notebook kernel/dependency config; studio workspace management. **EMR Serverless**
+  (`.../emrserverless/+page.svelte`) — job config detail (spark-submit opts); app logging config;
+  job-run status timeline/diagnostics.
+- **Kinesis** (`.../kinesis/+page.svelte`) — **monitoring dashboard** (ingestion/iterator-age);
+  enhanced-metrics graphs; shard-iterator position viewer. **Firehose**
+  (`.../firehose/+page.svelte`) — **batch PutRecords** with preview; throughput charts;
+  test-delivery to destination.
+- **KinesisAnalytics / v2** (`.../kinesisanalytics*/+page.svelte`) — **SQL/Flink code editor**;
+  runtime **log tail**; schema-discovery tester; (v2) Flink job-graph + savepoint management.
+- **RedshiftData** (`.../rdsdata/`, `.../redshiftdata/+page.svelte`) — **result-grid** table view
+  (results are raw JSON); schema explorer (SHOW TABLES / DESCRIBE); saved-query favorites;
+  result pagination.
+- **Redshift** (`.../redshift/+page.svelte`) — parameter-group editing; embedded query builder.
+- **LakeFormation** (`.../lakeformation/+page.svelte`) — **permission-matrix** view
+  (principal×resource×action); LF-tag-expression builder; transaction audit log.
+
+### Storage / database
+
+- **FSx** (`.../fsx/+page.svelte`) — **read-only/list-only**: no create file system, no
+  backup/restore, no detail drill-down.
+- **EFS** (`.../efs/+page.svelte`) — **access-point** create/manage; replication config; backup
+  policy.
+- **Glacier** (`.../glacier/+page.svelte`) — retrieve & **display inventory/job results** when
+  jobs complete; governance-vs-compliance vault-lock clarity.
+- **DocDB** (`.../docdb/+page.svelte`) — parameter-group edit; **global-cluster failover**; event
+  filter config.
+- **Neptune** (`.../neptune/+page.svelte`) — **Gremlin/SPARQL query console**; graph
+  vertex/edge explorer.
+- **MemoryDB** (`.../memorydb/+page.svelte`) — parameter-group viewer/editor; cluster scaling
+  buttons.
+- **MQ** (`.../mq/+page.svelte`) — broker VPC/security config; **message browser**/purge.
+
+### Networking / edge
+
+- **Route53** (`.../route53/+page.svelte`) — record **editor with validation hints**; alias-target
+  **picker** (CloudFront/ALB/S3) instead of free text.
+- **Route53Resolver** (`.../route53resolver/+page.svelte`) — rule **priority reorder**; firewall
+  domain-list bulk import.
+- **CloudFront** (`.../cloudfront/+page.svelte`) — **cache-behavior** create/edit; origin/behavior
+  topology diagram; in-browser **function editor** with preview.
+- **Transfer** (`.../transfer/+page.svelte`) — server **transfer/connection logs**; SSH-key
+  **fingerprint** display; agreement transfer history; connector **test-connection**.
+- **DMS** (`.../dms/+page.svelte`) — task **progress %**/ETA; validation-failure drill-down;
+  endpoint **test-connection**.
+- **ELB / ELBv2** (`.../elb*/+page.svelte`) — attribute editing (draining/cross-zone/access-logs);
+  SG management; (v2) listener-rule **priority reorder**, target-group **stickiness** edit,
+  **IP-target** registration.
+- **ManagedBlockchain** (`.../managedblockchain/+page.svelte`) — node metrics/logs; proposal
+  vote-history detail; ledger/state explorer.
+- **OpenSearch** (`.../opensearch/+page.svelte`) — **index list**/shard/document-count dashboard;
+  log-delivery and access-policy editing.
+- **Elasticsearch** (`.../elasticsearch/+page.svelte`) — domain config edit (node type/count/
+  storage); slow/index log config; access-policy editor.
+
+### Security / identity
+
+- **Cognito** (`.../cognito/+page.svelte`, `cognitoidp`, `cognitoidentity`) — **user
+  drill-down** (attributes, group membership, password reset); group create/edit/delete; IDP
+  config edit; **custom-attribute** management; resource-server (OAuth) management; advanced
+  security/risk config.
+- **GuardDuty** (`.../guardduty/+page.svelte`) — **finding detail** + archive/suppress; detector
+  config (publishing frequency, SNS); export findings.
+- **SecurityHub** (`.../securityhub/+page.svelte`) — **finding detail drill-down** (remediation,
+  resources); custom-insight creation.
+- **Organizations** (`.../organizations/+page.svelte`) — **move account / reparent OU**;
+  policy **attach/detach** to accounts/OUs; account close/suspend.
+- **SSO Admin** (`.../ssoadmin/+page.svelte`) — permission-set **inline-policy editor**; bulk
+  multi-account assignment wizard; permission-set comparison.
+- **IdentityStore** (`.../identitystore/+page.svelte`) — attribute-based user search; group
+  hierarchy view; bulk user/group operations.
+- **VerifiedPermissions** (`.../verifiedpermissions/+page.svelte`) — Cedar policy **validator/
+  linter** with inline errors; policy diff; context JSON builder for the authorization tester.
+- **WAF / WAFv2** (`.../waf*/+page.svelte`) — **rule builder/editor** (rules are read-only);
+  IP-set / regex-pattern-set address editors; rule **priority reorder**; sampled-request
+  **inspector** + rule-evaluation simulator.
+- **Shield** (`.../shield/+page.svelte`) — functional **"Add Protection"** flow (button is
+  inert); protection detail/attack history; attack-timeline date-range picker.
+- **ACM** (`.../acm/+page.svelte`) — **file-upload** import (paste-only today); expiring-cert
+  dashboard; bulk tagging. **ACM PCA** (`.../acmpca/+page.svelte`) — **issue-certificate** flow;
+  CRL config; subordinate-CA chain builder.
+- **RAM** (`.../ram/+page.svelte`) — permission-document **JSON editor**; bulk invitation
+  accept/reject.
+
+### ML / AI / media
+
+- **Bedrock** (`.../bedrock/+page.svelte`) — **model invoke/test playground** with sample
+  prompts; fine-tuning training-status viewer; guardrail rule detail/edit.
+- **BedrockRuntime** (`.../bedrockruntime/+page.svelte`) — **token-by-token streaming** display;
+  inference-parameter tuning (temp/top-p/max-tokens) + system prompt editor; conversation
+  persistence/export; multi-model comparison.
+- **SageMaker** (`.../sagemaker/+page.svelte`) — model-artifact inspector; endpoint **A/B
+  traffic-split** / variant weights; training-job metrics/curves; HPO-tuning dashboard.
+- **SageMakerRuntime** (`.../sagemakeruntime/+page.svelte`) — streaming/chunked output display;
+  endpoint metrics (success rate/latency); async-job poller with S3 output preview/download.
+- **Comprehend** (`.../comprehend/+page.svelte`) — **live inference tester** (classify / detect
+  entities on sample text); training accuracy/F1 viewer; model-version comparison.
+- **Rekognition** (`.../rekognition/+page.svelte`) — face detail (confidence/attributes);
+  stream-processor start/stop/pause.
+- **Polly** (`.../polly/+page.svelte`) — output-format selector (PCM/Ogg, not just MP3); lexicon
+  XML editor + test pronunciation.
+- **Translate** (`.../translate/+page.svelte`) — **"Run Translation"** action (page is
+  list-only); terminology detail; parallel-data file upload; job status timeline.
+- **Transcribe** (`.../transcribe/+page.svelte`) — output-bucket config; vocabulary **file
+  import**; speaker-ID / language-model settings; **transcript download**.
+- **Textract** (`.../textract/+page.svelte`) — **local document upload** (S3-only today);
+  feature-type selection (hard-coded TABLES+FORMS); result JSON export; adapter selection in
+  analysis.
+- **MediaConvert** (`.../mediaconvert/+page.svelte`) — job **input/output settings** editor (S3
+  source picker, codec/output-group selection); live job-progress polling; preset application.
+- **MediaStore / MediaStoreData** (`.../mediastore*/+page.svelte`) — container metrics dashboard;
+  download progress indicator; batch object operations.
+
+### Messaging / engagement / misc
+
+- **SES** (`.../ses/+page.svelte`) — receipt-rule **action** config (S3/SNS/Lambda/SQS);
+  config-set event-destination management; bounce/complaint/delivery dashboard; template
+  **send-test**. **SESv2** (`.../sesv2/+page.svelte`) — contact-list **member** add/remove/edit;
+  CSV import/export; suppression-list bulk import.
+- **Pinpoint** (`.../pinpoint/+page.svelte`) — campaign **schedule/A-B** editor; journey **visual
+  builder** (journeys are read-only).
+- **STS** (`.../sts/+page.svelte`) — federation-token **policy editor**; decoded-authorization-
+  message JSON formatting; issued-credential/session history.
+- **Support** (`.../support/+page.svelte`) — case **attachment** upload/view; priority escalation
+  after creation; thread pagination.
+- **SWF** (`.../swf/+page.svelte`) — execution input/output payload viewer; activity-type detail
+  (timeouts/heartbeat); history event filtering.
+- **CloudTrail** (`.../cloudtrail/+page.svelte`) — row-expand **full event JSON**;
+  attribute-based filter builder (user/resource/source); delivery timeline.
+- **WorkSpaces** (`.../workspaces/+page.svelte`) — **start/stop/reboot/rebuild** actions (only
+  terminate today); bundle selector/comparison; connection diagnostics.
+- **XRay** (`.../xray/+page.svelte`) — **trace detail** service-map + timeline; segment call
+  hierarchy/latency breakdown; trace comparison.
+- **IoT** (`.../iot/+page.svelte`) — thing **attribute editor**; rule **action tester** (SQL +
+  sample payload); policy attach/detach manager. **IoTDataPlane**
+  (`.../iotdataplane/+page.svelte`) — live **MQTT topic browser**; per-topic message history;
+  connected-device dashboard. **IoTWireless** (`.../iotwireless/+page.svelte`) — device LoRaWAN
+  config detail; gateway metrics; FUOTA-task progress.
+- **CodeBuild** (`.../codebuild/+page.svelte`) — **Start Build** button; build-log streaming;
+  cache hit/miss + artifact info. **CodePipeline** (`.../codepipeline/+page.svelte`) — execution
+  **timeline** with action durations; artifact browser; approval audit log. **CodeDeploy**
+  (`.../codedeploy/+page.svelte`) — **rollback** action; per-instance deployment status; ASG
+  integration view. **CodeCommit** (`.../codecommit/+page.svelte`) — commit-log/graph; file
+  browser/blame; merge-conflict viewer. **CodeConnections / CodeStarConnections** — sync-blocker
+  detail; **Authorize** OAuth flow for PENDING connections; sync history. **CodeArtifact**
+  (`.../codeartifact/+page.svelte`) — version promote/dispose actions; dependency tree;
+  metadata editor.
+- **ServerlessRepo** (`.../serverlessrepo/+page.svelte`) — version-publish (code upload + SAM
+  validation); public-app discovery. **ServiceDiscovery**
+  (`.../servicediscovery/+page.svelte`) — instance-attribute editor; namespace DNS/VPC viewer.
+- **ResourceGroups / TaggingAPI** (`.../resourcegroups*/+page.svelte`) — resource-type breakdown;
+  bulk group ops from tag filters; "tag all non-compliant" remediation; CSV/JSON export.
+- **Amplify** (`.../amplify/+page.svelte`) — webhook/build-trigger config; custom-domain
+  management; build-settings editor; deployment-history metrics.
+- **MWAA** (`.../mwaa/+page.svelte`) — embedded S3 DAG browser; DAG content upload (create only
+  captures paths).
+- **S3Control** (`.../s3control/+page.svelte`) — access-point **policy viewer**/network-origin
+  editor; multi-region AP failover/weights. **S3Tables** (`.../s3tables/+page.svelte`) — Iceberg
+  **schema/column inspector**; optimize/vacuum/compaction actions.
+
+## Notes on the UI audit
+
+Findings are grounded in the actual `+page.svelte` contents (tabs, action buttons, and the SDK
+commands each page imports). "Read-only/list-only" means the page imports only `List*`/`Describe*`
+commands with search + refresh and no create/edit/delete or detail drill-down. As with the
+backend audit, these are prioritized enhancement candidates for follow-up PRs; no UI code was
+changed in this commit.
