@@ -1222,6 +1222,13 @@ type listJobsOutput struct {
 }
 
 func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
+	// AWS Batch ListJobs requires a grouping key; this simulator scopes jobs by
+	// job queue, so jobQueue is mandatory (AWS returns ClientException
+	// otherwise). jobStatus remains an optional filter.
+	if strings.TrimSpace(in.JobQueue) == "" {
+		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
+	}
+
 	var maxResults int32
 	if in.MaxResults != nil {
 		maxResults = *in.MaxResults
