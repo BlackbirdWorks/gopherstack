@@ -640,6 +640,13 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (
 		return nil, fmt.Errorf("roleArn is required: %w", ErrValidation)
 	}
 
+	// AWS S3 Control bounds Priority to a non-negative integer
+	// (@range(min:0, max:2147483647)). int32 already caps the upper bound;
+	// reject negative values here.
+	if priority < 0 {
+		return nil, fmt.Errorf("priority must be non-negative: %w", ErrValidation)
+	}
+
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
