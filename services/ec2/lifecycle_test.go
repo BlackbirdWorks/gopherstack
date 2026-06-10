@@ -161,6 +161,11 @@ func TestEC2Lifecycle_BackgroundReconciler(t *testing.T) {
 	t.Parallel()
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	// This test exercises the production background reconciler, so it starts the
+	// goroutine explicitly and stops it on cleanup. All other tests drive
+	// lifecycle transitions via TickLifecycleForTest and leave it stopped.
+	b.StartLifecycleReconciler()
+	t.Cleanup(b.StopLifecycleReconciler)
 
 	instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
 	require.NoError(t, err)
