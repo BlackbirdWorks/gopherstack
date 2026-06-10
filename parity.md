@@ -1404,3 +1404,76 @@ wrong, so fixing them is differentiation, not catch-up. The CFN intrinsic-error 
 templates fail *correctly* (today several silently succeed). A handful of EC2/S3/DDB items are
 tagged for shape-verification against the SDK before applying. With §P+§Q+§R the line-level backlog
 now exceeds ~150 discrete fixes.
+
+---
+
+# §G/§H/§O test-coverage progress (parity/mega-v2)
+
+Integration + Terraform tests added on this branch to close the §G, §H, and §O gaps. All compile
+under `go vet -tags=integration ./test/integration/...` and `go vet ./test/terraform/...`; they
+exercise real SDK / terraform-provider-aws lifecycles (create→read/list→update/delete) and assert
+AWS-accurate fields, not smoke tests.
+
+## §G integration tests added (`test/integration/`)
+
+Each is an SDK round-trip against the in-container stack:
+
+- **comprehend** — DetectSentiment (POSITIVE/NEGATIVE/NEUTRAL keyword paths), DetectDominantLanguage,
+  EntityRecognizer create→describe→list→delete.
+- **translate** — TranslateText (explicit + auto source), Terminology import→get→list→delete.
+- **polly** — SynthesizeSpeech (audio stream + content-type), Lexicon put→get→list→delete.
+- **rekognition** — Collection create→describe→list→delete (the only stateful resource).
+- **guardduty** — Detector and Filter create→get/describe→list→delete.
+- **accessanalyzer** — Analyzer and ArchiveRule create→get→list→delete.
+- **detective** — Graph create→list→delete.
+- **apprunner** — Service (image source) and Connection create→describe/list→delete.
+- **fsx** — FileSystem (Lustre) and Backup create→describe→delete.
+- **datasync** — Agent and Task (two NFS locations) create→describe→list→delete.
+- **directoryservice** — Directory (SimpleAD) create→describe→delete.
+- **workspaces** — IpGroup and ConnectionAlias create→describe→delete.
+- **appstream** — Stack and Fleet create→describe→delete.
+- **securityhub** — Insight create→get→delete (hub-enable tolerated as shared state).
+- **macie2** — CustomDataIdentifier create→get→list→delete (regex round-trip).
+- **inspector2** — Filter create→list→delete.
+- **appmesh** — Mesh and VirtualNode create→describe→list→delete.
+- **forecast** — DatasetGroup create→describe→list→delete.
+- **personalize** — DatasetGroup create→describe→list→delete.
+- **rolesanywhere** — TrustAnchor create→get→list→delete.
+- **dax** — SubnetGroup and ParameterGroup create→describe→delete.
+- **mediapackage** — Channel create→describe→list→delete.
+- **mediatailor** — SourceLocation create→describe→list→delete (HTTP base-URL round-trip).
+- **workmail** — Organization create→describe→delete + nested Group create→list→delete.
+- **quicksight** — Group (default namespace) create→describe→list→delete.
+- **medialive** — InputSecurityGroup create→describe→list→delete (whitelist CIDR round-trip).
+
+## §H / §O Terraform fixtures added (`test/terraform/`)
+
+New `parity_mega_test.go` (own provider block with the §H endpoints) + fixtures under
+`test/terraform/fixtures/`:
+
+- **guardduty/success** — `aws_guardduty_detector`.
+- **securityhub/success** — `aws_securityhub_account`.
+- **workspaces/ipgroup** — `aws_workspaces_ip_group` (two CIDR rules).
+- **appstream/stack** — `aws_appstream_stack`.
+- **waf/ipset** — classic `aws_waf_ipset` + `aws_waf_rule`.
+- **fsx/lustre** — VPC + subnet + `aws_fsx_lustre_file_system`.
+
+## §G/§H/§O remaining (deferred)
+
+- **Integration**: `opsworks`, `account` — AWS SDK v2 modules are not in `go.mod`, so no client can
+  be built; deferred until the modules are vendored. `quicksight` asset-bundle/folder-permission
+  ops and large-surface AppStream (AppBlock/ImageBuilder/Entitlements) / WorkSpaces
+  (Bundles/Images/Pools) sub-resources still need the precise handler↔backend op diff from §I
+  before locking in.
+- **Terraform**: remaining §H services not yet fixtured — `apprunner`, `comprehend`, `databrew`,
+  `datasync`, `directoryservice` (`ds`), `dlm`, `detective`, `forecast`, `macie2`, `medialive`,
+  `mediapackage`, `mediastoredata`, `mediatailor`, `personalize`, `polly`, `quicksight`,
+  `rekognition`, `rolesanywhere`, `transcribe`, `translate`, `workmail`. Also the §O cross-service
+  event e2e (S3→Lambda asserting target receipt), CFN custom-resource round-trip, API Gateway v2
+  full-stack-via-CFN, and the `*-comprehensive` multi-resource modules for Logs/Cognito/Glue/AppSync
+  remain open.
+- **Backend notes surfaced by these tests** (for §P/Q/R agents — not fixed here): per §I,
+  MediaTailor `DescribeChannel`/`DescribeProgram`, GuardDuty malware-protection ops, SecurityHub
+  `BatchGetAutomationRules`/`GetFindingStatistics`, Inspector2 `ListFindings`, and Macie2
+  `DescribeBuckets` remain empty-stub; the added tests deliberately target the stateful ops that
+  do round-trip and avoid asserting on those known-empty paths.
