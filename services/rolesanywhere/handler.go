@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -371,7 +372,10 @@ func (h *Handler) handleGetTrustAnchor(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
 	all, next, err := h.Backend.ListTrustAnchors(pageToken, maxResults)
 	if err != nil {
@@ -486,7 +490,10 @@ func (h *Handler) handleGetProfile(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListProfiles(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
 	all, next, err := h.Backend.ListProfiles(pageToken, maxResults)
 	if err != nil {
@@ -750,7 +757,10 @@ func (h *Handler) handleGetCrl(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListCrls(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
 	all, next, err := h.Backend.ListCrls(pageToken, maxResults)
 	if err != nil {
@@ -839,7 +849,10 @@ func (h *Handler) handleGetSubject(path string) (any, int, error) {
 }
 
 func (h *Handler) handleListSubjects(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
 	all, next, err := h.Backend.ListSubjects(pageToken, maxResults)
 	if err != nil {
@@ -1231,7 +1244,7 @@ func extractID(path, prefix string) string {
 }
 
 // parsePageParams extracts nextToken and maxResults from a query string.
-func parsePageParams(query string) (string, int) {
+func parsePageParams(query string) (string, int, error) {
 	var nextToken string
 
 	var maxResults int
@@ -1242,19 +1255,22 @@ func parsePageParams(query string) (string, int) {
 		}
 
 		if after, ok := strings.CutPrefix(part, "maxResults="); ok {
-			var n int
+			if after == "" {
+				continue
+			}
 
-			for _, c := range after {
-				if c >= '0' && c <= '9' {
-					n = n*base10 + int(c-'0')
-				}
+			// AWS rejects a non-numeric maxResults with ValidationException
+			// rather than silently coercing it to zero / dropping non-digits.
+			n, err := strconv.Atoi(after)
+			if err != nil || n < 0 {
+				return "", 0, ErrValidation
 			}
 
 			maxResults = n
 		}
 	}
 
-	return nextToken, maxResults
+	return nextToken, maxResults, nil
 }
 
 // ---- JSON serialization ----
