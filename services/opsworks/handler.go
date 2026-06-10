@@ -178,7 +178,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusNotImplemented, errResp("UnsupportedOperationException", err.Error()))
+		// AWS OpsWorks rejects an unrecognized action with HTTP 400
+		// ValidationException, not 501.
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
