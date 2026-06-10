@@ -155,6 +155,26 @@ const (
 	usersResource            = "users"
 )
 
+// dashboardUserPool is the JSON shape exposed to the cognitoidp dashboard UI.
+// Field names are PascalCase to match the TypeScript type in +page.svelte.
+type dashboardUserPool struct {
+	ID               string  `json:"ID"`
+	Name             string  `json:"Name"`
+	ARN              string  `json:"ARN,omitempty"`
+	MfaConfiguration string  `json:"MfaConfiguration,omitempty"`
+	CreatedAt        float64 `json:"CreatedAt,omitempty"`
+}
+
+func toDashboardPool(p *cognitoidpbackend.UserPool) dashboardUserPool {
+	return dashboardUserPool{
+		ID:               p.ID,
+		Name:             p.Name,
+		ARN:              p.ARN,
+		MfaConfiguration: p.MfaConfiguration,
+		CreatedAt:        float64(p.CreatedAt.Unix()),
+	}
+}
+
 // S3Settings holds dashboard-specific S3 configuration.
 type S3Settings struct {
 	DefaultRegion       string
@@ -836,9 +856,13 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusOK, map[string]any{"userPools": []any{}})
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"userPools": h.config.CognitoIDPOps.Backend.ListUserPools(),
-		})
+		pools := h.config.CognitoIDPOps.Backend.ListUserPools()
+		out := make([]dashboardUserPool, 0, len(pools))
+		for _, p := range pools {
+			out = append(out, toDashboardPool(p))
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"userPools": out})
 	})
 
 	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
