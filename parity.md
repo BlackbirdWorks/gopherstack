@@ -636,6 +636,38 @@ commands with search + refresh and no create/edit/delete or detail drill-down. A
 backend audit, these are prioritized enhancement candidates for follow-up PRs; no UI code was
 changed in this commit.
 
+## §E / §F implementation status (branch `parity/mega-v2`)
+
+**§E — backend-only services given a dashboard page (DONE, 18 of 21):**
+Added list/detail SvelteKit pages at `ui/src/routes/<svc>/+page.svelte` for
+**accessanalyzer, account, appmesh, databrew, datasync, dax, detective, directoryservice,
+dlm, forecast, macie2, medialive, mediapackage, mediatailor, personalize, quicksight,
+rolesanywhere, workmail**. Each is wired to real backend data via the typed AWS JS SDK client
+(through the gopherstack endpoint), registered in `implementedDashboardRouteIds` and
+`sidebarCategories` in `ui/src/lib/nav.ts`, with a `getXClient` factory in
+`ui/src/lib/aws-client.ts`. Pages follow the existing fsx/shield template: tabbed
+list views (one tab per primary `List*`/`Describe*` resource), client-side search, refresh,
+status pills, and graceful empty/error states. App Mesh, MediaTailor (VOD), and WorkMail
+(users/groups/resources) expose a parent-id filter input because their child `List*` calls
+require a `meshName` / `SourceLocationName` / `OrganizationId`; QuickSight exposes an editable
+`AwsAccountId` input (defaults to `000000000000`).
+
+**§E remaining (deferred, 3):**
+- **opsworks** — DEFERRED: `@aws-sdk/client-opsworks` publishes no release in the
+  `3.1053.x`/`@smithy/core@3.24.x` line used by this UI; pinning it forces an incompatible
+  `@smithy/core` that breaks the entire SDK bundle. Re-add once a compatible client version
+  ships, or proxy via the dashboard Connect API instead of the JS SDK.
+- **qldb / qldbsession** — DEFERRED: no backend implementation exists under
+  `services/qldb*` (only a README), so there is no real data to wire; `qldbsession` is a
+  data-plane companion with no standalone page in any case.
+
+**§F — per-service UI features: NOT STARTED in this pass.**
+All §F enhancements (S3 object preview, DynamoDB query-by-index, EC2 SG editing, Lambda
+versions/aliases, IAM inline policies, the per-service CloudWatch metric charts, the global
+resource/tag search, etc.) remain open. This pass prioritized making the 18 invisible
+backend-only services reachable in the console (§E) before deepening existing pages (§F). The
+full §F checklist above is unchanged and remains the backlog for follow-up dashboard PRs.
+
 ---
 
 # Test-coverage & remaining-functionality audit (2026-06-10, pass 2)
