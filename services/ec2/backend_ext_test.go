@@ -933,9 +933,12 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 		{name: "authorize_ingress", op: "auth_ingress", wantErr: false},
 		{name: "authorize_egress", op: "auth_egress", wantErr: false},
 		{name: "revoke_ingress", op: "revoke_ingress", wantErr: false},
+		{name: "revoke_egress", op: "revoke_egress", wantErr: false},
+		{name: "revoke_egress_idempotent", op: "revoke_egress_idempotent", wantErr: false},
 		{name: "authorize_ingress_bad_sg", op: "auth_ingress_bad_sg", wantErr: true},
 		{name: "authorize_egress_bad_sg", op: "auth_egress_bad_sg", wantErr: true},
 		{name: "revoke_ingress_bad_sg", op: "revoke_ingress_bad_sg", wantErr: true},
+		{name: "revoke_egress_bad_sg", op: "revoke_egress_bad_sg", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -979,6 +982,31 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				sgs := b.DescribeSecurityGroups([]string{sg.ID})
 				require.Len(t, sgs, 1)
 				assert.Empty(t, sgs[0].IngressRules)
+
+			case "revoke_egress":
+				sg, err := b.CreateSecurityGroup("test-sg-revoke-egr", "test", "vpc-default")
+				require.NoError(t, err)
+				err = b.AuthorizeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
+				require.NoError(t, err)
+				err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
+				require.NoError(t, err)
+				sgs := b.DescribeSecurityGroups([]string{sg.ID})
+				require.Len(t, sgs, 1)
+				assert.Empty(t, sgs[0].EgressRules)
+
+			case "revoke_egress_idempotent":
+				// Revoking a rule that was never added must succeed without error.
+				sg, err := b.CreateSecurityGroup("test-sg-revoke-egr-idem", "test", "vpc-default")
+				require.NoError(t, err)
+				err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
+				require.NoError(t, err)
+				sgs := b.DescribeSecurityGroups([]string{sg.ID})
+				require.Len(t, sgs, 1)
+				assert.Empty(t, sgs[0].EgressRules)
+
+			case "revoke_egress_bad_sg":
+				err := b.RevokeSecurityGroupEgress("sg-nonexistent", []ec2.SecurityGroupRule{rule})
+				require.Error(t, err)
 
 			case "auth_ingress_bad_sg":
 				err := b.AuthorizeSecurityGroupIngress(
@@ -1427,6 +1455,28 @@ func TestHandlerExtOperations(t *testing.T) {
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RevokeSecurityGroupIngressResponse"},
+		},
+		{
+			name: "RevokeSecurityGroupEgress_success",
+			setupFn: func(h *ec2.Handler) string {
+				sg, _ := h.Backend.CreateSecurityGroup("test-sg-revoke-egr-h", "test", "vpc-default")
+				_ = h.Backend.AuthorizeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{
+					{Protocol: "tcp", FromPort: 443, ToPort: 443, IPRange: "0.0.0.0/0"},
+				})
+
+				return "Action=RevokeSecurityGroupEgress&Version=2016-11-15" +
+					"&GroupId=" + sg.ID +
+					"&IpPermissions.1.IpProtocol=tcp&IpPermissions.1.FromPort=443" +
+					"&IpPermissions.1.ToPort=443&IpPermissions.1.IpRanges.1.CidrIp=0.0.0.0/0"
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RevokeSecurityGroupEgressResponse"},
+		},
+		{
+			name:         "RevokeSecurityGroupEgress_missing_group_id",
+			body:         "Action=RevokeSecurityGroupEgress&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
 			// StartInstances on a running instance must fail with IncorrectInstanceState

@@ -1204,6 +1204,29 @@ func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 	return nil
 }
 
+// RevokeSecurityGroupEgress removes matching egress rules from a security group.
+// It validates the group exists (returning InvalidGroup.NotFound otherwise) and
+// removes each rule that matches. Like the AWS API, revoking a rule that is not
+// present is not an error — the operation is idempotent on the rule set.
+func (b *InMemoryBackend) RevokeSecurityGroupEgress(
+	groupID string,
+	rules []SecurityGroupRule,
+) error {
+	b.mu.Lock("RevokeSecurityGroupEgress")
+	defer b.mu.Unlock()
+
+	sg, ok := b.securityGroups[groupID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+	}
+
+	for _, rule := range rules {
+		sg.EgressRules = removeRule(sg.EgressRules, rule)
+	}
+
+	return nil
+}
+
 // removeRule removes matching SecurityGroupRule entries from a slice.
 func removeRule(rules []SecurityGroupRule, target SecurityGroupRule) []SecurityGroupRule {
 	out := rules[:0]

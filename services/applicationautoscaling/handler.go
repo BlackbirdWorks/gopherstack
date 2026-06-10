@@ -449,11 +449,22 @@ type describeScalingActivitiesOutput struct {
 
 func (h *Handler) handleDescribeScalingActivities(
 	_ context.Context,
-	_ *describeScalingActivitiesInput,
+	in *describeScalingActivitiesInput,
 ) (*describeScalingActivitiesOutput, error) {
-	// The in-memory backend does not generate synthetic scaling activities.
-	// Return an empty but non-nil slice so AWS SDK clients receive `[]` not `null`.
-	return &describeScalingActivitiesOutput{ScalingActivities: []any{}}, nil
+	if in.ServiceNamespace == "" {
+		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	}
+
+	activities := h.Backend.DescribeScalingActivities(
+		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
+	)
+
+	items := make([]any, 0, len(activities))
+	for _, a := range activities {
+		items = append(items, a)
+	}
+
+	return &describeScalingActivitiesOutput{ScalingActivities: items}, nil
 }
 
 type scalableTargetActionInput struct {

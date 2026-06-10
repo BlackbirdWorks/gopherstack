@@ -3,6 +3,7 @@ package applicationautoscaling
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,15 +106,31 @@ type ScheduledAction struct {
 
 // InMemoryBackend stores Application Auto Scaling state in memory.
 type InMemoryBackend struct {
-	scalableTargets  map[string]*ScalableTarget
-	scalingPolicies  map[string]*ScalingPolicy
-	scheduledActions map[string]*ScheduledAction
-	targetARNIndex   map[string]string // ARN → scalableTargetKey (secondary index for O(1) lookup)
-	policyNameIndex  map[string]string // policyNameKey → policyARN (secondary index for O(1) lookup)
-	actionNameIndex  map[string]string // actionNameKey → actionARN (secondary index for O(1) lookup)
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
+	scalableTargets   map[string]*ScalableTarget
+	scalingPolicies   map[string]*ScalingPolicy
+	scheduledActions  map[string]*ScheduledAction
+	targetARNIndex    map[string]string
+	policyNameIndex   map[string]string
+	actionNameIndex   map[string]string
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
+	scalingActivities []*ScalingActivity
+}
+
+// ScalingActivity records a capacity-changing activity on a scalable target,
+// returned by DescribeScalingActivities.
+type ScalingActivity struct {
+	StartTime         time.Time `json:"StartTime"`
+	EndTime           time.Time `json:"EndTime"`
+	ActivityID        string    `json:"ActivityId"`
+	ServiceNamespace  string    `json:"ServiceNamespace"`
+	ResourceID        string    `json:"ResourceId"`
+	ScalableDimension string    `json:"ScalableDimension"`
+	Description       string    `json:"Description"`
+	Cause             string    `json:"Cause"`
+	StatusCode        string    `json:"StatusCode"`
+	StatusMessage     string    `json:"StatusMessage"`
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -222,10 +239,68 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 
 	b.scalableTargets[key] = t
 	b.targetARNIndex[t.ARN] = key
+
+	b.recordActivityLocked(
+		serviceNamespace, resourceID, scalableDimension,
+		"Setting min/max capacity",
+		"target registered via RegisterScalableTarget",
+		now,
+	)
+
 	cp := *t
 	cp.Tags = maps.Clone(t.Tags)
 
 	return &cp, nil
+}
+
+// recordActivityLocked appends a completed scaling activity. The caller must
+// hold the write lock.
+func (b *InMemoryBackend) recordActivityLocked(
+	serviceNamespace, resourceID, scalableDimension, description, cause string,
+	when time.Time,
+) {
+	b.scalingActivities = append(b.scalingActivities, &ScalingActivity{
+		ActivityID:        uuid.NewString(),
+		ServiceNamespace:  serviceNamespace,
+		ResourceID:        resourceID,
+		ScalableDimension: scalableDimension,
+		Description:       description,
+		Cause:             cause,
+		StartTime:         when,
+		EndTime:           when,
+		StatusCode:        "Successful",
+		StatusMessage:     "Successfully set desired capacity.",
+	})
+}
+
+// DescribeScalingActivities returns recorded scaling activities filtered by the
+// optional resourceID and scalableDimension, most recent first.
+func (b *InMemoryBackend) DescribeScalingActivities(
+	serviceNamespace, resourceID, scalableDimension string,
+) []*ScalingActivity {
+	b.mu.RLock("DescribeScalingActivities")
+	defer b.mu.RUnlock()
+
+	out := make([]*ScalingActivity, 0, len(b.scalingActivities))
+
+	for _, a := range slices.Backward(b.scalingActivities) {
+		if serviceNamespace != "" && a.ServiceNamespace != serviceNamespace {
+			continue
+		}
+
+		if resourceID != "" && a.ResourceID != resourceID {
+			continue
+		}
+
+		if scalableDimension != "" && a.ScalableDimension != scalableDimension {
+			continue
+		}
+
+		cp := *a
+		out = append(out, &cp)
+	}
+
+	return out
 }
 
 // mergeTags merges src into dst enforcing the per-resource tag limit.
@@ -288,6 +363,13 @@ func (b *InMemoryBackend) updateExistingTarget(
 			return nil, err
 		}
 	}
+
+	b.recordActivityLocked(
+		existing.ServiceNamespace, existing.ResourceID, existing.ScalableDimension,
+		"Setting min/max capacity",
+		"target updated via RegisterScalableTarget",
+		now,
+	)
 
 	cp := *existing
 	cp.Tags = maps.Clone(existing.Tags)
@@ -954,6 +1036,7 @@ func (b *InMemoryBackend) Reset() {
 	b.targetARNIndex = make(map[string]string)
 	b.policyNameIndex = make(map[string]string)
 	b.actionNameIndex = make(map[string]string)
+	b.scalingActivities = nil
 }
 
 // Purge removes all resources from the backend. It is safe to call concurrently.
@@ -967,4 +1050,5 @@ func (b *InMemoryBackend) Purge() {
 	b.targetARNIndex = make(map[string]string)
 	b.policyNameIndex = make(map[string]string)
 	b.actionNameIndex = make(map[string]string)
+	b.scalingActivities = nil
 }

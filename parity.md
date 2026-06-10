@@ -94,3 +94,76 @@ A previous version of this document listed WAFv2, S3 Tables and SES handlers (~5
 - `test/integration/appconfigdata_test.go`
 - `test/integration/apigatewaymanagementapi_test.go`
 - `test/integration/acmpca_test.go`
+
+## Bucket A — Missing functionality / stubbed ops (status as of this PR)
+
+The bucket-A audit ran on an older snapshot; most items had already been
+implemented by the time this PR was written. Each was re-verified against the
+current code.
+
+### Implemented in this PR (real state + table-driven tests)
+
+- **EC2 `RevokeSecurityGroupEgress`** — was a no-op stub that always returned
+  `Return: true`. Now validates the group exists (`InvalidGroup.NotFound`
+  otherwise), removes matching egress rules, and is idempotent on absent rules
+  (mirrors `RevokeSecurityGroupIngress`). `services/ec2/backend_ext.go`,
+  `handler.go`, `backend_iface.go`.
+- **CloudTrail `LookupEvents`** — was a hardcoded empty list. Added an `events`
+  store + `RecordEvent`, and `LookupEvents` now honors StartTime/EndTime,
+  LookupAttributes (ANDed; EventId/EventName/EventSource/Username/ReadOnly/
+  AccessKeyId/ResourceName/ResourceType), newest-first ordering, MaxResults, and
+  NextToken pagination. `services/cloudtrail/backend.go`.
+- **CodePipeline `ListActionExecutions`** — was an empty stub. `StartPipelineExecution`
+  now records an `ActionExecution` per action; `ListActionExecutions` returns
+  them newest-first and supports the `filter.pipelineExecutionId` filter.
+  `ListRuleTypes` now returns the AWS-managed rule-type catalog. `ListRuleExecutions`
+  / `ListDeployActionExecutionTargets` return valid empty lists for known
+  pipelines and `ErrNotFound` otherwise (the emulator does not run condition
+  rules or model deploy targets). `services/codepipeline/backend.go`, `handler.go`.
+- **ApplicationAutoScaling `DescribeScalingActivities`** — was an empty list.
+  `RegisterScalableTarget` (create + update) now records a `ScalingActivity`;
+  `DescribeScalingActivities` returns them filtered by ResourceId/ScalableDimension,
+  newest-first. `services/applicationautoscaling/backend.go`, `handler.go`.
+
+### Verified already implemented (no change needed)
+
+- **Lambda** durable-execution ops + capacity-provider ops — real
+  `durableExecutionStore` state and capacity-provider CRUD with tests
+  (`services/lambda/handler_stubs.go`, `models.go`, `new_ops_test.go`).
+- **SSM** the ~120 "stub" ops route to real backend methods that mutate
+  region-scoped state (activations, associations, maintenance windows, ops
+  items, patch baselines) — `services/ssm/backend_stubs.go`.
+- **Glue** `GetBlueprintRun`, `GetUsageProfile`, `GetColumnStatisticsTaskRun`,
+  etc. — real implementations in `services/glue/backend_batch2.go`.
+- **Athena** notebook + named-query ops — implemented in
+  `services/athena/backend_extra.go`.
+- **WAFv2** `DescribeManagedRuleGroup` and `GenerateMobileSdkReleaseUrl` have
+  real handlers; the `nil, nil` ops (DeleteWebACL etc.) are correct empty-body
+  responses for void-result operations.
+- **API Gateway** `GetAccount` / `GetUsage` are wired in the dispatch table.
+- **Firehose** Lambda transform (`LambdaInvoker`) + interval flusher
+  (`StartWorker`) are implemented.
+- **CloudFormation** `DescribeType` (registry + built-in schema) and StackSet
+  drift ops are routed and implemented.
+- **OpsWorks** has real handlers (CreateStack etc.); only genuinely
+  unsupported ops return `UnsupportedOperationException`.
+
+### Explicitly deferred (still genuine gaps — for the next agent)
+
+- **AppSync `EvaluateCode`** (`services/appsync/backend.go:2459`) — still returns
+  a hardcoded `{"evaluationResult":"{}"}`. A faithful implementation requires a
+  JS interpreter to run the APPSYNC_JS `request`/`response` handler against the
+  supplied context; a partial heuristic (e.g. echoing `ctx.result`) would be a
+  half-broken handler, so it was left as-is rather than shipped incorrectly.
+- **Kafka** `Update{Connectivity,Monitoring,Rebalancing,Security,Storage}`
+  (`services/kafka/backend.go:1466+`) — these validate the cluster and create a
+  real `ClusterOperation` record, but do not persist the specific setting
+  payloads (the handlers do not parse/store them). Functional but not fully
+  field-accurate; revisit if cluster setting round-trips are needed.
+- **CloudFront** long-tail stub APIs (FieldLevelEncryption, KeyValueStore,
+  StreamingDistribution, TrustStore, ConnectionFunction, …) in
+  `services/cloudfront/handler.go` `dispatchStubs*` — still return minimal
+  empty/`<Id>`-only XML rather than real per-resource state. High volume; defer.
+- **EventBridge Pipes** (`services/pipes/runner.go`) — when an enrichment/target
+  invoker is unwired the runner returns `nil, nil` (silent skip) rather than
+  erroring. Low impact; left as-is.
