@@ -1,6 +1,7 @@
 package rds_test
 
 import (
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"sync"
@@ -1102,6 +1103,71 @@ func TestHandler_DescribeDBShardGroups_Pagination(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "Marker")
+}
+
+// TestHandler_DescribeDBParameterGroups_Pagination verifies that
+// DescribeDBParameterGroups honours MaxRecords and returns a Marker that pages through
+// the full set exactly once with no overlap.
+func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
+	t.Parallel()
+	h := newRDSHandler()
+
+	const total = 5
+	for i := range total {
+		rec := postRDSForm(t, h, fmt.Sprintf(
+			"Action=CreateDBParameterGroup&Version=2014-10-31"+
+				"&DBParameterGroupName=pg-%02d&DBParameterGroupFamily=postgres15"+
+				"&Description=test", i,
+		))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// First page: MaxRecords=2 must return a Marker.
+	rec := postRDSForm(t, h, "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=2")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type pgResp struct {
+		Marker string `xml:"DescribeDBParameterGroupsResult>Marker"`
+		Groups []struct {
+			Name string `xml:"DBParameterGroupName"`
+		} `xml:"DescribeDBParameterGroupsResult>DBParameterGroups>DBParameterGroup"`
+	}
+
+	seen := map[string]int{}
+	marker := ""
+	pages := 0
+
+	for {
+		q := "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=2"
+		if marker != "" {
+			q += "&Marker=" + marker
+		}
+
+		pageRec := postRDSForm(t, h, q)
+		require.Equal(t, http.StatusOK, pageRec.Code)
+
+		var resp pgResp
+		require.NoError(t, xml.Unmarshal(pageRec.Body.Bytes(), &resp))
+		require.LessOrEqual(t, len(resp.Groups), 2)
+
+		for _, g := range resp.Groups {
+			seen[g.Name]++
+		}
+
+		pages++
+		if resp.Marker == "" {
+			break
+		}
+		marker = resp.Marker
+		require.Less(t, pages, 10, "pagination did not terminate")
+	}
+
+	// 5 user groups + the default parameter group are returned exactly once each.
+	require.GreaterOrEqual(t, len(seen), total)
+	for name, count := range seen {
+		assert.Equalf(t, 1, count, "group %s appeared on more than one page", name)
+	}
+	assert.Greater(t, pages, 1, "expected multiple pages")
 }
 
 func TestHandler_DescribeIntegrations_Pagination(t *testing.T) {

@@ -59,7 +59,7 @@ func (db *InMemoryDB) ExtractKeySchema(
 	table *Table,
 	indexName string,
 ) ([]models.KeySchemaElement, *models.Projection, error) {
-	return db.extractKeySchema(table, indexName)
+	return db.extractKeySchema(table, indexName, false)
 }
 
 func (db *InMemoryDB) SortCandidates(

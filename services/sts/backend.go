@@ -570,7 +570,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 // GetCallerIdentity returns the mock caller identity.
 // When accessKeyID corresponds to an assumed-role session, returns the assumed-role ARN and user ID.
 // When sessionToken is non-empty (ASIA-prefixed key), the stored token must match; a mismatch
-// returns ErrAccessDenied mapped to InvalidClientTokenId.
+// returns ErrUnknownAccessKeyID mapped to HTTP 400 InvalidClientTokenId (matching AWS).
 func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*GetCallerIdentityResponse, error) {
 	b.cntGetCallerIdentity.Add(1)
 
@@ -587,8 +587,13 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*
 
 		if ok {
 			// When the caller presents a session token, it must match the stored value.
+			// AWS rejects a mismatched session token with HTTP 400 InvalidClientTokenId,
+			// not 403 AccessDenied.
 			if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
-				return nil, fmt.Errorf("%w: session token mismatch", ErrAccessDenied)
+				return nil, fmt.Errorf(
+					"%w: the security token included in the request is invalid",
+					ErrUnknownAccessKeyID,
+				)
 			}
 
 			return &GetCallerIdentityResponse{

@@ -1257,7 +1257,8 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 }
 
 func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string) error {
-	if _, err := h.Backend.GetModel(apiID, modelID); err != nil {
+	model, err := h.Backend.GetModel(apiID, modelID)
+	if err != nil {
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1265,7 +1266,14 @@ func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string)
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"value": emptyModelTemplate})
+	// AWS returns the model's schema as the template value; fall back to an empty
+	// object only when the model has no schema defined.
+	value := model.Schema
+	if value == "" {
+		value = emptyModelTemplate
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"value": value})
 }
 
 func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageName string) error {

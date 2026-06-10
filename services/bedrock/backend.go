@@ -28,6 +28,10 @@ const (
 
 const bedrockDefaultPageSize = 100
 
+// maxProvisionedModelUnits is the upper bound AWS enforces on the modelUnits value
+// for a single CreateProvisionedModelThroughput request.
+const maxProvisionedModelUnits = 1000
+
 // Resource lifecycle status constants.
 const (
 	statusCreating   = "Creating"
@@ -1018,6 +1022,13 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 
 	if modelUnits <= 0 {
 		return nil, fmt.Errorf("%w: modelUnits must be greater than 0", ErrValidation)
+	}
+
+	if modelUnits > maxProvisionedModelUnits {
+		return nil, fmt.Errorf(
+			"%w: modelUnits must be at most %d",
+			ErrValidation, maxProvisionedModelUnits,
+		)
 	}
 
 	if _, exists := b.pmtsByName[name]; exists {

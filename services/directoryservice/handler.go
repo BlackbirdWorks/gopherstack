@@ -163,7 +163,8 @@ func (h *Handler) doDispatch(c *echo.Context) error {
 		return fn(c)
 	}
 
-	return c.JSON(http.StatusNotImplemented, errResp("NotImplementedException", "operation not implemented: "+op))
+	// AWS rejects an unrecognised operation with a 400 client error rather than 501.
+	return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", "unrecognized operation: "+op))
 }
 
 func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl // existing issue.

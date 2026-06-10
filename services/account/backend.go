@@ -1,15 +1,19 @@
 package account
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 )
 
 var (
 	errNoAlternateContact = errors.New("ResourceNotFoundException: no alternate contact found")
 	errNoContactInfo      = errors.New("ResourceNotFoundException: no contact information set")
+	// errInvalidNextToken is returned when ListRegions receives an undecodable cursor.
+	errInvalidNextToken = errors.New("ValidationException: invalid nextToken")
 )
 
 // RegionOptStatus represents the opt-in status of an AWS region.
@@ -146,8 +150,14 @@ func (b *InMemoryBackend) DescribeAccount() (*Details, error) {
 	}, nil
 }
 
-// ListRegions returns regions filtered by opt-in status.
-func (b *InMemoryBackend) ListRegions(statusFilter []RegionOptStatus, _ int, _ string) ([]*Region, string, error) {
+// ListRegions returns regions filtered by opt-in status, honouring AWS's
+// maxResults/nextToken pagination. nextToken is an opaque cursor (base64 of the
+// exclusive-start RegionName); when maxResults <= 0 the full filtered list is returned.
+func (b *InMemoryBackend) ListRegions(
+	statusFilter []RegionOptStatus,
+	maxResults int,
+	nextToken string,
+) ([]*Region, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -159,7 +169,50 @@ func (b *InMemoryBackend) ListRegions(statusFilter []RegionOptStatus, _ int, _ s
 		}
 	}
 
-	return filtered, "", nil
+	// Order deterministically by RegionName so the name-based pagination cursor is
+	// stable across pages (AWS returns regions in alphabetical order).
+	slices.SortFunc(filtered, func(a, b *Region) int {
+		return strings.Compare(a.RegionName, b.RegionName)
+	})
+
+	// Apply the exclusive-start cursor: skip everything up to and including the
+	// region named by the decoded token.
+	if nextToken != "" {
+		start, decErr := decodeRegionToken(nextToken)
+		if decErr != nil {
+			return nil, "", errInvalidNextToken
+		}
+
+		idx := 0
+		for idx < len(filtered) && filtered[idx].RegionName <= start {
+			idx++
+		}
+
+		filtered = filtered[idx:]
+	}
+
+	if maxResults <= 0 || maxResults >= len(filtered) {
+		return filtered, "", nil
+	}
+
+	page := filtered[:maxResults]
+
+	return page, encodeRegionToken(page[len(page)-1].RegionName), nil
+}
+
+// encodeRegionToken produces an opaque pagination cursor for the given RegionName.
+func encodeRegionToken(regionName string) string {
+	return base64.StdEncoding.EncodeToString([]byte(regionName))
+}
+
+// decodeRegionToken reverses encodeRegionToken.
+func decodeRegionToken(token string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return "", err
+	}
+
+	return string(raw), nil
 }
 
 // GetAlternateContact retrieves an alternate contact by type.

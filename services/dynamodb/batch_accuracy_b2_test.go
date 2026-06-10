@@ -116,6 +116,59 @@ func TestBatchGetItem_EmptyKeysForTable_Rejected(t *testing.T) {
 	b2AssertValidationErr(t, err)
 }
 
+// TestBatchGetItem_DuplicateKeys_Rejected verifies that a per-table Keys list
+// containing the same key twice is rejected with a ValidationException, matching AWS,
+// rather than returning the matching item more than once.
+func TestBatchGetItem_DuplicateKeys_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		keys    []map[string]types.AttributeValue
+		wantErr bool
+	}{
+		{
+			name: "unique_keys_ok",
+			keys: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "a"}},
+				{"pk": &types.AttributeValueMemberS{Value: "b"}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "duplicate_keys_rejected",
+			keys: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "a"}},
+				{"pk": &types.AttributeValueMemberS{Value: "a"}},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := b2NewDB(t)
+			b2CreateTable(t, d)
+
+			_, err := d.BatchGetItem(context.Background(), &dynamodb.BatchGetItemInput{
+				RequestItems: map[string]types.KeysAndAttributes{
+					b2TableName: {Keys: tt.keys},
+				},
+			})
+
+			if tt.wantErr {
+				b2AssertValidationErr(t, err)
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 // ─── Section 31: BatchGetItem AttributesToGet projection ────────────────────
 
 func TestBatchGetItem_AttributesToGet_AppliedWhenNoProjectionExpression(t *testing.T) {

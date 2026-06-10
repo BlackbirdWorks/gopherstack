@@ -27,24 +27,31 @@ type Archive struct {
 
 // Job stores state for a single Glacier retrieval or inventory job.
 type Job struct {
-	VaultARN             string `json:"vaultARN"`
-	VaultName            string `json:"vaultName"`
-	JobID                string `json:"jobID"`
-	JobDescription       string `json:"jobDescription,omitempty"`
-	Action               string `json:"action"`
-	ArchiveID            string `json:"archiveID,omitempty"`
-	InventoryFormat      string `json:"inventoryFormat,omitempty"`
-	StatusCode           string `json:"statusCode"`
-	StatusMessage        string `json:"statusMessage,omitempty"`
-	CreationDate         string `json:"creationDate"`
-	CompletionDate       string `json:"completionDate,omitempty"`
-	Tier                 string `json:"tier,omitempty"`
-	SHA256TreeHash       string `json:"sha256TreeHash,omitempty"`
-	SNSTopic             string `json:"snsTopic,omitempty"`
-	RetrievalByteRange   string `json:"retrievalByteRange,omitempty"`
-	ArchiveSizeInBytes   int64  `json:"archiveSizeInBytes,omitempty"`
-	InventorySizeInBytes int64  `json:"inventorySizeInBytes,omitempty"`
-	Completed            bool   `json:"completed"`
+	// readyAt is the simulated time at which an asynchronous retrieval job completes.
+	// While time.Now() is before readyAt the job stays InProgress; on read it is then
+	// promoted to Succeeded. It is internal state and never serialized.
+	readyAt time.Time
+
+	VaultARN           string `json:"vaultARN"`
+	VaultName          string `json:"vaultName"`
+	JobID              string `json:"jobID"`
+	JobDescription     string `json:"jobDescription,omitempty"`
+	Action             string `json:"action"`
+	ArchiveID          string `json:"archiveID,omitempty"`
+	InventoryFormat    string `json:"inventoryFormat,omitempty"`
+	StatusCode         string `json:"statusCode"`
+	StatusMessage      string `json:"statusMessage,omitempty"`
+	CreationDate       string `json:"creationDate"`
+	CompletionDate     string `json:"completionDate,omitempty"`
+	Tier               string `json:"tier,omitempty"`
+	SHA256TreeHash     string `json:"sha256TreeHash,omitempty"`
+	SNSTopic           string `json:"snsTopic,omitempty"`
+	RetrievalByteRange string `json:"retrievalByteRange,omitempty"`
+
+	ArchiveSizeInBytes   int64 `json:"archiveSizeInBytes,omitempty"`
+	InventorySizeInBytes int64 `json:"inventorySizeInBytes,omitempty"`
+
+	Completed bool `json:"completed"`
 }
 
 // vaultLockPolicyRequest is the request body for InitiateVaultLock.

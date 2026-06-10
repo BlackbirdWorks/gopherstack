@@ -1382,9 +1382,12 @@ func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request)
 	packageID, domainName := parts[0], parts[1]
 
 	if assocErr := h.Backend.AssociatePackage(packageID, domainName); assocErr != nil {
-		if errors.Is(assocErr, ErrDomainNotFound) || errors.Is(assocErr, ErrPackageNotFound) {
+		switch {
+		case errors.Is(assocErr, ErrDomainNotFound) || errors.Is(assocErr, ErrPackageNotFound):
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", assocErr.Error())
-		} else {
+		case errors.Is(assocErr, ErrPackageAlreadyAssociated):
+			h.writeError(r, w, http.StatusConflict, "ConflictException", assocErr.Error())
+		default:
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", assocErr.Error())
 		}
 

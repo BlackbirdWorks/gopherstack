@@ -1530,15 +1530,21 @@ func (h *Handler) handleDescribeDBParameterGroups(vals url.Values) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBParameterGroup, 0, len(groups))
-	for _, pg := range groups {
-		cp := pg
-		members = append(members, toXMLParameterGroup(&cp))
+	members, marker, err := paginateDescribe(vals, groups, func(a, b DBParameterGroup) bool {
+		return a.DBParameterGroupName < b.DBParameterGroupName
+	}, func(item DBParameterGroup) xmlDBParameterGroup {
+		cp := item
+
+		return toXMLParameterGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBParameterGroupsResponse{
 		Xmlns:             rdsXMLNS,
 		DBParameterGroups: xmlDBParameterGroupList{Members: members},
+		Marker:            marker,
 	}, nil
 }
 
@@ -1571,14 +1577,19 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBParameter, 0, len(params))
-	for _, p := range params {
-		members = append(members, xmlDBParameter(p))
+	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
+		return a.ParameterName < b.ParameterName
+	}, func(item DBParameter) xmlDBParameter {
+		return xmlDBParameter(item)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBParametersResponse{
 		Xmlns:      rdsXMLNS,
 		Parameters: xmlDBParameterList{Members: members},
+		Marker:     marker,
 	}, nil
 }
 
@@ -1628,15 +1639,21 @@ func (h *Handler) handleDescribeOptionGroups(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlOptionGroup, 0, len(groups))
-	for _, og := range groups {
-		cp := og
-		members = append(members, toXMLOptionGroup(&cp))
+	members, marker, err := paginateDescribe(vals, groups, func(a, b OptionGroup) bool {
+		return a.OptionGroupName < b.OptionGroupName
+	}, func(item OptionGroup) xmlOptionGroup {
+		cp := item
+
+		return toXMLOptionGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeOptionGroupsResponse{
 		Xmlns:            rdsXMLNS,
 		OptionGroupsList: xmlOptionGroupList{Members: members},
+		Marker:           marker,
 	}, nil
 }
 
@@ -1874,16 +1891,22 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterParameterGroup, 0, len(groups))
-	for _, pg := range groups {
-		cp := pg
-		members = append(members, toXMLClusterParameterGroup(&cp))
+	members, marker, err := paginateDescribe(vals, groups, func(a, b DBParameterGroup) bool {
+		return a.DBParameterGroupName < b.DBParameterGroupName
+	}, func(item DBParameterGroup) xmlDBClusterParameterGroup {
+		cp := item
+
+		return toXMLClusterParameterGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClusterParameterGroupsResponse{
 		Xmlns: rdsXMLNS,
 		Result: describeDBClusterParameterGroupsResult{
 			DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
+			Marker:                   marker,
 		},
 	}, nil
 }
@@ -2467,6 +2490,7 @@ type createDBParameterGroupResponse struct {
 type describeDBParameterGroupsResponse struct {
 	XMLName           xml.Name                `xml:"DescribeDBParameterGroupsResponse"`
 	Xmlns             string                  `xml:"xmlns,attr"`
+	Marker            string                  `xml:"DescribeDBParameterGroupsResult>Marker,omitempty"`
 	DBParameterGroups xmlDBParameterGroupList `xml:"DescribeDBParameterGroupsResult>DBParameterGroups"`
 }
 
@@ -2490,6 +2514,7 @@ type resetDBParameterGroupResponse struct {
 type describeDBParametersResponse struct {
 	XMLName    xml.Name           `xml:"DescribeDBParametersResponse"`
 	Xmlns      string             `xml:"xmlns,attr"`
+	Marker     string             `xml:"DescribeDBParametersResult>Marker,omitempty"`
 	Parameters xmlDBParameterList `xml:"DescribeDBParametersResult>Parameters"`
 }
 
@@ -2525,6 +2550,7 @@ type createOptionGroupResponse struct {
 type describeOptionGroupsResponse struct {
 	XMLName          xml.Name           `xml:"DescribeOptionGroupsResponse"`
 	Xmlns            string             `xml:"xmlns,attr"`
+	Marker           string             `xml:"DescribeOptionGroupsResult>Marker,omitempty"`
 	OptionGroupsList xmlOptionGroupList `xml:"DescribeOptionGroupsResult>OptionGroupsList"`
 }
 
@@ -2641,6 +2667,7 @@ type createDBClusterParameterGroupResponse struct {
 }
 
 type describeDBClusterParameterGroupsResult struct {
+	Marker                   string                         `xml:"Marker,omitempty"`
 	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DBClusterParameterGroups"`
 }
 

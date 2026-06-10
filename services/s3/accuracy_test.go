@@ -451,6 +451,46 @@ func TestCompleteMultipart_EntityTooSmall(t *testing.T) {
 	assert.Equal(t, "EntityTooSmall", errResp.Code)
 }
 
+func TestCompleteMultipart_EmptyParts_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "no_parts_element",
+			body: `<CompleteMultipartUpload></CompleteMultipartUpload>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "mp-empty")
+
+			createRec := doRequest(handler, http.MethodPost, "/mp-empty/obj?uploads", nil, nil)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var initResult s3.InitiateMultipartUploadResult
+			require.NoError(t, xml.NewDecoder(createRec.Body).Decode(&initResult))
+			uploadID := initResult.UploadID
+
+			completePath := fmt.Sprintf("/mp-empty/obj?uploadId=%s", uploadID)
+			completeRec := doRequest(handler, http.MethodPost, completePath,
+				strings.NewReader(tt.body), nil)
+
+			assert.Equal(t, http.StatusBadRequest, completeRec.Code)
+
+			var errResp s3.ErrorResponse
+			require.NoError(t, xml.NewDecoder(completeRec.Body).Decode(&errResp))
+			assert.Equal(t, "InvalidRequest", errResp.Code)
+		})
+	}
+}
+
 func TestCompleteMultipart_SinglePartSmall_OK(t *testing.T) {
 	t.Parallel()
 

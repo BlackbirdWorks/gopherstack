@@ -2102,6 +2102,12 @@ func (b *InMemoryBackend) assembleMultipartData(
 	upload *StoredMultipartUpload,
 	input *s3.CompleteMultipartUploadInput,
 ) (multipartAssemblyResult, error) {
+	// AWS rejects CompleteMultipartUpload with an empty (or absent) parts list:
+	// the request must enumerate at least one previously-uploaded part.
+	if input.MultipartUpload == nil || len(input.MultipartUpload.Parts) == 0 {
+		return multipartAssemblyResult{}, ErrEmptyParts
+	}
+
 	parts := input.MultipartUpload.Parts
 
 	data, partMD5s, err := b.collectPartsData(upload, parts)

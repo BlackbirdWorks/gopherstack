@@ -688,6 +688,7 @@ func TestRefinement2_GetJobOutput_SHA256Header(t *testing.T) {
 			t.Parallel()
 
 			bk := glacier.NewInMemoryBackend()
+			glacier.SetRetrievalDelay(bk, 0)
 			h := glacier.NewHandler(bk)
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion

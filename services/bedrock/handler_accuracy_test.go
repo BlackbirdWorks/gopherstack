@@ -81,6 +81,41 @@ func TestAccuracy_ProvisionedModelThroughput_InitialStatusCreating(t *testing.T)
 	assert.Equal(t, "Creating", pmt.Status)
 }
 
+// TestAccuracy_CreateProvisionedModelThroughput_ModelUnitsBounds verifies that
+// modelUnits is validated against both the lower (>0) and upper bound AWS enforces.
+func TestAccuracy_CreateProvisionedModelThroughput_ModelUnitsBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		modelUnits int32
+		wantErr    bool
+	}{
+		{name: "valid", modelUnits: 1, wantErr: false},
+		{name: "zero_rejected", modelUnits: 0, wantErr: true},
+		{name: "negative_rejected", modelUnits: -1, wantErr: true},
+		{name: "above_upper_bound_rejected", modelUnits: 100000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.CreateProvisionedModelThroughput(
+				"pmt-"+tt.name, "amazon.titan-text-express-v1", tt.modelUnits, "", nil)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ValidationException")
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestAccuracy_AdvanceProvisionedModelThroughput_CreatingToInService(t *testing.T) {
 	t.Parallel()
 

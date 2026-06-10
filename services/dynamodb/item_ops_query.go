@@ -128,7 +128,7 @@ func (db *InMemoryDB) QueryWithContext(
 		pkskIndex:              pkskIndexCopy,
 	}
 
-	keySchema, projection, err := db.extractKeySchema(snapshotTable, idxName)
+	keySchema, projection, err := db.extractKeySchema(snapshotTable, idxName, aws.ToBool(input.ConsistentRead))
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +172,7 @@ func (db *InMemoryDB) QueryWithContext(
 func (db *InMemoryDB) extractKeySchema(
 	table *Table,
 	indexName string,
+	consistentRead bool,
 ) ([]models.KeySchemaElement, *models.Projection, error) {
 	if indexName == "" {
 		return table.KeySchema, nil, nil
@@ -179,6 +180,13 @@ func (db *InMemoryDB) extractKeySchema(
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == indexName {
+			// A GSI is eventually consistent; AWS rejects ConsistentRead=true on a GSI.
+			if consistentRead {
+				return nil, nil, NewValidationException(
+					"Consistent reads are not supported on global secondary indexes",
+				)
+			}
+
 			return gsi.KeySchema, &gsi.Projection, nil
 		}
 	}

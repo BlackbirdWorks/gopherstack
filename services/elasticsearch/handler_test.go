@@ -964,6 +964,37 @@ func TestElasticsearchHandler_AssociatePackage(t *testing.T) {
 			},
 			wantCode: http.StatusNotFound,
 		},
+		{
+			name: "duplicate_association_conflict",
+			setup: func(t *testing.T, h *elasticsearch.Handler) (string, string) {
+				t.Helper()
+
+				pkgResp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
+					"PackageName": "dup-dict",
+					"PackageType": "TXT-DICTIONARY",
+				})
+				defer pkgResp.Body.Close()
+
+				var pkgOut map[string]any
+				require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+				pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
+
+				domResp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+					"DomainName": "dup-domain",
+				})
+				domResp.Body.Close()
+
+				// First association succeeds; the test body issues the duplicate.
+				firstResp := doRequest(t, h, http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgID+"/dup-domain", nil)
+				firstResp.Body.Close()
+				require.Equal(t, http.StatusOK, firstResp.StatusCode)
+
+				return pkgID, "dup-domain"
+			},
+			wantCode:     http.StatusConflict,
+			wantContains: []string{"ConflictException"},
+		},
 	}
 
 	for _, tt := range tests {

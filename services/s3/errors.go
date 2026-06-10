@@ -28,6 +28,7 @@ var (
 	ErrNoSuchUpload               = awserr.New("NoSuchUpload", awserr.ErrNotFound)
 	ErrInvalidPart                = errors.New("InvalidPart")
 	ErrInvalidPartOrder           = errors.New("InvalidPartOrder")
+	ErrEmptyParts                 = errors.New("InvalidRequest")
 	ErrNoCompressor               = errors.New("data is compressed but no compressor available")
 	ErrNoBucketPolicy             = errors.New("NoSuchBucketPolicy")
 	ErrNoCORSConfig               = errors.New("NoSuchCORSConfiguration")
@@ -109,6 +110,11 @@ func coreErrorTable() []s3ErrorEntry {
 		{ErrInvalidPartOrder, s3ErrorInfo{
 			"InvalidPartOrder",
 			"The list of parts was not in ascending order. Parts must be ordered by part number.",
+			http.StatusBadRequest,
+		}},
+		{ErrEmptyParts, s3ErrorInfo{
+			"InvalidRequest",
+			"You must specify at least one part",
 			http.StatusBadRequest,
 		}},
 		{ErrInvalidArgument, s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest}},

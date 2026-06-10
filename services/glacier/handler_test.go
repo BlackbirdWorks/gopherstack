@@ -17,6 +17,10 @@ import (
 
 func newTestHandler() *glacier.Handler {
 	bk := glacier.NewInMemoryBackend()
+	// Disable the simulated asynchronous retrieval window so handler tests that
+	// initiate a job and immediately read its output remain deterministic. The
+	// async lifecycle itself is covered by dedicated tests in backend_test.go.
+	glacier.SetRetrievalDelay(bk, 0)
 	h := glacier.NewHandler(bk)
 	h.AccountID = testAccountID
 	h.DefaultRegion = testRegion

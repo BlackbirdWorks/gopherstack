@@ -659,9 +659,14 @@ func TestAccuracyB2_ListJobs_CompletedParamValidation(t *testing.T) {
 func TestAccuracyB2_GetJobOutput_CompletedFilter_Integration(t *testing.T) {
 	t.Parallel()
 
-	// Initiate a job (which is immediately Succeeded in our emulator) then verify
-	// that GetJobOutput works. Then seed an InProgress job and verify rejection.
-	h := newTestHandler()
+	// Initiate a job and verify that, with the simulated retrieval window disabled,
+	// GetJobOutput works immediately. A zero retrieval delay keeps the assertion
+	// deterministic. Then seed an InProgress job and verify rejection.
+	bk := glacier.NewInMemoryBackend()
+	glacier.SetRetrievalDelay(bk, 0)
+	h := glacier.NewHandler(bk)
+	h.AccountID = testAccountID
+	h.DefaultRegion = testRegion
 	createVault(t, h, "job-filter-vault")
 
 	jobRec := doRequest(t, h, http.MethodPost,
