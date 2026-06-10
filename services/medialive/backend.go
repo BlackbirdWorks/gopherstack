@@ -61,6 +61,19 @@ const (
 	deviceTypeHD              = "HD"
 	transferTypeOutgoing      = "OUTGOING"
 	transferTypeIncoming      = "INCOMING"
+
+	networkStateActive   = "ACTIVE"
+	networkStateDeleting = "DELETING"
+
+	sdiSourceStateIdle    = "IDLE"
+	sdiSourceStateDeleted = "DELETED"
+	sdiSourceTypeSingle   = "SINGLE"
+	sdiSourceModeQuadrant = "QUADRANT"
+
+	channelPlacementGroupStateUnassigned = "UNASSIGNED"
+	channelPlacementGroupStateDeleting   = "DELETING"
+
+	channelEngineVersion = "AVCHD-1.0.0"
 )
 
 // ErrNotFound is returned when a resource does not exist.
@@ -579,68 +592,168 @@ type storedScheduleAction struct {
 	ActionType string `json:"actionType"`
 }
 
+type storedNetwork struct {
+	Tags                 map[string]string `json:"tags"`
+	ARN                  string            `json:"arn"`
+	ID                   string            `json:"id"`
+	Name                 string            `json:"name"`
+	State                string            `json:"state"`
+	AssociatedClusterIDs []string          `json:"associatedClusterIds"`
+	IPPools              []IPPool          `json:"ipPools"`
+	Routes               []Route           `json:"routes"`
+}
+
+func (n *storedNetwork) toNetwork() *Network {
+	tags := make(map[string]string, len(n.Tags))
+	maps.Copy(tags, n.Tags)
+	clusters := make([]string, len(n.AssociatedClusterIDs))
+	copy(clusters, n.AssociatedClusterIDs)
+	pools := make([]IPPool, len(n.IPPools))
+	copy(pools, n.IPPools)
+	routes := make([]Route, len(n.Routes))
+	copy(routes, n.Routes)
+
+	return &Network{
+		Tags:                 tags,
+		ARN:                  n.ARN,
+		ID:                   n.ID,
+		Name:                 n.Name,
+		State:                n.State,
+		AssociatedClusterIDs: clusters,
+		IPPools:              pools,
+		Routes:               routes,
+	}
+}
+
+type storedSdiSource struct {
+	ARN    string   `json:"arn"`
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Type   string   `json:"type"`
+	Mode   string   `json:"mode"`
+	State  string   `json:"state"`
+	Inputs []string `json:"inputs"`
+}
+
+func (s *storedSdiSource) toSdiSource() *SdiSource {
+	inputs := make([]string, len(s.Inputs))
+	copy(inputs, s.Inputs)
+
+	return &SdiSource{
+		ARN:    s.ARN,
+		ID:     s.ID,
+		Name:   s.Name,
+		Type:   s.Type,
+		Mode:   s.Mode,
+		State:  s.State,
+		Inputs: inputs,
+	}
+}
+
+type storedChannelPlacementGroup struct {
+	Tags      map[string]string `json:"tags"`
+	ARN       string            `json:"arn"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	ClusterID string            `json:"clusterId"`
+	State     string            `json:"state"`
+	Channels  []string          `json:"channels"`
+	Nodes     []string          `json:"nodes"`
+}
+
+func (g *storedChannelPlacementGroup) toGroup() *ChannelPlacementGroup {
+	tags := make(map[string]string, len(g.Tags))
+	maps.Copy(tags, g.Tags)
+	channels := make([]string, len(g.Channels))
+	copy(channels, g.Channels)
+	nodes := make([]string, len(g.Nodes))
+	copy(nodes, g.Nodes)
+
+	return &ChannelPlacementGroup{
+		Tags:      tags,
+		ARN:       g.ARN,
+		ID:        g.ID,
+		Name:      g.Name,
+		ClusterID: g.ClusterID,
+		State:     g.State,
+		Channels:  channels,
+		Nodes:     nodes,
+	}
+}
+
 type snapshot struct {
-	Channels              map[string]*storedChannel                      `json:"channels"`
-	Inputs                map[string]*storedInput                        `json:"inputs"`
-	InputSecurityGroups   map[string]*storedInputSecurityGroup           `json:"inputSecurityGroups"`
-	InputDevices          map[string]*storedInputDevice                  `json:"inputDevices"`
-	Multiplexes           map[string]*storedMultiplex                    `json:"multiplexes"`
-	Clusters              map[string]*storedCluster                      `json:"clusters"`
-	Tags                  map[string]map[string]string                   `json:"tags"`
-	SignalMaps            map[string]*storedSignalMap                    `json:"signalMaps"`
-	CWAlarmTemplateGroups map[string]*storedCloudWatchAlarmTemplateGroup `json:"cwAlarmTemplateGroups"`
-	CWAlarmTemplates      map[string]*storedCloudWatchAlarmTemplate      `json:"cwAlarmTemplates"`
-	EBRuleTemplateGroups  map[string]*storedEventBridgeRuleTemplateGroup `json:"ebRuleTemplateGroups"`
-	EBRuleTemplates       map[string]*storedEventBridgeRuleTemplate      `json:"ebRuleTemplates"`
-	Reservations          map[string]*storedReservation                  `json:"reservations"`
-	ScheduleActions       map[string][]*storedScheduleAction             `json:"scheduleActions"`
-	AccountID             string                                         `json:"accountId"`
-	Region                string                                         `json:"region"`
+	Channels               map[string]*storedChannel                      `json:"channels"`
+	Inputs                 map[string]*storedInput                        `json:"inputs"`
+	InputSecurityGroups    map[string]*storedInputSecurityGroup           `json:"inputSecurityGroups"`
+	InputDevices           map[string]*storedInputDevice                  `json:"inputDevices"`
+	Multiplexes            map[string]*storedMultiplex                    `json:"multiplexes"`
+	Clusters               map[string]*storedCluster                      `json:"clusters"`
+	Tags                   map[string]map[string]string                   `json:"tags"`
+	SignalMaps             map[string]*storedSignalMap                    `json:"signalMaps"`
+	CWAlarmTemplateGroups  map[string]*storedCloudWatchAlarmTemplateGroup `json:"cwAlarmTemplateGroups"`
+	CWAlarmTemplates       map[string]*storedCloudWatchAlarmTemplate      `json:"cwAlarmTemplates"`
+	EBRuleTemplateGroups   map[string]*storedEventBridgeRuleTemplateGroup `json:"ebRuleTemplateGroups"`
+	EBRuleTemplates        map[string]*storedEventBridgeRuleTemplate      `json:"ebRuleTemplates"`
+	Reservations           map[string]*storedReservation                  `json:"reservations"`
+	ScheduleActions        map[string][]*storedScheduleAction             `json:"scheduleActions"`
+	Networks               map[string]*storedNetwork                      `json:"networks"`
+	SdiSources             map[string]*storedSdiSource                    `json:"sdiSources"`
+	ChannelPlacementGroups map[string]*storedChannelPlacementGroup        `json:"channelPlacementGroups"`
+	AccountKmsKeyID        string                                         `json:"accountKmsKeyId"`
+	AccountID              string                                         `json:"accountId"`
+	Region                 string                                         `json:"region"`
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu                    *lockmetrics.RWMutex
-	channels              map[string]*storedChannel
-	inputs                map[string]*storedInput
-	inputSecurityGroups   map[string]*storedInputSecurityGroup
-	inputDevices          map[string]*storedInputDevice
-	multiplexes           map[string]*storedMultiplex
-	clusters              map[string]*storedCluster
-	tags                  map[string]map[string]string
-	signalMaps            map[string]*storedSignalMap
-	cwAlarmTemplateGroups map[string]*storedCloudWatchAlarmTemplateGroup
-	cwAlarmTemplates      map[string]*storedCloudWatchAlarmTemplate
-	ebRuleTemplateGroups  map[string]*storedEventBridgeRuleTemplateGroup
-	ebRuleTemplates       map[string]*storedEventBridgeRuleTemplate
-	reservations          map[string]*storedReservation
-	scheduleActions       map[string][]*storedScheduleAction
-	offerings             []*Offering
-	accountID             string
-	region                string
+	cwAlarmTemplates       map[string]*storedCloudWatchAlarmTemplate
+	ebRuleTemplateGroups   map[string]*storedEventBridgeRuleTemplateGroup
+	inputs                 map[string]*storedInput
+	inputSecurityGroups    map[string]*storedInputSecurityGroup
+	inputDevices           map[string]*storedInputDevice
+	multiplexes            map[string]*storedMultiplex
+	clusters               map[string]*storedCluster
+	tags                   map[string]map[string]string
+	signalMaps             map[string]*storedSignalMap
+	ebRuleTemplates        map[string]*storedEventBridgeRuleTemplate
+	channels               map[string]*storedChannel
+	mu                     *lockmetrics.RWMutex
+	cwAlarmTemplateGroups  map[string]*storedCloudWatchAlarmTemplateGroup
+	reservations           map[string]*storedReservation
+	scheduleActions        map[string][]*storedScheduleAction
+	networks               map[string]*storedNetwork
+	sdiSources             map[string]*storedSdiSource
+	channelPlacementGroups map[string]*storedChannelPlacementGroup
+	accountKmsKeyID        string
+	accountID              string
+	region                 string
+	offerings              []*Offering
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:                    lockmetrics.New("medialive"),
-		channels:              make(map[string]*storedChannel),
-		inputs:                make(map[string]*storedInput),
-		inputSecurityGroups:   make(map[string]*storedInputSecurityGroup),
-		inputDevices:          make(map[string]*storedInputDevice),
-		multiplexes:           make(map[string]*storedMultiplex),
-		clusters:              make(map[string]*storedCluster),
-		tags:                  make(map[string]map[string]string),
-		signalMaps:            make(map[string]*storedSignalMap),
-		cwAlarmTemplateGroups: make(map[string]*storedCloudWatchAlarmTemplateGroup),
-		cwAlarmTemplates:      make(map[string]*storedCloudWatchAlarmTemplate),
-		ebRuleTemplateGroups:  make(map[string]*storedEventBridgeRuleTemplateGroup),
-		ebRuleTemplates:       make(map[string]*storedEventBridgeRuleTemplate),
-		reservations:          make(map[string]*storedReservation),
-		scheduleActions:       make(map[string][]*storedScheduleAction),
-		offerings:             seedOfferings(region),
-		accountID:             accountID,
-		region:                region,
+		mu:                     lockmetrics.New("medialive"),
+		channels:               make(map[string]*storedChannel),
+		inputs:                 make(map[string]*storedInput),
+		inputSecurityGroups:    make(map[string]*storedInputSecurityGroup),
+		inputDevices:           make(map[string]*storedInputDevice),
+		multiplexes:            make(map[string]*storedMultiplex),
+		clusters:               make(map[string]*storedCluster),
+		tags:                   make(map[string]map[string]string),
+		signalMaps:             make(map[string]*storedSignalMap),
+		cwAlarmTemplateGroups:  make(map[string]*storedCloudWatchAlarmTemplateGroup),
+		cwAlarmTemplates:       make(map[string]*storedCloudWatchAlarmTemplate),
+		ebRuleTemplateGroups:   make(map[string]*storedEventBridgeRuleTemplateGroup),
+		ebRuleTemplates:        make(map[string]*storedEventBridgeRuleTemplate),
+		reservations:           make(map[string]*storedReservation),
+		scheduleActions:        make(map[string][]*storedScheduleAction),
+		networks:               make(map[string]*storedNetwork),
+		sdiSources:             make(map[string]*storedSdiSource),
+		channelPlacementGroups: make(map[string]*storedChannelPlacementGroup),
+		offerings:              seedOfferings(region),
+		accountID:              accountID,
+		region:                 region,
 	}
 }
 
@@ -724,6 +837,10 @@ func (b *InMemoryBackend) Reset() {
 	b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
 	b.reservations = make(map[string]*storedReservation)
 	b.scheduleActions = make(map[string][]*storedScheduleAction)
+	b.networks = make(map[string]*storedNetwork)
+	b.sdiSources = make(map[string]*storedSdiSource)
+	b.channelPlacementGroups = make(map[string]*storedChannelPlacementGroup)
+	b.accountKmsKeyID = ""
 }
 
 // Snapshot serializes current state to JSON.
@@ -732,22 +849,26 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	s := snapshot{
-		Channels:              b.channels,
-		Inputs:                b.inputs,
-		InputSecurityGroups:   b.inputSecurityGroups,
-		InputDevices:          b.inputDevices,
-		Multiplexes:           b.multiplexes,
-		Clusters:              b.clusters,
-		Tags:                  b.tags,
-		SignalMaps:            b.signalMaps,
-		CWAlarmTemplateGroups: b.cwAlarmTemplateGroups,
-		CWAlarmTemplates:      b.cwAlarmTemplates,
-		EBRuleTemplateGroups:  b.ebRuleTemplateGroups,
-		EBRuleTemplates:       b.ebRuleTemplates,
-		Reservations:          b.reservations,
-		ScheduleActions:       b.scheduleActions,
-		AccountID:             b.accountID,
-		Region:                b.region,
+		Channels:               b.channels,
+		Inputs:                 b.inputs,
+		InputSecurityGroups:    b.inputSecurityGroups,
+		InputDevices:           b.inputDevices,
+		Multiplexes:            b.multiplexes,
+		Clusters:               b.clusters,
+		Tags:                   b.tags,
+		SignalMaps:             b.signalMaps,
+		CWAlarmTemplateGroups:  b.cwAlarmTemplateGroups,
+		CWAlarmTemplates:       b.cwAlarmTemplates,
+		EBRuleTemplateGroups:   b.ebRuleTemplateGroups,
+		EBRuleTemplates:        b.ebRuleTemplates,
+		Reservations:           b.reservations,
+		ScheduleActions:        b.scheduleActions,
+		Networks:               b.networks,
+		SdiSources:             b.sdiSources,
+		ChannelPlacementGroups: b.channelPlacementGroups,
+		AccountKmsKeyID:        b.accountKmsKeyID,
+		AccountID:              b.accountID,
+		Region:                 b.region,
 	}
 
 	data, _ := json.Marshal(s)
@@ -815,10 +936,33 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.scheduleActions = make(map[string][]*storedScheduleAction)
 	}
+	b.restoreParity(&s)
+	b.accountKmsKeyID = s.AccountKmsKeyID
 	b.accountID = s.AccountID
 	b.region = s.Region
 
 	return nil
+}
+
+// restoreParity restores the parity resource maps, defaulting nil maps to empty.
+func (b *InMemoryBackend) restoreParity(s *snapshot) {
+	if s.Networks != nil {
+		b.networks = s.Networks
+	} else {
+		b.networks = make(map[string]*storedNetwork)
+	}
+
+	if s.SdiSources != nil {
+		b.sdiSources = s.SdiSources
+	} else {
+		b.sdiSources = make(map[string]*storedSdiSource)
+	}
+
+	if s.ChannelPlacementGroups != nil {
+		b.channelPlacementGroups = s.ChannelPlacementGroups
+	} else {
+		b.channelPlacementGroups = make(map[string]*storedChannelPlacementGroup)
+	}
 }
 
 func (b *InMemoryBackend) channelARN(id string) string {
@@ -859,6 +1003,18 @@ func (b *InMemoryBackend) ebRuleTemplateARN(id string) string {
 
 func (b *InMemoryBackend) reservationARN(id string) string {
 	return arn.Build("medialive", b.region, b.accountID, "reservation:"+id)
+}
+
+func (b *InMemoryBackend) networkARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "network:"+id)
+}
+
+func (b *InMemoryBackend) sdiSourceARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "sdiSource:"+id)
+}
+
+func (b *InMemoryBackend) channelPlacementGroupARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, "channelPlacementGroup:"+id)
 }
 
 func newID() string {
@@ -3124,4 +3280,623 @@ func (b *InMemoryBackend) BatchUpdateSchedule(
 	}
 
 	return &BatchUpdateScheduleResult{Creates: created, Deletes: deleted}, nil
+}
+
+// --- Network operations ---
+
+// CreateNetwork creates a new Network.
+func (b *InMemoryBackend) CreateNetwork(
+	name string,
+	ipPools []IPPool,
+	routes []Route,
+	tags map[string]string,
+) (*Network, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+
+	id := newID()
+	pools := make([]IPPool, len(ipPools))
+	copy(pools, ipPools)
+	rs := make([]Route, len(routes))
+	copy(rs, routes)
+
+	n := &storedNetwork{
+		Tags:                 copyTags(tags),
+		ARN:                  b.networkARN(id),
+		ID:                   id,
+		Name:                 name,
+		State:                networkStateActive,
+		AssociatedClusterIDs: []string{},
+		IPPools:              pools,
+		Routes:               rs,
+	}
+
+	b.mu.Lock("CreateNetwork")
+	defer b.mu.Unlock()
+
+	b.networks[id] = n
+
+	return n.toNetwork(), nil
+}
+
+// DescribeNetwork returns a Network by ID.
+func (b *InMemoryBackend) DescribeNetwork(networkID string) (*Network, error) {
+	b.mu.RLock("DescribeNetwork")
+	defer b.mu.RUnlock()
+
+	n, ok := b.networks[networkID]
+	if !ok {
+		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
+	}
+
+	return n.toNetwork(), nil
+}
+
+// UpdateNetwork updates a Network's mutable fields.
+func (b *InMemoryBackend) UpdateNetwork(
+	networkID, name string,
+	ipPools []IPPool,
+	routes []Route,
+) (*Network, error) {
+	b.mu.Lock("UpdateNetwork")
+	defer b.mu.Unlock()
+
+	n, ok := b.networks[networkID]
+	if !ok {
+		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
+	}
+
+	if name != "" {
+		n.Name = name
+	}
+
+	if ipPools != nil {
+		pools := make([]IPPool, len(ipPools))
+		copy(pools, ipPools)
+		n.IPPools = pools
+	}
+
+	if routes != nil {
+		rs := make([]Route, len(routes))
+		copy(rs, routes)
+		n.Routes = rs
+	}
+
+	return n.toNetwork(), nil
+}
+
+// DeleteNetwork deletes a Network.
+func (b *InMemoryBackend) DeleteNetwork(networkID string) (*Network, error) {
+	b.mu.Lock("DeleteNetwork")
+	defer b.mu.Unlock()
+
+	n, ok := b.networks[networkID]
+	if !ok {
+		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
+	}
+
+	n.State = networkStateDeleting
+	out := n.toNetwork()
+	delete(b.networks, networkID)
+
+	return out, nil
+}
+
+// ListNetworks returns a paginated list of Networks.
+func (b *InMemoryBackend) ListNetworks(
+	maxResults int,
+	nextToken string,
+) ([]*Network, string, error) {
+	b.mu.RLock("ListNetworks")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedNetwork, 0, len(b.networks))
+	for _, n := range b.networks {
+		all = append(all, n)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*Network, 0, len(pg.Data))
+	for _, n := range pg.Data {
+		out = append(out, n.toNetwork())
+	}
+
+	return out, pg.Next, nil
+}
+
+// --- SdiSource operations ---
+
+// CreateSdiSource creates a new SDI source.
+func (b *InMemoryBackend) CreateSdiSource(
+	name, sdiType, mode string,
+	_ map[string]string,
+) (*SdiSource, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+
+	if sdiType == "" {
+		sdiType = sdiSourceTypeSingle
+	}
+
+	if mode == "" {
+		mode = sdiSourceModeQuadrant
+	}
+
+	id := newID()
+	s := &storedSdiSource{
+		ARN:    b.sdiSourceARN(id),
+		ID:     id,
+		Name:   name,
+		Type:   sdiType,
+		Mode:   mode,
+		State:  sdiSourceStateIdle,
+		Inputs: []string{},
+	}
+
+	b.mu.Lock("CreateSdiSource")
+	defer b.mu.Unlock()
+
+	b.sdiSources[id] = s
+
+	return s.toSdiSource(), nil
+}
+
+// DescribeSdiSource returns an SDI source by ID.
+func (b *InMemoryBackend) DescribeSdiSource(sdiSourceID string) (*SdiSource, error) {
+	b.mu.RLock("DescribeSdiSource")
+	defer b.mu.RUnlock()
+
+	s, ok := b.sdiSources[sdiSourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
+	}
+
+	return s.toSdiSource(), nil
+}
+
+// UpdateSdiSource updates an SDI source's mutable fields.
+func (b *InMemoryBackend) UpdateSdiSource(
+	sdiSourceID, name, sdiType, mode string,
+) (*SdiSource, error) {
+	b.mu.Lock("UpdateSdiSource")
+	defer b.mu.Unlock()
+
+	s, ok := b.sdiSources[sdiSourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
+	}
+
+	if name != "" {
+		s.Name = name
+	}
+
+	if sdiType != "" {
+		s.Type = sdiType
+	}
+
+	if mode != "" {
+		s.Mode = mode
+	}
+
+	return s.toSdiSource(), nil
+}
+
+// DeleteSdiSource deletes an SDI source.
+func (b *InMemoryBackend) DeleteSdiSource(sdiSourceID string) (*SdiSource, error) {
+	b.mu.Lock("DeleteSdiSource")
+	defer b.mu.Unlock()
+
+	s, ok := b.sdiSources[sdiSourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
+	}
+
+	s.State = sdiSourceStateDeleted
+	out := s.toSdiSource()
+	delete(b.sdiSources, sdiSourceID)
+
+	return out, nil
+}
+
+// ListSdiSources returns a paginated list of SDI sources.
+func (b *InMemoryBackend) ListSdiSources(
+	maxResults int,
+	nextToken string,
+) ([]*SdiSource, string, error) {
+	b.mu.RLock("ListSdiSources")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedSdiSource, 0, len(b.sdiSources))
+	for _, s := range b.sdiSources {
+		all = append(all, s)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*SdiSource, 0, len(pg.Data))
+	for _, s := range pg.Data {
+		out = append(out, s.toSdiSource())
+	}
+
+	return out, pg.Next, nil
+}
+
+// --- ChannelPlacementGroup operations ---
+
+// cpgKey builds the composite map key for a placement group.
+func cpgKey(clusterID, groupID string) string {
+	return clusterID + "/" + groupID
+}
+
+// CreateChannelPlacementGroup creates a placement group within a cluster.
+func (b *InMemoryBackend) CreateChannelPlacementGroup(
+	clusterID, name string,
+	nodes []string,
+	tags map[string]string,
+) (*ChannelPlacementGroup, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: clusterId required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateChannelPlacementGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterID]; !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	id := newID()
+	ns := make([]string, len(nodes))
+	copy(ns, nodes)
+
+	g := &storedChannelPlacementGroup{
+		Tags:      copyTags(tags),
+		ARN:       b.channelPlacementGroupARN(id),
+		ID:        id,
+		Name:      name,
+		ClusterID: clusterID,
+		State:     channelPlacementGroupStateUnassigned,
+		Channels:  []string{},
+		Nodes:     ns,
+	}
+
+	b.channelPlacementGroups[cpgKey(clusterID, id)] = g
+
+	return g.toGroup(), nil
+}
+
+// DescribeChannelPlacementGroup returns a placement group by cluster and group ID.
+func (b *InMemoryBackend) DescribeChannelPlacementGroup(
+	clusterID, groupID string,
+) (*ChannelPlacementGroup, error) {
+	b.mu.RLock("DescribeChannelPlacementGroup")
+	defer b.mu.RUnlock()
+
+	g, ok := b.channelPlacementGroups[cpgKey(clusterID, groupID)]
+	if !ok {
+		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
+	}
+
+	return g.toGroup(), nil
+}
+
+// UpdateChannelPlacementGroup updates a placement group's mutable fields.
+func (b *InMemoryBackend) UpdateChannelPlacementGroup(
+	clusterID, groupID, name string,
+	nodes []string,
+) (*ChannelPlacementGroup, error) {
+	b.mu.Lock("UpdateChannelPlacementGroup")
+	defer b.mu.Unlock()
+
+	g, ok := b.channelPlacementGroups[cpgKey(clusterID, groupID)]
+	if !ok {
+		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
+	}
+
+	if name != "" {
+		g.Name = name
+	}
+
+	if nodes != nil {
+		ns := make([]string, len(nodes))
+		copy(ns, nodes)
+		g.Nodes = ns
+	}
+
+	return g.toGroup(), nil
+}
+
+// DeleteChannelPlacementGroup deletes a placement group.
+func (b *InMemoryBackend) DeleteChannelPlacementGroup(
+	clusterID, groupID string,
+) (*ChannelPlacementGroup, error) {
+	b.mu.Lock("DeleteChannelPlacementGroup")
+	defer b.mu.Unlock()
+
+	key := cpgKey(clusterID, groupID)
+
+	g, ok := b.channelPlacementGroups[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
+	}
+
+	g.State = channelPlacementGroupStateDeleting
+	out := g.toGroup()
+	delete(b.channelPlacementGroups, key)
+
+	return out, nil
+}
+
+// ListChannelPlacementGroups returns a paginated list of placement groups in a cluster.
+func (b *InMemoryBackend) ListChannelPlacementGroups(
+	clusterID string,
+	maxResults int,
+	nextToken string,
+) ([]*ChannelPlacementGroup, string, error) {
+	b.mu.RLock("ListChannelPlacementGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterID]; !ok {
+		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	all := make([]*storedChannelPlacementGroup, 0, len(b.channelPlacementGroups))
+	for _, g := range b.channelPlacementGroups {
+		if g.ClusterID == clusterID {
+			all = append(all, g)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*ChannelPlacementGroup, 0, len(pg.Data))
+	for _, g := range pg.Data {
+		out = append(out, g.toGroup())
+	}
+
+	return out, pg.Next, nil
+}
+
+// --- Account configuration operations ---
+
+// DescribeAccountConfiguration returns the account-wide configuration.
+func (b *InMemoryBackend) DescribeAccountConfiguration() (*AccountConfiguration, error) {
+	b.mu.RLock("DescribeAccountConfiguration")
+	defer b.mu.RUnlock()
+
+	return &AccountConfiguration{KmsKeyID: b.accountKmsKeyID}, nil
+}
+
+// UpdateAccountConfiguration updates the account-wide configuration.
+func (b *InMemoryBackend) UpdateAccountConfiguration(kmsKeyID string) (*AccountConfiguration, error) {
+	b.mu.Lock("UpdateAccountConfiguration")
+	defer b.mu.Unlock()
+
+	b.accountKmsKeyID = kmsKeyID
+
+	return &AccountConfiguration{KmsKeyID: b.accountKmsKeyID}, nil
+}
+
+// --- Schedule operations ---
+
+// DescribeSchedule returns the schedule actions for a channel.
+func (b *InMemoryBackend) DescribeSchedule(channelID string) ([]ScheduleAction, error) {
+	b.mu.RLock("DescribeSchedule")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelID]; !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	stored := b.scheduleActions[channelID]
+	out := make([]ScheduleAction, 0, len(stored))
+	for _, a := range stored {
+		out = append(out, ScheduleAction{ActionName: a.ActionName, ActionType: a.ActionType})
+	}
+
+	return out, nil
+}
+
+// DeleteSchedule removes all schedule actions for a channel.
+func (b *InMemoryBackend) DeleteSchedule(channelID string) error {
+	b.mu.Lock("DeleteSchedule")
+	defer b.mu.Unlock()
+
+	if _, ok := b.channels[channelID]; !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	delete(b.scheduleActions, channelID)
+
+	return nil
+}
+
+// --- Alerts and versions ---
+
+// ListAlerts returns alerts for a channel (always empty in emulation).
+func (b *InMemoryBackend) ListAlerts(channelID string) ([]map[string]any, error) {
+	b.mu.RLock("ListAlerts")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.channels[channelID]; !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	return []map[string]any{}, nil
+}
+
+// ListMultiplexAlerts returns alerts for a multiplex (always empty in emulation).
+func (b *InMemoryBackend) ListMultiplexAlerts(multiplexID string) ([]map[string]any, error) {
+	b.mu.RLock("ListMultiplexAlerts")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.multiplexes[multiplexID]; !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	return []map[string]any{}, nil
+}
+
+// ListVersions returns the available channel engine versions.
+func (b *InMemoryBackend) ListVersions() []ChannelEngineVersion {
+	return []ChannelEngineVersion{
+		{Version: channelEngineVersion, ExpirationDate: ""},
+	}
+}
+
+// --- Channel lifecycle extras ---
+
+// UpdateChannelClass changes a channel's class.
+func (b *InMemoryBackend) UpdateChannelClass(channelID, channelClass string) (*Channel, error) {
+	b.mu.Lock("UpdateChannelClass")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	if channelClass == "" {
+		return nil, fmt.Errorf("%w: channelClass required", ErrInvalidParameter)
+	}
+
+	ch.ChannelClass = channelClass
+
+	return ch.toChannel(), nil
+}
+
+// RestartChannelPipelines restarts a channel's pipelines (returns the channel).
+func (b *InMemoryBackend) RestartChannelPipelines(
+	channelID string,
+	_ []string,
+) (*Channel, error) {
+	b.mu.RLock("RestartChannelPipelines")
+	defer b.mu.RUnlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	return ch.toChannel(), nil
+}
+
+// DescribeThumbnails returns the channel (thumbnails are not emulated as image data).
+func (b *InMemoryBackend) DescribeThumbnails(channelID string) (*Channel, error) {
+	b.mu.RLock("DescribeThumbnails")
+	defer b.mu.RUnlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+
+	return ch.toChannel(), nil
+}
+
+// --- InputDevice lifecycle extras ---
+
+// StartInputDevice starts an input device (no-op aside from existence check).
+func (b *InMemoryBackend) StartInputDevice(deviceID string) error {
+	b.mu.RLock("StartInputDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.inputDevices[deviceID]; !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return nil
+}
+
+// StopInputDevice stops an input device (no-op aside from existence check).
+func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
+	b.mu.RLock("StopInputDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.inputDevices[deviceID]; !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return nil
+}
+
+// StartInputDeviceMaintenanceWindow opens a maintenance window (existence check only).
+func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) error {
+	b.mu.RLock("StartInputDeviceMaintenanceWindow")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.inputDevices[deviceID]; !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return nil
+}
+
+// DescribeInputDeviceThumbnail returns the device (thumbnail image data is not emulated).
+func (b *InMemoryBackend) DescribeInputDeviceThumbnail(deviceID string) (*InputDevice, error) {
+	b.mu.RLock("DescribeInputDeviceThumbnail")
+	defer b.mu.RUnlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return d.toDevice(), nil
+}
+
+// --- SignalMap monitor deployment teardown ---
+
+// StartDeleteMonitorDeployment tears down the monitor deployment for a signal map.
+func (b *InMemoryBackend) StartDeleteMonitorDeployment(identifier string) (*SignalMap, error) {
+	b.mu.Lock("StartDeleteMonitorDeployment")
+	defer b.mu.Unlock()
+
+	sm, ok := b.findSignalMap(identifier)
+	if !ok {
+		return nil, fmt.Errorf("%w: signalMap %s not found", ErrNotFound, identifier)
+	}
+
+	sm.MonitorDeploymentStatus = "DELETING"
+
+	return sm.toSignalMap(), nil
+}
+
+// --- Partner inputs ---
+
+// CreatePartnerInput creates a partner input linked to an existing input.
+func (b *InMemoryBackend) CreatePartnerInput(
+	inputID string,
+	tags map[string]string,
+) (*Input, error) {
+	b.mu.Lock("CreatePartnerInput")
+	defer b.mu.Unlock()
+
+	parent, ok := b.inputs[inputID]
+	if !ok {
+		return nil, fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
+	}
+
+	id := newID()
+	partner := &storedInput{
+		Tags:      copyTags(tags),
+		ARN:       b.inputARN(id),
+		ID:        id,
+		Name:      parent.Name,
+		InputType: parent.InputType,
+		RoleARN:   parent.RoleARN,
+		State:     stateDetached,
+	}
+	b.inputs[id] = partner
+
+	return partner.toInput(), nil
 }

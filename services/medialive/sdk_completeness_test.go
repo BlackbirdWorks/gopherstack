@@ -18,39 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
 	h := medialive.NewHandler(backend)
 
-	notImplemented := []string{
-		"CreateChannelPlacementGroup",
-		"CreateNetwork",
-		"CreatePartnerInput",
-		"CreateSdiSource",
-		"DeleteChannelPlacementGroup",
-		"DeleteNetwork",
-		"DeleteSchedule",
-		"DeleteSdiSource",
-		"DescribeAccountConfiguration",
-		"DescribeChannelPlacementGroup",
-		"DescribeInputDeviceThumbnail",
-		"DescribeNetwork",
-		"DescribeSchedule",
-		"DescribeSdiSource",
-		"DescribeThumbnails",
-		"ListAlerts",
-		"ListChannelPlacementGroups",
-		"ListMultiplexAlerts",
-		"ListNetworks",
-		"ListSdiSources",
-		"ListVersions",
-		"RestartChannelPipelines",
-		"StartDeleteMonitorDeployment",
-		"StartInputDevice",
-		"StartInputDeviceMaintenanceWindow",
-		"StopInputDevice",
-		"UpdateAccountConfiguration",
-		"UpdateChannelClass",
-		"UpdateChannelPlacementGroup",
-		"UpdateNetwork",
-		"UpdateSdiSource",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(
 		t,

@@ -33,31 +33,48 @@ const (
 	pathReservations          = "/prod/reservations"
 	pathOfferings             = "/prod/offerings"
 	pathBatch                 = "/prod/batch"
+	pathNetworks              = "/prod/networks"
+	pathSdiSources            = "/prod/sdiSources"
+	pathAccountConfiguration  = "/prod/accountConfiguration"
+	pathVersions              = "/prod/versions"
 
-	subPrograms               = "programs"
-	subStart                  = "start"
-	subStop                   = "stop"
-	subNodes                  = "nodes"
-	subAlerts                 = "alerts"
-	subNodeRegistrationScript = "nodeRegistrationScript"
-	subState                  = "state"
-	subSchedule               = "schedule"
-	subMonitorDeployment      = "monitor-deployment"
-	subPurchase               = "purchase"
+	subPrograms                = "programs"
+	subStart                   = "start"
+	subStop                    = "stop"
+	subNodes                   = "nodes"
+	subAlerts                  = "alerts"
+	subNodeRegistrationScript  = "nodeRegistrationScript"
+	subState                   = "state"
+	subSchedule                = "schedule"
+	subMonitorDeployment       = "monitor-deployment"
+	subPurchase                = "purchase"
+	subChannelPlacementGroups  = "channelplacementgroups"
+	subThumbnails              = "thumbnails"
+	subThumbnailData           = "thumbnailData"
+	subChannelClass            = "channelClass"
+	subRestartChannelPipelines = "restartChannelPipelines"
+	subMaintenanceWindow       = "startInputDeviceMaintenanceWindow"
+	subPartners                = "partners"
 
 	pathSegmentsID      = 1
 	pathSegmentsSub     = 2
 	pathSegmentsNamed   = 3
 	pathSegmentsDeepSub = 4
 
-	keyMessage     = "Message"
-	keyArn         = "Arn"
-	keyID          = "Id"
-	keyName        = "Name"
-	keyState       = "State"
-	keyTags        = "Tags"
-	keyDescription = "Description"
-	opUnknown      = "Unknown"
+	keyMessage         = "Message"
+	keyArn             = "Arn"
+	keyID              = "Id"
+	keyName            = "Name"
+	keyState           = "State"
+	keyTags            = "Tags"
+	keyDescription     = "Description"
+	keyChannel         = "Channel"
+	keyInput           = "Input"
+	keyAlerts          = "Alerts"
+	keyActionName      = "ActionName"
+	keyScheduleActions = "ScheduleActions"
+	keySdiSource       = "SdiSource"
+	opUnknown          = "Unknown"
 
 	opCreateChannel   = "CreateChannel"
 	opDescribeChannel = "DescribeChannel"
@@ -167,6 +184,46 @@ const (
 	opBatchStart          = "BatchStart"
 	opBatchStop           = "BatchStop"
 	opBatchUpdateSchedule = "BatchUpdateSchedule"
+
+	opCreateNetwork   = "CreateNetwork"
+	opDescribeNetwork = "DescribeNetwork"
+	opUpdateNetwork   = "UpdateNetwork"
+	opDeleteNetwork   = "DeleteNetwork"
+	opListNetworks    = "ListNetworks"
+
+	opCreateSdiSource   = "CreateSdiSource"
+	opDescribeSdiSource = "DescribeSdiSource"
+	opUpdateSdiSource   = "UpdateSdiSource"
+	opDeleteSdiSource   = "DeleteSdiSource"
+	opListSdiSources    = "ListSdiSources"
+
+	opCreateChannelPlacementGroup   = "CreateChannelPlacementGroup"
+	opDescribeChannelPlacementGroup = "DescribeChannelPlacementGroup"
+	opUpdateChannelPlacementGroup   = "UpdateChannelPlacementGroup"
+	opDeleteChannelPlacementGroup   = "DeleteChannelPlacementGroup"
+	opListChannelPlacementGroups    = "ListChannelPlacementGroups"
+
+	opDescribeAccountConfiguration = "DescribeAccountConfiguration"
+	opUpdateAccountConfiguration   = "UpdateAccountConfiguration"
+
+	opDescribeSchedule = "DescribeSchedule"
+	opDeleteSchedule   = "DeleteSchedule"
+
+	opListAlerts          = "ListAlerts"
+	opListMultiplexAlerts = "ListMultiplexAlerts"
+	opListVersions        = "ListVersions"
+
+	opUpdateChannelClass      = "UpdateChannelClass"
+	opRestartChannelPipelines = "RestartChannelPipelines"
+	opDescribeThumbnails      = "DescribeThumbnails"
+
+	opStartInputDevice                  = "StartInputDevice"
+	opStopInputDevice                   = "StopInputDevice"
+	opStartInputDeviceMaintenanceWindow = "StartInputDeviceMaintenanceWindow"
+	opDescribeInputDeviceThumbnail      = "DescribeInputDeviceThumbnail"
+
+	opStartDeleteMonitorDeployment = "StartDeleteMonitorDeployment"
+	opCreatePartnerInput           = "CreatePartnerInput"
 )
 
 // Handler handles MediaLive HTTP requests.
@@ -187,6 +244,11 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns all supported operations.
 func (h *Handler) GetSupportedOperations() []string {
+	return append(coreOperations(), parityOperations()...)
+}
+
+// coreOperations returns the originally supported operation set.
+func coreOperations() []string {
 	return []string{
 		opCreateChannel,
 		opDescribeChannel,
@@ -283,6 +345,43 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// parityOperations returns the operations added to reach full SDK parity.
+func parityOperations() []string {
+	return []string{
+		opCreateNetwork,
+		opDescribeNetwork,
+		opUpdateNetwork,
+		opDeleteNetwork,
+		opListNetworks,
+		opCreateSdiSource,
+		opDescribeSdiSource,
+		opUpdateSdiSource,
+		opDeleteSdiSource,
+		opListSdiSources,
+		opCreateChannelPlacementGroup,
+		opDescribeChannelPlacementGroup,
+		opUpdateChannelPlacementGroup,
+		opDeleteChannelPlacementGroup,
+		opListChannelPlacementGroups,
+		opDescribeAccountConfiguration,
+		opUpdateAccountConfiguration,
+		opDescribeSchedule,
+		opDeleteSchedule,
+		opListAlerts,
+		opListMultiplexAlerts,
+		opListVersions,
+		opUpdateChannelClass,
+		opRestartChannelPipelines,
+		opDescribeThumbnails,
+		opStartInputDevice,
+		opStopInputDevice,
+		opStartInputDeviceMaintenanceWindow,
+		opDescribeInputDeviceThumbnail,
+		opStartDeleteMonitorDeployment,
+		opCreatePartnerInput,
+	}
+}
+
 // RouteMatcher returns a function that matches MediaLive requests by path.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -330,7 +429,25 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if body == nil {
 		body = map[string]any{}
 	}
-	handlers := map[string]func() error{
+
+	if fn, ok := h.coreHandlers(c, resource, body)[op]; ok {
+		return fn()
+	}
+
+	if fn, ok := h.parityHandlers(c, resource, body)[op]; ok {
+		return fn()
+	}
+
+	return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
+}
+
+// coreHandlers returns the dispatch map for the core operations.
+func (h *Handler) coreHandlers(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) map[string]func() error {
+	return map[string]func() error{
 		opCreateChannel:                func() error { return h.handleCreateChannel(c, body) },
 		opDescribeChannel:              func() error { return h.handleDescribeChannel(c, resource) },
 		opUpdateChannel:                func() error { return h.handleUpdateChannel(c, resource, body) },
@@ -424,12 +541,65 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opBatchStop:                    func() error { return h.handleBatchStop(c, body) },
 		opBatchUpdateSchedule:          func() error { return h.handleBatchUpdateSchedule(c, resource, body) },
 	}
+}
 
-	if fn, ok := handlers[op]; ok {
-		return fn()
+// parityHandlers returns the dispatch map for the parity operations.
+func (h *Handler) parityHandlers(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) map[string]func() error {
+	return map[string]func() error{
+		opCreateNetwork:     func() error { return h.handleCreateNetwork(c, body) },
+		opDescribeNetwork:   func() error { return h.handleDescribeNetwork(c, resource) },
+		opUpdateNetwork:     func() error { return h.handleUpdateNetwork(c, resource, body) },
+		opDeleteNetwork:     func() error { return h.handleDeleteNetwork(c, resource) },
+		opListNetworks:      func() error { return h.handleListNetworks(c) },
+		opCreateSdiSource:   func() error { return h.handleCreateSdiSource(c, body) },
+		opDescribeSdiSource: func() error { return h.handleDescribeSdiSource(c, resource) },
+		opUpdateSdiSource:   func() error { return h.handleUpdateSdiSource(c, resource, body) },
+		opDeleteSdiSource:   func() error { return h.handleDeleteSdiSource(c, resource) },
+		opListSdiSources:    func() error { return h.handleListSdiSources(c) },
+		opCreateChannelPlacementGroup: func() error {
+			return h.handleCreateChannelPlacementGroup(c, resource, body)
+		},
+		opDescribeChannelPlacementGroup: func() error {
+			return h.handleDescribeChannelPlacementGroup(c, resource)
+		},
+		opUpdateChannelPlacementGroup: func() error {
+			return h.handleUpdateChannelPlacementGroup(c, resource, body)
+		},
+		opDeleteChannelPlacementGroup: func() error {
+			return h.handleDeleteChannelPlacementGroup(c, resource)
+		},
+		opListChannelPlacementGroups: func() error {
+			return h.handleListChannelPlacementGroups(c, resource)
+		},
+		opDescribeAccountConfiguration: func() error {
+			return h.handleDescribeAccountConfiguration(c)
+		},
+		opUpdateAccountConfiguration: func() error { return h.handleUpdateAccountConfiguration(c, body) },
+		opDescribeSchedule:           func() error { return h.handleDescribeSchedule(c, resource) },
+		opDeleteSchedule:             func() error { return h.handleDeleteSchedule(c, resource) },
+		opListAlerts:                 func() error { return h.handleListAlerts(c, resource) },
+		opListMultiplexAlerts:        func() error { return h.handleListMultiplexAlerts(c, resource) },
+		opListVersions:               func() error { return h.handleListVersions(c) },
+		opUpdateChannelClass:         func() error { return h.handleUpdateChannelClass(c, resource, body) },
+		opRestartChannelPipelines:    func() error { return h.handleRestartChannelPipelines(c, resource) },
+		opDescribeThumbnails:         func() error { return h.handleDescribeThumbnails(c, resource) },
+		opStartInputDevice:           func() error { return h.handleStartInputDevice(c, resource) },
+		opStopInputDevice:            func() error { return h.handleStopInputDevice(c, resource) },
+		opStartInputDeviceMaintenanceWindow: func() error {
+			return h.handleStartInputDeviceMaintenanceWindow(c, resource)
+		},
+		opDescribeInputDeviceThumbnail: func() error {
+			return h.handleDescribeInputDeviceThumbnail(c, resource)
+		},
+		opStartDeleteMonitorDeployment: func() error {
+			return h.handleStartDeleteMonitorDeployment(c, resource)
+		},
+		opCreatePartnerInput: func() error { return h.handleCreatePartnerInput(c, resource, body) },
 	}
-
-	return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
 }
 
 // classifyPath maps (method, path) → (operation, resource).
@@ -467,31 +637,7 @@ func classifyPath(method, path string) (string, string) {
 		return op, res
 	}
 
-	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplateGroups,
-		opCreateCWAlarmTemplateGroup, opGetCWAlarmTemplateGroup,
-		opListCWAlarmTemplateGroups, opUpdateCWAlarmTemplateGroup,
-		opDeleteCWAlarmTemplateGroup); ok {
-		return op, res
-	}
-
-	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplates,
-		opCreateCWAlarmTemplate, opGetCWAlarmTemplate,
-		opListCWAlarmTemplates, opUpdateCWAlarmTemplate,
-		opDeleteCWAlarmTemplate); ok {
-		return op, res
-	}
-
-	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplateGroups,
-		opCreateEBRuleTemplateGroup, opGetEBRuleTemplateGroup,
-		opListEBRuleTemplateGroups, opUpdateEBRuleTemplateGroup,
-		opDeleteEBRuleTemplateGroup); ok {
-		return op, res
-	}
-
-	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplates,
-		opCreateEBRuleTemplate, opGetEBRuleTemplate,
-		opListEBRuleTemplates, opUpdateEBRuleTemplate,
-		opDeleteEBRuleTemplate); ok {
+	if op, res, ok := classifyAnyTemplatePath(method, path); ok {
 		return op, res
 	}
 
@@ -507,7 +653,131 @@ func classifyPath(method, path string) (string, string) {
 		return op, ""
 	}
 
+	if op, res, ok := classifyParityPath(method, path); ok {
+		return op, res
+	}
+
 	return opUnknown, ""
+}
+
+// classifyAnyTemplatePath classifies all four CRUD-only template resources.
+func classifyAnyTemplatePath(method, path string) (string, string, bool) {
+	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplateGroups,
+		opCreateCWAlarmTemplateGroup, opGetCWAlarmTemplateGroup,
+		opListCWAlarmTemplateGroups, opUpdateCWAlarmTemplateGroup,
+		opDeleteCWAlarmTemplateGroup); ok {
+		return op, res, true
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathCWAlarmTemplates,
+		opCreateCWAlarmTemplate, opGetCWAlarmTemplate,
+		opListCWAlarmTemplates, opUpdateCWAlarmTemplate,
+		opDeleteCWAlarmTemplate); ok {
+		return op, res, true
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplateGroups,
+		opCreateEBRuleTemplateGroup, opGetEBRuleTemplateGroup,
+		opListEBRuleTemplateGroups, opUpdateEBRuleTemplateGroup,
+		opDeleteEBRuleTemplateGroup); ok {
+		return op, res, true
+	}
+
+	if op, res, ok := classifyTemplatePath(method, path, pathEBRuleTemplates,
+		opCreateEBRuleTemplate, opGetEBRuleTemplate,
+		opListEBRuleTemplates, opUpdateEBRuleTemplate,
+		opDeleteEBRuleTemplate); ok {
+		return op, res, true
+	}
+
+	return "", "", false
+}
+
+// classifyParityPath classifies the standalone parity resources:
+// networks, SDI sources, account configuration and versions.
+func classifyParityPath(method, path string) (string, string, bool) {
+	if op, res, ok := classifyNetworkPath(method, path); ok {
+		return op, res, true
+	}
+
+	if op, res, ok := classifySdiSourcePath(method, path); ok {
+		return op, res, true
+	}
+
+	if op, ok := classifyAccountConfigurationPath(method, path); ok {
+		return op, "", true
+	}
+
+	if op, ok := classifyVersionsPath(method, path); ok {
+		return op, "", true
+	}
+
+	return "", "", false
+}
+
+// classifyNetworkPath classifies /prod/networks paths.
+func classifyNetworkPath(method, path string) (string, string, bool) {
+	const prefix = pathNetworks + "/"
+
+	switch {
+	case path == pathNetworks && method == http.MethodGet:
+		return opListNetworks, "", true
+	case path == pathNetworks && method == http.MethodPost:
+		return opCreateNetwork, "", true
+	case matchSegment(path, prefix, "") && method == http.MethodGet:
+		return opDescribeNetwork, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodPut:
+		return opUpdateNetwork, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodDelete:
+		return opDeleteNetwork, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifySdiSourcePath classifies /prod/sdiSources paths.
+func classifySdiSourcePath(method, path string) (string, string, bool) {
+	const prefix = pathSdiSources + "/"
+
+	switch {
+	case path == pathSdiSources && method == http.MethodGet:
+		return opListSdiSources, "", true
+	case path == pathSdiSources && method == http.MethodPost:
+		return opCreateSdiSource, "", true
+	case matchSegment(path, prefix, "") && method == http.MethodGet:
+		return opDescribeSdiSource, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodPut:
+		return opUpdateSdiSource, extractSegment(path, prefix, ""), true
+	case matchSegment(path, prefix, "") && method == http.MethodDelete:
+		return opDeleteSdiSource, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+// classifyAccountConfigurationPath classifies /prod/accountConfiguration paths.
+func classifyAccountConfigurationPath(method, path string) (string, bool) {
+	if path != pathAccountConfiguration {
+		return "", false
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opDescribeAccountConfiguration, true
+	case http.MethodPut:
+		return opUpdateAccountConfiguration, true
+	}
+
+	return "", false
+}
+
+// classifyVersionsPath classifies /prod/versions paths.
+func classifyVersionsPath(method, path string) (string, bool) {
+	if path == pathVersions && method == http.MethodGet {
+		return opListVersions, true
+	}
+
+	return "", false
 }
 
 func classifyMultiplexPath(method, path string) (string, string, bool) {
@@ -573,6 +843,8 @@ func classifyMultiplexSubpath(method, id, sub string) (string, string, bool) {
 		return opListMultiplexPrograms, id, true
 	case sub == subPrograms && method == http.MethodPost:
 		return opCreateMultiplexProgram, id, true
+	case sub == subAlerts && method == http.MethodGet:
+		return opListMultiplexAlerts, id, true
 	}
 
 	return "", "", false
@@ -620,19 +892,46 @@ func classifyChannelPath(method, path string) (string, string, bool) {
 	return classifyChannelSubPath(method, path, prefix)
 }
 
+// channelSubAction maps a path suffix + HTTP method to an operation.
+type channelSubAction struct {
+	suffix string
+	method string
+	op     string
+}
+
 func classifyChannelSubPath(method, path, prefix string) (string, string, bool) {
-	switch {
-	case matchSegment(path, prefix, "/start") && method == http.MethodPost:
-		return opStartChannel, extractSegment(path, prefix, "/start"), true
-	case matchSegment(path, prefix, "/stop") && method == http.MethodPost:
-		return opStopChannel, extractSegment(path, prefix, "/stop"), true
-	case matchSegment(path, prefix, "/"+subSchedule) && method == http.MethodPut:
-		return opBatchUpdateSchedule, extractSegment(path, prefix, "/"+subSchedule), true
-	case matchSegment(path, prefix, "") && method == http.MethodGet:
+	subActions := []channelSubAction{
+		{"/start", http.MethodPost, opStartChannel},
+		{"/stop", http.MethodPost, opStopChannel},
+		{"/" + subSchedule, http.MethodPut, opBatchUpdateSchedule},
+		{"/" + subSchedule, http.MethodGet, opDescribeSchedule},
+		{"/" + subSchedule, http.MethodDelete, opDeleteSchedule},
+		{"/" + subChannelClass, http.MethodPut, opUpdateChannelClass},
+		{"/" + subRestartChannelPipelines, http.MethodPost, opRestartChannelPipelines},
+		{"/" + subThumbnails, http.MethodGet, opDescribeThumbnails},
+		{"/" + subAlerts, http.MethodGet, opListAlerts},
+	}
+
+	for _, a := range subActions {
+		if a.method == method && matchSegment(path, prefix, a.suffix) {
+			return a.op, extractSegment(path, prefix, a.suffix), true
+		}
+	}
+
+	return classifyChannelIDOnly(method, path, prefix)
+}
+
+func classifyChannelIDOnly(method, path, prefix string) (string, string, bool) {
+	if !matchSegment(path, prefix, "") {
+		return "", "", false
+	}
+
+	switch method {
+	case http.MethodGet:
 		return opDescribeChannel, extractSegment(path, prefix, ""), true
-	case matchSegment(path, prefix, "") && method == http.MethodPut:
+	case http.MethodPut:
 		return opUpdateChannel, extractSegment(path, prefix, ""), true
-	case matchSegment(path, prefix, "") && method == http.MethodDelete:
+	case http.MethodDelete:
 		return opDeleteChannel, extractSegment(path, prefix, ""), true
 	}
 
@@ -647,6 +946,8 @@ func classifyInputPath(method, path string) (string, string, bool) {
 		return opListInputs, "", true
 	case path == pathInputs && method == http.MethodPost:
 		return opCreateInput, "", true
+	case matchSegment(path, prefix, "/"+subPartners) && method == http.MethodPost:
+		return opCreatePartnerInput, extractSegment(path, prefix, "/"+subPartners), true
 	case matchSegment(path, prefix, "") && method == http.MethodGet:
 		return opDescribeInput, extractSegment(path, prefix, ""), true
 	case matchSegment(path, prefix, "") && method == http.MethodPut:
@@ -698,11 +999,14 @@ func classifyInputDevicePath(method, path string) (string, string, bool) {
 func classifyInputDeviceSubPath(method, path, prefix string) (string, string, bool) {
 	// POST sub-actions: /prod/inputDevices/{id}/accept|cancel|reboot|reject|transfer
 	postActions := map[string]string{
-		"/accept":   opAcceptInputDeviceTransfer,
-		"/cancel":   opCancelInputDeviceTransfer,
-		"/reboot":   opRebootInputDevice,
-		"/reject":   opRejectInputDeviceTransfer,
-		"/transfer": opTransferInputDevice,
+		"/accept":                  opAcceptInputDeviceTransfer,
+		"/cancel":                  opCancelInputDeviceTransfer,
+		"/reboot":                  opRebootInputDevice,
+		"/reject":                  opRejectInputDeviceTransfer,
+		"/transfer":                opTransferInputDevice,
+		"/" + subStart:             opStartInputDevice,
+		"/" + subStop:              opStopInputDevice,
+		"/" + subMaintenanceWindow: opStartInputDeviceMaintenanceWindow,
 	}
 
 	if method == http.MethodPost {
@@ -711,6 +1015,10 @@ func classifyInputDeviceSubPath(method, path, prefix string) (string, string, bo
 				return op, extractSegment(path, prefix, suffix), true
 			}
 		}
+	}
+
+	if matchSegment(path, prefix, "/"+subThumbnailData) && method == http.MethodGet {
+		return opDescribeInputDeviceThumbnail, extractSegment(path, prefix, "/"+subThumbnailData), true
 	}
 
 	if matchSegment(path, prefix, "") && method == http.MethodGet {
@@ -778,6 +1086,12 @@ func classifySignalMapPath(method, path string) (string, string, bool) {
 		return opCreateSignalMap, "", true
 	case matchSegment(path, prefix, "/"+subMonitorDeployment) && method == http.MethodPost:
 		return opStartMonitorDeployment, extractSegment(
+			path,
+			prefix,
+			"/"+subMonitorDeployment,
+		), true
+	case matchSegment(path, prefix, "/"+subMonitorDeployment) && method == http.MethodDelete:
+		return opStartDeleteMonitorDeployment, extractSegment(
 			path,
 			prefix,
 			"/"+subMonitorDeployment,
@@ -922,7 +1236,7 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body map[string]any) erro
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"Channel": toChannelOutput(ch)})
+	return c.JSON(http.StatusCreated, map[string]any{keyChannel: toChannelOutput(ch)})
 }
 
 func (h *Handler) handleDescribeChannel(c *echo.Context, channelID string) error {
@@ -947,7 +1261,7 @@ func (h *Handler) handleUpdateChannel(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Channel": toChannelOutput(ch)})
+	return c.JSON(http.StatusOK, map[string]any{keyChannel: toChannelOutput(ch)})
 }
 
 func (h *Handler) handleDeleteChannel(c *echo.Context, channelID string) error {
@@ -1043,7 +1357,7 @@ func (h *Handler) handleCreateInput(c *echo.Context, body map[string]any) error 
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"Input": toInputOutput(inp)})
+	return c.JSON(http.StatusCreated, map[string]any{keyInput: toInputOutput(inp)})
 }
 
 func (h *Handler) handleDescribeInput(c *echo.Context, inputID string) error {
@@ -1064,7 +1378,7 @@ func (h *Handler) handleUpdateInput(c *echo.Context, inputID string, body map[st
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Input": toInputOutput(inp)})
+	return c.JSON(http.StatusOK, map[string]any{keyInput: toInputOutput(inp)})
 }
 
 func (h *Handler) handleDeleteInput(c *echo.Context, inputID string) error {
@@ -1822,6 +2136,10 @@ func classifyClusterSubpath(method, clusterID, sub string) (string, string, bool
 		return opListNodes, clusterID, true
 	case sub == subNodes && method == http.MethodPost:
 		return opCreateNode, clusterID, true
+	case sub == subChannelPlacementGroups && method == http.MethodGet:
+		return opListChannelPlacementGroups, clusterID, true
+	case sub == subChannelPlacementGroups && method == http.MethodPost:
+		return opCreateChannelPlacementGroup, clusterID, true
 	}
 
 	return "", "", false
@@ -1830,11 +2148,28 @@ func classifyClusterSubpath(method, clusterID, sub string) (string, string, bool
 // classifyClusterNodePath handles /prod/clusters/{id}/nodes/{nodeId}.
 // resource is compound "clusterID/nodeID".
 func classifyClusterNodePath(method, clusterID, sub, nodeID string) (string, string, bool) {
-	if sub != subNodes || nodeID == "" {
+	if nodeID == "" {
 		return "", "", false
 	}
 
 	compound := clusterID + "/" + nodeID
+
+	if sub == subChannelPlacementGroups {
+		switch method {
+		case http.MethodGet:
+			return opDescribeChannelPlacementGroup, compound, true
+		case http.MethodPut:
+			return opUpdateChannelPlacementGroup, compound, true
+		case http.MethodDelete:
+			return opDeleteChannelPlacementGroup, compound, true
+		}
+
+		return "", "", false
+	}
+
+	if sub != subNodes {
+		return "", "", false
+	}
 
 	switch method {
 	case http.MethodGet:
@@ -1974,7 +2309,7 @@ func (h *Handler) handleListClusterAlerts(c *echo.Context, clusterID string) err
 		return respondErr(c, err)
 	}
 
-	resp := map[string]any{"Alerts": alerts}
+	resp := map[string]any{keyAlerts: alerts}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
@@ -2869,15 +3204,502 @@ func (h *Handler) handleBatchUpdateSchedule(
 	}
 	createsOut := make([]map[string]any, 0, len(result.Creates))
 	for _, a := range result.Creates {
-		createsOut = append(createsOut, map[string]any{"ActionName": a.ActionName})
+		createsOut = append(createsOut, map[string]any{keyActionName: a.ActionName})
 	}
 	deletesOut := make([]map[string]any, 0, len(result.Deletes))
 	for _, a := range result.Deletes {
-		deletesOut = append(deletesOut, map[string]any{"ActionName": a.ActionName})
+		deletesOut = append(deletesOut, map[string]any{keyActionName: a.ActionName})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Creates": map[string]any{"ScheduleActions": createsOut},
-		"Deletes": map[string]any{"ScheduleActions": deletesOut},
+		"Creates": map[string]any{keyScheduleActions: createsOut},
+		"Deletes": map[string]any{keyScheduleActions: deletesOut},
 	})
+}
+
+// --- Network handlers ---
+
+func toNetworkOutput(n *Network) map[string]any {
+	tags := n.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	clusters := n.AssociatedClusterIDs
+	if clusters == nil {
+		clusters = []string{}
+	}
+	pools := n.IPPools
+	if pools == nil {
+		pools = []IPPool{}
+	}
+	routes := n.Routes
+	if routes == nil {
+		routes = []Route{}
+	}
+
+	return map[string]any{
+		keyArn: n.ARN, keyID: n.ID, keyName: n.Name, keyState: n.State,
+		"AssociatedClusterIds": clusters, "IpPools": pools, "Routes": routes,
+		keyTags: tags,
+	}
+}
+
+func extractIPPools(body map[string]any) []IPPool {
+	raw, _ := body["IpPools"].([]any)
+	if raw == nil {
+		return nil
+	}
+
+	pools := make([]IPPool, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		cidr, _ := m["Cidr"].(string)
+		pools = append(pools, IPPool{Cidr: cidr})
+	}
+
+	return pools
+}
+
+func extractRoutes(body map[string]any) []Route {
+	raw, _ := body["Routes"].([]any)
+	if raw == nil {
+		return nil
+	}
+
+	routes := make([]Route, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		cidr, _ := m["Cidr"].(string)
+		gateway, _ := m["Gateway"].(string)
+		routes = append(routes, Route{Cidr: cidr, Gateway: gateway})
+	}
+
+	return routes
+}
+
+func (h *Handler) handleCreateNetwork(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	tags := extractTags(body)
+
+	n, err := h.Backend.CreateNetwork(name, extractIPPools(body), extractRoutes(body), tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toNetworkOutput(n))
+}
+
+func (h *Handler) handleDescribeNetwork(c *echo.Context, networkID string) error {
+	n, err := h.Backend.DescribeNetwork(networkID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNetworkOutput(n))
+}
+
+func (h *Handler) handleUpdateNetwork(
+	c *echo.Context,
+	networkID string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+
+	n, err := h.Backend.UpdateNetwork(networkID, name, extractIPPools(body), extractRoutes(body))
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNetworkOutput(n))
+}
+
+func (h *Handler) handleDeleteNetwork(c *echo.Context, networkID string) error {
+	n, err := h.Backend.DeleteNetwork(networkID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNetworkOutput(n))
+}
+
+func (h *Handler) handleListNetworks(c *echo.Context) error {
+	nets, nextToken, err := h.Backend.ListNetworks(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(nets))
+	for _, n := range nets {
+		out = append(out, toNetworkOutput(n))
+	}
+
+	resp := map[string]any{"Networks": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// --- SdiSource handlers ---
+
+func toSdiSourceOutput(s *SdiSource) map[string]any {
+	inputs := s.Inputs
+	if inputs == nil {
+		inputs = []string{}
+	}
+
+	return map[string]any{
+		keyArn: s.ARN, keyID: s.ID, keyName: s.Name,
+		"Type": s.Type, "Mode": s.Mode, keyState: s.State, "Inputs": inputs,
+	}
+}
+
+func (h *Handler) handleCreateSdiSource(c *echo.Context, body map[string]any) error {
+	name, _ := body[keyName].(string)
+	sdiType, _ := body["Type"].(string)
+	mode, _ := body["Mode"].(string)
+	tags := extractTags(body)
+
+	s, err := h.Backend.CreateSdiSource(name, sdiType, mode, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{keySdiSource: toSdiSourceOutput(s)})
+}
+
+func (h *Handler) handleDescribeSdiSource(c *echo.Context, sdiSourceID string) error {
+	s, err := h.Backend.DescribeSdiSource(sdiSourceID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySdiSource: toSdiSourceOutput(s)})
+}
+
+func (h *Handler) handleUpdateSdiSource(
+	c *echo.Context,
+	sdiSourceID string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	sdiType, _ := body["Type"].(string)
+	mode, _ := body["Mode"].(string)
+
+	s, err := h.Backend.UpdateSdiSource(sdiSourceID, name, sdiType, mode)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySdiSource: toSdiSourceOutput(s)})
+}
+
+func (h *Handler) handleDeleteSdiSource(c *echo.Context, sdiSourceID string) error {
+	s, err := h.Backend.DeleteSdiSource(sdiSourceID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySdiSource: toSdiSourceOutput(s)})
+}
+
+func (h *Handler) handleListSdiSources(c *echo.Context) error {
+	sources, nextToken, err := h.Backend.ListSdiSources(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, toSdiSourceOutput(s))
+	}
+
+	resp := map[string]any{"SdiSources": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// --- ChannelPlacementGroup handlers ---
+
+func toChannelPlacementGroupOutput(g *ChannelPlacementGroup) map[string]any {
+	channels := g.Channels
+	if channels == nil {
+		channels = []string{}
+	}
+	nodes := g.Nodes
+	if nodes == nil {
+		nodes = []string{}
+	}
+
+	return map[string]any{
+		keyArn: g.ARN, keyID: g.ID, keyName: g.Name, "ClusterId": g.ClusterID,
+		keyState: g.State, "Channels": channels, "Nodes": nodes,
+	}
+}
+
+func (h *Handler) handleCreateChannelPlacementGroup(
+	c *echo.Context,
+	clusterID string,
+	body map[string]any,
+) error {
+	name, _ := body[keyName].(string)
+	nodes := extractStringSlice(body, "Nodes")
+	tags := extractTags(body)
+
+	g, err := h.Backend.CreateChannelPlacementGroup(clusterID, name, nodes, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toChannelPlacementGroupOutput(g))
+}
+
+func (h *Handler) handleDescribeChannelPlacementGroup(c *echo.Context, resource string) error {
+	clusterID, groupID := splitClusterNode(resource)
+
+	g, err := h.Backend.DescribeChannelPlacementGroup(clusterID, groupID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toChannelPlacementGroupOutput(g))
+}
+
+func (h *Handler) handleUpdateChannelPlacementGroup(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) error {
+	clusterID, groupID := splitClusterNode(resource)
+	name, _ := body[keyName].(string)
+	nodes := extractStringSlice(body, "Nodes")
+
+	g, err := h.Backend.UpdateChannelPlacementGroup(clusterID, groupID, name, nodes)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toChannelPlacementGroupOutput(g))
+}
+
+func (h *Handler) handleDeleteChannelPlacementGroup(c *echo.Context, resource string) error {
+	clusterID, groupID := splitClusterNode(resource)
+
+	g, err := h.Backend.DeleteChannelPlacementGroup(clusterID, groupID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toChannelPlacementGroupOutput(g))
+}
+
+func (h *Handler) handleListChannelPlacementGroups(c *echo.Context, clusterID string) error {
+	groups, nextToken, err := h.Backend.ListChannelPlacementGroups(clusterID, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, toChannelPlacementGroupOutput(g))
+	}
+
+	resp := map[string]any{"ChannelPlacementGroups": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// --- Account configuration handlers ---
+
+func (h *Handler) handleDescribeAccountConfiguration(c *echo.Context) error {
+	cfg, err := h.Backend.DescribeAccountConfiguration()
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"AccountConfiguration": map[string]any{"KmsKeyId": cfg.KmsKeyID},
+	})
+}
+
+func (h *Handler) handleUpdateAccountConfiguration(c *echo.Context, body map[string]any) error {
+	kmsKeyID := ""
+	if cfg, ok := body["AccountConfiguration"].(map[string]any); ok {
+		kmsKeyID, _ = cfg["KmsKeyId"].(string)
+	}
+
+	cfg, err := h.Backend.UpdateAccountConfiguration(kmsKeyID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"AccountConfiguration": map[string]any{"KmsKeyId": cfg.KmsKeyID},
+	})
+}
+
+// --- Schedule handlers ---
+
+func (h *Handler) handleDescribeSchedule(c *echo.Context, channelID string) error {
+	actions, err := h.Backend.DescribeSchedule(channelID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, map[string]any{keyActionName: a.ActionName})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyScheduleActions: out})
+}
+
+func (h *Handler) handleDeleteSchedule(c *echo.Context, channelID string) error {
+	if err := h.Backend.DeleteSchedule(channelID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- Alert and version handlers ---
+
+func (h *Handler) handleListAlerts(c *echo.Context, channelID string) error {
+	alerts, err := h.Backend.ListAlerts(channelID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyAlerts: alerts})
+}
+
+func (h *Handler) handleListMultiplexAlerts(c *echo.Context, multiplexID string) error {
+	alerts, err := h.Backend.ListMultiplexAlerts(multiplexID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyAlerts: alerts})
+}
+
+func (h *Handler) handleListVersions(c *echo.Context) error {
+	versions := h.Backend.ListVersions()
+
+	out := make([]map[string]any, 0, len(versions))
+	for _, v := range versions {
+		out = append(out, map[string]any{"Version": v.Version, "ExpirationDate": v.ExpirationDate})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Versions": out})
+}
+
+// --- Channel lifecycle extra handlers ---
+
+func (h *Handler) handleUpdateChannelClass(
+	c *echo.Context,
+	channelID string,
+	body map[string]any,
+) error {
+	channelClass, _ := body["ChannelClass"].(string)
+
+	ch, err := h.Backend.UpdateChannelClass(channelID, channelClass)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyChannel: toChannelOutput(ch)})
+}
+
+func (h *Handler) handleRestartChannelPipelines(c *echo.Context, channelID string) error {
+	pipelineIDs := []string{}
+
+	ch, err := h.Backend.RestartChannelPipelines(channelID, pipelineIDs)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toChannelOutput(ch))
+}
+
+func (h *Handler) handleDescribeThumbnails(c *echo.Context, channelID string) error {
+	if _, err := h.Backend.DescribeThumbnails(channelID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"ThumbnailDetails": []map[string]any{}})
+}
+
+// --- InputDevice lifecycle extra handlers ---
+
+func (h *Handler) handleStartInputDevice(c *echo.Context, deviceID string) error {
+	if err := h.Backend.StartInputDevice(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleStopInputDevice(c *echo.Context, deviceID string) error {
+	if err := h.Backend.StopInputDevice(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleStartInputDeviceMaintenanceWindow(c *echo.Context, deviceID string) error {
+	if err := h.Backend.StartInputDeviceMaintenanceWindow(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDescribeInputDeviceThumbnail(c *echo.Context, deviceID string) error {
+	if _, err := h.Backend.DescribeInputDeviceThumbnail(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"ContentType": "image/jpeg", "ContentLength": 0})
+}
+
+// --- SignalMap monitor deployment teardown handler ---
+
+func (h *Handler) handleStartDeleteMonitorDeployment(c *echo.Context, identifier string) error {
+	sm, err := h.Backend.StartDeleteMonitorDeployment(identifier)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusAccepted, toSignalMapOutput(sm))
+}
+
+// --- Partner input handler ---
+
+func (h *Handler) handleCreatePartnerInput(
+	c *echo.Context,
+	inputID string,
+	body map[string]any,
+) error {
+	tags := extractTags(body)
+
+	inp, err := h.Backend.CreatePartnerInput(inputID, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{keyInput: toInputOutput(inp)})
 }

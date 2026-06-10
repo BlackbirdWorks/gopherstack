@@ -226,11 +226,135 @@ type StorageBackend interface {
 		deleteActionNames []string,
 	) (*BatchUpdateScheduleResult, error)
 
+	// Networks
+	CreateNetwork(
+		name string,
+		ipPools []IPPool,
+		routes []Route,
+		tags map[string]string,
+	) (*Network, error)
+	DescribeNetwork(networkID string) (*Network, error)
+	UpdateNetwork(networkID, name string, ipPools []IPPool, routes []Route) (*Network, error)
+	DeleteNetwork(networkID string) (*Network, error)
+	ListNetworks(maxResults int, nextToken string) ([]*Network, string, error)
+
+	// SdiSources
+	CreateSdiSource(name, sdiType, mode string, tags map[string]string) (*SdiSource, error)
+	DescribeSdiSource(sdiSourceID string) (*SdiSource, error)
+	UpdateSdiSource(sdiSourceID, name, sdiType, mode string) (*SdiSource, error)
+	DeleteSdiSource(sdiSourceID string) (*SdiSource, error)
+	ListSdiSources(maxResults int, nextToken string) ([]*SdiSource, string, error)
+
+	// ChannelPlacementGroups (nested under a cluster)
+	CreateChannelPlacementGroup(
+		clusterID, name string,
+		nodes []string,
+		tags map[string]string,
+	) (*ChannelPlacementGroup, error)
+	DescribeChannelPlacementGroup(clusterID, groupID string) (*ChannelPlacementGroup, error)
+	UpdateChannelPlacementGroup(
+		clusterID, groupID, name string,
+		nodes []string,
+	) (*ChannelPlacementGroup, error)
+	DeleteChannelPlacementGroup(clusterID, groupID string) (*ChannelPlacementGroup, error)
+	ListChannelPlacementGroups(
+		clusterID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ChannelPlacementGroup, string, error)
+
+	// Account configuration
+	DescribeAccountConfiguration() (*AccountConfiguration, error)
+	UpdateAccountConfiguration(kmsKeyID string) (*AccountConfiguration, error)
+
+	// Schedule
+	DescribeSchedule(channelID string) ([]ScheduleAction, error)
+	DeleteSchedule(channelID string) error
+
+	// Alerts and versions
+	ListAlerts(channelID string) ([]map[string]any, error)
+	ListMultiplexAlerts(multiplexID string) ([]map[string]any, error)
+	ListVersions() []ChannelEngineVersion
+
+	// Channel lifecycle extras
+	UpdateChannelClass(channelID, channelClass string) (*Channel, error)
+	RestartChannelPipelines(channelID string, pipelineIDs []string) (*Channel, error)
+	DescribeThumbnails(channelID string) (*Channel, error)
+
+	// InputDevice lifecycle extras
+	StartInputDevice(deviceID string) error
+	StopInputDevice(deviceID string) error
+	StartInputDeviceMaintenanceWindow(deviceID string) error
+	DescribeInputDeviceThumbnail(deviceID string) (*InputDevice, error)
+
+	// SignalMap monitor deployment teardown
+	StartDeleteMonitorDeployment(identifier string) (*SignalMap, error)
+
+	// Partner inputs
+	CreatePartnerInput(inputID string, tags map[string]string) (*Input, error)
+
 	AccountID() string
 	Region() string
 	Reset()
 	Snapshot() []byte
 	Restore(data []byte) error
+}
+
+// IPPool is a CIDR pool for a Network.
+type IPPool struct {
+	Cidr string `json:"Cidr"`
+}
+
+// Route is a static route for a Network.
+type Route struct {
+	Cidr    string `json:"Cidr"`
+	Gateway string `json:"Gateway"`
+}
+
+// Network represents a MediaLive Anywhere network resource.
+type Network struct {
+	Tags                 map[string]string
+	ARN                  string
+	ID                   string
+	Name                 string
+	State                string
+	AssociatedClusterIDs []string
+	IPPools              []IPPool
+	Routes               []Route
+}
+
+// SdiSource represents a MediaLive SDI source resource.
+type SdiSource struct {
+	ARN    string
+	ID     string
+	Name   string
+	Type   string
+	Mode   string
+	State  string
+	Inputs []string
+}
+
+// ChannelPlacementGroup represents a placement group within a cluster.
+type ChannelPlacementGroup struct {
+	Tags      map[string]string
+	ARN       string
+	ID        string
+	Name      string
+	ClusterID string
+	State     string
+	Channels  []string
+	Nodes     []string
+}
+
+// AccountConfiguration holds account-wide MediaLive settings.
+type AccountConfiguration struct {
+	KmsKeyID string
+}
+
+// ChannelEngineVersion is an available channel engine version.
+type ChannelEngineVersion struct {
+	ExpirationDate string
+	Version        string
 }
 
 // Channel represents a MediaLive channel.
