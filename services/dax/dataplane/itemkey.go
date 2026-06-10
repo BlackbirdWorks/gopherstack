@@ -18,12 +18,9 @@ type keyAttr struct {
 type keySchema []keyAttr
 
 var (
-	errMissingKey      = errors.New("dax: required key attribute missing")
-	errBadKeySchema    = errors.New("dax: invalid key schema")
-	errBadKeyType      = errors.New("dax: unsupported key attribute type")
-	errNumericRangeKey = errors.New(
-		"dax: numeric range keys in compound primary keys are not yet supported by the data plane",
-	)
+	errMissingKey   = errors.New("dax: required key attribute missing")
+	errBadKeySchema = errors.New("dax: invalid key schema")
+	errBadKeyType   = errors.New("dax: unsupported key attribute type")
 )
 
 // encodeItemKey writes the DAX wire encoding of an item's primary key, given the
@@ -152,7 +149,17 @@ func encodeCompoundRange(bw *bufio.Writer, item map[string]types.AttributeValue,
 
 		return err
 	case types.ScalarAttributeTypeN:
-		return errNumericRangeKey
+		n, isNum := rv.(*types.AttributeValueMemberN)
+		if !isNum {
+			return errMissingKey
+		}
+
+		d := &decimal{}
+		if !d.setString(n.Value) {
+			return errBadKeyType
+		}
+
+		return encodeLexDecimal(d, bw)
 	case types.ScalarAttributeTypeB:
 		b, isBin := rv.(*types.AttributeValueMemberB)
 		if !isBin {
@@ -267,7 +274,12 @@ func decodeCompoundRange(br *bufio.Reader, rk keyAttr, keys map[string]types.Att
 
 		keys[rk.name] = &types.AttributeValueMemberS{Value: string(rest)}
 	case types.ScalarAttributeTypeN:
-		return errNumericRangeKey
+		d, err := decodeLexDecimal(br)
+		if err != nil {
+			return err
+		}
+
+		keys[rk.name] = &types.AttributeValueMemberN{Value: d.String()}
 	case types.ScalarAttributeTypeB:
 		rest, err := readAll(br)
 		if err != nil {

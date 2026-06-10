@@ -1,6 +1,8 @@
 package dataplane
 
 import (
+	"bufio"
+	"bytes"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -62,3 +64,104 @@ func toKeySchema(parts []KeyPart) keySchema {
 
 	return ks
 }
+
+// LexDecimalRoundTripForTest encodes a DynamoDB number literal as a
+// lexicographic-decimal range key and decodes it back, returning the recovered
+// literal.
+func LexDecimalRoundTripForTest(literal string) (string, error) {
+	d := &decimal{}
+	if !d.setString(literal) {
+		return "", errBadLexDecimal
+	}
+
+	var buf bytes.Buffer
+	bw := bufio.NewWriter(&buf)
+
+	if err := encodeLexDecimal(d, bw); err != nil {
+		return "", err
+	}
+
+	if err := bw.Flush(); err != nil {
+		return "", err
+	}
+
+	got, err := decodeLexDecimal(bufio.NewReader(bytes.NewReader(buf.Bytes())))
+	if err != nil {
+		return "", err
+	}
+
+	return got.String(), nil
+}
+
+// LexDecimalEncodeForTest returns the lexicographic-decimal byte encoding of a
+// DynamoDB number literal, for sort-order assertions.
+func LexDecimalEncodeForTest(literal string) ([]byte, error) {
+	d := &decimal{}
+	if !d.setString(literal) {
+		return nil, errBadLexDecimal
+	}
+
+	var buf bytes.Buffer
+	bw := bufio.NewWriter(&buf)
+
+	if err := encodeLexDecimal(d, bw); err != nil {
+		return nil, err
+	}
+
+	if err := bw.Flush(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// DecimalNormalizeForTest parses and re-renders a number literal through the
+// codec's decimal type, for value comparisons that tolerate exponent form.
+func DecimalNormalizeForTest(literal string) (string, bool) {
+	d := &decimal{}
+	if !d.setString(literal) {
+		return "", false
+	}
+
+	return d.String(), true
+}
+
+// Expression kind constants exported for tests.
+const (
+	KindUpdate     = int(kindUpdate)
+	KindCondition  = int(kindCondition)
+	KindProjection = int(kindProjection)
+)
+
+// DecodedExpression is the test-visible result of decoding one or more DAX
+// expression blobs.
+type DecodedExpression struct {
+	Names  map[string]string
+	Values map[string]types.AttributeValue
+	Expr   string
+}
+
+// DecodeExpressionBlobForTest decodes a single encoded expression blob of the
+// given kind and returns the reconstructed expression and attribute maps.
+func DecodeExpressionBlobForTest(blob []byte, kind int) (DecodedExpression, error) {
+	dec := newDecodedExpression()
+
+	expr, err := dec.decodeBlob(blob, exprKind(kind))
+	if err != nil {
+		return DecodedExpression{}, err
+	}
+
+	return DecodedExpression{Expr: expr, Names: dec.names, Values: dec.values}, nil
+}
+
+// Expression op-code constants exported for building test blobs.
+const (
+	OpEqual        = opEqual
+	OpBeginsWith   = opBeginsWith
+	OpBetween      = opBetween
+	OpVariable     = opVariable
+	OpDocumentPath = opDocumentPath
+	OpSetAction    = opSetAction
+	OpRemoveAction = opRemoveAction
+	ExprVersion    = exprEncodingVersion
+)

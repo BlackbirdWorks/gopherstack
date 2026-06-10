@@ -67,9 +67,9 @@ Method IDs implemented:
 | DeleteItem            | `1013539361`  | Implemented                          |
 | BatchGetItem          | `-697851100`  | Implemented                          |
 | BatchWriteItem        | `116217951`   | Implemented                          |
-| UpdateItem            | `1425579023`  | Accepted, returns error (see gaps)   |
-| Query                 | `-931250863`  | Accepted, returns error (see gaps)   |
-| Scan                  | `-1875390620` | Accepted, returns error (see gaps)   |
+| UpdateItem            | `1425579023`  | Implemented (expression blob decode) |
+| Query                 | `-931250863`  | Implemented (key/filter expressions) |
+| Scan                  | `-1875390620` | Implemented (filter expression)      |
 
 ### Response framing
 
@@ -83,7 +83,14 @@ statusCode]` info array. On success the operation-specific body follows.
   bytes are the raw value (S/B) or a CBOR number (N). For a compound key the
   hash is CBOR-encoded and the range component is appended raw (S/B) or as a
   lexicographic decimal (N). `dataplane/itemkey.go` reverses this using the
-  table's key schema (fetched via the DynamoDB backend's `DescribeTable`).
+  table's key schema (fetched via the DynamoDB backend's `DescribeTable`); the
+  numeric range-key lexdecimal codec lives in `dataplane/lexdecimal.go`.
+- **Expressions** (UpdateExpression / ConditionExpression /
+  KeyConditionExpression / FilterExpression) arrive as a pre-parsed CBOR
+  s-expression blob produced by the DAX client's expression parser, not as
+  strings. `dataplane/expression.go` decodes that blob back into a DynamoDB
+  expression string plus `ExpressionAttribute{Names,Values}`, which is then
+  handed to the backend's normal expression-parsing path.
 - **Non-key attributes** are sent as a byte-wrapped `[attrListId, values...]`
   payload, where `attrListId` references a previously registered, sorted list of
   attribute names. The server maintains the id<->names mapping
@@ -101,35 +108,46 @@ Verified with the **real `amazon-dax-go` client** in
 - the full handshake + auth + `defineKeySchema` + `defineAttributeListId` flow,
 - **PutItem -> GetItem** round-trip (string, number, bool attributes),
 - **GetItem** of a missing key (returns an empty item),
-- **DeleteItem** followed by a GetItem that no longer finds the item.
+- **DeleteItem** followed by a GetItem that no longer finds the item,
+- **UpdateItem** with a `SET` UpdateExpression and expression attribute
+  values/names, including `ReturnValues=ALL_NEW`,
+- **Query** with a `KeyConditionExpression` over a numeric range key, with and
+  without an additional `FilterExpression`,
+- **Scan** with a `FilterExpression`,
+- a **numeric (N) range-key** round-trip across a hash+range table (negative,
+  zero, integer and fractional sort keys), exercising the lexdecimal codec.
 
 `BatchGetItem` and `BatchWriteItem` are implemented and decode/delegate using the
-same key + attribute machinery; protocol-level encode/decode is unit-tested in
-`dataplane/codec_test.go`.
+same key + attribute machinery. Protocol-level encode/decode is unit-tested in
+`dataplane/codec_test.go`; the expression-blob decoder and the lexdecimal
+range-key codec have dedicated unit tests in `dataplane/expression_test.go` and
+`dataplane/lexdecimal_test.go`.
 
 ## Known gaps (honest status)
 
-The implementation is **partial but solid**: the core read/write item path is
-fully working against the real client. The remaining gaps are deliberately
-surfaced as DAX errors (the client reports a normal request failure) rather than
-silently corrupting data:
+The full item read/write path — GetItem, PutItem, DeleteItem, BatchGetItem,
+BatchWriteItem, **UpdateItem, Query and Scan** — now works end to end against the
+real client, including the pre-parsed expression sub-protocol and numeric range
+keys. The remaining gaps are deliberate and surfaced as DAX errors (the client
+reports a normal request failure) rather than silently corrupting data:
 
-1. **UpdateItem, Query, Scan.** These carry their UpdateExpression /
-   KeyConditionExpression / FilterExpression as a *pre-parsed binary blob*
-   produced by the DAX client's own expression parser
-   (`amazon-dax-go/.../parser`). Delegating correctly requires decoding that blob
-   back into a DynamoDB expression string. That parser is a sizeable, distinct
-   sub-protocol and is not yet ported. The handlers in
-   `dataplane/update_query_scan.go` return a `ValidationException` describing the
-   gap. *Next step:* port the expression encoder/decoder, reconstruct the
-   expression and `ExpressionAttribute{Names,Values}`, then delegate to the
-   backend's existing `Query`/`Scan`/`UpdateItem`.
-2. **Numeric range keys in compound primary keys.** The lexicographic-decimal
-   range-key encoding is not implemented, so a hash+range table whose range key
-   is type `N` returns an error. String and binary range keys, and numeric hash
-   keys, are fully supported. *Next step:* port `EncodeLexDecimal` /
-   `DecodeLexDecimal` from the DAX client's cbor package into
-   `dataplane/itemkey.go`.
+1. **ProjectionExpression on Query / Scan / UpdateItem.** A `ProjectionExpression`
+   (and `ReturnValues=UPDATED_*` on UpdateItem) makes the client decode a
+   distinct *attribute-projection* response sub-protocol — items are returned as
+   an ordinal-keyed map keyed by document-path ordinals (`projection.go` /
+   `decodeProjection` in the client) rather than as `[key, nonKeyBlob]` pairs.
+   That response shape is not emitted. Query/Scan with a `ProjectionExpression`
+   therefore return a `ValidationException`; the (common) non-projected path is
+   fully supported. UpdateItem with `ReturnValues=ALL_OLD`/`ALL_NEW` is
+   supported; `UPDATED_OLD`/`UPDATED_NEW` fall back to returning the full
+   attribute map. *Next step:* port `buildProjectionOrdinals` + the
+   ordinal-keyed projection response writer.
+2. **TransactGetItems / TransactWriteItems.** Method IDs are recognized but not
+   served (they return `UnknownOperation`). Their request encoding is a large,
+   multi-section buffered sub-protocol (operations/tableNames/keys/values/
+   conditionExpressions buffers; see `encodeTransactWriteItemsInput`) distinct
+   from the single-item ops. *Next step:* port the multi-buffer transact
+   request/response framing and delegate to the backend's transact methods.
 3. **TLS / SigV4 verification.** The listener speaks plain TCP and accepts any
    credentials, which is appropriate for a local emulator. `daxs://` (encrypted)
    endpoints are not served.

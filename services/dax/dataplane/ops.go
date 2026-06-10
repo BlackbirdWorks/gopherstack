@@ -46,60 +46,14 @@ type itemOpParams struct {
 func readItemOptionalParams(r *Reader) (itemOpParams, error) {
 	p := itemOpParams{returnValues: rvNone}
 
-	hdr, err := r.PeekHeader()
-	if err != nil {
-		return p, err
-	}
+	err := forEachOptionalParam(r, func(key int) error {
+		return decodeOneItemParam(r, &p, key)
+	})
 
-	// The client always writes an indefinite-length map (0xbf).
-	if hdr != majorMap+minorTypeMask {
-		// Defensive: a definite map is also valid CBOR.
-		return readDefiniteItemParams(r, p)
-	}
-
-	if _, err = r.r.ReadByte(); err != nil { // consume map-stream header
-		return p, err
-	}
-
-	for {
-		next, e := r.PeekHeader()
-		if e != nil {
-			return p, e
-		}
-
-		if next == streamBreak {
-			_, e = r.r.ReadByte()
-
-			return p, e
-		}
-
-		if err = decodeOneItemParam(r, &p); err != nil {
-			return p, err
-		}
-	}
+	return p, err
 }
 
-func readDefiniteItemParams(r *Reader, p itemOpParams) (itemOpParams, error) {
-	n, err := r.ReadMapLength()
-	if err != nil {
-		return p, err
-	}
-
-	for range n {
-		if err = decodeOneItemParam(r, &p); err != nil {
-			return p, err
-		}
-	}
-
-	return p, nil
-}
-
-func decodeOneItemParam(r *Reader, p *itemOpParams) error {
-	key, err := r.ReadInt()
-	if err != nil {
-		return err
-	}
-
+func decodeOneItemParam(r *Reader, p *itemOpParams, key int) error {
 	switch key {
 	case reqParamConsistentRead:
 		b, e := r.readBoolOrInt()
@@ -117,6 +71,67 @@ func decodeOneItemParam(r *Reader, p *itemOpParams) error {
 		p.returnValues = v
 	default:
 		return r.skip()
+	}
+
+	return nil
+}
+
+// forEachOptionalParam iterates the optional-params map sent after the key (or
+// table) for an operation, invoking fn with each integer key. fn is responsible
+// for reading the corresponding value. The map is encoded indefinite-length by
+// the client, but a definite-length map is also accepted.
+func forEachOptionalParam(r *Reader, fn func(key int) error) error {
+	hdr, err := r.PeekHeader()
+	if err != nil {
+		return err
+	}
+
+	if hdr != majorMap+minorTypeMask {
+		return forEachDefiniteParam(r, fn)
+	}
+
+	if _, err = r.r.ReadByte(); err != nil { // consume map-stream header
+		return err
+	}
+
+	for {
+		next, e := r.PeekHeader()
+		if e != nil {
+			return e
+		}
+
+		if next == streamBreak {
+			_, e = r.r.ReadByte()
+
+			return e
+		}
+
+		key, e := r.ReadInt()
+		if e != nil {
+			return e
+		}
+
+		if e = fn(key); e != nil {
+			return e
+		}
+	}
+}
+
+func forEachDefiniteParam(r *Reader, fn func(key int) error) error {
+	n, err := r.ReadMapLength()
+	if err != nil {
+		return err
+	}
+
+	for range n {
+		key, e := r.ReadInt()
+		if e != nil {
+			return e
+		}
+
+		if e = fn(key); e != nil {
+			return e
+		}
 	}
 
 	return nil
