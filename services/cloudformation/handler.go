@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -572,6 +573,36 @@ func parseStackOptions(form url.Values) StackOptions {
 	}
 }
 
+// mapCreateStackError maps a CreateStack backend error to the AWS error code
+// and message. AWS distinguishes AlreadyExistsException from capability and
+// role-ARN validation failures rather than collapsing them all into one code.
+func mapCreateStackError(err error) (code, message string) {
+	switch {
+	case errors.Is(err, ErrStackAlreadyExists):
+		return "AlreadyExistsException", err.Error()
+	case errors.Is(err, ErrInsufficientCapabilities):
+		return "InsufficientCapabilitiesException", err.Error()
+	case errors.Is(err, ErrInvalidRoleARN):
+		return "ValidationError", err.Error()
+	default:
+		return "ValidationError", err.Error()
+	}
+}
+
+// mapUpdateStackError maps an UpdateStack backend error to the AWS error code.
+func mapUpdateStackError(err error) (code, message string) {
+	switch {
+	case errors.Is(err, ErrStackNotFound):
+		return "ValidationError", err.Error()
+	case errors.Is(err, ErrInsufficientCapabilities):
+		return "InsufficientCapabilitiesException", err.Error()
+	case errors.Is(err, ErrInvalidRoleARN):
+		return "ValidationError", err.Error()
+	default:
+		return "ValidationError", err.Error()
+	}
+}
+
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
@@ -583,7 +614,9 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 		parseParams(form), parseStackOptions(form),
 	)
 	if err != nil {
-		return h.xmlError(c, "AlreadyExistsException", err.Error())
+		code, msg := mapCreateStackError(err)
+
+		return h.xmlError(c, code, msg)
 	}
 
 	type result struct {
@@ -614,7 +647,9 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 		parseParams(form), parseStackOptions(form),
 	)
 	if err != nil {
-		return h.xmlError(c, "ValidationError", err.Error())
+		code, msg := mapUpdateStackError(err)
+
+		return h.xmlError(c, code, msg)
 	}
 
 	type result struct {
@@ -671,7 +706,7 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		Capabilities                []string               `xml:"Capabilities>member,omitempty"`
 		NotificationARNs            []string               `xml:"NotificationARNs>member,omitempty"`
 		EnableTerminationProtection bool                   `xml:"EnableTerminationProtection"`
-		DisableRollback             bool                   `xml:"DisableRollback,omitempty"`
+		DisableRollback             bool                   `xml:"DisableRollback"`
 		TimeoutInMinutes            int                    `xml:"TimeoutInMinutes,omitempty"`
 	}
 

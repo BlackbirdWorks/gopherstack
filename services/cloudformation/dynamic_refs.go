@@ -104,11 +104,19 @@ func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 		s = s[:fullStart] + resolved + s[fullEnd:]
 	}
 
-	return "", fmt.Errorf(
-		"%w: too many dynamic references in a single value (limit %d)",
-		ErrDynamicRefFailed,
-		maxDynamicRefIterations,
-	)
+	// The loop body resolves one reference per iteration. After exhausting the
+	// iteration budget, only fail if references actually remain — a value with
+	// exactly maxDynamicRefIterations references is fully resolved and must not
+	// be reported as an error (off-by-one guard).
+	if dynamicRefPattern.MatchString(s) {
+		return "", fmt.Errorf(
+			"%w: too many dynamic references in a single value (limit %d)",
+			ErrDynamicRefFailed,
+			maxDynamicRefIterations,
+		)
+	}
+
+	return s, nil
 }
 
 // resolveDynamicRefsInValue recursively walks a value tree and replaces any
