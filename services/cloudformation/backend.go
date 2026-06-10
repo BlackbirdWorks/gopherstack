@@ -1116,6 +1116,16 @@ func (b *InMemoryBackend) CreateChangeSet(
 
 	cs.Changes = b.computeChanges(templateBody, stack)
 
+	// AWS marks a change set with no actual changes as FAILED / UNAVAILABLE so
+	// it cannot be executed; only a change set that contains changes is
+	// AVAILABLE for execution.
+	if len(cs.Changes) == 0 {
+		cs.Status = "FAILED"
+		cs.StatusReason = "The submitted information didn't contain changes. " +
+			"Submit different information to create a change set."
+		cs.ExecutionStatus = "UNAVAILABLE"
+	}
+
 	b.changeSets[stackName][changeSetName] = cs
 
 	return cs, nil
