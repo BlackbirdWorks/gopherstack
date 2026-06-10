@@ -109,6 +109,12 @@ const (
 	keyIDPrefixLen = 36
 	// defaultListLimit is the default maximum number of results for list operations.
 	defaultListLimit = 100
+	// maxKeysAliasesLimit is the AWS upper bound on the Limit parameter for
+	// ListKeys and ListAliases.
+	maxKeysAliasesLimit int32 = 1000
+	// maxResourceTagsLimit is the AWS upper bound on the Limit parameter for
+	// ListResourceTags.
+	maxResourceTagsLimit int32 = 50
 	// aes256Bytes is the size of an AES-256 data key in bytes.
 	aes256Bytes = 32
 	// aes128Bytes is the size of an AES-128 data key in bytes.
@@ -693,8 +699,27 @@ func (b *InMemoryBackend) DescribeKey(ctx context.Context, input *DescribeKeyInp
 	return &DescribeKeyOutput{KeyMetadata: meta}, nil
 }
 
+// validateListLimit enforces the AWS bound on a list operation's Limit
+// parameter. AWS rejects a value outside [1, maxLimit] with ValidationException.
+// A nil Limit means "unset" and is accepted (the default applies).
+func validateListLimit(limit *int32, maxLimit int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	if *limit < 1 || *limit > maxLimit {
+		return fmt.Errorf("%w: Limit must be between 1 and %d", ErrValidation, maxLimit)
+	}
+
+	return nil
+}
+
 // ListKeys returns a paginated list of all keys.
 func (b *InMemoryBackend) ListKeys(ctx context.Context, input *ListKeysInput) (*ListKeysOutput, error) {
+	if err := validateListLimit(input.Limit, maxKeysAliasesLimit); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListKeys")
 	defer b.mu.RUnlock()
 
@@ -1403,6 +1428,10 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 
 // ListAliases returns a paginated list of aliases, optionally filtered by key.
 func (b *InMemoryBackend) ListAliases(ctx context.Context, input *ListAliasesInput) (*ListAliasesOutput, error) {
+	if err := validateListLimit(input.Limit, maxKeysAliasesLimit); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 

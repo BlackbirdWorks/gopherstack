@@ -27,6 +27,10 @@ const (
 
 	rdsDescribeDefaultPageSize = 100
 
+	// AWS bounds for AllocatedStorage (GiB) on general-purpose RDS engines.
+	minAllocatedStorage = 20
+	maxAllocatedStorage = 65536
+
 	monitoringInterval5  = 5
 	monitoringInterval10 = 10
 	monitoringInterval15 = 15
@@ -631,6 +635,15 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
+	// AWS bounds AllocatedStorage to 20–65536 GiB for general-purpose engines.
+	// A zero value means the field was omitted (the engine default applies).
+	if allocatedStorage != 0 && (allocatedStorage < minAllocatedStorage || allocatedStorage > maxAllocatedStorage) {
+		return nil, fmt.Errorf(
+			"%w: AllocatedStorage must be between %d and %d; got %d",
+			ErrInvalidParameter, minAllocatedStorage, maxAllocatedStorage, allocatedStorage,
+		)
+	}
+
 	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupID")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
@@ -1085,6 +1098,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrSubnetGroupNotFound, "DBSubnetGroupNotFoundFault"},
 		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExists"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrInvalidParameterCombination, "InvalidParameterCombination"},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidDBInstanceState, "InvalidDBInstanceState"},
 		{ErrParameterGroupNotFound, "DBParameterGroupNotFound"},
@@ -1238,7 +1252,7 @@ type xmlDBInstance struct {
 	AllocatedStorage                  int                           `xml:"AllocatedStorage"`
 	Iops                              int                           `xml:"Iops,omitempty"`
 	StorageThroughput                 int                           `xml:"StorageThroughput,omitempty"`
-	BackupRetentionPeriod             int                           `xml:"BackupRetentionPeriod,omitempty"`
+	BackupRetentionPeriod             int                           `xml:"BackupRetentionPeriod"`
 	MonitoringInterval                int                           `xml:"MonitoringInterval,omitempty"`
 	Port                              int                           `xml:"Endpoint>Port"`
 	StorageEncrypted                  bool                          `xml:"StorageEncrypted"`

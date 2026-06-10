@@ -650,6 +650,11 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	b.mu.Lock("AdminSetUserPassword")
 	defer b.mu.Unlock()
 
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
 	poolUsers, ok := b.users[userPoolID]
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
@@ -658,6 +663,13 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	user, ok := poolUsers[username]
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	// AWS enforces the pool's password policy on AdminSetUserPassword, just as
+	// it does on ConfirmForgotPassword. An invalid password is rejected with
+	// InvalidPasswordException.
+	if err := validatePassword(pool.PasswordPolicy, password); err != nil {
+		return err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)

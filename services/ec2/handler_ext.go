@@ -31,10 +31,27 @@ type rebootInstancesResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+// instanceStatusDetail is a single reachability check detail (e.g. name
+// "reachability", status "passed").
+type instanceStatusDetail struct {
+	Name   string `xml:"name"`
+	Status string `xml:"status"`
+}
+
+// instanceStatusDetails is the health summary AWS reports for both the system
+// status and the instance status. Status is "ok", "impaired", "initializing",
+// "insufficient-data" or "not-applicable".
+type instanceStatusDetails struct {
+	Status  string                 `xml:"status"`
+	Details []instanceStatusDetail `xml:"details>item"`
+}
+
 type instanceStatusItem struct {
-	InstanceID    string    `xml:"instanceId"`
-	AvailZone     string    `xml:"availabilityZone"`
-	InstanceState stateItem `xml:"instanceState"`
+	InstanceID     string                `xml:"instanceId"`
+	AvailZone      string                `xml:"availabilityZone"`
+	InstanceState  stateItem             `xml:"instanceState"`
+	SystemStatus   instanceStatusDetails `xml:"systemStatus"`
+	InstanceStatus instanceStatusDetails `xml:"instanceStatus"`
 }
 
 type instanceStatusSet struct {
@@ -578,10 +595,18 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 
 	items := make([]instanceStatusItem, 0, len(instances))
 	for _, inst := range instances {
+		// AWS reports system/instance status as "ok" with a passed
+		// reachability check for running instances; non-running instances
+		// report "initializing" until they reach a steady state. This lets the
+		// SDK InstanceStatusOk waiter reach its terminal state.
+		health := instanceHealthForState(inst.State.Name)
+
 		items = append(items, instanceStatusItem{
-			InstanceID:    inst.ID,
-			AvailZone:     h.Region + "a",
-			InstanceState: stateItem{Code: inst.State.Code, Name: inst.State.Name},
+			InstanceID:     inst.ID,
+			AvailZone:      h.Region + "a",
+			InstanceState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
+			SystemStatus:   health,
+			InstanceStatus: health,
 		})
 	}
 
@@ -590,6 +615,26 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 		RequestID:         reqID,
 		InstanceStatusSet: instanceStatusSet{Items: items},
 	}, nil
+}
+
+// instanceHealthForState returns the AWS-style status summary for an instance in
+// the given lifecycle state. Running instances are healthy ("ok"); others are
+// still "initializing".
+func instanceHealthForState(stateName string) instanceStatusDetails {
+	status := "initializing"
+	reachability := "initializing"
+
+	if stateName == "running" {
+		status = "ok"
+		reachability = "passed"
+	}
+
+	return instanceStatusDetails{
+		Status: status,
+		Details: []instanceStatusDetail{
+			{Name: "reachability", Status: reachability},
+		},
+	}
 }
 
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {

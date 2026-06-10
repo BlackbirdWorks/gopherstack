@@ -581,8 +581,14 @@ func (h *S3Handler) listObjects(
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
-			maxKeys = int32(n) //nolint:gosec // Validated range
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
+			// AWS clamps MaxKeys to [0, 1000] rather than rejecting an
+			// over-limit value; a value above 1000 is treated as 1000.
+			if n > defaultMaxKeys {
+				n = defaultMaxKeys
+			}
+
+			maxKeys = int32(n) //nolint:gosec // Clamped to [0, 1000]
 		}
 	}
 

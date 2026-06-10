@@ -640,6 +640,10 @@ func (h *Handler) listResourceTags(b []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateListLimit(input.Limit, maxResourceTagsLimit); err != nil {
+		return nil, err
+	}
+
 	if _, descErr := h.Backend.DescribeKey(
 		context.Background(), &DescribeKeyInput{KeyID: input.KeyID},
 	); descErr != nil {

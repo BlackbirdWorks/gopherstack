@@ -302,7 +302,7 @@ type ListMultipartUploadsResult struct {
 	Xmlns              string            `xml:"xmlns,attr,omitempty"`
 	Bucket             string            `xml:"Bucket"`
 	Delimiter          string            `xml:"Delimiter,omitempty"`
-	Prefix             string            `xml:"Prefix,omitempty"`
+	Prefix             string            `xml:"Prefix"`
 	KeyMarker          string            `xml:"KeyMarker,omitempty"`
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
