@@ -973,3 +973,159 @@ surfaced several non-types and niche resources, omitted here). Platform and op-a
 cited to the files read. The cross-service section is deliberately recorded as a *strength* with
 only the true partials called out, to keep the parity picture honest rather than inflating the
 gap count.
+
+---
+
+# P. Actionable line-level issue backlog (2026-06-10, pass 4)
+
+A discrete, fixable backlog for a downstream fixing agent. Each item is a single change with a
+`file:line` and a suggested fix. Found by op-level fidelity hunts (response shapes, error codes,
+validation, pagination, SDK-waiter blockers). **Two caveats for the fixer:**
+- **Pagination direction**: many items below are "token cursor off-by-one" (`start = i` vs
+  `start = i + 1`, or `keys[n-1]` vs `keys[n]`). These are only bugs if the token *generation* and
+  *lookup* disagree. Before flipping, confirm the convention: if `NextToken` is set to the **last
+  returned** item, the next-page lookup must **skip** it (`start = i + 1`); if it's the **first
+  un-returned** item, the lookup must **include** it (`start = i`). Fix whichever side is
+  inconsistent, and add a two-page integration test.
+- **`omitzero` is NOT a bug here** — `go.mod` is `go 1.26`, and `encoding/json` honors `omitzero`
+  (Go 1.24+). Any earlier note suggesting `omitzero` is invalid is withdrawn.
+
+## Pagination — cursor off-by-one / duplicate-or-skip across pages
+
+These share a root cause (token-vs-lookup mismatch) and are high-value because they corrupt
+multi-page listings:
+- **ECR** — `services/ecr/handler.go:556-565` (`DescribeRepositories`) includes the token item
+  (`start = i`) while the token is the last-of-page → duplicate; same at
+  `handler.go:900-906` (`DescribeImages`) and `:954-963` (`ListImages`). The paired token-build
+  uses `repos[MaxResults]`/`imgs[MaxResults]` index (`:571,911,969`) — reconcile both sides.
+- **QuickSight** — `start = i` in every paginator: `backend.go:517` (Namespaces), `:676` (Groups),
+  `:784` (GroupMembers), `:941` (Users), `:1102` (DataSources), `:1239` (DataSets), `:1347`
+  (Ingestions), `:1479` (Dashboards), `:1640` (Analyses) → each duplicates the cursor row.
+- **DataBrew** — `services/databrew/paginate_helper.go:22` (`keys[endIdx-1]`) and
+  `backend.go:812` (`reversed[endIdx-1].RunID`) emit the last-of-page as the token.
+- **MQ** — `services/mq/handler.go:555` (`brokers[maxResults-1].BrokerName`).
+- **AutoScaling** — `services/autoscaling/handler.go:439`
+  (`groups[maxRecords-1].AutoScalingGroupName`).
+- **ELBv2** — `services/elbv2/handler.go:385` (`lbs[pageSize-1].LoadBalancerArn`).
+
+## Pagination — MaxResults/Limit ignored or no NextToken in output
+
+- **Cognito IDP** — `MaxResults`/`Limit` ignored and output struct lacks `NextToken`:
+  `ListUserPools` (`services/cognitoidp/handler.go:572,575`), `ListUserPoolClients` (`:710,713`),
+  `ListUsers` (`:1103,1115`). Add `NextToken` to the output structs and honor the limit.
+- **CodePipeline** — output structs missing `NextToken`: `ListPipelineExecutions`
+  (`services/codepipeline/handler.go:1044`), `ListWebhooks` (`:1225`), `ListActionExecutions`
+  (`:1566`), `ListActionTypes` (`:1592`), `ListRuleExecutions` (`:1705`); and
+  `ListPipelineExecutions` ignores the params entirely (`:1048-1071`).
+- **Athena** — `ListQueryExecutions` hardcodes `NextToken: ""` and ignores `MaxResults`/`NextToken`
+  (`services/athena/handler.go:601`).
+- **IoT** — `ListThings` (`services/iot/handler.go:1986-2001`), `ListTopicRules` (`:2003-2018`),
+  `ListPolicies` (`:1972-1984`) accept/return no pagination.
+- **SecurityHub** — `intFromBody` returns `0` for missing `MaxResults` with no sensible default
+  (`services/securityhub/handler.go:926-930`).
+
+## Pagination — bounds validation (return the AWS error instead of accepting any value)
+
+- **KMS** — `Limit` not clamped to AWS max (50 for `ListResourceTags`, 1000 for `ListKeys`/
+  `ListAliases`): `services/kms/handler.go:648-675`, `services/kms/backend.go:587-592`. Raise
+  `ErrLimitExceeded` (already in the table, `handler.go:1040`) on overflow.
+- **IAM** — `parseMaxItems` accepts any positive int; enforce 1–1000
+  (`services/iam/handler.go:1757-1771`).
+- **SSM** — list/describe ops accept arbitrary `MaxResults`; enforce per-op bounds (typically 1–50)
+  (`services/ssm/handler.go`).
+- **Secrets Manager** — `ListSecrets` doesn't bound `MaxResults` (1–100)
+  (`services/secretsmanager/models.go:64-68`).
+- **Cognito IDP** — no bound on `MaxResults`/`Limit` (Cognito cap ~60)
+  (`services/cognitoidp/handler.go:567`).
+- **RAM** — list ops don't validate/ default `MaxResults` (cap 100) (`services/ram/handler.go`).
+- **CloudFormation** — `ListStacks`/`ListStackResources`/`ListExports` don't bound `MaxResults`
+  (1–100) (`services/cloudformation/handler.go`).
+- General: several services silently **reset to page 1 on an invalid/garbage NextToken** instead
+  of returning `InvalidParameterException` (e.g. ECR, Route53) — decide on validation + error.
+
+## SDK-waiter blockers (Describe never reaches the terminal state a waiter polls)
+
+- **Lambda** — `CreateFunction` returns `State:"Active"` immediately
+  (`services/lambda/handler.go:1490`); AWS returns `Pending`→`Active`. Also
+  `LastUpdateStatus` defaults to empty (`services/lambda/models.go:113`) where AWS returns
+  `Successful|InProgress|Failed`. SDK waiters `FunctionActiveV2`/`FunctionUpdatedV2` can't match.
+  Mirror the DynamoDB create→active delay pattern (`dynamodb/table_ops.go:114-123`).
+- **Glue** — `StopCrawler` sets state `STOPPING` but the reconciler only does `RUNNING→READY`, so
+  the crawler hangs in `STOPPING` forever (`services/glue/backend.go:2039-2055`). Add
+  `STOPPING→STOPPED` (or set `READY`).
+- Audit other long-waiter services (RDS/ECS/EKS/CFN) for the same pattern — Describe must
+  eventually report `available`/`ACTIVE`/`CREATE_COMPLETE`.
+
+## Response-shape / field-name fidelity
+
+- **SNS XML tag case** (Query-protocol element names must be PascalCase) in
+  `services/sns/models.go`: `ListPhoneNumbersOptedOutResult.NextToken` `nextToken`→`NextToken`
+  (`:485`) and `PhoneNumbers` `phoneNumbers>member`→`PhoneNumbers>member` (`:486`);
+  `CheckIfPhoneNumberIsOptedOutResult.IsOptedOut` `isOptedOut`→`IsOptedOut` (`:404`);
+  `GetSMSAttributesResult.Attributes` `attributes>entry`→`Attributes>entry` (`:440`);
+  `XMLAttributeEntry` `key`/`value`→`Key`/`Value` (`:100-101`).
+- **SQS** — `jsonListDeadLetterSourceQueuesResp` JSON key `queueUrls`→`QueueUrls`
+  (`services/sqs/handler.go:518`).
+- **Cognito IDP** — `TokenResult` JSON keys are lowercase `idToken`/`accessToken`/`refreshToken`;
+  AWS `AuthenticationResult` expects `IdToken`/`AccessToken`/`RefreshToken`
+  (`services/cognitoidp/tokens.go:103-106`) — **verify this struct is the wire response** before
+  changing. `userSummary` Go field `UserLastModified` vs JSON `UserLastModifiedDate` mismatch
+  (`handler.go:1111`); `Enabled` bools lack `omitempty` where sibling structs have it
+  (`:916,973,1112`).
+- **`NextToken` omitempty** (AWS omits the field on the last page; emitting `""` differs):
+  StepFunctions `handler.go:318,336,341,375,428,460`; EventBridge `handler.go:392,403,422`;
+  ACM input `handler.go:136`; ACM PCA input `handler.go:287`.
+- **S3 XML element presence** (verify against AWS, these are deliberate-encoding calls):
+  `ListMultipartUploadsResult.Prefix` should NOT be `omitempty` (AWS always emits `<Prefix>`)
+  (`services/s3/model.go:305`); confirm `ListBucketResult.Prefix`/`Contents`/`CommonPrefixes`
+  emission matches AWS (`model.go:27,31,32,48`).
+- **DynamoDB DescribeTable** — `StreamSpecification` should always carry an explicit
+  `StreamEnabled` bool (false when disabled), not be omitted/conditional
+  (`services/dynamodb/table_ops.go:661,708`); ensure `BillingModeSummary` is always present
+  (`:622`).
+- **DynamoDB Scan** — `ScannedCount` must reflect pre-filter count while `Count` is post-filter;
+  currently both derive from the filtered slice (`services/dynamodb/item_ops_scan.go:136-137`).
+- **EC2 `DescribeInstanceStatus`** — `instanceStatusItem` omits `SystemStatus` and `InstanceStatus`
+  health objects (`services/ec2/handler_ext.go:34-49`).
+- **RDS** — `BackupRetentionPeriod` is `omitempty` but AWS always returns it
+  (`services/rds/handler.go:1241`).
+- **API Gateway** — list responses use a single `item` wrapper key; AWS uses operation-specific
+  embedded keys — verify each list op's wrapper (`services/apigateway/handler.go`).
+
+## Input validation / error-code fidelity
+
+- **Lambda** — `validateMemoryAndTimeout` checks timeout but not memory (128–10240 MB, 1-MB steps)
+  (`services/lambda/handler.go:1377-1387`); confirm `CreateFunction` returns HTTP 201
+  (`handler.go`, cf. `audit_gaps_test.go:106`).
+- **RDS** — no range check on `AllocatedStorage` (20–65536) (`services/rds/handler.go:564-570`);
+  `MonitoringInterval>0` should require `MonitoringRoleArn` (`:593-607`); `ErrInvalidParameter`
+  maps to `InvalidParameterValue` where AWS often returns `InvalidParameterCombination`/
+  `…Exception` (`:1087`).
+- **EC2** — `RequestSpotFleet` doesn't validate `TargetCapacity>=1`
+  (`services/ec2/backend_spot_fleet.go:229`); `CreateVolume` KMS key not validated
+  (`handler_ext.go:775`).
+- **STS** — `dispatchAssumeRole` should pre-validate `DurationSeconds` range (900–43200) before the
+  backend (`services/sts/handler.go:252-260`).
+- **Cognito IDP** — `AdminSetUserPassword` skips the pool password-policy check that
+  `ConfirmForgotPassword` applies (`services/cognitoidp/backend.go:955` vs `:824`).
+- **S3** — `DeleteObjects` over-limit uses generic `ErrInvalidArgument`; AWS returns
+  `MalformedXML`/specific `1000`-keys error (`services/s3/bucket_ops.go:837`); `MaxKeys>1000`
+  should be clamped, not honored verbatim (`backend_memory.go:4148`).
+- **KMS** — encryption-context-size error should match AWS wording/exception
+  (`services/kms/backend.go:634`).
+
+## IAM policy evaluation (parity-relevant, verify)
+
+- Confirm whether IAM actually **evaluates** policies for authorization (and whether
+  `SimulatePrincipalPolicy`/`SimulateCustomPolicy` are real or canned). If requests are always
+  allowed, an opt-in enforcement mode + a working policy simulator would exceed LocalStack's open
+  tier. (Cross-reference the platform-level "no SigV4/IAM enforcement" finding in §L.)
+
+## Notes on pass 4
+
+These are read-confirmed at the cited lines. The pagination-direction items are flagged for
+convention-check (above) rather than blind flipping. Items marked "verify" (Cognito `TokenResult`,
+S3 `<Prefix>` emission, API Gateway wrappers, IAM evaluation) need a quick AWS-shape confirmation
+before the fix. The `omitzero` "bug" reported by one sub-pass was rejected (`go 1.26` supports it).
+This backlog is intentionally line-level so it can be burned down item-by-item; it does not
+duplicate the category-level findings in §A–§O.
