@@ -52,3 +52,24 @@ func MultiplexProgramCount(b *InMemoryBackend, multiplexID string) int {
 
 	return len(m.Programs)
 }
+
+// ClusterCount returns the number of stored clusters.
+func ClusterCount(b *InMemoryBackend) int {
+	b.mu.RLock("ClusterCount")
+	defer b.mu.RUnlock()
+
+	return len(b.clusters)
+}
+
+// NodeCount returns the number of nodes in a cluster.
+func NodeCount(b *InMemoryBackend, clusterID string) int {
+	b.mu.RLock("NodeCount")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return 0
+	}
+
+	return len(c.Nodes)
+}

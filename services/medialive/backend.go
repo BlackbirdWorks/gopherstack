@@ -33,6 +33,17 @@ const (
 	resourceTypeInputSecurityGroup = "inputSecurityGroup"
 	resourceTypeInputDevice        = "inputDevice"
 	resourceTypeMultiplex          = "multiplex"
+	resourceTypeCluster            = "cluster"
+	resourceTypeNode               = "node"
+
+	clusterStateActive   = "ACTIVE"
+	clusterStateDeleting = "DELETING"
+	clusterStateDeleted  = "DELETED"
+
+	nodeStateActive    = "ACTIVE"
+	nodeStateDeleted   = "DELETED"
+	nodeRoleActive     = "ACTIVE"
+	nodeConnectionConn = "CONNECTED"
 
 	deviceConnectionConnected = "CONNECTED"
 	deviceSettingsSynced      = "SYNCED"
@@ -302,12 +313,91 @@ func (p *storedMultiplexProgram) toSummary() *MultiplexProgramSummary {
 	}
 }
 
+// Tags and Nodes (maps) first, then strings: reduces GC pointer scan.
+type storedCluster struct {
+	Tags            map[string]string      `json:"tags"`
+	Nodes           map[string]*storedNode `json:"nodes"`
+	ARN             string                 `json:"arn"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	ClusterType     string                 `json:"clusterType"`
+	InstanceRoleArn string                 `json:"instanceRoleArn"`
+	State           string                 `json:"state"`
+}
+
+func (c *storedCluster) toCluster() *Cluster {
+	tags := make(map[string]string, len(c.Tags))
+	maps.Copy(tags, c.Tags)
+
+	return &Cluster{
+		Tags:            tags,
+		ARN:             c.ARN,
+		ID:              c.ID,
+		Name:            c.Name,
+		ClusterType:     c.ClusterType,
+		InstanceRoleArn: c.InstanceRoleArn,
+		State:           c.State,
+	}
+}
+
+func (c *storedCluster) toSummary() *ClusterSummary {
+	return &ClusterSummary{
+		ARN:             c.ARN,
+		ID:              c.ID,
+		Name:            c.Name,
+		ClusterType:     c.ClusterType,
+		InstanceRoleArn: c.InstanceRoleArn,
+		State:           c.State,
+	}
+}
+
+// Tags first, then strings: reduces GC pointer scan.
+type storedNode struct {
+	Tags            map[string]string `json:"tags"`
+	ARN             string            `json:"arn"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	ClusterID       string            `json:"clusterId"`
+	Role            string            `json:"role"`
+	State           string            `json:"state"`
+	ConnectionState string            `json:"connectionState"`
+}
+
+func (n *storedNode) toNode() *Node {
+	tags := make(map[string]string, len(n.Tags))
+	maps.Copy(tags, n.Tags)
+
+	return &Node{
+		Tags:            tags,
+		ARN:             n.ARN,
+		ID:              n.ID,
+		Name:            n.Name,
+		ClusterID:       n.ClusterID,
+		Role:            n.Role,
+		State:           n.State,
+		ConnectionState: n.ConnectionState,
+	}
+}
+
+func (n *storedNode) toSummary() *NodeSummary {
+	return &NodeSummary{
+		ARN:             n.ARN,
+		ID:              n.ID,
+		Name:            n.Name,
+		ClusterID:       n.ClusterID,
+		Role:            n.Role,
+		State:           n.State,
+		ConnectionState: n.ConnectionState,
+	}
+}
+
 type snapshot struct {
 	Channels            map[string]*storedChannel            `json:"channels"`
 	Inputs              map[string]*storedInput              `json:"inputs"`
 	InputSecurityGroups map[string]*storedInputSecurityGroup `json:"inputSecurityGroups"`
 	InputDevices        map[string]*storedInputDevice        `json:"inputDevices"`
 	Multiplexes         map[string]*storedMultiplex          `json:"multiplexes"`
+	Clusters            map[string]*storedCluster            `json:"clusters"`
 	Tags                map[string]map[string]string         `json:"tags"`
 	AccountID           string                               `json:"accountId"`
 	Region              string                               `json:"region"`
@@ -321,6 +411,7 @@ type InMemoryBackend struct {
 	inputSecurityGroups map[string]*storedInputSecurityGroup
 	inputDevices        map[string]*storedInputDevice
 	multiplexes         map[string]*storedMultiplex
+	clusters            map[string]*storedCluster
 	tags                map[string]map[string]string
 	accountID           string
 	region              string
@@ -335,6 +426,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		inputSecurityGroups: make(map[string]*storedInputSecurityGroup),
 		inputDevices:        make(map[string]*storedInputDevice),
 		multiplexes:         make(map[string]*storedMultiplex),
+		clusters:            make(map[string]*storedCluster),
 		tags:                make(map[string]map[string]string),
 		accountID:           accountID,
 		region:              region,
@@ -357,6 +449,7 @@ func (b *InMemoryBackend) Reset() {
 	b.inputSecurityGroups = make(map[string]*storedInputSecurityGroup)
 	b.inputDevices = make(map[string]*storedInputDevice)
 	b.multiplexes = make(map[string]*storedMultiplex)
+	b.clusters = make(map[string]*storedCluster)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -371,6 +464,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		InputSecurityGroups: b.inputSecurityGroups,
 		InputDevices:        b.inputDevices,
 		Multiplexes:         b.multiplexes,
+		Clusters:            b.clusters,
 		Tags:                b.tags,
 		AccountID:           b.accountID,
 		Region:              b.region,
@@ -400,6 +494,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.inputDevices = make(map[string]*storedInputDevice)
 	}
 	b.multiplexes = s.Multiplexes
+	if s.Clusters != nil {
+		b.clusters = s.Clusters
+	} else {
+		b.clusters = make(map[string]*storedCluster)
+	}
 	b.tags = s.Tags
 	b.accountID = s.AccountID
 	b.region = s.Region
@@ -1131,6 +1230,14 @@ func (b *InMemoryBackend) ListMultiplexPrograms(
 	return summaries, pg.Next, nil
 }
 
+func (b *InMemoryBackend) clusterARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, resourceTypeCluster+":"+id)
+}
+
+func (b *InMemoryBackend) nodeARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, resourceTypeNode+":"+id)
+}
+
 func copyTags(tags map[string]string) map[string]string {
 	if len(tags) == 0 {
 		return make(map[string]string)
@@ -1359,4 +1466,306 @@ func (b *InMemoryBackend) ListInputDeviceTransfers(
 	}
 
 	return transfers, pg.Next, nil
+}
+
+// --- Cluster operations ---
+
+// CreateCluster creates a new Cluster.
+func (b *InMemoryBackend) CreateCluster(
+	name, clusterType, instanceRoleArn string,
+	tags map[string]string,
+) (*Cluster, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+
+	if clusterType == "" {
+		clusterType = "ON_PREMISES"
+	}
+
+	id := newID()
+	c := &storedCluster{
+		ARN:             b.clusterARN(id),
+		ID:              id,
+		Name:            name,
+		ClusterType:     clusterType,
+		InstanceRoleArn: instanceRoleArn,
+		State:           clusterStateActive,
+		Tags:            copyTags(tags),
+		Nodes:           make(map[string]*storedNode),
+	}
+
+	b.mu.Lock("CreateCluster")
+	defer b.mu.Unlock()
+
+	b.clusters[id] = c
+
+	return c.toCluster(), nil
+}
+
+// DescribeCluster returns a Cluster by ID.
+func (b *InMemoryBackend) DescribeCluster(clusterID string) (*Cluster, error) {
+	b.mu.RLock("DescribeCluster")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	return c.toCluster(), nil
+}
+
+// UpdateCluster updates a Cluster's mutable fields.
+func (b *InMemoryBackend) UpdateCluster(clusterID, name string) (*Cluster, error) {
+	b.mu.Lock("UpdateCluster")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	if name != "" {
+		c.Name = name
+	}
+
+	return c.toCluster(), nil
+}
+
+// DeleteCluster deletes a Cluster.
+func (b *InMemoryBackend) DeleteCluster(clusterID string) (*Cluster, error) {
+	b.mu.Lock("DeleteCluster")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	c.State = clusterStateDeleted
+	delete(b.clusters, clusterID)
+
+	return c.toCluster(), nil
+}
+
+// ListClusters returns a paginated list of Clusters.
+func (b *InMemoryBackend) ListClusters(
+	maxResults int,
+	nextToken string,
+) ([]*ClusterSummary, string, error) {
+	b.mu.RLock("ListClusters")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedCluster, 0, len(b.clusters))
+	for _, c := range b.clusters {
+		all = append(all, c)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	summaries := make([]*ClusterSummary, 0, len(pg.Data))
+	for _, c := range pg.Data {
+		summaries = append(summaries, c.toSummary())
+	}
+
+	return summaries, pg.Next, nil
+}
+
+// --- Node operations ---
+
+// CreateNode creates a Node within a Cluster.
+func (b *InMemoryBackend) CreateNode(
+	clusterID, name, role string,
+	tags map[string]string,
+) (*Node, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: clusterId required", ErrInvalidParameter)
+	}
+
+	if role == "" {
+		role = nodeRoleActive
+	}
+
+	b.mu.Lock("CreateNode")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	id := newID()
+	if name == "" {
+		name = id
+	}
+
+	n := &storedNode{
+		ARN:             b.nodeARN(id),
+		ID:              id,
+		Name:            name,
+		ClusterID:       clusterID,
+		Role:            role,
+		State:           nodeStateActive,
+		ConnectionState: nodeConnectionConn,
+		Tags:            copyTags(tags),
+	}
+
+	c.Nodes[id] = n
+
+	return n.toNode(), nil
+}
+
+// DescribeNode returns a Node by cluster ID and node ID.
+func (b *InMemoryBackend) DescribeNode(clusterID, nodeID string) (*Node, error) {
+	b.mu.RLock("DescribeNode")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	n, ok := c.Nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
+	}
+
+	return n.toNode(), nil
+}
+
+// UpdateNode updates a Node's mutable fields.
+func (b *InMemoryBackend) UpdateNode(clusterID, nodeID, name, role string) (*Node, error) {
+	b.mu.Lock("UpdateNode")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	n, ok := c.Nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
+	}
+
+	if name != "" {
+		n.Name = name
+	}
+
+	if role != "" {
+		n.Role = role
+	}
+
+	return n.toNode(), nil
+}
+
+// UpdateNodeState updates the state of a Node.
+func (b *InMemoryBackend) UpdateNodeState(clusterID, nodeID, state string) (*Node, error) {
+	b.mu.Lock("UpdateNodeState")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	n, ok := c.Nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
+	}
+
+	if state != "" {
+		n.State = state
+	}
+
+	return n.toNode(), nil
+}
+
+// DeleteNode removes a Node from a Cluster.
+func (b *InMemoryBackend) DeleteNode(clusterID, nodeID string) (*Node, error) {
+	b.mu.Lock("DeleteNode")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	n, ok := c.Nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
+	}
+
+	delete(c.Nodes, nodeID)
+
+	return n.toNode(), nil
+}
+
+// paginateNodes returns a sorted, paginated node-summary slice from a cluster.
+func paginateNodes(c *storedCluster, maxResults int, nextToken string) ([]*NodeSummary, string) {
+	nodes := make([]*storedNode, 0, len(c.Nodes))
+	for _, n := range c.Nodes {
+		nodes = append(nodes, n)
+	}
+
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+
+	pg := page.New(nodes, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*NodeSummary, 0, len(pg.Data))
+	for _, n := range pg.Data {
+		out = append(out, n.toSummary())
+	}
+
+	return out, pg.Next
+}
+
+// ListNodes returns a paginated list of Nodes in a Cluster.
+func (b *InMemoryBackend) ListNodes(
+	clusterID string,
+	maxResults int,
+	nextToken string,
+) ([]*NodeSummary, string, error) {
+	b.mu.RLock("ListNodes")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	summaries, next := paginateNodes(c, maxResults, nextToken)
+
+	return summaries, next, nil
+}
+
+// CreateNodeRegistrationScript returns a registration script for a Cluster Node.
+func (b *InMemoryBackend) CreateNodeRegistrationScript(clusterID string) (string, error) {
+	b.mu.RLock("CreateNodeRegistrationScript")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterID]; !ok {
+		return "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	return "#!/bin/bash\n# Node registration script for cluster " + clusterID + "\n", nil
+}
+
+// ListClusterAlerts returns alerts for a Cluster (always empty in emulation).
+func (b *InMemoryBackend) ListClusterAlerts(
+	clusterID string,
+	_ int,
+	_ string,
+) ([]map[string]any, string, error) {
+	b.mu.RLock("ListClusterAlerts")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterID]; !ok {
+		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	return []map[string]any{}, "", nil
 }

@@ -86,6 +86,23 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*InputDeviceTransfer, string, error)
 
+	// Clusters
+	CreateCluster(name, clusterType, instanceRoleArn string, tags map[string]string) (*Cluster, error)
+	DescribeCluster(clusterID string) (*Cluster, error)
+	UpdateCluster(clusterID, name string) (*Cluster, error)
+	DeleteCluster(clusterID string) (*Cluster, error)
+	ListClusters(maxResults int, nextToken string) ([]*ClusterSummary, string, error)
+
+	// Nodes
+	CreateNode(clusterID, name, role string, tags map[string]string) (*Node, error)
+	DescribeNode(clusterID, nodeID string) (*Node, error)
+	UpdateNode(clusterID, nodeID, name, role string) (*Node, error)
+	UpdateNodeState(clusterID, nodeID, state string) (*Node, error)
+	DeleteNode(clusterID, nodeID string) (*Node, error)
+	ListNodes(clusterID string, maxResults int, nextToken string) ([]*NodeSummary, string, error)
+	CreateNodeRegistrationScript(clusterID string) (string, error)
+	ListClusterAlerts(clusterID string, maxResults int, nextToken string) ([]map[string]any, string, error)
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -234,6 +251,52 @@ type MultiplexProgram struct {
 type MultiplexProgramSummary struct {
 	ProgramName string
 	ChannelID   string
+}
+
+// Cluster represents a MediaLive Anywhere Cluster resource.
+// Tags first: reduces GC pointer scan.
+type Cluster struct {
+	Tags            map[string]string
+	ARN             string
+	ID              string
+	Name            string
+	ClusterType     string
+	InstanceRoleArn string
+	State           string
+}
+
+// ClusterSummary is a Cluster in a list response.
+type ClusterSummary struct {
+	ARN             string
+	ID              string
+	Name            string
+	ClusterType     string
+	InstanceRoleArn string
+	State           string
+}
+
+// Node represents a MediaLive Anywhere Node within a Cluster.
+// Tags first: reduces GC pointer scan.
+type Node struct {
+	Tags            map[string]string
+	ARN             string
+	ID              string
+	Name            string
+	ClusterID       string
+	Role            string
+	State           string
+	ConnectionState string
+}
+
+// NodeSummary is a Node in a list response.
+type NodeSummary struct {
+	ARN             string
+	ID              string
+	Name            string
+	ClusterID       string
+	Role            string
+	State           string
+	ConnectionState string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

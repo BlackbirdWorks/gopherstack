@@ -23,15 +23,21 @@ const (
 	pathInputDeviceTransfers = "/prod/inputDeviceTransfers"
 	pathClaimDevice          = "/prod/claimDevice"
 	pathMultiplexes          = "/prod/multiplexes"
+	pathClusters             = "/prod/clusters"
 	pathTags                 = "/prod/tags/"
 
-	subPrograms = "programs"
-	subStart    = "start"
-	subStop     = "stop"
+	subPrograms               = "programs"
+	subStart                  = "start"
+	subStop                   = "stop"
+	subNodes                  = "nodes"
+	subAlerts                 = "alerts"
+	subNodeRegistrationScript = "nodeRegistrationScript"
+	subState                  = "state"
 
-	pathSegmentsID    = 1
-	pathSegmentsSub   = 2
-	pathSegmentsNamed = 3
+	pathSegmentsID      = 1
+	pathSegmentsSub     = 2
+	pathSegmentsNamed   = 3
+	pathSegmentsDeepSub = 4
 
 	keyMessage = "Message"
 	keyArn     = "Arn"
@@ -88,6 +94,21 @@ const (
 	opCreateTags          = "CreateTags"
 	opDeleteTags          = "DeleteTags"
 	opListTagsForResource = "ListTagsForResource"
+
+	opCreateCluster                = "CreateCluster"
+	opDescribeCluster              = "DescribeCluster"
+	opUpdateCluster                = "UpdateCluster"
+	opDeleteCluster                = "DeleteCluster"
+	opListClusters                 = "ListClusters"
+	opListClusterAlerts            = "ListClusterAlerts"
+	opCreateNodeRegistrationScript = "CreateNodeRegistrationScript"
+
+	opCreateNode      = "CreateNode"
+	opDescribeNode    = "DescribeNode"
+	opUpdateNode      = "UpdateNode"
+	opUpdateNodeState = "UpdateNodeState"
+	opDeleteNode      = "DeleteNode"
+	opListNodes       = "ListNodes"
 )
 
 // Handler handles MediaLive HTTP requests.
@@ -151,6 +172,19 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateTags,
 		opDeleteTags,
 		opListTagsForResource,
+		opCreateCluster,
+		opDescribeCluster,
+		opUpdateCluster,
+		opDeleteCluster,
+		opListClusters,
+		opListClusterAlerts,
+		opCreateNodeRegistrationScript,
+		opCreateNode,
+		opDescribeNode,
+		opUpdateNode,
+		opUpdateNodeState,
+		opDeleteNode,
+		opListNodes,
 	}
 }
 
@@ -203,48 +237,61 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	}
 
 	handlers := map[string]func() error{
-		opCreateChannel:              func() error { return h.handleCreateChannel(c, body) },
-		opDescribeChannel:            func() error { return h.handleDescribeChannel(c, resource) },
-		opUpdateChannel:              func() error { return h.handleUpdateChannel(c, resource, body) },
-		opDeleteChannel:              func() error { return h.handleDeleteChannel(c, resource) },
-		opListChannels:               func() error { return h.handleListChannels(c) },
-		opStartChannel:               func() error { return h.handleStartChannel(c, resource) },
-		opStopChannel:                func() error { return h.handleStopChannel(c, resource) },
-		opCreateInput:                func() error { return h.handleCreateInput(c, body) },
-		opDescribeInput:              func() error { return h.handleDescribeInput(c, resource) },
-		opUpdateInput:                func() error { return h.handleUpdateInput(c, resource, body) },
-		opDeleteInput:                func() error { return h.handleDeleteInput(c, resource) },
-		opListInputs:                 func() error { return h.handleListInputs(c) },
-		opCreateInputSecurityGroup:   func() error { return h.handleCreateInputSecurityGroup(c, body) },
-		opDescribeInputSecurityGroup: func() error { return h.handleDescribeInputSecurityGroup(c, resource) },
-		opUpdateInputSecurityGroup:   func() error { return h.handleUpdateInputSecurityGroup(c, resource, body) },
-		opDeleteInputSecurityGroup:   func() error { return h.handleDeleteInputSecurityGroup(c, resource) },
-		opListInputSecurityGroups:    func() error { return h.handleListInputSecurityGroups(c) },
-		opClaimDevice:                func() error { return h.handleClaimDevice(c, body) },
-		opListInputDevices:           func() error { return h.handleListInputDevices(c) },
-		opDescribeInputDevice:        func() error { return h.handleDescribeInputDevice(c, resource) },
-		opUpdateInputDevice:          func() error { return h.handleUpdateInputDevice(c, resource, body) },
-		opRebootInputDevice:          func() error { return h.handleRebootInputDevice(c, resource) },
-		opTransferInputDevice:        func() error { return h.handleTransferInputDevice(c, resource, body) },
-		opAcceptInputDeviceTransfer:  func() error { return h.handleAcceptInputDeviceTransfer(c, resource) },
-		opCancelInputDeviceTransfer:  func() error { return h.handleCancelInputDeviceTransfer(c, resource) },
-		opRejectInputDeviceTransfer:  func() error { return h.handleRejectInputDeviceTransfer(c, resource) },
-		opListInputDeviceTransfers:   func() error { return h.handleListInputDeviceTransfers(c) },
-		opCreateMultiplex:            func() error { return h.handleCreateMultiplex(c, body) },
-		opDescribeMultiplex:          func() error { return h.handleDescribeMultiplex(c, resource) },
-		opUpdateMultiplex:            func() error { return h.handleUpdateMultiplex(c, resource, body) },
-		opDeleteMultiplex:            func() error { return h.handleDeleteMultiplex(c, resource) },
-		opListMultiplexes:            func() error { return h.handleListMultiplexes(c) },
-		opStartMultiplex:             func() error { return h.handleStartMultiplex(c, resource) },
-		opStopMultiplex:              func() error { return h.handleStopMultiplex(c, resource) },
-		opCreateMultiplexProgram:     func() error { return h.handleCreateMultiplexProgram(c, resource, body) },
-		opDescribeMultiplexProgram:   func() error { return h.handleDescribeMultiplexProgram(c, resource) },
-		opUpdateMultiplexProgram:     func() error { return h.handleUpdateMultiplexProgram(c, resource, body) },
-		opDeleteMultiplexProgram:     func() error { return h.handleDeleteMultiplexProgram(c, resource) },
-		opListMultiplexPrograms:      func() error { return h.handleListMultiplexPrograms(c, resource) },
-		opCreateTags:                 func() error { return h.handleCreateTags(c, resource, body) },
-		opDeleteTags:                 func() error { return h.handleDeleteTags(c, resource) },
-		opListTagsForResource:        func() error { return h.handleListTagsForResource(c, resource) },
+		opCreateChannel:                func() error { return h.handleCreateChannel(c, body) },
+		opDescribeChannel:              func() error { return h.handleDescribeChannel(c, resource) },
+		opUpdateChannel:                func() error { return h.handleUpdateChannel(c, resource, body) },
+		opDeleteChannel:                func() error { return h.handleDeleteChannel(c, resource) },
+		opListChannels:                 func() error { return h.handleListChannels(c) },
+		opStartChannel:                 func() error { return h.handleStartChannel(c, resource) },
+		opStopChannel:                  func() error { return h.handleStopChannel(c, resource) },
+		opCreateInput:                  func() error { return h.handleCreateInput(c, body) },
+		opDescribeInput:                func() error { return h.handleDescribeInput(c, resource) },
+		opUpdateInput:                  func() error { return h.handleUpdateInput(c, resource, body) },
+		opDeleteInput:                  func() error { return h.handleDeleteInput(c, resource) },
+		opListInputs:                   func() error { return h.handleListInputs(c) },
+		opCreateInputSecurityGroup:     func() error { return h.handleCreateInputSecurityGroup(c, body) },
+		opDescribeInputSecurityGroup:   func() error { return h.handleDescribeInputSecurityGroup(c, resource) },
+		opUpdateInputSecurityGroup:     func() error { return h.handleUpdateInputSecurityGroup(c, resource, body) },
+		opDeleteInputSecurityGroup:     func() error { return h.handleDeleteInputSecurityGroup(c, resource) },
+		opListInputSecurityGroups:      func() error { return h.handleListInputSecurityGroups(c) },
+		opClaimDevice:                  func() error { return h.handleClaimDevice(c, body) },
+		opListInputDevices:             func() error { return h.handleListInputDevices(c) },
+		opDescribeInputDevice:          func() error { return h.handleDescribeInputDevice(c, resource) },
+		opUpdateInputDevice:            func() error { return h.handleUpdateInputDevice(c, resource, body) },
+		opRebootInputDevice:            func() error { return h.handleRebootInputDevice(c, resource) },
+		opTransferInputDevice:          func() error { return h.handleTransferInputDevice(c, resource, body) },
+		opAcceptInputDeviceTransfer:    func() error { return h.handleAcceptInputDeviceTransfer(c, resource) },
+		opCancelInputDeviceTransfer:    func() error { return h.handleCancelInputDeviceTransfer(c, resource) },
+		opRejectInputDeviceTransfer:    func() error { return h.handleRejectInputDeviceTransfer(c, resource) },
+		opListInputDeviceTransfers:     func() error { return h.handleListInputDeviceTransfers(c) },
+		opCreateMultiplex:              func() error { return h.handleCreateMultiplex(c, body) },
+		opDescribeMultiplex:            func() error { return h.handleDescribeMultiplex(c, resource) },
+		opUpdateMultiplex:              func() error { return h.handleUpdateMultiplex(c, resource, body) },
+		opDeleteMultiplex:              func() error { return h.handleDeleteMultiplex(c, resource) },
+		opListMultiplexes:              func() error { return h.handleListMultiplexes(c) },
+		opStartMultiplex:               func() error { return h.handleStartMultiplex(c, resource) },
+		opStopMultiplex:                func() error { return h.handleStopMultiplex(c, resource) },
+		opCreateMultiplexProgram:       func() error { return h.handleCreateMultiplexProgram(c, resource, body) },
+		opDescribeMultiplexProgram:     func() error { return h.handleDescribeMultiplexProgram(c, resource) },
+		opUpdateMultiplexProgram:       func() error { return h.handleUpdateMultiplexProgram(c, resource, body) },
+		opDeleteMultiplexProgram:       func() error { return h.handleDeleteMultiplexProgram(c, resource) },
+		opListMultiplexPrograms:        func() error { return h.handleListMultiplexPrograms(c, resource) },
+		opCreateTags:                   func() error { return h.handleCreateTags(c, resource, body) },
+		opDeleteTags:                   func() error { return h.handleDeleteTags(c, resource) },
+		opListTagsForResource:          func() error { return h.handleListTagsForResource(c, resource) },
+		opCreateCluster:                func() error { return h.handleCreateCluster(c, body) },
+		opDescribeCluster:              func() error { return h.handleDescribeCluster(c, resource) },
+		opUpdateCluster:                func() error { return h.handleUpdateCluster(c, resource, body) },
+		opDeleteCluster:                func() error { return h.handleDeleteCluster(c, resource) },
+		opListClusters:                 func() error { return h.handleListClusters(c) },
+		opListClusterAlerts:            func() error { return h.handleListClusterAlerts(c, resource) },
+		opCreateNodeRegistrationScript: func() error { return h.handleCreateNodeRegistrationScript(c, resource) },
+		opCreateNode:                   func() error { return h.handleCreateNode(c, resource, body) },
+		opDescribeNode:                 func() error { return h.handleDescribeNode(c, resource) },
+		opUpdateNode:                   func() error { return h.handleUpdateNode(c, resource, body) },
+		opUpdateNodeState:              func() error { return h.handleUpdateNodeState(c, resource, body) },
+		opDeleteNode:                   func() error { return h.handleDeleteNode(c, resource) },
+		opListNodes:                    func() error { return h.handleListNodes(c, resource) },
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -274,6 +321,10 @@ func classifyPath(method, path string) (string, string) {
 	}
 
 	if op, res, ok := classifyMultiplexPath(method, path); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyClusterPath(method, path); ok {
 		return op, res
 	}
 
@@ -1399,6 +1450,368 @@ func (h *Handler) handleListInputDeviceTransfers(c *echo.Context) error {
 	}
 
 	resp := map[string]any{"InputDeviceTransfers": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// --- Cluster path classification ---
+
+// classifyClusterPath classifies paths under /prod/clusters.
+// resource is one of:
+//   - clusterID (single cluster ops)
+//   - clusterID (for node-list/create ops, nodeID is embedded in resource)
+//   - "clusterID/nodeID" (compound, for node CRUD)
+func classifyClusterPath(method, path string) (string, string, bool) {
+	if path == pathClusters {
+		return classifyClusterRoot(method)
+	}
+
+	after, ok := strings.CutPrefix(path, pathClusters+"/")
+	if !ok {
+		return "", "", false
+	}
+
+	// Split into at most 4 parts: clusterId/subpath/nodeId/state
+	parts := strings.SplitN(after, "/", pathSegmentsDeepSub)
+
+	clusterID := parts[0]
+	if clusterID == "" {
+		return "", "", false
+	}
+
+	switch len(parts) {
+	case pathSegmentsID:
+		return classifyClusterIDOnly(method, clusterID)
+	case pathSegmentsSub:
+		return classifyClusterSubpath(method, clusterID, parts[1])
+	case pathSegmentsNamed:
+		return classifyClusterNodePath(method, clusterID, parts[1], parts[2])
+	case pathSegmentsDeepSub:
+		return classifyClusterNodeStatePath(method, clusterID, parts[1], parts[2], parts[3])
+	}
+
+	return "", "", false
+}
+
+func classifyClusterRoot(method string) (string, string, bool) {
+	switch method {
+	case http.MethodGet:
+		return opListClusters, "", true
+	case http.MethodPost:
+		return opCreateCluster, "", true
+	}
+
+	return "", "", false
+}
+
+func classifyClusterIDOnly(method, clusterID string) (string, string, bool) {
+	switch method {
+	case http.MethodGet:
+		return opDescribeCluster, clusterID, true
+	case http.MethodPut:
+		return opUpdateCluster, clusterID, true
+	case http.MethodDelete:
+		return opDeleteCluster, clusterID, true
+	}
+
+	return "", "", false
+}
+
+func classifyClusterSubpath(method, clusterID, sub string) (string, string, bool) {
+	switch {
+	case sub == subAlerts && method == http.MethodGet:
+		return opListClusterAlerts, clusterID, true
+	case sub == subNodeRegistrationScript && method == http.MethodPost:
+		return opCreateNodeRegistrationScript, clusterID, true
+	case sub == subNodes && method == http.MethodGet:
+		return opListNodes, clusterID, true
+	case sub == subNodes && method == http.MethodPost:
+		return opCreateNode, clusterID, true
+	}
+
+	return "", "", false
+}
+
+// classifyClusterNodePath handles /prod/clusters/{id}/nodes/{nodeId}.
+// resource is compound "clusterID/nodeID".
+func classifyClusterNodePath(method, clusterID, sub, nodeID string) (string, string, bool) {
+	if sub != subNodes || nodeID == "" {
+		return "", "", false
+	}
+
+	compound := clusterID + "/" + nodeID
+
+	switch method {
+	case http.MethodGet:
+		return opDescribeNode, compound, true
+	case http.MethodPut:
+		return opUpdateNode, compound, true
+	case http.MethodDelete:
+		return opDeleteNode, compound, true
+	}
+
+	return "", "", false
+}
+
+// classifyClusterNodeStatePath handles /prod/clusters/{id}/nodes/{nodeId}/state.
+func classifyClusterNodeStatePath(method, clusterID, sub, nodeID, extra string) (string, string, bool) {
+	if sub != subNodes || nodeID == "" || extra != subState {
+		return "", "", false
+	}
+
+	if method != http.MethodPut {
+		return "", "", false
+	}
+
+	compound := clusterID + "/" + nodeID
+
+	return opUpdateNodeState, compound, true
+}
+
+// splitClusterNode splits the compound resource "clusterID/nodeID".
+func splitClusterNode(resource string) (string, string) {
+	before, after, _ := strings.Cut(resource, "/")
+
+	return before, after
+}
+
+// --- Cluster handlers ---
+
+type clusterOutput struct {
+	Tags            map[string]string `json:"Tags"`
+	Arn             string            `json:"Arn"`
+	ID              string            `json:"Id"`
+	Name            string            `json:"Name"`
+	ClusterType     string            `json:"ClusterType"`
+	InstanceRoleArn string            `json:"InstanceRoleArn"`
+	State           string            `json:"State"`
+}
+
+func toClusterOutput(c *Cluster) clusterOutput {
+	tags := c.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return clusterOutput{
+		Tags:            tags,
+		Arn:             c.ARN,
+		ID:              c.ID,
+		Name:            c.Name,
+		ClusterType:     c.ClusterType,
+		InstanceRoleArn: c.InstanceRoleArn,
+		State:           c.State,
+	}
+}
+
+func (h *Handler) handleCreateCluster(c *echo.Context, body map[string]any) error {
+	name, _ := body["Name"].(string)
+	clusterType, _ := body["ClusterType"].(string)
+	instanceRoleArn, _ := body["InstanceRoleArn"].(string)
+	tags := extractTags(body)
+
+	cl, err := h.Backend.CreateCluster(name, clusterType, instanceRoleArn, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toClusterOutput(cl))
+}
+
+func (h *Handler) handleDescribeCluster(c *echo.Context, clusterID string) error {
+	cl, err := h.Backend.DescribeCluster(clusterID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toClusterOutput(cl))
+}
+
+func (h *Handler) handleUpdateCluster(c *echo.Context, clusterID string, body map[string]any) error {
+	name, _ := body["Name"].(string)
+
+	cl, err := h.Backend.UpdateCluster(clusterID, name)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toClusterOutput(cl))
+}
+
+func (h *Handler) handleDeleteCluster(c *echo.Context, clusterID string) error {
+	cl, err := h.Backend.DeleteCluster(clusterID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toClusterOutput(cl))
+}
+
+func (h *Handler) handleListClusters(c *echo.Context) error {
+	summaries, nextToken, err := h.Backend.ListClusters(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			keyArn:            s.ARN,
+			keyID:             s.ID,
+			keyName:           s.Name,
+			keyState:          s.State,
+			"ClusterType":     s.ClusterType,
+			"InstanceRoleArn": s.InstanceRoleArn,
+		})
+	}
+
+	resp := map[string]any{"Clusters": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleListClusterAlerts(c *echo.Context, clusterID string) error {
+	alerts, nextToken, err := h.Backend.ListClusterAlerts(clusterID, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	resp := map[string]any{"Alerts": alerts}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleCreateNodeRegistrationScript(c *echo.Context, clusterID string) error {
+	script, err := h.Backend.CreateNodeRegistrationScript(clusterID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{"NodeRegistrationScript": script})
+}
+
+// --- Node handlers ---
+
+type nodeOutput struct {
+	Tags            map[string]string `json:"Tags"`
+	Arn             string            `json:"Arn"`
+	ID              string            `json:"Id"`
+	Name            string            `json:"Name"`
+	ClusterID       string            `json:"ClusterId"`
+	Role            string            `json:"Role"`
+	State           string            `json:"State"`
+	ConnectionState string            `json:"ConnectionState"`
+}
+
+func toNodeOutput(n *Node) nodeOutput {
+	tags := n.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return nodeOutput{
+		Tags:            tags,
+		Arn:             n.ARN,
+		ID:              n.ID,
+		Name:            n.Name,
+		ClusterID:       n.ClusterID,
+		Role:            n.Role,
+		State:           n.State,
+		ConnectionState: n.ConnectionState,
+	}
+}
+
+func (h *Handler) handleCreateNode(c *echo.Context, clusterID string, body map[string]any) error {
+	name, _ := body["Name"].(string)
+	role, _ := body["Role"].(string)
+	tags := extractTags(body)
+
+	n, err := h.Backend.CreateNode(clusterID, name, role, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toNodeOutput(n))
+}
+
+func (h *Handler) handleDescribeNode(c *echo.Context, resource string) error {
+	clusterID, nodeID := splitClusterNode(resource)
+
+	n, err := h.Backend.DescribeNode(clusterID, nodeID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNodeOutput(n))
+}
+
+func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body map[string]any) error {
+	clusterID, nodeID := splitClusterNode(resource)
+
+	name, _ := body["Name"].(string)
+	role, _ := body["Role"].(string)
+
+	n, err := h.Backend.UpdateNode(clusterID, nodeID, name, role)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNodeOutput(n))
+}
+
+func (h *Handler) handleUpdateNodeState(c *echo.Context, resource string, body map[string]any) error {
+	clusterID, nodeID := splitClusterNode(resource)
+
+	state, _ := body["State"].(string)
+
+	n, err := h.Backend.UpdateNodeState(clusterID, nodeID, state)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNodeOutput(n))
+}
+
+func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
+	clusterID, nodeID := splitClusterNode(resource)
+
+	n, err := h.Backend.DeleteNode(clusterID, nodeID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toNodeOutput(n))
+}
+
+func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
+	summaries, nextToken, err := h.Backend.ListNodes(clusterID, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			keyArn:            s.ARN,
+			keyID:             s.ID,
+			keyName:           s.Name,
+			keyState:          s.State,
+			"ClusterId":       s.ClusterID,
+			"Role":            s.Role,
+			"ConnectionState": s.ConnectionState,
+		})
+	}
+
+	resp := map[string]any{"Nodes": out}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
