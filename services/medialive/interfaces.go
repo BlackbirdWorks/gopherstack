@@ -34,6 +34,37 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*InputSecurityGroupSummary, string, error)
 
+	// Multiplexes
+	CreateMultiplex(
+		name string,
+		availabilityZones []string,
+		settings MultiplexSettings,
+		tags map[string]string,
+	) (*Multiplex, error)
+	DescribeMultiplex(multiplexID string) (*Multiplex, error)
+	UpdateMultiplex(multiplexID, name string, settings MultiplexSettings) (*Multiplex, error)
+	DeleteMultiplex(multiplexID string) (*Multiplex, error)
+	ListMultiplexes(maxResults int, nextToken string) ([]*MultiplexSummary, string, error)
+	StartMultiplex(multiplexID string) (*Multiplex, error)
+	StopMultiplex(multiplexID string) (*Multiplex, error)
+
+	// MultiplexPrograms
+	CreateMultiplexProgram(
+		multiplexID string,
+		prog MultiplexProgramSettings,
+	) (*MultiplexProgram, error)
+	DescribeMultiplexProgram(multiplexID, programName string) (*MultiplexProgram, error)
+	UpdateMultiplexProgram(
+		multiplexID string,
+		prog MultiplexProgramSettings,
+	) (*MultiplexProgram, error)
+	DeleteMultiplexProgram(multiplexID, programName string) (*MultiplexProgram, error)
+	ListMultiplexPrograms(
+		multiplexID string,
+		maxResults int,
+		nextToken string,
+	) ([]*MultiplexProgramSummary, string, error)
+
 	// Tags
 	CreateTags(resourceARN string, tags map[string]string) error
 	DeleteTags(resourceARN string, tagKeys []string) error
@@ -146,6 +177,63 @@ type InputDeviceTransfer struct {
 	TargetCustomerID string
 	TransferType     string
 	Message          string
+}
+
+// MultiplexSettings holds transport-stream parameters for a Multiplex.
+type MultiplexSettings struct {
+	TransportStreamBitrate              int
+	TransportStreamID                   int
+	TransportStreamReservedBitrate      int
+	MaximumVideoBufferDelayMilliseconds int
+}
+
+// Multiplex represents a MediaLive Multiplex resource.
+// Tags first, value struct last: reduces GC pointer scan.
+type Multiplex struct {
+	Tags              map[string]string
+	ARN               string
+	ID                string
+	Name              string
+	State             string
+	AvailabilityZones []string
+	Settings          MultiplexSettings
+}
+
+// MultiplexSummary is a Multiplex in a list response.
+type MultiplexSummary struct {
+	ARN               string
+	ID                string
+	Name              string
+	State             string
+	AvailabilityZones []string
+}
+
+// ServiceDescriptor holds provider/service name for a program.
+type ServiceDescriptor struct {
+	ProviderName string
+	ServiceName  string
+}
+
+// MultiplexProgramSettings holds the settings for a MultiplexProgram.
+type MultiplexProgramSettings struct {
+	ServiceDescriptor        ServiceDescriptor
+	ProgramName              string
+	PreferredChannelPipeline string
+	ProgramNumber            int
+}
+
+// MultiplexProgram represents a program within a Multiplex.
+// Strings first, value struct last: reduces GC pointer scan.
+type MultiplexProgram struct {
+	ChannelID   string
+	ProgramName string
+	Settings    MultiplexProgramSettings
+}
+
+// MultiplexProgramSummary is a program in a list response.
+type MultiplexProgramSummary struct {
+	ProgramName string
+	ChannelID   string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

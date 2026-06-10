@@ -29,8 +29,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"CreateCluster",
 		"CreateEventBridgeRuleTemplate",
 		"CreateEventBridgeRuleTemplateGroup",
-		"CreateMultiplex",
-		"CreateMultiplexProgram",
 		"CreateNetwork",
 		"CreateNode",
 		"CreateNodeRegistrationScript",
@@ -43,8 +41,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"DeleteCluster",
 		"DeleteEventBridgeRuleTemplate",
 		"DeleteEventBridgeRuleTemplateGroup",
-		"DeleteMultiplex",
-		"DeleteMultiplexProgram",
 		"DeleteNetwork",
 		"DeleteNode",
 		"DeleteReservation",
@@ -55,8 +51,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"DescribeChannelPlacementGroup",
 		"DescribeCluster",
 		"DescribeInputDeviceThumbnail",
-		"DescribeMultiplex",
-		"DescribeMultiplexProgram",
 		"DescribeNetwork",
 		"DescribeNode",
 		"DescribeOffering",
@@ -78,8 +72,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"ListEventBridgeRuleTemplateGroups",
 		"ListEventBridgeRuleTemplates",
 		"ListMultiplexAlerts",
-		"ListMultiplexes",
-		"ListMultiplexPrograms",
 		"ListNetworks",
 		"ListNodes",
 		"ListOfferings",
@@ -93,10 +85,8 @@ func TestSDKCompleteness(t *testing.T) {
 		"StartInputDevice",
 		"StartInputDeviceMaintenanceWindow",
 		"StartMonitorDeployment",
-		"StartMultiplex",
 		"StartUpdateSignalMap",
 		"StopInputDevice",
-		"StopMultiplex",
 		"UpdateAccountConfiguration",
 		"UpdateChannelClass",
 		"UpdateChannelPlacementGroup",
@@ -105,8 +95,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"UpdateCluster",
 		"UpdateEventBridgeRuleTemplate",
 		"UpdateEventBridgeRuleTemplateGroup",
-		"UpdateMultiplex",
-		"UpdateMultiplexProgram",
 		"UpdateNetwork",
 		"UpdateNode",
 		"UpdateNodeState",
@@ -114,5 +102,10 @@ func TestSDKCompleteness(t *testing.T) {
 		"UpdateSdiSource",
 	}
 
-	sdkcheck.CheckCompleteness(t, &medialivestk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(
+		t,
+		&medialivestk.Client{},
+		h.GetSupportedOperations(),
+		notImplemented,
+	)
 }

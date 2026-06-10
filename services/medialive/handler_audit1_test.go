@@ -22,7 +22,12 @@ func newTestHandler(t *testing.T) *medialive.Handler {
 	return medialive.NewHandler(backend)
 }
 
-func doRequest(t *testing.T, h *medialive.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	h *medialive.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte

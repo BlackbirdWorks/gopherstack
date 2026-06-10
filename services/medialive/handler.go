@@ -22,11 +22,21 @@ const (
 	pathInputDevices         = "/prod/inputDevices"
 	pathInputDeviceTransfers = "/prod/inputDeviceTransfers"
 	pathClaimDevice          = "/prod/claimDevice"
+	pathMultiplexes          = "/prod/multiplexes"
 	pathTags                 = "/prod/tags/"
+
+	subPrograms = "programs"
+	subStart    = "start"
+	subStop     = "stop"
+
+	pathSegmentsID    = 1
+	pathSegmentsSub   = 2
+	pathSegmentsNamed = 3
 
 	keyMessage = "Message"
 	keyArn     = "Arn"
 	keyID      = "Id"
+	keyName    = "Name"
 	keyState   = "State"
 	opUnknown  = "Unknown"
 
@@ -60,6 +70,20 @@ const (
 	opCancelInputDeviceTransfer = "CancelInputDeviceTransfer"
 	opRejectInputDeviceTransfer = "RejectInputDeviceTransfer"
 	opListInputDeviceTransfers  = "ListInputDeviceTransfers"
+
+	opCreateMultiplex   = "CreateMultiplex"
+	opDescribeMultiplex = "DescribeMultiplex"
+	opUpdateMultiplex   = "UpdateMultiplex"
+	opDeleteMultiplex   = "DeleteMultiplex"
+	opListMultiplexes   = "ListMultiplexes"
+	opStartMultiplex    = "StartMultiplex"
+	opStopMultiplex     = "StopMultiplex"
+
+	opCreateMultiplexProgram   = "CreateMultiplexProgram"
+	opDescribeMultiplexProgram = "DescribeMultiplexProgram"
+	opUpdateMultiplexProgram   = "UpdateMultiplexProgram"
+	opDeleteMultiplexProgram   = "DeleteMultiplexProgram"
+	opListMultiplexPrograms    = "ListMultiplexPrograms"
 
 	opCreateTags          = "CreateTags"
 	opDeleteTags          = "DeleteTags"
@@ -112,6 +136,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCancelInputDeviceTransfer,
 		opRejectInputDeviceTransfer,
 		opListInputDeviceTransfers,
+		opCreateMultiplex,
+		opDescribeMultiplex,
+		opUpdateMultiplex,
+		opDeleteMultiplex,
+		opListMultiplexes,
+		opStartMultiplex,
+		opStopMultiplex,
+		opCreateMultiplexProgram,
+		opDescribeMultiplexProgram,
+		opUpdateMultiplexProgram,
+		opDeleteMultiplexProgram,
+		opListMultiplexPrograms,
 		opCreateTags,
 		opDeleteTags,
 		opListTagsForResource,
@@ -156,7 +192,8 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 	var body map[string]any
 	if c.Request().ContentLength != 0 {
-		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != "EOF" {
+		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+			err.Error() != "EOF" {
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "invalid JSON body"})
 		}
 	}
@@ -193,6 +230,18 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opCancelInputDeviceTransfer:  func() error { return h.handleCancelInputDeviceTransfer(c, resource) },
 		opRejectInputDeviceTransfer:  func() error { return h.handleRejectInputDeviceTransfer(c, resource) },
 		opListInputDeviceTransfers:   func() error { return h.handleListInputDeviceTransfers(c) },
+		opCreateMultiplex:            func() error { return h.handleCreateMultiplex(c, body) },
+		opDescribeMultiplex:          func() error { return h.handleDescribeMultiplex(c, resource) },
+		opUpdateMultiplex:            func() error { return h.handleUpdateMultiplex(c, resource, body) },
+		opDeleteMultiplex:            func() error { return h.handleDeleteMultiplex(c, resource) },
+		opListMultiplexes:            func() error { return h.handleListMultiplexes(c) },
+		opStartMultiplex:             func() error { return h.handleStartMultiplex(c, resource) },
+		opStopMultiplex:              func() error { return h.handleStopMultiplex(c, resource) },
+		opCreateMultiplexProgram:     func() error { return h.handleCreateMultiplexProgram(c, resource, body) },
+		opDescribeMultiplexProgram:   func() error { return h.handleDescribeMultiplexProgram(c, resource) },
+		opUpdateMultiplexProgram:     func() error { return h.handleUpdateMultiplexProgram(c, resource, body) },
+		opDeleteMultiplexProgram:     func() error { return h.handleDeleteMultiplexProgram(c, resource) },
+		opListMultiplexPrograms:      func() error { return h.handleListMultiplexPrograms(c, resource) },
 		opCreateTags:                 func() error { return h.handleCreateTags(c, resource, body) },
 		opDeleteTags:                 func() error { return h.handleDeleteTags(c, resource) },
 		opListTagsForResource:        func() error { return h.handleListTagsForResource(c, resource) },
@@ -206,6 +255,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 }
 
 // classifyPath maps (method, path) → (operation, resource).
+// For MultiplexProgram ops, resource is "multiplexID/programName".
 func classifyPath(method, path string) (string, string) {
 	if op, res, ok := classifyChannelPath(method, path); ok {
 		return op, res
@@ -223,11 +273,109 @@ func classifyPath(method, path string) (string, string) {
 		return op, res
 	}
 
+	if op, res, ok := classifyMultiplexPath(method, path); ok {
+		return op, res
+	}
+
 	if strings.HasPrefix(path, pathTags) {
 		return classifyTagPath(method, path)
 	}
 
 	return opUnknown, ""
+}
+
+func classifyMultiplexPath(method, path string) (string, string, bool) {
+	if path == pathMultiplexes {
+		return classifyMultiplexRoot(method)
+	}
+
+	after, ok := strings.CutPrefix(path, pathMultiplexes+"/")
+	if !ok {
+		return "", "", false
+	}
+
+	parts := strings.SplitN(after, "/", pathSegmentsNamed)
+	id := parts[0]
+
+	if id == "" {
+		return "", "", false
+	}
+
+	switch len(parts) {
+	case pathSegmentsID:
+		return classifyMultiplexIDOnly(method, id)
+	case pathSegmentsSub:
+		return classifyMultiplexSubpath(method, id, parts[1])
+	case pathSegmentsNamed:
+		return classifyMultiplexProgramPath(method, id, parts[1], parts[2])
+	}
+
+	return "", "", false
+}
+
+func classifyMultiplexRoot(method string) (string, string, bool) {
+	switch method {
+	case http.MethodGet:
+		return opListMultiplexes, "", true
+	case http.MethodPost:
+		return opCreateMultiplex, "", true
+	}
+
+	return "", "", false
+}
+
+func classifyMultiplexIDOnly(method, id string) (string, string, bool) {
+	switch method {
+	case http.MethodGet:
+		return opDescribeMultiplex, id, true
+	case http.MethodPut:
+		return opUpdateMultiplex, id, true
+	case http.MethodDelete:
+		return opDeleteMultiplex, id, true
+	}
+
+	return "", "", false
+}
+
+func classifyMultiplexSubpath(method, id, sub string) (string, string, bool) {
+	switch {
+	case sub == subStart && method == http.MethodPost:
+		return opStartMultiplex, id, true
+	case sub == subStop && method == http.MethodPost:
+		return opStopMultiplex, id, true
+	case sub == subPrograms && method == http.MethodGet:
+		return opListMultiplexPrograms, id, true
+	case sub == subPrograms && method == http.MethodPost:
+		return opCreateMultiplexProgram, id, true
+	}
+
+	return "", "", false
+}
+
+func classifyMultiplexProgramPath(method, id, sub, name string) (string, string, bool) {
+	if sub != subPrograms || name == "" {
+		return "", "", false
+	}
+
+	compound := id + "/" + name
+
+	switch method {
+	case http.MethodGet:
+		return opDescribeMultiplexProgram, compound, true
+	case http.MethodPut:
+		return opUpdateMultiplexProgram, compound, true
+	case http.MethodDelete:
+		return opDeleteMultiplexProgram, compound, true
+	}
+
+	return "", "", false
+}
+
+// splitMultiplexProgram splits the compound resource "multiplexID/programName".
+func splitMultiplexProgram(resource string) (string, string) {
+	before, after, _ := strings.Cut(resource, "/")
+
+	return before, after
 }
 
 func classifyChannelPath(method, path string) (string, string, bool) {
@@ -451,7 +599,11 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, channelID string) error
 	return c.JSON(http.StatusOK, toChannelOutput(ch))
 }
 
-func (h *Handler) handleUpdateChannel(c *echo.Context, channelID string, body map[string]any) error {
+func (h *Handler) handleUpdateChannel(
+	c *echo.Context,
+	channelID string,
+	body map[string]any,
+) error {
 	name, _ := body["Name"].(string)
 	roleArn, _ := body["RoleArn"].(string)
 
@@ -684,7 +836,11 @@ func (h *Handler) handleDescribeInputSecurityGroup(c *echo.Context, groupID stri
 	return c.JSON(http.StatusOK, toGroupOutput(g))
 }
 
-func (h *Handler) handleUpdateInputSecurityGroup(c *echo.Context, groupID string, body map[string]any) error {
+func (h *Handler) handleUpdateInputSecurityGroup(
+	c *echo.Context,
+	groupID string,
+	body map[string]any,
+) error {
 	rules := extractWhitelistRules(body)
 
 	g, err := h.Backend.UpdateInputSecurityGroup(groupID, rules)
@@ -759,6 +915,321 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
+}
+
+// --- Multiplex handlers ---
+
+type multiplexSettingsOutput struct {
+	TransportStreamBitrate              int `json:"TransportStreamBitrate"`
+	TransportStreamID                   int `json:"TransportStreamId"`
+	TransportStreamReservedBitrate      int `json:"TransportStreamReservedBitrate"`
+	MaximumVideoBufferDelayMilliseconds int `json:"MaximumVideoBufferDelayMilliseconds"`
+}
+
+// Tags and AvailabilityZones first: reduces GC pointer scan.
+type multiplexOutput struct {
+	Tags              map[string]string       `json:"Tags"`
+	Arn               string                  `json:"Arn"`
+	ID                string                  `json:"Id"`
+	Name              string                  `json:"Name"`
+	State             string                  `json:"State"`
+	AvailabilityZones []string                `json:"AvailabilityZones"`
+	MultiplexSettings multiplexSettingsOutput `json:"MultiplexSettings"`
+}
+
+func toMultiplexOutput(m *Multiplex) multiplexOutput {
+	tags := m.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	zones := m.AvailabilityZones
+	if zones == nil {
+		zones = []string{}
+	}
+
+	return multiplexOutput{
+		Tags:              tags,
+		AvailabilityZones: zones,
+		Arn:               m.ARN,
+		ID:                m.ID,
+		Name:              m.Name,
+		State:             m.State,
+		MultiplexSettings: multiplexSettingsOutput{
+			TransportStreamBitrate:              m.Settings.TransportStreamBitrate,
+			TransportStreamID:                   m.Settings.TransportStreamID,
+			TransportStreamReservedBitrate:      m.Settings.TransportStreamReservedBitrate,
+			MaximumVideoBufferDelayMilliseconds: m.Settings.MaximumVideoBufferDelayMilliseconds,
+		},
+	}
+}
+
+func extractMultiplexSettings(body map[string]any) MultiplexSettings {
+	raw, _ := body["MultiplexSettings"].(map[string]any)
+	if raw == nil {
+		return MultiplexSettings{}
+	}
+
+	return MultiplexSettings{
+		TransportStreamBitrate:              intFromAny(raw["TransportStreamBitrate"]),
+		TransportStreamID:                   intFromAny(raw["TransportStreamId"]),
+		TransportStreamReservedBitrate:      intFromAny(raw["TransportStreamReservedBitrate"]),
+		MaximumVideoBufferDelayMilliseconds: intFromAny(raw["MaximumVideoBufferDelayMilliseconds"]),
+	}
+}
+
+func intFromAny(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+
+	return 0
+}
+
+func (h *Handler) handleCreateMultiplex(c *echo.Context, body map[string]any) error {
+	name, _ := body["Name"].(string)
+	settings := extractMultiplexSettings(body)
+	tags := extractTags(body)
+
+	var zones []string
+	if raw, ok := body["AvailabilityZones"].([]any); ok {
+		for _, z := range raw {
+			if s, isStr := z.(string); isStr {
+				zones = append(zones, s)
+			}
+		}
+	}
+
+	m, err := h.Backend.CreateMultiplex(name, zones, settings, tags)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{"Multiplex": toMultiplexOutput(m)})
+}
+
+func (h *Handler) handleDescribeMultiplex(c *echo.Context, multiplexID string) error {
+	m, err := h.Backend.DescribeMultiplex(multiplexID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexOutput(m))
+}
+
+func (h *Handler) handleUpdateMultiplex(
+	c *echo.Context,
+	multiplexID string,
+	body map[string]any,
+) error {
+	name, _ := body["Name"].(string)
+	settings := extractMultiplexSettings(body)
+
+	m, err := h.Backend.UpdateMultiplex(multiplexID, name, settings)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Multiplex": toMultiplexOutput(m)})
+}
+
+func (h *Handler) handleDeleteMultiplex(c *echo.Context, multiplexID string) error {
+	m, err := h.Backend.DeleteMultiplex(multiplexID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexOutput(m))
+}
+
+func (h *Handler) handleListMultiplexes(c *echo.Context) error {
+	summaries, nextToken, err := h.Backend.ListMultiplexes(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		zones := s.AvailabilityZones
+		if zones == nil {
+			zones = []string{}
+		}
+
+		out = append(out, map[string]any{
+			keyArn:              s.ARN,
+			keyID:               s.ID,
+			keyName:             s.Name,
+			keyState:            s.State,
+			"AvailabilityZones": zones,
+		})
+	}
+
+	resp := map[string]any{"Multiplexes": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleStartMultiplex(c *echo.Context, multiplexID string) error {
+	m, err := h.Backend.StartMultiplex(multiplexID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexOutput(m))
+}
+
+func (h *Handler) handleStopMultiplex(c *echo.Context, multiplexID string) error {
+	m, err := h.Backend.StopMultiplex(multiplexID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexOutput(m))
+}
+
+// --- MultiplexProgram handlers ---
+
+type serviceDescriptorOutput struct {
+	ProviderName string `json:"ProviderName"`
+	ServiceName  string `json:"ServiceName"`
+}
+
+type multiplexProgramSettingsOutput struct {
+	ServiceDescriptor        serviceDescriptorOutput `json:"ServiceDescriptor"`
+	PreferredChannelPipeline string                  `json:"PreferredChannelPipeline"`
+	ProgramNumber            int                     `json:"ProgramNumber"`
+}
+
+// ProgramName and ChannelID first: reduces GC pointer scan.
+type multiplexProgramOutput struct {
+	ProgramName              string                         `json:"ProgramName"`
+	ChannelID                string                         `json:"ChannelId"`
+	MultiplexProgramSettings multiplexProgramSettingsOutput `json:"MultiplexProgramSettings"`
+}
+
+func toMultiplexProgramOutput(p *MultiplexProgram) multiplexProgramOutput {
+	return multiplexProgramOutput{
+		ProgramName: p.ProgramName,
+		ChannelID:   p.ChannelID,
+		MultiplexProgramSettings: multiplexProgramSettingsOutput{
+			ProgramNumber:            p.Settings.ProgramNumber,
+			PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
+			ServiceDescriptor: serviceDescriptorOutput{
+				ProviderName: p.Settings.ServiceDescriptor.ProviderName,
+				ServiceName:  p.Settings.ServiceDescriptor.ServiceName,
+			},
+		},
+	}
+}
+
+func extractMultiplexProgramSettings(body map[string]any) MultiplexProgramSettings {
+	programName, _ := body["ProgramName"].(string)
+
+	raw, _ := body["MultiplexProgramSettings"].(map[string]any)
+	if raw == nil {
+		return MultiplexProgramSettings{ProgramName: programName}
+	}
+
+	var sd ServiceDescriptor
+	if sdRaw, ok := raw["ServiceDescriptor"].(map[string]any); ok {
+		sd.ProviderName, _ = sdRaw["ProviderName"].(string)
+		sd.ServiceName, _ = sdRaw["ServiceName"].(string)
+	}
+
+	preferred, _ := raw["PreferredChannelPipeline"].(string)
+
+	return MultiplexProgramSettings{
+		ProgramName:              programName,
+		ProgramNumber:            intFromAny(raw["ProgramNumber"]),
+		PreferredChannelPipeline: preferred,
+		ServiceDescriptor:        sd,
+	}
+}
+
+func (h *Handler) handleCreateMultiplexProgram(
+	c *echo.Context,
+	multiplexID string,
+	body map[string]any,
+) error {
+	prog := extractMultiplexProgramSettings(body)
+
+	p, err := h.Backend.CreateMultiplexProgram(multiplexID, prog)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(
+		http.StatusCreated,
+		map[string]any{"MultiplexProgram": toMultiplexProgramOutput(p)},
+	)
+}
+
+func (h *Handler) handleDescribeMultiplexProgram(c *echo.Context, resource string) error {
+	multiplexID, programName := splitMultiplexProgram(resource)
+
+	p, err := h.Backend.DescribeMultiplexProgram(multiplexID, programName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexProgramOutput(p))
+}
+
+func (h *Handler) handleUpdateMultiplexProgram(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) error {
+	multiplexID, programName := splitMultiplexProgram(resource)
+
+	prog := extractMultiplexProgramSettings(body)
+	prog.ProgramName = programName
+
+	p, err := h.Backend.UpdateMultiplexProgram(multiplexID, prog)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"MultiplexProgram": toMultiplexProgramOutput(p)})
+}
+
+func (h *Handler) handleDeleteMultiplexProgram(c *echo.Context, resource string) error {
+	multiplexID, programName := splitMultiplexProgram(resource)
+
+	p, err := h.Backend.DeleteMultiplexProgram(multiplexID, programName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMultiplexProgramOutput(p))
+}
+
+func (h *Handler) handleListMultiplexPrograms(c *echo.Context, multiplexID string) error {
+	summaries, nextToken, err := h.Backend.ListMultiplexPrograms(multiplexID, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			"ProgramName": s.ProgramName,
+			"ChannelId":   s.ChannelID,
+		})
+	}
+
+	resp := map[string]any{"MultiplexPrograms": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func extractTags(body map[string]any) map[string]string {

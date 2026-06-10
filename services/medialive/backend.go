@@ -32,6 +32,7 @@ const (
 	resourceTypeInput              = "input"
 	resourceTypeInputSecurityGroup = "inputSecurityGroup"
 	resourceTypeInputDevice        = "inputDevice"
+	resourceTypeMultiplex          = "multiplex"
 
 	deviceConnectionConnected = "CONNECTED"
 	deviceSettingsSynced      = "SYNCED"
@@ -205,11 +206,108 @@ type storedInputDeviceTransfer struct {
 	Message          string `json:"message"`
 }
 
+type storedMultiplexSettings struct {
+	TransportStreamBitrate              int `json:"transportStreamBitrate"`
+	TransportStreamID                   int `json:"transportStreamId"`
+	TransportStreamReservedBitrate      int `json:"transportStreamReservedBitrate"`
+	MaximumVideoBufferDelayMilliseconds int `json:"maximumVideoBufferDelayMilliseconds"`
+}
+
+// Tags and Programs (maps) first, then slice, then strings, then value struct: reduces GC pointer scan.
+type storedMultiplex struct {
+	Tags              map[string]string                  `json:"tags"`
+	Programs          map[string]*storedMultiplexProgram `json:"programs"`
+	ARN               string                             `json:"arn"`
+	ID                string                             `json:"id"`
+	Name              string                             `json:"name"`
+	State             string                             `json:"state"`
+	AvailabilityZones []string                           `json:"availabilityZones"`
+	Settings          storedMultiplexSettings            `json:"settings"`
+}
+
+func (m *storedMultiplex) toMultiplex() *Multiplex {
+	tags := make(map[string]string, len(m.Tags))
+	maps.Copy(tags, m.Tags)
+
+	zones := make([]string, len(m.AvailabilityZones))
+	copy(zones, m.AvailabilityZones)
+
+	return &Multiplex{
+		Tags:              tags,
+		AvailabilityZones: zones,
+		ARN:               m.ARN,
+		ID:                m.ID,
+		Name:              m.Name,
+		State:             m.State,
+		Settings: MultiplexSettings{
+			TransportStreamBitrate:              m.Settings.TransportStreamBitrate,
+			TransportStreamID:                   m.Settings.TransportStreamID,
+			TransportStreamReservedBitrate:      m.Settings.TransportStreamReservedBitrate,
+			MaximumVideoBufferDelayMilliseconds: m.Settings.MaximumVideoBufferDelayMilliseconds,
+		},
+	}
+}
+
+func (m *storedMultiplex) toSummary() *MultiplexSummary {
+	zones := make([]string, len(m.AvailabilityZones))
+	copy(zones, m.AvailabilityZones)
+
+	return &MultiplexSummary{
+		ARN:               m.ARN,
+		ID:                m.ID,
+		Name:              m.Name,
+		State:             m.State,
+		AvailabilityZones: zones,
+	}
+}
+
+type storedServiceDescriptor struct {
+	ProviderName string `json:"providerName"`
+	ServiceName  string `json:"serviceName"`
+}
+
+type storedMultiplexProgramSettings struct {
+	ServiceDescriptor        storedServiceDescriptor `json:"serviceDescriptor"`
+	PreferredChannelPipeline string                  `json:"preferredChannelPipeline"`
+	ProgramNumber            int                     `json:"programNumber"`
+}
+
+// Strings first, value struct last: reduces GC pointer scan.
+type storedMultiplexProgram struct {
+	ProgramName string                         `json:"programName"`
+	ChannelID   string                         `json:"channelId"`
+	Settings    storedMultiplexProgramSettings `json:"settings"`
+}
+
+func (p *storedMultiplexProgram) toProgram() *MultiplexProgram {
+	return &MultiplexProgram{
+		ChannelID:   p.ChannelID,
+		ProgramName: p.ProgramName,
+		Settings: MultiplexProgramSettings{
+			ProgramName:              p.ProgramName,
+			ProgramNumber:            p.Settings.ProgramNumber,
+			PreferredChannelPipeline: p.Settings.PreferredChannelPipeline,
+			ServiceDescriptor: ServiceDescriptor{
+				ProviderName: p.Settings.ServiceDescriptor.ProviderName,
+				ServiceName:  p.Settings.ServiceDescriptor.ServiceName,
+			},
+		},
+	}
+}
+
+func (p *storedMultiplexProgram) toSummary() *MultiplexProgramSummary {
+	return &MultiplexProgramSummary{
+		ProgramName: p.ProgramName,
+		ChannelID:   p.ChannelID,
+	}
+}
+
 type snapshot struct {
 	Channels            map[string]*storedChannel            `json:"channels"`
 	Inputs              map[string]*storedInput              `json:"inputs"`
 	InputSecurityGroups map[string]*storedInputSecurityGroup `json:"inputSecurityGroups"`
 	InputDevices        map[string]*storedInputDevice        `json:"inputDevices"`
+	Multiplexes         map[string]*storedMultiplex          `json:"multiplexes"`
 	Tags                map[string]map[string]string         `json:"tags"`
 	AccountID           string                               `json:"accountId"`
 	Region              string                               `json:"region"`
@@ -222,6 +320,7 @@ type InMemoryBackend struct {
 	inputs              map[string]*storedInput
 	inputSecurityGroups map[string]*storedInputSecurityGroup
 	inputDevices        map[string]*storedInputDevice
+	multiplexes         map[string]*storedMultiplex
 	tags                map[string]map[string]string
 	accountID           string
 	region              string
@@ -235,6 +334,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		inputs:              make(map[string]*storedInput),
 		inputSecurityGroups: make(map[string]*storedInputSecurityGroup),
 		inputDevices:        make(map[string]*storedInputDevice),
+		multiplexes:         make(map[string]*storedMultiplex),
 		tags:                make(map[string]map[string]string),
 		accountID:           accountID,
 		region:              region,
@@ -256,6 +356,7 @@ func (b *InMemoryBackend) Reset() {
 	b.inputs = make(map[string]*storedInput)
 	b.inputSecurityGroups = make(map[string]*storedInputSecurityGroup)
 	b.inputDevices = make(map[string]*storedInputDevice)
+	b.multiplexes = make(map[string]*storedMultiplex)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -269,6 +370,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Inputs:              b.inputs,
 		InputSecurityGroups: b.inputSecurityGroups,
 		InputDevices:        b.inputDevices,
+		Multiplexes:         b.multiplexes,
 		Tags:                b.tags,
 		AccountID:           b.accountID,
 		Region:              b.region,
@@ -297,6 +399,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.inputDevices = make(map[string]*storedInputDevice)
 	}
+	b.multiplexes = s.Multiplexes
 	b.tags = s.Tags
 	b.accountID = s.AccountID
 	b.region = s.Region
@@ -725,6 +828,307 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	maps.Copy(result, existing)
 
 	return result, nil
+}
+
+func (b *InMemoryBackend) multiplexARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, resourceTypeMultiplex+":"+id)
+}
+
+// --- Multiplex operations ---
+
+// CreateMultiplex creates a new Multiplex.
+func (b *InMemoryBackend) CreateMultiplex(
+	name string,
+	availabilityZones []string,
+	settings MultiplexSettings,
+	tags map[string]string,
+) (*Multiplex, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
+	}
+
+	zones := make([]string, len(availabilityZones))
+	copy(zones, availabilityZones)
+
+	id := newID()
+	m := &storedMultiplex{
+		ARN:               b.multiplexARN(id),
+		ID:                id,
+		Name:              name,
+		State:             stateIdle,
+		AvailabilityZones: zones,
+		Settings:          storedMultiplexSettings(settings),
+		Tags:              copyTags(tags),
+		Programs:          make(map[string]*storedMultiplexProgram),
+	}
+
+	b.mu.Lock("CreateMultiplex")
+	defer b.mu.Unlock()
+
+	b.multiplexes[id] = m
+
+	return m.toMultiplex(), nil
+}
+
+// DescribeMultiplex returns a Multiplex by ID.
+func (b *InMemoryBackend) DescribeMultiplex(multiplexID string) (*Multiplex, error) {
+	b.mu.RLock("DescribeMultiplex")
+	defer b.mu.RUnlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	return m.toMultiplex(), nil
+}
+
+// UpdateMultiplex updates a Multiplex's mutable fields.
+func (b *InMemoryBackend) UpdateMultiplex(
+	multiplexID, name string,
+	settings MultiplexSettings,
+) (*Multiplex, error) {
+	b.mu.Lock("UpdateMultiplex")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if name != "" {
+		m.Name = name
+	}
+
+	m.Settings = storedMultiplexSettings(settings)
+
+	return m.toMultiplex(), nil
+}
+
+// DeleteMultiplex deletes a Multiplex.
+func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error) {
+	b.mu.Lock("DeleteMultiplex")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if m.State == stateRunning {
+		return nil, fmt.Errorf("%w: multiplex must be idle before deleting", ErrConflict)
+	}
+
+	m.State = stateDeleted
+	delete(b.multiplexes, multiplexID)
+
+	return m.toMultiplex(), nil
+}
+
+// ListMultiplexes returns a paginated list of multiplexes.
+func (b *InMemoryBackend) ListMultiplexes(
+	maxResults int,
+	nextToken string,
+) ([]*MultiplexSummary, string, error) {
+	b.mu.RLock("ListMultiplexes")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedMultiplex, 0, len(b.multiplexes))
+	for _, m := range b.multiplexes {
+		all = append(all, m)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	summaries := make([]*MultiplexSummary, 0, len(pg.Data))
+	for _, m := range pg.Data {
+		summaries = append(summaries, m.toSummary())
+	}
+
+	return summaries, pg.Next, nil
+}
+
+// StartMultiplex transitions a Multiplex to RUNNING.
+func (b *InMemoryBackend) StartMultiplex(multiplexID string) (*Multiplex, error) {
+	b.mu.Lock("StartMultiplex")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if m.State != stateIdle {
+		return nil, fmt.Errorf("%w: multiplex must be idle to start", ErrConflict)
+	}
+
+	m.State = stateRunning
+
+	return m.toMultiplex(), nil
+}
+
+// StopMultiplex transitions a Multiplex to IDLE.
+func (b *InMemoryBackend) StopMultiplex(multiplexID string) (*Multiplex, error) {
+	b.mu.Lock("StopMultiplex")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if m.State != stateRunning {
+		return nil, fmt.Errorf("%w: multiplex must be running to stop", ErrConflict)
+	}
+
+	m.State = stateIdle
+
+	return m.toMultiplex(), nil
+}
+
+// --- MultiplexProgram operations ---
+
+// CreateMultiplexProgram creates a program within a Multiplex.
+func (b *InMemoryBackend) CreateMultiplexProgram(
+	multiplexID string,
+	prog MultiplexProgramSettings,
+) (*MultiplexProgram, error) {
+	if prog.ProgramName == "" {
+		return nil, fmt.Errorf("%w: programName required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateMultiplexProgram")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if _, exists := m.Programs[prog.ProgramName]; exists {
+		return nil, fmt.Errorf("%w: program %s already exists", ErrConflict, prog.ProgramName)
+	}
+
+	p := &storedMultiplexProgram{
+		ProgramName: prog.ProgramName,
+		Settings: storedMultiplexProgramSettings{
+			ProgramNumber:            prog.ProgramNumber,
+			PreferredChannelPipeline: prog.PreferredChannelPipeline,
+			ServiceDescriptor: storedServiceDescriptor{
+				ProviderName: prog.ServiceDescriptor.ProviderName,
+				ServiceName:  prog.ServiceDescriptor.ServiceName,
+			},
+		},
+	}
+
+	m.Programs[prog.ProgramName] = p
+
+	return p.toProgram(), nil
+}
+
+// DescribeMultiplexProgram returns a program by multiplex ID and program name.
+func (b *InMemoryBackend) DescribeMultiplexProgram(
+	multiplexID, programName string,
+) (*MultiplexProgram, error) {
+	b.mu.RLock("DescribeMultiplexProgram")
+	defer b.mu.RUnlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	p, ok := m.Programs[programName]
+	if !ok {
+		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	}
+
+	return p.toProgram(), nil
+}
+
+// UpdateMultiplexProgram updates a program's settings.
+func (b *InMemoryBackend) UpdateMultiplexProgram(
+	multiplexID string,
+	prog MultiplexProgramSettings,
+) (*MultiplexProgram, error) {
+	b.mu.Lock("UpdateMultiplexProgram")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	p, ok := m.Programs[prog.ProgramName]
+	if !ok {
+		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, prog.ProgramName)
+	}
+
+	p.Settings = storedMultiplexProgramSettings{
+		ProgramNumber:            prog.ProgramNumber,
+		PreferredChannelPipeline: prog.PreferredChannelPipeline,
+		ServiceDescriptor: storedServiceDescriptor{
+			ProviderName: prog.ServiceDescriptor.ProviderName,
+			ServiceName:  prog.ServiceDescriptor.ServiceName,
+		},
+	}
+
+	return p.toProgram(), nil
+}
+
+// DeleteMultiplexProgram removes a program from a Multiplex.
+func (b *InMemoryBackend) DeleteMultiplexProgram(
+	multiplexID, programName string,
+) (*MultiplexProgram, error) {
+	b.mu.Lock("DeleteMultiplexProgram")
+	defer b.mu.Unlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	p, ok := m.Programs[programName]
+	if !ok {
+		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
+	}
+
+	delete(m.Programs, programName)
+
+	return p.toProgram(), nil
+}
+
+// ListMultiplexPrograms returns a paginated list of programs for a Multiplex.
+func (b *InMemoryBackend) ListMultiplexPrograms(
+	multiplexID string,
+	maxResults int,
+	nextToken string,
+) ([]*MultiplexProgramSummary, string, error) {
+	b.mu.RLock("ListMultiplexPrograms")
+	defer b.mu.RUnlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	all := make([]*storedMultiplexProgram, 0, len(m.Programs))
+	for _, p := range m.Programs {
+		all = append(all, p)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ProgramName < all[j].ProgramName })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	summaries := make([]*MultiplexProgramSummary, 0, len(pg.Data))
+	for _, p := range pg.Data {
+		summaries = append(summaries, p.toSummary())
+	}
+
+	return summaries, pg.Next, nil
 }
 
 func copyTags(tags map[string]string) map[string]string {
