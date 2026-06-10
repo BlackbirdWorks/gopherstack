@@ -428,6 +428,14 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, logins ma
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
 
+	// An authenticated identity (one that has logins on record) must present a
+	// matching login token. An empty request Logins map would otherwise skip
+	// the validation loop entirely and hand out credentials with no token,
+	// bypassing authentication.
+	if len(logins) == 0 && len(identity.Logins) > 0 {
+		return nil, fmt.Errorf("%w: Logins is required for an authenticated identity", ErrNotAuthorized)
+	}
+
 	for provider, token := range logins {
 		stored, exists := identity.Logins[provider]
 		if !exists || stored != token {
