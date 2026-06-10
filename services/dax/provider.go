@@ -35,6 +35,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
+	handler.EnableDataPlane(ctx.Logger, defaultDataPlaneAddr)
 
 	return handler, nil
 }

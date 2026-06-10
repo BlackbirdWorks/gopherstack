@@ -93,15 +93,15 @@ var maintenanceWindowDays = []string{
 }
 
 // InMemoryBackend is the in-memory DAX backend.
-type InMemoryBackend struct { //nolint:govet // field grouping by concern is preferred over alignment optimization
+type InMemoryBackend struct {
 	clusters     map[string]*Cluster
 	paramGroups  map[string]*ParameterGroup
 	subnetGroups map[string]*SubnetGroup
-	tags         map[string]map[string]string // resourceArn -> tags
-	events       []*Event
+	tags         map[string]map[string]string
 	mu           *lockmetrics.RWMutex
 	AccountID    string
 	Region       string
+	events       []*Event
 }
 
 // NewInMemoryBackend creates a new DAX backend.

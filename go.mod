@@ -197,7 +197,17 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.68.3
 )
 
-require github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3
+require (
+	github.com/aws/aws-sdk-go v1.55.5
+	github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3
+)
+
+require (
+	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
+	github.com/aws/aws-dax-go v1.2.15
+	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+)
 
 require (
 	github.com/cedar-policy/cedar-go v1.6.2

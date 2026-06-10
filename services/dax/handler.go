@@ -32,9 +32,11 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
-// Handler is the HTTP handler for the Amazon DAX API.
+// Handler is the HTTP handler for the Amazon DAX API. It also owns the optional
+// DAX binary-protocol data-plane listener (see dataplane_server.go).
 type Handler struct {
-	Backend StorageBackend
+	Backend   StorageBackend
+	dataPlane *dataPlane
 }
 
 // NewHandler creates a new DAX handler.
