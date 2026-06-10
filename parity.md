@@ -1129,3 +1129,141 @@ S3 `<Prefix>` emission, API Gateway wrappers, IAM evaluation) need a quick AWS-s
 before the fix. The `omitzero` "bug" reported by one sub-pass was rejected (`go 1.26` supports it).
 This backlog is intentionally line-level so it can be burned down item-by-item; it does not
 duplicate the category-level findings in §A–§O.
+
+---
+
+# Q. Actionable backlog — additional services (2026-06-10, pass 5)
+
+Second wave of the line-level backlog, covering the services not combed in §P. Same caveats apply
+(confirm pagination *direction* before flipping a cursor; `omitzero` is valid under `go 1.26`).
+
+## Pagination — cursor off-by-one (token item returned twice)
+
+Same `start = i` → `start = i + 1` root cause as the §P cluster:
+- **AccessAnalyzer** — `services/accessanalyzer/backend.go:421-422` (`ListFindings`).
+- **Detective** — `services/detective/backend.go:318` (`ListGraphs`) and `:503` (`ListMembers`).
+- **RolesAnywhere** — `services/rolesanywhere/backend.go:1069` (`paginate`); **plus a fully broken
+  token generator** at `backend.go:1087-1093` (`nextTokenFromSlice` always returns `""` — the
+  `if next < len(all)` guard is inverted, so pagination never advances). Also
+  `handler.go:1247-1251` `parsePageParams` silently drops non-digit input instead of erroring.
+- **DocDB / Neptune** — `services/docdb/handler.go:2310`, `services/neptune/handler.go:2410`:
+  index-based marker has no upper-bounds guard for a decoded marker that exceeds the slice (add
+  `if start > len(items) { return empty }`).
+- **ResourceGroupsTaggingAPI** — `services/resourcegroupstaggingapi/backend.go:700+`: `GetResources`
+  uses a raw integer-offset token that returns wrong results if items are deleted between calls →
+  switch to an opaque key-based token.
+
+## Pagination — MaxResults/NextToken ignored or absent in output
+
+- **ApplicationAutoScaling** — output structs missing `NextToken` while the input accepts
+  `MaxResults`: `services/applicationautoscaling/handler.go:276` (`DescribeScalableTargets`),
+  `:403` (`DescribeScalingPolicies`), `:446` (`DescribeScalingActivities`), `:579`
+  (`DescribeScheduledActions`); none validate `MaxResults` 1–50 (`:280-289,407-418,450,553-569`).
+- **SSO Admin** — ~19 list ops hardcode `NextToken: nil` instead of computing a cursor
+  (`services/ssoadmin/handler.go:390,563,770,844,1037,1531,1566,1592,1618,1634,1662,1883,2070,2093,2116,2203,2253,2370,2407`).
+- **Macie2** — `handleListFindings` ignores `MaxResults`/`NextToken` (hardcoded `0`/`""`) and
+  doesn't read the body (`services/macie2/handler.go:1194,753-755`); `handleListFindingsFilters`
+  takes no body so can't paginate and also **drops the backend error**
+  (`handler.go:1164-1167,1165`).
+- **MediaConvert** — `NextToken` declared in the output struct but never populated:
+  `handleListJobs` (`services/mediaconvert/handler.go:757,868`), `handleSearchJobs`
+  (`:1226,1266`) — truncates without offset tracking.
+- **MediaPackage** — `handleListChannels` (`services/mediapackage/handler.go:469`),
+  `handleListOriginEndpoints` (`:591`), `handleListHarvestJobs` (`:743`) hardcode `maxResults=0`,
+  `nextToken=""`.
+- **Forecast** — list dispatch doesn't parse `MaxResults`/`NextToken` from the request
+  (`services/forecast/handler.go:191`).
+- **Polly** — `ListSpeechSynthesisTasks` (`services/polly/handler.go:472`) and `ListLexicons`
+  (`:536`) always emit a `NextToken` key even when empty (should be conditional/omitted).
+- **CodeStarConnections / CodeConnections** — output structs missing `NextToken`:
+  `services/codestarconnections/handler.go:358` (`ListConnections`),
+  `services/codeconnections/handler.go:903` (`ListRepositoryLinks`).
+- **Account** — `handleListRegions` hardcodes `maxResults=0`, never reads the query param
+  (`services/account/handler.go:205`).
+- **Route53Resolver** — `ListFirewallDomainLists`/`ListFirewallRules`/etc. accept/return no
+  `NextToken` (`services/route53resolver/handler.go`).
+- **X-Ray** — `ListResourcePolicies`/`ListRetrievedTraces` have no `NextToken`
+  (`services/xray/handler.go`).
+- **CloudWatch** — `listResult.NextToken` (XML) lacks `omitempty`, emits empty element
+  (`services/cloudwatch/handler.go:967`).
+
+## Bounds / required-field validation
+
+- **AppConfig** — `appConfigPaginationParams` doesn't bound `max_results` (1–100)
+  (`services/appconfig/handler.go:1925-1938`).
+- **Amplify** — `maxResults` upper bound (1–100) unvalidated (`services/amplify/handler.go:415-418`).
+- **Batch** — `ListJobs` doesn't require `JobQueue`/`JobStatus`
+  (`services/batch/handler.go:1204-1224`).
+- **Elasticsearch** — `InstanceCount` (1–20) and `EBSOptions.VolumeSize/VolumeType` unvalidated on
+  create and update (`services/elasticsearch/handler.go:894,900-901,1044-1045`).
+- **OpenSearch** — `InstanceCount` max unvalidated and `PurchaseReservedInstanceOffering` returns
+  404 for validation errors that should be 400
+  (`services/opensearch/handler.go:3236-3250`); `OffPeakWindowOptions`/`IamIdentityCenterOptions`
+  lack `omitempty` (`:652`).
+- **S3 Control** — `CreateJob` `Priority` not bounded 0–256 (`services/s3control/handler.go:1759`).
+- **Glacier** — `ListJobs` limit has no lower bound (`>= 1`) (`services/glacier/handler.go:1112-1117`).
+- **Account** — `PutAlternateContact` doesn't validate required fields
+  (`services/account/handler.go:243-248`).
+- **Inspector2** — `CreateFilter` doesn't validate required `FilterCriteria`/`Name`
+  (`services/inspector2/handler.go:468-475`).
+- **RedshiftData** — `ExecuteStatement` doesn't enforce that exactly one of
+  `ClusterIdentifier`/`WorkgroupName` is set (`services/redshiftdata/handler.go:237-272`).
+- **Cost Explorer** — `GetCostAndUsage`/`GetDimensionValues` don't validate
+  `TimePeriod.Start < End` or `YYYY-MM-DD` format (`services/ce/handler.go`).
+- **MWAA** — confirm `MaxResults` cap matches AWS (`services/mwaa/handler.go:405-407`).
+
+## Response-shape / field-name fidelity
+
+- **DynamoDB Streams** — `GetRecords` response omits `MillisBeforeExpiration`
+  (`services/dynamodbstreams/handler.go:264`).
+- **API Gateway Management** — `GoneException` returned as
+  `{"message":"GoneException",…}` instead of `{"__type":"GoneException","message":…}`
+  (`services/apigatewaymanagementapi/handler.go:177-179`).
+- **RDS Data** — response field `generatedFields` should be lowercase to match the rest-JSON wire
+  shape (`services/rdsdata/handler.go:233` — verify the codebase's RDS-Data key convention).
+- **Serverless Repo** — `versionResponse` missing `SourceCodeArchiveUrl`
+  (`services/serverlessrepo/handler.go:564`).
+- **DAX** — `ClusterDiscoveryEndpoint` is `omitempty` but AWS always returns it in describe
+  (`services/dax/handler.go:355`).
+- **Glacier** — `Marker` pointer fields should serialize as the AWS string shape
+  (`services/glacier/models.go:208,214` — verify).
+- **MemoryDB** — `ServiceUpdate.Status` / `SnsTopicStatus` returned without enum validation
+  (`services/memorydb/handler.go:1374,1608,1622`).
+- **Scheduler** — `flexibleTimeWindowOutput.MaximumWindowInMinutes` (int) lacks `omitempty`, emits
+  `0` when Mode=OFF (`services/scheduler/handler.go:902`).
+- **Support** — `RecentCommunications` pointer lacks `omitempty` (may serialize `null`)
+  (`services/support/handler.go:246`).
+- **Bedrock Runtime** — confirm `InvokeModel` returns the model body at the root, not wrapped in a
+  container struct (`services/bedrockruntime/handler.go` — verify against the SDK).
+- **Elastic Beanstalk** — AutoScaling fields in `EnvironmentDescription` returned as strings rather
+  than structured objects (`services/elasticbeanstalk/handler.go` — verify).
+- **Account** — `Details.ID` JSON tag case (`Id` vs `id`) — verify against the Account API
+  (`services/account/backend.go:39`).
+
+## Error-code / HTTP-status fidelity
+
+- **OpsWorks** — unknown action returns HTTP 501; AWS returns 400 `ValidationException`
+  (`services/opsworks/handler.go:181`).
+- **Support** — case-not-found returns generic 404; AWS uses `CaseIdNotFound`/`UnknownCaseException`
+  — split the error mapping (`services/support/handler.go:234-235`).
+- **Route53Resolver** — no mapping for `InvalidParameterException` (invalid CIDR/IP/domain) →
+  returns generic error (`services/route53resolver/handler.go`).
+- **S3 Tables** — inconsistent `ResourceNotFoundException` (404) vs `ValidationException` (400)
+  mapping (`services/s3tables/handler.go`).
+
+## SDK-waiter blocker
+
+- **Forecast** — `describe()` clones the resource *before* applying the status transition, so the
+  returned object reports the stale `CREATE_PENDING` while internal state flips to `ACTIVE`; SDK
+  waiters never observe `ACTIVE` (`services/forecast/backend.go:157-161`). Apply the transition to
+  the stored resource first, then clone.
+
+## Notes on pass 5
+
+The two least-productive sub-passes (messaging/iot/streaming and parts of media) yielded fewer
+confident items, so this section is weighted toward pagination and validation where the bugs are
+unambiguous. Items tagged "verify" need a quick AWS-shape/SDK confirmation (RDS-Data key case,
+Glacier marker, Bedrock-Runtime body wrapping, Elastic Beanstalk AS fields, Account `Id` case)
+before applying. Combined, §P + §Q give a downstream agent on the order of ~110 discrete,
+file:line-scoped fixes; the pagination off-by-one and "MaxResults ignored / NextToken absent"
+clusters are the highest-value because they break real multi-page SDK and Terraform listings.
