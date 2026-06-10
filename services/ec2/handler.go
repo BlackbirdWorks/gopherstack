@@ -879,9 +879,20 @@ func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
-// handleRevokeSecurityGroupEgress is a no-op stub.
+// handleRevokeSecurityGroupEgress removes matching egress rules from a security group.
 // Terraform calls this to revoke the default egress rule when creating a security group.
-func (h *Handler) handleRevokeSecurityGroupEgress(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleRevokeSecurityGroupEgress(vals url.Values, reqID string) (any, error) {
+	groupID := vals.Get("GroupId")
+	if groupID == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.RevokeSecurityGroupEgress(groupID, rules); err != nil {
+		return nil, err
+	}
+
 	return &revokeSecurityGroupEgressResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,

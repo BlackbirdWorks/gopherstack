@@ -1927,6 +1927,10 @@ func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
+	// Release any handler-level tags for this health check so the tags map
+	// cannot retain entries for resources that no longer exist.
+	h.deleteTagsForResource(id)
+
 	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteHealthCheck", "id", id)
 
 	return writeXML(c, http.StatusOK, xmlDeleteHealthCheckResponse{Xmlns: route53Namespace})

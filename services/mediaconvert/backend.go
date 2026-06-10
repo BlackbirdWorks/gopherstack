@@ -57,7 +57,10 @@ const (
 	// orderAscending is the ascending list order value used by AWS MediaConvert.
 	orderAscending = "ASCENDING"
 	// deepCloneMaxDepth caps recursion in deepCloneValue to prevent stack overflows.
-	deepCloneMaxDepth = 20
+	// deepCloneMaxDepth bounds recursion in deepCloneValueAt to guard against
+	// pathological/cyclic input. It is set well above the depth of any real
+	// MediaConvert job-settings document so legitimate settings are never affected.
+	deepCloneMaxDepth = 100
 	// tokenTTL is how long a ClientRequestToken deduplication window lasts.
 	tokenTTL = time.Minute
 	// jobEngineVersionUsed is the fixed engine version reported on all jobs.
@@ -85,14 +88,11 @@ func deepCloneMap(m map[string]any) map[string]any {
 }
 
 // deepCloneValueAt clones v with a depth counter. When depth >= deepCloneMaxDepth,
-// map and slice values are returned as nil to prevent unbounded recursion.
+// the value is returned as-is (shared reference) rather than recursing further. This
+// preserves the data even for unexpectedly deep documents instead of silently dropping
+// it to nil; the bound only exists to guard against pathological/cyclic input.
 func deepCloneValueAt(v any, depth int) any {
 	if depth >= deepCloneMaxDepth {
-		switch v.(type) {
-		case map[string]any, []any:
-			return nil
-		}
-
 		return v
 	}
 

@@ -4,6 +4,7 @@ package codepipeline
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -38,6 +39,17 @@ const (
 
 	// kindPipeline is the resource kind string for pipelines.
 	kindPipeline = "pipeline"
+
+	// keyPipelineExecutionID and keyStatus are JSON keys shared across the
+	// execution-detail response maps.
+	keyPipelineExecutionID = "pipelineExecutionId"
+	keyStatus              = "status"
+
+	// statusSucceeded is the terminal success status for executions and actions.
+	statusSucceeded = "Succeeded"
+
+	// ruleOwnerAWS is the owner value for AWS-managed CodePipeline rule types.
+	ruleOwnerAWS = "AWS"
 )
 
 var (
@@ -336,6 +348,7 @@ type InMemoryBackend struct {
 	webhookARNIndex   map[string]string   // ARN → webhook name
 	stageTransitions  map[stageTransitionKey]*StageTransitionState
 	executions        map[string][]*PipelineExecution // pipelineName → executions
+	actionExecutions  map[string][]*ActionExecution   // pipelineName → action executions
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -352,6 +365,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		webhookARNIndex:   make(map[string]string),
 		stageTransitions:  make(map[stageTransitionKey]*StageTransitionState),
 		executions:        make(map[string][]*PipelineExecution),
+		actionExecutions:  make(map[string][]*ActionExecution),
 		accountID:         accountID,
 		region:            region,
 		mu:                lockmetrics.New("codepipeline-" + region),
@@ -374,6 +388,7 @@ func (b *InMemoryBackend) Reset() {
 	b.webhookARNIndex = make(map[string]string)
 	b.stageTransitions = make(map[stageTransitionKey]*StageTransitionState)
 	b.executions = make(map[string][]*PipelineExecution)
+	b.actionExecutions = make(map[string][]*ActionExecution)
 }
 
 func (b *InMemoryBackend) buildPipelineARN(name string) string {
@@ -1077,6 +1092,25 @@ func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*Pipeline
 
 	b.executions[pipelineName] = append(b.executions[pipelineName], exec)
 
+	// Record an action execution for every action in the pipeline so that
+	// ListActionExecutions reflects the work performed by this execution.
+	now := time.Now().UTC()
+
+	for _, stage := range p.Declaration.Stages {
+		for _, action := range stage.Actions {
+			ae := &ActionExecution{
+				PipelineExecutionID: exec.PipelineExecutionID,
+				ActionExecutionID:   uuid.NewString(),
+				StageName:           stage.Name,
+				ActionName:          action.Name,
+				Status:              statusSucceeded,
+				StartTime:           now,
+				LastUpdateTime:      now,
+			}
+			b.actionExecutions[pipelineName] = append(b.actionExecutions[pipelineName], ae)
+		}
+	}
+
 	cp := *exec
 
 	return &cp, nil
@@ -1484,8 +1518,22 @@ func (b *InMemoryBackend) ListActionTypes() []*CustomActionType {
 	return result
 }
 
-// ListActionExecutions returns stub action executions for a pipeline.
-func (b *InMemoryBackend) ListActionExecutions(pipelineName string) ([]map[string]any, error) {
+// ActionExecution records a single action's execution within a pipeline run.
+type ActionExecution struct {
+	StartTime           time.Time `json:"startTime"`
+	LastUpdateTime      time.Time `json:"lastUpdateTime"`
+	PipelineExecutionID string    `json:"pipelineExecutionId"`
+	ActionExecutionID   string    `json:"actionExecutionId"`
+	StageName           string    `json:"stageName"`
+	ActionName          string    `json:"actionName"`
+	Status              string    `json:"status"`
+}
+
+// ListActionExecutions returns the recorded action executions for a pipeline,
+// most recent first. An optional pipelineExecutionId filters to a single run.
+func (b *InMemoryBackend) ListActionExecutions(
+	pipelineName, pipelineExecutionID string,
+) ([]map[string]any, error) {
 	b.mu.RLock("ListActionExecutions")
 	defer b.mu.RUnlock()
 
@@ -1493,10 +1541,32 @@ func (b *InMemoryBackend) ListActionExecutions(pipelineName string) ([]map[strin
 		return nil, ErrNotFound
 	}
 
-	return []map[string]any{}, nil
+	stored := b.actionExecutions[pipelineName]
+	out := make([]map[string]any, 0, len(stored))
+
+	// Iterate in reverse so the most recent execution appears first.
+	for _, ae := range slices.Backward(stored) {
+		if pipelineExecutionID != "" && ae.PipelineExecutionID != pipelineExecutionID {
+			continue
+		}
+
+		out = append(out, map[string]any{
+			keyPipelineExecutionID: ae.PipelineExecutionID,
+			"actionExecutionId":    ae.ActionExecutionID,
+			"stageName":            ae.StageName,
+			"actionName":           ae.ActionName,
+			"startTime":            float64(ae.StartTime.Unix()),
+			"lastUpdateTime":       float64(ae.LastUpdateTime.Unix()),
+			keyStatus:              ae.Status,
+		})
+	}
+
+	return out, nil
 }
 
-// ListRuleExecutions returns stub rule executions for a pipeline.
+// ListRuleExecutions returns rule executions for a pipeline. The emulator does
+// not run condition rules, so this returns an empty (but valid) list for a known
+// pipeline and ErrNotFound otherwise.
 func (b *InMemoryBackend) ListRuleExecutions(pipelineName string) ([]map[string]any, error) {
 	b.mu.RLock("ListRuleExecutions")
 	defer b.mu.RUnlock()
@@ -1508,13 +1578,33 @@ func (b *InMemoryBackend) ListRuleExecutions(pipelineName string) ([]map[string]
 	return []map[string]any{}, nil
 }
 
-// ListRuleTypes returns empty rule types (stub).
+// ListRuleTypes returns the AWS-managed CodePipeline rule types. These mirror
+// the built-in condition rule providers AWS exposes.
 func (b *InMemoryBackend) ListRuleTypes() []map[string]any {
-	return []map[string]any{}
+	providers := []string{"Deployment", "LambdaInvoke", "CloudWatchAlarm", "VariableCheck"}
+
+	out := make([]map[string]any, 0, len(providers))
+
+	for _, provider := range providers {
+		out = append(out, map[string]any{
+			"id": map[string]any{
+				"category": "Rule",
+				"owner":    ruleOwnerAWS,
+				"provider": provider,
+				"version":  "1",
+			},
+		})
+	}
+
+	return out
 }
 
-// ListDeployActionExecutionTargets returns stub targets.
-func (b *InMemoryBackend) ListDeployActionExecutionTargets(pipelineName, executionID string) ([]map[string]any, error) {
+// ListDeployActionExecutionTargets returns the deploy targets for an action
+// execution. The emulator does not model deployment targets, so it returns an
+// empty (but valid) list for a known pipeline and ErrNotFound otherwise.
+func (b *InMemoryBackend) ListDeployActionExecutionTargets(
+	pipelineName, executionID string,
+) ([]map[string]any, error) {
 	b.mu.RLock("ListDeployActionExecutionTargets")
 	defer b.mu.RUnlock()
 

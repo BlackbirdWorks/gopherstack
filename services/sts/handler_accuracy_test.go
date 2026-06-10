@@ -202,8 +202,10 @@ func TestAccuracy_Gap10_GetCallerIdentity_SessionToken(t *testing.T) {
 
 		accessKeyID := assumeResp.AssumeRoleResult.Credentials.AccessKeyID
 
+		// AWS rejects a mismatched session token with InvalidClientTokenId (HTTP 400),
+		// surfaced here as ErrUnknownAccessKeyID, not AccessDenied.
 		_, err = b.GetCallerIdentity(accessKeyID, "wrong-token")
-		require.ErrorIs(t, err, sts.ErrAccessDenied)
+		require.ErrorIs(t, err, sts.ErrUnknownAccessKeyID)
 	})
 
 	t.Run("http_request_uses_x_amz_security_token_header", func(t *testing.T) {
@@ -242,7 +244,7 @@ func TestAccuracy_Gap10_GetCallerIdentity_SessionToken(t *testing.T) {
 		assert.Contains(t, resp.GetCallerIdentityResult.Arn, "TestRole")
 	})
 
-	t.Run("http_request_wrong_x_amz_security_token_returns_403", func(t *testing.T) {
+	t.Run("http_request_wrong_x_amz_security_token_returns_400", func(t *testing.T) {
 		t.Parallel()
 
 		h, b, e := accuracyHandler(t)
@@ -269,7 +271,9 @@ func TestAccuracy_Gap10_GetCallerIdentity_SessionToken(t *testing.T) {
 		req = req.WithContext(logger.Save(req.Context(), nil))
 
 		require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-		assert.Equal(t, http.StatusForbidden, rec.Code)
+		// AWS returns InvalidClientTokenId (HTTP 400) for a mismatched session token.
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "InvalidClientTokenId")
 	})
 }
 

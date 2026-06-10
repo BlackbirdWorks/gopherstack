@@ -39,6 +39,10 @@ const (
 	maxParallelScanSegments = 1_000_000
 	// shardIteratorTTL is how long a shard iterator token remains valid (15 min per AWS spec).
 	shardIteratorTTL = 15 * time.Minute
+	// shardIteratorSweepThreshold is the entry count above which Put performs an
+	// inline sweep of expired tokens, bounding the store even when the janitor's
+	// Sweep() is not being called on a schedule.
+	shardIteratorSweepThreshold = 1024
 	// shardIteratorTokenLen is the number of random bytes used in each opaque iterator token.
 	shardIteratorTokenLen = 16
 	// replicationOpDelete is the mutation op string for item deletion in global-table replication.
@@ -473,11 +477,23 @@ func (s *ShardIteratorStore) Put(tableName string, startSeq int64) (string, erro
 		return "", err
 	}
 
+	now := time.Now()
+
 	s.mu.Lock()
+	// Opportunistically drop expired tokens once the store grows large so it
+	// stays bounded between scheduled Sweep() calls. The threshold keeps the
+	// common small-store case allocation- and scan-free.
+	if len(s.entries) >= shardIteratorSweepThreshold {
+		for tok, entry := range s.entries {
+			if now.After(entry.ExpiresAt) {
+				delete(s.entries, tok)
+			}
+		}
+	}
 	s.entries[token] = &shardIteratorEntry{
 		TableName: tableName,
 		StartSeq:  startSeq,
-		ExpiresAt: time.Now().Add(shardIteratorTTL),
+		ExpiresAt: now.Add(shardIteratorTTL),
 	}
 	s.mu.Unlock()
 

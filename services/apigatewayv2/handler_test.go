@@ -2131,6 +2131,61 @@ func TestHandler_CreateModel(t *testing.T) {
 	}
 }
 
+// TestHandler_GetModelTemplate verifies that GetModelTemplate returns the model's
+// schema as the template value, falling back to an empty object only when the model
+// has no schema defined.
+func TestHandler_GetModelTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		schema    string
+		wantValue string
+	}{
+		{
+			name:      "returns_schema",
+			schema:    `{"type":"object","properties":{"id":{"type":"string"}}}`,
+			wantValue: `{"type":"object","properties":{"id":{"type":"string"}}}`,
+		},
+		{
+			name:      "empty_schema_falls_back_to_object",
+			schema:    "",
+			wantValue: "{}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "tmpl-api")
+
+			body := map[string]any{"name": "TmplModel", "contentType": "application/json"}
+			if tt.schema != "" {
+				body["schema"] = tt.schema
+			}
+
+			createRec := doRequest(t, h, http.MethodPost,
+				fmt.Sprintf("/v2/apis/%s/models", apiID), body)
+			require.Equal(t, http.StatusCreated, createRec.Code)
+
+			var model apigatewayv2.Model
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &model))
+
+			rec := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/v2/apis/%s/models/%s/template", apiID, model.ModelID), nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Value string `json:"value"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, tt.wantValue, out.Value)
+		})
+	}
+}
+
 func TestHandler_CreateRouteResponse(t *testing.T) {
 	t.Parallel()
 

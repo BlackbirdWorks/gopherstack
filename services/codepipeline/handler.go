@@ -1557,10 +1557,15 @@ func (h *Handler) handlePutApprovalResult(
 	return &putApprovalResultOutput{}, nil
 }
 
+type actionExecutionFilter struct {
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+}
+
 type listActionExecutionsInput struct {
-	PipelineName string `json:"pipelineName"`
-	NextToken    string `json:"nextToken"`
-	MaxResults   int32  `json:"maxResults"`
+	Filter       *actionExecutionFilter `json:"filter"`
+	PipelineName string                 `json:"pipelineName"`
+	NextToken    string                 `json:"nextToken"`
+	MaxResults   int32                  `json:"maxResults"`
 }
 
 type listActionExecutionsOutput struct {
@@ -1575,7 +1580,12 @@ func (h *Handler) handleListActionExecutions(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	items, err := h.Backend.ListActionExecutions(in.PipelineName)
+	var execFilter string
+	if in.Filter != nil {
+		execFilter = in.Filter.PipelineExecutionID
+	}
+
+	items, err := h.Backend.ListActionExecutions(in.PipelineName, execFilter)
 	if err != nil {
 		return nil, err
 	}

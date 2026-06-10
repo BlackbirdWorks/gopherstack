@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -21,6 +22,58 @@ const eventuallyConsistentRCU = 0.5
 
 // wcuBytesPerUnit is the number of bytes per write capacity unit (1 KB).
 const wcuBytesPerUnit = 1024
+
+// canonicalKey produces a stable, comparable string for a single item key map.
+// Keys only ever contain scalar key attributes (S, N, or B), so we serialize the
+// sorted attribute names together with their typed scalar value.
+func canonicalKey(key map[string]types.AttributeValue) string {
+	names := make([]string, 0, len(key))
+	for name := range key {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var sb strings.Builder
+	for _, name := range names {
+		sb.WriteString(name)
+		sb.WriteByte('=')
+
+		switch v := key[name].(type) {
+		case *types.AttributeValueMemberS:
+			sb.WriteString("S:")
+			sb.WriteString(v.Value)
+		case *types.AttributeValueMemberN:
+			sb.WriteString("N:")
+			sb.WriteString(v.Value)
+		case *types.AttributeValueMemberB:
+			sb.WriteString("B:")
+			sb.Write(v.Value)
+		}
+
+		sb.WriteByte('\x00')
+	}
+
+	return sb.String()
+}
+
+// validateNoDuplicateBatchKeys returns a ValidationException when a table's Keys list
+// contains the same key more than once, matching AWS BatchGetItem behaviour.
+func validateNoDuplicateBatchKeys(keys []map[string]types.AttributeValue) error {
+	seen := make(map[string]struct{}, len(keys))
+
+	for _, key := range keys {
+		canon := canonicalKey(key)
+		if _, dup := seen[canon]; dup {
+			return NewValidationException(
+				"Provided list of item keys contains duplicates",
+			)
+		}
+
+		seen[canon] = struct{}{}
+	}
+
+	return nil
+}
 
 func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
@@ -41,6 +94,12 @@ func (db *InMemoryDB) BatchGetItem(
 
 		projExpr := aws.ToString(keysAndAttrs.ProjectionExpression)
 		if err := validateProjectionParams(projExpr, keysAndAttrs.AttributesToGet); err != nil {
+			return nil, err
+		}
+
+		// AWS rejects a per-table Keys list that contains duplicate keys with a
+		// ValidationException rather than returning the matching item twice.
+		if err := validateNoDuplicateBatchKeys(keysAndAttrs.Keys); err != nil {
 			return nil, err
 		}
 	}

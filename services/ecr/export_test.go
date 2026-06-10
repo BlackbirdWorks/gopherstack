@@ -1,5 +1,7 @@
 package ecr
 
+import "time"
+
 // CreateRepoInternal creates a minimal repository entry directly for testing.
 // Use this alongside AddImageInternal when a test needs images in a repo that
 // also satisfies the repo-existence check.
@@ -86,6 +88,21 @@ func (b *InMemoryBackend) LayerUploadCount() int {
 
 	return len(b.layerUploads)
 }
+
+// AgeAllLayerUploadsForTest backdates every in-progress layer upload's
+// CreatedAt by the given duration so abandoned-upload pruning can be exercised
+// without waiting for the real TTL.
+func (b *InMemoryBackend) AgeAllLayerUploadsForTest(d time.Duration) {
+	b.mu.Lock("AgeAllLayerUploadsForTest")
+	defer b.mu.Unlock()
+
+	for _, upload := range b.layerUploads {
+		upload.CreatedAt = upload.CreatedAt.Add(-d)
+	}
+}
+
+// LayerUploadTTLForTest exposes the abandoned-upload TTL for tests.
+const LayerUploadTTLForTest = layerUploadTTL
 
 // TagIndexCount returns the total number of tag→digest entries across all repos.
 func (b *InMemoryBackend) TagIndexCount() int {

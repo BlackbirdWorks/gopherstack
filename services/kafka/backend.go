@@ -1372,8 +1372,10 @@ func (b *InMemoryBackend) UpdateBrokerCount(
 		return nil, ErrNotFound
 	}
 
+	source := &MutableClusterInfo{NumberOfBrokerNodes: c.NumberOfBrokerNodes}
 	c.NumberOfBrokerNodes = numBrokers
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_COUNT")
+	target := &MutableClusterInfo{NumberOfBrokerNodes: numBrokers}
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_COUNT", source, target)
 
 	return op, nil
 }
@@ -1400,7 +1402,8 @@ func (b *InMemoryBackend) UpdateBrokerStorage(
 	}
 
 	c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.VolumeSize = volumeSize
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_STORAGE")
+	target := &MutableClusterInfo{BrokerEBSVolumeInfo: []BrokerEBSVolumeInfo{{VolumeSizeGB: volumeSize}}}
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_STORAGE", nil, target)
 
 	return op, nil
 }
@@ -1418,7 +1421,7 @@ func (b *InMemoryBackend) UpdateBrokerType(
 	}
 
 	c.BrokerNodeGroupInfo.InstanceType = instanceType
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_TYPE")
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_TYPE", nil, nil)
 
 	return op, nil
 }
@@ -1440,7 +1443,7 @@ func (b *InMemoryBackend) UpdateClusterConfiguration(
 		Arn:      configArn,
 		Revision: revision,
 	}
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_CONFIGURATION")
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_CONFIGURATION", nil, nil)
 
 	return op, nil
 }
@@ -1458,40 +1461,106 @@ func (b *InMemoryBackend) UpdateClusterKafkaVersion(
 	}
 
 	c.KafkaVersion = targetKafkaVersion
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION")
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION", nil, nil)
 
 	return op, nil
 }
 
-// UpdateConnectivity updates connectivity settings for a cluster (stub: no-op).
-func (b *InMemoryBackend) UpdateConnectivity(clusterArn string) (*ClusterOperation, error) {
+// UpdateConnectivitySettings is the payload for UpdateConnectivity.
+type UpdateConnectivitySettings struct {
+	ConnectivityInfo *ConnectivityInfo
+}
+
+// UpdateMonitoringSettings is the payload for UpdateMonitoring.
+type UpdateMonitoringSettings struct {
+	OpenMonitoring     *OpenMonitoring
+	LoggingInfo        *LoggingInfo
+	EnhancedMonitoring string
+}
+
+// UpdateSecuritySettings is the payload for UpdateSecurity.
+type UpdateSecuritySettings struct {
+	ClientAuthentication *ClientAuthentication
+	EncryptionInfo       *EncryptionInfo
+}
+
+// UpdateStorageSettings is the payload for UpdateStorage.
+type UpdateStorageSettings struct {
+	ProvisionedThroughput *ProvisionedThroughput
+	StorageMode           string
+	VolumeSizeGB          int32
+}
+
+// UpdateConnectivity updates broker connectivity settings for a cluster, persisting
+// the new ConnectivityInfo onto the broker node group and recording an operation
+// whose source/target reflect the before/after state.
+func (b *InMemoryBackend) UpdateConnectivity(
+	clusterArn string, settings UpdateConnectivitySettings,
+) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateConnectivity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CONNECTIVITY")
+	source := &MutableClusterInfo{
+		ConnectivityInfo: cloneConnectivityInfo(c.BrokerNodeGroupInfo.ConnectivityInfo),
+	}
+	target := &MutableClusterInfo{ConnectivityInfo: cloneConnectivityInfo(settings.ConnectivityInfo)}
+
+	if settings.ConnectivityInfo != nil {
+		c.BrokerNodeGroupInfo.ConnectivityInfo = cloneConnectivityInfo(settings.ConnectivityInfo)
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CONNECTIVITY", source, target)
 
 	return op, nil
 }
 
-// UpdateMonitoring updates monitoring settings for a cluster (stub: no-op).
-func (b *InMemoryBackend) UpdateMonitoring(clusterArn string) (*ClusterOperation, error) {
+// UpdateMonitoring updates monitoring/logging settings for a cluster, persisting the
+// new EnhancedMonitoring/OpenMonitoring/LoggingInfo and recording an operation.
+func (b *InMemoryBackend) UpdateMonitoring(
+	clusterArn string, settings UpdateMonitoringSettings,
+) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateMonitoring")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_MONITORING")
+	source := &MutableClusterInfo{
+		EnhancedMonitoring: c.EnhancedMonitoring,
+		OpenMonitoring:     cloneOpenMonitoring(c.OpenMonitoring),
+		LoggingInfo:        cloneLoggingInfo(c.LoggingInfo),
+	}
+	target := &MutableClusterInfo{
+		EnhancedMonitoring: settings.EnhancedMonitoring,
+		OpenMonitoring:     cloneOpenMonitoring(settings.OpenMonitoring),
+		LoggingInfo:        cloneLoggingInfo(settings.LoggingInfo),
+	}
+
+	if settings.EnhancedMonitoring != "" {
+		c.EnhancedMonitoring = settings.EnhancedMonitoring
+	}
+	if settings.OpenMonitoring != nil {
+		c.OpenMonitoring = cloneOpenMonitoring(settings.OpenMonitoring)
+	}
+	if settings.LoggingInfo != nil {
+		c.LoggingInfo = cloneLoggingInfo(settings.LoggingInfo)
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_MONITORING", source, target)
 
 	return op, nil
 }
 
-// UpdateRebalancing updates rebalancing settings for a cluster (stub: no-op).
+// UpdateRebalancing records a rebalancing operation for a cluster. AWS MSK exposes
+// no per-field rebalancing configuration to persist (it is an action, not a setting),
+// so this validates the cluster and records the operation.
 func (b *InMemoryBackend) UpdateRebalancing(clusterArn string) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateRebalancing")
 	defer b.mu.Unlock()
@@ -1500,37 +1569,112 @@ func (b *InMemoryBackend) UpdateRebalancing(clusterArn string) (*ClusterOperatio
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_REBALANCING")
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_REBALANCING", nil, nil)
 
 	return op, nil
 }
 
-// UpdateSecurity updates security settings for a cluster (stub: no-op).
-func (b *InMemoryBackend) UpdateSecurity(clusterArn string) (*ClusterOperation, error) {
+// UpdateSecurity updates authentication/encryption settings for a cluster, persisting
+// the new ClientAuthentication/EncryptionInfo and recording an operation.
+func (b *InMemoryBackend) UpdateSecurity(
+	clusterArn string, settings UpdateSecuritySettings,
+) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateSecurity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_SECURITY")
+	source := &MutableClusterInfo{
+		ClientAuthentication: cloneClientAuth(c.ClientAuthentication),
+		EncryptionInfo:       cloneEncryptionInfo(c.EncryptionInfo),
+	}
+	target := &MutableClusterInfo{
+		ClientAuthentication: cloneClientAuth(settings.ClientAuthentication),
+		EncryptionInfo:       cloneEncryptionInfo(settings.EncryptionInfo),
+	}
+
+	if settings.ClientAuthentication != nil {
+		c.ClientAuthentication = cloneClientAuth(settings.ClientAuthentication)
+	}
+	if settings.EncryptionInfo != nil {
+		c.EncryptionInfo = cloneEncryptionInfo(settings.EncryptionInfo)
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_SECURITY", source, target)
 
 	return op, nil
 }
 
-// UpdateStorage updates storage settings for a cluster (stub: no-op).
-func (b *InMemoryBackend) UpdateStorage(clusterArn string) (*ClusterOperation, error) {
+// UpdateStorage updates broker storage settings for a cluster, persisting the new
+// StorageMode and EBS volume size/throughput and recording an operation.
+func (b *InMemoryBackend) UpdateStorage(
+	clusterArn string, settings UpdateStorageSettings,
+) (*ClusterOperation, error) {
 	b.mu.Lock("UpdateStorage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	c, ok := b.clusters[clusterArn]
+	if !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_STORAGE")
+	source := &MutableClusterInfo{StorageMode: c.StorageMode}
+	if si := c.BrokerNodeGroupInfo.StorageInfo; si != nil && si.EbsStorageInfo != nil {
+		source.BrokerEBSVolumeInfo = []BrokerEBSVolumeInfo{{
+			VolumeSizeGB:          si.EbsStorageInfo.VolumeSize,
+			ProvisionedThroughput: cloneProvisionedThroughput(si.EbsStorageInfo.ProvisionedThroughput),
+		}}
+	}
+
+	target := &MutableClusterInfo{StorageMode: settings.StorageMode}
+	if settings.VolumeSizeGB > 0 || settings.ProvisionedThroughput != nil {
+		target.BrokerEBSVolumeInfo = []BrokerEBSVolumeInfo{{
+			VolumeSizeGB:          settings.VolumeSizeGB,
+			ProvisionedThroughput: cloneProvisionedThroughput(settings.ProvisionedThroughput),
+		}}
+	}
+
+	if settings.StorageMode != "" {
+		c.StorageMode = settings.StorageMode
+	}
+	if settings.VolumeSizeGB > 0 || settings.ProvisionedThroughput != nil {
+		applyStorageUpdateLocked(c, settings)
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_STORAGE", source, target)
 
 	return op, nil
+}
+
+// applyStorageUpdateLocked mutates the cluster's EBS storage info from an
+// UpdateStorage payload. The caller must hold the write lock.
+func applyStorageUpdateLocked(c *Cluster, settings UpdateStorageSettings) {
+	if c.BrokerNodeGroupInfo.StorageInfo == nil {
+		c.BrokerNodeGroupInfo.StorageInfo = &StorageInfo{}
+	}
+	if c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo == nil {
+		c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo = &EBSStorageInfo{}
+	}
+	ebs := c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo
+	if settings.VolumeSizeGB > 0 {
+		ebs.VolumeSize = settings.VolumeSizeGB
+	}
+	if settings.ProvisionedThroughput != nil {
+		ebs.ProvisionedThroughput = cloneProvisionedThroughput(settings.ProvisionedThroughput)
+	}
+}
+
+// cloneProvisionedThroughput returns a deep copy of a ProvisionedThroughput.
+func cloneProvisionedThroughput(pt *ProvisionedThroughput) *ProvisionedThroughput {
+	if pt == nil {
+		return nil
+	}
+	clone := *pt
+
+	return &clone
 }
 
 // RebootBroker initiates a broker reboot operation.
@@ -1542,7 +1686,7 @@ func (b *InMemoryBackend) RebootBroker(clusterArn string, _ []string) (*ClusterO
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "REBOOT_BROKER")
+	op := b.newClusterOperationLocked(clusterArn, "REBOOT_BROKER", nil, nil)
 
 	return op, nil
 }
@@ -1653,7 +1797,7 @@ type MSKVersion struct {
 // newClusterOperationLocked creates and stores a cluster operation.
 // MUST be called with b.mu write lock held.
 func (b *InMemoryBackend) newClusterOperationLocked(
-	clusterArn, operationType string,
+	clusterArn, operationType string, source, target *MutableClusterInfo,
 ) *ClusterOperation {
 	clusterOperationArn := b.clusterOperationARN(clusterArn)
 	op := &ClusterOperation{
@@ -1661,6 +1805,8 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 		ClusterArn:          clusterArn,
 		OperationType:       operationType,
 		OperationState:      ClusterOperationStateUpdateComplete,
+		SourceClusterInfo:   source,
+		TargetClusterInfo:   target,
 	}
 	b.clusterOperations[clusterOperationArn] = op
 
@@ -1846,10 +1992,34 @@ type VpcConnection struct {
 
 // ClusterOperation represents an MSK cluster operation.
 type ClusterOperation struct {
-	ClusterOperationArn string `json:"clusterOperationArn"`
-	ClusterArn          string `json:"clusterArn"`
-	OperationType       string `json:"operationType"`
-	OperationState      string `json:"operationState"`
+	SourceClusterInfo   *MutableClusterInfo `json:"sourceClusterInfo,omitempty"`
+	TargetClusterInfo   *MutableClusterInfo `json:"targetClusterInfo,omitempty"`
+	ClusterOperationArn string              `json:"clusterOperationArn"`
+	ClusterArn          string              `json:"clusterArn"`
+	OperationType       string              `json:"operationType"`
+	OperationState      string              `json:"operationState"`
+}
+
+// MutableClusterInfo captures the subset of cluster configuration that an update
+// operation changes. DescribeClusterOperation returns it as SourceClusterInfo
+// (the state before the operation) and TargetClusterInfo (the requested state).
+type MutableClusterInfo struct {
+	ConnectivityInfo     *ConnectivityInfo     `json:"connectivityInfo,omitempty"`
+	OpenMonitoring       *OpenMonitoring       `json:"openMonitoring,omitempty"`
+	LoggingInfo          *LoggingInfo          `json:"loggingInfo,omitempty"`
+	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	StorageMode          string                `json:"storageMode,omitempty"`
+	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
+	BrokerEBSVolumeInfo  []BrokerEBSVolumeInfo `json:"brokerEBSVolumeInfo,omitempty"`
+	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes,omitempty"`
+}
+
+// BrokerEBSVolumeInfo describes a per-broker EBS volume target for UpdateStorage.
+type BrokerEBSVolumeInfo struct {
+	ProvisionedThroughput *ProvisionedThroughput `json:"provisionedThroughput,omitempty"`
+	KafkaBrokerNodeID     string                 `json:"kafkaBrokerNodeId,omitempty"`
+	VolumeSizeGB          int32                  `json:"volumeSizeGB,omitempty"`
 }
 
 // cloneCluster creates a deep copy of a cluster.
@@ -2182,7 +2352,45 @@ func cloneClusterOperation(op *ClusterOperation) *ClusterOperation {
 		ClusterArn:          op.ClusterArn,
 		OperationType:       op.OperationType,
 		OperationState:      op.OperationState,
+		SourceClusterInfo:   cloneMutableClusterInfo(op.SourceClusterInfo),
+		TargetClusterInfo:   cloneMutableClusterInfo(op.TargetClusterInfo),
 	}
+}
+
+// cloneMutableClusterInfo deep-copies a MutableClusterInfo, reusing the existing
+// per-field clone helpers so the returned operation does not alias backend state.
+func cloneMutableClusterInfo(m *MutableClusterInfo) *MutableClusterInfo {
+	if m == nil {
+		return nil
+	}
+
+	clone := &MutableClusterInfo{
+		ConnectivityInfo:     cloneConnectivityInfo(m.ConnectivityInfo),
+		OpenMonitoring:       cloneOpenMonitoring(m.OpenMonitoring),
+		LoggingInfo:          cloneLoggingInfo(m.LoggingInfo),
+		ClientAuthentication: cloneClientAuth(m.ClientAuthentication),
+		EncryptionInfo:       cloneEncryptionInfo(m.EncryptionInfo),
+		StorageMode:          m.StorageMode,
+		EnhancedMonitoring:   m.EnhancedMonitoring,
+		NumberOfBrokerNodes:  m.NumberOfBrokerNodes,
+	}
+
+	if len(m.BrokerEBSVolumeInfo) > 0 {
+		clone.BrokerEBSVolumeInfo = make([]BrokerEBSVolumeInfo, len(m.BrokerEBSVolumeInfo))
+		for i, v := range m.BrokerEBSVolumeInfo {
+			cv := BrokerEBSVolumeInfo{
+				KafkaBrokerNodeID: v.KafkaBrokerNodeID,
+				VolumeSizeGB:      v.VolumeSizeGB,
+			}
+			if v.ProvisionedThroughput != nil {
+				pt := *v.ProvisionedThroughput
+				cv.ProvisionedThroughput = &pt
+			}
+			clone.BrokerEBSVolumeInfo[i] = cv
+		}
+	}
+
+	return clone
 }
 
 // nonNilTagsCopy returns a new non-nil copy of tags; an empty map if tags is nil.

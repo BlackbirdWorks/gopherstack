@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -203,6 +204,11 @@ func (h *Handler) handleListRegions(c *echo.Context, q interface{ Get(string) st
 	}
 
 	maxResults := 0
+	if raw := q.Get(queryMaxResults); raw != "" {
+		if n, convErr := strconv.Atoi(raw); convErr == nil && n > 0 {
+			maxResults = n
+		}
+	}
 	nextToken := q.Get(queryNextToken)
 
 	regions, next, err := h.Backend.ListRegions(statusFilter, maxResults, nextToken)

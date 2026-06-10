@@ -234,13 +234,37 @@ func (b *InMemoryBackend) ensureKind(kind resourceKind) map[string]*Resource {
 }
 
 func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Resource, bool) {
-	for name, resource := range b.resources[kind] {
-		if name == nameOrARN || resource.ARN == nameOrARN {
+	items := b.resources[kind]
+
+	// Fast path: the map is keyed by name, so a name lookup is O(1).
+	if resource, ok := items[nameOrARN]; ok {
+		return resource, true
+	}
+
+	// ARN lookup: every ARN is built deterministically as
+	// arn:...:forecast:region:account:<kind>/<name>, so reverse it to the name
+	// and look that up directly rather than scanning the whole kind map.
+	if name, ok := b.nameFromARN(kind, nameOrARN); ok {
+		if resource, found := items[name]; found && resource.ARN == nameOrARN {
 			return resource, true
 		}
 	}
 
 	return nil, false
+}
+
+// nameFromARN extracts the resource name from a Forecast ARN of the form
+// arn:...:forecast:region:account:<kind>/<name>. It returns false if the string
+// is not an ARN with the expected "<kind>/" resource prefix.
+func (b *InMemoryBackend) nameFromARN(kind resourceKind, candidate string) (string, bool) {
+	prefix := arn.Build("forecast", b.region, b.accountID, string(kind)+"/")
+
+	name, found := strings.CutPrefix(candidate, prefix)
+	if !found || name == "" {
+		return "", false
+	}
+
+	return name, true
 }
 
 func newEvaluation(monitor *Resource) MonitorEvaluation {

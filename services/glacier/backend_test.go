@@ -2,6 +2,7 @@ package glacier_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -193,6 +194,8 @@ func TestInMemoryBackend_JobCRUD(t *testing.T) {
 			t.Parallel()
 
 			bk := glacier.NewInMemoryBackend()
+			// This case exercises CRUD, not the async window: complete jobs immediately.
+			glacier.SetRetrievalDelay(bk, 0)
 			_, err := bk.CreateVault(testAccountID, testRegion, "vault")
 			require.NoError(t, err)
 
@@ -351,6 +354,72 @@ func TestInMemoryBackend_AccessPolicy(t *testing.T) {
 			policy, err = bk.GetVaultAccessPolicy(testAccountID, testRegion, "vault")
 			require.NoError(t, err)
 			assert.Empty(t, policy)
+		})
+	}
+}
+
+// TestInMemoryBackend_RetrievalJobAsyncLifecycle verifies that a freshly initiated
+// retrieval job starts InProgress and is only promoted to Succeeded once the simulated
+// retrieval window has elapsed, matching AWS's asynchronous retrieval semantics.
+func TestInMemoryBackend_RetrievalJobAsyncLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantStatus    string
+		delay         time.Duration
+		waitForReady  bool
+		wantCompleted bool
+	}{
+		{
+			name:          "in_progress_within_window",
+			delay:         time.Hour,
+			waitForReady:  false,
+			wantCompleted: false,
+			wantStatus:    "InProgress",
+		},
+		{
+			name:          "succeeded_after_window",
+			delay:         5 * time.Millisecond,
+			waitForReady:  true,
+			wantCompleted: true,
+			wantStatus:    "Succeeded",
+		},
+		{
+			name:          "immediate_when_zero_delay",
+			delay:         0,
+			waitForReady:  false,
+			wantCompleted: true,
+			wantStatus:    "Succeeded",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := glacier.NewInMemoryBackend()
+			glacier.SetRetrievalDelay(bk, tt.delay)
+
+			_, err := bk.CreateVault(testAccountID, testRegion, "vault")
+			require.NoError(t, err)
+
+			j, err := bk.InitiateJob(testAccountID, testRegion, "vault",
+				&glacier.ExportedInitiateJobRequest{Type: "InventoryRetrieval"})
+			require.NoError(t, err)
+
+			if tt.waitForReady {
+				require.Eventually(t, func() bool {
+					got, descErr := bk.DescribeJob(testAccountID, testRegion, "vault", j.JobID)
+
+					return descErr == nil && got.Completed
+				}, time.Second, 2*time.Millisecond)
+			}
+
+			got, err := bk.DescribeJob(testAccountID, testRegion, "vault", j.JobID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCompleted, got.Completed)
+			assert.Equal(t, tt.wantStatus, got.StatusCode)
 		})
 	}
 }

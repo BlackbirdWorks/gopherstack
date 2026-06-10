@@ -231,6 +231,96 @@ func TestConsistentRead_Query_DoesNotError(t *testing.T) {
 	}
 }
 
+// TestConsistentRead_Query_OnGSI_Rejected verifies that a strongly-consistent Query
+// against a global secondary index is rejected with a ValidationException (AWS does not
+// support consistent reads on a GSI), while the same query on the primary index and on a
+// local secondary index is allowed.
+func TestConsistentRead_Query_OnGSI_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		indexName string
+		wantErr   bool
+	}{
+		{name: "primary_index_allowed", indexName: "", wantErr: false},
+		{name: "lsi_allowed", indexName: "lsi1", wantErr: false},
+		{name: "gsi_rejected", indexName: "gsi1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := newAuditTestDB(t)
+			ctx := context.Background()
+
+			_, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{
+				TableName: aws.String("CRGSI"),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
+				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("gsi_pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("lsi_sk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+					{
+						IndexName: aws.String("gsi1"),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("gsi_pk"), KeyType: types.KeyTypeHash},
+						},
+						Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+					},
+				},
+				LocalSecondaryIndexes: []types.LocalSecondaryIndex{
+					{
+						IndexName: aws.String("lsi1"),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+							{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange},
+						},
+						Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+					},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			if err != nil {
+				t.Fatalf("CreateTable: %v", err)
+			}
+
+			input := &dynamodb.QueryInput{
+				TableName:              aws.String("CRGSI"),
+				ConsistentRead:         aws.Bool(true),
+				KeyConditionExpression: aws.String("pk = :pk"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":pk": &types.AttributeValueMemberS{Value: "p1"},
+				},
+			}
+			if tt.indexName != "" {
+				input.IndexName = aws.String(tt.indexName)
+				if tt.indexName == "gsi1" {
+					input.KeyConditionExpression = aws.String("gsi_pk = :pk")
+				}
+			}
+
+			_, err = db.Query(ctx, input)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "ValidationException") {
+					t.Fatalf("expected ValidationException, got: %v", err)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestConsistentRead_Scan_DoesNotError(t *testing.T) {
 	t.Parallel()
 	db := newAuditTestDB(t)

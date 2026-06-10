@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -248,7 +249,60 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 	delete(b.apps, appID)
 	delete(b.arnIndex, app.ARN)
 
+	b.purgeAppStateLocked(appID)
+
 	return cloneApp(app), nil
+}
+
+// purgeAppStateLocked releases every piece of per-application state so that
+// deleting an app does not leak entries in the various app-scoped maps. The
+// backend mutex must be held by the caller.
+//
+// App-scoped maps fall into two shapes: those keyed by a bare application ID
+// (appEvents, eventStreams, otpCodes, appSettings, sentMessages) and those
+// keyed by an "<appID>/<childID>" composite (endpoints, channels,
+// campaignVersions, segmentVersions, campaignActivities, journeyRuns). The
+// campaigns/segments/journeys maps are keyed by child ID but carry the owning
+// ApplicationID, so they are filtered by that field.
+func (b *InMemoryBackend) purgeAppStateLocked(appID string) {
+	delete(b.appEvents, appID)
+	delete(b.eventStreams, appID)
+	delete(b.otpCodes, appID)
+	delete(b.appSettings, appID)
+	delete(b.sentMessages, appID)
+
+	prefix := appID + "/"
+	deletePrefixed(b.endpoints, prefix)
+	deletePrefixed(b.channels, prefix)
+	deletePrefixed(b.campaignVersions, prefix)
+	deletePrefixed(b.segmentVersions, prefix)
+	deletePrefixed(b.campaignActivities, prefix)
+	deletePrefixed(b.journeyRuns, prefix)
+
+	for id, c := range b.campaigns {
+		if c != nil && c.ApplicationID == appID {
+			delete(b.campaigns, id)
+		}
+	}
+	for id, s := range b.segments {
+		if s != nil && s.ApplicationID == appID {
+			delete(b.segments, id)
+		}
+	}
+	for id, j := range b.journeys {
+		if j != nil && j.ApplicationID == appID {
+			delete(b.journeys, id)
+		}
+	}
+}
+
+// deletePrefixed removes every entry from m whose key starts with prefix.
+func deletePrefixed[V any](m map[string]V, prefix string) {
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			delete(m, k)
+		}
+	}
 }
 
 // GetApps returns all Pinpoint applications sorted by name.

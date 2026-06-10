@@ -77,6 +77,9 @@ type Backend interface {
 	// RevokeSecurityGroupIngress removes matching ingress rules from a security group.
 	RevokeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error
 
+	// RevokeSecurityGroupEgress removes matching egress rules from a security group.
+	RevokeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
+
 	// ---- VPCs ----
 
 	// DescribeVpcs returns VPCs, optionally filtered by IDs.

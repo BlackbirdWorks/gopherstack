@@ -80,3 +80,12 @@ func DimensionSetKeyForTest(dims []Dimension) string {
 func StreamAllowsMetricForTest(s *MetricStream, namespace, metricName string) bool {
 	return streamAllowsMetric(s, namespace, metricName)
 }
+
+// AlarmHistoryKeyCountForTest returns the number of distinct alarm names that
+// currently have retained history, for leak-detection tests.
+func (b *InMemoryBackend) AlarmHistoryKeyCountForTest() int {
+	b.mu.RLock("AlarmHistoryKeyCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.alarmHistory)
+}

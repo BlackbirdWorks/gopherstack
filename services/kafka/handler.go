@@ -2509,8 +2509,21 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 	)
 }
 
-func (h *Handler) handleUpdateConnectivity(c *echo.Context, clusterArn string, _ []byte) error {
-	op, err := h.Backend.UpdateConnectivity(clusterArn)
+// updateConnectivityInput is the UpdateConnectivity request body.
+type updateConnectivityInput struct {
+	ConnectivityInfo *ConnectivityInfo `json:"connectivityInfo"`
+	CurrentVersion   string            `json:"currentVersion"`
+}
+
+func (h *Handler) handleUpdateConnectivity(c *echo.Context, clusterArn string, body []byte) error {
+	var in updateConnectivityInput
+	if err := decodeJSONBody(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	op, err := h.Backend.UpdateConnectivity(clusterArn, UpdateConnectivitySettings{
+		ConnectivityInfo: in.ConnectivityInfo,
+	})
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2521,8 +2534,25 @@ func (h *Handler) handleUpdateConnectivity(c *echo.Context, clusterArn string, _
 	)
 }
 
-func (h *Handler) handleUpdateMonitoring(c *echo.Context, clusterArn string, _ []byte) error {
-	op, err := h.Backend.UpdateMonitoring(clusterArn)
+// updateMonitoringInput is the UpdateMonitoring request body.
+type updateMonitoringInput struct {
+	OpenMonitoring     *OpenMonitoring `json:"openMonitoring"`
+	LoggingInfo        *LoggingInfo    `json:"loggingInfo"`
+	EnhancedMonitoring string          `json:"enhancedMonitoring"`
+	CurrentVersion     string          `json:"currentVersion"`
+}
+
+func (h *Handler) handleUpdateMonitoring(c *echo.Context, clusterArn string, body []byte) error {
+	var in updateMonitoringInput
+	if err := decodeJSONBody(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	op, err := h.Backend.UpdateMonitoring(clusterArn, UpdateMonitoringSettings{
+		EnhancedMonitoring: in.EnhancedMonitoring,
+		OpenMonitoring:     in.OpenMonitoring,
+		LoggingInfo:        in.LoggingInfo,
+	})
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2545,8 +2575,23 @@ func (h *Handler) handleUpdateRebalancing(c *echo.Context, clusterArn string, _ 
 	)
 }
 
-func (h *Handler) handleUpdateSecurity(c *echo.Context, clusterArn string, _ []byte) error {
-	op, err := h.Backend.UpdateSecurity(clusterArn)
+// updateSecurityInput is the UpdateSecurity request body.
+type updateSecurityInput struct {
+	ClientAuthentication *ClientAuthentication `json:"clientAuthentication"`
+	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo"`
+	CurrentVersion       string                `json:"currentVersion"`
+}
+
+func (h *Handler) handleUpdateSecurity(c *echo.Context, clusterArn string, body []byte) error {
+	var in updateSecurityInput
+	if err := decodeJSONBody(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	op, err := h.Backend.UpdateSecurity(clusterArn, UpdateSecuritySettings{
+		ClientAuthentication: in.ClientAuthentication,
+		EncryptionInfo:       in.EncryptionInfo,
+	})
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2557,8 +2602,25 @@ func (h *Handler) handleUpdateSecurity(c *echo.Context, clusterArn string, _ []b
 	)
 }
 
-func (h *Handler) handleUpdateStorage(c *echo.Context, clusterArn string, _ []byte) error {
-	op, err := h.Backend.UpdateStorage(clusterArn)
+// updateStorageInput is the UpdateStorage request body.
+type updateStorageInput struct {
+	ProvisionedThroughput *ProvisionedThroughput `json:"provisionedThroughput"`
+	StorageMode           string                 `json:"storageMode"`
+	CurrentVersion        string                 `json:"currentVersion"`
+	VolumeSizeGB          int32                  `json:"volumeSizeGB"`
+}
+
+func (h *Handler) handleUpdateStorage(c *echo.Context, clusterArn string, body []byte) error {
+	var in updateStorageInput
+	if err := decodeJSONBody(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	op, err := h.Backend.UpdateStorage(clusterArn, UpdateStorageSettings{
+		StorageMode:           in.StorageMode,
+		VolumeSizeGB:          in.VolumeSizeGB,
+		ProvisionedThroughput: in.ProvisionedThroughput,
+	})
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2567,6 +2629,16 @@ func (h *Handler) handleUpdateStorage(c *echo.Context, clusterArn string, _ []by
 		http.StatusOK,
 		clusterOperationOutput{ClusterOperationArn: op.ClusterOperationArn},
 	)
+}
+
+// decodeJSONBody unmarshals a (possibly empty) JSON request body. An empty body
+// is treated as an empty object so optional update fields default to zero values.
+func decodeJSONBody(body []byte, v any) error {
+	if len(body) == 0 {
+		return nil
+	}
+
+	return json.Unmarshal(body, v)
 }
 
 // ----------------------------------------

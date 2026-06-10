@@ -5,6 +5,9 @@ import "time"
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
 const DefaultJanitorInterval = defaultSTSJanitorInterval
 
+// SessionEvictThreshold exposes the opportunistic-eviction threshold for tests.
+const SessionEvictThreshold = sessionEvictThreshold
+
 // SessionCount returns the number of sessions currently stored in the backend.
 // Used in tests to verify janitor eviction.
 func (b *InMemoryBackend) SessionCount() int {

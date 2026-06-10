@@ -1139,8 +1139,13 @@ func (b *InMemoryBackend) PublishMetrics(envName string, req *publishMetricsRequ
 
 	b.metrics[envName] = append(b.metrics[envName], req.MetricData...)
 
-	if len(b.metrics[envName]) > maxMetricsPerEnv {
-		b.metrics[envName] = b.metrics[envName][len(b.metrics[envName])-maxMetricsPerEnv:]
+	if data := b.metrics[envName]; len(data) > maxMetricsPerEnv {
+		// Copy the surviving tail into a right-sized slice so the trimmed-off
+		// prefix is released for GC instead of being pinned by an oversized
+		// backing array.
+		trimmed := make([]MetricDatum, maxMetricsPerEnv)
+		copy(trimmed, data[len(data)-maxMetricsPerEnv:])
+		b.metrics[envName] = trimmed
 	}
 
 	return nil

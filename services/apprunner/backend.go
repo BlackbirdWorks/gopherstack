@@ -34,6 +34,11 @@ const (
 
 	opStatusSucceeded = "SUCCEEDED"
 
+	// maxOperationsPerService bounds the per-service operation history so a
+	// long-lived service that is repeatedly updated/paused/resumed cannot grow
+	// svc.Operations without limit. ListOperations returns the most recent ones.
+	maxOperationsPerService = 200
+
 	defaultMaxResults = 20
 	defaultCPU        = "1 vCPU"
 	defaultMemory     = "2 GB"
@@ -439,6 +444,15 @@ func (b *InMemoryBackend) addOperation(svc *storedService, opType string) {
 		EndedAt:   now,
 	}
 	svc.Operations = append(svc.Operations, op)
+
+	// Retain only the most recent maxOperationsPerService entries. Copy into a
+	// fresh slice so the dropped prefix is released for GC rather than pinned by
+	// the original backing array.
+	if len(svc.Operations) > maxOperationsPerService {
+		trimmed := make([]*storedOperation, maxOperationsPerService)
+		copy(trimmed, svc.Operations[len(svc.Operations)-maxOperationsPerService:])
+		svc.Operations = trimmed
+	}
 }
 
 // CreateService creates a new App Runner service.

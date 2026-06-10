@@ -256,6 +256,70 @@ func TestHandler_ListRegions(t *testing.T) {
 	}
 }
 
+// TestHandler_ListRegions_Pagination verifies that ListRegions honours maxResults and
+// returns an opaque nextToken, and that paging through with the token yields every
+// region exactly once with no overlap.
+func TestHandler_ListRegions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Discover the full unpaged region set first.
+	allRec := doRequest(t, h, http.MethodGet, "/regions", nil)
+	require.Equal(t, http.StatusOK, allRec.Code)
+
+	var all struct {
+		NextToken string           `json:"NextToken"`
+		Regions   []account.Region `json:"Regions"`
+	}
+	require.NoError(t, json.NewDecoder(allRec.Body).Decode(&all))
+	require.Empty(t, all.NextToken, "unpaged listing must not return a token")
+	require.Greater(t, len(all.Regions), 2, "need several regions to exercise paging")
+
+	const pageSize = 2
+	seen := make([]string, 0, len(all.Regions))
+	token := ""
+
+	for {
+		path := "/regions?maxResults=2"
+		if token != "" {
+			path += "&nextToken=" + token
+		}
+
+		rec := doRequest(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var page struct {
+			NextToken string           `json:"NextToken"`
+			Regions   []account.Region `json:"Regions"`
+		}
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&page))
+		require.LessOrEqual(t, len(page.Regions), pageSize, "page must not exceed maxResults")
+
+		for _, r := range page.Regions {
+			seen = append(seen, r.RegionName)
+		}
+
+		if page.NextToken == "" {
+			break
+		}
+		token = page.NextToken
+	}
+
+	// Every region appears exactly once across the pages — no overlap, no gaps.
+	assert.Len(t, seen, len(all.Regions))
+	assert.ElementsMatch(t, regionNames(all.Regions), seen)
+}
+
+func regionNames(regions []account.Region) []string {
+	names := make([]string, 0, len(regions))
+	for _, r := range regions {
+		names = append(names, r.RegionName)
+	}
+
+	return names
+}
+
 func TestHandler_AlternateContact_PutGetDelete(t *testing.T) {
 	t.Parallel()
 

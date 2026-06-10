@@ -35,6 +35,9 @@ var (
 	ErrConnectionNotFound  = errors.New("ResourceNotFoundException")
 	ErrPackageNotFound     = errors.New("ResourceNotFoundException")
 	ErrVpcEndpointNotFound = errors.New("ResourceNotFoundException")
+	// ErrPackageAlreadyAssociated is returned when AssociatePackage targets a
+	// (package, domain) pair that is already associated. AWS returns ConflictException.
+	ErrPackageAlreadyAssociated = errors.New("ConflictException")
 )
 
 // domainNameRe validates Elasticsearch domain names:
@@ -495,7 +498,10 @@ func (b *InMemoryBackend) AssociatePackage(packageID, domainName string) error {
 	}
 
 	if slices.Contains(b.packageAssociations[packageID], domainName) {
-		return nil // already associated
+		return fmt.Errorf(
+			"%w: package %s is already associated with domain %s",
+			ErrPackageAlreadyAssociated, packageID, domainName,
+		)
 	}
 
 	b.packageAssociations[packageID] = append(b.packageAssociations[packageID], domainName)

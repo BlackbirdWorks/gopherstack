@@ -182,6 +182,48 @@ func TestRefinement2_GetSessionTokenSessionStored(t *testing.T) {
 	assert.NotEmpty(t, ci.GetCallerIdentityResult.Arn)
 }
 
+// TestGetCallerIdentity_SessionTokenMismatch verifies that a mismatched session token
+// is rejected as InvalidClientTokenId (HTTP 400 via ErrUnknownAccessKeyID), matching AWS,
+// rather than AccessDenied (403).
+func TestGetCallerIdentity_SessionTokenMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrKind error
+		name        string
+		wrongToken  string
+		useRealTok  bool
+		wantErr     bool
+	}{
+		{name: "matching_token", useRealTok: true, wantErr: false},
+		{name: "mismatched_token", wrongToken: "wrong-token", wantErr: true, wantErrKind: sts.ErrUnknownAccessKeyID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			resp, err := b.GetSessionToken(&sts.GetSessionTokenInput{})
+			require.NoError(t, err)
+
+			accessKeyID := resp.GetSessionTokenResult.Credentials.AccessKeyID
+			token := tt.wrongToken
+			if tt.useRealTok {
+				token = resp.GetSessionTokenResult.Credentials.SessionToken
+			}
+
+			_, err = b.GetCallerIdentity(accessKeyID, token)
+			if tt.wantErr {
+				require.ErrorIs(t, err, tt.wantErrKind)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestRefinement2_AssumeRoleWithPolicyArns verifies PolicyArns are parsed and present in input.
 func TestRefinement2_AssumeRoleWithPolicyArns(t *testing.T) {
 	t.Parallel()

@@ -1,8 +1,19 @@
 package glacier
 
+import "time"
+
 // ExportedInitiateJobRequest is an alias for the unexported initiateJobRequest type,
 // made available for use in external (_test) test packages.
 type ExportedInitiateJobRequest = initiateJobRequest
+
+// SetRetrievalDelay overrides the simulated asynchronous retrieval window for newly
+// initiated jobs (for testing only). A zero delay makes jobs complete immediately.
+func SetRetrievalDelay(b *InMemoryBackend, d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.retrievalDelay = d
+}
 
 // ComputeTreeHash exposes the internal tree-hash computation for testing.
 func ComputeTreeHash(data []byte) string {

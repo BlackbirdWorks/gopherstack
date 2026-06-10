@@ -414,6 +414,48 @@ func TestHandler_DescribeScalingActivities(t *testing.T) {
 	assert.Empty(t, activities)
 }
 
+func TestHandler_DescribeScalingActivities_AfterRegister(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	regRec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+	require.Equal(t, http.StatusOK, regRec.Code)
+
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	activities, ok := resp["ScalingActivities"].([]any)
+	require.True(t, ok)
+	require.Len(t, activities, 1)
+
+	act, ok := activities[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ecs", act["ServiceNamespace"])
+	assert.Equal(t, "service/default/my-svc", act["ResourceId"])
+	assert.Equal(t, "Successful", act["StatusCode"])
+}
+
+func TestHandler_DescribeScalingActivities_MissingNamespace(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestHandler_PutScheduledAction(t *testing.T) {
 	t.Parallel()
 

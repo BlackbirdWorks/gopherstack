@@ -324,6 +324,24 @@ func (b *InMemoryBackend) commandsStore(region string) map[string]Command {
 	return b.commands[region]
 }
 
+// expireCommandsLocked removes commands (and their invocations) in the region
+// whose ExpiresAfter timestamp has passed. It mirrors the background janitor's
+// sweep so commands are pruned on the write path even when the janitor is
+// disabled or runs at a long interval. The backend mutex must be held.
+func (b *InMemoryBackend) expireCommandsLocked(region string, now float64) {
+	commands := b.commands[region]
+	if commands == nil {
+		return
+	}
+
+	for id, cmd := range commands {
+		if cmd.ExpiresAfter > 0 && cmd.ExpiresAfter < now {
+			delete(commands, id)
+			delete(b.commandInvocations[region], id)
+		}
+	}
+}
+
 func (b *InMemoryBackend) commandInvocationsStore(region string) map[string][]CommandInvocation {
 	if b.commandInvocations[region] == nil {
 		b.commandInvocations[region] = make(map[string][]CommandInvocation)
@@ -1728,6 +1746,10 @@ func (b *InMemoryBackend) SendCommand(ctx context.Context, input *SendCommandInp
 
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
+
+	// Prune any commands that have aged out so the commands/invocations maps do
+	// not grow unbounded between (or without) janitor runs.
+	b.expireCommandsLocked(region, now)
 
 	timeoutSecs := input.TimeoutSeconds
 	if timeoutSecs == 0 {

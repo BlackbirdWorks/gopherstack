@@ -43,6 +43,10 @@ const (
 	lockStateLocked     = "Locked"
 	lockStateUnlocked   = "Unlocked"
 
+	// jobStatusInProgress and jobStatusSucceeded are the retrieval-job status codes.
+	jobStatusInProgress = "InProgress"
+	jobStatusSucceeded  = "Succeeded"
+
 	// archiveIDLength is the length of the random archive ID suffix.
 	archiveIDLength = 60
 	// jobIDLength is the length of the random job ID.
@@ -161,7 +165,11 @@ type InMemoryBackend struct {
 	vaultLocks            map[vaultKey]*VaultLock
 	provisionedCapacity   map[string][]*ProvisionedCapacity
 	dataRetrievalPolicies map[string]string
-	mu                    sync.RWMutex
+	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
+	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
+	// AWS, which does not make archive/inventory output available immediately.
+	retrievalDelay time.Duration
+	mu             sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Glacier backend.
@@ -175,8 +183,15 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vaultLocks:            make(map[vaultKey]*VaultLock),
 		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
 		dataRetrievalPolicies: make(map[string]string),
+		retrievalDelay:        defaultRetrievalDelay,
 	}
 }
+
+// defaultRetrievalDelay is the simulated asynchronous retrieval window applied to
+// newly initiated jobs. Kept short so callers and tests are not forced to wait a
+// realistic multi-hour window, while still exercising the InProgress -> Succeeded
+// lifecycle (real AWS Standard retrievals take 3-5 hours).
+const defaultRetrievalDelay = 100 * time.Millisecond
 
 // cloneVault returns a deep copy of the vault with Tags and NotificationEvents cloned.
 func cloneVault(v *Vault) *Vault {
@@ -488,6 +503,19 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	}
 
 	now := time.Now()
+
+	// AWS retrievals are asynchronous: a freshly initiated job starts InProgress and
+	// only completes after a retrieval window elapses. We simulate that window with
+	// retrievalDelay; reads promote the job to Succeeded once it has passed. A zero
+	// delay means jobs complete immediately.
+	readyAt := now.Add(b.retrievalDelay)
+	ready := !now.Before(readyAt)
+
+	statusCode := jobStatusInProgress
+	if ready {
+		statusCode = jobStatusSucceeded
+	}
+
 	j := &Job{
 		JobID:              generateID(jobIDLength),
 		VaultARN:           v.VaultARN,
@@ -496,14 +524,18 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		ArchiveID:          req.ArchiveID,
 		InventoryFormat:    inventoryFormat,
 		JobDescription:     req.Description,
-		StatusCode:         "Succeeded",
-		StatusMessage:      "Succeeded",
+		StatusCode:         statusCode,
+		StatusMessage:      statusCode,
 		CreationDate:       formatDate(now),
-		CompletionDate:     formatDate(now),
-		Completed:          true,
+		Completed:          ready,
 		Tier:               tier,
 		SNSTopic:           req.SNSTopic,
 		RetrievalByteRange: req.RetrievalByteRange,
+		readyAt:            readyAt,
+	}
+
+	if ready {
+		j.CompletionDate = formatDate(now)
 	}
 
 	if action == jobTypeArchiveRetrieval {
@@ -524,8 +556,8 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 
 // DescribeJob returns metadata for a job.
 func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string) (*Job, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
@@ -538,14 +570,33 @@ func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string
 		return nil, ErrJobNotFound
 	}
 
+	promoteJobIfReady(j)
+
 	return cloneJob(j), nil
+}
+
+// promoteJobIfReady transitions an InProgress retrieval job to Succeeded once its
+// simulated retrieval window (readyAt) has elapsed. Caller must hold b.mu for writing.
+func promoteJobIfReady(j *Job) {
+	if j.Completed {
+		return
+	}
+
+	if j.readyAt.IsZero() || time.Now().Before(j.readyAt) {
+		return
+	}
+
+	j.Completed = true
+	j.StatusCode = jobStatusSucceeded
+	j.StatusMessage = jobStatusSucceeded
+	j.CompletionDate = formatDate(time.Now())
 }
 
 // ListJobs returns all jobs for the given vault.
 // Returns ErrVaultNotFound if the vault does not exist.
 func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
@@ -561,6 +612,7 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 	result := make([]*Job, 0, len(jobs))
 
 	for _, j := range jobs {
+		promoteJobIfReady(j)
 		result = append(result, cloneJob(j))
 	}
 

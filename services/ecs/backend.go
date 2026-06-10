@@ -1447,7 +1447,14 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 	b.mu.RLock("GetServicesForReconciler")
 	defer b.mu.RUnlock()
 
-	var out []serviceSnapshot
+	// Preallocate to the exact service count so the snapshot does not repeatedly
+	// grow/reallocate the backing array on every reconcile tick.
+	total := 0
+	for _, svcs := range b.services {
+		total += len(svcs)
+	}
+
+	out := make([]serviceSnapshot, 0, total)
 
 	for clusterName, svcs := range b.services {
 		for _, svc := range svcs {

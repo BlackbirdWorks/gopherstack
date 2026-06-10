@@ -1,5 +1,11 @@
 package mediaconvert
 
+// DeepCloneMapForTest exposes deepCloneMap for testing that deeply-nested settings
+// documents are cloned without silent truncation.
+func DeepCloneMapForTest(m map[string]any) map[string]any {
+	return deepCloneMap(m)
+}
+
 // QueueCount returns the number of queues in the backend.
 func QueueCount(b *InMemoryBackend) int {
 	b.mu.RLock("QueueCount")

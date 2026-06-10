@@ -630,3 +630,29 @@ func TestDirectoryService_DeleteDirectoryRemovesSnapshots(t *testing.T) {
 	snaps := descResp["Snapshots"].([]any)
 	assert.Empty(t, snaps)
 }
+
+// TestDirectoryService_UnknownOperation verifies that an unrecognised operation is
+// rejected with an AWS-style 400 InvalidRequestException rather than 501.
+func TestDirectoryService_UnknownOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+	}{
+		{name: "bogus_op", op: "NoSuchOperation"},
+		{name: "empty_op", op: "Frobnicate"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, map[string]any{})
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "InvalidRequestException")
+		})
+	}
+}

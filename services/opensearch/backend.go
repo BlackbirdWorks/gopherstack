@@ -475,8 +475,13 @@ type DryRunStatus struct {
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
 type InMemoryBackend struct {
-	dnsRegistrar           DNSRegistrar
-	packageAssociations    map[string]map[string]bool
+	dnsRegistrar        DNSRegistrar
+	packageAssociations map[string]map[string]bool
+	// domainPackages is the reverse index of packageAssociations: domain name →
+	// set of package IDs associated with it. Kept consistent with
+	// packageAssociations on every associate/dissociate so ListPackagesForDomain
+	// and DeleteDomain do not have to scan every package's association set.
+	domainPackages         map[string]map[string]bool
 	arnIndex               map[string]string
 	inboundConnections     map[string]*InboundConnection
 	outboundConnections    map[string]*OutboundConnection
@@ -524,6 +529,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		domainDataSources:      make(map[string]map[string]*DataSource),
 		directQueryDataSources: make(map[string]*DirectQueryDataSource),
 		packageAssociations:    make(map[string]map[string]bool),
+		domainPackages:         make(map[string]map[string]bool),
 		vpcAuthorizations:      make(map[string][]AuthorizedPrincipal),
 		vpcEndpoints:           make(map[string]*VpcEndpoint),
 		applications:           make(map[string]*Application),
@@ -640,13 +646,15 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	delete(b.domainDataSources, name)
 	delete(b.vpcAuthorizations, name)
 
-	for pkgID, domains := range b.packageAssociations {
-		delete(domains, name)
-
-		if len(domains) == 0 {
-			delete(b.packageAssociations, pkgID)
+	for pkgID := range b.domainPackages[name] {
+		if domains, ok := b.packageAssociations[pkgID]; ok {
+			delete(domains, name)
+			if len(domains) == 0 {
+				delete(b.packageAssociations, pkgID)
+			}
 		}
 	}
+	delete(b.domainPackages, name)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -860,17 +868,46 @@ func (b *InMemoryBackend) AssociatePackage(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	if b.packageAssociations[packageID] == nil {
-		b.packageAssociations[packageID] = make(map[string]bool)
-	}
-
-	b.packageAssociations[packageID][domainName] = true
+	b.addPackageAssociation(packageID, domainName)
 
 	return &DomainPackageDetails{
 		PackageID:  packageID,
 		DomainName: domainName,
 		State:      pkgStateActive,
 	}, nil
+}
+
+// addPackageAssociation records a package↔domain association in both the
+// forward (packageAssociations) and reverse (domainPackages) indexes.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) addPackageAssociation(packageID, domainName string) {
+	if b.packageAssociations[packageID] == nil {
+		b.packageAssociations[packageID] = make(map[string]bool)
+	}
+	b.packageAssociations[packageID][domainName] = true
+
+	if b.domainPackages[domainName] == nil {
+		b.domainPackages[domainName] = make(map[string]bool)
+	}
+	b.domainPackages[domainName][packageID] = true
+}
+
+// removePackageAssociation removes a package↔domain association from both the
+// forward and reverse indexes. Caller must hold the write lock.
+func (b *InMemoryBackend) removePackageAssociation(packageID, domainName string) {
+	if domains, ok := b.packageAssociations[packageID]; ok {
+		delete(domains, domainName)
+		if len(domains) == 0 {
+			delete(b.packageAssociations, packageID)
+		}
+	}
+
+	if pkgs, ok := b.domainPackages[domainName]; ok {
+		delete(pkgs, packageID)
+		if len(pkgs) == 0 {
+			delete(b.domainPackages, domainName)
+		}
+	}
 }
 
 // AssociatePackages associates multiple packages with a domain.
@@ -896,11 +933,7 @@ func (b *InMemoryBackend) AssociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
-		if b.packageAssociations[pkgID] == nil {
-			b.packageAssociations[pkgID] = make(map[string]bool)
-		}
-
-		b.packageAssociations[pkgID][domainName] = true
+		b.addPackageAssociation(pkgID, domainName)
 		results = append(results, DomainPackageDetails{
 			PackageID:  pkgID,
 			DomainName: domainName,
@@ -1056,6 +1089,7 @@ func (b *InMemoryBackend) Reset() {
 	b.domainDataSources = make(map[string]map[string]*DataSource)
 	b.directQueryDataSources = make(map[string]*DirectQueryDataSource)
 	b.packageAssociations = make(map[string]map[string]bool)
+	b.domainPackages = make(map[string]map[string]bool)
 	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.applications = make(map[string]*Application)
@@ -1529,13 +1563,11 @@ func (b *InMemoryBackend) ListPackagesForDomain(domainName string) []*Package {
 
 	var out []*Package
 
-	for pkgID, domains := range b.packageAssociations {
-		if domains[domainName] {
-			pkg, exists := b.packages[pkgID]
-			if exists {
-				cp := *pkg
-				out = append(out, &cp)
-			}
+	for pkgID := range b.domainPackages[domainName] {
+		pkg, exists := b.packages[pkgID]
+		if exists {
+			cp := *pkg
+			out = append(out, &cp)
 		}
 	}
 
@@ -2583,13 +2615,7 @@ func (b *InMemoryBackend) DissociatePackage(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	if domains, ok := b.packageAssociations[packageID]; ok {
-		delete(domains, domainName)
-
-		if len(domains) == 0 {
-			delete(b.packageAssociations, packageID)
-		}
-	}
+	b.removePackageAssociation(packageID, domainName)
 
 	return &DomainPackageDetails{
 		PackageID:  packageID,
@@ -2617,13 +2643,7 @@ func (b *InMemoryBackend) DissociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
-		if domains, ok := b.packageAssociations[pkgID]; ok {
-			delete(domains, domainName)
-
-			if len(domains) == 0 {
-				delete(b.packageAssociations, pkgID)
-			}
-		}
+		b.removePackageAssociation(pkgID, domainName)
 
 		results = append(results, DomainPackageDetails{
 			PackageID:  pkgID,
