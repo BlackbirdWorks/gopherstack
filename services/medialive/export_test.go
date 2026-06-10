@@ -23,3 +23,11 @@ func InputSecurityGroupCount(b *InMemoryBackend) int {
 
 	return len(b.inputSecurityGroups)
 }
+
+// InputDeviceCount returns the number of stored input devices.
+func InputDeviceCount(b *InMemoryBackend) int {
+	b.mu.RLock("InputDeviceCount")
+	defer b.mu.RUnlock()
+
+	return len(b.inputDevices)
+}

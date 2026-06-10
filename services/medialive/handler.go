@@ -15,11 +15,14 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	pathPrefix              = "/prod/"
-	pathChannels            = "/prod/channels"
-	pathInputs              = "/prod/inputs"
-	pathInputSecurityGroups = "/prod/inputSecurityGroups"
-	pathTags                = "/prod/tags/"
+	pathPrefix               = "/prod/"
+	pathChannels             = "/prod/channels"
+	pathInputs               = "/prod/inputs"
+	pathInputSecurityGroups  = "/prod/inputSecurityGroups"
+	pathInputDevices         = "/prod/inputDevices"
+	pathInputDeviceTransfers = "/prod/inputDeviceTransfers"
+	pathClaimDevice          = "/prod/claimDevice"
+	pathTags                 = "/prod/tags/"
 
 	keyMessage = "Message"
 	keyArn     = "Arn"
@@ -46,6 +49,17 @@ const (
 	opUpdateInputSecurityGroup   = "UpdateInputSecurityGroup"
 	opDeleteInputSecurityGroup   = "DeleteInputSecurityGroup"
 	opListInputSecurityGroups    = "ListInputSecurityGroups"
+
+	opClaimDevice               = "ClaimDevice"
+	opListInputDevices          = "ListInputDevices"
+	opDescribeInputDevice       = "DescribeInputDevice"
+	opUpdateInputDevice         = "UpdateInputDevice"
+	opRebootInputDevice         = "RebootInputDevice"
+	opTransferInputDevice       = "TransferInputDevice"
+	opAcceptInputDeviceTransfer = "AcceptInputDeviceTransfer"
+	opCancelInputDeviceTransfer = "CancelInputDeviceTransfer"
+	opRejectInputDeviceTransfer = "RejectInputDeviceTransfer"
+	opListInputDeviceTransfers  = "ListInputDeviceTransfers"
 
 	opCreateTags          = "CreateTags"
 	opDeleteTags          = "DeleteTags"
@@ -88,6 +102,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateInputSecurityGroup,
 		opDeleteInputSecurityGroup,
 		opListInputSecurityGroups,
+		opClaimDevice,
+		opListInputDevices,
+		opDescribeInputDevice,
+		opUpdateInputDevice,
+		opRebootInputDevice,
+		opTransferInputDevice,
+		opAcceptInputDeviceTransfer,
+		opCancelInputDeviceTransfer,
+		opRejectInputDeviceTransfer,
+		opListInputDeviceTransfers,
 		opCreateTags,
 		opDeleteTags,
 		opListTagsForResource,
@@ -159,6 +183,16 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opUpdateInputSecurityGroup:   func() error { return h.handleUpdateInputSecurityGroup(c, resource, body) },
 		opDeleteInputSecurityGroup:   func() error { return h.handleDeleteInputSecurityGroup(c, resource) },
 		opListInputSecurityGroups:    func() error { return h.handleListInputSecurityGroups(c) },
+		opClaimDevice:                func() error { return h.handleClaimDevice(c, body) },
+		opListInputDevices:           func() error { return h.handleListInputDevices(c) },
+		opDescribeInputDevice:        func() error { return h.handleDescribeInputDevice(c, resource) },
+		opUpdateInputDevice:          func() error { return h.handleUpdateInputDevice(c, resource, body) },
+		opRebootInputDevice:          func() error { return h.handleRebootInputDevice(c, resource) },
+		opTransferInputDevice:        func() error { return h.handleTransferInputDevice(c, resource, body) },
+		opAcceptInputDeviceTransfer:  func() error { return h.handleAcceptInputDeviceTransfer(c, resource) },
+		opCancelInputDeviceTransfer:  func() error { return h.handleCancelInputDeviceTransfer(c, resource) },
+		opRejectInputDeviceTransfer:  func() error { return h.handleRejectInputDeviceTransfer(c, resource) },
+		opListInputDeviceTransfers:   func() error { return h.handleListInputDeviceTransfers(c) },
 		opCreateTags:                 func() error { return h.handleCreateTags(c, resource, body) },
 		opDeleteTags:                 func() error { return h.handleDeleteTags(c, resource) },
 		opListTagsForResource:        func() error { return h.handleListTagsForResource(c, resource) },
@@ -182,6 +216,10 @@ func classifyPath(method, path string) (string, string) {
 	}
 
 	if op, res, ok := classifyInputSecurityGroupPath(method, path); ok {
+		return op, res
+	}
+
+	if op, res, ok := classifyInputDevicePath(method, path); ok {
 		return op, res
 	}
 
@@ -248,6 +286,53 @@ func classifyInputSecurityGroupPath(method, path string) (string, string, bool) 
 		return opUpdateInputSecurityGroup, extractSegment(path, prefix, ""), true
 	case matchSegment(path, prefix, "") && method == http.MethodDelete:
 		return opDeleteInputSecurityGroup, extractSegment(path, prefix, ""), true
+	}
+
+	return "", "", false
+}
+
+func classifyInputDevicePath(method, path string) (string, string, bool) {
+	const prefix = pathInputDevices + "/"
+
+	switch {
+	case path == pathClaimDevice && method == http.MethodPost:
+		return opClaimDevice, "", true
+	case path == pathInputDevices && method == http.MethodGet:
+		return opListInputDevices, "", true
+	case path == pathInputDeviceTransfers && method == http.MethodGet:
+		return opListInputDeviceTransfers, "", true
+	case strings.HasPrefix(path, prefix):
+		return classifyInputDeviceSubPath(method, path, prefix)
+	}
+
+	return "", "", false
+}
+
+// classifyInputDeviceSubPath handles paths of the form /prod/inputDevices/{id}[/action].
+func classifyInputDeviceSubPath(method, path, prefix string) (string, string, bool) {
+	// POST sub-actions: /prod/inputDevices/{id}/accept|cancel|reboot|reject|transfer
+	postActions := map[string]string{
+		"/accept":   opAcceptInputDeviceTransfer,
+		"/cancel":   opCancelInputDeviceTransfer,
+		"/reboot":   opRebootInputDevice,
+		"/reject":   opRejectInputDeviceTransfer,
+		"/transfer": opTransferInputDevice,
+	}
+
+	if method == http.MethodPost {
+		for suffix, op := range postActions {
+			if matchSegment(path, prefix, suffix) {
+				return op, extractSegment(path, prefix, suffix), true
+			}
+		}
+	}
+
+	if matchSegment(path, prefix, "") && method == http.MethodGet {
+		return opDescribeInputDevice, extractSegment(path, prefix, ""), true
+	}
+
+	if matchSegment(path, prefix, "") && method == http.MethodPut {
+		return opUpdateInputDevice, extractSegment(path, prefix, ""), true
 	}
 
 	return "", "", false
@@ -694,4 +779,158 @@ func extractTags(body map[string]any) map[string]string {
 
 func extractTagKeys(c *echo.Context) []string {
 	return c.Request().URL.Query()["tagKeys"]
+}
+
+// --- InputDevice handlers ---
+
+type inputDeviceOutput struct {
+	Tags                    map[string]string `json:"Tags"`
+	Arn                     string            `json:"Arn"`
+	ID                      string            `json:"Id"`
+	Name                    string            `json:"Name"`
+	SerialNumber            string            `json:"SerialNumber"`
+	MacAddress              string            `json:"MacAddress"`
+	DeviceType              string            `json:"Type"`
+	ConnectionState         string            `json:"ConnectionState"`
+	DeviceSettingsSyncState string            `json:"DeviceSettingsSyncState"`
+	DeviceUpdateStatus      string            `json:"DeviceUpdateStatus"`
+}
+
+func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
+	tags := d.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return inputDeviceOutput{
+		Tags:                    tags,
+		Arn:                     d.ARN,
+		ID:                      d.ID,
+		Name:                    d.Name,
+		SerialNumber:            d.SerialNumber,
+		MacAddress:              d.MacAddress,
+		DeviceType:              d.DeviceType,
+		ConnectionState:         d.ConnectionState,
+		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
+		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+	}
+}
+
+func (h *Handler) handleClaimDevice(c *echo.Context, body map[string]any) error {
+	id, _ := body["Id"].(string)
+
+	if _, err := h.Backend.ClaimDevice(id); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListInputDevices(c *echo.Context) error {
+	devices, nextToken, err := h.Backend.ListInputDevices(0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]inputDeviceOutput, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, toInputDeviceOutput(d))
+	}
+
+	resp := map[string]any{"InputDevices": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleDescribeInputDevice(c *echo.Context, deviceID string) error {
+	d, err := h.Backend.DescribeInputDevice(deviceID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toInputDeviceOutput(d))
+}
+
+func (h *Handler) handleUpdateInputDevice(c *echo.Context, deviceID string, body map[string]any) error {
+	name, _ := body["Name"].(string)
+
+	d, err := h.Backend.UpdateInputDevice(deviceID, name)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toInputDeviceOutput(d))
+}
+
+func (h *Handler) handleRebootInputDevice(c *echo.Context, deviceID string) error {
+	if err := h.Backend.RebootInputDevice(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleTransferInputDevice(c *echo.Context, deviceID string, body map[string]any) error {
+	targetCustomerID, _ := body["TargetCustomerId"].(string)
+	targetRegion, _ := body["TargetRegion"].(string)
+	message, _ := body["TransferMessage"].(string)
+
+	if err := h.Backend.TransferInputDevice(deviceID, targetCustomerID, targetRegion, message); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleAcceptInputDeviceTransfer(c *echo.Context, deviceID string) error {
+	if err := h.Backend.AcceptInputDeviceTransfer(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleCancelInputDeviceTransfer(c *echo.Context, deviceID string) error {
+	if err := h.Backend.CancelInputDeviceTransfer(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleRejectInputDeviceTransfer(c *echo.Context, deviceID string) error {
+	if err := h.Backend.RejectInputDeviceTransfer(deviceID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListInputDeviceTransfers(c *echo.Context) error {
+	transferType := c.QueryParam("transferType")
+
+	transfers, nextToken, err := h.Backend.ListInputDeviceTransfers(transferType, 0, "")
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	out := make([]map[string]any, 0, len(transfers))
+	for _, t := range transfers {
+		out = append(out, map[string]any{
+			keyID:              t.DeviceID,
+			"TargetCustomerId": t.TargetCustomerID,
+			"TransferType":     t.TransferType,
+			"Message":          t.Message,
+		})
+	}
+
+	resp := map[string]any{"InputDeviceTransfers": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
