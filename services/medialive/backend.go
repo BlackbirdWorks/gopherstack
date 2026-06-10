@@ -31,6 +31,14 @@ const (
 	resourceTypeChannel            = "channel"
 	resourceTypeInput              = "input"
 	resourceTypeInputSecurityGroup = "inputSecurityGroup"
+	resourceTypeInputDevice        = "inputDevice"
+
+	deviceConnectionConnected = "CONNECTED"
+	deviceSettingsSynced      = "SYNCED"
+	deviceUpdateUpToDate      = "UP_TO_DATE"
+	deviceTypeHD              = "HD"
+	transferTypeOutgoing      = "OUTGOING"
+	transferTypeIncoming      = "INCOMING"
 )
 
 // ErrNotFound is returned when a resource does not exist.
@@ -144,10 +152,64 @@ func (g *storedInputSecurityGroup) toSummary() *InputSecurityGroupSummary {
 	}
 }
 
+// Tags and pointer fields first for optimal field alignment.
+type storedInputDevice struct {
+	Tags            map[string]string          `json:"tags"`
+	PendingTransfer *storedInputDeviceTransfer `json:"pendingTransfer,omitempty"`
+	ARN             string                     `json:"arn"`
+	ID              string                     `json:"id"`
+	Name            string                     `json:"name"`
+	SerialNumber    string                     `json:"serialNumber"`
+	MacAddress      string                     `json:"macAddress"`
+	DeviceType      string                     `json:"deviceType"`
+	ConnectionState string                     `json:"connectionState"`
+	// DeviceSettingsSyncState and DeviceUpdateStatus: SYNCED/SYNCING, UP_TO_DATE/etc.
+	DeviceSettingsSyncState string `json:"deviceSettingsSyncState"`
+	DeviceUpdateStatus      string `json:"deviceUpdateStatus"`
+}
+
+func (d *storedInputDevice) toDevice() *InputDevice {
+	tags := make(map[string]string, len(d.Tags))
+	maps.Copy(tags, d.Tags)
+
+	return &InputDevice{
+		Tags:                    tags,
+		ARN:                     d.ARN,
+		ID:                      d.ID,
+		Name:                    d.Name,
+		SerialNumber:            d.SerialNumber,
+		MacAddress:              d.MacAddress,
+		DeviceType:              d.DeviceType,
+		ConnectionState:         d.ConnectionState,
+		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
+		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+	}
+}
+
+func (d *storedInputDevice) toPendingTransfer(transferType string) *InputDeviceTransfer {
+	if d.PendingTransfer == nil {
+		return nil
+	}
+
+	return &InputDeviceTransfer{
+		DeviceID:         d.ID,
+		TargetCustomerID: d.PendingTransfer.TargetCustomerID,
+		TransferType:     transferType,
+		Message:          d.PendingTransfer.Message,
+	}
+}
+
+type storedInputDeviceTransfer struct {
+	TargetCustomerID string `json:"targetCustomerId"`
+	TargetRegion     string `json:"targetRegion"`
+	Message          string `json:"message"`
+}
+
 type snapshot struct {
 	Channels            map[string]*storedChannel            `json:"channels"`
 	Inputs              map[string]*storedInput              `json:"inputs"`
 	InputSecurityGroups map[string]*storedInputSecurityGroup `json:"inputSecurityGroups"`
+	InputDevices        map[string]*storedInputDevice        `json:"inputDevices"`
 	Tags                map[string]map[string]string         `json:"tags"`
 	AccountID           string                               `json:"accountId"`
 	Region              string                               `json:"region"`
@@ -159,6 +221,7 @@ type InMemoryBackend struct {
 	channels            map[string]*storedChannel
 	inputs              map[string]*storedInput
 	inputSecurityGroups map[string]*storedInputSecurityGroup
+	inputDevices        map[string]*storedInputDevice
 	tags                map[string]map[string]string
 	accountID           string
 	region              string
@@ -171,6 +234,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		channels:            make(map[string]*storedChannel),
 		inputs:              make(map[string]*storedInput),
 		inputSecurityGroups: make(map[string]*storedInputSecurityGroup),
+		inputDevices:        make(map[string]*storedInputDevice),
 		tags:                make(map[string]map[string]string),
 		accountID:           accountID,
 		region:              region,
@@ -191,6 +255,7 @@ func (b *InMemoryBackend) Reset() {
 	b.channels = make(map[string]*storedChannel)
 	b.inputs = make(map[string]*storedInput)
 	b.inputSecurityGroups = make(map[string]*storedInputSecurityGroup)
+	b.inputDevices = make(map[string]*storedInputDevice)
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -203,6 +268,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Channels:            b.channels,
 		Inputs:              b.inputs,
 		InputSecurityGroups: b.inputSecurityGroups,
+		InputDevices:        b.inputDevices,
 		Tags:                b.tags,
 		AccountID:           b.accountID,
 		Region:              b.region,
@@ -226,6 +292,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.channels = s.Channels
 	b.inputs = s.Inputs
 	b.inputSecurityGroups = s.InputSecurityGroups
+	if s.InputDevices != nil {
+		b.inputDevices = s.InputDevices
+	} else {
+		b.inputDevices = make(map[string]*storedInputDevice)
+	}
 	b.tags = s.Tags
 	b.accountID = s.AccountID
 	b.region = s.Region
@@ -245,6 +316,10 @@ func (b *InMemoryBackend) inputSecurityGroupARN(id string) string {
 	return arn.Build("medialive", b.region, b.accountID, resourceTypeInputSecurityGroup+":"+id)
 }
 
+func (b *InMemoryBackend) inputDeviceARN(id string) string {
+	return arn.Build("medialive", b.region, b.accountID, resourceTypeInputDevice+":"+id)
+}
+
 func newID() string {
 	return uuid.New().String()[:8]
 }
@@ -252,7 +327,10 @@ func newID() string {
 // --- Channel operations ---
 
 // CreateChannel creates a new channel.
-func (b *InMemoryBackend) CreateChannel(name, channelClass, roleArn string, tags map[string]string) (*Channel, error) {
+func (b *InMemoryBackend) CreateChannel(
+	name, channelClass, roleArn string,
+	tags map[string]string,
+) (*Channel, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
 	}
@@ -335,7 +413,10 @@ func (b *InMemoryBackend) DeleteChannel(channelID string) (*Channel, error) {
 }
 
 // ListChannels returns a paginated list of channels.
-func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error) {
+func (b *InMemoryBackend) ListChannels(
+	maxResults int,
+	nextToken string,
+) ([]*ChannelSummary, string, error) {
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
@@ -397,7 +478,10 @@ func (b *InMemoryBackend) StopChannel(channelID string) (*Channel, error) {
 // --- Input operations ---
 
 // CreateInput creates a new input.
-func (b *InMemoryBackend) CreateInput(name, inputType, roleArn string, tags map[string]string) (*Input, error) {
+func (b *InMemoryBackend) CreateInput(
+	name, inputType, roleArn string,
+	tags map[string]string,
+) (*Input, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
 	}
@@ -474,7 +558,10 @@ func (b *InMemoryBackend) DeleteInput(inputID string) error {
 }
 
 // ListInputs returns a paginated list of inputs.
-func (b *InMemoryBackend) ListInputs(maxResults int, nextToken string) ([]*InputSummary, string, error) {
+func (b *InMemoryBackend) ListInputs(
+	maxResults int,
+	nextToken string,
+) ([]*InputSummary, string, error) {
 	b.mu.RLock("ListInputs")
 	defer b.mu.RUnlock()
 
@@ -649,4 +736,223 @@ func copyTags(tags map[string]string) map[string]string {
 	maps.Copy(result, tags)
 
 	return result
+}
+
+// --- InputDevice operations ---
+
+// ClaimDevice registers a device (by ID) into this account.
+func (b *InMemoryBackend) ClaimDevice(id string) (*InputDevice, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: id required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ClaimDevice")
+	defer b.mu.Unlock()
+
+	if _, exists := b.inputDevices[id]; exists {
+		return nil, fmt.Errorf("%w: device %s already claimed", ErrConflict, id)
+	}
+
+	d := &storedInputDevice{
+		ARN:                     b.inputDeviceARN(id),
+		ID:                      id,
+		Name:                    id,
+		SerialNumber:            id,
+		MacAddress:              "00:00:00:00:00:00",
+		DeviceType:              deviceTypeHD,
+		ConnectionState:         deviceConnectionConnected,
+		DeviceSettingsSyncState: deviceSettingsSynced,
+		DeviceUpdateStatus:      deviceUpdateUpToDate,
+		Tags:                    make(map[string]string),
+	}
+	b.inputDevices[id] = d
+
+	return d.toDevice(), nil
+}
+
+// ListInputDevices returns a paginated list of input devices.
+func (b *InMemoryBackend) ListInputDevices(
+	maxResults int,
+	nextToken string,
+) ([]*InputDevice, string, error) {
+	b.mu.RLock("ListInputDevices")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedInputDevice, 0, len(b.inputDevices))
+	for _, d := range b.inputDevices {
+		all = append(all, d)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	devices := make([]*InputDevice, 0, len(pg.Data))
+	for _, d := range pg.Data {
+		devices = append(devices, d.toDevice())
+	}
+
+	return devices, pg.Next, nil
+}
+
+// DescribeInputDevice returns an input device by ID.
+func (b *InMemoryBackend) DescribeInputDevice(deviceID string) (*InputDevice, error) {
+	b.mu.RLock("DescribeInputDevice")
+	defer b.mu.RUnlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return d.toDevice(), nil
+}
+
+// UpdateInputDevice updates the name of an input device.
+func (b *InMemoryBackend) UpdateInputDevice(deviceID, name string) (*InputDevice, error) {
+	b.mu.Lock("UpdateInputDevice")
+	defer b.mu.Unlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	if name != "" {
+		d.Name = name
+	}
+
+	return d.toDevice(), nil
+}
+
+// RebootInputDevice initiates a reboot of the device (no-op in emulation).
+func (b *InMemoryBackend) RebootInputDevice(deviceID string) error {
+	b.mu.RLock("RebootInputDevice")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.inputDevices[deviceID]; !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	return nil
+}
+
+// TransferInputDevice initiates a transfer of the device to another account.
+func (b *InMemoryBackend) TransferInputDevice(
+	deviceID, targetCustomerID, targetRegion, message string,
+) error {
+	b.mu.Lock("TransferInputDevice")
+	defer b.mu.Unlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	if d.PendingTransfer != nil {
+		return fmt.Errorf("%w: device %s already has a pending transfer", ErrConflict, deviceID)
+	}
+
+	d.PendingTransfer = &storedInputDeviceTransfer{
+		TargetCustomerID: targetCustomerID,
+		TargetRegion:     targetRegion,
+		Message:          message,
+	}
+
+	return nil
+}
+
+// AcceptInputDeviceTransfer accepts an incoming transfer and completes it.
+func (b *InMemoryBackend) AcceptInputDeviceTransfer(deviceID string) error {
+	b.mu.Lock("AcceptInputDeviceTransfer")
+	defer b.mu.Unlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	if d.PendingTransfer == nil {
+		return fmt.Errorf("%w: device %s has no pending transfer", ErrConflict, deviceID)
+	}
+
+	d.PendingTransfer = nil
+
+	return nil
+}
+
+// CancelInputDeviceTransfer cancels an outgoing transfer.
+func (b *InMemoryBackend) CancelInputDeviceTransfer(deviceID string) error {
+	b.mu.Lock("CancelInputDeviceTransfer")
+	defer b.mu.Unlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	if d.PendingTransfer == nil {
+		return fmt.Errorf("%w: device %s has no pending transfer", ErrConflict, deviceID)
+	}
+
+	d.PendingTransfer = nil
+
+	return nil
+}
+
+// RejectInputDeviceTransfer rejects an incoming transfer.
+func (b *InMemoryBackend) RejectInputDeviceTransfer(deviceID string) error {
+	b.mu.Lock("RejectInputDeviceTransfer")
+	defer b.mu.Unlock()
+
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
+		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
+	}
+
+	if d.PendingTransfer == nil {
+		return fmt.Errorf("%w: device %s has no pending transfer", ErrConflict, deviceID)
+	}
+
+	d.PendingTransfer = nil
+
+	return nil
+}
+
+// ListInputDeviceTransfers lists devices with pending transfers.
+// transferType must be "OUTGOING" or "INCOMING"; in this mock both resolve
+// against the same pending-transfer store (we don't track the recipient side
+// separately).
+func (b *InMemoryBackend) ListInputDeviceTransfers(
+	transferType string,
+	maxResults int,
+	nextToken string,
+) ([]*InputDeviceTransfer, string, error) {
+	if transferType != transferTypeOutgoing && transferType != transferTypeIncoming {
+		return nil, "", fmt.Errorf(
+			"%w: transferType must be OUTGOING or INCOMING",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.RLock("ListInputDeviceTransfers")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedInputDevice, 0, len(b.inputDevices))
+	for _, d := range b.inputDevices {
+		if d.PendingTransfer != nil {
+			all = append(all, d)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	transfers := make([]*InputDeviceTransfer, 0, len(pg.Data))
+	for _, d := range pg.Data {
+		transfers = append(transfers, d.toPendingTransfer(transferType))
+	}
+
+	return transfers, pg.Next, nil
 }

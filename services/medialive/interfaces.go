@@ -19,16 +19,41 @@ type StorageBackend interface {
 	ListInputs(maxResults int, nextToken string) ([]*InputSummary, string, error)
 
 	// InputSecurityGroups
-	CreateInputSecurityGroup(whitelistRules []WhitelistRule, tags map[string]string) (*InputSecurityGroup, error)
+	CreateInputSecurityGroup(
+		whitelistRules []WhitelistRule,
+		tags map[string]string,
+	) (*InputSecurityGroup, error)
 	DescribeInputSecurityGroup(groupID string) (*InputSecurityGroup, error)
-	UpdateInputSecurityGroup(groupID string, whitelistRules []WhitelistRule) (*InputSecurityGroup, error)
+	UpdateInputSecurityGroup(
+		groupID string,
+		whitelistRules []WhitelistRule,
+	) (*InputSecurityGroup, error)
 	DeleteInputSecurityGroup(groupID string) error
-	ListInputSecurityGroups(maxResults int, nextToken string) ([]*InputSecurityGroupSummary, string, error)
+	ListInputSecurityGroups(
+		maxResults int,
+		nextToken string,
+	) ([]*InputSecurityGroupSummary, string, error)
 
 	// Tags
 	CreateTags(resourceARN string, tags map[string]string) error
 	DeleteTags(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
+
+	// InputDevices
+	ClaimDevice(id string) (*InputDevice, error)
+	ListInputDevices(maxResults int, nextToken string) ([]*InputDevice, string, error)
+	DescribeInputDevice(deviceID string) (*InputDevice, error)
+	UpdateInputDevice(deviceID, name string) (*InputDevice, error)
+	RebootInputDevice(deviceID string) error
+	TransferInputDevice(deviceID, targetCustomerID, targetRegion, message string) error
+	AcceptInputDeviceTransfer(deviceID string) error
+	CancelInputDeviceTransfer(deviceID string) error
+	RejectInputDeviceTransfer(deviceID string) error
+	ListInputDeviceTransfers(
+		transferType string,
+		maxResults int,
+		nextToken string,
+	) ([]*InputDeviceTransfer, string, error)
 
 	AccountID() string
 	Region() string
@@ -99,6 +124,28 @@ type InputSecurityGroupSummary struct {
 // WhitelistRule is a CIDR-based whitelist entry.
 type WhitelistRule struct {
 	Cidr string `json:"cidr"`
+}
+
+// InputDevice represents a MediaLive input device.
+type InputDevice struct {
+	Tags                    map[string]string
+	ARN                     string
+	ID                      string
+	Name                    string
+	SerialNumber            string
+	MacAddress              string
+	DeviceType              string
+	ConnectionState         string
+	DeviceSettingsSyncState string
+	DeviceUpdateStatus      string
+}
+
+// InputDeviceTransfer represents a pending input device transfer.
+type InputDeviceTransfer struct {
+	DeviceID         string
+	TargetCustomerID string
+	TransferType     string
+	Message          string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
