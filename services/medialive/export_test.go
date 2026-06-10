@@ -73,3 +73,36 @@ func NodeCount(b *InMemoryBackend, clusterID string) int {
 
 	return len(c.Nodes)
 }
+
+// ChannelPlacementGroupCount returns the number of placement groups in a cluster.
+func ChannelPlacementGroupCount(b *InMemoryBackend, clusterID string) int {
+	b.mu.RLock("ChannelPlacementGroupCount")
+	defer b.mu.RUnlock()
+
+	prefix := clusterID + "/"
+	count := 0
+
+	for k := range b.channelPlacementGroups {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			count++
+		}
+	}
+
+	return count
+}
+
+// NetworkCount returns the number of stored networks.
+func NetworkCount(b *InMemoryBackend) int {
+	b.mu.RLock("NetworkCount")
+	defer b.mu.RUnlock()
+
+	return len(b.networks)
+}
+
+// SdiSourceCount returns the number of stored SDI sources.
+func SdiSourceCount(b *InMemoryBackend) int {
+	b.mu.RLock("SdiSourceCount")
+	defer b.mu.RUnlock()
+
+	return len(b.sdiSources)
+}
