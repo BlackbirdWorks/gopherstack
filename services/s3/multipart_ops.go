@@ -309,8 +309,8 @@ func (h *S3Handler) listMultipartUploads(
 
 	var maxUploads *int32
 	if mu := q.Get("max-uploads"); mu != "" {
-		if n, err := strconv.Atoi(mu); err == nil && n > 0 {
-			v := int32(n) //nolint:gosec // validated non-negative
+		if n, err := strconv.ParseInt(mu, 10, 32); err == nil && n > 0 && n <= math.MaxInt32 {
+			v := int32(n)
 			maxUploads = &v
 		}
 	}

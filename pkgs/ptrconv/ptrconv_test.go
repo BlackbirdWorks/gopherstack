@@ -142,6 +142,7 @@ func int64Ptr(v int64) *int64 {
 
 	return p
 }
+
 func stringPtr(v string) *string {
 	p := new(string)
 	*p = v

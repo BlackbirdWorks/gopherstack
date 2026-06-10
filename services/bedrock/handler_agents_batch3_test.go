@@ -29,7 +29,8 @@ func createKBAndDS(t *testing.T, h *bedrock.AgentsHandler) (string, string) {
 	require.NoError(t, json.Unmarshal(kbResp.Body.Bytes(), &kbBody))
 	kbID := kbBody["knowledgeBase"].(map[string]any)["knowledgeBaseId"].(string)
 
-	dsResp := doAgentRequest(t, h, http.MethodPost,
+	dsResp := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kbID),
 		map[string]any{"name": "test-ds"},
 	)
@@ -125,7 +126,8 @@ func TestFlowAliasCRUD(t *testing.T) {
 	flowID := fb["flow"].(map[string]any)["flowId"].(string)
 
 	// Create alias
-	rec = doAgentRequest(t, h, http.MethodPost,
+	rec = doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/flows/%s/aliases", flowID),
 		map[string]any{"name": "my-alias"},
 	)
@@ -150,7 +152,8 @@ func TestFlowAliasCRUD(t *testing.T) {
 	assert.Len(t, lb["flowAliasSummaries"], 1)
 
 	// Update alias
-	rec = doAgentRequest(t, h, http.MethodPut,
+	rec = doAgentRequest(
+		t, h, http.MethodPut,
 		fmt.Sprintf("/flows/%s/aliases/%s", flowID, aliasID),
 		map[string]any{"name": "updated-alias"},
 	)
@@ -404,7 +407,8 @@ func TestAgentCollaboratorCRUD(t *testing.T) {
 	agentID := ab["agent"].(map[string]any)["agentId"].(string)
 
 	collabPath := fmt.Sprintf(
-		"/agents/%s/agentversions/DRAFT/agentcollaborators", agentID)
+		"/agents/%s/agentversions/DRAFT/agentcollaborators", agentID,
+	)
 
 	// Associate collaborator
 	rec = doAgentRequest(t, h, http.MethodPost, collabPath, map[string]any{
@@ -432,7 +436,8 @@ func TestAgentCollaboratorCRUD(t *testing.T) {
 	assert.Len(t, lb["agentCollaboratorSummaries"], 1)
 
 	// Update collaborator
-	rec = doAgentRequest(t, h, http.MethodPut,
+	rec = doAgentRequest(
+		t, h, http.MethodPut,
 		fmt.Sprintf("%s/%s", collabPath, collabID),
 		map[string]any{"relayConversationHistory": "DISABLED"},
 	)
@@ -499,7 +504,8 @@ func TestStopIngestionJob(t *testing.T) {
 	kbID, dsID := createKBAndDS(t, h)
 
 	// Start ingestion job
-	startRec := doAgentRequest(t, h, http.MethodPost,
+	startRec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{},
 	)
@@ -510,7 +516,8 @@ func TestStopIngestionJob(t *testing.T) {
 	jobID := jb["ingestionJob"].(map[string]any)["ingestionJobId"].(string)
 
 	// Stop it
-	rec := doAgentRequest(t, h, http.MethodPost,
+	rec := doAgentRequest(
+		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs/%s/stop",
 			kbID, dsID, jobID),
 		nil,

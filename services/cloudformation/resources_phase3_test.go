@@ -33,22 +33,28 @@ func newPhase3ServiceBackends() *cloudformation.ServiceBackends {
 	b.EFS = efsbackend.NewHandler(efsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.CloudFront = cloudfrontbackend.NewHandler(
-		cloudfrontbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		cloudfrontbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.Autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	b.APIGatewayV2 = apigatewayv2backend.NewHandler(apigatewayv2backend.NewInMemoryBackend())
 	b.CodeBuild = codebuildbackend.NewHandler(
-		codebuildbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		codebuildbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.Glue = gluebackend.NewHandler(gluebackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.DocDB = docdbbackend.NewHandler(docdbbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Neptune = neptunebackend.NewHandler(
-		neptunebackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		neptunebackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.Kafka = kafkabackend.NewHandler(kafkabackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Transfer = transferbackend.NewHandler(
-		transferbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		transferbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.CloudTrail = cloudtrailbackend.NewHandler(
-		cloudtrailbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		cloudtrailbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.CodePipeline = codepipelinebackend.NewHandler(
-		codepipelinebackend.NewInMemoryBackend("000000000000", "us-east-1"))
+		codepipelinebackend.NewInMemoryBackend("000000000000", "us-east-1"),
+	)
 	b.IoT = iotbackend.NewHandler(iotbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), nil)
 	b.Pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.EMR = emrbackend.NewHandler(emrbackend.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -67,55 +73,104 @@ func TestResourceCreator_Phase3Types_NilBackends(t *testing.T) {
 		logicalID    string
 		resourceType string
 	}{
-		{name: "eks_cluster", logicalID: "MyCluster", resourceType: "AWS::EKS::Cluster",
-			props: map[string]any{"Name": "stub-cluster"}},
-		{name: "eks_nodegroup", logicalID: "MyNg", resourceType: "AWS::EKS::Nodegroup",
-			props: map[string]any{"ClusterName": "stub-cluster", "NodegroupName": "stub-ng"}},
-		{name: "efs_filesystem", logicalID: "MyFS", resourceType: "AWS::EFS::FileSystem",
-			props: map[string]any{"PerformanceMode": "generalPurpose"}},
-		{name: "efs_mounttarget", logicalID: "MyMT", resourceType: "AWS::EFS::MountTarget",
-			props: map[string]any{"FileSystemId": "fs-123", "SubnetId": "subnet-1"}},
-		{name: "batch_compute_env", logicalID: "MyCE", resourceType: "AWS::Batch::ComputeEnvironment",
-			props: map[string]any{"ComputeEnvironmentName": "stub-ce", "Type": "MANAGED"}},
-		{name: "batch_job_queue", logicalID: "MyJQ", resourceType: "AWS::Batch::JobQueue",
-			props: map[string]any{"JobQueueName": "stub-jq", "Priority": float64(1)}},
-		{name: "batch_job_def", logicalID: "MyJD", resourceType: "AWS::Batch::JobDefinition",
-			props: map[string]any{"JobDefinitionName": "stub-jd", "Type": "container"}},
-		{name: "cloudfront_distribution", logicalID: "MyDist", resourceType: "AWS::CloudFront::Distribution",
-			props: map[string]any{"DistributionConfig": map[string]any{"Enabled": true}}},
-		{name: "autoscaling_group", logicalID: "MyASG", resourceType: "AWS::AutoScaling::AutoScalingGroup",
-			props: map[string]any{"MinSize": float64(1), "MaxSize": float64(3)}},
-		{name: "launch_configuration", logicalID: "MyLC", resourceType: "AWS::AutoScaling::LaunchConfiguration",
-			props: map[string]any{"ImageId": "ami-stub", "InstanceType": "t2.micro"}},
-		{name: "apigwv2_api", logicalID: "MyAPI", resourceType: "AWS::ApiGatewayV2::Api",
-			props: map[string]any{"Name": "stub-api", "ProtocolType": "HTTP"}},
-		{name: "apigwv2_stage", logicalID: "MyStage", resourceType: "AWS::ApiGatewayV2::Stage",
-			props: map[string]any{"ApiId": "abc123", "StageName": "prod"}},
-		{name: "codebuild_project", logicalID: "MyProject", resourceType: "AWS::CodeBuild::Project",
-			props: map[string]any{"Name": "stub-project"}},
-		{name: "glue_database", logicalID: "MyDB", resourceType: "AWS::Glue::Database",
-			props: map[string]any{"DatabaseInput": map[string]any{"Name": "stub-db"}}},
-		{name: "glue_job", logicalID: "MyJob", resourceType: "AWS::Glue::Job",
-			props: map[string]any{"Name": "stub-job", "Role": "arn:aws:iam::000000000000:role/GlueRole"}},
-		{name: "docdb_cluster", logicalID: "MyCluster", resourceType: "AWS::DocDB::DBCluster",
-			props: map[string]any{"DBClusterIdentifier": "stub-docdb"}},
-		{name: "docdb_instance", logicalID: "MyInst", resourceType: "AWS::DocDB::DBInstance",
-			props: map[string]any{"DBInstanceIdentifier": "stub-inst", "DBClusterIdentifier": "stub-docdb"}},
-		{name: "neptune_cluster", logicalID: "MyNeptune", resourceType: "AWS::Neptune::DBCluster",
-			props: map[string]any{"DBClusterIdentifier": "stub-neptune"}},
-		{name: "neptune_instance", logicalID: "MyNeptuneInst", resourceType: "AWS::Neptune::DBInstance",
-			props: map[string]any{"DBInstanceIdentifier": "stub-neptune-inst"}},
-		{name: "msk_cluster", logicalID: "MyMSK", resourceType: "AWS::MSK::Cluster",
-			props: map[string]any{"ClusterName": "stub-msk"}},
-		{name: "transfer_server", logicalID: "MyServer", resourceType: "AWS::Transfer::Server",
-			props: map[string]any{"Protocols": []any{"SFTP"}}},
-		{name: "cloudtrail_trail", logicalID: "MyTrail", resourceType: "AWS::CloudTrail::Trail",
-			props: map[string]any{"TrailName": "stub-trail", "S3BucketName": "my-bucket"}},
-		{name: "codepipeline_pipeline", logicalID: "MyPipeline", resourceType: "AWS::CodePipeline::Pipeline",
-			props: map[string]any{"Pipeline": map[string]any{"Name": "stub-pipeline"}}},
-		{name: "iot_thing", logicalID: "MyThing", resourceType: "AWS::IoT::Thing",
-			props: map[string]any{"ThingName": "stub-thing"}},
-		{name: "iot_topic_rule", logicalID: "MyRule", resourceType: "AWS::IoT::TopicRule",
+		{
+			name: "eks_cluster", logicalID: "MyCluster", resourceType: "AWS::EKS::Cluster",
+			props: map[string]any{"Name": "stub-cluster"},
+		},
+		{
+			name: "eks_nodegroup", logicalID: "MyNg", resourceType: "AWS::EKS::Nodegroup",
+			props: map[string]any{"ClusterName": "stub-cluster", "NodegroupName": "stub-ng"},
+		},
+		{
+			name: "efs_filesystem", logicalID: "MyFS", resourceType: "AWS::EFS::FileSystem",
+			props: map[string]any{"PerformanceMode": "generalPurpose"},
+		},
+		{
+			name: "efs_mounttarget", logicalID: "MyMT", resourceType: "AWS::EFS::MountTarget",
+			props: map[string]any{"FileSystemId": "fs-123", "SubnetId": "subnet-1"},
+		},
+		{
+			name: "batch_compute_env", logicalID: "MyCE", resourceType: "AWS::Batch::ComputeEnvironment",
+			props: map[string]any{"ComputeEnvironmentName": "stub-ce", "Type": "MANAGED"},
+		},
+		{
+			name: "batch_job_queue", logicalID: "MyJQ", resourceType: "AWS::Batch::JobQueue",
+			props: map[string]any{"JobQueueName": "stub-jq", "Priority": float64(1)},
+		},
+		{
+			name: "batch_job_def", logicalID: "MyJD", resourceType: "AWS::Batch::JobDefinition",
+			props: map[string]any{"JobDefinitionName": "stub-jd", "Type": "container"},
+		},
+		{
+			name: "cloudfront_distribution", logicalID: "MyDist", resourceType: "AWS::CloudFront::Distribution",
+			props: map[string]any{"DistributionConfig": map[string]any{"Enabled": true}},
+		},
+		{
+			name: "autoscaling_group", logicalID: "MyASG", resourceType: "AWS::AutoScaling::AutoScalingGroup",
+			props: map[string]any{"MinSize": float64(1), "MaxSize": float64(3)},
+		},
+		{
+			name: "launch_configuration", logicalID: "MyLC", resourceType: "AWS::AutoScaling::LaunchConfiguration",
+			props: map[string]any{"ImageId": "ami-stub", "InstanceType": "t2.micro"},
+		},
+		{
+			name: "apigwv2_api", logicalID: "MyAPI", resourceType: "AWS::ApiGatewayV2::Api",
+			props: map[string]any{"Name": "stub-api", "ProtocolType": "HTTP"},
+		},
+		{
+			name: "apigwv2_stage", logicalID: "MyStage", resourceType: "AWS::ApiGatewayV2::Stage",
+			props: map[string]any{"ApiId": "abc123", "StageName": "prod"},
+		},
+		{
+			name: "codebuild_project", logicalID: "MyProject", resourceType: "AWS::CodeBuild::Project",
+			props: map[string]any{"Name": "stub-project"},
+		},
+		{
+			name: "glue_database", logicalID: "MyDB", resourceType: "AWS::Glue::Database",
+			props: map[string]any{"DatabaseInput": map[string]any{"Name": "stub-db"}},
+		},
+		{
+			name: "glue_job", logicalID: "MyJob", resourceType: "AWS::Glue::Job",
+			props: map[string]any{"Name": "stub-job", "Role": "arn:aws:iam::000000000000:role/GlueRole"},
+		},
+		{
+			name: "docdb_cluster", logicalID: "MyCluster", resourceType: "AWS::DocDB::DBCluster",
+			props: map[string]any{"DBClusterIdentifier": "stub-docdb"},
+		},
+		{
+			name: "docdb_instance", logicalID: "MyInst", resourceType: "AWS::DocDB::DBInstance",
+			props: map[string]any{"DBInstanceIdentifier": "stub-inst", "DBClusterIdentifier": "stub-docdb"},
+		},
+		{
+			name: "neptune_cluster", logicalID: "MyNeptune", resourceType: "AWS::Neptune::DBCluster",
+			props: map[string]any{"DBClusterIdentifier": "stub-neptune"},
+		},
+		{
+			name: "neptune_instance", logicalID: "MyNeptuneInst", resourceType: "AWS::Neptune::DBInstance",
+			props: map[string]any{"DBInstanceIdentifier": "stub-neptune-inst"},
+		},
+		{
+			name: "msk_cluster", logicalID: "MyMSK", resourceType: "AWS::MSK::Cluster",
+			props: map[string]any{"ClusterName": "stub-msk"},
+		},
+		{
+			name: "transfer_server", logicalID: "MyServer", resourceType: "AWS::Transfer::Server",
+			props: map[string]any{"Protocols": []any{"SFTP"}},
+		},
+		{
+			name: "cloudtrail_trail", logicalID: "MyTrail", resourceType: "AWS::CloudTrail::Trail",
+			props: map[string]any{"TrailName": "stub-trail", "S3BucketName": "my-bucket"},
+		},
+		{
+			name: "codepipeline_pipeline", logicalID: "MyPipeline", resourceType: "AWS::CodePipeline::Pipeline",
+			props: map[string]any{"Pipeline": map[string]any{"Name": "stub-pipeline"}},
+		},
+		{
+			name: "iot_thing", logicalID: "MyThing", resourceType: "AWS::IoT::Thing",
+			props: map[string]any{"ThingName": "stub-thing"},
+		},
+		{
+			name: "iot_topic_rule", logicalID: "MyRule", resourceType: "AWS::IoT::TopicRule",
 			props: map[string]any{
 				"RuleName":         "stub-rule",
 				"TopicRulePayload": map[string]any{"SQL": "SELECT * FROM 'topic'"},
@@ -131,10 +186,14 @@ func TestResourceCreator_Phase3Types_NilBackends(t *testing.T) {
 				"Target": "arn:aws:sqs:us-east-1:000000000000:t",
 			},
 		},
-		{name: "emr_cluster", logicalID: "MyEMR", resourceType: "AWS::EMR::Cluster",
-			props: map[string]any{"Name": "stub-emr", "ReleaseLabel": "emr-6.0.0"}},
-		{name: "cloudwatch_dashboard", logicalID: "MyDash", resourceType: "AWS::CloudWatch::Dashboard",
-			props: map[string]any{"DashboardName": "stub-dash"}},
+		{
+			name: "emr_cluster", logicalID: "MyEMR", resourceType: "AWS::EMR::Cluster",
+			props: map[string]any{"Name": "stub-emr", "ReleaseLabel": "emr-6.0.0"},
+		},
+		{
+			name: "cloudwatch_dashboard", logicalID: "MyDash", resourceType: "AWS::CloudWatch::Dashboard",
+			props: map[string]any{"DashboardName": "stub-dash"},
+		},
 	}
 
 	for _, tt := range tests {

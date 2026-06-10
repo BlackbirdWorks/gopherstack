@@ -466,7 +466,8 @@ func TestRefinement1_Persistence_NextIDPreserved(t *testing.T) {
 	app, err := b2.DescribeApplication("id-app")
 	require.NoError(t, err)
 	assert.Len(t, app.CloudWatchLoggingOptionDescs, 2)
-	assert.NotEqual(t,
+	assert.NotEqual(
+		t,
 		app.CloudWatchLoggingOptionDescs[0].CloudWatchLoggingOptionID,
 		app.CloudWatchLoggingOptionDescs[1].CloudWatchLoggingOptionID,
 	)

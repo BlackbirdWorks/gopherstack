@@ -664,8 +664,8 @@ func TestHandler_UpdateUserPoolClient_WithOpts(t *testing.T) {
 
 			var resp struct {
 				UserPoolClient struct {
-					ClientName         string   `json:"ClientName"`
-					AllowedOAuthScopes []string `json:"AllowedOAuthScopes"`
+					ClientName         string   `json:"ClientName,omitempty"`
+					AllowedOAuthScopes []string `json:"AllowedOAuthScopes,omitempty"`
 				} `json:"UserPoolClient"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -775,7 +775,7 @@ func TestHandler_ListResourceServers(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp struct {
-				ResourceServers []map[string]any `json:"ResourceServers"`
+				ResourceServers []map[string]any `json:"ResourceServers,omitempty"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Len(t, resp.ResourceServers, tt.count)
@@ -928,7 +928,7 @@ func TestHandler_AdminRespondToAuthChallenge(t *testing.T) {
 				})
 
 				var authResp struct {
-					Session string `json:"Session"`
+					Session string `json:"Session,omitempty"`
 				}
 				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
 				session = authResp.Session
@@ -1216,7 +1216,7 @@ func TestHandler_RespondToAuthChallenge_NewPassword(t *testing.T) {
 				})
 
 				var authResp struct {
-					Session string `json:"Session"`
+					Session string `json:"Session,omitempty"`
 				}
 
 				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))

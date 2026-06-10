@@ -48,7 +48,8 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
 	h, _ := newInMemoryHandler(t)
 	createFunctionForTest(t, h, "vpc6-update-fn")
 
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/vpc6-update-fn/configuration",
 		`{"VpcConfig":{"SubnetIds":["subnet-2"],"Ipv6AllowedForDualStack":true}}`,
 	)
@@ -454,7 +455,8 @@ func TestBatch3_ProvisionedConcurrency_StatusReady(t *testing.T) {
 	_, err := bk.PublishVersion("prov-status-fn", "")
 	require.NoError(t, err)
 
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/prov-status-fn/provisioned-concurrency?Qualifier=1",
 		`{"ProvisionedConcurrentExecutions":5}`,
 	)
@@ -483,11 +485,13 @@ func TestBatch3_ProvisionedConcurrency_List_IncludesAllQualifiers(t *testing.T) 
 	_, err = bk.PublishVersion("prov-list-fn", "")
 	require.NoError(t, err)
 
-	callInMemoryHandler(t, h, http.MethodPut,
+	callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/prov-list-fn/provisioned-concurrency?Qualifier=1",
 		`{"ProvisionedConcurrentExecutions":3}`,
 	)
-	callInMemoryHandler(t, h, http.MethodPut,
+	callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/prov-list-fn/provisioned-concurrency?Qualifier=2",
 		`{"ProvisionedConcurrentExecutions":7}`,
 	)
@@ -511,7 +515,8 @@ func TestBatch3_FunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
 	h, _ := newInMemoryHandler(t)
 	createFunctionForTest(t, h, "url-cors-fn")
 
-	createRec := callInMemoryHandler(t, h, http.MethodPost,
+	createRec := callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2015-03-31/functions/url-cors-fn/url",
 		`{"AuthType":"NONE","Cors":{"AllowOrigins":["https://example.com"],"AllowMethods":["GET","POST"]}}`,
 	)

@@ -181,7 +181,6 @@ func (r *DockerRuntime) PullImage(ctx context.Context, imageRef string) error {
 func (r *DockerRuntime) HasImage(ctx context.Context, imageRef string) (bool, error) {
 	filter := filters.NewArgs(filters.KeyValuePair{Key: "reference", Value: imageRef})
 	images, err := r.docker.ImageList(ctx, image.ListOptions{Filters: filter})
-
 	if err != nil {
 		return false, fmt.Errorf("image list: %w", err)
 	}

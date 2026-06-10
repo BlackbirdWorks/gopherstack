@@ -1369,7 +1369,8 @@ func likeMatch(pattern, s string) bool {
 // evalQuery applies a parsed sqlQuery to a set of rows.
 // Each row is a map of column name → string value.
 func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, error) {
-	return evalQueryGeneric(q, rows,
+	return evalQueryGeneric(
+		q, rows,
 		func(r map[string]string) sqlRow { return &stringRow{data: r} },
 		evalAggQuery, projectStringRow, sortStringRows,
 	)
@@ -1397,7 +1398,8 @@ func projectStringRow(q *sqlQuery, row sqlRow, rawRow map[string]string) (map[st
 
 // evalQueryJSON applies a parsed sqlQuery to JSON rows (map[string]any).
 func evalQueryJSON(q *sqlQuery, rows []map[string]any) ([]map[string]any, error) {
-	return evalQueryGeneric(q, rows,
+	return evalQueryGeneric(
+		q, rows,
 		func(r map[string]any) sqlRow { return &jsonRow{data: r} },
 		evalAggQueryJSON, projectJSONRow, sortJSONRows,
 	)

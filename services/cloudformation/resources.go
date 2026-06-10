@@ -67,8 +67,6 @@ import (
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
-const ()
-
 // ServiceBackends holds references to all service backends.
 type ServiceBackends struct {
 	DynamoDB        *ddbbackend.DynamoDBHandler
@@ -378,7 +376,7 @@ func (rc *ResourceCreator) createPlatformResources(
 		physID, err := rc.createEventBus(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::StepFunctions::StateMachine":
+	case resTypeStepFunctionsStateMachine:
 		physID, err := rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -647,7 +645,7 @@ func (rc *ResourceCreator) createContainerResource(
 
 		return physID, true, err
 	case "AWS::ECR::Repository":
-		physID, err := rc.createECRRepository(logicalID, props, params, physicalIDs)
+		physID, err := rc.createECRRepository(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Lambda::LayerVersion":
@@ -699,7 +697,7 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 
 		return physID, true, err
 	case "AWS::Firehose::DeliveryStream":
-		physID, err := rc.createFirehoseDeliveryStream(logicalID, props, params, physicalIDs)
+		physID, err := rc.createFirehoseDeliveryStream(context.Background(), logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	case "AWS::Route53Resolver::ResolverEndpoint":
@@ -1058,12 +1056,12 @@ func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceT
 	case "AWS::Events::EventBus":
 
 		return true, rc.deleteEventBus(physicalID)
-	case "AWS::StepFunctions::StateMachine":
+	case resTypeStepFunctionsStateMachine:
 
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
 	case resTypeLogGroup:
 
-		return true, rc.deleteCloudWatchLogGroup(physicalID)
+		return true, rc.deleteCloudWatchLogGroup(ctx, physicalID)
 	case "AWS::ApiGateway::RestApi":
 
 		return true, rc.deleteAPIGatewayRestAPI(ctx, physicalID)
@@ -1247,7 +1245,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType
 		return true, rc.deleteECSService(physicalID)
 	case "AWS::ECR::Repository":
 
-		return true, rc.deleteECRRepository(physicalID)
+		return true, rc.deleteECRRepository(context.Background(), physicalID)
 	case "AWS::Lambda::LayerVersion":
 
 		return true, rc.deleteLambdaLayerVersion(physicalID)
@@ -1272,7 +1270,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType str
 	switch resourceType {
 	case "AWS::Firehose::DeliveryStream":
 
-		return rc.deleteFirehoseDeliveryStream(physicalID)
+		return rc.deleteFirehoseDeliveryStream(context.Background(), physicalID)
 	case "AWS::Route53Resolver::ResolverEndpoint":
 
 		return rc.deleteRoute53ResolverEndpoint(physicalID)
@@ -1555,7 +1553,7 @@ func (rc *ResourceCreator) deleteSNSTopic(_ context.Context, physicalID string) 
 }
 
 func (rc *ResourceCreator) createSSMParameter(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1573,7 +1571,7 @@ func (rc *ResourceCreator) createSSMParameter(
 	}
 	value := strProp(props, "Value", params, physicalIDs)
 	description := strProp(props, "Description", params, physicalIDs)
-	_, err := rc.backends.SSM.Backend.PutParameter(&ssmbackend.PutParameterInput{
+	_, err := rc.backends.SSM.Backend.PutParameter(ctx, &ssmbackend.PutParameterInput{
 		Name:        name,
 		Type:        paramType,
 		Value:       value,
@@ -1586,11 +1584,11 @@ func (rc *ResourceCreator) createSSMParameter(
 	return name, nil
 }
 
-func (rc *ResourceCreator) deleteSSMParameter(_ context.Context, physicalID string) error {
+func (rc *ResourceCreator) deleteSSMParameter(ctx context.Context, physicalID string) error {
 	if rc.backends.SSM == nil {
 		return nil
 	}
-	_, err := rc.backends.SSM.Backend.DeleteParameter(&ssmbackend.DeleteParameterInput{Name: physicalID})
+	_, err := rc.backends.SSM.Backend.DeleteParameter(ctx, &ssmbackend.DeleteParameterInput{Name: physicalID})
 
 	return err
 }
@@ -1745,7 +1743,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 		State:              state,
 	}
 
-	rule, err := rc.backends.EventBridge.Backend.PutRule(input)
+	rule, err := rc.backends.EventBridge.Backend.PutRule(context.Background(), input)
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge rule: %w", err)
 	}
@@ -1761,7 +1759,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(name, "default")
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -1787,7 +1785,13 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 		smType = "STANDARD"
 	}
 
-	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(name, definition, roleArn, smType)
+	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(
+		context.Background(),
+		name,
+		definition,
+		roleArn,
+		smType,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create StepFunctions state machine: %w", err)
 	}
@@ -1805,7 +1809,7 @@ func (rc *ResourceCreator) deleteStepFunctionsStateMachine(_ context.Context, ar
 
 // createCloudWatchLogGroup creates a CloudWatch Logs log group.
 func (rc *ResourceCreator) createCloudWatchLogGroup(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1819,7 +1823,7 @@ func (rc *ResourceCreator) createCloudWatchLogGroup(
 		name = "/aws/cfn/" + logicalID
 	}
 
-	_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(name, "", "")
+	_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(ctx, name, "", "")
 	if err != nil {
 		return "", fmt.Errorf("create CloudWatch Logs log group: %w", err)
 	}
@@ -1827,12 +1831,12 @@ func (rc *ResourceCreator) createCloudWatchLogGroup(
 	return name, nil
 }
 
-func (rc *ResourceCreator) deleteCloudWatchLogGroup(name string) error {
+func (rc *ResourceCreator) deleteCloudWatchLogGroup(ctx context.Context, name string) error {
 	if rc.backends.CloudWatchLogs == nil {
 		return nil
 	}
 
-	return rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(name)
+	return rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(ctx, name)
 }
 
 // createAPIGatewayRestAPI creates an API Gateway REST API.
@@ -1897,7 +1901,7 @@ func (r *serviceBackendsResolver) ResolveSSMParameter(name string) (string, erro
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
-	out, err := r.ssm.Backend.GetParameter(&ssmbackend.GetParameterInput{Name: name})
+	out, err := r.ssm.Backend.GetParameter(context.Background(), &ssmbackend.GetParameterInput{Name: name})
 	if err != nil {
 		return "", err
 	}
@@ -1911,7 +1915,10 @@ func (r *serviceBackendsResolver) ResolveSSMSecureParameter(name string) (string
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
-	out, err := r.ssm.Backend.GetParameter(&ssmbackend.GetParameterInput{Name: name, WithDecryption: true})
+	out, err := r.ssm.Backend.GetParameter(
+		context.Background(),
+		&ssmbackend.GetParameterInput{Name: name, WithDecryption: true},
+	)
 	if err != nil {
 		return "", err
 	}

@@ -553,7 +553,8 @@ func extractTofuBinary(f *zip.File, binaryName string) (string, error) {
 // from the OpenTofu API versions list, or an empty string if none is found.
 func latestStableTofuVersion(versions []struct {
 	ID string `json:"id"`
-}) string {
+},
+) string {
 	for _, v := range versions {
 		if !strings.Contains(v.ID, "-") {
 			return v.ID
@@ -709,7 +710,8 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 		t.Logf("could not create provider cache dir: %v", err)
 	}
 
-	env := append(os.Environ(),
+	env := append(
+		os.Environ(),
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
@@ -2107,7 +2109,8 @@ func TestTerraform_Firehose(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeDeliveryStream should succeed after terraform apply")
 				require.NotNil(t, out.DeliveryStreamDescription)
-				assert.Equal(t,
+				assert.Equal(
+					t,
 					vars["StreamName"].(string),
 					aws.ToString(out.DeliveryStreamDescription.DeliveryStreamName),
 				)
@@ -3681,7 +3684,8 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				// Start a configuration session via the AppConfigData API.
 				client := createAppConfigDataClient(t)
 
-				sessionOut, err := client.StartConfigurationSession(ctx,
+				sessionOut, err := client.StartConfigurationSession(
+					ctx,
 					&appconfigdatasvc.StartConfigurationSessionInput{
 						ApplicationIdentifier:          aws.String(appID),
 						EnvironmentIdentifier:          aws.String(envID),
@@ -3693,7 +3697,8 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				assert.NotEmpty(t, *sessionOut.InitialConfigurationToken, "initial token should not be empty")
 
 				// Get latest configuration.
-				configOut, err := client.GetLatestConfiguration(ctx,
+				configOut, err := client.GetLatestConfiguration(
+					ctx,
 					&appconfigdatasvc.GetLatestConfigurationInput{
 						ConfigurationToken: sessionOut.InitialConfigurationToken,
 					},
@@ -3714,7 +3719,8 @@ func TestTerraform_AppConfigData(t *testing.T) {
 					"next token should differ from initial token")
 
 				// Poll again with the new token to verify token rotation.
-				configOut2, err := client.GetLatestConfiguration(ctx,
+				configOut2, err := client.GetLatestConfiguration(
+					ctx,
 					&appconfigdatasvc.GetLatestConfigurationInput{
 						ConfigurationToken: configOut.NextPollConfigurationToken,
 					},
@@ -6010,7 +6016,8 @@ func TestTerraform_Shield(t *testing.T) {
 				body := `{}`
 
 				req, err := http.NewRequestWithContext(
-					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+					ctx, http.MethodPost, reqURL, strings.NewReader(body),
+				)
 				require.NoError(t, err)
 
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -6127,7 +6134,8 @@ func TestTerraform_Textract(t *testing.T) {
 				body := fmt.Sprintf(`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`, bucket, key)
 
 				req, err := http.NewRequestWithContext(
-					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+					ctx, http.MethodPost, reqURL, strings.NewReader(body),
+				)
 				require.NoError(t, err)
 
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -6188,7 +6196,8 @@ func TestTerraform_TimestreamWrite(t *testing.T) {
 				body := fmt.Sprintf(`{"DatabaseName":"%s"}`, databaseName)
 
 				req, err := http.NewRequestWithContext(
-					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+					ctx, http.MethodPost, reqURL, strings.NewReader(body),
+				)
 				require.NoError(t, err)
 
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -6409,7 +6418,8 @@ func TestTerraform_Wafv2(t *testing.T) {
 				body := `{"Scope":"REGIONAL"}`
 
 				req, err := http.NewRequestWithContext(
-					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+					ctx, http.MethodPost, reqURL, strings.NewReader(body),
+				)
 				require.NoError(t, err)
 
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")

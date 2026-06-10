@@ -98,26 +98,31 @@ type networkAnalyzerConfigRecord struct {
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
 type backendSnapshot struct {
-	ResourceTags           map[string]map[string]string         `json:"resourceTags,omitempty"`
-	PartnerAccounts        map[string]string                    `json:"partnerAccounts,omitempty"`
-	FuotaTaskMulticast     map[string]string                    `json:"fuotaTaskMulticast,omitempty"`
-	FuotaTaskDevices       map[string]string                    `json:"fuotaTaskDevices,omitempty"`
-	MulticastGroupDevices  map[string]string                    `json:"multicastGroupDevices,omitempty"`
-	MulticastGroupSessions map[string]bool                      `json:"multicastGroupSessions,omitempty"`
-	WirelessDeviceThings   map[string]string                    `json:"wirelessDeviceThings,omitempty"`
-	WirelessGatewayCerts   map[string]string                    `json:"wirelessGatewayCerts,omitempty"`
-	WirelessGatewayThings  map[string]string                    `json:"wirelessGatewayThings,omitempty"`
-	LogLevels              map[string]string                    `json:"logLevels,omitempty"`
-	ResourceLogLevels      map[string]string                    `json:"resourceLogLevels,omitempty"`
-	ImportTasks            map[string]*WirelessDeviceImportTask `json:"importTasks,omitempty"`
-	Devices                []deviceRecord                       `json:"devices,omitempty"`
-	Gateways               []gatewayRecord                      `json:"gateways,omitempty"`
-	ServiceProfiles        []serviceProfileRecord               `json:"serviceProfiles,omitempty"`
-	Destinations           []destinationRecord                  `json:"destinations,omitempty"`
-	DeviceProfiles         []deviceProfileRecord                `json:"deviceProfiles,omitempty"`
-	FuotaTasks             []fuotaTaskRecord                    `json:"fuotaTasks,omitempty"`
-	MulticastGroups        []multicastGroupRecord               `json:"multicastGroups,omitempty"`
-	NetworkAnalyzerConfigs []networkAnalyzerConfigRecord        `json:"networkAnalyzerConfigs,omitempty"`
+	ResourceTags           map[string]map[string]string               `json:"resourceTags,omitempty"`
+	PartnerAccounts        map[string]string                          `json:"partnerAccounts,omitempty"`
+	FuotaTaskMulticast     map[string]string                          `json:"fuotaTaskMulticast,omitempty"`
+	FuotaTaskDevices       map[string]string                          `json:"fuotaTaskDevices,omitempty"`
+	MulticastGroupDevices  map[string]string                          `json:"multicastGroupDevices,omitempty"`
+	MulticastGroupSessions map[string]bool                            `json:"multicastGroupSessions,omitempty"`
+	WirelessDeviceThings   map[string]string                          `json:"wirelessDeviceThings,omitempty"`
+	WirelessGatewayCerts   map[string]string                          `json:"wirelessGatewayCerts,omitempty"`
+	WirelessGatewayThings  map[string]string                          `json:"wirelessGatewayThings,omitempty"`
+	LogLevels              map[string]string                          `json:"logLevels,omitempty"`
+	ResourceLogLevels      map[string]string                          `json:"resourceLogLevels,omitempty"`
+	ImportTasks            map[string]*WirelessDeviceImportTask       `json:"importTasks,omitempty"`
+	SingleImportTasks      map[string]*SingleWirelessDeviceImportTask `json:"singleImportTasks,omitempty"`
+	GatewayTasks           map[string]*GatewayTask                    `json:"gatewayTasks,omitempty"`
+	GatewayTaskDefs        map[string]*GatewayTaskDefinition          `json:"gatewayTaskDefs,omitempty"`
+	Positions              map[string]map[string]any                  `json:"positions,omitempty"`
+	QueuedMessages         map[string][]QueuedMessage                 `json:"queuedMessages,omitempty"`
+	Devices                []deviceRecord                             `json:"devices,omitempty"`
+	Gateways               []gatewayRecord                            `json:"gateways,omitempty"`
+	ServiceProfiles        []serviceProfileRecord                     `json:"serviceProfiles,omitempty"`
+	Destinations           []destinationRecord                        `json:"destinations,omitempty"`
+	DeviceProfiles         []deviceProfileRecord                      `json:"deviceProfiles,omitempty"`
+	FuotaTasks             []fuotaTaskRecord                          `json:"fuotaTasks,omitempty"`
+	MulticastGroups        []multicastGroupRecord                     `json:"multicastGroups,omitempty"`
+	NetworkAnalyzerConfigs []networkAnalyzerConfigRecord              `json:"networkAnalyzerConfigs,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -128,7 +133,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	snap := b.buildSnapshotLocked()
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap) //nolint:musttag // nested types lack tags
 	if err != nil {
 		slog.Default().Warn("iotwireless: failed to marshal snapshot", "error", err)
 
@@ -243,6 +248,7 @@ func (b *InMemoryBackend) snapshotMapsLocked(snap *backendSnapshot) {
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
+	//nolint:musttag // nested types lack tags
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
 	}

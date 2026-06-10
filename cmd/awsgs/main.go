@@ -74,7 +74,8 @@ func run() int {
 	cmd := exec.CommandContext(
 		ctx,
 		"aws",
-		awsArgs...)
+		awsArgs...,
+	)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -80,8 +80,6 @@ func (db *InMemoryDB) QueryWithContext(
 	// Items are shallow-copied (pointers only): writes always replace table.Items[i] with a
 	// new map rather than mutating the old one in place, so our references remain safe.
 	table.mu.RLock("Query")
-	itemsCopy := make([]map[string]any, len(table.Items))
-	copy(itemsCopy, table.Items)
 	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchemaOrig, table.KeySchema)
 	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
@@ -100,11 +98,27 @@ func (db *InMemoryDB) QueryWithContext(
 	pkIndexCopy, pkskIndexCopy := db.snapshotIndexForQuery(
 		table, idxName, precomputedPKValue,
 	)
+
+	// #57: for known-PK primary queries, copy only the referenced item pointers
+	// into an offset-keyed map, avoiding an O(n) full-slice copy.
+	// For GSI/LSI queries and unknown-PK scans, fall back to the full copy.
+	var itemsCopy []map[string]any
+	var itemsByOffset map[int]map[string]any
+
+	if idxName == "" && precomputedPKValue != "" {
+		// Collect the offsets referenced by this PK from the copied index.
+		itemsByOffset = snapshotItemsByOffset(table, pkIndexCopy, pkskIndexCopy)
+	} else {
+		itemsCopy = make([]map[string]any, len(table.Items))
+		copy(itemsCopy, table.Items)
+	}
+
 	table.mu.RUnlock()
 
 	// Reconstruct snapshot table for querying
 	snapshotTable := &Table{
 		Items:                  itemsCopy,
+		itemsByOffset:          itemsByOffset,
 		KeySchema:              keySchemaOrig,
 		GlobalSecondaryIndexes: gsiList,
 		LocalSecondaryIndexes:  lsiList,
@@ -280,7 +294,19 @@ func (db *InMemoryDB) filterUsingIndices(
 ) []map[string]any {
 	candidates := make([]map[string]any, 0, len(indices))
 	for _, idx := range indices {
-		item := table.Items[idx]
+		// #57: prefer itemsByOffset snapshot (set for known-PK queries) to avoid
+		// touching the full Items slice.
+		var item map[string]any
+		if table.itemsByOffset != nil {
+			item = table.itemsByOffset[idx]
+		} else {
+			item = table.Items[idx]
+		}
+
+		if item == nil {
+			continue
+		}
+
 		if allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			candidates = append(candidates, item)
 		}

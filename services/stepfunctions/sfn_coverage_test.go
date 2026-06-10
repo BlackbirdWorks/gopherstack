@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -353,6 +354,7 @@ func TestBackend_ListExecutions_WithStatusFilter(t *testing.T) {
 
 			b := stepfunctions.NewInMemoryBackend()
 			sm, err := b.CreateStateMachine(
+				context.Background(),
 				"filter-sm",
 				`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
 				"arn:role",
@@ -417,6 +419,7 @@ func TestBackend_ListExecutions_Pagination(t *testing.T) {
 
 			b := stepfunctions.NewInMemoryBackend()
 			sm, err := b.CreateStateMachine(
+				context.Background(),
 				"page-sm",
 				`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
 				"arn:role",
@@ -479,7 +482,13 @@ func TestBackend_RunParsedExecution_FailState(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine("run-sm-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"run-sm-"+tt.name,
+				tt.definition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "run-exec", `{}`)
@@ -511,12 +520,12 @@ func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
 		{
 			name: "with_state_machine",
 			setup: func(b *stepfunctions.InMemoryBackend) {
-				_, _ = b.CreateStateMachine("snap-sm", sfnPassDefinition, "arn:role", "STANDARD")
+				_, _ = b.CreateStateMachine(context.Background(), "snap-sm", sfnPassDefinition, "arn:role", "STANDARD")
 			},
 			check: func(t *testing.T, b *stepfunctions.InMemoryBackend) {
 				t.Helper()
 
-				sms, _, err := b.ListStateMachines("", 0)
+				sms, _, err := b.ListStateMachines(context.Background(), "", 0)
 				require.NoError(t, err)
 				assert.Len(t, sms, 1)
 				assert.Equal(t, "snap-sm", sms[0].Name)
@@ -528,7 +537,7 @@ func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
 			check: func(t *testing.T, b *stepfunctions.InMemoryBackend) {
 				t.Helper()
 
-				sms, _, err := b.ListStateMachines("", 0)
+				sms, _, err := b.ListStateMachines(context.Background(), "", 0)
 				require.NoError(t, err)
 				assert.Empty(t, sms)
 			},
@@ -587,7 +596,7 @@ func TestBackend_GetExecutionHistory_ReverseOrder(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine("hist-sm", sfnPassDefinition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "hist-sm", sfnPassDefinition, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", `{}`)

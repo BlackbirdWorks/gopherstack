@@ -1973,12 +1973,14 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 		created: func(tag, id string) error {
 			return xmlResp(c, http.StatusCreated, fmt.Sprintf(
 				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag))
+				tag, cfNS, id, tag,
+			))
 		},
 		getStub: func(tag, id string) error {
 			return xmlResp(c, http.StatusOK, fmt.Sprintf(
 				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-				tag, cfNS, id, tag))
+				tag, cfNS, id, tag,
+			))
 		},
 		xmlResp: func(body string) error { return xmlResp(c, http.StatusOK, body) },
 	}
@@ -3058,7 +3060,8 @@ func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error 
 	sb.WriteString(`<Items>`)
 
 	for _, p := range policies {
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(
+			&sb,
 			`<ContinuousDeploymentPolicySummary><Id>%s</Id><Enabled>%v</Enabled></ContinuousDeploymentPolicySummary>`,
 			p.ID, p.Enabled,
 		)
@@ -3477,7 +3480,8 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 	var sb strings.Builder
 
 	for _, inv := range invs {
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(
+			&sb,
 			`<InvalidationSummary>`+
 				`<Id>%s</Id>`+
 				`<Status>%s</Status>`+

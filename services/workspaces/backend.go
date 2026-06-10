@@ -79,22 +79,53 @@ type backendSnapshot struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	workspaces map[string]*storedWorkspace  // workspaceID → workspace
-	tags       map[string]map[string]string // resourceID → tags
-	accountID  string
-	region     string
-	counter    int
+	mu                *lockmetrics.RWMutex
+	workspaces        map[string]*storedWorkspace  // workspaceID → workspace
+	tags              map[string]map[string]string // resourceID → tags
+	ipGroups          map[string]*storedIpGroup
+	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
+	connAliases       map[string]*storedConnAlias
+	customBundles     map[string]*storedCustomBundle
+	images            map[string]*storedImage
+	imagePermissions  map[string]map[string]bool
+	pools             map[string]*storedPool
+	poolSessions      map[string]*storedPoolSession
+	connectAddIns     map[string]*storedConnectAddIn
+	clientBranding    map[string]*storedClientBranding
+	clientProperties  map[string]storedClientProps
+	accountLinks      map[string]*storedAccountLink
+	appAssociations   map[string]map[string]struct{}
+	applications      map[string]*storedApplication
+	dirSettings       map[string]*storedDirSettings
+	accountConfig     storedAccountConfig
+	accountID         string
+	region            string
+	counter           int
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:         lockmetrics.New("workspaces"),
-		workspaces: make(map[string]*storedWorkspace),
-		tags:       make(map[string]map[string]string),
-		accountID:  accountID,
-		region:     region,
+		mu:                lockmetrics.New("workspaces"),
+		workspaces:        make(map[string]*storedWorkspace),
+		tags:              make(map[string]map[string]string),
+		ipGroups:          make(map[string]*storedIpGroup),
+		directoryIpGroups: make(map[string]map[string]struct{}),
+		connAliases:       make(map[string]*storedConnAlias),
+		customBundles:     make(map[string]*storedCustomBundle),
+		images:            make(map[string]*storedImage),
+		imagePermissions:  make(map[string]map[string]bool),
+		pools:             make(map[string]*storedPool),
+		poolSessions:      make(map[string]*storedPoolSession),
+		connectAddIns:     make(map[string]*storedConnectAddIn),
+		clientBranding:    make(map[string]*storedClientBranding),
+		clientProperties:  make(map[string]storedClientProps),
+		accountLinks:      make(map[string]*storedAccountLink),
+		appAssociations:   make(map[string]map[string]struct{}),
+		applications:      make(map[string]*storedApplication),
+		dirSettings:       make(map[string]*storedDirSettings),
+		accountID:         accountID,
+		region:            region,
 	}
 }
 
@@ -485,6 +516,22 @@ func (b *InMemoryBackend) Reset() {
 
 	b.workspaces = make(map[string]*storedWorkspace)
 	b.tags = make(map[string]map[string]string)
+	b.ipGroups = make(map[string]*storedIpGroup)
+	b.directoryIpGroups = make(map[string]map[string]struct{})
+	b.connAliases = make(map[string]*storedConnAlias)
+	b.customBundles = make(map[string]*storedCustomBundle)
+	b.images = make(map[string]*storedImage)
+	b.imagePermissions = make(map[string]map[string]bool)
+	b.pools = make(map[string]*storedPool)
+	b.poolSessions = make(map[string]*storedPoolSession)
+	b.connectAddIns = make(map[string]*storedConnectAddIn)
+	b.clientBranding = make(map[string]*storedClientBranding)
+	b.clientProperties = make(map[string]storedClientProps)
+	b.accountLinks = make(map[string]*storedAccountLink)
+	b.appAssociations = make(map[string]map[string]struct{})
+	b.applications = make(map[string]*storedApplication)
+	b.dirSettings = make(map[string]*storedDirSettings)
+	b.accountConfig = storedAccountConfig{}
 	b.counter = 0
 }
 

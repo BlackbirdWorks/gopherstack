@@ -137,7 +137,7 @@ func TestIntegration_Firehose_S3Delivery(t *testing.T) {
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("fh-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "delivery-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::fh-bucket",
@@ -145,8 +145,8 @@ func TestIntegration_Firehose_S3Delivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fhBk.PutRecord("delivery-stream", []byte(`{"user":"alice"}`)))
-	require.NoError(t, fhBk.PutRecord("delivery-stream", []byte(`{"user":"bob"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "delivery-stream", []byte(`{"user":"alice"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "delivery-stream", []byte(`{"user":"bob"}`)))
 
 	fhBk.FlushAll(ctx)
 
@@ -169,7 +169,7 @@ func TestIntegration_Firehose_S3Delivery_SizeBasedFlush(t *testing.T) {
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("size-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "size-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::size-bucket",
@@ -183,13 +183,13 @@ func TestIntegration_Firehose_S3Delivery_SizeBasedFlush(t *testing.T) {
 
 	// Write just under 1 MB — no flush yet.
 	underLimit := make([]byte, 900*1024)
-	require.NoError(t, fhBk.PutRecord("size-stream", underLimit))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "size-stream", underLimit))
 	keys := listS3Keys(t, s3Bk, "size-bucket")
 	assert.Empty(t, keys, "should not flush before size limit is reached")
 
 	// Push over 1 MB — should trigger an automatic flush.
 	overLimit := make([]byte, 200*1024)
-	require.NoError(t, fhBk.PutRecord("size-stream", overLimit))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "size-stream", overLimit))
 	keys = listS3Keys(t, s3Bk, "size-bucket")
 	require.NotEmpty(t, keys, "should have flushed to S3 after exceeding size limit")
 }
@@ -205,7 +205,7 @@ func TestIntegration_Firehose_GzipCompression(t *testing.T) {
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("gzip-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "gzip-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN:         "arn:aws:s3:::gzip-bucket",
@@ -214,7 +214,7 @@ func TestIntegration_Firehose_GzipCompression(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fhBk.PutRecord("gzip-stream", []byte(`{"compressed":"data"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "gzip-stream", []byte(`{"compressed":"data"}`)))
 	fhBk.FlushAll(ctx)
 
 	keys := listS3Keys(t, s3Bk, "gzip-bucket")
@@ -240,7 +240,7 @@ func TestIntegration_Firehose_UpdateDestination(t *testing.T) {
 	_, err = s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("new-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "update-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::old-bucket",
@@ -249,11 +249,14 @@ func TestIntegration_Firehose_UpdateDestination(t *testing.T) {
 	require.NoError(t, err)
 
 	// Redirect to new bucket.
-	require.NoError(t, fhBk.UpdateDestination("update-stream", "", &firehosepkg.S3DestinationDescription{
-		BucketARN: "arn:aws:s3:::new-bucket",
-	}))
+	require.NoError(
+		t,
+		fhBk.UpdateDestination(context.Background(), "update-stream", "", &firehosepkg.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::new-bucket",
+		}),
+	)
 
-	require.NoError(t, fhBk.PutRecord("update-stream", []byte(`{"hello":"world"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "update-stream", []byte(`{"hello":"world"}`)))
 	fhBk.FlushAll(ctx)
 
 	newKeys := listS3Keys(t, s3Bk, "new-bucket")
@@ -275,7 +278,7 @@ func TestIntegration_Firehose_LambdaTransformation(t *testing.T) {
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("lambda-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "lambda-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::lambda-bucket",
@@ -294,8 +297,8 @@ func TestIntegration_Firehose_LambdaTransformation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fhBk.PutRecord("lambda-stream", []byte(`{"msg":"keep-this-record"}`)))
-	require.NoError(t, fhBk.PutRecord("lambda-stream", []byte(`{"msg":"drop-this-record"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "lambda-stream", []byte(`{"msg":"keep-this-record"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "lambda-stream", []byte(`{"msg":"drop-this-record"}`)))
 
 	fhBk.FlushAll(ctx)
 
@@ -315,7 +318,7 @@ func TestIntegration_Firehose_HTTP_DescribeWithS3Destination(t *testing.T) {
 	fhBk, s3Bk := newFirehoseS3Server(t)
 	_ = s3Bk
 
-	_, err := fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err := fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "http-desc-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::http-bucket",
@@ -324,7 +327,7 @@ func TestIntegration_Firehose_HTTP_DescribeWithS3Destination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stream, err := fhBk.DescribeDeliveryStream("http-desc-stream")
+	stream, err := fhBk.DescribeDeliveryStream(context.Background(), "http-desc-stream")
 	require.NoError(t, err)
 	require.NotNil(t, stream.S3Destination)
 	assert.Equal(t, "arn:aws:s3:::http-bucket", stream.S3Destination.BucketARN)
@@ -341,7 +344,7 @@ func TestIntegration_Firehose_PutRecordBatch_S3Delivery(t *testing.T) {
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("batch-bucket")})
 	require.NoError(t, err)
 
-	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err = fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "batch-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::batch-bucket",
@@ -354,7 +357,7 @@ func TestIntegration_Firehose_PutRecordBatch_S3Delivery(t *testing.T) {
 		[]byte(`{"id":2}`),
 		[]byte(`{"id":3}`),
 	}
-	failedCount, err := fhBk.PutRecordBatch("batch-stream", records)
+	failedCount, err := fhBk.PutRecordBatch(context.Background(), "batch-stream", records)
 	require.NoError(t, err)
 	assert.Zero(t, failedCount)
 
@@ -376,13 +379,13 @@ func TestIntegration_Firehose_NoS3Destination(t *testing.T) {
 
 	fhBk := firehosepkg.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err := fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "no-dest-stream",
 	})
 	require.NoError(t, err)
 
 	// PutRecord should succeed even with no S3 destination.
-	require.NoError(t, fhBk.PutRecord("no-dest-stream", []byte(`{"data":"test"}`)))
+	require.NoError(t, fhBk.PutRecord(context.Background(), "no-dest-stream", []byte(`{"data":"test"}`)))
 
 	// FlushAll should be a no-op.
 	fhBk.FlushAll(t.Context())
@@ -394,7 +397,7 @@ func TestIntegration_Firehose_HandlerUpdateDestination(t *testing.T) {
 
 	fhBk, _ := newFirehoseS3Server(t)
 
-	_, err := fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
+	_, err := fhBk.CreateDeliveryStream(context.Background(), firehosepkg.CreateDeliveryStreamInput{
 		Name: "updatable-stream",
 		S3Destination: &firehosepkg.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::original-bucket",
@@ -402,11 +405,14 @@ func TestIntegration_Firehose_HandlerUpdateDestination(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fhBk.UpdateDestination("updatable-stream", "", &firehosepkg.S3DestinationDescription{
-		BucketARN: "arn:aws:s3:::updated-bucket",
-	}))
+	require.NoError(
+		t,
+		fhBk.UpdateDestination(context.Background(), "updatable-stream", "", &firehosepkg.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::updated-bucket",
+		}),
+	)
 
-	stream, err := fhBk.DescribeDeliveryStream("updatable-stream")
+	stream, err := fhBk.DescribeDeliveryStream(context.Background(), "updatable-stream")
 	require.NoError(t, err)
 	require.NotNil(t, stream.S3Destination)
 	assert.Equal(t, "arn:aws:s3:::updated-bucket", stream.S3Destination.BucketARN)

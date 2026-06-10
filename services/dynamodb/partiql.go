@@ -284,7 +284,8 @@ func (r *partiQLRunner) executePartiQLSelect(
 	}
 
 	// Log at debug when falling back to Scan so callers can detect performance issues.
-	logger.Load(ctx).DebugContext(ctx, "PartiQL SELECT falling back to Scan",
+	logger.Load(ctx).DebugContext(
+		ctx, "PartiQL SELECT falling back to Scan",
 		slog.String("table", tableName),
 		slog.String("where", whereClause),
 	)
@@ -488,7 +489,6 @@ func (r *partiQLRunner) executePartiQLInsert(
 
 	paramIdx := 0
 	wireItem, err := partiqlParseValueClause(valueMatches[1], req.Parameters, &paramIdx)
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidStatement, err)
 	}

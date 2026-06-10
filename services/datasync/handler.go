@@ -76,6 +76,38 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"UpdateLocationS3",
+		"UpdateTaskExecution",
+		"CreateLocationAzureBlob",
+		"DescribeLocationAzureBlob",
+		"UpdateLocationAzureBlob",
+		"CreateLocationEfs",
+		"DescribeLocationEfs",
+		"UpdateLocationEfs",
+		"CreateLocationFsxLustre",
+		"DescribeLocationFsxLustre",
+		"UpdateLocationFsxLustre",
+		"CreateLocationFsxOntap",
+		"DescribeLocationFsxOntap",
+		"UpdateLocationFsxOntap",
+		"CreateLocationFsxOpenZfs",
+		"DescribeLocationFsxOpenZfs",
+		"UpdateLocationFsxOpenZfs",
+		"CreateLocationFsxWindows",
+		"DescribeLocationFsxWindows",
+		"UpdateLocationFsxWindows",
+		"CreateLocationHdfs",
+		"DescribeLocationHdfs",
+		"UpdateLocationHdfs",
+		"CreateLocationNfs",
+		"DescribeLocationNfs",
+		"UpdateLocationNfs",
+		"CreateLocationObjectStorage",
+		"DescribeLocationObjectStorage",
+		"UpdateLocationObjectStorage",
+		"CreateLocationSmb",
+		"DescribeLocationSmb",
+		"UpdateLocationSmb",
 	}
 }
 
@@ -135,6 +167,39 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"TagResource":           service.WrapOp(h.handleTagResource),
 		"UntagResource":         service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+		// Extended location operations
+		"UpdateLocationS3":              service.WrapOp(h.handleUpdateLocationS3),
+		"UpdateTaskExecution":           service.WrapOp(h.handleUpdateTaskExecution),
+		"CreateLocationAzureBlob":       service.WrapOp(h.handleCreateLocationAzureBlob),
+		"DescribeLocationAzureBlob":     service.WrapOp(h.handleDescribeLocationAzureBlob),
+		"UpdateLocationAzureBlob":       service.WrapOp(h.handleUpdateLocationAzureBlob),
+		"CreateLocationEfs":             service.WrapOp(h.handleCreateLocationEfs),
+		"DescribeLocationEfs":           service.WrapOp(h.handleDescribeLocationEfs),
+		"UpdateLocationEfs":             service.WrapOp(h.handleUpdateLocationEfs),
+		"CreateLocationFsxLustre":       service.WrapOp(h.handleCreateLocationFsxLustre),
+		"DescribeLocationFsxLustre":     service.WrapOp(h.handleDescribeLocationFsxLustre),
+		"UpdateLocationFsxLustre":       service.WrapOp(h.handleUpdateLocationFsxLustre),
+		"CreateLocationFsxOntap":        service.WrapOp(h.handleCreateLocationFsxOntap),
+		"DescribeLocationFsxOntap":      service.WrapOp(h.handleDescribeLocationFsxOntap),
+		"UpdateLocationFsxOntap":        service.WrapOp(h.handleUpdateLocationFsxOntap),
+		"CreateLocationFsxOpenZfs":      service.WrapOp(h.handleCreateLocationFsxOpenZfs),
+		"DescribeLocationFsxOpenZfs":    service.WrapOp(h.handleDescribeLocationFsxOpenZfs),
+		"UpdateLocationFsxOpenZfs":      service.WrapOp(h.handleUpdateLocationFsxOpenZfs),
+		"CreateLocationFsxWindows":      service.WrapOp(h.handleCreateLocationFsxWindows),
+		"DescribeLocationFsxWindows":    service.WrapOp(h.handleDescribeLocationFsxWindows),
+		"UpdateLocationFsxWindows":      service.WrapOp(h.handleUpdateLocationFsxWindows),
+		"CreateLocationHdfs":            service.WrapOp(h.handleCreateLocationHdfs),
+		"DescribeLocationHdfs":          service.WrapOp(h.handleDescribeLocationHdfs),
+		"UpdateLocationHdfs":            service.WrapOp(h.handleUpdateLocationHdfs),
+		"CreateLocationNfs":             service.WrapOp(h.handleCreateLocationNfs),
+		"DescribeLocationNfs":           service.WrapOp(h.handleDescribeLocationNfs),
+		"UpdateLocationNfs":             service.WrapOp(h.handleUpdateLocationNfs),
+		"CreateLocationObjectStorage":   service.WrapOp(h.handleCreateLocationObjectStorage),
+		"DescribeLocationObjectStorage": service.WrapOp(h.handleDescribeLocationObjectStorage),
+		"UpdateLocationObjectStorage":   service.WrapOp(h.handleUpdateLocationObjectStorage),
+		"CreateLocationSmb":             service.WrapOp(h.handleCreateLocationSmb),
+		"DescribeLocationSmb":           service.WrapOp(h.handleDescribeLocationSmb),
+		"UpdateLocationSmb":             service.WrapOp(h.handleUpdateLocationSmb),
 	}
 }
 
@@ -798,6 +863,1390 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	return &listTagsForResourceOutput{Tags: out, NextToken: nextToken}, nil
+}
+
+// --- UpdateLocationS3 ---
+
+type updateLocationS3Input struct {
+	S3Config       *s3ConfigInput `json:"S3Config"`
+	LocationArn    string         `json:"LocationArn"`
+	Subdirectory   string         `json:"Subdirectory,omitempty"`
+	S3StorageClass string         `json:"S3StorageClass,omitempty"`
+}
+
+type updateLocationS3Output struct{}
+
+func (h *Handler) handleUpdateLocationS3(
+	_ context.Context,
+	in *updateLocationS3Input,
+) (*updateLocationS3Output, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	var cfg S3Config
+	if in.S3Config != nil {
+		cfg.BucketAccessRoleArn = in.S3Config.BucketAccessRoleArn
+	}
+
+	if err := h.Backend.UpdateLocationS3(in.LocationArn, in.Subdirectory, in.S3StorageClass, cfg); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationS3Output{}, nil
+}
+
+// --- UpdateTaskExecution ---
+
+type updateTaskExecutionInput struct {
+	TaskExecutionArn string `json:"TaskExecutionArn"`
+}
+
+type updateTaskExecutionOutput struct{}
+
+func (h *Handler) handleUpdateTaskExecution(
+	_ context.Context,
+	in *updateTaskExecutionInput,
+) (*updateTaskExecutionOutput, error) {
+	if in.TaskExecutionArn == "" {
+		return nil, fmt.Errorf("%w: TaskExecutionArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateTaskExecution(in.TaskExecutionArn); err != nil {
+		return nil, err
+	}
+
+	return &updateTaskExecutionOutput{}, nil
+}
+
+// --- AzureBlob location ---
+
+type azureBlobSasConfigInput struct {
+	Token string `json:"Token"`
+}
+
+type createLocationAzureBlobInput struct {
+	SasConfiguration *azureBlobSasConfigInput `json:"SasConfiguration"`
+	ContainerURL     string                   `json:"ContainerUrl"`
+	Subdirectory     string                   `json:"Subdirectory,omitempty"`
+	BlobType         string                   `json:"BlobType,omitempty"`
+	AccessTier       string                   `json:"AccessTier,omitempty"`
+	AgentArns        []string                 `json:"AgentArns"`
+	Tags             []tagInput               `json:"Tags"`
+}
+
+type createLocationAzureBlobOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationAzureBlob(
+	_ context.Context,
+	in *createLocationAzureBlobInput,
+) (*createLocationAzureBlobOutput, error) {
+	if in.ContainerURL == "" {
+		return nil, fmt.Errorf("%w: ContainerUrl is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	var sasConfig *SasConfiguration
+	if in.SasConfiguration != nil {
+		sasConfig = &SasConfiguration{Token: in.SasConfiguration.Token}
+	}
+
+	l, err := h.Backend.CreateLocationAzureBlob(
+		in.ContainerURL, in.Subdirectory, in.BlobType, in.AccessTier,
+		sasConfig, in.AgentArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationAzureBlobOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationAzureBlobInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type azureBlobSasConfigOutput struct {
+	Token string `json:"Token"`
+}
+
+type describeLocationAzureBlobOutput struct {
+	SasConfiguration *azureBlobSasConfigOutput `json:"SasConfiguration,omitempty"`
+	LocationArn      string                    `json:"LocationArn"`
+	LocationURI      string                    `json:"LocationUri"`
+	ContainerURL     string                    `json:"ContainerUrl,omitempty"`
+	Subdirectory     string                    `json:"Subdirectory,omitempty"`
+	BlobType         string                    `json:"BlobType,omitempty"`
+	AccessTier       string                    `json:"AccessTier,omitempty"`
+	AgentArns        []string                  `json:"AgentArns,omitempty"`
+	CreationTime     int64                     `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationAzureBlob(
+	_ context.Context,
+	in *describeLocationAzureBlobInput,
+) (*describeLocationAzureBlobOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationAzureBlob(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeLocationAzureBlobOutput{
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		ContainerURL: l.ContainerURL,
+		Subdirectory: l.Subdirectory,
+		BlobType:     l.BlobType,
+		AccessTier:   l.AccessTier,
+		AgentArns:    l.AgentArns,
+		CreationTime: l.CreationTime.Unix(),
+	}
+
+	if l.SasConfiguration != nil {
+		out.SasConfiguration = &azureBlobSasConfigOutput{Token: l.SasConfiguration.Token}
+	}
+
+	return out, nil
+}
+
+type updateLocationAzureBlobInput struct {
+	SasConfiguration *azureBlobSasConfigInput `json:"SasConfiguration"`
+	LocationArn      string                   `json:"LocationArn"`
+	ContainerURL     string                   `json:"ContainerUrl,omitempty"`
+	Subdirectory     string                   `json:"Subdirectory,omitempty"`
+	BlobType         string                   `json:"BlobType,omitempty"`
+	AccessTier       string                   `json:"AccessTier,omitempty"`
+	AgentArns        []string                 `json:"AgentArns"`
+}
+
+type updateLocationAzureBlobOutput struct{}
+
+func (h *Handler) handleUpdateLocationAzureBlob(
+	_ context.Context,
+	in *updateLocationAzureBlobInput,
+) (*updateLocationAzureBlobOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	var sasConfig *SasConfiguration
+	if in.SasConfiguration != nil {
+		sasConfig = &SasConfiguration{Token: in.SasConfiguration.Token}
+	}
+
+	if err := h.Backend.UpdateLocationAzureBlob(
+		in.LocationArn, in.ContainerURL, in.Subdirectory, in.BlobType, in.AccessTier,
+		sasConfig, in.AgentArns,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationAzureBlobOutput{}, nil
+}
+
+// --- EFS location ---
+
+type ec2ConfigInput struct {
+	SubnetArn         string   `json:"SubnetArn"`
+	SecurityGroupArns []string `json:"SecurityGroupArns"`
+}
+
+type createLocationEfsInput struct {
+	Ec2Config               *ec2ConfigInput `json:"Ec2Config"`
+	EfsFilesystemArn        string          `json:"EfsFilesystemArn"`
+	Subdirectory            string          `json:"Subdirectory,omitempty"`
+	AccessPointArn          string          `json:"AccessPointArn,omitempty"`
+	FileSystemAccessRoleArn string          `json:"FileSystemAccessRoleArn,omitempty"`
+	InTransitEncryption     string          `json:"InTransitEncryption,omitempty"`
+	Tags                    []tagInput      `json:"Tags"`
+}
+
+type createLocationEfsOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationEfs(
+	_ context.Context,
+	in *createLocationEfsInput,
+) (*createLocationEfsOutput, error) {
+	if in.EfsFilesystemArn == "" {
+		return nil, fmt.Errorf("%w: EfsFilesystemArn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	var ec2Cfg *Ec2Config
+	if in.Ec2Config != nil {
+		ec2Cfg = &Ec2Config{
+			SubnetArn:         in.Ec2Config.SubnetArn,
+			SecurityGroupArns: in.Ec2Config.SecurityGroupArns,
+		}
+	}
+
+	l, err := h.Backend.CreateLocationEfs(
+		in.EfsFilesystemArn, in.Subdirectory,
+		in.AccessPointArn, in.FileSystemAccessRoleArn, in.InTransitEncryption,
+		ec2Cfg, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationEfsOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationEfsInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type ec2ConfigOutput struct {
+	SubnetArn         string   `json:"SubnetArn"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
+}
+
+type describeLocationEfsOutput struct {
+	Ec2Config               *ec2ConfigOutput `json:"Ec2Config,omitempty"`
+	LocationArn             string           `json:"LocationArn"`
+	LocationURI             string           `json:"LocationUri"`
+	EfsFilesystemArn        string           `json:"EfsFilesystemArn,omitempty"`
+	Subdirectory            string           `json:"Subdirectory,omitempty"`
+	AccessPointArn          string           `json:"AccessPointArn,omitempty"`
+	FileSystemAccessRoleArn string           `json:"FileSystemAccessRoleArn,omitempty"`
+	InTransitEncryption     string           `json:"InTransitEncryption,omitempty"`
+	CreationTime            int64            `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationEfs(
+	_ context.Context,
+	in *describeLocationEfsInput,
+) (*describeLocationEfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationEfs(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeLocationEfsOutput{
+		LocationArn:             l.LocationArn,
+		LocationURI:             l.LocationURI,
+		EfsFilesystemArn:        l.EfsFilesystemArn,
+		Subdirectory:            l.Subdirectory,
+		AccessPointArn:          l.AccessPointArn,
+		FileSystemAccessRoleArn: l.FileSystemAccessRoleArn,
+		InTransitEncryption:     l.InTransitEncryption,
+		CreationTime:            l.CreationTime.Unix(),
+	}
+
+	if l.Ec2Config != nil {
+		out.Ec2Config = &ec2ConfigOutput{
+			SubnetArn:         l.Ec2Config.SubnetArn,
+			SecurityGroupArns: l.Ec2Config.SecurityGroupArns,
+		}
+	}
+
+	return out, nil
+}
+
+type updateLocationEfsInput struct {
+	Ec2Config               *ec2ConfigInput `json:"Ec2Config"`
+	LocationArn             string          `json:"LocationArn"`
+	Subdirectory            string          `json:"Subdirectory,omitempty"`
+	AccessPointArn          string          `json:"AccessPointArn,omitempty"`
+	FileSystemAccessRoleArn string          `json:"FileSystemAccessRoleArn,omitempty"`
+	InTransitEncryption     string          `json:"InTransitEncryption,omitempty"`
+}
+
+type updateLocationEfsOutput struct{}
+
+func (h *Handler) handleUpdateLocationEfs(
+	_ context.Context,
+	in *updateLocationEfsInput,
+) (*updateLocationEfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	var ec2Cfg *Ec2Config
+	if in.Ec2Config != nil {
+		ec2Cfg = &Ec2Config{
+			SubnetArn:         in.Ec2Config.SubnetArn,
+			SecurityGroupArns: in.Ec2Config.SecurityGroupArns,
+		}
+	}
+
+	if err := h.Backend.UpdateLocationEfs(
+		in.LocationArn, in.Subdirectory,
+		in.AccessPointArn, in.FileSystemAccessRoleArn, in.InTransitEncryption,
+		ec2Cfg,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationEfsOutput{}, nil
+}
+
+// --- FSx Lustre location ---
+
+type createLocationFsxLustreInput struct {
+	FsxFilesystemArn  string     `json:"FsxFilesystemArn"`
+	Subdirectory      string     `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string   `json:"SecurityGroupArns"`
+	Tags              []tagInput `json:"Tags"`
+}
+
+type createLocationFsxLustreOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationFsxLustre(
+	_ context.Context,
+	in *createLocationFsxLustreInput,
+) (*createLocationFsxLustreOutput, error) {
+	if in.FsxFilesystemArn == "" {
+		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	l, err := h.Backend.CreateLocationFsxLustre(in.FsxFilesystemArn, in.Subdirectory, in.SecurityGroupArns, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationFsxLustreOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationFsxLustreInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationFsxLustreOutput struct {
+	LocationArn       string   `json:"LocationArn"`
+	LocationURI       string   `json:"LocationUri"`
+	FsxFilesystemArn  string   `json:"FsxFilesystemArn,omitempty"`
+	Subdirectory      string   `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
+	CreationTime      int64    `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationFsxLustre(
+	_ context.Context,
+	in *describeLocationFsxLustreInput,
+) (*describeLocationFsxLustreOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationFsxLustre(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLocationFsxLustreOutput{
+		LocationArn:       l.LocationArn,
+		LocationURI:       l.LocationURI,
+		FsxFilesystemArn:  l.FsxFilesystemArn,
+		Subdirectory:      l.Subdirectory,
+		SecurityGroupArns: l.SecurityGroupArns,
+		CreationTime:      l.CreationTime.Unix(),
+	}, nil
+}
+
+type updateLocationFsxLustreInput struct {
+	LocationArn  string `json:"LocationArn"`
+	Subdirectory string `json:"Subdirectory,omitempty"`
+}
+
+type updateLocationFsxLustreOutput struct{}
+
+func (h *Handler) handleUpdateLocationFsxLustre(
+	_ context.Context,
+	in *updateLocationFsxLustreInput,
+) (*updateLocationFsxLustreOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateLocationFsxLustre(in.LocationArn, in.Subdirectory); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationFsxLustreOutput{}, nil
+}
+
+// --- FSx ONTAP location ---
+
+type fsxMountOptionsInput struct {
+	Version string `json:"Version,omitempty"`
+}
+
+type fsxNfsProtocolInput struct {
+	MountOptions *fsxMountOptionsInput `json:"MountOptions"`
+}
+
+type fsxSmbProtocolInput struct {
+	MountOptions *fsxMountOptionsInput `json:"MountOptions"`
+	Domain       string                `json:"Domain,omitempty"`
+	Password     string                `json:"Password,omitempty"`
+	User         string                `json:"User,omitempty"`
+}
+
+type fsxProtocolInput struct {
+	NFS *fsxNfsProtocolInput `json:"NFS"`
+	SMB *fsxSmbProtocolInput `json:"SMB"`
+}
+
+func fsxProtocolFromInput(p *fsxProtocolInput) *FsxProtocol {
+	if p == nil {
+		return nil
+	}
+
+	out := &FsxProtocol{}
+
+	if p.NFS != nil {
+		out.NFS = &FsxNfsProtocol{}
+		if p.NFS.MountOptions != nil {
+			out.NFS.MountOptions = &MountOptions{Version: p.NFS.MountOptions.Version}
+		}
+	}
+
+	if p.SMB != nil {
+		out.SMB = &FsxSmbProtocol{
+			Domain:   p.SMB.Domain,
+			Password: p.SMB.Password,
+			User:     p.SMB.User,
+		}
+		if p.SMB.MountOptions != nil {
+			out.SMB.MountOptions = &MountOptions{Version: p.SMB.MountOptions.Version}
+		}
+	}
+
+	return out
+}
+
+type fsxMountOptionsOutput struct {
+	Version string `json:"Version,omitempty"`
+}
+
+type fsxNfsProtocolOutput struct {
+	MountOptions *fsxMountOptionsOutput `json:"MountOptions,omitempty"`
+}
+
+type fsxSmbProtocolOutput struct {
+	MountOptions *fsxMountOptionsOutput `json:"MountOptions,omitempty"`
+	Domain       string                 `json:"Domain,omitempty"`
+	User         string                 `json:"User,omitempty"`
+}
+
+type fsxProtocolOutput struct {
+	NFS *fsxNfsProtocolOutput `json:"NFS,omitempty"`
+	SMB *fsxSmbProtocolOutput `json:"SMB,omitempty"`
+}
+
+func fsxProtocolToOutput(p *FsxProtocol) *fsxProtocolOutput {
+	if p == nil {
+		return nil
+	}
+
+	out := &fsxProtocolOutput{}
+
+	if p.NFS != nil {
+		out.NFS = &fsxNfsProtocolOutput{}
+		if p.NFS.MountOptions != nil {
+			out.NFS.MountOptions = &fsxMountOptionsOutput{Version: p.NFS.MountOptions.Version}
+		}
+	}
+
+	if p.SMB != nil {
+		out.SMB = &fsxSmbProtocolOutput{
+			Domain: p.SMB.Domain,
+			User:   p.SMB.User,
+		}
+		if p.SMB.MountOptions != nil {
+			out.SMB.MountOptions = &fsxMountOptionsOutput{Version: p.SMB.MountOptions.Version}
+		}
+	}
+
+	return out
+}
+
+type createLocationFsxOntapInput struct {
+	Protocol                 *fsxProtocolInput `json:"Protocol"`
+	StorageVirtualMachineArn string            `json:"StorageVirtualMachineArn"`
+	Subdirectory             string            `json:"Subdirectory,omitempty"`
+	SecurityGroupArns        []string          `json:"SecurityGroupArns"`
+	Tags                     []tagInput        `json:"Tags"`
+}
+
+type createLocationFsxOntapOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationFsxOntap(
+	_ context.Context,
+	in *createLocationFsxOntapInput,
+) (*createLocationFsxOntapOutput, error) {
+	if in.StorageVirtualMachineArn == "" {
+		return nil, fmt.Errorf("%w: StorageVirtualMachineArn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	l, err := h.Backend.CreateLocationFsxOntap(
+		in.StorageVirtualMachineArn, in.Subdirectory,
+		fsxProtocolFromInput(in.Protocol), in.SecurityGroupArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationFsxOntapOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationFsxOntapInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationFsxOntapOutput struct {
+	Protocol                 *fsxProtocolOutput `json:"Protocol,omitempty"`
+	LocationArn              string             `json:"LocationArn"`
+	LocationURI              string             `json:"LocationUri"`
+	StorageVirtualMachineArn string             `json:"StorageVirtualMachineArn,omitempty"`
+	Subdirectory             string             `json:"Subdirectory,omitempty"`
+	SecurityGroupArns        []string           `json:"SecurityGroupArns,omitempty"`
+	CreationTime             int64              `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationFsxOntap(
+	_ context.Context,
+	in *describeLocationFsxOntapInput,
+) (*describeLocationFsxOntapOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationFsxOntap(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLocationFsxOntapOutput{
+		LocationArn:              l.LocationArn,
+		LocationURI:              l.LocationURI,
+		StorageVirtualMachineArn: l.StorageVirtualMachineArn,
+		Subdirectory:             l.Subdirectory,
+		SecurityGroupArns:        l.SecurityGroupArns,
+		Protocol:                 fsxProtocolToOutput(l.Protocol),
+		CreationTime:             l.CreationTime.Unix(),
+	}, nil
+}
+
+type updateLocationFsxOntapInput struct {
+	Protocol     *fsxProtocolInput `json:"Protocol"`
+	LocationArn  string            `json:"LocationArn"`
+	Subdirectory string            `json:"Subdirectory,omitempty"`
+}
+
+type updateLocationFsxOntapOutput struct{}
+
+func (h *Handler) handleUpdateLocationFsxOntap(
+	_ context.Context,
+	in *updateLocationFsxOntapInput,
+) (*updateLocationFsxOntapOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateLocationFsxOntap(
+		in.LocationArn, in.Subdirectory, fsxProtocolFromInput(in.Protocol),
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationFsxOntapOutput{}, nil
+}
+
+// --- FSx OpenZFS location ---
+
+type createLocationFsxOpenZfsInput struct {
+	Protocol          *fsxProtocolInput `json:"Protocol"`
+	FsxFilesystemArn  string            `json:"FsxFilesystemArn"`
+	Subdirectory      string            `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string          `json:"SecurityGroupArns"`
+	Tags              []tagInput        `json:"Tags"`
+}
+
+type createLocationFsxOpenZfsOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationFsxOpenZfs(
+	_ context.Context,
+	in *createLocationFsxOpenZfsInput,
+) (*createLocationFsxOpenZfsOutput, error) {
+	if in.FsxFilesystemArn == "" {
+		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	l, err := h.Backend.CreateLocationFsxOpenZfs(
+		in.FsxFilesystemArn, in.Subdirectory,
+		fsxProtocolFromInput(in.Protocol), in.SecurityGroupArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationFsxOpenZfsOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationFsxOpenZfsInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationFsxOpenZfsOutput struct {
+	Protocol          *fsxProtocolOutput `json:"Protocol,omitempty"`
+	LocationArn       string             `json:"LocationArn"`
+	LocationURI       string             `json:"LocationUri"`
+	FsxFilesystemArn  string             `json:"FsxFilesystemArn,omitempty"`
+	Subdirectory      string             `json:"Subdirectory,omitempty"`
+	SecurityGroupArns []string           `json:"SecurityGroupArns,omitempty"`
+	CreationTime      int64              `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationFsxOpenZfs(
+	_ context.Context,
+	in *describeLocationFsxOpenZfsInput,
+) (*describeLocationFsxOpenZfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationFsxOpenZfs(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLocationFsxOpenZfsOutput{
+		LocationArn:       l.LocationArn,
+		LocationURI:       l.LocationURI,
+		FsxFilesystemArn:  l.FsxFilesystemArn,
+		Subdirectory:      l.Subdirectory,
+		SecurityGroupArns: l.SecurityGroupArns,
+		Protocol:          fsxProtocolToOutput(l.Protocol),
+		CreationTime:      l.CreationTime.Unix(),
+	}, nil
+}
+
+type updateLocationFsxOpenZfsInput struct {
+	Protocol     *fsxProtocolInput `json:"Protocol"`
+	LocationArn  string            `json:"LocationArn"`
+	Subdirectory string            `json:"Subdirectory,omitempty"`
+}
+
+type updateLocationFsxOpenZfsOutput struct{}
+
+func (h *Handler) handleUpdateLocationFsxOpenZfs(
+	_ context.Context,
+	in *updateLocationFsxOpenZfsInput,
+) (*updateLocationFsxOpenZfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateLocationFsxOpenZfs(
+		in.LocationArn, in.Subdirectory, fsxProtocolFromInput(in.Protocol),
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationFsxOpenZfsOutput{}, nil
+}
+
+// --- FSx Windows location ---
+
+type createLocationFsxWindowsInput struct {
+	FsxFilesystemArn  string     `json:"FsxFilesystemArn"`
+	Subdirectory      string     `json:"Subdirectory,omitempty"`
+	Domain            string     `json:"Domain,omitempty"`
+	User              string     `json:"User"`
+	Password          string     `json:"Password"`
+	SecurityGroupArns []string   `json:"SecurityGroupArns"`
+	Tags              []tagInput `json:"Tags"`
+}
+
+type createLocationFsxWindowsOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationFsxWindows(
+	_ context.Context,
+	in *createLocationFsxWindowsInput,
+) (*createLocationFsxWindowsOutput, error) {
+	if in.FsxFilesystemArn == "" {
+		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	l, err := h.Backend.CreateLocationFsxWindows(
+		in.FsxFilesystemArn, in.Subdirectory, in.Domain, in.User, in.Password,
+		in.SecurityGroupArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationFsxWindowsOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationFsxWindowsInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationFsxWindowsOutput struct {
+	LocationArn       string   `json:"LocationArn"`
+	LocationURI       string   `json:"LocationUri"`
+	FsxFilesystemArn  string   `json:"FsxFilesystemArn,omitempty"`
+	Subdirectory      string   `json:"Subdirectory,omitempty"`
+	Domain            string   `json:"Domain,omitempty"`
+	User              string   `json:"User,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
+	CreationTime      int64    `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationFsxWindows(
+	_ context.Context,
+	in *describeLocationFsxWindowsInput,
+) (*describeLocationFsxWindowsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationFsxWindows(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLocationFsxWindowsOutput{
+		LocationArn:       l.LocationArn,
+		LocationURI:       l.LocationURI,
+		FsxFilesystemArn:  l.FsxFilesystemArn,
+		Subdirectory:      l.Subdirectory,
+		Domain:            l.Domain,
+		User:              l.User,
+		SecurityGroupArns: l.SecurityGroupArns,
+		CreationTime:      l.CreationTime.Unix(),
+	}, nil
+}
+
+type updateLocationFsxWindowsInput struct {
+	LocationArn  string `json:"LocationArn"`
+	Subdirectory string `json:"Subdirectory,omitempty"`
+	Domain       string `json:"Domain,omitempty"`
+	User         string `json:"User,omitempty"`
+	Password     string `json:"Password,omitempty"`
+}
+
+type updateLocationFsxWindowsOutput struct{}
+
+func (h *Handler) handleUpdateLocationFsxWindows(
+	_ context.Context,
+	in *updateLocationFsxWindowsInput,
+) (*updateLocationFsxWindowsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateLocationFsxWindows(
+		in.LocationArn, in.Subdirectory, in.Domain, in.User, in.Password,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationFsxWindowsOutput{}, nil
+}
+
+// --- HDFS location ---
+
+type hdfsNameNodeInput struct {
+	Hostname string `json:"Hostname"`
+	Port     int32  `json:"Port"`
+}
+
+type hdfsQopConfigInput struct {
+	DataTransferProtection string `json:"DataTransferProtection,omitempty"`
+	RPCProtection          string `json:"RpcProtection,omitempty"`
+}
+
+type createLocationHdfsInput struct {
+	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
+	SimpleUser         string              `json:"SimpleUser,omitempty"`
+	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
+	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
+	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
+	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
+	AuthenticationType string              `json:"AuthenticationType,omitempty"`
+	Subdirectory       string              `json:"Subdirectory,omitempty"`
+	AgentArns          []string            `json:"AgentArns"`
+	Tags               []tagInput          `json:"Tags"`
+	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
+	BlockSize          int64               `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
+}
+
+type createLocationHdfsOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationHdfs(
+	_ context.Context,
+	in *createLocationHdfsInput,
+) (*createLocationHdfsOutput, error) {
+	if len(in.NameNodes) == 0 {
+		return nil, fmt.Errorf("%w: NameNodes is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
+	for i, n := range in.NameNodes {
+		nameNodes[i] = HdfsNameNode(n)
+	}
+
+	var qopCfg *QopConfiguration
+	if in.QopConfiguration != nil {
+		qopCfg = &QopConfiguration{
+			DataTransferProtection: in.QopConfiguration.DataTransferProtection,
+			RPCProtection:          in.QopConfiguration.RPCProtection,
+		}
+	}
+
+	l, err := h.Backend.CreateLocationHdfs(
+		in.Subdirectory, in.AuthenticationType, in.SimpleUser,
+		in.KerberosPrincipal, in.KerberosKeytab, in.KerberosKrb5Conf, in.KmsKeyProviderURI,
+		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationHdfsOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationHdfsInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type hdfsNameNodeOutput struct {
+	Hostname string `json:"Hostname"`
+	Port     int32  `json:"Port"`
+}
+
+type hdfsQopConfigOutput struct {
+	DataTransferProtection string `json:"DataTransferProtection,omitempty"`
+	RPCProtection          string `json:"RpcProtection,omitempty"`
+}
+
+type describeLocationHdfsOutput struct {
+	QopConfiguration   *hdfsQopConfigOutput `json:"QopConfiguration,omitempty"`
+	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`
+	LocationArn        string               `json:"LocationArn"`
+	LocationURI        string               `json:"LocationUri"`
+	KerberosPrincipal  string               `json:"KerberosPrincipal,omitempty"`
+	AuthenticationType string               `json:"AuthenticationType,omitempty"`
+	SimpleUser         string               `json:"SimpleUser,omitempty"`
+	Subdirectory       string               `json:"Subdirectory,omitempty"`
+	AgentArns          []string             `json:"AgentArns,omitempty"`
+	NameNodes          []hdfsNameNodeOutput `json:"NameNodes,omitempty"`
+	CreationTime       int64                `json:"CreationTime"`
+	BlockSize          int64                `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32                `json:"ReplicationFactor,omitempty"`
+}
+
+func (h *Handler) handleDescribeLocationHdfs(
+	_ context.Context,
+	in *describeLocationHdfsInput,
+) (*describeLocationHdfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationHdfs(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeLocationHdfsOutput{
+		LocationArn:        l.LocationArn,
+		LocationURI:        l.LocationURI,
+		Subdirectory:       l.Subdirectory,
+		AuthenticationType: l.AuthenticationType,
+		SimpleUser:         l.SimpleUser,
+		KerberosPrincipal:  l.KerberosPrincipal,
+		KmsKeyProviderURI:  l.KmsKeyProviderURI,
+		BlockSize:          l.BlockSize,
+		ReplicationFactor:  l.ReplicationFactor,
+		AgentArns:          l.AgentArns,
+		CreationTime:       l.CreationTime.Unix(),
+	}
+
+	nodes := make([]hdfsNameNodeOutput, len(l.NameNodes))
+	for i, n := range l.NameNodes {
+		nodes[i] = hdfsNameNodeOutput(n)
+	}
+
+	out.NameNodes = nodes
+
+	if l.QopConfiguration != nil {
+		out.QopConfiguration = &hdfsQopConfigOutput{
+			DataTransferProtection: l.QopConfiguration.DataTransferProtection,
+			RPCProtection:          l.QopConfiguration.RPCProtection,
+		}
+	}
+
+	return out, nil
+}
+
+type updateLocationHdfsInput struct {
+	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
+	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
+	LocationArn        string              `json:"LocationArn"`
+	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
+	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
+	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
+	AuthenticationType string              `json:"AuthenticationType,omitempty"`
+	SimpleUser         string              `json:"SimpleUser,omitempty"`
+	Subdirectory       string              `json:"Subdirectory,omitempty"`
+	AgentArns          []string            `json:"AgentArns"`
+	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
+	BlockSize          int64               `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
+}
+
+type updateLocationHdfsOutput struct{}
+
+func (h *Handler) handleUpdateLocationHdfs(
+	_ context.Context,
+	in *updateLocationHdfsInput,
+) (*updateLocationHdfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
+	for i, n := range in.NameNodes {
+		nameNodes[i] = HdfsNameNode(n)
+	}
+
+	var qopCfg *QopConfiguration
+	if in.QopConfiguration != nil {
+		qopCfg = &QopConfiguration{
+			DataTransferProtection: in.QopConfiguration.DataTransferProtection,
+			RPCProtection:          in.QopConfiguration.RPCProtection,
+		}
+	}
+
+	if err := h.Backend.UpdateLocationHdfs(
+		in.LocationArn, in.Subdirectory, in.AuthenticationType, in.SimpleUser,
+		in.KerberosPrincipal, in.KerberosKeytab, in.KerberosKrb5Conf, in.KmsKeyProviderURI,
+		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationHdfsOutput{}, nil
+}
+
+// --- NFS location ---
+
+type mountOptionsInput struct {
+	Version string `json:"Version,omitempty"`
+}
+
+type nfsOnPremConfigInput struct {
+	AgentArns []string `json:"AgentArns"`
+}
+
+type createLocationNfsInput struct {
+	MountOptions   *mountOptionsInput    `json:"MountOptions"`
+	OnPremConfig   *nfsOnPremConfigInput `json:"OnPremConfig"`
+	ServerHostname string                `json:"ServerHostname"`
+	Subdirectory   string                `json:"Subdirectory,omitempty"`
+	Tags           []tagInput            `json:"Tags"`
+}
+
+type createLocationNfsOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationNfs(
+	_ context.Context,
+	in *createLocationNfsInput,
+) (*createLocationNfsOutput, error) {
+	if in.ServerHostname == "" {
+		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	var mo *MountOptions
+	if in.MountOptions != nil {
+		mo = &MountOptions{Version: in.MountOptions.Version}
+	}
+
+	var agentArns []string
+	if in.OnPremConfig != nil {
+		agentArns = in.OnPremConfig.AgentArns
+	}
+
+	l, err := h.Backend.CreateLocationNfs(in.ServerHostname, in.Subdirectory, mo, agentArns, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationNfsOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationNfsInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type mountOptionsOutput struct {
+	Version string `json:"Version,omitempty"`
+}
+
+type nfsOnPremConfigOutput struct {
+	AgentArns []string `json:"AgentArns,omitempty"`
+}
+
+type describeLocationNfsOutput struct {
+	MountOptions   *mountOptionsOutput    `json:"MountOptions,omitempty"`
+	OnPremConfig   *nfsOnPremConfigOutput `json:"OnPremConfig,omitempty"`
+	LocationArn    string                 `json:"LocationArn"`
+	LocationURI    string                 `json:"LocationUri"`
+	ServerHostname string                 `json:"ServerHostname,omitempty"`
+	Subdirectory   string                 `json:"Subdirectory,omitempty"`
+	CreationTime   int64                  `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationNfs(
+	_ context.Context,
+	in *describeLocationNfsInput,
+) (*describeLocationNfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationNfs(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeLocationNfsOutput{
+		LocationArn:    l.LocationArn,
+		LocationURI:    l.LocationURI,
+		ServerHostname: l.ServerHostname,
+		Subdirectory:   l.Subdirectory,
+		CreationTime:   l.CreationTime.Unix(),
+	}
+
+	if l.MountOptions != nil {
+		out.MountOptions = &mountOptionsOutput{Version: l.MountOptions.Version}
+	}
+
+	if len(l.AgentArns) > 0 {
+		out.OnPremConfig = &nfsOnPremConfigOutput{AgentArns: l.AgentArns}
+	}
+
+	return out, nil
+}
+
+type updateLocationNfsInput struct {
+	MountOptions *mountOptionsInput    `json:"MountOptions"`
+	OnPremConfig *nfsOnPremConfigInput `json:"OnPremConfig"`
+	LocationArn  string                `json:"LocationArn"`
+	Subdirectory string                `json:"Subdirectory,omitempty"`
+}
+
+type updateLocationNfsOutput struct{}
+
+func (h *Handler) handleUpdateLocationNfs(
+	_ context.Context,
+	in *updateLocationNfsInput,
+) (*updateLocationNfsOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	var mo *MountOptions
+	if in.MountOptions != nil {
+		mo = &MountOptions{Version: in.MountOptions.Version}
+	}
+
+	var agentArns []string
+	if in.OnPremConfig != nil {
+		agentArns = in.OnPremConfig.AgentArns
+	}
+
+	if err := h.Backend.UpdateLocationNfs(in.LocationArn, in.Subdirectory, mo, agentArns); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationNfsOutput{}, nil
+}
+
+// --- ObjectStorage location ---
+
+type createLocationObjectStorageInput struct {
+	ServerHostname string     `json:"ServerHostname"`
+	BucketName     string     `json:"BucketName"`
+	Subdirectory   string     `json:"Subdirectory,omitempty"`
+	AccessKey      string     `json:"AccessKey,omitempty"`
+	SecretKey      string     `json:"SecretKey,omitempty"`
+	ServerProtocol string     `json:"ServerProtocol,omitempty"`
+	AgentArns      []string   `json:"AgentArns"`
+	Tags           []tagInput `json:"Tags"`
+	ServerPort     int32      `json:"ServerPort,omitempty"`
+}
+
+type createLocationObjectStorageOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationObjectStorage(
+	_ context.Context,
+	in *createLocationObjectStorageInput,
+) (*createLocationObjectStorageOutput, error) {
+	if in.ServerHostname == "" {
+		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
+	}
+
+	if in.BucketName == "" {
+		return nil, fmt.Errorf("%w: BucketName is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	l, err := h.Backend.CreateLocationObjectStorage(
+		in.ServerHostname, in.ServerProtocol, in.BucketName, in.Subdirectory,
+		in.AccessKey, in.SecretKey, in.ServerPort, in.AgentArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationObjectStorageOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationObjectStorageInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationObjectStorageOutput struct {
+	LocationArn    string   `json:"LocationArn"`
+	LocationURI    string   `json:"LocationUri"`
+	ServerHostname string   `json:"ServerHostname,omitempty"`
+	BucketName     string   `json:"BucketName,omitempty"`
+	Subdirectory   string   `json:"Subdirectory,omitempty"`
+	AccessKey      string   `json:"AccessKey,omitempty"`
+	ServerProtocol string   `json:"ServerProtocol,omitempty"`
+	AgentArns      []string `json:"AgentArns,omitempty"`
+	CreationTime   int64    `json:"CreationTime"`
+	ServerPort     int32    `json:"ServerPort,omitempty"`
+}
+
+func (h *Handler) handleDescribeLocationObjectStorage(
+	_ context.Context,
+	in *describeLocationObjectStorageInput,
+) (*describeLocationObjectStorageOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationObjectStorage(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLocationObjectStorageOutput{
+		LocationArn:    l.LocationArn,
+		LocationURI:    l.LocationURI,
+		ServerHostname: l.ServerHostname,
+		BucketName:     l.BucketName,
+		Subdirectory:   l.Subdirectory,
+		AccessKey:      l.AccessKey,
+		ServerProtocol: l.ServerProtocol,
+		ServerPort:     l.ServerPort,
+		AgentArns:      l.AgentArns,
+		CreationTime:   l.CreationTime.Unix(),
+	}, nil
+}
+
+type updateLocationObjectStorageInput struct {
+	LocationArn    string   `json:"LocationArn"`
+	Subdirectory   string   `json:"Subdirectory,omitempty"`
+	AccessKey      string   `json:"AccessKey,omitempty"`
+	SecretKey      string   `json:"SecretKey,omitempty"`
+	ServerProtocol string   `json:"ServerProtocol,omitempty"`
+	AgentArns      []string `json:"AgentArns"`
+	ServerPort     int32    `json:"ServerPort,omitempty"`
+}
+
+type updateLocationObjectStorageOutput struct{}
+
+func (h *Handler) handleUpdateLocationObjectStorage(
+	_ context.Context,
+	in *updateLocationObjectStorageInput,
+) (*updateLocationObjectStorageOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateLocationObjectStorage(
+		in.LocationArn, in.ServerProtocol, in.Subdirectory,
+		in.AccessKey, in.SecretKey, in.ServerPort, in.AgentArns,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationObjectStorageOutput{}, nil
+}
+
+// --- SMB location ---
+
+type createLocationSmbInput struct {
+	MountOptions   *mountOptionsInput `json:"MountOptions"`
+	ServerHostname string             `json:"ServerHostname"`
+	Subdirectory   string             `json:"Subdirectory,omitempty"`
+	Domain         string             `json:"Domain,omitempty"`
+	User           string             `json:"User"`
+	Password       string             `json:"Password"`
+	AgentArns      []string           `json:"AgentArns"`
+	Tags           []tagInput         `json:"Tags"`
+}
+
+type createLocationSmbOutput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+func (h *Handler) handleCreateLocationSmb(
+	_ context.Context,
+	in *createLocationSmbInput,
+) (*createLocationSmbOutput, error) {
+	if in.ServerHostname == "" {
+		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
+	}
+
+	tags := tagsFromInput(in.Tags)
+
+	var mo *MountOptions
+	if in.MountOptions != nil {
+		mo = &MountOptions{Version: in.MountOptions.Version}
+	}
+
+	l, err := h.Backend.CreateLocationSmb(
+		in.ServerHostname, in.Subdirectory, in.Domain, in.User, in.Password,
+		mo, in.AgentArns, tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createLocationSmbOutput{LocationArn: l.LocationArn}, nil
+}
+
+type describeLocationSmbInput struct {
+	LocationArn string `json:"LocationArn"`
+}
+
+type describeLocationSmbOutput struct {
+	MountOptions   *mountOptionsOutput `json:"MountOptions,omitempty"`
+	LocationArn    string              `json:"LocationArn"`
+	LocationURI    string              `json:"LocationUri"`
+	ServerHostname string              `json:"ServerHostname,omitempty"`
+	Subdirectory   string              `json:"Subdirectory,omitempty"`
+	Domain         string              `json:"Domain,omitempty"`
+	User           string              `json:"User,omitempty"`
+	AgentArns      []string            `json:"AgentArns,omitempty"`
+	CreationTime   int64               `json:"CreationTime"`
+}
+
+func (h *Handler) handleDescribeLocationSmb(
+	_ context.Context,
+	in *describeLocationSmbInput,
+) (*describeLocationSmbOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	l, err := h.Backend.DescribeLocationSmb(in.LocationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &describeLocationSmbOutput{
+		LocationArn:    l.LocationArn,
+		LocationURI:    l.LocationURI,
+		ServerHostname: l.ServerHostname,
+		Subdirectory:   l.Subdirectory,
+		Domain:         l.Domain,
+		User:           l.User,
+		AgentArns:      l.AgentArns,
+		CreationTime:   l.CreationTime.Unix(),
+	}
+
+	if l.MountOptions != nil {
+		out.MountOptions = &mountOptionsOutput{Version: l.MountOptions.Version}
+	}
+
+	return out, nil
+}
+
+type updateLocationSmbInput struct {
+	MountOptions *mountOptionsInput `json:"MountOptions"`
+	LocationArn  string             `json:"LocationArn"`
+	Subdirectory string             `json:"Subdirectory,omitempty"`
+	Domain       string             `json:"Domain,omitempty"`
+	User         string             `json:"User,omitempty"`
+	Password     string             `json:"Password,omitempty"`
+	AgentArns    []string           `json:"AgentArns"`
+}
+
+type updateLocationSmbOutput struct{}
+
+func (h *Handler) handleUpdateLocationSmb(
+	_ context.Context,
+	in *updateLocationSmbInput,
+) (*updateLocationSmbOutput, error) {
+	if in.LocationArn == "" {
+		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	var mo *MountOptions
+	if in.MountOptions != nil {
+		mo = &MountOptions{Version: in.MountOptions.Version}
+	}
+
+	if err := h.Backend.UpdateLocationSmb(
+		in.LocationArn, in.Subdirectory, in.Domain, in.User, in.Password,
+		mo, in.AgentArns,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLocationSmbOutput{}, nil
 }
 
 // tagsFromInput converts a slice of tagInput to a map.

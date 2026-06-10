@@ -15,9 +15,9 @@ const (
 
 // Janitor is the Cognito IDP background worker that evicts expired refresh tokens.
 type Janitor struct {
-	Backend     *InMemoryBackend
-	Interval    time.Duration
-	TaskTimeout time.Duration
+	Backend     *InMemoryBackend `json:"backend,omitempty"`
+	Interval    time.Duration    `json:"interval"`
+	TaskTimeout time.Duration    `json:"taskTimeout"`
 }
 
 // NewJanitor creates a new Cognito IDP Janitor for the given backend.

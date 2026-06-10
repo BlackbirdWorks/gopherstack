@@ -114,14 +114,16 @@ type Handler struct {
 	archiveJanitor *ArchiveJanitor
 	tags           map[string]*svcTags.Tags
 	tagsMu         *lockmetrics.RWMutex
+	DefaultRegion  string
 }
 
 // NewHandler creates a new EventBridge handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
-		Backend: backend,
-		tags:    make(map[string]*svcTags.Tags),
-		tagsMu:  lockmetrics.New("eb.tags"),
+		Backend:       backend,
+		DefaultRegion: config.DefaultRegion,
+		tags:          make(map[string]*svcTags.Tags),
+		tagsMu:        lockmetrics.New("eb.tags"),
 	}
 	h.ops = h.buildOps()
 
@@ -207,8 +209,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EventBridge" }
@@ -362,8 +366,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EventBridge requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"EventBridge", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,
@@ -372,7 +380,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-type actionFn func([]byte) (any, error)
+type actionFn func(context.Context, []byte) (any, error)
 
 type createEventBusOutput struct {
 	EventBusArn string `json:"EventBusArn"`
@@ -430,12 +438,12 @@ type untagResourceOutput struct{}
 
 func (h *Handler) eventBusActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateEventBus": func(b []byte) (any, error) {
+		"CreateEventBus": func(ctx context.Context, b []byte) (any, error) {
 			var input createEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			bus, err := h.Backend.CreateEventBus(input.Name, input.Description)
+			bus, err := h.Backend.CreateEventBus(ctx, input.Name, input.Description)
 			if err != nil {
 				return nil, err
 			}
@@ -445,35 +453,35 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 
 			return &createEventBusOutput{EventBusArn: bus.Arn}, nil
 		},
-		"DeleteEventBus": func(b []byte) (any, error) {
+		"DeleteEventBus": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.DeleteEventBus(input.Name); err != nil {
+			if err := h.Backend.DeleteEventBus(ctx, input.Name); err != nil {
 				return nil, err
 			}
 
 			return &deleteEventBusOutput{}, nil
 		},
-		"ListEventBuses": func(b []byte) (any, error) {
+		"ListEventBuses": func(ctx context.Context, b []byte) (any, error) {
 			var input listEventBusesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			buses, next, err := h.Backend.ListEventBuses(input.NamePrefix, input.NextToken)
+			buses, next, err := h.Backend.ListEventBuses(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
 
 			return &listEventBusesOutput{EventBuses: buses, NextToken: next}, nil
 		},
-		"DescribeEventBus": func(b []byte) (any, error) {
+		"DescribeEventBus": func(ctx context.Context, b []byte) (any, error) {
 			var input describeEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			bus, err := h.Backend.DescribeEventBus(input.Name)
+			bus, err := h.Backend.DescribeEventBus(ctx, input.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -485,12 +493,12 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 
 func (h *Handler) ruleActions() map[string]actionFn {
 	return map[string]actionFn{
-		"PutRule": func(b []byte) (any, error) {
+		"PutRule": func(ctx context.Context, b []byte) (any, error) {
 			var input PutRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			rule, err := h.Backend.PutRule(input)
+			rule, err := h.Backend.PutRule(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -500,23 +508,24 @@ func (h *Handler) ruleActions() map[string]actionFn {
 
 			return &putRuleOutput{RuleArn: rule.Arn}, nil
 		},
-		"DeleteRule": func(b []byte) (any, error) {
+		"DeleteRule": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.DeleteRule(input.Name, input.EventBusName); err != nil {
+			if err := h.Backend.DeleteRule(ctx, input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
 
 			return &deleteRuleOutput{}, nil
 		},
-		"ListRules": func(b []byte) (any, error) {
+		"ListRules": func(ctx context.Context, b []byte) (any, error) {
 			var input listRulesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			rules, next, err := h.Backend.ListRules(
+				ctx,
 				input.EventBusName,
 				input.NamePrefix,
 				input.NextToken,
@@ -527,36 +536,36 @@ func (h *Handler) ruleActions() map[string]actionFn {
 
 			return &listRulesOutput{Rules: rules, NextToken: next}, nil
 		},
-		"DescribeRule": func(b []byte) (any, error) {
+		"DescribeRule": func(ctx context.Context, b []byte) (any, error) {
 			var input describeRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeRule(input.Name, input.EventBusName)
+			return h.Backend.DescribeRule(ctx, input.Name, input.EventBusName)
 		},
 	}
 }
 
 func (h *Handler) ruleStateActions() map[string]actionFn {
 	return map[string]actionFn{
-		"EnableRule": func(b []byte) (any, error) {
+		"EnableRule": func(ctx context.Context, b []byte) (any, error) {
 			var input enableRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.EnableRule(input.Name, input.EventBusName); err != nil {
+			if err := h.Backend.EnableRule(ctx, input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
 
 			return &enableRuleOutput{}, nil
 		},
-		"DisableRule": func(b []byte) (any, error) {
+		"DisableRule": func(ctx context.Context, b []byte) (any, error) {
 			var input disableRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.DisableRule(input.Name, input.EventBusName); err != nil {
+			if err := h.Backend.DisableRule(ctx, input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
 
@@ -567,12 +576,12 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 
 func (h *Handler) targetActions() map[string]actionFn {
 	return map[string]actionFn{
-		"PutTargets": func(b []byte) (any, error) {
+		"PutTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input putTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			failed, err := h.Backend.PutTargets(input.Rule, input.EventBusName, input.Targets)
+			failed, err := h.Backend.PutTargets(ctx, input.Rule, input.EventBusName, input.Targets)
 			if err != nil {
 				return nil, err
 			}
@@ -585,12 +594,12 @@ func (h *Handler) targetActions() map[string]actionFn {
 				FailedEntries:    failed,
 			}, nil
 		},
-		"RemoveTargets": func(b []byte) (any, error) {
+		"RemoveTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input removeTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			failed, err := h.Backend.RemoveTargets(input.Rule, input.EventBusName, input.IDs)
+			failed, err := h.Backend.RemoveTargets(ctx, input.Rule, input.EventBusName, input.IDs)
 			if err != nil {
 				return nil, err
 			}
@@ -603,12 +612,13 @@ func (h *Handler) targetActions() map[string]actionFn {
 				FailedEntries:    failed,
 			}, nil
 		},
-		"ListTargetsByRule": func(b []byte) (any, error) {
+		"ListTargetsByRule": func(ctx context.Context, b []byte) (any, error) {
 			var input listTargetsByRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			targets, next, err := h.Backend.ListTargetsByRule(
+				ctx,
 				input.Rule,
 				input.EventBusName,
 				input.NextToken,
@@ -624,12 +634,12 @@ func (h *Handler) targetActions() map[string]actionFn {
 
 func (h *Handler) eventsActions() map[string]actionFn {
 	return map[string]actionFn{
-		"PutEvents": func(b []byte) (any, error) {
+		"PutEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			entries := h.Backend.PutEvents(input.Entries)
+			entries := h.Backend.PutEvents(ctx, input.Entries)
 
 			return &putEventsOutput{
 				FailedEntryCount: 0,
@@ -641,7 +651,7 @@ func (h *Handler) eventsActions() map[string]actionFn {
 
 func (h *Handler) tagActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListTagsForResource": func(b []byte) (any, error) {
+		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -654,7 +664,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 
 			return &listTagsForResourceOutput{Tags: tagList}, nil
 		},
-		"TagResource": func(b []byte) (any, error) {
+		"TagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -667,7 +677,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 
 			return &tagResourceOutput{}, nil
 		},
-		"UntagResource": func(b []byte) (any, error) {
+		"UntagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -723,9 +733,11 @@ type deauthorizeConnectionOutput struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-type activateEventSourceOutput struct{}
-type deactivateEventSourceOutput struct{}
-type deleteAPIDestinationOutput struct{}
+type (
+	activateEventSourceOutput   struct{}
+	deactivateEventSourceOutput struct{}
+	deleteAPIDestinationOutput  struct{}
+)
 
 // timeToEpochSeconds converts a time.Time to a float64 Unix epoch seconds value,
 // as required by the AWS JSON protocol for timestamp fields.
@@ -844,33 +856,33 @@ func apiDestinationToResponse(d *APIDestination) *apiDestinationResponse {
 
 func (h *Handler) eventSourceActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ActivateEventSource": func(b []byte) (any, error) {
+		"ActivateEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.ActivateEventSource(input.Name); err != nil {
+			if err := h.Backend.ActivateEventSource(ctx, input.Name); err != nil {
 				return nil, err
 			}
 
 			return &activateEventSourceOutput{}, nil
 		},
-		"DeactivateEventSource": func(b []byte) (any, error) {
+		"DeactivateEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.DeactivateEventSource(input.Name); err != nil {
+			if err := h.Backend.DeactivateEventSource(ctx, input.Name); err != nil {
 				return nil, err
 			}
 
 			return &deactivateEventSourceOutput{}, nil
 		},
-		"CreatePartnerEventSource": func(b []byte) (any, error) {
+		"CreatePartnerEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name    string `json:"Name"`
 				Account string `json:"Account"`
@@ -878,7 +890,7 @@ func (h *Handler) eventSourceActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			src, err := h.Backend.CreatePartnerEventSource(input.Name, input.Account)
+			src, err := h.Backend.CreatePartnerEventSource(ctx, input.Name, input.Account)
 			if err != nil {
 				return nil, err
 			}
@@ -890,14 +902,14 @@ func (h *Handler) eventSourceActions() map[string]actionFn {
 
 func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CancelReplay": func(b []byte) (any, error) {
+		"CancelReplay": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				ReplayName string `json:"ReplayName"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			replay, err := h.Backend.CancelReplay(input.ReplayName)
+			replay, err := h.Backend.CancelReplay(ctx, input.ReplayName)
 			if err != nil {
 				return nil, err
 			}
@@ -908,12 +920,12 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 				StateReason: replay.StateReason,
 			}, nil
 		},
-		"CreateConnection": func(b []byte) (any, error) {
+		"CreateConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateConnectionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			conn, err := h.Backend.CreateConnection(input)
+			conn, err := h.Backend.CreateConnection(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -925,14 +937,14 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
 			}, nil
 		},
-		"DeauthorizeConnection": func(b []byte) (any, error) {
+		"DeauthorizeConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			conn, err := h.Backend.DeauthorizeConnection(input.Name)
+			conn, err := h.Backend.DeauthorizeConnection(ctx, input.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -948,12 +960,12 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 
 func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateApiDestination": func(b []byte) (any, error) {
+		"CreateApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateAPIDestinationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			dst, err := h.Backend.CreateAPIDestination(input)
+			dst, err := h.Backend.CreateAPIDestination(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -965,12 +977,12 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 				LastModifiedTime:    timeToEpochSeconds(dst.LastModifiedTime),
 			}, nil
 		},
-		"CreateArchive": func(b []byte) (any, error) {
+		"CreateArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateArchiveInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			archive, err := h.Backend.CreateArchive(input)
+			archive, err := h.Backend.CreateArchive(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -982,25 +994,25 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 				StateReason:  archive.StateReason,
 			}, nil
 		},
-		"DeleteApiDestination": func(b []byte) (any, error) {
+		"DeleteApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if err := h.Backend.DeleteAPIDestination(input.Name); err != nil {
+			if err := h.Backend.DeleteAPIDestination(ctx, input.Name); err != nil {
 				return nil, err
 			}
 
 			return &deleteAPIDestinationOutput{}, nil
 		},
-		"CreateEndpoint": func(b []byte) (any, error) {
+		"CreateEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateEndpointInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			ep, err := h.Backend.CreateEndpoint(input)
+			ep, err := h.Backend.CreateEndpoint(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1018,7 +1030,7 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 // extendedArchiveActions returns CRUD actions for archives beyond Create.
 func (h *Handler) extendedArchiveActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DeleteArchive": func(b []byte) (any, error) {
+		"DeleteArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				ArchiveName string `json:"ArchiveName"`
 			}
@@ -1026,9 +1038,9 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteArchive(input.ArchiveName)
+			return &struct{}{}, h.Backend.DeleteArchive(ctx, input.ArchiveName)
 		},
-		"DescribeArchive": func(b []byte) (any, error) {
+		"DescribeArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				ArchiveName string `json:"ArchiveName"`
 			}
@@ -1036,14 +1048,14 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				return nil, err
 			}
 
-			archive, err := h.Backend.DescribeArchive(input.ArchiveName)
+			archive, err := h.Backend.DescribeArchive(ctx, input.ArchiveName)
 			if err != nil {
 				return nil, err
 			}
 
 			return archiveToResponse(archive), nil
 		},
-		"ListArchives": func(b []byte) (any, error) {
+		"ListArchives": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1051,7 +1063,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			archives, next, err := h.Backend.ListArchives(input.NamePrefix, input.NextToken)
+			archives, next, err := h.Backend.ListArchives(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1066,12 +1078,12 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				Archives  []archiveResponse `json:"Archives"`
 			}{Archives: archiveResponses, NextToken: next}, nil
 		},
-		"UpdateArchive": func(b []byte) (any, error) {
+		"UpdateArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateArchiveInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			archive, err := h.Backend.UpdateArchive(input)
+			archive, err := h.Backend.UpdateArchive(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1094,7 +1106,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 // extendedConnectionActions returns CRUD actions for connections beyond Create/Deauthorize.
 func (h *Handler) extendedConnectionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DeleteConnection": func(b []byte) (any, error) {
+		"DeleteConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1102,9 +1114,9 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteConnection(input.Name)
+			return &struct{}{}, h.Backend.DeleteConnection(ctx, input.Name)
 		},
-		"DescribeConnection": func(b []byte) (any, error) {
+		"DescribeConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1112,14 +1124,14 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			conn, err := h.Backend.DescribeConnection(input.Name)
+			conn, err := h.Backend.DescribeConnection(ctx, input.Name)
 			if err != nil {
 				return nil, err
 			}
 
 			return connectionToResponse(conn), nil
 		},
-		"ListConnections": func(b []byte) (any, error) {
+		"ListConnections": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1127,7 +1139,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			conns, next, err := h.Backend.ListConnections(input.NamePrefix, input.NextToken)
+			conns, next, err := h.Backend.ListConnections(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1142,12 +1154,12 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				Connections []connectionResponse `json:"Connections"`
 			}{Connections: connResponses, NextToken: next}, nil
 		},
-		"UpdateConnection": func(b []byte) (any, error) {
+		"UpdateConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateConnectionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			conn, err := h.Backend.UpdateConnection(input)
+			conn, err := h.Backend.UpdateConnection(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1170,7 +1182,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 // extendedEndpointActions returns CRUD actions for endpoints beyond Create.
 func (h *Handler) extendedEndpointActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DeleteEndpoint": func(b []byte) (any, error) {
+		"DeleteEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1178,9 +1190,9 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteEndpoint(input.Name)
+			return &struct{}{}, h.Backend.DeleteEndpoint(ctx, input.Name)
 		},
-		"DescribeEndpoint": func(b []byte) (any, error) {
+		"DescribeEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1188,9 +1200,9 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeEndpoint(input.Name)
+			return h.Backend.DescribeEndpoint(ctx, input.Name)
 		},
-		"ListEndpoints": func(b []byte) (any, error) {
+		"ListEndpoints": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1198,7 +1210,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			eps, next, err := h.Backend.ListEndpoints(input.NamePrefix, input.NextToken)
+			eps, next, err := h.Backend.ListEndpoints(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1208,12 +1220,12 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				Endpoints []Endpoint `json:"Endpoints"`
 			}{Endpoints: eps, NextToken: next}, nil
 		},
-		"UpdateEndpoint": func(b []byte) (any, error) {
+		"UpdateEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateEndpointInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			ep, err := h.Backend.UpdateEndpoint(input)
+			ep, err := h.Backend.UpdateEndpoint(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1236,7 +1248,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 // extendedAPIDestinationActions returns Describe/List/Update for API destinations.
 func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DescribeApiDestination": func(b []byte) (any, error) {
+		"DescribeApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1244,14 +1256,14 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				return nil, err
 			}
 
-			dst, err := h.Backend.DescribeAPIDestination(input.Name)
+			dst, err := h.Backend.DescribeAPIDestination(ctx, input.Name)
 			if err != nil {
 				return nil, err
 			}
 
 			return apiDestinationToResponse(dst), nil
 		},
-		"ListApiDestinations": func(b []byte) (any, error) {
+		"ListApiDestinations": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1259,7 +1271,7 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			dsts, next, err := h.Backend.ListAPIDestinations(input.NamePrefix, input.NextToken)
+			dsts, next, err := h.Backend.ListAPIDestinations(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1274,12 +1286,12 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				APIDestinations []apiDestinationResponse `json:"ApiDestinations"`
 			}{APIDestinations: dstResponses, NextToken: next}, nil
 		},
-		"UpdateApiDestination": func(b []byte) (any, error) {
+		"UpdateApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateAPIDestinationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			dst, err := h.Backend.UpdateAPIDestination(input)
+			dst, err := h.Backend.UpdateAPIDestination(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1302,7 +1314,7 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 // extendedEventSourceActions returns Describe/List for event sources.
 func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DescribeEventSource": func(b []byte) (any, error) {
+		"DescribeEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1310,9 +1322,9 @@ func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeEventSource(input.Name)
+			return h.Backend.DescribeEventSource(ctx, input.Name)
 		},
-		"ListEventSources": func(b []byte) (any, error) {
+		"ListEventSources": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1320,7 +1332,7 @@ func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			srcs, next, err := h.Backend.ListEventSources(input.NamePrefix, input.NextToken)
+			srcs, next, err := h.Backend.ListEventSources(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1336,7 +1348,7 @@ func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 // extendedPartnerSourceActions returns CRUD actions for partner event sources beyond Create.
 func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DeletePartnerEventSource": func(b []byte) (any, error) {
+		"DeletePartnerEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1344,9 +1356,9 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeletePartnerEventSource(input.Name)
+			return &struct{}{}, h.Backend.DeletePartnerEventSource(ctx, input.Name)
 		},
-		"DescribePartnerEventSource": func(b []byte) (any, error) {
+		"DescribePartnerEventSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1354,9 +1366,9 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribePartnerEventSource(input.Name)
+			return h.Backend.DescribePartnerEventSource(ctx, input.Name)
 		},
-		"ListPartnerEventSources": func(b []byte) (any, error) {
+		"ListPartnerEventSources": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1364,7 +1376,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			srcs, next, err := h.Backend.ListPartnerEventSources(input.NamePrefix, input.NextToken)
+			srcs, next, err := h.Backend.ListPartnerEventSources(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1374,7 +1386,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				PartnerEventSources []PartnerEventSource `json:"PartnerEventSources"`
 			}{PartnerEventSources: srcs, NextToken: next}, nil
 		},
-		"ListPartnerEventSourceAccounts": func(_ []byte) (any, error) {
+		"ListPartnerEventSourceAccounts": func(_ context.Context, _ []byte) (any, error) {
 			// ListPartnerEventSourceAccounts returns accounts that have been
 			// granted access to a partner event source. Cross-account metadata
 			// has no meaningful in-process simulation; return empty list.
@@ -1383,12 +1395,12 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				PartnerEventSourceAccounts []any  `json:"PartnerEventSourceAccounts"`
 			}{PartnerEventSourceAccounts: []any{}}, nil
 		},
-		"PutPartnerEvents": func(b []byte) (any, error) {
+		"PutPartnerEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			entries := h.Backend.PutPartnerEvents(input.Entries)
+			entries := h.Backend.PutPartnerEvents(ctx, input.Entries)
 
 			return &putEventsOutput{
 				FailedEntryCount: 0,
@@ -1401,7 +1413,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 // extendedReplayActions returns Describe/List/Start replay actions.
 func (h *Handler) extendedReplayActions() map[string]actionFn {
 	return map[string]actionFn{
-		"DescribeReplay": func(b []byte) (any, error) {
+		"DescribeReplay": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				ReplayName string `json:"ReplayName"`
 			}
@@ -1409,9 +1421,9 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeReplay(input.ReplayName)
+			return h.Backend.DescribeReplay(ctx, input.ReplayName)
 		},
-		"ListReplays": func(b []byte) (any, error) {
+		"ListReplays": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1419,7 +1431,7 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			replays, next, err := h.Backend.ListReplays(input.NamePrefix, input.NextToken)
+			replays, next, err := h.Backend.ListReplays(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1429,12 +1441,12 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 				Replays   []Replay `json:"Replays"`
 			}{Replays: replays, NextToken: next}, nil
 		},
-		"StartReplay": func(b []byte) (any, error) {
+		"StartReplay": func(ctx context.Context, b []byte) (any, error) {
 			var input StartReplayInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			replay, err := h.Backend.StartReplay(input)
+			replay, err := h.Backend.StartReplay(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1457,7 +1469,7 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 // extendedMiscActions returns misc new operations.
 func (h *Handler) extendedMiscActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListRuleNamesByTarget": func(b []byte) (any, error) {
+		"ListRuleNamesByTarget": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				EventBusName string `json:"EventBusName"`
 				NextToken    string `json:"NextToken"`
@@ -1467,6 +1479,7 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 				return nil, err
 			}
 			names, next, err := h.Backend.ListRuleNamesByTarget(
+				ctx,
 				input.TargetArn,
 				input.EventBusName,
 				input.NextToken,
@@ -1480,7 +1493,7 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 				RuleNames []string `json:"RuleNames"`
 			}{RuleNames: names, NextToken: next}, nil
 		},
-		"TestEventPattern": func(b []byte) (any, error) {
+		"TestEventPattern": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Event        string `json:"Event"`
 				EventPattern string `json:"EventPattern"`
@@ -1488,7 +1501,7 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			result, err := h.Backend.TestEventPattern(input.EventPattern, input.Event)
+			result, err := h.Backend.TestEventPattern(ctx, input.EventPattern, input.Event)
 			if err != nil {
 				return nil, err
 			}
@@ -1497,12 +1510,12 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 				Result bool `json:"Result"`
 			}{Result: result}, nil
 		},
-		"UpdateEventBus": func(b []byte) (any, error) {
+		"UpdateEventBus": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			bus, err := h.Backend.UpdateEventBus(input)
+			bus, err := h.Backend.UpdateEventBus(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1513,33 +1526,33 @@ func (h *Handler) extendedMiscActions() map[string]actionFn {
 				Name        string `json:"Name"`
 			}{Arn: bus.Arn, Description: bus.Description, Name: bus.Name}, nil
 		},
-		"PutPermission": func(b []byte) (any, error) {
+		"PutPermission": func(ctx context.Context, b []byte) (any, error) {
 			var input PutPermissionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.PutPermission(input)
+			return &struct{}{}, h.Backend.PutPermission(ctx, input)
 		},
-		"RemovePermission": func(b []byte) (any, error) {
+		"RemovePermission": func(ctx context.Context, b []byte) (any, error) {
 			var input RemovePermissionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.RemovePermission(input)
+			return &struct{}{}, h.Backend.RemovePermission(ctx, input)
 		},
 	}
 }
 
 func (h *Handler) policyActions() map[string]actionFn {
 	return map[string]actionFn{
-		"GetEventBusPolicy": func(b []byte) (any, error) {
+		"GetEventBusPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input GetEventBusPolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			policy, err := h.Backend.GetEventBusPolicy(input.EventBusName)
+			policy, err := h.Backend.GetEventBusPolicy(ctx, input.EventBusName)
 			if err != nil {
 				return nil, err
 			}
@@ -1548,25 +1561,25 @@ func (h *Handler) policyActions() map[string]actionFn {
 				Policy string `json:"Policy,omitempty"`
 			}{Policy: policy}, nil
 		},
-		"PutEventBusPolicy": func(b []byte) (any, error) {
+		"PutEventBusPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input PutEventBusPolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.PutEventBusPolicy(input)
+			return &struct{}{}, h.Backend.PutEventBusPolicy(ctx, input)
 		},
 	}
 }
 
 func (h *Handler) pipesActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreatePipe": func(b []byte) (any, error) {
+		"CreatePipe": func(ctx context.Context, b []byte) (any, error) {
 			var input CreatePipeInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			pipe, err := h.Backend.CreatePipe(input)
+			pipe, err := h.Backend.CreatePipe(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1583,7 +1596,7 @@ func (h *Handler) pipesActions() map[string]actionFn {
 				Name:         pipe.Name,
 			}, nil
 		},
-		"DeletePipe": func(b []byte) (any, error) {
+		"DeletePipe": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1591,9 +1604,9 @@ func (h *Handler) pipesActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeletePipe(input.Name)
+			return &struct{}{}, h.Backend.DeletePipe(ctx, input.Name)
 		},
-		"DescribePipe": func(b []byte) (any, error) {
+		"DescribePipe": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				Name string `json:"Name"`
 			}
@@ -1601,9 +1614,9 @@ func (h *Handler) pipesActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribePipe(input.Name)
+			return h.Backend.DescribePipe(ctx, input.Name)
 		},
-		"ListPipes": func(b []byte) (any, error) {
+		"ListPipes": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1611,7 +1624,7 @@ func (h *Handler) pipesActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			pipes, next, err := h.Backend.ListPipes(input.NamePrefix, input.NextToken)
+			pipes, next, err := h.Backend.ListPipes(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1621,12 +1634,12 @@ func (h *Handler) pipesActions() map[string]actionFn {
 				Pipes     []Pipe `json:"Pipes"`
 			}{Pipes: pipes, NextToken: next}, nil
 		},
-		"UpdatePipe": func(b []byte) (any, error) {
+		"UpdatePipe": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdatePipeInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			pipe, err := h.Backend.UpdatePipe(input)
+			pipe, err := h.Backend.UpdatePipe(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1658,15 +1671,15 @@ func (h *Handler) schemaRegistryActions() map[string]actionFn {
 
 func (h *Handler) registryActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateRegistry": func(b []byte) (any, error) {
+		"CreateRegistry": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateRegistryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateRegistry(input)
+			return h.Backend.CreateRegistry(ctx, input)
 		},
-		"DeleteRegistry": func(b []byte) (any, error) {
+		"DeleteRegistry": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
@@ -1674,9 +1687,9 @@ func (h *Handler) registryActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteRegistry(input.RegistryName)
+			return &struct{}{}, h.Backend.DeleteRegistry(ctx, input.RegistryName)
 		},
-		"DescribeRegistry": func(b []byte) (any, error) {
+		"DescribeRegistry": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
@@ -1684,9 +1697,9 @@ func (h *Handler) registryActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeRegistry(input.RegistryName)
+			return h.Backend.DescribeRegistry(ctx, input.RegistryName)
 		},
-		"ListRegistries": func(b []byte) (any, error) {
+		"ListRegistries": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -1694,7 +1707,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			regs, next, err := h.Backend.ListRegistries(input.NamePrefix, input.NextToken)
+			regs, next, err := h.Backend.ListRegistries(ctx, input.NamePrefix, input.NextToken)
 			if err != nil {
 				return nil, err
 			}
@@ -1704,28 +1717,28 @@ func (h *Handler) registryActions() map[string]actionFn {
 				Registries []SchemaRegistry `json:"Registries"`
 			}{Registries: regs, NextToken: next}, nil
 		},
-		"UpdateRegistry": func(b []byte) (any, error) {
+		"UpdateRegistry": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateRegistryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateRegistry(input)
+			return h.Backend.UpdateRegistry(ctx, input)
 		},
 	}
 }
 
 func (h *Handler) schemaActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateSchema": func(b []byte) (any, error) {
+		"CreateSchema": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateSchema(input)
+			return h.Backend.CreateSchema(ctx, input)
 		},
-		"DeleteSchema": func(b []byte) (any, error) {
+		"DeleteSchema": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
@@ -1734,9 +1747,9 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct{}{}, h.Backend.DeleteSchema(input.RegistryName, input.SchemaName)
+			return &struct{}{}, h.Backend.DeleteSchema(ctx, input.RegistryName, input.SchemaName)
 		},
-		"DescribeSchema": func(b []byte) (any, error) {
+		"DescribeSchema": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -1747,12 +1760,13 @@ func (h *Handler) schemaActions() map[string]actionFn {
 			}
 
 			return h.Backend.DescribeSchema(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
 			)
 		},
-		"ListSchemas": func(b []byte) (any, error) {
+		"ListSchemas": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName     string `json:"RegistryName"`
 				SchemaNamePrefix string `json:"SchemaNamePrefix"`
@@ -1762,6 +1776,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				return nil, err
 			}
 			schemas, next, err := h.Backend.ListSchemas(
+				ctx,
 				input.RegistryName,
 				input.SchemaNamePrefix,
 				input.NextToken,
@@ -1775,7 +1790,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				Schemas   []Schema `json:"Schemas"`
 			}{Schemas: schemas, NextToken: next}, nil
 		},
-		"SearchSchemas": func(b []byte) (any, error) {
+		"SearchSchemas": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				Keywords     string `json:"Keywords"`
@@ -1785,6 +1800,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				return nil, err
 			}
 			schemas, next, err := h.Backend.SearchSchemas(
+				ctx,
 				input.RegistryName,
 				input.Keywords,
 				input.NextToken,
@@ -1798,20 +1814,20 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				Schemas   []Schema `json:"Schemas"`
 			}{Schemas: schemas, NextToken: next}, nil
 		},
-		"UpdateSchema": func(b []byte) (any, error) {
+		"UpdateSchema": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateSchema(input)
+			return h.Backend.UpdateSchema(ctx, input)
 		},
 	}
 }
 
 func (h *Handler) schemaVersionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListSchemaVersions": func(b []byte) (any, error) {
+		"ListSchemaVersions": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
@@ -1821,6 +1837,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				return nil, err
 			}
 			versions, next, err := h.Backend.ListSchemaVersions(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.NextToken,
@@ -1834,7 +1851,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				SchemaVersions []SchemaVersion `json:"SchemaVersions"`
 			}{SchemaVersions: versions, NextToken: next}, nil
 		},
-		"DescribeSchemaVersion": func(b []byte) (any, error) {
+		"DescribeSchemaVersion": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -1845,12 +1862,13 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 			}
 
 			return h.Backend.DescribeSchemaVersion(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
 			)
 		},
-		"DeleteSchemaVersion": func(b []byte) (any, error) {
+		"DeleteSchemaVersion": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -1861,17 +1879,18 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 			}
 
 			return &struct{}{}, h.Backend.DeleteSchemaVersion(
+				ctx,
 				input.RegistryName,
 				input.SchemaName,
 				input.SchemaVersion,
 			)
 		},
-		"GetDiscoveredSchema": func(b []byte) (any, error) {
+		"GetDiscoveredSchema": func(ctx context.Context, b []byte) (any, error) {
 			var input GetDiscoveredSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			content, err := h.Backend.GetDiscoveredSchema(input)
+			content, err := h.Backend.GetDiscoveredSchema(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1885,28 +1904,28 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 
 func (h *Handler) codeBindingActions() map[string]actionFn {
 	return map[string]actionFn{
-		"PutCodeBinding": func(b []byte) (any, error) {
+		"PutCodeBinding": func(ctx context.Context, b []byte) (any, error) {
 			var input PutCodeBindingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutCodeBinding(input)
+			return h.Backend.PutCodeBinding(ctx, input)
 		},
-		"DescribeCodeBinding": func(b []byte) (any, error) {
+		"DescribeCodeBinding": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeCodeBindingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeCodeBinding(input)
+			return h.Backend.DescribeCodeBinding(ctx, input)
 		},
-		"ListCodeBindings": func(b []byte) (any, error) {
+		"ListCodeBindings": func(ctx context.Context, b []byte) (any, error) {
 			var input ListCodeBindingsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			bindings, next, err := h.Backend.ListCodeBindings(input)
+			bindings, next, err := h.Backend.ListCodeBindings(ctx, input)
 			if err != nil {
 				return nil, err
 			}
@@ -1916,7 +1935,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 				CodeBindings []CodeBinding `json:"CodeBindings"`
 			}{CodeBindings: bindings, NextToken: next}, nil
 		},
-		"GetCodeBindingSource": func(b []byte) (any, error) {
+		"GetCodeBindingSource": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -1927,6 +1946,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 				return nil, err
 			}
 			src, err := h.Backend.GetCodeBindingSource(
+				ctx,
 				input.RegistryName, input.SchemaName, input.Language, input.SchemaVersion,
 			)
 			if err != nil {
@@ -1974,13 +1994,13 @@ func (h *Handler) buildOps() map[string]actionFn {
 }
 
 // dispatch routes the action to the correct handler function.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
 	}
 
-	response, err := fn(body)
+	response, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

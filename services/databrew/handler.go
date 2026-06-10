@@ -116,6 +116,16 @@ func (h *Handler) Name() string                        { return "DataBrew" }
 func (h *Handler) Reset()                              { h.Backend.Reset() }
 func (h *Handler) StartWorker(_ context.Context) error { return nil }
 
+// Shutdown implements service.Shutdowner. It cancels in-flight job run
+// transition goroutines and waits for them to drain, bounded by ctx.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if b, ok := h.Backend.(interface{ Shutdown(context.Context) }); ok {
+		b.Shutdown(ctx)
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opCreateDataset, opDescribeDataset, opListDatasets, opUpdateDataset, opDeleteDataset,
@@ -136,7 +146,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, databrewPathPrefix) || path == "/databrew/v1"
+		if strings.HasPrefix(c.Request().Host, "databrew.") ||
+			strings.HasPrefix(path, databrewPathPrefix) ||
+			path == "/databrew/v1" {
+			return true
+		}
+
+		// Match paths sent by the SDK (e.g. GET /recipes, GET /profileJobs).
+		// Only unambiguous DataBrew-specific segments are listed here.
+		firstSeg, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		switch firstSeg {
+		case segRecipes, segProfileJobs, segRecipeJobs, segRulesets, segProjects:
+			return true
+		}
+
+		return false
 	}
 }
 
@@ -219,7 +243,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 func parseDataBrewRESTPath(method, path string) (string, string) {
 	after, ok := strings.CutPrefix(path, databrewPathPrefix)
 	if !ok {
-		return opUnknown, ""
+		after, _ = strings.CutPrefix(path, "/")
 	}
 
 	segments := strings.SplitN(after, "/", minPathSegments+1)
@@ -406,11 +430,9 @@ func parseJobOp(method, name, subOp string) string {
 	case subOp == "jobRuns" && method == http.MethodGet:
 
 		return opListJobRuns
-	case subOp == segJobRun && method == http.MethodGet:
-
+	case strings.HasPrefix(subOp, "jobRun/") && method == http.MethodGet:
 		return opDescribeJobRun
-	case subOp == segJobRun && method == http.MethodPost:
-
+	case strings.HasPrefix(subOp, "jobRun/") && method == http.MethodPost:
 		return opStopJobRun
 	case method == http.MethodGet && name == "":
 
@@ -465,13 +487,13 @@ func enrichDataBrewSubOpBody(path string, body []byte) []byte {
 	}
 
 	// e.g. /databrew/v1/jobs/{Name}/jobRun/{RunId}
-	if len(segments) >= 6 && segments[4] == segJobRun {
-		runIDJSON, _ := json.Marshal(segments[5])
+	if len(segments) >= 7 && segments[5] == "jobRun" {
+		runIDJSON, _ := json.Marshal(segments[6])
 		m["RunId"] = runIDJSON
 	}
 	// e.g. /databrew/v1/recipes/{Name}/recipeVersion/{RecipeVersion}
-	if len(segments) >= 6 && segments[4] == "recipeVersion" {
-		versionJSON, _ := json.Marshal(segments[5])
+	if len(segments) >= 7 && segments[5] == "recipeVersion" {
+		versionJSON, _ := json.Marshal(segments[6])
 		m["RecipeVersion"] = versionJSON
 	}
 	// tags ResourceArn

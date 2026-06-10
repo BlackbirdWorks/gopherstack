@@ -25,10 +25,6 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-const ()
-
-const ()
-
 const (
 	snsVersion       = "Version=2010-03-31"
 	snsContentType   = "application/x-www-form-urlencoded"

@@ -3,6 +3,7 @@ package appconfig
 import (
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -788,6 +789,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 	}
 }
+
 func notFoundResponse(c *echo.Context, err error) error {
 	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
 }
@@ -956,7 +958,6 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	envs, outToken, err := h.Backend.ListEnvironments(applicationID, nextToken, maxResults)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1097,7 +1098,6 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		nextToken,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1267,7 +1267,6 @@ func (h *Handler) handleListHostedConfigurationVersions(
 		versionLabel,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1514,7 +1513,6 @@ func (h *Handler) handleListDeployments(
 		nextToken,
 		maxResults,
 	)
-
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1654,8 +1652,8 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nameFilter := q.Get("name")
 	var versionNumber int32
 	if s := q.Get("extension_version_number"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			versionNumber = int32(n) //nolint:gosec // version number bounded by API constraints
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n > 0 && n <= math.MaxInt32 {
+			versionNumber = int32(n)
 		}
 	}
 	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter, versionNumber)

@@ -37,6 +37,12 @@ const (
 	opDeleteOriginEndpoint   = "DeleteOriginEndpoint"
 	opListOriginEndpoints    = "ListOriginEndpoints"
 
+	opCreateHarvestJob   = "CreateHarvestJob"
+	opDescribeHarvestJob = "DescribeHarvestJob"
+	opListHarvestJobs    = "ListHarvestJobs"
+
+	opRotateIngestEndpointCred = "RotateIngestEndpointCredentials"
+
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
@@ -70,11 +76,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListChannels,
 		opConfigureLogs,
 		opRotateChannelCred,
+		opRotateIngestEndpointCred,
 		opCreateOriginEndpoint,
 		opDescribeOriginEndpoint,
 		opUpdateOriginEndpoint,
 		opDeleteOriginEndpoint,
 		opListOriginEndpoints,
+		opCreateHarvestJob,
+		opDescribeHarvestJob,
+		opListHarvestJobs,
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
@@ -144,21 +154,25 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	}
 
 	handlers := map[string]func() error{
-		opCreateChannel:          func() error { return h.handleCreateChannel(c, body) },
-		opDescribeChannel:        func() error { return h.handleDescribeChannel(c, resource) },
-		opUpdateChannel:          func() error { return h.handleUpdateChannel(c, resource, body) },
-		opDeleteChannel:          func() error { return h.handleDeleteChannel(c, resource) },
-		opListChannels:           func() error { return h.handleListChannels(c) },
-		opConfigureLogs:          func() error { return h.handleConfigureLogs(c, resource, body) },
-		opRotateChannelCred:      func() error { return h.handleRotateChannelCredentials(c, resource) },
-		opCreateOriginEndpoint:   func() error { return h.handleCreateOriginEndpoint(c, body) },
-		opDescribeOriginEndpoint: func() error { return h.handleDescribeOriginEndpoint(c, resource) },
-		opUpdateOriginEndpoint:   func() error { return h.handleUpdateOriginEndpoint(c, resource, body) },
-		opDeleteOriginEndpoint:   func() error { return h.handleDeleteOriginEndpoint(c, resource) },
-		opListOriginEndpoints:    func() error { return h.handleListOriginEndpoints(c) },
-		opTagResource:            func() error { return h.handleTagResource(c, resource, body) },
-		opUntagResource:          func() error { return h.handleUntagResource(c, resource) },
-		opListTagsForResource:    func() error { return h.handleListTagsForResource(c, resource) },
+		opCreateChannel:            func() error { return h.handleCreateChannel(c, body) },
+		opDescribeChannel:          func() error { return h.handleDescribeChannel(c, resource) },
+		opUpdateChannel:            func() error { return h.handleUpdateChannel(c, resource, body) },
+		opDeleteChannel:            func() error { return h.handleDeleteChannel(c, resource) },
+		opListChannels:             func() error { return h.handleListChannels(c) },
+		opConfigureLogs:            func() error { return h.handleConfigureLogs(c, resource, body) },
+		opRotateChannelCred:        func() error { return h.handleRotateChannelCredentials(c, resource) },
+		opRotateIngestEndpointCred: func() error { return h.handleRotateIngestEndpointCredentials(c, c.Request().URL.Path) },
+		opCreateOriginEndpoint:     func() error { return h.handleCreateOriginEndpoint(c, body) },
+		opDescribeOriginEndpoint:   func() error { return h.handleDescribeOriginEndpoint(c, resource) },
+		opUpdateOriginEndpoint:     func() error { return h.handleUpdateOriginEndpoint(c, resource, body) },
+		opDeleteOriginEndpoint:     func() error { return h.handleDeleteOriginEndpoint(c, resource) },
+		opListOriginEndpoints:      func() error { return h.handleListOriginEndpoints(c) },
+		opCreateHarvestJob:         func() error { return h.handleCreateHarvestJob(c, body) },
+		opDescribeHarvestJob:       func() error { return h.handleDescribeHarvestJob(c, resource) },
+		opListHarvestJobs:          func() error { return h.handleListHarvestJobs(c) },
+		opTagResource:              func() error { return h.handleTagResource(c, resource, body) },
+		opUntagResource:            func() error { return h.handleUntagResource(c, resource) },
+		opListTagsForResource:      func() error { return h.handleListTagsForResource(c, resource) },
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -177,6 +191,10 @@ func classifyPath(method, path string) (string, string) {
 		return op, res
 	}
 
+	if op, res, ok := classifyHarvestJobPath(method, path); ok {
+		return op, res
+	}
+
 	if strings.HasPrefix(path, pathTags) {
 		return classifyTagPath(method, path)
 	}
@@ -184,7 +202,7 @@ func classifyPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func classifyChannelPath(method, path string) (string, string, bool) {
+func classifyChannelPath(method, path string) (string, string, bool) { //nolint:cyclop // existing issue.
 	const prefix = pathChannels + "/"
 
 	switch {
@@ -221,6 +239,13 @@ func classifyChannelPath(method, path string) (string, string, bool) {
 		return opConfigureLogs, id, true
 	}
 
+	// PUT /channels/{id}/ingest_endpoints/{ingestEndpointId}/credentials
+	if method == http.MethodPut &&
+		strings.HasPrefix(sub, "ingest_endpoints/") &&
+		strings.HasSuffix(sub, "/credentials") {
+		return opRotateIngestEndpointCred, id, true
+	}
+
 	return opUnknown, id, true
 }
 
@@ -248,6 +273,29 @@ func classifyOriginEndpointPath(method, path string) (string, string, bool) {
 		return opUpdateOriginEndpoint, id, true
 	case http.MethodDelete:
 		return opDeleteOriginEndpoint, id, true
+	}
+
+	return opUnknown, id, true
+}
+
+func classifyHarvestJobPath(method, path string) (string, string, bool) {
+	const prefix = pathHarvestJobs + "/"
+
+	switch {
+	case path == pathHarvestJobs && method == http.MethodGet:
+		return opListHarvestJobs, "", true
+	case path == pathHarvestJobs && method == http.MethodPost:
+		return opCreateHarvestJob, "", true
+	}
+
+	if !strings.HasPrefix(path, prefix) {
+		return "", "", false
+	}
+
+	id := strings.TrimPrefix(path, prefix)
+
+	if method == http.MethodGet {
+		return opDescribeHarvestJob, id, true
 	}
 
 	return opUnknown, id, true
@@ -600,6 +648,118 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": out})
+}
+
+// --- harvest job handlers ---
+
+type s3DestinationOutput struct {
+	BucketName  string `json:"BucketName"`
+	ManifestKey string `json:"ManifestKey"`
+	RoleArn     string `json:"RoleArn"`
+}
+
+type harvestJobOutput struct {
+	S3Destination    *s3DestinationOutput `json:"S3Destination"`
+	Arn              string               `json:"Arn"`
+	ChannelId        string               `json:"ChannelId"` //nolint:revive,staticcheck // existing issue.
+	CreatedAt        string               `json:"CreatedAt"`
+	EndTime          string               `json:"EndTime"`
+	Id               string               `json:"Id"`               //nolint:revive,staticcheck // existing issue.
+	OriginEndpointId string               `json:"OriginEndpointId"` //nolint:revive,staticcheck // existing issue.
+	StartTime        string               `json:"StartTime"`
+	Status           string               `json:"Status"`
+}
+
+func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
+	out := harvestJobOutput{
+		Arn:              j.ARN,
+		ChannelId:        j.ChannelID,
+		CreatedAt:        j.CreatedAt,
+		EndTime:          j.EndTime,
+		Id:               j.ID,
+		OriginEndpointId: j.OriginEndpointID,
+		StartTime:        j.StartTime,
+		Status:           j.Status,
+	}
+
+	if j.S3Destination != nil {
+		out.S3Destination = &s3DestinationOutput{
+			BucketName:  j.S3Destination.BucketName,
+			ManifestKey: j.S3Destination.ManifestKey,
+			RoleArn:     j.S3Destination.RoleArn,
+		}
+	}
+
+	return out
+}
+
+func (h *Handler) handleCreateHarvestJob(c *echo.Context, body map[string]any) error {
+	id, _ := body["Id"].(string)
+	originEndpointID, _ := body["OriginEndpointId"].(string)
+	startTime, _ := body["StartTime"].(string)
+	endTime, _ := body["EndTime"].(string)
+
+	var s3Dest S3Destination
+
+	if raw, ok := body["S3Destination"].(map[string]any); ok {
+		s3Dest.BucketName, _ = raw["BucketName"].(string)
+		s3Dest.ManifestKey, _ = raw["ManifestKey"].(string)
+		s3Dest.RoleArn, _ = raw["RoleArn"].(string)
+	}
+
+	job, err := h.Backend.CreateHarvestJob(id, originEndpointID, startTime, endTime, s3Dest)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toHarvestJobOutput(job))
+}
+
+func (h *Handler) handleDescribeHarvestJob(c *echo.Context, id string) error {
+	job, err := h.Backend.DescribeHarvestJob(id)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toHarvestJobOutput(job))
+}
+
+func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
+	includeChannelID := c.QueryParam("includeChannelId")
+	includeStatus := c.QueryParam("includeStatus")
+
+	jobs, nextToken, err := h.Backend.ListHarvestJobs(includeChannelID, includeStatus, 0, "")
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	out := make([]harvestJobOutput, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, toHarvestJobOutput(j))
+	}
+
+	resp := map[string]any{"HarvestJobs": out}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleRotateIngestEndpointCredentials(c *echo.Context, path string) error {
+	// path: /channels/{channelId}/ingest_endpoints/{ingestEndpointId}/credentials
+	rest := strings.TrimPrefix(path, pathChannels+"/")
+	channelID, sub, _ := strings.Cut(rest, "/")
+	// sub: ingest_endpoints/{ingestEndpointId}/credentials
+	sub = strings.TrimPrefix(sub, "ingest_endpoints/")
+	ingestEndpointID := strings.TrimSuffix(sub, "/credentials")
+
+	ch, err := h.Backend.RotateIngestEndpointCredentials(channelID, ingestEndpointID)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toChannelOutput(ch))
 }
 
 // --- body helpers ---

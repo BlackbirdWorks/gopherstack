@@ -33,8 +33,8 @@ func TestCompleteness_IdentityProvider_CRUD(t *testing.T) {
 
 	var createResp struct {
 		IdentityProvider struct {
-			ProviderName string `json:"ProviderName"`
-			ProviderType string `json:"ProviderType"`
+			ProviderName string `json:"ProviderName,omitempty"`
+			ProviderType string `json:"ProviderType,omitempty"`
 		} `json:"IdentityProvider"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -63,7 +63,7 @@ func TestCompleteness_IdentityProvider_CRUD(t *testing.T) {
 
 	var listResp struct {
 		Providers []struct {
-			ProviderName string `json:"ProviderName"`
+			ProviderName string `json:"ProviderName,omitempty"`
 		} `json:"Providers"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
@@ -125,7 +125,7 @@ func TestCompleteness_Domain_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp struct {
-		CloudFrontDomain string `json:"CloudFrontDomain"`
+		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	// Managed domains: AWS returns empty CloudFrontDomain in the create response.
@@ -139,8 +139,8 @@ func TestCompleteness_Domain_CRUD(t *testing.T) {
 
 	var descResp struct {
 		DomainDescription struct {
-			Domain string `json:"Domain"`
-			Status string `json:"Status"`
+			Domain string `json:"Domain,omitempty"`
+			Status string `json:"Status,omitempty"`
 		} `json:"DomainDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
@@ -169,8 +169,8 @@ func TestCompleteness_Domain_CRUD(t *testing.T) {
 
 	var afterDeleteResp struct {
 		DomainDescription struct {
-			Domain string `json:"Domain"`
-			Status string `json:"Status"`
+			Domain string `json:"Domain,omitempty"`
+			Status string `json:"Status,omitempty"`
 		} `json:"DomainDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterDeleteResp))
@@ -201,7 +201,7 @@ func TestCompleteness_Tags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp struct {
-		Tags map[string]string `json:"Tags"`
+		Tags map[string]string `json:"Tags,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Equal(t, "prod", listResp.Tags["env"])
@@ -219,7 +219,7 @@ func TestCompleteness_Tags(t *testing.T) {
 		"ResourceArn": arn,
 	})
 	var afterUntagResp struct {
-		Tags map[string]string `json:"Tags"`
+		Tags map[string]string `json:"Tags,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterUntagResp))
 	assert.NotContains(t, afterUntagResp.Tags, "env")
@@ -311,7 +311,7 @@ func TestCompleteness_UICustomization(t *testing.T) {
 
 	var resp struct {
 		UICustomization struct {
-			CSS string `json:"CSS"`
+			CSS string `json:"CSS,omitempty"`
 		} `json:"UICustomization"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -337,7 +337,7 @@ func TestCompleteness_ManagedLoginBranding_CRUD(t *testing.T) {
 
 	var createResp struct {
 		ManagedLoginBranding struct {
-			ManagedLoginBrandingID string `json:"ManagedLoginBrandingId"`
+			ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
 		} `json:"ManagedLoginBranding"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -398,7 +398,7 @@ func TestCompleteness_Terms_CRUD(t *testing.T) {
 	rec = doCognitoRequest(t, h, "ListTerms", map[string]any{"UserPoolId": poolID})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp struct {
-		Terms []any `json:"Terms"`
+		Terms []any `json:"Terms,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Empty(t, listResp.Terms)
@@ -454,9 +454,9 @@ func TestCompleteness_UserImportJob_CRUD(t *testing.T) {
 
 	var createResp struct {
 		UserImportJob struct {
-			JobID   string `json:"JobId"`
-			JobName string `json:"JobName"`
-			Status  string `json:"Status"`
+			JobID   string `json:"JobId,omitempty"`
+			JobName string `json:"JobName,omitempty"`
+			Status  string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -479,7 +479,7 @@ func TestCompleteness_UserImportJob_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp struct {
 		UserImportJobs []struct {
-			JobID string `json:"JobId"`
+			JobID string `json:"JobId,omitempty"`
 		} `json:"UserImportJobs"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
@@ -497,7 +497,7 @@ func TestCompleteness_UserImportJob_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var startResp struct {
 		UserImportJob struct {
-			Status string `json:"Status"`
+			Status string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
@@ -511,7 +511,7 @@ func TestCompleteness_UserImportJob_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var stopResp struct {
 		UserImportJob struct {
-			Status string `json:"Status"`
+			Status string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
@@ -543,7 +543,7 @@ func TestCompleteness_ClientSecrets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp struct {
-		Secrets []string `json:"Secrets"`
+		Secrets []string `json:"Secrets,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Empty(t, listResp.Secrets)
@@ -609,7 +609,7 @@ func TestCompleteness_GetTokensFromRefreshToken(t *testing.T) {
 
 	var authResp struct {
 		AuthenticationResult struct {
-			RefreshToken string `json:"RefreshToken"`
+			RefreshToken string `json:"RefreshToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
 	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
@@ -625,7 +625,7 @@ func TestCompleteness_GetTokensFromRefreshToken(t *testing.T) {
 
 	var tokenResp struct {
 		AuthenticationResult struct {
-			AccessToken string `json:"AccessToken"`
+			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tokenResp))

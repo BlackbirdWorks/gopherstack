@@ -21,23 +21,33 @@ func (b *InMemoryBackend) HistoryLen(name string) int {
 	b.mu.RLock("HistoryLen")
 	defer b.mu.RUnlock()
 
-	return len(b.history[name])
+	return len(b.historyStore(b.Region())[name])
 }
 
-// CommandCount returns the number of commands currently stored.
+// CommandCount returns the number of commands currently stored across all regions.
 func (b *InMemoryBackend) CommandCount() int {
 	b.mu.RLock("CommandCount")
 	defer b.mu.RUnlock()
 
-	return len(b.commands)
+	total := 0
+	for _, cmds := range b.commands {
+		total += len(cmds)
+	}
+
+	return total
 }
 
-// CommandInvocationCount returns the number of command invocation sets stored.
+// CommandInvocationCount returns the number of command invocation sets stored across all regions.
 func (b *InMemoryBackend) CommandInvocationCount() int {
 	b.mu.RLock("CommandInvocationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.commandInvocations)
+	total := 0
+	for _, invs := range b.commandInvocations {
+		total += len(invs)
+	}
+
+	return total
 }
 
 // SetCommandExpiresAfter overrides the ExpiresAfter timestamp of the given command.
@@ -46,9 +56,14 @@ func (b *InMemoryBackend) SetCommandExpiresAfter(cmdID string, expiresAfter floa
 	b.mu.Lock("SetCommandExpiresAfter")
 	defer b.mu.Unlock()
 
-	if cmd, ok := b.commands[cmdID]; ok {
-		cmd.ExpiresAfter = expiresAfter
-		b.commands[cmdID] = cmd
+	// Try all regions.
+	for _, cmds := range b.commands {
+		if cmd, ok := cmds[cmdID]; ok {
+			cmd.ExpiresAfter = expiresAfter
+			cmds[cmdID] = cmd
+
+			return
+		}
 	}
 }
 
@@ -58,7 +73,7 @@ func (b *InMemoryBackend) HasTagEntry(name string) bool {
 	b.mu.RLock("HasTagEntry")
 	defer b.mu.RUnlock()
 
-	return b.tags[name] != nil
+	return b.tagsStore(b.Region())[name] != nil
 }
 
 // DocumentVersionCount returns the number of versions stored for the given document.
@@ -66,7 +81,7 @@ func (b *InMemoryBackend) DocumentVersionCount(name string) int {
 	b.mu.RLock("DocumentVersionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.documentVersions[name])
+	return len(b.documentVersionsStore(b.Region())[name])
 }
 
 // GetJanitorInterval returns the Interval configured on the handler's janitor.
@@ -98,52 +113,52 @@ func (b *InMemoryBackend) GetCommandExpirySecs() float64 {
 	return b.commandExpirySecs
 }
 
-// ActivationCount returns the number of activations stored.
+// ActivationCount returns the number of activations stored in the default region.
 func (b *InMemoryBackend) ActivationCount() int {
 	b.mu.RLock("ActivationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.activations)
+	return len(b.activationsStore(b.Region()))
 }
 
-// AssociationCount returns the number of associations stored.
+// AssociationCount returns the number of associations stored in the default region.
 func (b *InMemoryBackend) AssociationCount() int {
 	b.mu.RLock("AssociationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.associations)
+	return len(b.associationsStore(b.Region()))
 }
 
-// MaintenanceWindowCount returns the number of maintenance windows stored.
+// MaintenanceWindowCount returns the number of maintenance windows stored in the default region.
 func (b *InMemoryBackend) MaintenanceWindowCount() int {
 	b.mu.RLock("MaintenanceWindowCount")
 	defer b.mu.RUnlock()
 
-	return len(b.maintenanceWindows)
+	return len(b.maintenanceWindowsStore(b.Region()))
 }
 
-// OpsItemCount returns the number of OpsItems stored.
+// OpsItemCount returns the number of OpsItems stored in the default region.
 func (b *InMemoryBackend) OpsItemCount() int {
 	b.mu.RLock("OpsItemCount")
 	defer b.mu.RUnlock()
 
-	return len(b.opsItems)
+	return len(b.opsItemsStore(b.Region()))
 }
 
-// OpsMetadataCount returns the number of OpsMetadata entries stored.
+// OpsMetadataCount returns the number of OpsMetadata entries stored in the default region.
 func (b *InMemoryBackend) OpsMetadataCount() int {
 	b.mu.RLock("OpsMetadataCount")
 	defer b.mu.RUnlock()
 
-	return len(b.opsMetadata)
+	return len(b.opsMetadataStore(b.Region()))
 }
 
-// PatchBaselineCount returns the number of patch baselines stored.
+// PatchBaselineCount returns the number of patch baselines stored in the default region.
 func (b *InMemoryBackend) PatchBaselineCount() int {
 	b.mu.RLock("PatchBaselineCount")
 	defer b.mu.RUnlock()
 
-	return len(b.patchBaselines)
+	return len(b.patchBaselinesStore(b.Region()))
 }
 
 // HandlerOpsLen returns the number of supported operations.
@@ -155,42 +170,42 @@ func (h *Handler) HandlerOpsLen() int {
 func (b *InMemoryBackend) AddActivationInternal(act Activation) {
 	b.mu.Lock("AddActivationInternal")
 	defer b.mu.Unlock()
-	b.activations[act.ActivationID] = act
+	b.activationsStore(b.Region())[act.ActivationID] = act
 }
 
 // AddAssociationInternal seeds an association directly into the backend for testing.
 func (b *InMemoryBackend) AddAssociationInternal(assoc Association) {
 	b.mu.Lock("AddAssociationInternal")
 	defer b.mu.Unlock()
-	b.associations[assoc.AssociationID] = assoc
+	b.associationsStore(b.Region())[assoc.AssociationID] = assoc
 }
 
 // AddMaintenanceWindowInternal seeds a maintenance window directly into the backend for testing.
 func (b *InMemoryBackend) AddMaintenanceWindowInternal(mw MaintenanceWindow) {
 	b.mu.Lock("AddMaintenanceWindowInternal")
 	defer b.mu.Unlock()
-	b.maintenanceWindows[mw.WindowID] = mw
+	b.maintenanceWindowsStore(b.Region())[mw.WindowID] = mw
 }
 
 // AddOpsItemInternal seeds an OpsItem directly into the backend for testing.
 func (b *InMemoryBackend) AddOpsItemInternal(item OpsItem) {
 	b.mu.Lock("AddOpsItemInternal")
 	defer b.mu.Unlock()
-	b.opsItems[item.OpsItemID] = item
+	b.opsItemsStore(b.Region())[item.OpsItemID] = item
 }
 
 // AddOpsMetadataInternal seeds OpsMetadata directly into the backend for testing.
 func (b *InMemoryBackend) AddOpsMetadataInternal(meta OpsMetadata) {
 	b.mu.Lock("AddOpsMetadataInternal")
 	defer b.mu.Unlock()
-	b.opsMetadata[meta.OpsMetadataArn] = meta
+	b.opsMetadataStore(b.Region())[meta.OpsMetadataArn] = meta
 }
 
 // AddPatchBaselineInternal seeds a patch baseline directly into the backend for testing.
 func (b *InMemoryBackend) AddPatchBaselineInternal(bl PatchBaseline) {
 	b.mu.Lock("AddPatchBaselineInternal")
 	defer b.mu.Unlock()
-	b.patchBaselines[bl.BaselineID] = bl
+	b.patchBaselinesStore(b.Region())[bl.BaselineID] = bl
 }
 
 // OpsItemRelatedItemCount returns the total number of related items across all OpsItems.
@@ -198,7 +213,7 @@ func (b *InMemoryBackend) OpsItemRelatedItemCount(opsItemID string) int {
 	b.mu.RLock("OpsItemRelatedItemCount")
 	defer b.mu.RUnlock()
 
-	return len(b.opsItemRelatedItems[opsItemID])
+	return len(b.opsItemRelatedItemsStore(b.Region())[opsItemID])
 }
 
 // GetPatchBaselineInternal retrieves a patch baseline directly from the backend for testing.
@@ -206,7 +221,7 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 	b.mu.RLock("GetPatchBaselineInternal")
 	defer b.mu.RUnlock()
 
-	return b.patchBaselines[id]
+	return b.patchBaselinesStore(b.Region())[id]
 }
 
 // ForceInsertParameter injects a parameter directly into the backend, bypassing
@@ -214,5 +229,5 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 func (b *InMemoryBackend) ForceInsertParameter(p Parameter) {
 	b.mu.Lock("ForceInsertParameter")
 	defer b.mu.Unlock()
-	b.parameters[p.Name] = p
+	b.parametersStore(b.Region())[p.Name] = p
 }

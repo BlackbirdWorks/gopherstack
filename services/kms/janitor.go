@@ -40,6 +40,7 @@ func (h *expiryHeap) Swap(i, j int) {
 	(*h)[i].heapIdx = i
 	(*h)[j].heapIdx = j
 }
+
 func (h *expiryHeap) Push(x any) {
 	e, ok := x.(*expiryEntry)
 	if !ok {
@@ -49,6 +50,7 @@ func (h *expiryHeap) Push(x any) {
 	e.heapIdx = len(*h)
 	*h = append(*h, e)
 }
+
 func (h *expiryHeap) Pop() any {
 	old := *h
 	n := len(old)

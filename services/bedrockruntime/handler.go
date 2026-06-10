@@ -19,10 +19,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const modelPathPrefix = "/model/"
-const guardrailPathPrefix = "/guardrail/"
-const asyncInvokePathPrefix = "/async-invoke"
-const asyncInvokeItemPathPrefix = asyncInvokePathPrefix + "/"
+const (
+	modelPathPrefix           = "/model/"
+	guardrailPathPrefix       = "/guardrail/"
+	asyncInvokePathPrefix     = "/async-invoke"
+	asyncInvokeItemPathPrefix = asyncInvokePathPrefix + "/"
+)
 
 // Event stream frame constants (AWS binary event stream protocol).
 const (
@@ -130,8 +132,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 }
 
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "BedrockRuntime" }
@@ -166,6 +170,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if strings.HasPrefix(c.Request().Host, "bedrock-runtime.") {
+			return true
+		}
 
 		return strings.HasPrefix(path, modelPathPrefix) ||
 			strings.HasPrefix(path, guardrailPathPrefix) ||

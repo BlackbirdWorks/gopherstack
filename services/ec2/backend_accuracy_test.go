@@ -319,6 +319,7 @@ func TestAccuracy_SetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T
 
 	instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
 
 	id := instances[0].ID
 
@@ -330,6 +331,7 @@ func TestAccuracy_SetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T
 	// Stop then modify — should succeed.
 	_, stopErr := b.StopInstances([]string{id})
 	require.NoError(t, stopErr)
+	b.TickLifecycleForTest() // stopping → stopped
 
 	err = b.SetInstanceAttribute(id, "instanceType", "t3.large")
 	require.NoError(t, err)
@@ -354,13 +356,14 @@ func TestAccuracy_SetInstanceAttribute_NotFound(t *testing.T) {
 func TestAccuracy_SpotPriceHistory_Deterministic(t *testing.T) {
 	t.Parallel()
 
-	start := time.Now().UTC().Add(-24 * time.Hour)
+	// use deterministic time since history drops records older than 24h
+	now := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC).UTC().Add(-24 * time.Hour)
 
 	records1 := ec2.GenerateSpotPriceHistory(
 		[]string{"t3.micro"},
 		[]string{"us-east-1a"},
 		[]string{"Linux/UNIX"},
-		start,
+		now,
 		"us-east-1",
 	)
 
@@ -368,7 +371,7 @@ func TestAccuracy_SpotPriceHistory_Deterministic(t *testing.T) {
 		[]string{"t3.micro"},
 		[]string{"us-east-1a"},
 		[]string{"Linux/UNIX"},
-		start,
+		now,
 		"us-east-1",
 	)
 

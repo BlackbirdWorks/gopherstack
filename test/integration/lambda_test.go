@@ -342,7 +342,7 @@ func createInMemoryTar(files map[string]string) (io.Reader, error) {
 		data := []byte(content)
 		hdr := &tar.Header{
 			Name: name,
-			Mode: 0600,
+			Mode: 0o600,
 			Size: int64(len(data)),
 		}
 

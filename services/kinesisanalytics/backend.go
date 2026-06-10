@@ -281,7 +281,8 @@ func convertInputConfig(cfg *applicationInputConfig) (InputDescription, error) {
 
 	if sourceCount > 1 {
 		return desc, fmt.Errorf(
-			"%w: exactly one of KinesisStreamsInput or KinesisFirehoseInput must be specified", ErrValidation)
+			"%w: exactly one of KinesisStreamsInput or KinesisFirehoseInput must be specified", ErrValidation,
+		)
 	}
 
 	if cfg.KinesisStreamsInput != nil {
@@ -355,7 +356,8 @@ func convertOutputConfig(cfg *applicationOutputConfig) (OutputDescription, error
 	if destCount > 1 {
 		return desc, fmt.Errorf(
 			"%w: exactly one of KinesisStreamsOutput, KinesisFirehoseOutput, or LambdaOutput must be specified",
-			ErrValidation)
+			ErrValidation,
+		)
 	}
 
 	if cfg.KinesisStreamsOutput != nil {
@@ -386,7 +388,8 @@ func convertOutputConfig(cfg *applicationOutputConfig) (OutputDescription, error
 	ft := cfg.DestinationSchema.RecordFormatType
 	if ft != recordFormatJSON && ft != "CSV" {
 		return desc, fmt.Errorf(
-			"%w: DestinationSchema.RecordFormatType must be JSON or CSV", ErrValidation)
+			"%w: DestinationSchema.RecordFormatType must be JSON or CSV", ErrValidation,
+		)
 	}
 
 	desc.DestinationSchema = &DestinationSchemaDesc{RecordFormatType: ft}

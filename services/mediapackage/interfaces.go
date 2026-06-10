@@ -9,6 +9,7 @@ type StorageBackend interface {
 	ListChannels(maxResults int, nextToken string) ([]*Channel, string, error)
 	ConfigureLogs(id string, egressLogGroup, ingressLogGroup string) (*Channel, error)
 	RotateChannelCredentials(id string) (*Channel, error)
+	RotateIngestEndpointCredentials(channelID, ingestEndpointID string) (*Channel, error)
 
 	CreateOriginEndpoint(
 		channelID, id, description, manifestName string,
@@ -26,6 +27,14 @@ type StorageBackend interface {
 	) (*OriginEndpoint, error)
 	DeleteOriginEndpoint(id string) (*OriginEndpoint, error)
 	ListOriginEndpoints(channelID string, maxResults int, nextToken string) ([]*OriginEndpoint, string, error)
+
+	CreateHarvestJob(id, originEndpointID, startTime, endTime string, s3Dest S3Destination) (*HarvestJob, error)
+	DescribeHarvestJob(id string) (*HarvestJob, error)
+	ListHarvestJobs(
+		includeChannelID, includeStatus string,
+		maxResults int,
+		nextToken string,
+	) ([]*HarvestJob, string, error)
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, keys []string) error
@@ -73,6 +82,26 @@ type OriginEndpoint struct {
 	Whitelist              []string
 	StartoverWindowSeconds int
 	TimeDelaySeconds       int
+}
+
+// S3Destination describes where harvested content is exported.
+type S3Destination struct {
+	BucketName  string
+	ManifestKey string
+	RoleArn     string
+}
+
+// HarvestJob represents a MediaPackage harvest job.
+type HarvestJob struct {
+	S3Destination    *S3Destination
+	ARN              string
+	ChannelID        string
+	CreatedAt        string
+	EndTime          string
+	ID               string
+	OriginEndpointID string
+	StartTime        string
+	Status           string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

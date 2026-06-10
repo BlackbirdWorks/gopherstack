@@ -127,7 +127,8 @@ func TestAccuracy_ConverseStream_EmitsMultipleEvents(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
 		map[string]any{
 			"messages": []map[string]any{
 				{"role": "user", "content": []map[string]any{{"type": "text", "text": "hello"}}},
@@ -148,7 +149,8 @@ func TestAccuracy_ConverseStream_EventOrderIsCorrect(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-3-sonnet-20240229-v1:0/converse-stream",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-3-sonnet-20240229-v1:0/converse-stream",
 		map[string]any{"messages": []map[string]any{
 			{"role": "user", "content": []map[string]any{{"type": "text", "text": "hi"}}},
 		}},
@@ -182,7 +184,8 @@ func TestAccuracy_ConverseStream_ContentBlockDeltaHasText(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
 		map[string]any{"messages": []map[string]any{
 			{"role": "user", "content": []map[string]any{{"type": "text", "text": "ping"}}},
 		}},
@@ -215,7 +218,8 @@ func TestAccuracy_ConverseStream_MetadataHasUsage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/amazon.titan-text-express-v1/converse-stream",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/amazon.titan-text-express-v1/converse-stream",
 		map[string]any{"messages": []map[string]any{
 			{"role": "user", "content": []map[string]any{{"type": "text", "text": "hello titan"}}},
 		}},
@@ -247,7 +251,8 @@ func TestAccuracy_ConverseStream_MessageStopHasStopReason(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
 		map[string]any{"messages": []map[string]any{
 			{"role": "user", "content": []map[string]any{{"type": "text", "text": "bye"}}},
 		}},
@@ -348,7 +353,8 @@ func TestAccuracy_InvokeModelWithResponseStream_EmitsChunkEvent(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/invoke-with-response-stream",
 				map[string]any{"prompt": "test"},
 			)
@@ -369,7 +375,8 @@ func TestAccuracy_BidirectionalStream_EmitsChunkEvent(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost,
+	rec := doRequest(
+		t, h, http.MethodPost,
 		"/model/anthropic.claude-v2/invoke-with-bidirectional-stream",
 		map[string]any{"prompt": "hello"},
 	)
@@ -393,7 +400,8 @@ func TestAccuracy_BidirectionalStream_ContentTypeIsEventStream(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost,
+			rec := doRequest(
+				t, h, http.MethodPost,
 				"/model/"+modelID+"/invoke-with-bidirectional-stream",
 				nil,
 			)
@@ -411,7 +419,8 @@ func TestAccuracy_Converse_WithToolConfig_ReturnsEndTurn(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse",
 		map[string]any{
 			"messages": []map[string]any{
 				{"role": "user", "content": []map[string]any{{"type": "text", "text": "use a tool"}}},

@@ -1,6 +1,7 @@
 package ssm_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -68,11 +69,11 @@ func TestInMemoryBackend_PutAndGet(t *testing.T) {
 		Value:       "supersecret",
 		Description: "The DB password",
 	}
-	putOut, err := backend.PutParameter(putIn)
+	putOut, err := backend.PutParameter(context.TODO(), putIn)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), putOut.Version)
 
-	getOut, err := backend.GetParameter(&ssm.GetParameterInput{
+	getOut, err := backend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name:           "db-password",
 		WithDecryption: true,
 	})
@@ -85,7 +86,7 @@ func TestInMemoryBackend_DuplicateKeyError(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "db-password",
 		Type:  "SecureString",
 		Value: "supersecret",
@@ -94,7 +95,7 @@ func TestInMemoryBackend_DuplicateKeyError(t *testing.T) {
 	input2 := &ssm.PutParameterInput{
 		Name: "db-password", Type: "String", Value: "{}", Overwrite: false,
 	}
-	_, duplicateErr := backend.PutParameter(input2)
+	_, duplicateErr := backend.PutParameter(context.TODO(), input2)
 	require.ErrorIs(t, duplicateErr, ssm.ErrParameterAlreadyExists)
 }
 
@@ -102,7 +103,7 @@ func TestInMemoryBackend_Overwrite(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name:  "db-password",
 		Type:  "SecureString",
 		Value: "supersecret",
@@ -114,11 +115,11 @@ func TestInMemoryBackend_Overwrite(t *testing.T) {
 		Value:     "newsecret",
 		Overwrite: true,
 	}
-	putOut, err := backend.PutParameter(putInOverwrite)
+	putOut, err := backend.PutParameter(context.TODO(), putInOverwrite)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), putOut.Version)
 
-	getOut, err := backend.GetParameter(&ssm.GetParameterInput{Name: "db-password"})
+	getOut, err := backend.GetParameter(context.TODO(), &ssm.GetParameterInput{Name: "db-password"})
 	require.NoError(t, err)
 	assert.Equal(t, "newsecret", getOut.Parameter.Value)
 	assert.Equal(t, int64(2), getOut.Parameter.Version)
@@ -129,13 +130,15 @@ func TestInMemoryBackend_GetParameters(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
 
-	getParamsOut, err := backend.GetParameters(&ssm.GetParametersInput{
+	getParamsOut, err := backend.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names: []string{"db-password", "api-key", "missing-key"},
 	})
 	require.NoError(t, err)
@@ -149,13 +152,15 @@ func TestInMemoryBackend_ListAll(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
 
-	all := backend.ListAll()
+	all := backend.ListAll(context.TODO())
 	assert.Len(t, all, 2)
 	assert.Equal(t, "api-key", all[0].Name)
 	assert.Equal(t, "db-password", all[1].Name)
@@ -166,15 +171,17 @@ func TestInMemoryBackend_DeleteAll(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
 	)
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
 	)
 
-	backend.DeleteParameter(&ssm.DeleteParameterInput{Name: "api-key"})
-	backend.DeleteParameter(&ssm.DeleteParameterInput{Name: "db-password"})
-	assert.Empty(t, backend.ListAll())
+	backend.DeleteParameter(context.TODO(), &ssm.DeleteParameterInput{Name: "api-key"})
+	backend.DeleteParameter(context.TODO(), &ssm.DeleteParameterInput{Name: "db-password"})
+	assert.Empty(t, backend.ListAll(context.TODO()))
 }
 
 func TestInMemoryBackend_DeleteParameters(t *testing.T) {
@@ -182,10 +189,12 @@ func TestInMemoryBackend_DeleteParameters(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "key1", Type: "String", Value: "v1"},
 	)
 
 	delOut, err := backend.DeleteParameters(
+		context.TODO(),
 		&ssm.DeleteParametersInput{
 			Names: []string{"db-password", "key1", "missing"},
 		},
@@ -193,7 +202,7 @@ func TestInMemoryBackend_DeleteParameters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, delOut.DeletedParameters, 1)
 	assert.Len(t, delOut.InvalidParameters, 2)
-	assert.Empty(t, backend.ListAll())
+	assert.Empty(t, backend.ListAll(context.TODO()))
 }
 
 // --- Handler routing tests ---
@@ -217,6 +226,7 @@ func TestHandler_Routing(t *testing.T) {
 			body:   `{"Name":"test-param"}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "test-param", Type: "String", Value: "test-value"},
 				)
 			},
@@ -300,11 +310,11 @@ func TestParameterHistory_InitialVersion(t *testing.T) {
 		Value:       "key-v1",
 		Description: "API key",
 	}
-	putOut, err := backend.PutParameter(putIn)
+	putOut, err := backend.PutParameter(context.TODO(), putIn)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), putOut.Version)
 
-	historyOut, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	historyOut, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name: "api-key",
 	})
 	require.NoError(t, err)
@@ -318,17 +328,17 @@ func TestParameterHistory_MultipleVersions(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "counter", Type: "String", Value: "1",
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "counter", Type: "String", Value: "2", Overwrite: true,
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "counter", Type: "String", Value: "3", Overwrite: true,
 	})
 
-	historyOut, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	historyOut, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name: "counter",
 	})
 	require.NoError(t, err)
@@ -349,7 +359,7 @@ func TestParameterHistory_NotFound(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	_, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name: "nonexistent",
 	})
 	require.Error(t, err)
@@ -363,7 +373,7 @@ func TestParameterHistory_WithMaxResults(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		overwrite := i > 1
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name:      "paginated-param",
 			Type:      "String",
 			Value:     "value-" + string(rune(i+'0'-1)),
@@ -372,7 +382,7 @@ func TestParameterHistory_WithMaxResults(t *testing.T) {
 	}
 
 	maxResults := int64(2)
-	historyOut, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	historyOut, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name:       "paginated-param",
 		MaxResults: &maxResults,
 	})
@@ -388,14 +398,14 @@ func TestParameterHistory_TypeChanges(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "type-change", Type: "String", Value: "string-value",
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "type-change", Type: "SecureString", Value: "secure-value", Overwrite: true,
 	})
 
-	historyOut, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	historyOut, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name: "type-change",
 	})
 	require.NoError(t, err)
@@ -412,12 +422,12 @@ func TestSecureString_PutEncryption(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.PutParameter(&ssm.PutParameterInput{
+	_, err := backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "db-password", Type: "SecureString", Value: "super-secret-password",
 	})
 	require.NoError(t, err)
 
-	output, err := backend.GetParameter(&ssm.GetParameterInput{
+	output, err := backend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name: "db-password", WithDecryption: false,
 	})
 	require.NoError(t, err)
@@ -431,12 +441,12 @@ func TestSecureString_GetWithDecryption(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, err := backend.PutParameter(&ssm.PutParameterInput{
+	_, err := backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "db-password", Type: "SecureString", Value: "super-secret-password",
 	})
 	require.NoError(t, err)
 
-	output, err := backend.GetParameter(&ssm.GetParameterInput{
+	output, err := backend.GetParameter(context.TODO(), &ssm.GetParameterInput{
 		Name: "db-password", WithDecryption: true,
 	})
 	require.NoError(t, err)
@@ -449,17 +459,17 @@ func TestSecureString_GetParametersDecryption(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "api-key", Type: "SecureString", Value: "api-key-value",
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "db-password", Type: "SecureString", Value: "db-password-value",
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "environment", Type: "String", Value: "production",
 	})
 
-	outputNoDecrypt, err := backend.GetParameters(&ssm.GetParametersInput{
+	outputNoDecrypt, err := backend.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names:          []string{"api-key", "db-password", "environment"},
 		WithDecryption: false,
 	})
@@ -472,7 +482,7 @@ func TestSecureString_GetParametersDecryption(t *testing.T) {
 		}
 	}
 
-	outputWithDecrypt, err := backend.GetParameters(&ssm.GetParametersInput{
+	outputWithDecrypt, err := backend.GetParameters(context.TODO(), &ssm.GetParametersInput{
 		Names:          []string{"api-key", "db-password", "environment"},
 		WithDecryption: true,
 	})
@@ -496,14 +506,14 @@ func TestSecureString_HistoryEncryption(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "secret", Type: "SecureString", Value: "secret-v1",
 	})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "secret", Type: "SecureString", Value: "secret-v2", Overwrite: true,
 	})
 
-	historyOutput, err := backend.GetParameterHistory(&ssm.GetParameterHistoryInput{
+	historyOutput, err := backend.GetParameterHistory(context.TODO(), &ssm.GetParameterHistoryInput{
 		Name: "secret",
 	})
 	require.NoError(t, err)
@@ -522,10 +532,10 @@ func TestGetParametersByPath_DirectChildrenOnly(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	for _, name := range []string{"/app/db/host", "/app/db/port", "/app/cache/host", "/app/config"} {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 	}
 
-	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/app", Recursive: false,
 	})
 	require.NoError(t, err)
@@ -538,10 +548,10 @@ func TestGetParametersByPath_Recursive(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	for _, name := range []string{"/app/db/host", "/app/db/port", "/app/cache/host", "/app/config"} {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 	}
 
-	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/app", Recursive: true,
 	})
 	require.NoError(t, err)
@@ -554,18 +564,18 @@ func TestGetParametersByPath_Pagination(t *testing.T) {
 	backend := ssm.NewInMemoryBackend()
 	for i := range 5 {
 		name := "/params/key" + string(rune('0'+i))
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 	}
 
 	maxRes := int64(2)
-	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/params", Recursive: true, MaxResults: &maxRes,
 	})
 	require.NoError(t, err)
 	assert.Len(t, out.Parameters, 2)
 	assert.NotEmpty(t, out.NextToken)
 
-	out2, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out2, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/params", Recursive: true, MaxResults: &maxRes, NextToken: out.NextToken,
 	})
 	require.NoError(t, err)
@@ -576,7 +586,7 @@ func TestGetParametersByPath_EmptyPath(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/nonexistent", Recursive: true,
 	})
 	require.NoError(t, err)
@@ -587,11 +597,11 @@ func TestGetParametersByPath_WithDecryption(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "/secrets/key", Type: "SecureString", Value: "plaintext",
 	})
 
-	out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+	out, err := backend.GetParametersByPath(context.TODO(), &ssm.GetParametersByPathInput{
 		Path: "/secrets", Recursive: true, WithDecryption: true,
 	})
 	require.NoError(t, err)
@@ -608,10 +618,10 @@ func TestDescribeParameters_AllParameters(t *testing.T) {
 	for _, p := range []struct{ name, typ string }{
 		{"/a", "String"}, {"/b", "SecureString"}, {"/c", "StringList"},
 	} {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
 	}
 
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{})
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.Parameters, 3)
 	for _, m := range out.Parameters {
@@ -626,10 +636,10 @@ func TestDescribeParameters_FilterByType(t *testing.T) {
 	for _, p := range []struct{ name, typ string }{
 		{"/a", "String"}, {"/b", "SecureString"}, {"/c", "String"},
 	} {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
 	}
 
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		ParameterFilters: []ssm.ParameterFilter{
 			{Key: "Type", Option: "Equals", Values: []string{"String"}},
 		},
@@ -643,10 +653,10 @@ func TestDescribeParameters_FilterByNameBeginsWith(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	for _, name := range []string{"/app/db", "/app/cache", "/other/key"} {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 	}
 
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		ParameterFilters: []ssm.ParameterFilter{
 			{Key: "Name", Option: "BeginsWith", Values: []string{"/app"}},
 		},
@@ -660,18 +670,18 @@ func TestDescribeParameters_Pagination(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	for i := range 5 {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name: "/p" + string(rune('0'+i)), Type: "String", Value: "v",
 		})
 	}
 
 	maxRes := int64(2)
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{MaxResults: &maxRes})
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{MaxResults: &maxRes})
 	require.NoError(t, err)
 	assert.Len(t, out.Parameters, 2)
 	assert.NotEmpty(t, out.NextToken)
 
-	out2, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+	out2, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		MaxResults: &maxRes, NextToken: out.NextToken,
 	})
 	require.NoError(t, err)
@@ -682,7 +692,7 @@ func TestDescribeParameters_BeyondEnd(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		NextToken: "9999",
 	})
 	require.NoError(t, err)
@@ -708,7 +718,7 @@ func TestHandler_NewOps(t *testing.T) {
 			body:   `{"Path":"/app","Recursive":true}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				for _, name := range []string{"/app/db", "/app/cache", "/other/key"} {
-					b.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+					b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 				}
 			},
 			wantStatus: http.StatusOK,
@@ -720,7 +730,7 @@ func TestHandler_NewOps(t *testing.T) {
 			body:   `{}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				for _, name := range []string{"/app/db", "/app/cache", "/other/key"} {
-					b.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+					b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
 				}
 			},
 			wantStatus: http.StatusOK,
@@ -821,6 +831,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 			body:   `{"Name":"/existing","Type":"String","Value":"v2","Overwrite":false}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"},
 				)
 			},
@@ -903,9 +914,11 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 
 			backend := ssm.NewInMemoryBackend()
 			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"},
 			)
 			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{
 					Name:  "/app/cache/host",
 					Type:  "SecureString",
@@ -913,10 +926,11 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 				},
 			)
 			_, _ = backend.PutParameter(
+				context.TODO(),
 				&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"},
 			)
 
-			out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+			out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 				ParameterFilters: tt.filters,
 			})
 			require.NoError(t, err)
@@ -932,12 +946,12 @@ func TestParseNextToken_BadToken(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	for i := range 3 {
-		_, _ = backend.PutParameter(&ssm.PutParameterInput{
+		_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 			Name: "/p" + string(rune('0'+i)), Type: "String", Value: "v",
 		})
 	}
 
-	out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		NextToken: "not-a-number",
 	})
 	require.NoError(t, err)
@@ -951,9 +965,10 @@ func TestHandler_GetParametersByPathViaHTTP(t *testing.T) {
 
 	h, backend := newTestHandler(t)
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/a", Type: "String", Value: "1"})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/b", Type: "String", Value: "2"})
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/svc/a", Type: "String", Value: "1"})
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/svc/b", Type: "String", Value: "2"})
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "/other/c", Type: "String", Value: "3"},
 	)
 
@@ -970,8 +985,9 @@ func TestHandler_DescribeParametersViaHTTP(t *testing.T) {
 
 	h, backend := newTestHandler(t)
 
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "1"})
+	_, _ = backend.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/a", Type: "String", Value: "1"})
 	_, _ = backend.PutParameter(
+		context.TODO(),
 		&ssm.PutParameterInput{Name: "/b", Type: "SecureString", Value: "2"},
 	)
 
@@ -1019,6 +1035,7 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"Name":"/http/get"}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/get", Type: "String", Value: "val"},
 				)
 			},
@@ -1030,8 +1047,8 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "GetParameters",
 			body:   `{"Names":["/http/a","/http/b","missing"]}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(&ssm.PutParameterInput{Name: "/http/a", Type: "String", Value: "a"})
-				b.PutParameter(&ssm.PutParameterInput{Name: "/http/b", Type: "String", Value: "b"})
+				b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/http/a", Type: "String", Value: "a"})
+				b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/http/b", Type: "String", Value: "b"})
 			},
 			wantStatus:      http.StatusOK,
 			wantBodyContain: "InvalidParameters",
@@ -1042,9 +1059,11 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"Name":"/http/hist"}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/hist", Type: "String", Value: "v1"},
 				)
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{
 						Name:      "/http/hist",
 						Type:      "String",
@@ -1062,6 +1081,7 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"Name":"/http/del"}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/del", Type: "String", Value: "v"},
 				)
 			},
@@ -1072,7 +1092,7 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			action: "DeleteParameters",
 			body:   `{"Names":["/http/d1","missing"]}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(&ssm.PutParameterInput{Name: "/http/d1", Type: "String", Value: "v"})
+				b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/http/d1", Type: "String", Value: "v"})
 			},
 			wantStatus:      http.StatusOK,
 			wantBodyContain: "DeletedParameters",
@@ -1083,6 +1103,7 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","Tags":[{"Key":"k","Value":"v"}]}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
 			},
@@ -1094,9 +1115,10 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","TagKeys":["k"]}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
-				b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+				b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 					ResourceID: "/http/tag", Tags: []ssm.Tag{{Key: "k", Value: "v"}},
 				})
 			},
@@ -1108,9 +1130,10 @@ func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
 			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag"}`,
 			setup: func(b *ssm.InMemoryBackend) {
 				b.PutParameter(
+					context.TODO(),
 					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
 				)
-				b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+				b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
 					ResourceID: "/http/tag", Tags: []ssm.Tag{{Key: "k", Value: "v"}},
 				})
 			},
@@ -1180,7 +1203,7 @@ func TestValidateParameterName(t *testing.T) {
 			t.Parallel()
 
 			backend := ssm.NewInMemoryBackend()
-			_, err := backend.PutParameter(&ssm.PutParameterInput{
+			_, err := backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  tc.paramName,
 				Type:  "String",
 				Value: "val",
@@ -1203,7 +1226,7 @@ func TestTagOperations(t *testing.T) {
 	h, backend := newTestHandler(t)
 	e := echo.New()
 
-	_, err := backend.PutParameter(&ssm.PutParameterInput{
+	_, err := backend.PutParameter(context.TODO(), &ssm.PutParameterInput{
 		Name: "my-param", Type: "String", Value: "val",
 	})
 	require.NoError(t, err)
@@ -1241,6 +1264,7 @@ func TestTagOperations(t *testing.T) {
 
 	// Verify only team tag remains
 	listOut2, err := backend.ListTagsForResource(
+		context.TODO(),
 		&ssm.ListTagsForResourceInput{ResourceID: "my-param"},
 	)
 	require.NoError(t, err)

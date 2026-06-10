@@ -43,8 +43,8 @@ const (
 
 // KeyPair represents an EC2 key pair.
 type KeyPair struct {
-	Name        string `json:"name"`
-	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 	Material    string `json:"material,omitempty"` // private key PEM, only on create
 	// PublicKey is the OpenSSH "ssh-rsa AAAA..." authorized_keys-format public
 	// key, populated by CreateKeyPair (derived from the generated private key)
@@ -57,98 +57,98 @@ type KeyPair struct {
 type Volume struct {
 	CreateTime time.Time         `json:"createTime"`
 	Attachment *VolumeAttachment `json:"attachment,omitempty"`
-	ID         string            `json:"id"`
-	AZ         string            `json:"az"`
-	VolumeType string            `json:"volumeType"`
-	State      string            `json:"state"`
+	ID         string            `json:"id,omitempty"`
+	AZ         string            `json:"az,omitempty"`
+	VolumeType string            `json:"volumeType,omitempty"`
+	State      string            `json:"state,omitempty"`
 	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
-	Size       int               `json:"size"`
-	Encrypted  bool              `json:"encrypted"`
+	Size       int               `json:"size,omitempty"`
+	Encrypted  bool              `json:"encrypted,omitempty"`
 }
 
 // VolumeAttachment represents the attachment state of a volume.
 type VolumeAttachment struct {
 	AttachTime time.Time `json:"attachTime"`
-	VolumeID   string    `json:"volumeID"`
-	InstanceID string    `json:"instanceID"`
-	Device     string    `json:"device"`
-	State      string    `json:"state"`
+	VolumeID   string    `json:"volumeID,omitempty"`
+	InstanceID string    `json:"instanceID,omitempty"`
+	Device     string    `json:"device,omitempty"`
+	State      string    `json:"state,omitempty"`
 }
 
 // Address represents an Elastic IP address.
 type Address struct {
-	AllocationID  string `json:"allocationID"`
+	AllocationID  string `json:"allocationID,omitempty"`
 	AssociationID string `json:"associationID,omitempty"`
-	PublicIP      string `json:"publicIP"`
+	PublicIP      string `json:"publicIP,omitempty"`
 	InstanceID    string `json:"instanceID,omitempty"`
 }
 
 // IGWAttachment represents the attachment of an Internet Gateway to a VPC.
 type IGWAttachment struct {
-	VPCID string `json:"vpcID"`
-	State string `json:"state"`
+	VPCID string `json:"vpcID,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 // InternetGateway represents an EC2 Internet Gateway.
 type InternetGateway struct {
-	ID          string          `json:"id"`
-	Attachments []IGWAttachment `json:"attachments"`
+	ID          string          `json:"id,omitempty"`
+	Attachments []IGWAttachment `json:"attachments,omitempty"`
 }
 
 // Route represents a route table entry.
 type Route struct {
-	DestinationCIDR string `json:"destinationCIDR"`
+	DestinationCIDR string `json:"destinationCIDR,omitempty"`
 	GatewayID       string `json:"gatewayID,omitempty"`
 	NatGatewayID    string `json:"natGatewayID,omitempty"`
-	State           string `json:"state"`
+	State           string `json:"state,omitempty"`
 }
 
 // RouteAssociation represents an association between a route table and a subnet.
 type RouteAssociation struct {
-	ID           string `json:"id"`
-	RouteTableID string `json:"routeTableID"`
-	SubnetID     string `json:"subnetID"`
+	ID           string `json:"id,omitempty"`
+	RouteTableID string `json:"routeTableID,omitempty"`
+	SubnetID     string `json:"subnetID,omitempty"`
 }
 
 // RouteTable represents an EC2 Route Table.
 type RouteTable struct {
-	ID           string             `json:"id"`
-	VPCID        string             `json:"vpcID"`
-	Routes       []Route            `json:"routes"`
-	Associations []RouteAssociation `json:"associations"`
+	ID           string             `json:"id,omitempty"`
+	VPCID        string             `json:"vpcID,omitempty"`
+	Routes       []Route            `json:"routes,omitempty"`
+	Associations []RouteAssociation `json:"associations,omitempty"`
 }
 
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
 	CreateTime   time.Time `json:"createTime"`
-	ID           string    `json:"id"`
-	SubnetID     string    `json:"subnetID"`
-	AllocationID string    `json:"allocationID"`
-	PublicIP     string    `json:"publicIP"`
-	PrivateIP    string    `json:"privateIP"`
-	State        string    `json:"state"`
+	ID           string    `json:"id,omitempty"`
+	SubnetID     string    `json:"subnetID,omitempty"`
+	AllocationID string    `json:"allocationID,omitempty"`
+	PublicIP     string    `json:"publicIP,omitempty"`
+	PrivateIP    string    `json:"privateIP,omitempty"`
+	State        string    `json:"state,omitempty"`
 }
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID                  string   `json:"id"`
-	SubnetID            string   `json:"subnetID"`
-	VPCID               string   `json:"vpcID"`
-	PrivateIP           string   `json:"privateIP"`
-	Description         string   `json:"description"`
+	ID                  string   `json:"id,omitempty"`
+	SubnetID            string   `json:"subnetID,omitempty"`
+	VPCID               string   `json:"vpcID,omitempty"`
+	PrivateIP           string   `json:"privateIP,omitempty"`
+	Description         string   `json:"description,omitempty"`
 	InstanceID          string   `json:"instanceID,omitempty"`
 	AttachmentID        string   `json:"attachmentID,omitempty"`
-	Status              string   `json:"status"`
+	Status              string   `json:"status,omitempty"`
 	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
 	DeviceIndex         int      `json:"deviceIndex,omitempty"`
-	SourceDestCheck     bool     `json:"sourceDestCheck"`
+	SourceDestCheck     bool     `json:"sourceDestCheck,omitempty"`
 }
 
 // SpotLaunchSpecification holds launch parameters for a spot instance request.
 type SpotLaunchSpecification struct {
-	ImageID      string `json:"imageID"`
-	InstanceType string `json:"instanceType"`
-	SubnetID     string `json:"subnetID"`
+	ImageID      string `json:"imageID,omitempty"`
+	InstanceType string `json:"instanceType,omitempty"`
+	SubnetID     string `json:"subnetID,omitempty"`
 }
 
 // SpotInstanceRequest represents an EC2 spot instance request.
@@ -156,28 +156,28 @@ type SpotInstanceRequest struct {
 	CreateTime  time.Time               `json:"createTime"`
 	CancelledAt time.Time               `json:"cancelledAt"`
 	LaunchSpec  SpotLaunchSpecification `json:"launchSpec"`
-	ID          string                  `json:"id"`
+	ID          string                  `json:"id,omitempty"`
 	InstanceID  string                  `json:"instanceID,omitempty"`
-	State       string                  `json:"state"`
-	SpotPrice   string                  `json:"spotPrice"`
-	Type        string                  `json:"type"`
+	State       string                  `json:"state,omitempty"`
+	SpotPrice   string                  `json:"spotPrice,omitempty"`
+	Type        string                  `json:"type,omitempty"`
 }
 
 // PlacementGroup represents an EC2 placement group.
 type PlacementGroup struct {
-	Name     string `json:"name"`
-	Strategy string `json:"strategy"`
-	State    string `json:"state"`
+	Name     string `json:"name,omitempty"`
+	Strategy string `json:"strategy,omitempty"`
+	State    string `json:"state,omitempty"`
 }
 
 // AMIStub is a static image entry.
 type AMIStub struct {
-	ImageID        string `json:"imageID"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Architecture   string `json:"architecture"`
-	Platform       string `json:"platform"`
-	RootDeviceName string `json:"rootDeviceName"`
+	ImageID        string `json:"imageID,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Architecture   string `json:"architecture,omitempty"`
+	Platform       string `json:"platform,omitempty"`
+	RootDeviceName string `json:"rootDeviceName,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -295,9 +295,8 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 		}
 
 		prev := inst.State
-		// AWS state machine: stopped → pending → running.
-		// The mock completes this transition immediately.
-		inst.State = StateRunning
+		// AWS state machine: stopped → pending → running (reconciler advances pending→running).
+		inst.State = StatePending
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -322,9 +321,10 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
-		if inst.State != StateRunning {
+		// AWS allows stopping instances in running or pending states.
+		if inst.State != StateRunning && inst.State != StatePending {
 			return nil, fmt.Errorf(
-				"%w: instance %s is in state %s, expected running",
+				"%w: instance %s is in state %s, cannot stop",
 				ErrInvalidInstanceState,
 				id,
 				inst.State.Name,
@@ -332,9 +332,8 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 		}
 
 		prev := inst.State
-		// AWS state machine: running → stopping → stopped.
-		// The mock completes this transition immediately.
-		inst.State = StateStopped
+		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
+		inst.State = StateStopping
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,

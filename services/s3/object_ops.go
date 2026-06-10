@@ -547,6 +547,13 @@ func (h *S3Handler) getObject(
 ) {
 	h.setOperation(ctx, "GetObject")
 
+	// If the bucket has an Object Lambda configuration, delegate to the lambda path.
+	if lambdaARN := h.objectLambdaARN(bucketName); lambdaARN != "" {
+		h.handleObjectLambdaGetObject(ctx, w, r, bucketName, key, lambdaARN)
+
+		return
+	}
+
 	if err := validateExpectedBucketOwner(r); err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -617,7 +624,8 @@ func (h *S3Handler) getObject(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(ctx,
+	logger.Load(ctx).DebugContext(
+		ctx,
 		"S3 getObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"contentLength", aws.ToInt64(ver.ContentLength),
@@ -790,7 +798,8 @@ func (h *S3Handler) deleteObject(
 
 	setDeleteObjectResponseHeaders(w, out)
 
-	logger.Load(ctx).DebugContext(ctx,
+	logger.Load(ctx).DebugContext(
+		ctx,
 		"S3 deleteObject output",
 		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
 	)

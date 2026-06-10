@@ -21,7 +21,7 @@ func TestAudit_ARN_StateMachine(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	sm, err := b.CreateStateMachine("my-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "my-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:states:us-east-1:123456789012:stateMachine:my-sm", sm.StateMachineArn)
 }
@@ -30,7 +30,7 @@ func TestAudit_ARN_Execution(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	sm, err := b.CreateStateMachine("my-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "my-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "my-exec", "{}")
@@ -42,7 +42,7 @@ func TestAudit_ARN_Activity(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	act, err := b.CreateActivity("my-activity")
+	act, err := b.CreateActivity(context.Background(), "my-activity")
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:states:us-east-1:123456789012:activity:my-activity", act.ActivityArn)
 }
@@ -51,7 +51,7 @@ func TestAudit_ARN_Version(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	sm, err := b.CreateStateMachine("ver-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "ver-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
@@ -65,7 +65,7 @@ func TestAudit_CreateStateMachine_DefaultTypeIsSTANDARD(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("t1", minimalDefinition, validRoleARN, "")
+	sm, err := b.CreateStateMachine(context.Background(), "t1", minimalDefinition, validRoleARN, "")
 	require.NoError(t, err)
 	assert.Equal(t, "STANDARD", sm.Type)
 }
@@ -74,7 +74,7 @@ func TestAudit_CreateStateMachine_Express(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("exp1", minimalDefinition, validRoleARN, "EXPRESS")
+	sm, err := b.CreateStateMachine(context.Background(), "exp1", minimalDefinition, validRoleARN, "EXPRESS")
 	require.NoError(t, err)
 	assert.Equal(t, "EXPRESS", sm.Type)
 }
@@ -83,7 +83,7 @@ func TestAudit_CreateStateMachine_StatusIsActive(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("status-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "status-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", sm.Status)
 }
@@ -93,7 +93,7 @@ func TestAudit_CreateStateMachine_CreationDateSet(t *testing.T) {
 
 	before := float64(time.Now().Unix())
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("date-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "date-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, sm.CreationDate, before)
 }
@@ -102,11 +102,11 @@ func TestAudit_CreateStateMachine_DuplicateNameDiffDefReturnsError(t *testing.T)
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("dup-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "dup-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
-	_, err = b.CreateStateMachine("dup-sm", altDef, validRoleARN, "STANDARD")
+	_, err = b.CreateStateMachine(context.Background(), "dup-sm", altDef, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
@@ -115,7 +115,7 @@ func TestAudit_CreateStateMachine_InvalidDefinition(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("bad-def", `{"not":"valid-asl"}`, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "bad-def", `{"not":"valid-asl"}`, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrInvalidDefinition)
 }
@@ -133,7 +133,7 @@ func TestAudit_DeleteStateMachine_RemovesStateMachine(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("del-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "del-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteStateMachine(sm.StateMachineArn))
@@ -155,7 +155,7 @@ func TestAudit_UpdateStateMachine_UpdatesDefinition(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("upd-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "upd-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	newDef := `{"StartAt":"S2","States":{"S2":{"Type":"Pass","End":true}}}`
@@ -172,11 +172,11 @@ func TestAudit_ListStateMachines_ReturnsSorted(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	for _, name := range []string{"zz-sm", "aa-sm", "mm-sm"} {
-		_, err := b.CreateStateMachine(name, minimalDefinition, validRoleARN, "STANDARD")
+		_, err := b.CreateStateMachine(context.Background(), name, minimalDefinition, validRoleARN, "STANDARD")
 		require.NoError(t, err)
 	}
 
-	sms, next, err := b.ListStateMachines("", 100)
+	sms, next, err := b.ListStateMachines(context.Background(), "", 100)
 	require.NoError(t, err)
 	assert.Empty(t, next)
 	require.Len(t, sms, 3)
@@ -191,21 +191,21 @@ func TestAudit_ListStateMachines_Pagination(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	for i := range 5 {
 		name := fmt.Sprintf("pag-sm-%02d", i)
-		_, err := b.CreateStateMachine(name, minimalDefinition, validRoleARN, "STANDARD")
+		_, err := b.CreateStateMachine(context.Background(), name, minimalDefinition, validRoleARN, "STANDARD")
 		require.NoError(t, err)
 	}
 
-	page1, next, err := b.ListStateMachines("", 2)
+	page1, next, err := b.ListStateMachines(context.Background(), "", 2)
 	require.NoError(t, err)
 	require.NotEmpty(t, next)
 	assert.Len(t, page1, 2)
 
-	page2, next2, err := b.ListStateMachines(next, 2)
+	page2, next2, err := b.ListStateMachines(context.Background(), next, 2)
 	require.NoError(t, err)
 	require.NotEmpty(t, next2)
 	assert.Len(t, page2, 2)
 
-	page3, next3, err := b.ListStateMachines(next2, 2)
+	page3, next3, err := b.ListStateMachines(context.Background(), next2, 2)
 	require.NoError(t, err)
 	assert.Empty(t, next3)
 	assert.Len(t, page3, 1)
@@ -218,7 +218,7 @@ func TestAudit_Name_TooLong(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	longName := strings.Repeat("a", 81)
-	_, err := b.CreateStateMachine(longName, minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), longName, minimalDefinition, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrInvalidName)
 }
@@ -228,7 +228,7 @@ func TestAudit_Name_ExactMaxLength(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	name := strings.Repeat("a", 80)
-	sm, err := b.CreateStateMachine(name, minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), name, minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	assert.Equal(t, name, sm.Name)
 }
@@ -237,7 +237,7 @@ func TestAudit_Name_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "", minimalDefinition, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrInvalidName)
 }
@@ -250,7 +250,7 @@ func TestAudit_Name_InvalidChars(t *testing.T) {
 		t.Run(badName, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.CreateStateMachine(badName, minimalDefinition, validRoleARN, "STANDARD")
+			_, err := b.CreateStateMachine(context.Background(), badName, minimalDefinition, validRoleARN, "STANDARD")
 			require.Error(t, err)
 			assert.ErrorIs(t, err, stepfunctions.ErrInvalidName)
 		})
@@ -265,7 +265,7 @@ func TestAudit_Name_ValidSpecialChars(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			sm, err := b.CreateStateMachine(name, minimalDefinition, validRoleARN, "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), name, minimalDefinition, validRoleARN, "STANDARD")
 			require.NoError(t, err)
 			assert.Equal(t, name, sm.Name)
 		})
@@ -277,7 +277,7 @@ func TestAudit_ActivityName_TooLong(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	longName := strings.Repeat("x", 81)
-	_, err := b.CreateActivity(longName)
+	_, err := b.CreateActivity(context.Background(), longName)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrInvalidName)
 }
@@ -286,7 +286,7 @@ func TestAudit_ExecutionName_TooLong(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("exec-name-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "exec-name-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	longName := strings.Repeat("x", 81)
@@ -301,7 +301,7 @@ func TestAudit_Execution_StartAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("desc-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "desc-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "desc-exec", `{"x":1}`)
@@ -318,7 +318,7 @@ func TestAudit_Execution_StartsRunning(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	// Use a Wait state to keep execution running long enough to observe RUNNING status.
 	waitDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
-	sm, err := b.CreateStateMachine("run-sm", waitDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "run-sm", waitDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -334,7 +334,7 @@ func TestAudit_Execution_SucceedsAfterPass(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("succ-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "succ-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -358,7 +358,7 @@ func TestAudit_Execution_FailStateProducesFailedStatus(t *testing.T) {
 
 	failDef := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"ErrFoo","Cause":"test cause","End":true}}}`
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("fail-sm", failDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "fail-sm", failDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -382,7 +382,7 @@ func TestAudit_Execution_DuplicateNameReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("dup-exec-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "dup-exec-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -418,7 +418,7 @@ func TestAudit_StartExecution_ExpressMachineReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("exp-async", minimalDefinition, validRoleARN, "EXPRESS")
+	sm, err := b.CreateStateMachine(context.Background(), "exp-async", minimalDefinition, validRoleARN, "EXPRESS")
 	require.NoError(t, err)
 
 	_, err = b.StartExecution(sm.StateMachineArn, "e1", "{}")
@@ -430,7 +430,7 @@ func TestAudit_StartSyncExecution_StandardMachineReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("std-sync", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "std-sync", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	_, err = b.StartSyncExecution(sm.StateMachineArn, "sync-e1", "{}")
@@ -442,7 +442,7 @@ func TestAudit_StartSyncExecution_Express_Succeeds(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("exp-sync", minimalDefinition, validRoleARN, "EXPRESS")
+	sm, err := b.CreateStateMachine(context.Background(), "exp-sync", minimalDefinition, validRoleARN, "EXPRESS")
 	require.NoError(t, err)
 
 	result, err := b.StartSyncExecution(sm.StateMachineArn, "sync-e2", `{"ok":true}`)
@@ -454,7 +454,7 @@ func TestAudit_StartSyncExecution_Express_InputPayload(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("exp-input", minimalDefinition, validRoleARN, "EXPRESS")
+	sm, err := b.CreateStateMachine(context.Background(), "exp-input", minimalDefinition, validRoleARN, "EXPRESS")
 	require.NoError(t, err)
 
 	result, err := b.StartSyncExecution(sm.StateMachineArn, "s1", `{"hello":"world"}`)
@@ -469,7 +469,7 @@ func TestAudit_StopExecution_SetsAborted(t *testing.T) {
 
 	waitDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("stop-test-sm", waitDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "stop-test-sm", waitDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -490,7 +490,7 @@ func TestAudit_StopExecution_IdempotentOnTerminalState(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("idm-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "idm-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -529,7 +529,7 @@ func TestAudit_GetExecutionHistory_HasExecutionStarted(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("hist-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "hist-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -552,7 +552,7 @@ func TestAudit_GetExecutionHistory_ReverseOrder(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("rev-hist-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "rev-hist-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -576,7 +576,7 @@ func TestAudit_GetExecutionHistory_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("page-hist-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "page-hist-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -617,7 +617,7 @@ func TestAudit_GetExecutionHistory_EventIDsMonotonicallyIncreasing(t *testing.T)
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("mono-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "mono-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -645,7 +645,7 @@ func TestAudit_ListExecutions_StatusFilter_RUNNING(t *testing.T) {
 
 	waitDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("list-sm", waitDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "list-sm", waitDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -673,7 +673,7 @@ func TestAudit_ListExecutions_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("list-page-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "list-page-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -697,7 +697,7 @@ func TestAudit_ListExecutions_EmptyForNewSM(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("empty-list-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "empty-list-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	execs, next, err := b.ListExecutions(sm.StateMachineArn, "", "", 100)
@@ -712,7 +712,13 @@ func TestAudit_DescribeStateMachineForExecution(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("dsm-for-exec-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"dsm-for-exec-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -731,7 +737,7 @@ func TestAudit_Activity_CreateAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	act, err := b.CreateActivity("my-act")
+	act, err := b.CreateActivity(context.Background(), "my-act")
 	require.NoError(t, err)
 	assert.Equal(t, "my-act", act.Name)
 	assert.NotEmpty(t, act.ActivityArn)
@@ -746,10 +752,10 @@ func TestAudit_Activity_DuplicateReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateActivity("dup-act")
+	_, err := b.CreateActivity(context.Background(), "dup-act")
 	require.NoError(t, err)
 
-	_, err = b.CreateActivity("dup-act")
+	_, err = b.CreateActivity(context.Background(), "dup-act")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrActivityAlreadyExists)
 }
@@ -758,7 +764,7 @@ func TestAudit_Activity_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	act, err := b.CreateActivity("del-act")
+	act, err := b.CreateActivity(context.Background(), "del-act")
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteActivity(act.ActivityArn))
@@ -782,15 +788,15 @@ func TestAudit_Activity_ListAndPaginate(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	for i := range 5 {
-		_, err := b.CreateActivity(fmt.Sprintf("list-act-%d", i))
+		_, err := b.CreateActivity(context.Background(), fmt.Sprintf("list-act-%d", i))
 		require.NoError(t, err)
 	}
 
-	all, _, err := b.ListActivities("", 100)
+	all, _, err := b.ListActivities(context.Background(), "", 100)
 	require.NoError(t, err)
 	assert.Len(t, all, 5)
 
-	page1, next, err := b.ListActivities("", 2)
+	page1, next, err := b.ListActivities(context.Background(), "", 2)
 	require.NoError(t, err)
 	require.NotEmpty(t, next)
 	assert.Len(t, page1, 2)
@@ -802,12 +808,12 @@ func TestAudit_Activity_SendTaskSuccess(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	defer b.Destroy()
 
-	act, err := b.CreateActivity("send-act")
+	act, err := b.CreateActivity(context.Background(), "send-act")
 	require.NoError(t, err)
 
 	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
 		act.ActivityArn)
-	sm, err := b.CreateStateMachine("act-sm", actDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "act-sm", actDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "act-exec", `{"in":1}`)
@@ -847,12 +853,12 @@ func TestAudit_Activity_SendTaskFailure(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	defer b.Destroy()
 
-	act, err := b.CreateActivity("fail-act")
+	act, err := b.CreateActivity(context.Background(), "fail-act")
 	require.NoError(t, err)
 
 	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
 		act.ActivityArn)
-	sm, err := b.CreateStateMachine("act-fail-sm", actDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "act-fail-sm", actDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "act-fail-exec", "{}")
@@ -900,14 +906,14 @@ func TestAudit_Activity_SendTaskHeartbeat(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackend()
 	defer b.Destroy()
 
-	act, err := b.CreateActivity("hb-act")
+	act, err := b.CreateActivity(context.Background(), "hb-act")
 	require.NoError(t, err)
 
 	actDef := fmt.Sprintf(
 		`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
 		act.ActivityArn,
 	)
-	sm, err := b.CreateStateMachine("hb-sm", actDef, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "hb-sm", actDef, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	_, err = b.StartExecution(sm.StateMachineArn, "hb-exec", "{}")
@@ -940,7 +946,7 @@ func TestAudit_Version_PublishAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("ver-pub-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "ver-pub-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "initial release", "")
@@ -958,7 +964,7 @@ func TestAudit_Version_ListVersions(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("list-ver-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "list-ver-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	for i := range 3 {
@@ -975,7 +981,7 @@ func TestAudit_Version_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("del-ver-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "del-ver-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
@@ -994,7 +1000,7 @@ func TestAudit_Alias_CreateAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("alias-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "alias-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
@@ -1015,7 +1021,7 @@ func TestAudit_Alias_ListAliases(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("list-alias-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "list-alias-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
@@ -1037,7 +1043,7 @@ func TestAudit_Alias_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("del-alias-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "del-alias-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
@@ -1151,7 +1157,7 @@ func TestAudit_Config_LoggingPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("log-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "log-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	logging := &stepfunctions.LoggingConfiguration{
@@ -1180,7 +1186,7 @@ func TestAudit_Config_TracingPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("trace-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "trace-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn,
@@ -1196,7 +1202,7 @@ func TestAudit_Config_EncryptionPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("enc-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "enc-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	enc := &stepfunctions.EncryptionConfiguration{
@@ -1218,7 +1224,7 @@ func TestAudit_Config_NilArgDoesNotClearExisting(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("nil-cfg-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "nil-cfg-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn,
@@ -1304,7 +1310,7 @@ func TestAudit_RedriveExecution_NotRedrivable(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("redrive-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "redrive-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -1357,7 +1363,7 @@ func TestAudit_Input_ExactLimit_Succeeds(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("input-size-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "input-size-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 	defer b.Destroy()
 
@@ -1371,7 +1377,7 @@ func TestAudit_Input_OverLimit_Fails(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("input-over-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "input-over-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	oversize := `{"data":"` + strings.Repeat("x", 256*1024+1) + `"}`

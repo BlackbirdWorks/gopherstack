@@ -365,7 +365,7 @@ func (rc *ResourceCreator) createEventBus(
 		name = logicalID
 	}
 
-	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(name, "")
+	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(context.Background(), name, "")
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge event bus %s: %w", name, err)
 	}
@@ -381,7 +381,7 @@ func (rc *ResourceCreator) deleteEventBus(arn string) error {
 	parts := strings.Split(arn, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteEventBus(name)
+	return rc.backends.EventBridge.Backend.DeleteEventBus(context.Background(), name)
 }
 
 // ---- API Gateway sub-resources ----

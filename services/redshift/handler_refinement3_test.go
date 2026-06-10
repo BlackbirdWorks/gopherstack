@@ -662,7 +662,8 @@ func TestHandler_DeleteUsageLimit(t *testing.T) {
 
 			if !tt.notFound {
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=del-ul-cluster")
-				rec := postRedshiftForm(t, h,
+				rec := postRedshiftForm(
+					t, h,
 					"Action=CreateUsageLimit&Version=2012-12-01&ClusterIdentifier=del-ul-cluster"+
 						"&FeatureType=spectrum&LimitType=time&Amount=10",
 				)
@@ -715,7 +716,8 @@ func TestHandler_DescribeUsageLimits(t *testing.T) {
 			setup: func(t *testing.T, h *redshift.Handler) {
 				t.Helper()
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=dul-cluster")
-				postRedshiftForm(t, h,
+				postRedshiftForm(
+					t, h,
 					"Action=CreateUsageLimit&Version=2012-12-01&ClusterIdentifier=dul-cluster"+
 						"&FeatureType=spectrum&LimitType=time&Amount=10",
 				)
@@ -965,7 +967,8 @@ func TestHandler_ResourcePolicy(t *testing.T) {
 			name: "get_success",
 			setup: func(t *testing.T, h *redshift.Handler) {
 				t.Helper()
-				postRedshiftForm(t, h,
+				postRedshiftForm(
+					t, h,
 					"Action=PutResourcePolicy&Version=2012-12-01"+
 						"&ResourceArn=arn:aws:redshift:us-east-1:000000000000:cluster:c1&Policy={}",
 				)

@@ -479,52 +479,11 @@ func (j *Janitor) applyLifecycleRules(
 
 	for i := range cfg.Rules {
 		rule := &cfg.Rules[i]
-		if !strings.EqualFold(rule.Status, "Enabled") {
+		if !strings.EqualFold(rule.Status, statusEnabled) {
 			continue
 		}
 
-		prefix := rule.prefix()
-		tagFilters := rule.Filter.tags()
-
-		// Days-based expiration of current versions.
-		// Days must be explicitly set (non-nil) to trigger expiration.
-		// An absent Days element (nil pointer) must not delete objects even though
-		// the Go zero value for int would be 0 (which would incorrectly match all objects).
-		if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
-			expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
-			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
-		}
-
-		// Date-based expiration of current versions.
-		// Use the parsed expireDate as the cutoff so only objects older than that
-		// date are removed (not all objects indiscriminately).
-		if rule.Expiration.Date != "" {
-			expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
-			if parseErr == nil && now.After(expireDate) {
-				evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
-			}
-		}
-
-		// Noncurrent version expiration: delete versions that are not the latest
-		// and are older than NoncurrentDays. A nil pointer means the rule is absent.
-		if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
-			noncurrentBefore := now.Add(
-				-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour,
-			)
-			evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
-		}
-
-		// Abort incomplete multipart uploads older than DaysAfterInitiation.
-		// A nil pointer means the rule is absent; 0 means abort immediately.
-		if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
-			abortBefore := now.Add(
-				-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
-			)
-			j.abortStaleMultipartUploads(bucketName, abortBefore)
-		}
-
-		// Transitions: in a mock, storage class transitions are not enforced but
-		// the rule is parsed and accepted without error.
+		evicted += j.applyLifecycleRule(bucket, bucketName, rule, tagsByKey, now)
 	}
 
 	if evicted > 0 {
@@ -533,6 +492,96 @@ func (j *Janitor) applyLifecycleRules(
 	}
 
 	return evicted
+}
+
+// applyLifecycleRule applies all expiration, abort, and transition actions for a single
+// enabled lifecycle rule. Returns the number of objects evicted.
+func (j *Janitor) applyLifecycleRule(
+	bucket *StoredBucket,
+	bucketName string,
+	rule *lifecycleRule,
+	tagsByKey map[string][]types.Tag,
+	now time.Time,
+) int {
+	prefix := rule.prefix()
+	tagFilters := rule.Filter.tags()
+	evicted := 0
+
+	if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
+		expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
+		evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
+	}
+
+	if rule.Expiration.Date != "" {
+		expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
+		if parseErr == nil && now.After(expireDate) {
+			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
+		}
+	}
+
+	if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
+		noncurrentBefore := now.Add(-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour)
+		evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
+	}
+
+	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+		abortBefore := now.Add(
+			-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
+		)
+		j.abortStaleMultipartUploads(bucketName, abortBefore)
+	}
+
+	j.applyTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, rule.Transitions, now)
+	j.applyNoncurrentTransitions(bucket, prefix, rule.ID, rule.NoncurrentVersionTransitions, now)
+
+	return evicted
+}
+
+// applyTransitions processes all Transition entries for a lifecycle rule, applying
+// days-based and date-based storage class transitions.
+func (j *Janitor) applyTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	ruleID string,
+	transitions []lifecycleTransition,
+	now time.Time,
+) {
+	for _, tr := range transitions {
+		if tr.Days > 0 && tr.StorageClass != "" {
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+				tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
+		}
+	}
+
+	for _, tr := range transitions {
+		if tr.Date == "" || tr.StorageClass == "" {
+			continue
+		}
+		transitionDate, parseErr := parseLifecycleDate(tr.Date)
+		if parseErr == nil && now.After(transitionDate) {
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+				tr.StorageClass, now, 0, tr.Date)
+		}
+	}
+}
+
+// applyNoncurrentTransitions processes NoncurrentVersionTransition entries for a lifecycle rule.
+func (j *Janitor) applyNoncurrentTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	ruleID string,
+	transitions []lifecycleNoncurrentTransition,
+	now time.Time,
+) {
+	for _, tr := range transitions {
+		if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
+			continue
+		}
+		j.applyNoncurrentStorageClassTransitions(bucket, prefix, ruleID, tr.StorageClass, now,
+			time.Duration(tr.NoncurrentDays)*24*time.Hour)
+	}
 }
 
 // evictExpiredObjects deletes objects from the bucket that match the prefix (and
@@ -740,7 +789,7 @@ func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag
 
 	for i := range cfg.Rules {
 		rule := &cfg.Rules[i]
-		if !strings.EqualFold(rule.Status, "Enabled") {
+		if !strings.EqualFold(rule.Status, statusEnabled) {
 			continue
 		}
 
@@ -862,6 +911,126 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 		if upload.Initiated.Before(abortBefore) {
 			delete(bucketUploads, uploadID)
 		}
+	}
+}
+
+// applyStorageClassTransitions updates the StorageClass of current (latest) object versions
+// that match prefix+tagFilters and are older than transitionAfter duration (or past transitionDate
+// when date != ""). Only transitions that change the storage class are recorded.
+func (j *Janitor) applyStorageClassTransitions(
+	bucket *StoredBucket,
+	prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	ruleID, targetClass string,
+	now time.Time,
+	transitionAfter time.Duration,
+	transitionDate string,
+) {
+	bucket.mu.Lock("applyStorageClassTransitions")
+	defer bucket.mu.Unlock()
+
+	for _, obj := range bucket.Objects {
+		obj.mu.Lock("applyStorageClassTransitions-obj")
+
+		ver, ok := obj.Versions[obj.LatestVersionID]
+		if !ok || ver.Deleted {
+			obj.mu.Unlock()
+
+			continue
+		}
+
+		if !strings.HasPrefix(ver.Key, prefix) {
+			obj.mu.Unlock()
+
+			continue
+		}
+
+		tagKey := bucket.Name + "/" + ver.Key + "/" + ver.VersionID
+		if !objectMatchesTags(tagsByKey[tagKey], tagFilters) {
+			obj.mu.Unlock()
+
+			continue
+		}
+
+		var shouldTransition bool
+		if transitionDate != "" {
+			// Date-based: object was last modified before the transition date.
+			shouldTransition = ver.LastModified.Before(now)
+		} else {
+			// Days-based: object age exceeds transitionAfter.
+			shouldTransition = now.Sub(ver.LastModified) >= transitionAfter
+		}
+
+		if !shouldTransition {
+			obj.mu.Unlock()
+
+			continue
+		}
+
+		fromClass := ver.StorageClass
+		if fromClass == "" {
+			fromClass = storageStandard
+		}
+
+		if fromClass != targetClass {
+			ver.StorageClass = targetClass
+			ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
+				TransitionedAt: now,
+				FromClass:      fromClass,
+				ToClass:        targetClass,
+				RuleID:         ruleID,
+			})
+		}
+
+		obj.mu.Unlock()
+	}
+}
+
+// applyNoncurrentStorageClassTransitions updates the StorageClass of noncurrent (non-latest)
+// object versions that are older than noncurrentAfter.
+func (j *Janitor) applyNoncurrentStorageClassTransitions(
+	bucket *StoredBucket,
+	prefix, ruleID, targetClass string,
+	now time.Time,
+	noncurrentAfter time.Duration,
+) {
+	bucket.mu.Lock("applyNoncurrentStorageClassTransitions")
+	defer bucket.mu.Unlock()
+
+	for _, obj := range bucket.Objects {
+		obj.mu.Lock("applyNoncurrentSCT-obj")
+
+		for vid, ver := range obj.Versions {
+			if vid == obj.LatestVersionID || ver.Deleted {
+				continue
+			}
+
+			if !strings.HasPrefix(ver.Key, prefix) {
+				continue
+			}
+
+			if now.Sub(ver.LastModified) < noncurrentAfter {
+				continue
+			}
+
+			fromClass := ver.StorageClass
+			if fromClass == "" {
+				fromClass = storageStandard
+			}
+
+			if fromClass != targetClass {
+				ver.StorageClass = targetClass
+				ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
+					TransitionedAt: now,
+					FromClass:      fromClass,
+					ToClass:        targetClass,
+					RuleID:         ruleID,
+				})
+			}
+		}
+
+		obj.mu.Unlock()
 	}
 }
 

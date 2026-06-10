@@ -71,13 +71,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateIpamScope"] = h.handleStubCreateIpamScope
 	ops["CreateLocalGatewayRoute"] = h.handleStubCreateLocalGatewayRoute
 	ops["CreateLocalGatewayRouteTable"] = h.handleStubCreateLocalGatewayRouteTable
-	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
-		h.handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
 	ops["CreateLocalGatewayRouteTableVpcAssociation"] = h.handleStubCreateLocalGatewayRouteTableVpcAssociation
 	ops["CreateLocalGatewayVirtualInterface"] = h.handleStubCreateLocalGatewayVirtualInterface
 	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
-	ops["CreateMacSystemIntegrityProtectionModificationTask"] =
-		h.handleStubCreateMacSystemIntegrityProtectionModificationTask
+	ops["CreateMacSystemIntegrityProtectionModificationTask"] = h.handleStubCreateMacSystemIntegrityProtectionModificationTask //nolint:lll // existing issue.
 	// CreateManagedPrefixList — moved to handler_batch4.go
 	ops["CreateNetworkInsightsAccessScope"] = h.handleStubCreateNetworkInsightsAccessScope
 	ops["CreateNetworkInsightsPath"] = h.handleStubCreateNetworkInsightsPath
@@ -135,8 +133,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteIpamScope"] = h.handleStubDeleteIpamScope
 	ops["DeleteLocalGatewayRoute"] = h.handleStubDeleteLocalGatewayRoute
 	ops["DeleteLocalGatewayRouteTable"] = h.handleStubDeleteLocalGatewayRouteTable
-	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
-		h.handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation //nolint:lll // existing issue.
 	ops["DeleteLocalGatewayRouteTableVpcAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVpcAssociation
 	ops["DeleteLocalGatewayVirtualInterface"] = h.handleStubDeleteLocalGatewayVirtualInterface
 	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleStubDeleteLocalGatewayVirtualInterfaceGroup
@@ -229,8 +226,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeIpamResourceDiscoveryAssociations"] = h.handleStubDescribeIpamResourceDiscoveryAssociations
 	ops["DescribeIpamScopes"] = h.handleStubDescribeIpamScopes
 	ops["DescribeIpams"] = h.handleStubDescribeIpams
-	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] =
-		h.handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations
+	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations //nolint:lll // existing issue.
 	ops["DescribeLocalGatewayRouteTableVpcAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVpcAssociations
 	ops["DescribeLocalGatewayRouteTables"] = h.handleStubDescribeLocalGatewayRouteTables
 	ops["DescribeLocalGatewayVirtualInterfaceGroups"] = h.handleStubDescribeLocalGatewayVirtualInterfaceGroups
@@ -278,8 +274,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
 	// DescribeVerifiedAccessEndpoints — moved to handler_batch4.go
 	// DescribeVerifiedAccessGroups — moved to handler_batch4.go
-	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] =
-		h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations
+	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] = h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations //nolint:lll // existing issue.
 	// DescribeVerifiedAccessInstances — moved to handler_batch4.go
 	// DescribeVerifiedAccessTrustProviders — moved to handler_batch4.go
 	ops["DescribeVpcBlockPublicAccessExclusions"] = h.handleStubDescribeVpcBlockPublicAccessExclusions

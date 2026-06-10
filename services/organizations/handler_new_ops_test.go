@@ -545,6 +545,7 @@ func TestHandler_NewOps_BadJSON(t *testing.T) {
 		})
 	}
 }
+
 func TestBackend_CloseAccount(t *testing.T) {
 	t.Parallel()
 

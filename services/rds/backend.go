@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -106,6 +107,7 @@ const (
 	defaultInstanceClass    = "db.t3.micro"
 	defaultAllocatedStorage = 20
 
+	instanceStatusCreating  = "creating"
 	instanceStatusModifying = "modifying"
 	instanceStatusDeleting  = "deleting"
 	instanceStatusAvailable = "available"
@@ -688,8 +690,8 @@ type DBClusterOptions struct {
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	clusterEndpoints          map[string]*DBClusterEndpoint
-	parameterGroups           map[string]*DBParameterGroup
+	snapshotAttributes        map[string]*DBSnapshotAttributesResult
+	reservedInstances         map[string]*ReservedDBInstance
 	snapshots                 map[string]*DBSnapshot
 	subnetGroups              map[string]*DBSubnetGroup
 	tags                      map[string][]Tag
@@ -707,10 +709,10 @@ type InMemoryBackend struct {
 	mu                        *lockmetrics.RWMutex
 	dbSecurityGroups          map[string]*DBSecurityGroup
 	blueGreenDeployments      map[string]*BlueGreenDeployment
-	snapshotAttributes        map[string]*DBSnapshotAttributesResult
-	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
-	reservedInstances         map[string]*ReservedDBInstance
+	clusterEndpoints          map[string]*DBClusterEndpoint
+	parameterGroups           map[string]*DBParameterGroup
 	recommendations           map[string]*DBRecommendation
+	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
 	proxies                   map[string]*DBProxy
 	proxyTargetGroups         map[string]*DBProxyTargetGroup
 	proxyTargets              map[string][]DBProxyTarget
@@ -727,6 +729,8 @@ type InMemoryBackend struct {
 	accountID                 string
 	region                    string
 	events                    []Event
+	wg                        sync.WaitGroup
+	stopOnce                  sync.Once
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
@@ -778,9 +782,31 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close stops the background reconciler goroutine.
+// Close stops the background reconciler goroutine and waits for any in-flight
+// delayed lifecycle transitions to finish. Close is safe to call more than once.
 func (b *InMemoryBackend) Close() {
-	close(b.stopCh)
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
+	b.wg.Wait()
+}
+
+// runDelayed schedules fn to run after delay, unless the backend is closed
+// first. It is tracked by b.wg so Close can wait for it to finish, and it
+// respects b.stopCh so it never mutates state after shutdown.
+func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
+	b.wg.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-b.stopCh:
+			return
+		case <-timer.C:
+		}
+
+		fn()
+	})
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -987,7 +1013,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBClusterIdentifier:              opts.DBClusterIdentifier,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 instanceStatusAvailable,
+		DBInstanceStatus:                 instanceStatusCreating,
 		MasterUsername:                   masterUser,
 		DBName:                           dbName,
 		Endpoint:                         endpoint,
@@ -1033,6 +1059,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		}
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
 	cp := *inst
 
 	b.mu.Unlock()

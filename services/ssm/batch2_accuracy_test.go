@@ -8,6 +8,7 @@ package ssm_test
 // association compliance, inventory schemas.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -28,7 +29,7 @@ func TestBatch2_DocumentVersions_IsDefaultVersion(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create document with initial content v1.
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:         "MyDoc",
 		Content:      `{"schemaVersion":"2.2"}`,
 		DocumentType: "Command",
@@ -36,7 +37,7 @@ func TestBatch2_DocumentVersions_IsDefaultVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Update to create v2.
-	_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+	_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 		Name:            "MyDoc",
 		Content:         `{"schemaVersion":"2.2","updated":true}`,
 		DocumentVersion: "$LATEST",
@@ -112,7 +113,7 @@ func TestBatch2_DocumentVersions_TableDriven(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:         "td-doc-" + tt.name,
 				Content:      `{"schemaVersion":"2.2"}`,
 				DocumentType: "Command",
@@ -120,7 +121,7 @@ func TestBatch2_DocumentVersions_TableDriven(t *testing.T) {
 			require.NoError(t, err)
 
 			for i := 1; i < tt.versions; i++ {
-				_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+				_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 					Name:            "td-doc-" + tt.name,
 					Content:         `{"schemaVersion":"2.2","v":true}`,
 					DocumentVersion: "$LATEST",
@@ -159,7 +160,7 @@ func TestBatch2_DocumentPermissions_AddRemoveAccounts(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:         "SharedDoc",
 		Content:      `{"schemaVersion":"2.2"}`,
 		DocumentType: "Command",
@@ -211,7 +212,7 @@ func TestBatch2_DistributorPackage_CreateAndGet(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a Package type document (SSM Distributor).
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:         "MyPackage",
 		Content:      `{"schemaVersion":"2.0","packages":[]}`,
 		DocumentType: "Package",
@@ -265,7 +266,7 @@ func TestBatch2_DistributorPackage_TableDriven(t *testing.T) {
 			h, b := newTestHandler(t)
 
 			docName := "filter-test-" + tt.name
-			_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 				Name:         docName,
 				Content:      `{"schemaVersion":"2.0"}`,
 				DocumentType: tt.docType,
@@ -300,11 +301,14 @@ func TestBatch2_ParameterLabels_VersionSpecific(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create parameter (version 1).
-	_, err := b.PutParameter(&ssm.PutParameterInput{Name: "/app/key", Value: "v1", Type: "String"})
+	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/key", Value: "v1", Type: "String"})
 	require.NoError(t, err)
 
 	// Update to create version 2.
-	_, err = b.PutParameter(&ssm.PutParameterInput{Name: "/app/key", Value: "v2", Type: "String", Overwrite: true})
+	_, err = b.PutParameter(
+		context.TODO(),
+		&ssm.PutParameterInput{Name: "/app/key", Value: "v2", Type: "String", Overwrite: true},
+	)
 	require.NoError(t, err)
 
 	// Label version 1 with "stable".
@@ -338,7 +342,7 @@ func TestBatch2_ParameterLabels_UnlabelSpecificVersion(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.PutParameter(&ssm.PutParameterInput{Name: "/app/ver", Value: "v1", Type: "String"})
+	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/ver", Value: "v1", Type: "String"})
 	require.NoError(t, err)
 
 	// Add labels to version 1.
@@ -396,7 +400,7 @@ func TestBatch2_SecureStringHistory_WithDecryption(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			_, err := b.PutParameter(&ssm.PutParameterInput{
+			_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{
 				Name:  "/secure/pwd",
 				Value: "my-secret-value",
 				Type:  "SecureString",
@@ -477,13 +481,13 @@ func TestBatch2_PatchBaseline_OSFilter(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create baselines for different OSes.
-	linuxBL, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	linuxBL, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "linux-baseline",
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
 	require.NoError(t, err)
 
-	windowsBL, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	windowsBL, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "windows-baseline",
 		OperatingSystem: "WINDOWS",
 	})
@@ -534,7 +538,7 @@ func TestBatch2_PatchBaseline_ComplianceLevelRoundTrip(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			bl, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+			bl, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 				Name:                           "cl-baseline-" + tt.name,
 				OperatingSystem:                "AMAZON_LINUX_2",
 				ApprovedPatchesComplianceLevel: tt.complianceLevel,
@@ -568,7 +572,7 @@ func TestBatch2_PatchGroups_RegisterAndLookup(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	bl, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	bl, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            "group-baseline",
 		OperatingSystem: "UBUNTU",
 	})
@@ -612,7 +616,7 @@ func TestBatch2_MaintenanceWindowsForTarget_FindsByTarget(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a maintenance window.
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "prod-window",
 		Schedule: "cron(0 2 ? * SUN *)",
 		Duration: 4,
@@ -698,7 +702,7 @@ func TestBatch2_MaintenanceWindowTask_ServiceRoleArn(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+			mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 				Name:     "sra-window-" + tt.name,
 				Schedule: "cron(0 2 ? * SUN *)",
 				Duration: 3,
@@ -743,7 +747,7 @@ func TestBatch2_MaintenanceWindowTask_UpdateServiceRoleArn(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	mw, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	mw, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "update-sra-window",
 		Schedule: "cron(0 2 ? * SUN *)",
 		Duration: 3,
@@ -904,7 +908,7 @@ func TestBatch2_OpsItem_OperationalData_CreateAndUpdate(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create with initial OperationalData.
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:  "DB Connection Failure",
 		Source: "ec2",
 		OperationalData: map[string]ssm.OpsItemDataValue{
@@ -980,7 +984,7 @@ func TestBatch2_OpsItem_OperationalData_TableDriven(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+			item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 				Title:           "Test Item",
 				Source:          "test",
 				OperationalData: tt.initialData,
@@ -1014,7 +1018,7 @@ func TestBatch2_OpsItemEvents_TrackCreates(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:  "Tracked Item",
 		Source: "automation",
 	})
@@ -1037,7 +1041,7 @@ func TestBatch2_OpsItemEvents_TrackUpdates(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:  "Updated Item",
 		Source: "ec2",
 	})
@@ -1067,9 +1071,9 @@ func TestBatch2_OpsItemEvents_FilterByOpsItemID(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item1, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{Title: "Item 1", Source: "ec2"})
+	item1, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{Title: "Item 1", Source: "ec2"})
 	require.NoError(t, err)
-	item2, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{Title: "Item 2", Source: "rds"})
+	item2, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{Title: "Item 2", Source: "rds"})
 	require.NoError(t, err)
 
 	// Filter by item1 — should only get item1 events.
@@ -1100,7 +1104,7 @@ func TestBatch2_GetCalendarState_WithCalendarDocument(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a ChangeCalendar document.
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:         "MyCalendar",
 		Content:      `{"type":"DEFAULT_OPEN"}`,
 		DocumentType: "ChangeCalendar",
@@ -1122,7 +1126,7 @@ func TestBatch2_GetCalendarState_NonCalendarDocumentReturnsError(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create a non-calendar document.
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:         "NotACalendar",
 		Content:      `{"schemaVersion":"2.2"}`,
 		DocumentType: "Command",
@@ -1205,7 +1209,7 @@ func TestBatch2_Session_StateFilter(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	sess, err := b.StartSession(&ssm.StartSessionInput{Target: "i-filter-test"})
+	sess, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-filter-test"})
 	require.NoError(t, err)
 
 	// Filter by Connected — should find the session.
@@ -1234,7 +1238,7 @@ func TestBatch2_FleetManager_ListNodes_FromActivations(t *testing.T) {
 
 	// Create activations — each produces a node.
 	for range 3 {
-		_, err := b.CreateActivation(&ssm.CreateActivationInput{
+		_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 			IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
 			RegistrationLimit: 1,
 		})
@@ -1262,7 +1266,7 @@ func TestBatch2_FleetManager_ListNodesSummary_NodeCount(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateActivation(&ssm.CreateActivationInput{
+	_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 		IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
 		RegistrationLimit: 2,
 	})
@@ -1289,7 +1293,7 @@ func TestBatch2_ComplianceSummaries_AggregateByCType(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Store some compliance items.
-	_, err := b.PutComplianceItems(&ssm.PutComplianceItemsInput{
+	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
 		ResourceID:     "i-abc123",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Association",
@@ -1326,7 +1330,7 @@ func TestBatch2_ResourceComplianceSummaries_PerResource(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.PutComplianceItems(&ssm.PutComplianceItemsInput{
+	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
 		ResourceID:     "i-res123",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Patch",
@@ -1364,7 +1368,7 @@ func TestBatch2_ResourceComplianceSummaries_NonCompliantStatus(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.PutComplianceItems(&ssm.PutComplianceItemsInput{
+	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
 		ResourceID:     "i-bad456",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Patch",
@@ -1465,7 +1469,7 @@ func TestBatch2_Inventory_TypeMergeAndLookup(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Put inventory with two types.
-	_, err := b.PutInventory(&ssm.PutInventoryInput{
+	_, err := b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-inv001",
 		Items: []ssm.InventoryItem{
 			{
@@ -1490,7 +1494,7 @@ func TestBatch2_Inventory_TypeMergeAndLookup(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "aws-cli")
 
 	// Put again with same type (overwrite) and add a new type.
-	_, err = b.PutInventory(&ssm.PutInventoryInput{
+	_, err = b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-inv001",
 		Items: []ssm.InventoryItem{
 			{
@@ -1606,7 +1610,7 @@ func TestBatch2_OpsMetadata_FullCRUD(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create.
-	meta, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	meta, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0",
 		Metadata: map[string]ssm.MetadataValue{
 			"env": {Value: "production"},

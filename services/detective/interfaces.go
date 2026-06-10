@@ -17,6 +17,41 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
+	AcceptInvitation(graphARN string) error
+	RejectInvitation(graphARN string) error
+	DisassociateMembership(graphARN string) error
+	ListInvitations(maxResults int32, nextToken string) ([]*MemberDetail, string, error)
+
+	StartInvestigation(graphARN, entityARN, entityType string, scopeStart, scopeEnd time.Time) (string, error)
+	GetInvestigation(graphARN, investigationID string) (*Investigation, error)
+	ListInvestigations(graphARN string, maxResults int32, nextToken string) ([]*InvestigationDetail, string, error)
+	UpdateInvestigationState(graphARN, investigationID, state string) error
+	ListIndicators(
+		graphARN, investigationID, indicatorType string,
+		maxResults int32,
+		nextToken string,
+	) ([]*Indicator, string, error)
+
+	ListDatasourcePackages(
+		graphARN string,
+		maxResults int32,
+		nextToken string,
+	) (map[string]DatasourcePackageIngestDetail, string, error)
+	UpdateDatasourcePackages(graphARN string, packages []string) error
+	BatchGetGraphMemberDatasources(
+		graphARN string,
+		accountIDs []string,
+	) ([]MembershipDatasources, []UnprocessedAccount, error)
+	BatchGetMembershipDatasources(graphARNs []string) ([]MembershipDatasources, []UnprocessedGraph, error)
+
+	EnableOrganizationAdminAccount(accountID string) error
+	DisableOrganizationAdminAccount() error
+	ListOrganizationAdminAccounts(maxResults int32, nextToken string) ([]*OrgAdmin, string, error)
+	DescribeOrganizationConfiguration(graphARN string) (bool, error)
+	UpdateOrganizationConfiguration(graphARN string, autoEnable bool) error
+
+	StartMonitoringMember(graphARN, accountID string) error
+
 	AccountID() string
 	Region() string
 	Reset()
@@ -54,6 +89,65 @@ type MemberDetail struct {
 type UnprocessedAccount struct {
 	AccountID string
 	Reason    string
+}
+
+// UnprocessedGraph is a graph that could not be processed.
+type UnprocessedGraph struct {
+	GraphArn string
+	Reason   string
+}
+
+// Investigation holds investigation report data.
+// time.Time fields are first so their non-pointer prefix reduces GC pointer bytes.
+type Investigation struct {
+	CreatedTime     time.Time
+	ScopeStartTime  time.Time
+	ScopeEndTime    time.Time
+	GraphARN        string
+	InvestigationID string
+	EntityARN       string
+	EntityType      string
+	Severity        string
+	State           string
+	Status          string
+}
+
+// InvestigationDetail is a summary of an investigation used in list responses.
+// time.Time is first so its non-pointer prefix reduces GC pointer bytes.
+type InvestigationDetail struct {
+	CreatedTime     time.Time
+	EntityARN       string
+	EntityType      string
+	InvestigationID string
+	Severity        string
+	State           string
+	Status          string
+}
+
+// Indicator is a compromise indicator within an investigation.
+type Indicator struct {
+	IndicatorType string
+	Title         string
+}
+
+// DatasourcePackageIngestDetail holds the ingest state for a datasource package.
+type DatasourcePackageIngestDetail struct {
+	IngestState string
+}
+
+// MembershipDatasources holds datasource package info for a member or graph.
+type MembershipDatasources struct {
+	DatasourcePackageIngestStates map[string]string
+	AccountID                     string
+	GraphARN                      string
+}
+
+// OrgAdmin represents a Detective organization administrator account.
+// DelegationTime is first so its non-pointer prefix reduces GC pointer bytes.
+type OrgAdmin struct {
+	DelegationTime time.Time
+	AccountID      string
+	GraphARN       string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

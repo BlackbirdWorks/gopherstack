@@ -1310,7 +1310,8 @@ func TestDBClusterAvailabilityZones(t *testing.T) {
 		} `xml:"CreateDBClusterResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		[]string{"us-east-1a", "us-east-1b", "us-east-1c"},
 		resp.Result.DBCluster.AvailabilityZones.Members,
 	)

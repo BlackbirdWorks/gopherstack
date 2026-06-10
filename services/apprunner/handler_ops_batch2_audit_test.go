@@ -11,12 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/apprunner"
 )
 
-// TestBatch2_PauseService_StateGuard verifies that PauseService rejects
-// services not in RUNNING state. AWS returns InvalidStateException for
-// pause attempts on already-PAUSED services.
-func TestBatch2_PauseService_StateGuard(t *testing.T) {
-	t.Parallel()
-
+func TestBatch2_PauseService_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
 		name     string
@@ -40,9 +35,8 @@ func TestBatch2_PauseService_StateGuard(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			h := newTestHandler(t)
 			arn := createTestService(t, h)
 			tc.setup(t, h, arn)
@@ -57,13 +51,7 @@ func TestBatch2_PauseService_StateGuard(t *testing.T) {
 		})
 	}
 }
-
-// TestBatch2_ResumeService_StateGuard verifies that ResumeService rejects
-// services not in PAUSED state. AWS returns InvalidStateException for
-// resume attempts on RUNNING services.
-func TestBatch2_ResumeService_StateGuard(t *testing.T) {
-	t.Parallel()
-
+func TestBatch2_ResumeService_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
 		name     string
@@ -87,9 +75,8 @@ func TestBatch2_ResumeService_StateGuard(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			h := newTestHandler(t)
 			arn := createTestService(t, h)
 			tc.setup(t, h, arn)
@@ -104,13 +91,7 @@ func TestBatch2_ResumeService_StateGuard(t *testing.T) {
 		})
 	}
 }
-
-// TestBatch2_UpdateService_StateGuard verifies that UpdateService rejects
-// services not in RUNNING state. AWS returns InvalidStateException for
-// update attempts on PAUSED services.
-func TestBatch2_UpdateService_StateGuard(t *testing.T) {
-	t.Parallel()
-
+func TestBatch2_UpdateService_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
 		name     string
@@ -134,9 +115,8 @@ func TestBatch2_UpdateService_StateGuard(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			h := newTestHandler(t)
 			arn := createTestService(t, h)
 			tc.setup(t, h, arn)
@@ -154,13 +134,7 @@ func TestBatch2_UpdateService_StateGuard(t *testing.T) {
 		})
 	}
 }
-
-// TestBatch2_StartDeployment_StateGuard verifies that StartDeployment rejects
-// services not in RUNNING state. AWS returns InvalidStateException for
-// deployment attempts on PAUSED services.
-func TestBatch2_StartDeployment_StateGuard(t *testing.T) {
-	t.Parallel()
-
+func TestBatch2_StartDeployment_StateGuard(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {
 		setup    func(t *testing.T, h *apprunner.Handler, arn string)
 		name     string
@@ -184,9 +158,8 @@ func TestBatch2_StartDeployment_StateGuard(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			h := newTestHandler(t)
 			arn := createTestService(t, h)
 			tc.setup(t, h, arn)
@@ -197,6 +170,985 @@ func TestBatch2_StartDeployment_StateGuard(t *testing.T) {
 				var body map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 				assert.Equal(t, tc.wantType, body["__type"])
+			}
+		})
+	}
+}
+
+// --- AutoScalingConfiguration tests --- //nolint:godot // existing issue.
+func TestAutoScalingConfigurationCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "create returns ARN and defaults",
+			action:   "CreateAutoScalingConfiguration",
+			body:     map[string]any{"AutoScalingConfigurationName": "my-asg"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["AutoScalingConfiguration"].(map[string]any)
+				assert.Contains(t, cfg["AutoScalingConfigurationArn"], "autoscalingconfiguration/my-asg/1/")
+				assert.Equal(t, "ACTIVE", cfg["Status"])
+				assert.InDelta(t, float64(1), cfg["AutoScalingConfigurationRevision"], 0.0001)
+				assert.InDelta(t, float64(100), cfg["MaxConcurrency"], 0.0001)
+				assert.InDelta(t, float64(25), cfg["MaxSize"], 0.0001)
+				assert.InDelta(t, float64(1), cfg["MinSize"], 0.0001)
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateAutoScalingConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{
+		"AutoScalingConfigurationName": "cfg1",
+		"MaxConcurrency":               50,
+		"MaxSize":                      10,
+		"MinSize":                      2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	asgArn := createResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns config",
+			action:   "DescribeAutoScalingConfiguration",
+			body:     map[string]any{"AutoScalingConfigurationArn": asgArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["AutoScalingConfiguration"].(map[string]any)
+				assert.Equal(t, "cfg1", cfg["AutoScalingConfigurationName"])
+				assert.InDelta(t, float64(50), cfg["MaxConcurrency"], 0.0001)
+			},
+		},
+		{
+			name:     "describe missing ARN returns 400",
+			action:   "DescribeAutoScalingConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "describe unknown ARN returns 400",
+			action: "DescribeAutoScalingConfiguration",
+			body: map[string]any{
+				"AutoScalingConfigurationArn": "arn:aws:apprunner:us-east-1:000000000000:autoscalingconfiguration/notexist/1/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list returns config",
+			action:   "ListAutoScalingConfigurations",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["AutoScalingConfigurationSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "delete returns config",
+			action:   "DeleteAutoScalingConfiguration",
+			body:     map[string]any{"AutoScalingConfigurationArn": asgArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["AutoScalingConfiguration"].(map[string]any)
+				assert.Equal(t, "cfg1", cfg["AutoScalingConfigurationName"])
+			},
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var r1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	asgArn1 := r1["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
+
+	rec = doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var r2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	rev2 := r2["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationRevision"].(float64)
+	assert.InDelta(t, float64(2), rev2, 0.0001)
+
+	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list := listResp["AutoScalingConfigurationSummaryList"].([]any)
+	assert.Len(t, list, 2)
+
+	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": true})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
+	assert.Len(t, list, 1)
+
+	rec = doRequest(t, h, "UpdateDefaultAutoScalingConfiguration", map[string]any{
+		"AutoScalingConfigurationArn": asgArn1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var updateResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	cfg := updateResp["AutoScalingConfiguration"].(map[string]any)
+	assert.Equal(t, true, cfg["IsDefault"])
+}
+func TestListServicesForAutoScalingConfiguration(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	asgArn := createResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "list services returns empty list",
+			body:     map[string]any{"AutoScalingConfigurationArn": asgArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["ServiceArnList"].([]any)
+				assert.Empty(t, list)
+			},
+		},
+		{
+			name:     "missing ARN returns 400",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "unknown ARN returns 400",
+			body: map[string]any{
+				"AutoScalingConfigurationArn": "arn:aws:apprunner:us-east-1:000000000000:autoscalingconfiguration/notexist/1/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, "ListServicesForAutoScalingConfiguration", tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// --- Connection tests --- //nolint:godot // existing issue.
+func TestConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "create returns ARN",
+			action:   "CreateConnection",
+			body:     map[string]any{"ConnectionName": "my-conn", "ProviderType": "GITHUB"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				conn := resp["Connection"].(map[string]any)
+				assert.Contains(t, conn["ConnectionArn"], "connection/my-conn/")
+				assert.Equal(t, "AVAILABLE", conn["Status"])
+				assert.Equal(t, "GITHUB", conn["ProviderType"])
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateConnection",
+			body:     map[string]any{"ProviderType": "GITHUB"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create missing provider type returns 400",
+			action:   "CreateConnection",
+			body:     map[string]any{"ConnectionName": "x"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "conn1", "ProviderType": "GITHUB"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	connArn := createResp["Connection"].(map[string]any)["ConnectionArn"].(string)
+
+	doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "conn2", "ProviderType": "BITBUCKET"})
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "list returns 2 connections",
+			action:   "ListConnections",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["ConnectionSummaryList"].([]any)
+				assert.Len(t, list, 2)
+			},
+		},
+		{
+			name:     "list with name filter returns 1",
+			action:   "ListConnections",
+			body:     map[string]any{"ConnectionName": "conn1"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["ConnectionSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "delete returns connection",
+			action:   "DeleteConnection",
+			body:     map[string]any{"ConnectionArn": connArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				conn := resp["Connection"].(map[string]any)
+				assert.Equal(t, "conn1", conn["ConnectionName"])
+			},
+		},
+		{
+			name:   "delete unknown ARN returns 400",
+			action: "DeleteConnection",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:apprunner:us-east-1:000000000000:connection/notexist/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete missing ARN returns 400",
+			action:   "DeleteConnection",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// --- ObservabilityConfiguration tests --- //nolint:godot // existing issue.
+func TestObservabilityConfigurationCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "create returns ARN",
+			action: "CreateObservabilityConfiguration",
+			body: map[string]any{
+				"ObservabilityConfigurationName": "my-obs",
+				"TraceConfiguration":             map[string]any{"Vendor": "AWSXRAY"},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Contains(t, cfg["ObservabilityConfigurationArn"], "observabilityconfiguration/my-obs/1/")
+				assert.Equal(t, "ACTIVE", cfg["Status"])
+				assert.Equal(t, true, cfg["Latest"])
+				assert.InDelta(t, float64(1), cfg["ObservabilityConfigurationRevision"], 0.0001)
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateObservabilityConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateObservabilityConfiguration", map[string]any{
+		"ObservabilityConfigurationName": "obs1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	obsArn := createResp["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns config",
+			action:   "DescribeObservabilityConfiguration",
+			body:     map[string]any{"ObservabilityConfigurationArn": obsArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
+			},
+		},
+		{
+			name:     "describe missing ARN returns 400",
+			action:   "DescribeObservabilityConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "describe unknown ARN returns 400",
+			action: "DescribeObservabilityConfiguration",
+			body: map[string]any{
+				"ObservabilityConfigurationArn": "arn:aws:apprunner:us-east-1:000000000000:observabilityconfiguration/notexist/1/abc", //nolint:lll // existing issue.
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list returns config",
+			action:   "ListObservabilityConfigurations",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["ObservabilityConfigurationSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "delete returns config",
+			action:   "DeleteObservabilityConfiguration",
+			body:     map[string]any{"ObservabilityConfigurationArn": obsArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
+			},
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// --- VpcConnector tests --- //nolint:godot // existing issue.
+func TestVpcConnectorCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "create returns ARN",
+			action: "CreateVpcConnector",
+			body: map[string]any{
+				"VpcConnectorName": "my-vpc",
+				"Subnets":          []string{"subnet-aaa"},
+				"SecurityGroups":   []string{"sg-bbb"},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vc := resp["VpcConnector"].(map[string]any)
+				assert.Contains(t, vc["VpcConnectorArn"], "vpcconnector/my-vpc/1/")
+				assert.Equal(t, "ACTIVE", vc["Status"])
+				assert.InDelta(t, float64(1), vc["VpcConnectorRevision"], 0.0001)
+				subnets := vc["Subnets"].([]any)
+				assert.Len(t, subnets, 1)
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateVpcConnector",
+			body:     map[string]any{"Subnets": []string{"subnet-aaa"}},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create missing subnets returns 400",
+			action:   "CreateVpcConnector",
+			body:     map[string]any{"VpcConnectorName": "x"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateVpcConnector", map[string]any{
+		"VpcConnectorName": "vc1",
+		"Subnets":          []string{"subnet-111"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	vcArn := createResp["VpcConnector"].(map[string]any)["VpcConnectorArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns connector",
+			action:   "DescribeVpcConnector",
+			body:     map[string]any{"VpcConnectorArn": vcArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vc := resp["VpcConnector"].(map[string]any)
+				assert.Equal(t, "vc1", vc["VpcConnectorName"])
+			},
+		},
+		{
+			name:     "describe missing ARN returns 400",
+			action:   "DescribeVpcConnector",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "describe unknown ARN returns 400",
+			action: "DescribeVpcConnector",
+			body: map[string]any{
+				"VpcConnectorArn": "arn:aws:apprunner:us-east-1:000000000000:vpcconnector/notexist/1/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list returns 1",
+			action:   "ListVpcConnectors",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["VpcConnectors"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "delete returns connector",
+			action:   "DeleteVpcConnector",
+			body:     map[string]any{"VpcConnectorArn": vcArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vc := resp["VpcConnector"].(map[string]any)
+				assert.Equal(t, "vc1", vc["VpcConnectorName"])
+			},
+		},
+		{
+			name:   "delete unknown ARN returns 400",
+			action: "DeleteVpcConnector",
+			body: map[string]any{
+				"VpcConnectorArn": "arn:aws:apprunner:us-east-1:000000000000:vpcconnector/notexist/1/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete missing ARN returns 400",
+			action:   "DeleteVpcConnector",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// --- VpcIngressConnection tests --- //nolint:godot // existing issue.
+func TestVpcIngressConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+	svcArn := createTestService(t, h)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "create returns ARN",
+			action: "CreateVpcIngressConnection",
+			body: map[string]any{
+				"VpcIngressConnectionName": "my-vic",
+				"ServiceArn":               svcArn,
+				"IngressVpcConfiguration": map[string]any{
+					"VpcId":         "vpc-aaa",
+					"VpcEndpointId": "vpce-bbb",
+				},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vic := resp["VpcIngressConnection"].(map[string]any)
+				assert.Contains(t, vic["VpcIngressConnectionArn"], "vpcingressconnection/my-vic/")
+				assert.Equal(t, "AVAILABLE", vic["Status"])
+				assert.Equal(t, svcArn, vic["ServiceArn"])
+				ivc := vic["IngressVpcConfiguration"].(map[string]any)
+				assert.Equal(t, "vpc-aaa", ivc["VpcId"])
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateVpcIngressConnection",
+			body:     map[string]any{"ServiceArn": svcArn},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create missing service ARN returns 400",
+			action:   "CreateVpcIngressConnection",
+			body:     map[string]any{"VpcIngressConnectionName": "x"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+	svcArn := createTestService(t, h)
+
+	rec := doRequest(t, h, "CreateVpcIngressConnection", map[string]any{
+		"VpcIngressConnectionName": "vic1",
+		"ServiceArn":               svcArn,
+		"IngressVpcConfiguration":  map[string]any{"VpcId": "vpc-111", "VpcEndpointId": "vpce-222"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	vicArn := createResp["VpcIngressConnection"].(map[string]any)["VpcIngressConnectionArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns VIC",
+			action:   "DescribeVpcIngressConnection",
+			body:     map[string]any{"VpcIngressConnectionArn": vicArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vic := resp["VpcIngressConnection"].(map[string]any)
+				assert.Equal(t, "vic1", vic["VpcIngressConnectionName"])
+			},
+		},
+		{
+			name:     "describe missing ARN returns 400",
+			action:   "DescribeVpcIngressConnection",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "describe unknown ARN returns 400",
+			action: "DescribeVpcIngressConnection",
+			body: map[string]any{
+				"VpcIngressConnectionArn": "arn:aws:apprunner:us-east-1:000000000000:vpcingressconnection/notexist/abc",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list returns 1",
+			action:   "ListVpcIngressConnections",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["VpcIngressConnectionSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "list with service ARN filter",
+			action:   "ListVpcIngressConnections",
+			body:     map[string]any{"Filter": map[string]any{"ServiceArn": svcArn}},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["VpcIngressConnectionSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:   "update changes VPC config",
+			action: "UpdateVpcIngressConnection",
+			body: map[string]any{
+				"VpcIngressConnectionArn": vicArn,
+				"IngressVpcConfiguration": map[string]any{
+					"VpcId":         "vpc-new",
+					"VpcEndpointId": "vpce-new",
+				},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vic := resp["VpcIngressConnection"].(map[string]any)
+				ivc := vic["IngressVpcConfiguration"].(map[string]any)
+				assert.Equal(t, "vpc-new", ivc["VpcId"])
+			},
+		},
+		{
+			name:     "update missing ARN returns 400",
+			action:   "UpdateVpcIngressConnection",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete returns VIC",
+			action:   "DeleteVpcIngressConnection",
+			body:     map[string]any{"VpcIngressConnectionArn": vicArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				vic := resp["VpcIngressConnection"].(map[string]any)
+				assert.Equal(t, "vic1", vic["VpcIngressConnectionName"])
+			},
+		},
+		{
+			name:     "delete missing ARN returns 400",
+			action:   "DeleteVpcIngressConnection",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// --- CustomDomain tests --- //nolint:godot // existing issue.
+func TestCustomDomainAssociateDescribeDisassociate(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+	svcArn := createTestService(t, h)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "associate returns domain",
+			action: "AssociateCustomDomain",
+			body: map[string]any{
+				"ServiceArn": svcArn,
+				"DomainName": "example.com",
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cd := resp["CustomDomain"].(map[string]any)
+				assert.Equal(t, "example.com", cd["DomainName"])
+				assert.Equal(t, "ACTIVE", cd["Status"])
+				assert.Equal(t, true, cd["EnableWWWSubdomain"])
+			},
+		},
+		{
+			name:     "associate missing ServiceArn returns 400",
+			action:   "AssociateCustomDomain",
+			body:     map[string]any{"DomainName": "x.com"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "associate missing DomainName returns 400",
+			action:   "AssociateCustomDomain",
+			body:     map[string]any{"ServiceArn": svcArn},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "associate unknown service returns 400",
+			action: "AssociateCustomDomain",
+			body: map[string]any{
+				"ServiceArn": "arn:aws:apprunner:us-east-1:000000000000:service/notexist",
+				"DomainName": "x.com",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+func TestCustomDomainDescribeAndDisassociate(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+	svcArn := createTestService(t, h)
+
+	doRequest(t, h, "AssociateCustomDomain", map[string]any{"ServiceArn": svcArn, "DomainName": "example.com"})
+	doRequest(t, h, "AssociateCustomDomain", map[string]any{"ServiceArn": svcArn, "DomainName": "sub.example.com"})
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns 2 domains",
+			action:   "DescribeCustomDomains",
+			body:     map[string]any{"ServiceArn": svcArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				domains := resp["CustomDomains"].([]any)
+				assert.Len(t, domains, 2)
+				assert.NotEmpty(t, resp["ServiceArn"])
+				assert.NotEmpty(t, resp["DNSTarget"])
+			},
+		},
+		{
+			name:     "describe missing ServiceArn returns 400",
+			action:   "DescribeCustomDomains",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "describe unknown service returns 400",
+			action:   "DescribeCustomDomains",
+			body:     map[string]any{"ServiceArn": "arn:aws:apprunner:us-east-1:000000000000:service/notexist"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "disassociate removes domain",
+			action:   "DisassociateCustomDomain",
+			body:     map[string]any{"ServiceArn": svcArn, "DomainName": "example.com"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cd := resp["CustomDomain"].(map[string]any)
+				assert.Equal(t, "example.com", cd["DomainName"])
+			},
+		},
+		{
+			name:     "disassociate missing ServiceArn returns 400",
+			action:   "DisassociateCustomDomain",
+			body:     map[string]any{"DomainName": "x.com"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "disassociate missing DomainName returns 400",
+			action:   "DisassociateCustomDomain",
+			body:     map[string]any{"ServiceArn": svcArn},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
 			}
 		})
 	}

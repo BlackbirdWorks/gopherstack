@@ -18,47 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := fsx.NewInMemoryBackend("000000000000", "us-east-1")
 	h := fsx.NewHandler(backend)
 
-	// Operations not yet implemented — aliases, data repositories, volumes,
-	// SVMs, file caches, snapshots, shared VPC, and miscellaneous advanced ops.
-	notImplemented := []string{
-		"AssociateFileSystemAliases",
-		"CancelDataRepositoryTask",
-		"CopyBackup",
-		"CopySnapshotAndUpdateVolume",
-		"CreateAndAttachS3AccessPoint",
-		"CreateDataRepositoryAssociation",
-		"CreateDataRepositoryTask",
-		"CreateFileCache",
-		"CreateSnapshot",
-		"CreateStorageVirtualMachine",
-		"CreateVolume",
-		"CreateVolumeFromBackup",
-		"DeleteDataRepositoryAssociation",
-		"DeleteFileCache",
-		"DeleteSnapshot",
-		"DeleteStorageVirtualMachine",
-		"DeleteVolume",
-		"DescribeDataRepositoryAssociations",
-		"DescribeDataRepositoryTasks",
-		"DescribeFileCaches",
-		"DescribeFileSystemAliases",
-		"DescribeS3AccessPointAttachments",
-		"DescribeSharedVpcConfiguration",
-		"DescribeSnapshots",
-		"DescribeStorageVirtualMachines",
-		"DescribeVolumes",
-		"DetachAndDeleteS3AccessPoint",
-		"DisassociateFileSystemAliases",
-		"ReleaseFileSystemNfsV3Locks",
-		"RestoreVolumeFromSnapshot",
-		"StartMisconfiguredStateRecovery",
-		"UpdateDataRepositoryAssociation",
-		"UpdateFileCache",
-		"UpdateSharedVpcConfiguration",
-		"UpdateSnapshot",
-		"UpdateStorageVirtualMachine",
-		"UpdateVolume",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &fsxsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

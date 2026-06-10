@@ -32,6 +32,18 @@ const (
 	keyIngestionTime = "@ingestionTime"
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
 var (
 	ErrLogGroupNotFound              = errors.New("ResourceNotFoundException")
 	ErrLogGroupAlreadyExists         = errors.New("ResourceAlreadyExistsException")
@@ -208,18 +220,22 @@ func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, uni
 
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
-	CreateLogGroup(name, logGroupClass, kmsKeyID string) (*LogGroup, error)
-	DeleteLogGroup(name string) error
-	DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error)
-	CreateLogStream(groupName, streamName string) (*LogStream, error)
-	DeleteLogStream(groupName, streamName string) error
+	CreateLogGroup(ctx context.Context, name, logGroupClass, kmsKeyID string) (*LogGroup, error)
+	DeleteLogGroup(ctx context.Context, name string) error
+	DescribeLogGroups(ctx context.Context, prefix, nextToken string, limit int) ([]LogGroup, string, error)
+	CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error)
+	DeleteLogStream(ctx context.Context, groupName, streamName string) error
 	DescribeLogStreams(
+		ctx context.Context,
 		groupName, prefix, nextToken, orderBy string,
 		descending bool,
 		limit int,
 	) ([]LogStream, string, error)
-	PutLogEvents(groupName, streamName, sequenceToken string, events []InputLogEvent) (*PutLogEventsResult, error)
+	PutLogEvents(
+		ctx context.Context, groupName, streamName, sequenceToken string, events []InputLogEvent,
+	) (*PutLogEventsResult, error)
 	GetLogEvents(
+		ctx context.Context,
 		groupName, streamName string,
 		startTime, endTime *int64,
 		limit int,
@@ -227,14 +243,18 @@ type StorageBackend interface {
 		startFromHead bool,
 	) (
 		[]OutputLogEvent, string, string, error)
-	FilterLogEvents(groupName string, streamNames []string, filterPattern string,
+	FilterLogEvents(ctx context.Context, groupName string, streamNames []string, filterPattern string,
 		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
-	PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn, roleArn, distribution string) error
-	DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
+	PutSubscriptionFilter(
+		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+	) error
+	DescribeSubscriptionFilters(ctx context.Context, groupName, filterNamePrefix, nextToken string, limit int) (
 		[]SubscriptionFilter, string, error)
-	DeleteSubscriptionFilter(groupName, filterName string) error
-	SetRetentionPolicy(groupName string, days *int32) error
-	StartQuery(queryID, queryString string, logGroupNames []string, startTime, endTime int64) (*QueryInfo, error)
+	DeleteSubscriptionFilter(ctx context.Context, groupName, filterName string) error
+	SetRetentionPolicy(ctx context.Context, groupName string, days *int32) error
+	StartQuery(
+		ctx context.Context, queryID, queryString string, logGroupNames []string, startTime, endTime int64,
+	) (*QueryInfo, error)
 	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
 	StopQuery(queryID string) error
 	DescribeQueries(logGroupName, statusFilter, nextToken string, maxResults int) ([]QueryInfo, string, error)
@@ -304,14 +324,17 @@ type StorageBackend interface {
 	// DisassociateKmsKey removes the KMS key association from a log group or resource.
 	DisassociateKmsKey(logGroupName, resourceIdentifier string) error
 	// PutMetricFilter creates or updates a metric filter for a log group.
-	PutMetricFilter(logGroupName, filterName, filterPattern string, transformations []MetricTransformation) error
+	PutMetricFilter(
+		ctx context.Context, logGroupName, filterName, filterPattern string, transformations []MetricTransformation,
+	) error
 	// DescribeMetricFilters lists metric filters with optional filters.
 	DescribeMetricFilters(
+		ctx context.Context,
 		logGroupName, filterNamePrefix, metricName, metricNamespace, nextToken string,
 		limit int,
 	) ([]MetricFilter, string, error)
 	// DeleteMetricFilter deletes a metric filter from a log group.
-	DeleteMetricFilter(logGroupName, filterName string) error
+	DeleteMetricFilter(ctx context.Context, logGroupName, filterName string) error
 	// TestMetricFilter tests a metric filter pattern against provided log event messages.
 	TestMetricFilter(filterPattern string, logEventMessages []string) ([]MetricFilterMatchRecord, error)
 	// PutQueryDefinition creates or updates a query definition.
@@ -329,9 +352,9 @@ type StorageBackend interface {
 	// GetScheduledQuery returns the scheduled query with the given ARN.
 	GetScheduledQuery(scheduledQueryArn string) (*ScheduledQuery, error)
 	// GetLogGroupFields returns the most common log fields for a log group.
-	GetLogGroupFields(logGroupName string) ([]LogGroupField, error)
+	GetLogGroupFields(ctx context.Context, logGroupName string) ([]LogGroupField, error)
 	// GetLogRecord returns a single log event by its log record pointer.
-	GetLogRecord(logRecordPointer string) (map[string]string, error)
+	GetLogRecord(ctx context.Context, logRecordPointer string) (map[string]string, error)
 	// ListAnomalies lists anomalies for the given anomaly detector ARN with pagination.
 	ListAnomalies(anomalyDetectorArn string, limit int, nextToken string) ([]Anomaly, string, error)
 	// ListLogGroupsForQuery returns the log group names used in a specific query.
@@ -345,7 +368,7 @@ type StorageBackend interface {
 	// UpdateAnomaly updates anomaly suppression settings. No actual anomaly data is stored.
 	UpdateAnomaly(anomalyID, anomalyDetectorArn string, suppressionType string) error
 	// ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
-	ListLogGroups(namePrefix, nextToken string, limit int) ([]LogGroup, string, error)
+	ListLogGroups(ctx context.Context, namePrefix, nextToken string, limit int) ([]LogGroup, string, error)
 }
 
 // storedQuery holds the execution state of a single Logs Insights query.
@@ -363,11 +386,11 @@ type InMemoryBackend struct {
 	metricEmitter          MetricEmitter
 	ctx                    context.Context
 	accountPolicies        map[string]*AccountPolicy
-	groups                 map[string]*LogGroup
+	groups                 map[string]map[string]*LogGroup
 	workerSem              chan struct{}
-	streams                map[string]map[string]*LogStream
-	events                 map[string]map[string][]*OutputLogEvent
-	subscriptionFilters    map[string][]*SubscriptionFilter
+	streams                map[string]map[string]map[string]*LogStream
+	events                 map[string]map[string]map[string][]*OutputLogEvent
+	subscriptionFilters    map[string]map[string][]*SubscriptionFilter
 	queries                map[string]*storedQuery
 	parsedQueries          map[string]*insightsQuery
 	compiledPatterns       map[string]*compiledFilterPattern
@@ -379,7 +402,7 @@ type InMemoryBackend struct {
 	s3TableIntegrations    map[string]string
 	mu                     *lockmetrics.RWMutex
 	kmsKeys                map[string]string
-	metricFilters          map[string]map[string]*MetricFilter
+	metricFilters          map[string]map[string]map[string]*MetricFilter
 	queryDefinitions       map[string]*QueryDefinition
 	dataProtectionPolicies map[string]string // logGroupName -> policyDocument JSON
 	resourcePolicies       map[string]ResourcePolicy
@@ -428,10 +451,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	return &InMemoryBackend{
 		accountID:              accountID,
 		region:                 region,
-		groups:                 make(map[string]*LogGroup),
-		streams:                make(map[string]map[string]*LogStream),
-		events:                 make(map[string]map[string][]*OutputLogEvent),
-		subscriptionFilters:    make(map[string][]*SubscriptionFilter),
+		groups:                 make(map[string]map[string]*LogGroup),
+		streams:                make(map[string]map[string]map[string]*LogStream),
+		events:                 make(map[string]map[string]map[string][]*OutputLogEvent),
+		subscriptionFilters:    make(map[string]map[string][]*SubscriptionFilter),
 		queries:                make(map[string]*storedQuery),
 		parsedQueries:          make(map[string]*insightsQuery),
 		compiledPatterns:       make(map[string]*compiledFilterPattern),
@@ -443,7 +466,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		accountPolicies:        make(map[string]*AccountPolicy),
 		kmsKeys:                make(map[string]string),
 		s3TableIntegrations:    make(map[string]string),
-		metricFilters:          make(map[string]map[string]*MetricFilter),
+		metricFilters:          make(map[string]map[string]map[string]*MetricFilter),
 		queryDefinitions:       make(map[string]*QueryDefinition),
 		dataProtectionPolicies: make(map[string]string),
 		resourcePolicies:       make(map[string]ResourcePolicy),
@@ -536,17 +559,67 @@ func (b *InMemoryBackend) Drain() {
 	b.wg.Wait()
 }
 
-func (b *InMemoryBackend) groupARN(name string) string {
-	return arn.Build("logs", b.region, b.accountID, "log-group:"+name)
+func (b *InMemoryBackend) groupARN(region, name string) string {
+	return arn.Build("logs", region, b.accountID, "log-group:"+name)
 }
 
-func (b *InMemoryBackend) streamARN(groupName, streamName string) string {
-	return arn.Build("logs", b.region, b.accountID, "log-group:"+groupName+":log-stream:"+streamName)
+func (b *InMemoryBackend) streamARN(region, groupName, streamName string) string {
+	return arn.Build("logs", region, b.accountID, "log-group:"+groupName+":log-stream:"+streamName)
+}
+
+// groupsStore returns the log-group map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) groupsStore(region string) map[string]*LogGroup {
+	if b.groups[region] == nil {
+		b.groups[region] = make(map[string]*LogGroup)
+	}
+
+	return b.groups[region]
+}
+
+// streamsStore returns the streams map (group -> stream -> *LogStream) for the given
+// region, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) streamsStore(region string) map[string]map[string]*LogStream {
+	if b.streams[region] == nil {
+		b.streams[region] = make(map[string]map[string]*LogStream)
+	}
+
+	return b.streams[region]
+}
+
+// eventsStore returns the events map (group -> stream -> []*OutputLogEvent) for the
+// given region, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) eventsStore(region string) map[string]map[string][]*OutputLogEvent {
+	if b.events[region] == nil {
+		b.events[region] = make(map[string]map[string][]*OutputLogEvent)
+	}
+
+	return b.events[region]
+}
+
+// subscriptionFiltersStore returns the subscription-filter map (group -> filters) for
+// the given region, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) subscriptionFiltersStore(region string) map[string][]*SubscriptionFilter {
+	if b.subscriptionFilters[region] == nil {
+		b.subscriptionFilters[region] = make(map[string][]*SubscriptionFilter)
+	}
+
+	return b.subscriptionFilters[region]
+}
+
+// metricFiltersStore returns the metric-filter map (group -> name -> *MetricFilter) for
+// the given region, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) metricFiltersStore(region string) map[string]map[string]*MetricFilter {
+	if b.metricFilters[region] == nil {
+		b.metricFilters[region] = make(map[string]map[string]*MetricFilter)
+	}
+
+	return b.metricFilters[region]
 }
 
 // CreateLogGroup creates a new log group with the given class and optional KMS key.
 // logGroupClass must be STANDARD or INFREQUENT_ACCESS (defaults to STANDARD if empty).
-func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (*LogGroup, error) {
+func (b *InMemoryBackend) CreateLogGroup(ctx context.Context, name, logGroupClass, kmsKeyID string) (*LogGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -570,23 +643,26 @@ func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[name]; exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[name]; exists {
 		return nil, fmt.Errorf("%w: Log group %s already exists", ErrLogGroupAlreadyExists, name)
 	}
 
 	g := &LogGroup{
 		CreationTime:  time.Now().UnixMilli(),
 		LogGroupName:  name,
-		Arn:           b.groupARN(name),
+		Arn:           b.groupARN(region, name),
 		LogGroupClass: logGroupClass,
 		KmsKeyID:      kmsKeyID,
 	}
-	b.groups[name] = g
-	b.streams[name] = make(map[string]*LogStream)
-	b.events[name] = make(map[string][]*OutputLogEvent)
+	groups[name] = g
+	b.streamsStore(region)[name] = make(map[string]*LogStream)
+	b.eventsStore(region)[name] = make(map[string][]*OutputLogEvent)
 
 	if kmsKeyID != "" {
 		b.kmsKeys[name] = kmsKeyID
@@ -598,36 +674,41 @@ func (b *InMemoryBackend) CreateLogGroup(name, logGroupClass, kmsKeyID string) (
 }
 
 // DeleteLogGroup deletes a log group and all its streams/events.
-func (b *InMemoryBackend) DeleteLogGroup(name string) error {
+func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteLogGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[name]; !exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[name]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
 	}
 
-	delete(b.groups, name)
-	delete(b.streams, name)
-	delete(b.events, name)
-	delete(b.subscriptionFilters, name)
-	delete(b.metricFilters, name)
+	delete(groups, name)
+	delete(b.streamsStore(region), name)
+	delete(b.eventsStore(region), name)
+	delete(b.subscriptionFiltersStore(region), name)
+	delete(b.metricFiltersStore(region), name)
 
 	return nil
 }
 
 // SetRetentionPolicy sets or clears the retention policy for a log group.
 // A nil days value removes any existing retention policy.
-func (b *InMemoryBackend) SetRetentionPolicy(groupName string, days *int32) error {
+func (b *InMemoryBackend) SetRetentionPolicy(ctx context.Context, groupName string, days *int32) error {
 	if days != nil {
 		if _, ok := validRetentionDays()[*days]; !ok {
 			return fmt.Errorf("%w: invalid retentionInDays %d, must be one of the allowed values", ErrValidation, *days)
 		}
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SetRetentionPolicy")
 	defer b.mu.Unlock()
 
-	g, exists := b.groups[groupName]
+	g, exists := b.groupsStore(region)[groupName]
 	if !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
@@ -638,7 +719,11 @@ func (b *InMemoryBackend) SetRetentionPolicy(groupName string, days *int32) erro
 }
 
 // DescribeLogGroups returns log groups optionally filtered by prefix, with pagination.
-func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error) {
+func (b *InMemoryBackend) DescribeLogGroups(
+	ctx context.Context, prefix, nextToken string, limit int,
+) ([]LogGroup, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeLogGroups")
 	defer b.mu.RUnlock()
 
@@ -646,8 +731,9 @@ func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int)
 		limit = defaultDescribeLimit
 	}
 
-	all := make([]LogGroup, 0, len(b.groups))
-	for _, g := range b.groups {
+	regionGroups := b.groupsStore(region)
+	all := make([]LogGroup, 0, len(regionGroups))
+	for _, g := range regionGroups {
 		if prefix == "" || strings.HasPrefix(g.LogGroupName, prefix) {
 			all = append(all, *g)
 		}
@@ -661,7 +747,7 @@ func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int)
 }
 
 // CreateLogStream creates a new log stream within a log group.
-func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStream, error) {
+func (b *InMemoryBackend) CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error) {
 	if groupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -670,48 +756,55 @@ func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStr
 		return nil, fmt.Errorf("%w: logStreamName is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateLogStream")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streams[groupName][streamName]; exists {
+	streams := b.streamsStore(region)
+	if _, exists := streams[groupName][streamName]; exists {
 		return nil, fmt.Errorf("%w: Log stream %s already exists", ErrLogStreamAlreadyExist, streamName)
 	}
 
 	s := &LogStream{
 		CreationTime:  time.Now().UnixMilli(),
 		LogStreamName: streamName,
-		Arn:           b.streamARN(groupName, streamName),
+		Arn:           b.streamARN(region, groupName, streamName),
 	}
-	b.streams[groupName][streamName] = s
-	b.events[groupName][streamName] = nil
+	streams[groupName][streamName] = s
+	b.eventsStore(region)[groupName][streamName] = nil
 
 	return s, nil
 }
 
 // DeleteLogStream deletes a log stream and all its events from a log group.
-func (b *InMemoryBackend) DeleteLogStream(groupName, streamName string) error {
+func (b *InMemoryBackend) DeleteLogStream(ctx context.Context, groupName, streamName string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteLogStream")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[groupName]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streams[groupName][streamName]; !exists {
+	streams := b.streamsStore(region)
+	if _, exists := streams[groupName][streamName]; !exists {
 		return fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	stream := b.streams[groupName][streamName]
-	if stream != nil && b.groups[groupName] != nil {
-		b.groups[groupName].StoredBytes -= stream.StoredBytes
+	stream := streams[groupName][streamName]
+	if stream != nil && groups[groupName] != nil {
+		groups[groupName].StoredBytes -= stream.StoredBytes
 	}
 
-	delete(b.streams[groupName], streamName)
-	delete(b.events[groupName], streamName)
+	delete(streams[groupName], streamName)
+	delete(b.eventsStore(region)[groupName], streamName)
 
 	return nil
 }
@@ -755,7 +848,9 @@ func compareLastEventTime(a, b LogStream, descending bool) bool {
 // descending controls sort direction.
 // AWS rules: descending=true with orderBy=LogStreamName is invalid;
 // logStreamNamePrefix with orderBy=LastEventTime is invalid.
-func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, orderBy string, descending bool, limit int) (
+func (b *InMemoryBackend) DescribeLogStreams(
+	ctx context.Context, groupName, prefix, nextToken, orderBy string, descending bool, limit int,
+) (
 	[]LogStream, string, error,
 ) {
 	// Validate (orderBy, descending, prefix) tuple per AWS rules.
@@ -778,10 +873,12 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, order
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeLogStreams")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
@@ -789,8 +886,9 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken, order
 		limit = defaultDescribeLimit
 	}
 
-	all := make([]LogStream, 0, len(b.streams[groupName]))
-	for _, s := range b.streams[groupName] {
+	groupStreams := b.streamsStore(region)[groupName]
+	all := make([]LogStream, 0, len(groupStreams))
+	for _, s := range groupStreams {
 		if prefix == "" || strings.HasPrefix(s.LogStreamName, prefix) {
 			all = append(all, *s)
 		}
@@ -915,7 +1013,8 @@ func classifyLogEvents(
 // PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
 // sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
 // Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
-func (b *InMemoryBackend) PutLogEvents(
+func (b *InMemoryBackend) PutLogEvents( //nolint:funlen // existing issue.
+	ctx context.Context,
 	groupName, streamName, sequenceToken string,
 	events []InputLogEvent,
 ) (*PutLogEventsResult, error) {
@@ -923,26 +1022,31 @@ func (b *InMemoryBackend) PutLogEvents(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutLogEvents")
 
-	if _, exists := b.groups[groupName]; !exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[groupName]; !exists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streams[groupName][streamName]; !exists {
+	streams := b.streamsStore(region)
+	groupEvents := b.eventsStore(region)
+	if _, exists := streams[groupName][streamName]; !exists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	stream := b.streams[groupName][streamName]
+	stream := streams[groupName][streamName]
 
 	// Validate sequence token if provided. AWS still returns InvalidSequenceTokenException
 	// for wrong tokens even though tokens are now optional.
 	if sequenceToken != "" {
-		expectedToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
+		expectedToken := strconv.FormatInt(int64(len(groupEvents[groupName][streamName])), 10)
 		if sequenceToken != expectedToken {
 			b.mu.Unlock()
 
@@ -953,7 +1057,7 @@ func (b *InMemoryBackend) PutLogEvents(
 	now := time.Now().UnixMilli()
 
 	// Determine the retention cutoff for timestamp validation.
-	group := b.groups[groupName]
+	group := groups[groupName]
 	var retentionCutoffMs int64
 	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
 		retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
@@ -965,23 +1069,23 @@ func (b *InMemoryBackend) PutLogEvents(
 	futureLimit := now + putLogEventsFutureWindowMs
 	acceptedEvents, rejectedInfo := classifyLogEvents(events, retentionCutoffMs, hardCutoff, futureLimit)
 
-	b.appendEvents(groupName, streamName, stream, now, acceptedEvents)
+	b.appendEvents(region, groupName, streamName, stream, now, acceptedEvents)
 
 	stream.LastIngestionTime = &now
-	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
+	nextToken := strconv.FormatInt(int64(len(groupEvents[groupName][streamName])), 10)
 
 	// Collect matching subscription filters for async delivery (while holding the lock).
-	filters := b.matchingFilters(groupName, acceptedEvents)
+	filters := b.matchingFilters(region, groupName, acceptedEvents)
 	deliverer := b.deliverer
 	accountID := b.accountID
 	timeout := b.deliveryTimeout
 	workerSem := b.workerSem
-	ctx := b.ctx
+	svcCtx := b.ctx
 	eventsForDelivery := append([]InputLogEvent(nil), acceptedEvents...)
 	filtersForDelivery := cloneSubscriptionFilters(filters)
 
 	// Collect metric filter matches while holding the lock.
-	metricMatches := b.matchingMetricFilters(groupName, acceptedEvents)
+	metricMatches := b.matchingMetricFilters(region, groupName, acceptedEvents)
 	emitter := b.metricEmitter
 
 	b.mu.Unlock()
@@ -997,12 +1101,12 @@ func (b *InMemoryBackend) PutLogEvents(
 			select {
 			case workerSem <- struct{}{}:
 				defer func() { <-workerSem }()
-			case <-ctx.Done():
+			case <-svcCtx.Done():
 				return
 			}
 
 			b.deliverToFilters(
-				ctx,
+				svcCtx,
 				groupName,
 				streamName,
 				accountID,
@@ -1026,10 +1130,12 @@ func (b *InMemoryBackend) PutLogEvents(
 // Note: log events may arrive with out-of-order timestamps (AWS allows this),
 // so min/max timestamp tracking must inspect all events.
 func (b *InMemoryBackend) appendEvents(
-	groupName, streamName string, stream *LogStream, now int64, events []InputLogEvent,
+	region, groupName, streamName string, stream *LogStream, now int64, events []InputLogEvent,
 ) {
+	groupEvents := b.eventsStore(region)
+	groups := b.groupsStore(region)
 	for _, ev := range events {
-		idx := len(b.events[groupName][streamName])
+		idx := len(groupEvents[groupName][streamName])
 		ptr := base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%s/%s/%d", groupName, streamName, idx))
 		out := &OutputLogEvent{
 			IngestionTime: now,
@@ -1037,11 +1143,11 @@ func (b *InMemoryBackend) appendEvents(
 			Timestamp:     ev.Timestamp,
 			Ptr:           ptr,
 		}
-		b.events[groupName][streamName] = append(b.events[groupName][streamName], out)
+		groupEvents[groupName][streamName] = append(groupEvents[groupName][streamName], out)
 
 		msgLen := int64(len(ev.Message))
 		stream.StoredBytes += msgLen
-		b.groups[groupName].StoredBytes += msgLen
+		groups[groupName].StoredBytes += msgLen
 
 		if stream.FirstEventTimestamp == nil || ev.Timestamp < *stream.FirstEventTimestamp {
 			ts := ev.Timestamp
@@ -1054,12 +1160,12 @@ func (b *InMemoryBackend) appendEvents(
 	}
 
 	// Enforce per-stream event cap: keep only the most recent maxEventsPerStream events.
-	if cur := b.events[groupName][streamName]; len(cur) > maxEventsPerStream {
-		b.events[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
+	if cur := groupEvents[groupName][streamName]; len(cur) > maxEventsPerStream {
+		groupEvents[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
 		// Recalculate metadata from the remaining events: since events may have
 		// out-of-order timestamps, the dropped events might include the global
 		// min/max, so we must re-scan rather than assume positional ordering.
-		updateStreamTimestamps(stream, b.events[groupName][streamName])
+		updateStreamTimestamps(stream, groupEvents[groupName][streamName])
 	}
 }
 
@@ -1070,21 +1176,23 @@ func (b *InMemoryBackend) appendEvents(
 //
 // In practice the AWS SDK always passes a nextToken once pagination begins, at which point the
 // token encodes the offset directly and startFromHead is ignored.
-func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, endTime *int64,
+func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamName string, startTime, endTime *int64,
 	limit int, nextToken string, startFromHead bool,
 ) ([]OutputLogEvent, string, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, "", "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streams[groupName][streamName]; !exists {
+	if _, exists := b.streamsStore(region)[groupName][streamName]; !exists {
 		return nil, "", "", fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	all := b.events[groupName][streamName]
+	all := b.eventsStore(region)[groupName][streamName]
 	filtered := filterByTime(all, startTime, endTime)
 
 	if limit <= 0 {
@@ -1119,13 +1227,21 @@ func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, 
 }
 
 // FilterLogEvents searches events across streams in a group with optional filter pattern.
-func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string, filterPattern string,
-	startTime, endTime *int64, limit int, nextToken string,
+func (b *InMemoryBackend) FilterLogEvents(
+	ctx context.Context,
+	groupName string,
+	streamNames []string,
+	filterPattern string,
+	startTime, endTime *int64,
+	limit int,
+	nextToken string,
 ) ([]OutputLogEvent, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("FilterLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
@@ -1136,12 +1252,13 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 		compiled = compileFilterPattern(filterPattern)
 	}
 
-	streamOrder := b.filterStreamOrderLocked(groupName, streamNames)
+	streamOrder := b.filterStreamOrderLocked(region, groupName, streamNames)
+	groupEvents := b.eventsStore(region)
 
 	var all []*OutputLogEvent
 
 	for _, sName := range streamOrder {
-		for _, ev := range b.events[groupName][sName] {
+		for _, ev := range groupEvents[groupName][sName] {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
@@ -1176,6 +1293,7 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
 // roleArn is required by AWS when delivering to Kinesis streams; distribution defaults to Random.
 func (b *InMemoryBackend) PutSubscriptionFilter(
+	ctx context.Context,
 	groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
 ) error {
 	if groupName == "" {
@@ -1198,14 +1316,17 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 		return fmt.Errorf("%w: invalid distribution %q, must be Random or ByLogStream", ErrValidation, distribution)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutSubscriptionFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	existing := b.subscriptionFilters[groupName]
+	subFilters := b.subscriptionFiltersStore(region)
+	existing := subFilters[groupName]
 
 	// Check for a filter with the same name (update).
 	for i, f := range existing {
@@ -1225,7 +1346,7 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 			ErrSubscriptionFilterLimitExceed, groupName)
 	}
 
-	b.subscriptionFilters[groupName] = append(existing, &SubscriptionFilter{
+	subFilters[groupName] = append(existing, &SubscriptionFilter{
 		FilterName:     filterName,
 		FilterPattern:  filterPattern,
 		LogGroupName:   groupName,
@@ -1239,18 +1360,23 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 }
 
 // DescribeSubscriptionFilters returns subscription filters for a log group with optional prefix and pagination.
-func (b *InMemoryBackend) DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
+func (b *InMemoryBackend) DescribeSubscriptionFilters(
+	ctx context.Context, groupName, filterNamePrefix, nextToken string, limit int,
+) (
 	[]SubscriptionFilter, string, error,
 ) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeSubscriptionFilters")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	all := make([]SubscriptionFilter, 0, len(b.subscriptionFilters[groupName]))
-	for _, f := range b.subscriptionFilters[groupName] {
+	groupFilters := b.subscriptionFiltersStore(region)[groupName]
+	all := make([]SubscriptionFilter, 0, len(groupFilters))
+	for _, f := range groupFilters {
 		if filterNamePrefix == "" || strings.HasPrefix(f.FilterName, filterNamePrefix) {
 			all = append(all, *f)
 		}
@@ -1279,18 +1405,21 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(groupName, filterNamePrefi
 }
 
 // DeleteSubscriptionFilter removes a subscription filter from a log group.
-func (b *InMemoryBackend) DeleteSubscriptionFilter(groupName, filterName string) error {
+func (b *InMemoryBackend) DeleteSubscriptionFilter(ctx context.Context, groupName, filterName string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteSubscriptionFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	filters := b.subscriptionFilters[groupName]
+	subFilters := b.subscriptionFiltersStore(region)
+	filters := subFilters[groupName]
 	for i, f := range filters {
 		if f.FilterName == filterName {
-			b.subscriptionFilters[groupName] = append(filters[:i], filters[i+1:]...)
+			subFilters[groupName] = append(filters[:i], filters[i+1:]...)
 
 			return nil
 		}
@@ -1302,8 +1431,8 @@ func (b *InMemoryBackend) DeleteSubscriptionFilter(groupName, filterName string)
 
 // matchingFilters returns subscription filters whose pattern matches any of the given events.
 // Must be called with the write lock held (called from PutLogEvents before Unlock).
-func (b *InMemoryBackend) matchingFilters(groupName string, events []InputLogEvent) []*SubscriptionFilter {
-	filters := b.subscriptionFilters[groupName]
+func (b *InMemoryBackend) matchingFilters(region, groupName string, events []InputLogEvent) []*SubscriptionFilter {
+	filters := b.subscriptionFiltersStore(region)[groupName]
 	if len(filters) == 0 {
 		return nil
 	}
@@ -1328,8 +1457,8 @@ type metricFilterMatch struct {
 // matchingMetricFilters returns metric filters for groupName whose pattern matches at least one
 // of the given events, along with the per-filter match count.
 // Must be called while holding the write lock.
-func (b *InMemoryBackend) matchingMetricFilters(groupName string, events []InputLogEvent) []metricFilterMatch {
-	mfMap := b.metricFilters[groupName]
+func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events []InputLogEvent) []metricFilterMatch {
+	mfMap := b.metricFiltersStore(region)[groupName]
 	if len(mfMap) == 0 {
 		return nil
 	}
@@ -1367,7 +1496,8 @@ func (b *InMemoryBackend) emitMetricFilterMatches(emitter MetricEmitter, matches
 			}
 			for range m.matchCount {
 				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, ""); emitErr != nil {
-					logger.Load(b.ctx).Warn("cloudwatchlogs: metric filter emit failed",
+					logger.Load(b.ctx).Warn(
+						"cloudwatchlogs: metric filter emit failed",
 						"namespace", t.MetricNamespace,
 						"metric", t.MetricName,
 						"err", emitErr,
@@ -1656,12 +1786,12 @@ func sortedKeys(m map[string]*LogStream) []string {
 // returned in sorted order. When streamNames is non-empty, only the requested
 // names that exist in the group are returned, in sorted order, deduplicated.
 // Caller must hold b.mu (read or write).
-func (b *InMemoryBackend) filterStreamOrderLocked(groupName string, streamNames []string) []string {
+func (b *InMemoryBackend) filterStreamOrderLocked(region, groupName string, streamNames []string) []string {
+	groupStreams := b.streamsStore(region)[groupName]
 	if len(streamNames) == 0 {
-		return sortedKeys(b.streams[groupName])
+		return sortedKeys(groupStreams)
 	}
 
-	groupStreams := b.streams[groupName]
 	seen := make(map[string]bool, len(streamNames))
 	out := make([]string, 0, len(streamNames))
 
@@ -1839,13 +1969,14 @@ func (b *InMemoryBackend) getParsedInsightsQuery(queryString string) (*insightsQ
 // collectQueryEvents scans events in the given log groups within [startTime, endTime].
 // It must be called while holding at least a read lock.
 func (b *InMemoryBackend) collectQueryEvents(
-	logGroupNames []string, startTime, endTime int64,
+	region string, logGroupNames []string, startTime, endTime int64,
 ) ([]*OutputLogEvent, float64) {
 	var eventsOut []*OutputLogEvent
 	var recordsScanned float64
 
+	groupEvents := b.eventsStore(region)
 	for _, groupName := range logGroupNames {
-		streamMap, exists := b.events[groupName]
+		streamMap, exists := groupEvents[groupName]
 		if !exists {
 			continue
 		}
@@ -1868,19 +1999,21 @@ func (b *InMemoryBackend) collectQueryEvents(
 
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
 func (b *InMemoryBackend) StartQuery(
-	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
+	ctx context.Context, queryID, queryString string, logGroupNames []string, startTime, endTime int64,
 ) (*QueryInfo, error) {
 	q, parseErr := b.getParsedInsightsQuery(queryString)
 	if parseErr != nil {
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	// Collect events under a read lock, then release the lock before running the
 	// query. This prevents regex matching and sorting from holding the lock while
 	// still delivering a consistent snapshot (no writes can interleave the collect
 	// and execute phases — a copy of the slice is taken under the lock).
 	b.mu.RLock("StartQuery")
-	allEventsRaw, recordsScanned := b.collectQueryEvents(logGroupNames, startTime, endTime)
+	allEventsRaw, recordsScanned := b.collectQueryEvents(region, logGroupNames, startTime, endTime)
 	// Take a snapshot copy of the event pointers so we can safely release the lock.
 	allEvents := make([]*OutputLogEvent, len(allEventsRaw))
 	copy(allEvents, allEventsRaw)
@@ -2019,10 +2152,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.groups = make(map[string]*LogGroup)
-	b.streams = make(map[string]map[string]*LogStream)
-	b.events = make(map[string]map[string][]*OutputLogEvent)
-	b.subscriptionFilters = make(map[string][]*SubscriptionFilter)
+	b.groups = make(map[string]map[string]*LogGroup)
+	b.streams = make(map[string]map[string]map[string]*LogStream)
+	b.events = make(map[string]map[string]map[string][]*OutputLogEvent)
+	b.subscriptionFilters = make(map[string]map[string][]*SubscriptionFilter)
 	b.queries = make(map[string]*storedQuery)
 	b.queriesOrder = nil
 	b.parsedQueries = make(map[string]*insightsQuery)
@@ -2035,7 +2168,7 @@ func (b *InMemoryBackend) Reset() {
 	b.accountPolicies = make(map[string]*AccountPolicy)
 	b.kmsKeys = make(map[string]string)
 	b.s3TableIntegrations = make(map[string]string)
-	b.metricFilters = make(map[string]map[string]*MetricFilter)
+	b.metricFilters = make(map[string]map[string]map[string]*MetricFilter)
 	b.queryDefinitions = make(map[string]*QueryDefinition)
 	b.dataProtectionPolicies = make(map[string]string)
 	b.resourcePolicies = make(map[string]ResourcePolicy)
@@ -2881,6 +3014,7 @@ func (b *InMemoryBackend) DisassociateKmsKey(logGroupName, resourceIdentifier st
 
 // PutMetricFilter creates or updates a metric filter for a log group.
 func (b *InMemoryBackend) PutMetricFilter(
+	ctx context.Context,
 	logGroupName, filterName, filterPattern string,
 	transformations []MetricTransformation,
 ) error {
@@ -2894,19 +3028,23 @@ func (b *InMemoryBackend) PutMetricFilter(
 		return fmt.Errorf("%w: at least one metricTransformation is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutMetricFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[logGroupName]; !exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[logGroupName]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
-	if b.metricFilters[logGroupName] == nil {
-		b.metricFilters[logGroupName] = make(map[string]*MetricFilter)
+	metricFilters := b.metricFiltersStore(region)
+	if metricFilters[logGroupName] == nil {
+		metricFilters[logGroupName] = make(map[string]*MetricFilter)
 	}
 
 	creationTime := time.Now().UnixMilli()
-	if existing, ok := b.metricFilters[logGroupName][filterName]; ok {
+	if existing, ok := metricFilters[logGroupName][filterName]; ok {
 		creationTime = existing.CreationTime
 	}
 
@@ -2917,23 +3055,26 @@ func (b *InMemoryBackend) PutMetricFilter(
 		MetricTransformations: append([]MetricTransformation(nil), transformations...),
 		CreationTime:          creationTime,
 	}
-	b.metricFilters[logGroupName][filterName] = mf
-	count := len(b.metricFilters[logGroupName])
-	b.groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+	metricFilters[logGroupName][filterName] = mf
+	count := len(metricFilters[logGroupName])
+	groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
 
 	return nil
 }
 
 // DescribeMetricFilters lists metric filters with optional filters.
 func (b *InMemoryBackend) DescribeMetricFilters(
+	ctx context.Context,
 	logGroupName, filterNamePrefix, metricName, metricNamespace, nextToken string,
 	limit int,
 ) ([]MetricFilter, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeMetricFilters")
 	defer b.mu.RUnlock()
 
 	var all []MetricFilter
-	for grp, filters := range b.metricFilters {
+	for grp, filters := range b.metricFiltersStore(region) {
 		if logGroupName != "" && grp != logGroupName {
 			continue
 		}
@@ -2991,7 +3132,7 @@ func metricFilterMatches(mf *MetricFilter, filterNamePrefix, metricName, metricN
 }
 
 // DeleteMetricFilter deletes a metric filter from a log group.
-func (b *InMemoryBackend) DeleteMetricFilter(logGroupName, filterName string) error {
+func (b *InMemoryBackend) DeleteMetricFilter(ctx context.Context, logGroupName, filterName string) error {
 	if logGroupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -2999,14 +3140,18 @@ func (b *InMemoryBackend) DeleteMetricFilter(logGroupName, filterName string) er
 		return fmt.Errorf("%w: filterName is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteMetricFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[logGroupName]; !exists {
+	groups := b.groupsStore(region)
+	if _, exists := groups[logGroupName]; !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
-	filters := b.metricFilters[logGroupName]
+	metricFilters := b.metricFiltersStore(region)
+	filters := metricFilters[logGroupName]
 	if _, ok := filters[filterName]; !ok {
 		return fmt.Errorf(
 			"%w: metric filter %s not found in log group %s",
@@ -3017,10 +3162,10 @@ func (b *InMemoryBackend) DeleteMetricFilter(logGroupName, filterName string) er
 	}
 	delete(filters, filterName)
 	if len(filters) == 0 {
-		delete(b.metricFilters, logGroupName)
+		delete(metricFilters, logGroupName)
 	}
-	count := len(b.metricFilters[logGroupName])
-	b.groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
+	count := len(metricFilters[logGroupName])
+	groups[logGroupName].MetricFilterCount = int32(count) // #nosec G115 -- count bounded by AWS API limit
 
 	return nil
 }
@@ -3266,15 +3411,18 @@ func standardLogGroupFields() []LogGroupField {
 		{Name: "@logStream", Percent: pct},
 	}
 }
-func (b *InMemoryBackend) GetLogGroupFields(logGroupName string) ([]LogGroupField, error) {
+
+func (b *InMemoryBackend) GetLogGroupFields(ctx context.Context, logGroupName string) ([]LogGroupField, error) {
 	if logGroupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetLogGroupFields")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[logGroupName]; !exists {
+	if _, exists := b.groupsStore(region)[logGroupName]; !exists {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
@@ -3283,7 +3431,7 @@ func (b *InMemoryBackend) GetLogGroupFields(logGroupName string) ([]LogGroupFiel
 
 // GetLogRecord returns a single log event by its log record pointer.
 // The pointer is the base64-encoded "<groupName>/<streamName>/<index>" string.
-func (b *InMemoryBackend) GetLogRecord(logRecordPointer string) (map[string]string, error) {
+func (b *InMemoryBackend) GetLogRecord(ctx context.Context, logRecordPointer string) (map[string]string, error) {
 	if logRecordPointer == "" {
 		return nil, fmt.Errorf("%w: logRecordPointer is required", ErrValidation)
 	}
@@ -3306,18 +3454,20 @@ func (b *InMemoryBackend) GetLogRecord(logRecordPointer string) (map[string]stri
 		return nil, fmt.Errorf("%w: invalid logRecordPointer index", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetLogRecord")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groupsStore(region)[groupName]; !exists {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streams[groupName][streamName]; !exists {
+	if _, exists := b.streamsStore(region)[groupName][streamName]; !exists {
 		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	evts := b.events[groupName][streamName]
+	evts := b.eventsStore(region)[groupName][streamName]
 	if idx >= len(evts) {
 		return nil, fmt.Errorf("%w: log record index %d out of range", ErrValidation, idx)
 	}
@@ -3412,6 +3562,8 @@ func (b *InMemoryBackend) UpdateAnomaly(_, anomalyDetectorArn string, _ string) 
 }
 
 // ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
-func (b *InMemoryBackend) ListLogGroups(namePrefix, nextToken string, limit int) ([]LogGroup, string, error) {
-	return b.DescribeLogGroups(namePrefix, nextToken, limit)
+func (b *InMemoryBackend) ListLogGroups(
+	ctx context.Context, namePrefix, nextToken string, limit int,
+) ([]LogGroup, string, error) {
+	return b.DescribeLogGroups(ctx, namePrefix, nextToken, limit)
 }

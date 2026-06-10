@@ -1075,7 +1075,8 @@ func TestHandler_CreateInvalidation_ListInvalidations(t *testing.T) {
 					`<CallerReference>%s</CallerReference>`+
 					`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
 					`</InvalidationBatch>`,
-				tt.callerRef, len(tt.paths), pathItems.String())
+				tt.callerRef, len(tt.paths), pathItems.String(),
+			)
 
 			invRec := doXML(t, h, http.MethodPost,
 				"/2020-05-31/distribution/"+distID+"/invalidation",
@@ -2815,7 +2816,8 @@ func TestCachePolicyCRUD(t *testing.T) {
 				`<CachePolicyConfig>` +
 					`<Name>test-policy</Name><Comment>test</Comment>` +
 					`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
-					`</CachePolicyConfig>`),
+					`</CachePolicyConfig>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -2909,7 +2911,8 @@ func TestCachePolicyCRUD(t *testing.T) {
 				`<CachePolicyConfig>` +
 					`<Name>updated-policy</Name><Comment>updated</Comment>` +
 					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
-					`</CachePolicyConfig>`),
+					`</CachePolicyConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("upd-policy", "comment", 86400, 31536000, 0)
@@ -3020,7 +3023,8 @@ func TestCachePolicyETagValidation(t *testing.T) {
 				`<CachePolicyConfig>` +
 					`<Name>etag-create-policy</Name><Comment>test</Comment>` +
 					`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
-					`</CachePolicyConfig>`),
+					`</CachePolicyConfig>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) (string, map[string]string) {
 				t.Helper()
 
@@ -3056,7 +3060,8 @@ func TestCachePolicyETagValidation(t *testing.T) {
 				`<CachePolicyConfig>` +
 					`<Name>etag-upd-policy</Name><Comment>upd</Comment>` +
 					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
-					`</CachePolicyConfig>`),
+					`</CachePolicyConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("etag-upd-policy", "orig", 86400, 31536000, 0)
@@ -3077,7 +3082,8 @@ func TestCachePolicyETagValidation(t *testing.T) {
 				`<CachePolicyConfig>` +
 					`<Name>etag-upd2-policy</Name><Comment>upd</Comment>` +
 					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
-					`</CachePolicyConfig>`),
+					`</CachePolicyConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("etag-upd2-policy", "orig", 86400, 31536000, 0)
@@ -3147,7 +3153,8 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 					`<Name>my-oac</Name><Description>desc</Description>` +
 					`<OriginAccessControlOriginType>s3</OriginAccessControlOriginType>` +
 					`<SigningBehavior>always</SigningBehavior><SigningProtocol>sigv4</SigningProtocol>` +
-					`</OriginAccessControlConfig>`),
+					`</OriginAccessControlConfig>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -3243,7 +3250,8 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 					`<Name>updated-oac</Name><Description>new desc</Description>` +
 					`<OriginAccessControlOriginType>s3</OriginAccessControlOriginType>` +
 					`<SigningBehavior>never</SigningBehavior><SigningProtocol>sigv4</SigningProtocol>` +
-					`</OriginAccessControlConfig>`),
+					`</OriginAccessControlConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				oac, err := h.Backend.CreateOriginAccessControl("orig-oac", "", "s3", "always", "sigv4")
@@ -3355,7 +3363,8 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 			body: []byte(
 				`<ResponseHeadersPolicyConfig>` +
 					`<Name>my-rhp</Name><Comment>comment</Comment>` +
-					`</ResponseHeadersPolicyConfig>`),
+					`</ResponseHeadersPolicyConfig>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -3447,7 +3456,8 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 			body: []byte(
 				`<ResponseHeadersPolicyConfig>` +
 					`<Name>updated-rhp</Name><Comment>new</Comment>` +
-					`</ResponseHeadersPolicyConfig>`),
+					`</ResponseHeadersPolicyConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateResponseHeadersPolicy("orig-rhp", "")
@@ -3547,7 +3557,8 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 					`<Comment>test fn</Comment><Runtime>cloudfront-js-2.0</Runtime>` +
 					`</FunctionConfig>` +
 					`<FunctionCode>ZnVuY3Rpb24gaGFuZGxlcihldmVudCkge3JldHVybiBldmVudC5yZXF1ZXN0O30=</FunctionCode>` +
-					`</CreateFunctionRequest>`),
+					`</CreateFunctionRequest>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -3666,7 +3677,8 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				`<CreateFunctionRequest>` +
 					`<Name>upd-fn</Name>` +
 					`<FunctionConfig><Comment>updated</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig>` +
-					`</CreateFunctionRequest>`),
+					`</CreateFunctionRequest>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code")
@@ -3781,7 +3793,8 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 			body: []byte(
 				`<OriginRequestPolicyConfig>` +
 					`<Name>my-orp</Name><Comment>comment</Comment>` +
-					`</OriginRequestPolicyConfig>`),
+					`</OriginRequestPolicyConfig>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -3873,7 +3886,8 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 			body: []byte(
 				`<OriginRequestPolicyConfig>` +
 					`<Name>updated-orp</Name><Comment>new</Comment>` +
-					`</OriginRequestPolicyConfig>`),
+					`</OriginRequestPolicyConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateOriginRequestPolicy("orig-orp", "")

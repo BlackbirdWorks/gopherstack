@@ -2272,8 +2272,11 @@ func TestBatch2_QueueAttr_VisibilityTimeout_Range(t *testing.T) {
 		v  string
 		ok bool
 	}{
-		{"0", true}, {"43200", true}, {"30", true},
-		{"-1", false}, {"43201", false},
+		{"0", true},
+		{"43200", true},
+		{"30", true},
+		{"-1", false},
+		{"43201", false},
 	}
 	for _, tc := range cases {
 		t.Run("vt="+tc.v, func(t *testing.T) {
@@ -2300,8 +2303,10 @@ func TestBatch2_QueueAttr_DelaySeconds_Range(t *testing.T) {
 		v  string
 		ok bool
 	}{
-		{"0", true}, {"900", true},
-		{"-1", false}, {"901", false},
+		{"0", true},
+		{"900", true},
+		{"-1", false},
+		{"901", false},
 	}
 	for _, tc := range cases {
 		t.Run("ds="+tc.v, func(t *testing.T) {
@@ -2328,8 +2333,10 @@ func TestBatch2_QueueAttr_ReceiveWaitSeconds_Range(t *testing.T) {
 		v  string
 		ok bool
 	}{
-		{"0", true}, {"20", true},
-		{"-1", false}, {"21", false},
+		{"0", true},
+		{"20", true},
+		{"-1", false},
+		{"21", false},
 	}
 	for _, tc := range cases {
 		t.Run("rws="+tc.v, func(t *testing.T) {
@@ -2356,8 +2363,11 @@ func TestBatch2_QueueAttr_MaxMessageSize_Range(t *testing.T) {
 		v  string
 		ok bool
 	}{
-		{"1024", true}, {"262144", true}, {"65536", true},
-		{"1023", false}, {"262145", false},
+		{"1024", true},
+		{"262144", true},
+		{"65536", true},
+		{"1023", false},
+		{"262145", false},
 	}
 	for _, tc := range cases {
 		t.Run("mms="+tc.v, func(t *testing.T) {

@@ -34,31 +34,31 @@ const totpSecretLen = 20
 
 // ResourceServerScope defines a single OAuth scope on a resource server.
 type ResourceServerScope struct {
-	ScopeName        string `json:"ScopeName"`
-	ScopeDescription string `json:"ScopeDescription"`
+	ScopeName        string `json:"ScopeName,omitempty"`
+	ScopeDescription string `json:"ScopeDescription,omitempty"`
 }
 
 // ResourceServer represents an OAuth 2.0 resource server registered to a user pool.
 type ResourceServer struct {
-	UserPoolID string                `json:"UserPoolId"`
-	Identifier string                `json:"Identifier"`
-	Name       string                `json:"Name"`
+	UserPoolID string                `json:"UserPoolId,omitempty"`
+	Identifier string                `json:"Identifier,omitempty"`
+	Name       string                `json:"Name,omitempty"`
 	Scopes     []ResourceServerScope `json:"Scopes,omitempty"`
 }
 
 // UserPoolOptions holds optional parameters for CreateUserPoolWithOpts.
 type UserPoolOptions struct {
-	PasswordPolicy         *PasswordPolicy
-	AutoVerifiedAttributes []string
+	PasswordPolicy         *PasswordPolicy `json:"passwordPolicy,omitempty"`
+	AutoVerifiedAttributes []string        `json:"autoVerifiedAttributes,omitempty"`
 }
 
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
 type UserPoolClientOptions struct {
-	AllowedOAuthFlows     []string
-	AllowedOAuthScopes    []string
-	ExplicitAuthFlows     []string
-	GenerateSecret        bool
-	EnableTokenRevocation bool
+	AllowedOAuthFlows     []string `json:"allowedOAuthFlows,omitempty"`
+	AllowedOAuthScopes    []string `json:"allowedOAuthScopes,omitempty"`
+	ExplicitAuthFlows     []string `json:"explicitAuthFlows,omitempty"`
+	GenerateSecret        bool     `json:"generateSecret,omitempty"`
+	EnableTokenRevocation bool     `json:"enableTokenRevocation,omitempty"`
 }
 
 // userGroupsLocked returns the group names for a user in a pool, sorted by group precedence ascending

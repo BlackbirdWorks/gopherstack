@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -31,11 +32,23 @@ func TestAudit2_CreateStateMachine_Idempotent_SameParams(t *testing.T) {
 			t.Parallel()
 
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			sm1, err := b.CreateStateMachine("idem-sm-"+tt.name, minimalDefinition, validRoleARN, tt.smType)
+			sm1, err := b.CreateStateMachine(
+				context.Background(),
+				"idem-sm-"+tt.name,
+				minimalDefinition,
+				validRoleARN,
+				tt.smType,
+			)
 			require.NoError(t, err)
 
 			// Same name+def+roleArn+type → idempotent, returns same ARN.
-			sm2, err := b.CreateStateMachine("idem-sm-"+tt.name, minimalDefinition, validRoleARN, tt.smType)
+			sm2, err := b.CreateStateMachine(
+				context.Background(),
+				"idem-sm-"+tt.name,
+				minimalDefinition,
+				validRoleARN,
+				tt.smType,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, sm1.StateMachineArn, sm2.StateMachineArn)
 
@@ -75,11 +88,11 @@ func TestAudit2_CreateStateMachine_SameName_DiffDef_Errors(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(context.Background(), "conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
-	_, err = b.CreateStateMachine("conflict-sm", altDef, validRoleARN, "STANDARD")
+	_, err = b.CreateStateMachine(context.Background(), "conflict-sm", altDef, validRoleARN, "STANDARD")
 	require.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
 
@@ -87,11 +100,17 @@ func TestAudit2_CreateStateMachine_SameName_DiffRole_Errors(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("role-conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(
+		context.Background(),
+		"role-conflict-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
 	altRole := "arn:aws:iam::000000000000:role/other-role"
-	_, err = b.CreateStateMachine("role-conflict-sm", minimalDefinition, altRole, "STANDARD")
+	_, err = b.CreateStateMachine(context.Background(), "role-conflict-sm", minimalDefinition, altRole, "STANDARD")
 	require.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
 
@@ -99,10 +118,16 @@ func TestAudit2_CreateStateMachine_SameName_DiffType_Errors(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	_, err := b.CreateStateMachine("type-conflict-sm", minimalDefinition, validRoleARN, "STANDARD")
+	_, err := b.CreateStateMachine(
+		context.Background(),
+		"type-conflict-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateStateMachine("type-conflict-sm", minimalDefinition, validRoleARN, "EXPRESS")
+	_, err = b.CreateStateMachine(context.Background(), "type-conflict-sm", minimalDefinition, validRoleARN, "EXPRESS")
 	require.ErrorIs(t, err, stepfunctions.ErrStateMachineAlreadyExists)
 }
 
@@ -183,6 +208,7 @@ func TestAudit2_CreateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 
 			b := stepfunctions.NewInMemoryBackend()
 			sm, err := b.CreateStateMachine(
+				context.Background(),
 				"alias-weight-sm-"+tt.name[:min(len(tt.name), 20)],
 				minimalDefinition,
 				validRoleARN,
@@ -209,7 +235,13 @@ func TestAudit2_UpdateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine("alias-update-weight-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"alias-update-weight-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
 	require.NoError(t, err)
 
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
@@ -401,7 +433,7 @@ func TestAudit2_ListExecutions_OrderedByStartDateDesc(t *testing.T) {
 	t.Parallel()
 
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	sm, err := b.CreateStateMachine("order-sm", minimalDefinition, validRoleARN, "STANDARD")
+	sm, err := b.CreateStateMachine(context.Background(), "order-sm", minimalDefinition, validRoleARN, "STANDARD")
 	require.NoError(t, err)
 
 	names := []string{"exec-a", "exec-b", "exec-c"}

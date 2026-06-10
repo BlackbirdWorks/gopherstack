@@ -85,7 +85,8 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 			if assoc == subnetID {
 				existing.AssociationIDs = append(
 					existing.AssociationIDs[:i],
-					existing.AssociationIDs[i+1:]...)
+					existing.AssociationIDs[i+1:]...,
+				)
 
 				break
 			}
@@ -148,10 +149,10 @@ func (b *InMemoryBackend) ExportKeyPair(name string) (string, error) {
 
 // InstanceTypeOffering pairs an instance type with an AZ offering.
 type InstanceTypeOffering struct {
-	InstanceType     string `json:"instanceType"`
-	AvailabilityZone string `json:"availabilityZone"`
-	Location         string `json:"location"`
-	LocationType     string `json:"locationType"`
+	InstanceType     string `json:"instanceType,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	Location         string `json:"location,omitempty"`
+	LocationType     string `json:"locationType,omitempty"`
 }
 
 // DescribeInstanceTypeOfferings returns a static list of instance type / AZ pairs.
@@ -235,10 +236,10 @@ func (b *InMemoryBackend) DeleteVpcPeeringConnection(id string) error {
 
 // TransitGateway is a stub for an AWS Transit Gateway resource.
 type TransitGateway struct {
-	ID          string `json:"transitGatewayId"`
-	Description string `json:"description"`
-	State       string `json:"state"`
-	OwnerID     string `json:"ownerId"`
+	ID          string `json:"transitGatewayId,omitempty"`
+	Description string `json:"description,omitempty"`
+	State       string `json:"state,omitempty"`
+	OwnerID     string `json:"ownerId,omitempty"`
 }
 
 // DescribeTransitGateways returns transit gateways, optionally filtered by IDs.

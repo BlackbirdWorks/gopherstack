@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -15,13 +16,13 @@ func makeInsightsBackend(t *testing.T) *cloudwatchlogs.InMemoryBackend {
 	t.Helper()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	_, err := b.CreateLogGroup("/grp", "", "")
+	_, err := b.CreateLogGroup(context.Background(), "/grp", "", "")
 	require.NoError(t, err)
-	_, err = b.CreateLogStream("/grp", "s")
+	_, err = b.CreateLogStream(context.Background(), "/grp", "s")
 	require.NoError(t, err)
 
 	now := time.Now().UnixMilli()
-	_, err = b.PutLogEvents("/grp", "s", "", []cloudwatchlogs.InputLogEvent{
+	_, err = b.PutLogEvents(context.Background(), "/grp", "s", "", []cloudwatchlogs.InputLogEvent{
 		{Message: "ERROR: disk full", Timestamp: now - 3000},
 		{Message: "INFO: startup complete", Timestamp: now - 2000},
 		{Message: "ERROR: connection refused", Timestamp: now - 1000},
@@ -36,7 +37,7 @@ func TestInsightsQuery_FieldsProjection(t *testing.T) {
 
 	b := makeInsightsBackend(t)
 
-	info, err := b.StartQuery("q1", "fields @timestamp, @message", []string{"/grp"}, 0, 0)
+	info, err := b.StartQuery(context.Background(), "q1", "fields @timestamp, @message", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
 	assert.Equal(t, cloudwatchlogs.QueryStatusComplete, info.Status)
 
@@ -91,7 +92,7 @@ func TestInsightsQuery_FilterRegex(t *testing.T) {
 			t.Parallel()
 
 			b := makeInsightsBackend(t)
-			_, err := b.StartQuery("q1", tt.query, []string{"/grp"}, 0, 0)
+			_, err := b.StartQuery(context.Background(), "q1", tt.query, []string{"/grp"}, 0, 0)
 			require.NoError(t, err)
 
 			results, _, _, err := b.GetQueryResults("q1")
@@ -135,7 +136,7 @@ func TestInsightsQuery_Sort(t *testing.T) {
 			t.Parallel()
 
 			b := makeInsightsBackend(t)
-			_, err := b.StartQuery("q1", tt.query, []string{"/grp"}, 0, 0)
+			_, err := b.StartQuery(context.Background(), "q1", tt.query, []string{"/grp"}, 0, 0)
 			require.NoError(t, err)
 
 			results, _, _, err := b.GetQueryResults("q1")
@@ -154,7 +155,7 @@ func TestInsightsQuery_Limit(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery("q1", "fields @message | limit 2", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(context.Background(), "q1", "fields @message | limit 2", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")
@@ -166,7 +167,7 @@ func TestInsightsQuery_StatsCountBy(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery("q1", "stats count(*) by @message", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(context.Background(), "q1", "stats count(*) by @message", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")
@@ -188,7 +189,7 @@ func TestInsightsQuery_StatsCountNoBy(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery("q1", "stats count(*)", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(context.Background(), "q1", "stats count(*)", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")
@@ -205,7 +206,7 @@ func TestInsightsQuery_TimeRange(t *testing.T) {
 	now := time.Now().UnixMilli()
 
 	// Query within a narrow time range — should only include events in range.
-	_, err := b.StartQuery("q1", "fields @message", []string{"/grp"}, now-2500, now-500)
+	_, err := b.StartQuery(context.Background(), "q1", "fields @message", []string{"/grp"}, now-2500, now-500)
 	require.NoError(t, err)
 
 	results, stats, _, err := b.GetQueryResults("q1")
@@ -221,7 +222,7 @@ func TestInsightsQuery_DescribeQueries_Pagination(t *testing.T) {
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	for i := range 5 {
 		qid := "qid-" + string(rune('a'+i))
-		_, err := b.StartQuery(qid, "fields @message", []string{}, 0, 0)
+		_, err := b.StartQuery(context.Background(), qid, "fields @message", []string{}, 0, 0)
 		require.NoError(t, err)
 	}
 
@@ -259,7 +260,7 @@ func TestInsightsQuery_IngestionTimeField(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery("q1", "fields @ingestionTime", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(context.Background(), "q1", "fields @ingestionTime", []string{"/grp"}, 0, 0)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")
@@ -277,7 +278,14 @@ func TestInsightsQuery_SortByIngestionTime(t *testing.T) {
 	t.Parallel()
 
 	b := makeInsightsBackend(t)
-	_, err := b.StartQuery("q1", "fields @message | sort @ingestionTime asc", []string{"/grp"}, 0, 0)
+	_, err := b.StartQuery(
+		context.Background(),
+		"q1",
+		"fields @message | sort @ingestionTime asc",
+		[]string{"/grp"},
+		0,
+		0,
+	)
 	require.NoError(t, err)
 
 	results, _, _, err := b.GetQueryResults("q1")
@@ -316,7 +324,7 @@ func TestInsightsQuery_FilterOnTimestampField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			_, err := b.StartQuery(context.Background(), "q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
 			require.NoError(t, err)
 
 			results, _, _, err := b.GetQueryResults("q-" + tt.name)
@@ -357,7 +365,7 @@ func TestInsightsQuery_SplitPipesEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			_, err := b.StartQuery(context.Background(), "q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
 			require.NoError(t, err)
 
 			results, _, _, err := b.GetQueryResults("q-" + tt.name)
@@ -373,7 +381,7 @@ func TestInsightsQuery_DescribeQueries_MultiGroup(t *testing.T) {
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Start query against two log groups.
-	_, err := b.StartQuery("q1", "fields @message", []string{"/grp1", "/grp2"}, 0, 0)
+	_, err := b.StartQuery(context.Background(), "q1", "fields @message", []string{"/grp1", "/grp2"}, 0, 0)
 	require.NoError(t, err)
 
 	// DescribeQueries filtered by each group should both find the query.
@@ -419,7 +427,7 @@ func TestInsightsQuery_UnknownField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			_, err := b.StartQuery(context.Background(), "q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
 			require.NoError(t, err)
 
 			results, _, _, err := b.GetQueryResults("q-" + tt.name)

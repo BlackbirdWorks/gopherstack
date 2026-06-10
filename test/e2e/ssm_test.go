@@ -48,7 +48,8 @@ func TestSSMDashboard(t *testing.T) {
 	err = page.Click("button:has-text('Create Parameter')")
 	require.NoError(t, err)
 
-	err = page.Locator("h2:has-text('Create Parameter')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
+	err = page.Locator("h2:has-text('Create Parameter')").
+		WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
 	require.NoError(t, err)
 
 	require.NoError(t, page.Fill("input[placeholder='e.g. /myapp/database/password']", "test-database-password"))
@@ -76,7 +77,8 @@ func TestSSMDashboard(t *testing.T) {
 	err = page.Click("button:has-text('Edit')")
 	require.NoError(t, err)
 
-	err = page.Locator("h2:has-text('Edit Parameter')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
+	err = page.Locator("h2:has-text('Edit Parameter')").
+		WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
 	require.NoError(t, err)
 
 	require.NoError(t, page.Fill("textarea[placeholder='Parameter value...']", "new_super_secret"))

@@ -35,7 +35,8 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
-	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
 		awscfg.WithRegion("us-east-1"),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)

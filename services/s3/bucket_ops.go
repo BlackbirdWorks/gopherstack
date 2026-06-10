@@ -572,7 +572,8 @@ func (h *S3Handler) listObjects(
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
 
-	logger.Load(ctx).DebugContext(ctx,
+	logger.Load(ctx).DebugContext(
+		ctx,
 		"S3 listObjects input",
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
@@ -612,7 +613,8 @@ func (h *S3Handler) listObjects(
 		nextMarker = aws.ToString(out.NextMarker)
 	}
 
-	logger.Load(ctx).DebugContext(ctx,
+	logger.Load(ctx).DebugContext(
+		ctx,
 		"S3 listObjects output",
 		"bucket", bucketName, "objectCount", len(out.Contents), "isTruncated", isTruncated,
 	)
@@ -885,7 +887,7 @@ func (h *S3Handler) listObjectVersions(
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass: "STANDARD",
+			StorageClass: storageStandard,
 		})
 	}
 

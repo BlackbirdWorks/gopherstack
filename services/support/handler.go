@@ -74,8 +74,10 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 }
 
-var _ service.BackgroundWorker = (*Handler)(nil)
-var _ service.Shutdowner = (*Handler)(nil)
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Reset clears the handler's backend state.
 func (h *Handler) Reset() { h.Backend.Reset() }

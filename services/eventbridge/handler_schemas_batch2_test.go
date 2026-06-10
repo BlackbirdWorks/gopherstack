@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -40,10 +41,10 @@ func TestSchemasBatch2_CreateSchema_InvalidTypeRejected(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "type-reg"})
+			_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: "type-reg"})
 			require.NoError(t, err)
 
-			_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+			_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 				RegistryName: "type-reg",
 				SchemaName:   "my-schema",
 				Type:         tt.typ,
@@ -81,7 +82,10 @@ func TestSchemasBatch2_Handler_CreateSchema_InvalidTypeReturns400(t *testing.T) 
 			b := newBackend()
 			h := eventbridge.NewHandler(b)
 
-			_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: "type-h-reg"})
+			_, err := b.CreateRegistry(
+				context.Background(),
+				eventbridge.CreateRegistryInput{RegistryName: "type-h-reg"},
+			)
 			require.NoError(t, err)
 
 			rec := auditMakeRequest(t, h, e, "CreateSchema", map[string]any{
@@ -128,11 +132,14 @@ func TestSchemasBatch2_DeleteBuiltinRegistry_Forbidden(t *testing.T) {
 			b := newBackend()
 
 			if !tt.wantForbid {
-				_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: tt.registryName})
+				_, err := b.CreateRegistry(
+					context.Background(),
+					eventbridge.CreateRegistryInput{RegistryName: tt.registryName},
+				)
 				require.NoError(t, err)
 			}
 
-			err := b.DeleteRegistry(tt.registryName)
+			err := b.DeleteRegistry(context.Background(), tt.registryName)
 
 			if tt.wantForbid {
 				require.Error(t, err)
@@ -162,7 +169,10 @@ func TestSchemasBatch2_CreateBuiltinRegistry_Forbidden(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: tt.registryName})
+			_, err := b.CreateRegistry(
+				context.Background(),
+				eventbridge.CreateRegistryInput{RegistryName: tt.registryName},
+			)
 
 			if tt.wantForbid {
 				require.Error(t, err)
@@ -223,10 +233,10 @@ func schemasBatch2Setup(t *testing.T, registryName, schemaName string, extraVers
 	t.Helper()
 
 	b := newBackend()
-	_, err := b.CreateRegistry(eventbridge.CreateRegistryInput{RegistryName: registryName})
+	_, err := b.CreateRegistry(context.Background(), eventbridge.CreateRegistryInput{RegistryName: registryName})
 	require.NoError(t, err)
 
-	_, err = b.CreateSchema(eventbridge.CreateSchemaInput{
+	_, err = b.CreateSchema(context.Background(), eventbridge.CreateSchemaInput{
 		RegistryName: registryName,
 		SchemaName:   schemaName,
 		Type:         "OpenApi3",
@@ -235,7 +245,7 @@ func schemasBatch2Setup(t *testing.T, registryName, schemaName string, extraVers
 	require.NoError(t, err)
 
 	for i := range extraVersions {
-		_, err = b.UpdateSchema(eventbridge.UpdateSchemaInput{
+		_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 			RegistryName: registryName,
 			SchemaName:   schemaName,
 			Content:      `{"openapi":"3.0.0","info":{"title":"S","version":"` + string(rune('2'+i)) + `"},"paths":{}}`,
@@ -253,7 +263,7 @@ func TestSchemasBatch2_DeleteSchemaVersion_LastVersionRejected(t *testing.T) {
 		t.Parallel()
 
 		b := schemasBatch2Setup(t, "only-reg", "only-schema", 0)
-		err := b.DeleteSchemaVersion("only-reg", "only-schema", "1")
+		err := b.DeleteSchemaVersion(context.Background(), "only-reg", "only-schema", "1")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 	})
@@ -262,14 +272,14 @@ func TestSchemasBatch2_DeleteSchemaVersion_LastVersionRejected(t *testing.T) {
 		t.Parallel()
 
 		b := schemasBatch2Setup(t, "two-reg", "two-schema", 1)
-		require.NoError(t, b.DeleteSchemaVersion("two-reg", "two-schema", "1"))
+		require.NoError(t, b.DeleteSchemaVersion(context.Background(), "two-reg", "two-schema", "1"))
 	})
 
 	t.Run("deleting latest of two versions succeeds", func(t *testing.T) {
 		t.Parallel()
 
 		b := schemasBatch2Setup(t, "latest-reg", "latest-schema", 1)
-		require.NoError(t, b.DeleteSchemaVersion("latest-reg", "latest-schema", "2"))
+		require.NoError(t, b.DeleteSchemaVersion(context.Background(), "latest-reg", "latest-schema", "2"))
 	})
 }
 
@@ -293,7 +303,7 @@ func TestSchemasBatch2_Handler_DeleteSchemaVersion_LastVersionReturns400(t *test
 	assert.Equal(t, "InvalidParameterException", body["__type"])
 
 	// Schema still exists and is intact.
-	described, descErr := b.DescribeSchema("dv-reg", "dv-schema", "")
+	described, descErr := b.DescribeSchema(context.Background(), "dv-reg", "dv-schema", "")
 	require.NoError(t, descErr)
 	assert.Equal(t, "1", described.SchemaVersion)
 }

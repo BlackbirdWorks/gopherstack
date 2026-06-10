@@ -53,8 +53,11 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
 // BackendsProvider is a private interface to extract service backends for resource creation.
@@ -124,6 +127,9 @@ type BackendsProvider interface {
 	GetFISHandler() service.Registerable
 	GetIdentityStoreHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
+	GetWafv2Handler() service.Registerable
+	GetELBv2Handler() service.Registerable
+	GetBackupHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -158,6 +164,9 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SecretsManager, _ = getHandler[*secretsmanagerbackend.Handler](bp.GetSecretsManagerHandler())
 	// Added handlers for dynamic ref resolution and resource provisioning
 	backends.MemoryDB, _ = getHandler[*memorydb.Handler](bp.GetMemoryDBHandler())
+	backends.WAFv2, _ = getHandler[*wafv2backend.Handler](bp.GetWafv2Handler())
+	backends.ELBv2, _ = getHandler[*elbv2backend.Handler](bp.GetELBv2Handler())
+	backends.Backup, _ = getHandler[*backupbackend.Handler](bp.GetBackupHandler())
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
 }
 

@@ -324,8 +324,10 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 	return &cp, nil
 }
 
-const dkimTokenCount = 3
-const dkimTokenLength = 24
+const (
+	dkimTokenCount  = 3
+	dkimTokenLength = 24
+)
 
 // generateDkimTokens generates three DKIM CNAME selector tokens.
 func generateDkimTokens() []string {

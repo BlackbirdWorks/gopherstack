@@ -62,7 +62,8 @@ var (
 func floatSeconds(t interface {
 	Unix() int64
 	UnixNano() int64
-}) float64 {
+},
+) float64 {
 	return float64(t.UnixNano()) / nanosPerSecond
 }
 

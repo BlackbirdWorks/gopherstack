@@ -19,13 +19,13 @@ var (
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
-	CreatedAt              string            `json:"createdAt"`
-	ID                     string            `json:"id"`
-	Name                   string            `json:"name"`
-	ARN                    string            `json:"arn"`
-	IssuerURL              string            `json:"issuerUrl"`
-	KeyID                  string            `json:"keyId"`
-	PrivKeyPEM             string            `json:"privKeyPem"`
+	CreatedAt              string            `json:"createdAt,omitempty"`
+	ID                     string            `json:"id,omitempty"`
+	Name                   string            `json:"name,omitempty"`
+	ARN                    string            `json:"arn,omitempty"`
+	IssuerURL              string            `json:"issuerUrl,omitempty"`
+	KeyID                  string            `json:"keyId,omitempty"`
+	PrivKeyPEM             string            `json:"privKeyPem,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
 	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
@@ -33,31 +33,42 @@ type userPoolSnapshot struct {
 
 // userSnapshot is a copy of User safe for JSON serialization.
 type userSnapshot struct {
-	CreatedAt            string            `json:"createdAt"`
+	CreatedAt            string            `json:"createdAt,omitempty"`
 	UpdatedAt            string            `json:"updatedAt,omitempty"`
 	ConfirmCodeExpiresAt string            `json:"confirmCodeExpiresAt,omitempty"`
 	Attributes           map[string]string `json:"attributes,omitempty"`
-	Sub                  string            `json:"sub"`
-	Username             string            `json:"username"`
-	UserPoolID           string            `json:"userPoolId"`
-	PasswordHash         string            `json:"passwordHash"`
-	Status               string            `json:"status"`
+	Sub                  string            `json:"sub,omitempty"`
+	Username             string            `json:"username,omitempty"`
+	UserPoolID           string            `json:"userPoolId,omitempty"`
+	PasswordHash         string            `json:"passwordHash,omitempty"`
+	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
-	Enabled              bool              `json:"enabled"`
+	Enabled              bool              `json:"enabled,omitempty"`
 }
 
 type backendSnapshot struct {
-	Pools              map[string]*userPoolSnapshot              `json:"pools"`
-	Clients            map[string]*UserPoolClient                `json:"clients"`
-	Users              map[string]map[string]*userSnapshot       `json:"users"`
-	RefreshTokens      map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
-	Groups             map[string]map[string]*Group              `json:"groups,omitempty"`
-	GroupMembers       map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
-	ResourceServers    map[string]map[string]*ResourceServer     `json:"resourceServers,omitempty"`
-	TokenRevokedBefore map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
-	AccountID          string                                    `json:"accountId"`
-	Region             string                                    `json:"region"`
-	Endpoint           string                                    `json:"endpoint"`
+	Pools                   map[string]*userPoolSnapshot                `json:"pools,omitempty"`
+	Clients                 map[string]*UserPoolClient                  `json:"clients,omitempty"`
+	Users                   map[string]map[string]*userSnapshot         `json:"users,omitempty"`
+	RefreshTokens           map[string]*refreshTokenEntry               `json:"refreshTokens,omitempty"`
+	Groups                  map[string]map[string]*Group                `json:"groups,omitempty"`
+	GroupMembers            map[string]map[string]map[string]struct{}   `json:"groupMembers,omitempty"`
+	ResourceServers         map[string]map[string]*ResourceServer       `json:"resourceServers,omitempty"`
+	TokenRevokedBefore      map[string]time.Time                        `json:"tokenRevokedBefore,omitempty"`
+	Domains                 map[string]*UserPoolDomain                  `json:"domains,omitempty"`
+	ResourceTags            map[string]map[string]string                `json:"resourceTags,omitempty"`
+	RiskConfigurations      map[string]*RiskConfiguration               `json:"riskConfigurations,omitempty"`
+	LogDeliveryConfigs      map[string]*LogDeliveryConfig               `json:"logDeliveryConfigs,omitempty"`
+	UICustomizations        map[string]*UICustomization                 `json:"uiCustomizations,omitempty"`
+	ManagedLoginBrandings   map[string]map[string]*ManagedLoginBranding `json:"managedLoginBrandings,omitempty"`
+	Terms                   map[string]*Terms                           `json:"terms,omitempty"`
+	UserImportJobs          map[string]map[string]*UserImportJob        `json:"userImportJobs,omitempty"`
+	PoolMfaConfigs          map[string]*UserPoolMfaFullConfig           `json:"poolMfaConfigs,omitempty"`
+	TypedRiskConfigurations map[string]*TypedRiskConfiguration          `json:"typedRiskConfigurations,omitempty"`
+	IdentityProviders       map[string]map[string]*IdentityProvider     `json:"identityProviders,omitempty"`
+	AccountID               string                                      `json:"accountId,omitempty"`
+	Region                  string                                      `json:"region,omitempty"`
+	Endpoint                string                                      `json:"endpoint,omitempty"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
@@ -165,17 +176,28 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	snap := backendSnapshot{
-		Pools:              poolSnaps,
-		Clients:            b.clients,
-		Users:              userSnaps,
-		RefreshTokens:      b.refreshTokens,
-		Groups:             b.groups,
-		GroupMembers:       b.groupMembers,
-		ResourceServers:    b.resourceServers,
-		TokenRevokedBefore: b.tokenRevokedBefore,
-		AccountID:          b.accountID,
-		Region:             b.region,
-		Endpoint:           b.endpoint,
+		Pools:                   poolSnaps,
+		Clients:                 b.clients,
+		Users:                   userSnaps,
+		RefreshTokens:           b.refreshTokens,
+		Groups:                  b.groups,
+		GroupMembers:            b.groupMembers,
+		ResourceServers:         b.resourceServers,
+		TokenRevokedBefore:      b.tokenRevokedBefore,
+		Domains:                 b.domains,
+		ResourceTags:            b.resourceTags,
+		RiskConfigurations:      b.riskConfigurations,
+		LogDeliveryConfigs:      b.logDeliveryConfigs,
+		UICustomizations:        b.uiCustomizations,
+		ManagedLoginBrandings:   b.managedLoginBrandings,
+		Terms:                   b.terms,
+		UserImportJobs:          b.userImportJobs,
+		PoolMfaConfigs:          b.poolMfaConfigs,
+		TypedRiskConfigurations: b.typedRiskConfigurations,
+		IdentityProviders:       b.identityProviders,
+		AccountID:               b.accountID,
+		Region:                  b.region,
+		Endpoint:                b.endpoint,
 	}
 
 	data, err := json.Marshal(snap)
@@ -221,6 +243,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.groupMembers = snap.GroupMembers
 	b.resourceServers = snap.ResourceServers
 	b.tokenRevokedBefore = snap.TokenRevokedBefore
+	b.domains = snap.Domains
+	b.resourceTags = snap.ResourceTags
+	b.riskConfigurations = snap.RiskConfigurations
+	b.logDeliveryConfigs = snap.LogDeliveryConfigs
+	b.uiCustomizations = snap.UICustomizations
+	b.managedLoginBrandings = snap.ManagedLoginBrandings
+	b.terms = snap.Terms
+	b.userImportJobs = snap.UserImportJobs
+	b.poolMfaConfigs = snap.PoolMfaConfigs
+	b.typedRiskConfigurations = snap.TypedRiskConfigurations
+	b.identityProviders = snap.IdentityProviders
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint

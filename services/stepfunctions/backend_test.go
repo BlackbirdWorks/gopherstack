@@ -1,6 +1,7 @@
 package stepfunctions_test
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -104,11 +105,11 @@ func TestCreateStateMachine(t *testing.T) {
 				if tt.preCreateDefinition != "" {
 					preCreateDef = tt.preCreateDefinition
 				}
-				_, err := b.CreateStateMachine(tt.smName, preCreateDef, tt.roleArn, tt.smType)
+				_, err := b.CreateStateMachine(context.Background(), tt.smName, preCreateDef, tt.roleArn, tt.smType)
 				require.NoError(t, err)
 			}
 
-			sm, err := b.CreateStateMachine(tt.smName, tt.definition, tt.roleArn, tt.smType)
+			sm, err := b.CreateStateMachine(context.Background(), tt.smName, tt.definition, tt.roleArn, tt.smType)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 
@@ -167,7 +168,13 @@ func TestDescribeStateMachine(t *testing.T) {
 
 			arn := tt.descArn
 			if tt.createName != "" {
-				sm, err := b.CreateStateMachine(tt.createName, tt.createDef, "arn:role", tt.createType)
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					tt.createName,
+					tt.createDef,
+					"arn:role",
+					tt.createType,
+				)
 				require.NoError(t, err)
 				arn = sm.StateMachineArn
 			}
@@ -216,10 +223,10 @@ func TestListStateMachines(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for _, name := range tt.setupNames {
-				_, _ = b.CreateStateMachine(name, passDefinition, "arn:role", "STANDARD")
+				_, _ = b.CreateStateMachine(context.Background(), name, passDefinition, "arn:role", "STANDARD")
 			}
 
-			sms, next, err := b.ListStateMachines(tt.token, tt.maxResults)
+			sms, next, err := b.ListStateMachines(context.Background(), tt.token, tt.maxResults)
 			require.NoError(t, err)
 			assert.Len(t, sms, tt.wantCount)
 			if tt.wantNext {
@@ -236,21 +243,22 @@ func TestListStateMachines(t *testing.T) {
 
 		for i := range 5 {
 			_, _ = b.CreateStateMachine(
+				context.Background(),
 				"sm-"+string(rune('a'+i)), passDefinition, "arn:role", "STANDARD",
 			)
 		}
 
-		page1, next, err := b.ListStateMachines("", 2)
+		page1, next, err := b.ListStateMachines(context.Background(), "", 2)
 		require.NoError(t, err)
 		assert.Len(t, page1, 2)
 		assert.NotEmpty(t, next)
 
-		page2, next2, err := b.ListStateMachines(next, 2)
+		page2, next2, err := b.ListStateMachines(context.Background(), next, 2)
 		require.NoError(t, err)
 		assert.Len(t, page2, 2)
 		assert.NotEmpty(t, next2)
 
-		page3, next3, err := b.ListStateMachines(next2, 2)
+		page3, next3, err := b.ListStateMachines(context.Background(), next2, 2)
 		require.NoError(t, err)
 		assert.Len(t, page3, 1)
 		assert.Empty(t, next3)
@@ -284,7 +292,13 @@ func TestDeleteStateMachine(t *testing.T) {
 
 			arn := tt.deleteArn
 			if tt.createSM {
-				sm, err := b.CreateStateMachine("to-delete", passDefinition, "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"to-delete",
+					passDefinition,
+					"arn:role",
+					"STANDARD",
+				)
 				require.NoError(t, err)
 				arn = sm.StateMachineArn
 			}
@@ -360,7 +374,7 @@ func TestStartExecution(t *testing.T) {
 				if smType == "" {
 					smType = "STANDARD"
 				}
-				sm, err := b.CreateStateMachine("exec-sm", passDefinition, "arn:role", smType)
+				sm, err := b.CreateStateMachine(context.Background(), "exec-sm", passDefinition, "arn:role", smType)
 				require.NoError(t, err)
 				smArn = sm.StateMachineArn
 			}
@@ -418,7 +432,13 @@ func TestDescribeExecution(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, err := b.CreateStateMachine("desc-exec-sm", passDefinition, "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"desc-exec-sm",
+					passDefinition,
+					"arn:role",
+					"STANDARD",
+				)
 				require.NoError(t, err)
 				exec, err := b.StartExecution(sm.StateMachineArn, "exec1", tt.input)
 				require.NoError(t, err)
@@ -479,7 +499,13 @@ func TestListExecutions(t *testing.T) {
 			t.Parallel()
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			sm, err := b.CreateStateMachine("list-exec-sm", passDefinition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"list-exec-sm",
+				passDefinition,
+				"arn:role",
+				"STANDARD",
+			)
 			require.NoError(t, err)
 			for _, name := range tt.execNames {
 				_, err = b.StartExecution(sm.StateMachineArn, name, "")
@@ -551,7 +577,7 @@ func TestGetExecutionHistory(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, err := b.CreateStateMachine("hist-sm", passDefinition, "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine(context.Background(), "hist-sm", passDefinition, "arn:role", "STANDARD")
 				require.NoError(t, err)
 				exec, err := b.StartExecution(sm.StateMachineArn, "exec-h", "")
 				require.NoError(t, err)
@@ -616,7 +642,7 @@ func TestStopExecution(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, err := b.CreateStateMachine("stop-sm", waitDefinition, "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine(context.Background(), "stop-sm", waitDefinition, "arn:role", "STANDARD")
 				require.NoError(t, err)
 				exec, err := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
 				require.NoError(t, err)
@@ -695,7 +721,7 @@ func TestStartExecutionASL(t *testing.T) {
 			t.Parallel()
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			sm, err := b.CreateStateMachine("asl-"+tt.name, tt.definition, "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine(context.Background(), "asl-"+tt.name, tt.definition, "arn:role", "STANDARD")
 			require.NoError(t, err)
 
 			exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec", tt.input)

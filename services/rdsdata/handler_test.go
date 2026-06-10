@@ -707,7 +707,11 @@ func TestBackend_ListExecutedStatements(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, _, _, err := b.ExecuteStatement("arn:aws:rds:us-east-1:000000000000:cluster:test", "SELECT 1", "")
+	_, _, _, err := b.ExecuteStatement(
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+		"SELECT 1",
+		"",
+	)
 	require.NoError(t, err)
 
 	stmts := b.ListExecutedStatements()

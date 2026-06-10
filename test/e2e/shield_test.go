@@ -46,10 +46,11 @@ func TestShieldDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/shield")
 	require.NoError(t, err)
 
-	err = page.Locator("h1", playwright.PageLocatorOptions{HasText: "Shield Advanced"}).WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(30000),
-	})
+	err = page.Locator("h1", playwright.PageLocatorOptions{HasText: "Shield Advanced"}).
+		WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(30000),
+		})
 	require.NoError(t, err)
 
 	content, err := page.Content()

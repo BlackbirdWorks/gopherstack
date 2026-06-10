@@ -732,9 +732,11 @@ func TestRefinement1_GetResourceShareInvitations_FilterByShareARN(t *testing.T) 
 	shareARN2 := "arn:aws:ram:us-east-1:000000000000:resource-share/s-filter-2"
 
 	ram.AddInvitationInternal(b, ram.NewTestInvitation(
-		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv-f1", shareARN1, "share-1"))
+		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv-f1", shareARN1, "share-1",
+	))
 	ram.AddInvitationInternal(b, ram.NewTestInvitation(
-		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv-f2", shareARN2, "share-2"))
+		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv-f2", shareARN2, "share-2",
+	))
 
 	result := b.GetResourceShareInvitations(nil, []string{shareARN1})
 	require.Len(t, result, 1)
@@ -747,7 +749,8 @@ func TestRefinement1_GetResourceShareAssociations_TypeFilter(t *testing.T) {
 
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-	rs, err := b.CreateResourceShare("assoc-filter", false, nil,
+	rs, err := b.CreateResourceShare(
+		"assoc-filter", false, nil,
 		[]string{"000000000000"},
 		[]string{"arn:aws:ec2:us-east-1:000000000000:subnet/sub-1"},
 	)

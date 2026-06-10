@@ -1,6 +1,7 @@
 package firehose_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *firehose.InMemoryBackend) string {
-				stream, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "test-stream"})
+				stream, err := b.CreateDeliveryStream(
+					context.TODO(),
+					firehose.CreateDeliveryStreamInput{Name: "test-stream"},
+				)
 				if err != nil {
 					return ""
 				}
@@ -30,7 +34,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *firehose.InMemoryBackend, id string) {
 				t.Helper()
 
-				stream, err := b.DescribeDeliveryStream(id)
+				stream, err := b.DescribeDeliveryStream(context.TODO(), id)
 				require.NoError(t, err)
 				assert.Equal(t, id, stream.Name)
 			},
@@ -41,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *firehose.InMemoryBackend, _ string) {
 				t.Helper()
 
-				streams := b.ListDeliveryStreams()
+				streams := b.ListDeliveryStreams(context.TODO())
 				assert.Empty(t, streams)
 			},
 		},
@@ -80,13 +84,13 @@ func TestRestore_ClosesExistingTagsBeforeReplace(t *testing.T) {
 
 	// Populate a backend with two tagged streams.
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "old-stream"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "old-stream"})
 	require.NoError(t, err)
-	require.NoError(t, b.TagDeliveryStream("old-stream", map[string]string{"gen": "old"}))
+	require.NoError(t, b.TagDeliveryStream(context.TODO(), "old-stream", map[string]string{"gen": "old"}))
 
 	// Build a snapshot that contains a different set of streams.
 	newBackend := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err = newBackend.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "new-stream"})
+	_, err = newBackend.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "new-stream"})
 	require.NoError(t, err)
 	snap := newBackend.Snapshot()
 	require.NotNil(t, snap)
@@ -95,7 +99,7 @@ func TestRestore_ClosesExistingTagsBeforeReplace(t *testing.T) {
 	require.NoError(t, b.Restore(snap))
 
 	// Only the new stream should be visible now.
-	names := b.ListDeliveryStreams()
+	names := b.ListDeliveryStreams(context.TODO())
 	assert.Equal(t, []string{"new-stream"}, names)
 }
 
@@ -110,7 +114,7 @@ func TestRestore_RecalculatesBufferSizeBytes(t *testing.T) {
 	// Create a stream and buffer records without triggering a flush.
 	original := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	original.SetS3Backend(s3mock)
-	_, err := original.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := original.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "restore-size-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::restore-bucket",
@@ -123,7 +127,7 @@ func TestRestore_RecalculatesBufferSizeBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put 900 KB — below threshold so no flush yet.
-	require.NoError(t, original.PutRecord("restore-size-stream", make([]byte, 900*1024)))
+	require.NoError(t, original.PutRecord(context.TODO(), "restore-size-stream", make([]byte, 900*1024)))
 	assert.Empty(t, s3mock.calls)
 
 	// Snapshot and restore onto a fresh backend.
@@ -135,6 +139,6 @@ func TestRestore_RecalculatesBufferSizeBytes(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 
 	// Adding another 200 KB should now push over the 1 MB threshold and flush.
-	require.NoError(t, restored.PutRecord("restore-size-stream", make([]byte, 200*1024)))
+	require.NoError(t, restored.PutRecord(context.TODO(), "restore-size-stream", make([]byte, 200*1024)))
 	assert.Len(t, s3mock.calls, 1, "size-based flush should fire after restore")
 }

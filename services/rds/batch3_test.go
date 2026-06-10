@@ -108,7 +108,8 @@ func TestDescribeCustomDBEngineVersions_InSupportedOps(t *testing.T) {
 	h := newBatch3Handler()
 	ops := h.GetSupportedOperations()
 
-	assert.True(t,
+	assert.True(
+		t,
 		slices.Contains(ops, "DescribeCustomDBEngineVersions"),
 		"DescribeCustomDBEngineVersions should be in supported operations",
 	)

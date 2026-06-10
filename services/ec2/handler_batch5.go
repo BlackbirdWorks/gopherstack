@@ -335,9 +335,9 @@ type reservedInstanceItem struct {
 	State               string  `xml:"state,omitempty"`
 	OfferingType        string  `xml:"offeringType,omitempty"`
 	InstanceCount       int     `xml:"instanceCount,omitempty"`
-	Duration            int64   `xml:"duration,omitempty"`
-	FixedPrice          float64 `xml:"fixedPrice,omitempty"`
-	UsagePrice          float64 `xml:"usagePrice,omitempty"`
+	Duration            int64   `xml:"duration"`
+	FixedPrice          float64 `xml:"fixedPrice"`
+	UsagePrice          float64 `xml:"usagePrice"`
 }
 
 type describeReservedInstancesResponse struct {
@@ -354,9 +354,9 @@ type reservedInstancesOfferingItem struct {
 	AvailabilityZone            string  `xml:"availabilityZone,omitempty"`
 	ProductDescription          string  `xml:"productDescription,omitempty"`
 	OfferingType                string  `xml:"offeringType,omitempty"`
-	Duration                    int64   `xml:"duration,omitempty"`
-	FixedPrice                  float64 `xml:"fixedPrice,omitempty"`
-	UsagePrice                  float64 `xml:"usagePrice,omitempty"`
+	Duration                    int64   `xml:"duration"`
+	FixedPrice                  float64 `xml:"fixedPrice"`
+	UsagePrice                  float64 `xml:"usagePrice"`
 }
 
 type describeReservedInstancesOfferingsResponse struct {

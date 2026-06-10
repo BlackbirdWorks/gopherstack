@@ -71,11 +71,36 @@ const (
 	statusDeleting  = "DELETING"
 )
 
+// regionContextKey is the context key for the per-request AWS region.
+type regionContextKey struct{}
+
+// getRegionFromContext extracts the region from context, falling back to defaultRegion.
+func getRegionFromContext(ctx context.Context, defaultRegion string) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component from an ARN string.
+// ARN format: arn:{partition}:{service}:{region}:{account}:{resource}.
+func regionFromARN(arnStr, fallback string) string {
+	const arnRegionIdx = 3
+
+	parts := strings.Split(arnStr, ":")
+	if len(parts) > arnRegionIdx && parts[arnRegionIdx] != "" {
+		return parts[arnRegionIdx]
+	}
+
+	return fallback
+}
+
 // StorageBackend is the interface for a Step Functions in-memory store.
 type StorageBackend interface {
-	CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error)
+	CreateStateMachine(ctx context.Context, name, definition, roleArn, smType string) (*StateMachine, error)
 	DeleteStateMachine(arn string) error
-	ListStateMachines(nextToken string, maxResults int) ([]StateMachine, string, error)
+	ListStateMachines(ctx context.Context, nextToken string, maxResults int) ([]StateMachine, string, error)
 	DescribeStateMachine(arn string) (*StateMachine, error)
 	UpdateStateMachine(arn, definition, roleArn string) (float64, error)
 	PublishStateMachineVersion(smARN, description, revisionID string) (*StateMachineVersion, error)
@@ -99,10 +124,10 @@ type StorageBackend interface {
 		maxResults int,
 		reverseOrder bool,
 	) ([]HistoryEvent, string, error)
-	CreateActivity(name string) (*Activity, error)
+	CreateActivity(ctx context.Context, name string) (*Activity, error)
 	DeleteActivity(activityArn string) error
 	DescribeActivity(activityArn string) (*Activity, error)
-	ListActivities(nextToken string, maxResults int) ([]Activity, string, error)
+	ListActivities(ctx context.Context, nextToken string, maxResults int) ([]Activity, string, error)
 	GetActivityTask(ctx context.Context, activityArn, workerName string) (*ActivityTask, error)
 	SendTaskSuccess(taskToken, output string) error
 	SendTaskFailure(taskToken, errCode, cause string) error
@@ -124,8 +149,8 @@ type InMemoryBackend struct {
 	stateMachines  map[string]*StateMachine
 	executions     map[string]*Execution
 	history        map[string][]*HistoryEvent
-	// nameIndex maps state machine name → ARN for O(1) duplicate detection.
-	nameIndex map[string]string
+	// nameIndex maps region → name → ARN for O(1) duplicate detection per region.
+	nameIndex map[string]map[string]string
 	// smExecutions maps state machine ARN → execution ARNs for O(1) scoped listing.
 	smExecutions map[string][]string
 	// cancelFns holds the cancel function for each running execution goroutine.
@@ -134,7 +159,7 @@ type InMemoryBackend struct {
 	// historyRecorder and runParsedExecution skip writes for tombstoned ARNs.
 	deletedExecs      map[string]bool
 	activities        map[string]*Activity
-	activityNameIndex map[string]string
+	activityNameIndex map[string]map[string]string
 	// pendingTaskQueues maps activity ARN → buffered channel of pending tasks.
 	pendingTaskQueues map[string]chan *activityTaskEntry
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
@@ -215,12 +240,12 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		stateMachines:        make(map[string]*StateMachine),
 		executions:           make(map[string]*Execution),
 		history:              make(map[string][]*HistoryEvent),
-		nameIndex:            make(map[string]string),
+		nameIndex:            make(map[string]map[string]string),
 		smExecutions:         make(map[string][]string),
 		cancelFns:            make(map[string]context.CancelFunc),
 		deletedExecs:         make(map[string]bool),
 		activities:           make(map[string]*Activity),
-		activityNameIndex:    make(map[string]string),
+		activityNameIndex:    make(map[string]map[string]string),
 		pendingTaskQueues:    make(map[string]chan *activityTaskEntry),
 		tasksByToken:         make(map[string]*activityTaskEntry),
 		versions:             make(map[string]*StateMachineVersion),
@@ -304,24 +329,50 @@ func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
 	b.logger = log
 }
 
-func (b *InMemoryBackend) smARN(name string) string {
-	return arn.Build("states", b.region, b.accountID, "stateMachine:"+name)
+func (b *InMemoryBackend) smARN(region, name string) string {
+	return arn.Build("states", region, b.accountID, "stateMachine:"+name)
 }
 
-func (b *InMemoryBackend) execARN(smName, execName string) string {
-	return arn.Build("states", b.region, b.accountID, "execution:"+smName+":"+execName)
+func (b *InMemoryBackend) execARN(stateMachineARN, smName, execName string) string {
+	region := regionFromARN(stateMachineARN, b.region)
+
+	return arn.Build("states", region, b.accountID, "execution:"+smName+":"+execName)
 }
 
-func (b *InMemoryBackend) activityARN(name string) string {
-	return arn.Build("states", b.region, b.accountID, "activity:"+name)
+func (b *InMemoryBackend) activityARN(region, name string) string {
+	return arn.Build("states", region, b.accountID, "activity:"+name)
 }
 
-func (b *InMemoryBackend) versionARN(smName string, version int) string {
-	return arn.Build("states", b.region, b.accountID, fmt.Sprintf("stateMachine:%s:%d", smName, version))
+func (b *InMemoryBackend) versionARN(stateMachineARN, smName string, version int) string {
+	region := regionFromARN(stateMachineARN, b.region)
+
+	return arn.Build("states", region, b.accountID, fmt.Sprintf("stateMachine:%s:%d", smName, version))
 }
 
-func (b *InMemoryBackend) aliasARN(smName, aliasName string) string {
-	return arn.Build("states", b.region, b.accountID, "stateMachine:"+smName+":"+aliasName)
+func (b *InMemoryBackend) aliasARN(stateMachineARN, smName, aliasName string) string {
+	region := regionFromARN(stateMachineARN, b.region)
+
+	return arn.Build("states", region, b.accountID, "stateMachine:"+smName+":"+aliasName)
+}
+
+// regionNameIndex lazily initialises and returns the name→ARN map for region.
+// Caller must hold b.mu write lock.
+func (b *InMemoryBackend) regionNameIndex(region string) map[string]string {
+	if b.nameIndex[region] == nil {
+		b.nameIndex[region] = make(map[string]string)
+	}
+
+	return b.nameIndex[region]
+}
+
+// regionActivityIndex lazily initialises and returns the name→ARN map for region.
+// Caller must hold b.mu write lock.
+func (b *InMemoryBackend) regionActivityIndex(region string) map[string]string {
+	if b.activityNameIndex[region] == nil {
+		b.activityNameIndex[region] = make(map[string]string)
+	}
+
+	return b.activityNameIndex[region]
 }
 
 // SetStateMachineConfigurations sets optional tracing, logging, and encryption configuration
@@ -355,8 +406,11 @@ func (b *InMemoryBackend) SetStateMachineConfigurations(
 	return nil
 }
 
-// CreateStateMachine creates and stores a new state machine.
-func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error) {
+// CreateStateMachine creates and stores a new state machine in the caller's region.
+func (b *InMemoryBackend) CreateStateMachine(
+	ctx context.Context,
+	name, definition, roleArn, smType string,
+) (*StateMachine, error) {
 	if smType == "" {
 		smType = "STANDARD"
 	}
@@ -374,12 +428,14 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
 
-	arn := b.smARN(name)
+	region := getRegionFromContext(ctx, b.region)
+	smARN := b.smARN(region, name)
 
 	b.mu.Lock("CreateStateMachine")
 	defer b.mu.Unlock()
 
-	if existingARN, exists := b.nameIndex[name]; exists {
+	nameIdx := b.regionNameIndex(region)
+	if existingARN, exists := nameIdx[name]; exists {
 		if sm := b.stateMachines[existingARN]; sm != nil && sm.Status != statusDeleting {
 			// AWS idempotency: same name+definition+type+roleArn → return existing without error.
 			if sm.Definition == definition && sm.Type == smType && sm.RoleArn == roleArn {
@@ -395,14 +451,14 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 	sm := &StateMachine{
 		CreationDate:    float64(time.Now().Unix()),
 		Name:            name,
-		StateMachineArn: arn,
+		StateMachineArn: smARN,
 		Type:            smType,
 		Status:          statusActive,
 		Definition:      definition,
 		RoleArn:         roleArn,
 	}
-	b.stateMachines[arn] = sm
-	b.nameIndex[name] = arn
+	b.stateMachines[smARN] = sm
+	nameIdx[name] = smARN
 
 	return sm, nil
 }
@@ -460,7 +516,9 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 
 	sm.Status = statusDeleting
 	delete(b.stateMachines, arn)
-	delete(b.nameIndex, sm.Name)
+
+	smRegion := regionFromARN(arn, b.region)
+	delete(b.nameIndex[smRegion], sm.Name)
 
 	// Cancel running goroutines and clean up all executions and history for this SM.
 	for _, execARN := range b.smExecutions[arn] {
@@ -495,13 +553,23 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 	return nil
 }
 
-// ListStateMachines returns state machines with optional pagination.
-func (b *InMemoryBackend) ListStateMachines(nextToken string, maxResults int) ([]StateMachine, string, error) {
+// ListStateMachines returns state machines in the caller's region with optional pagination.
+func (b *InMemoryBackend) ListStateMachines(
+	ctx context.Context,
+	nextToken string,
+	maxResults int,
+) ([]StateMachine, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListStateMachines")
 	defer b.mu.RUnlock()
 
 	all := make([]StateMachine, 0, len(b.stateMachines))
 	for _, sm := range b.stateMachines {
+		if regionFromARN(sm.StateMachineArn, b.region) != region {
+			continue
+		}
+
 		all = append(all, *sm)
 	}
 
@@ -603,7 +671,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 
 	const millisPerSecond = 1000.0
 	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
-	execARN := b.execARN(smName, name)
+	execARN := b.execARN(stateMachineArn, smName, name)
 
 	// Express Workflows must complete within 5 minutes per AWS spec.
 	const expressSyncTimeout = 5 * time.Minute
@@ -707,7 +775,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: async execution requires STANDARD state machine", ErrInvalidExecutionType)
 	}
 
-	execArn := b.execARN(sm.Name, name)
+	execArn := b.execARN(stateMachineArn, sm.Name, name)
 	if _, alreadyExists := b.executions[execArn]; alreadyExists {
 		b.mu.Unlock()
 
@@ -1294,12 +1362,12 @@ func (b *InMemoryBackend) Reset() {
 	b.stateMachines = make(map[string]*StateMachine)
 	b.executions = make(map[string]*Execution)
 	b.history = make(map[string][]*HistoryEvent)
-	b.nameIndex = make(map[string]string)
+	b.nameIndex = make(map[string]map[string]string)
 	b.smExecutions = make(map[string][]string)
 	b.cancelFns = make(map[string]context.CancelFunc)
 	b.deletedExecs = newDeleted
 	b.activities = make(map[string]*Activity)
-	b.activityNameIndex = make(map[string]string)
+	b.activityNameIndex = make(map[string]map[string]string)
 	b.pendingTaskQueues = make(map[string]chan *activityTaskEntry)
 	b.tasksByToken = make(map[string]*activityTaskEntry)
 	b.versions = make(map[string]*StateMachineVersion)
@@ -1312,18 +1380,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 }
 
-// CreateActivity creates a new activity resource.
-func (b *InMemoryBackend) CreateActivity(name string) (*Activity, error) {
+// CreateActivity creates a new activity resource in the caller's region.
+func (b *InMemoryBackend) CreateActivity(ctx context.Context, name string) (*Activity, error) {
 	if err := validateName(name, maxActivityNameLen); err != nil {
 		return nil, err
 	}
 
-	actARN := b.activityARN(name)
+	region := getRegionFromContext(ctx, b.region)
+	actARN := b.activityARN(region, name)
 
 	b.mu.Lock("CreateActivity")
 	defer b.mu.Unlock()
 
-	if _, exists := b.activityNameIndex[name]; exists {
+	actIdx := b.regionActivityIndex(region)
+	if _, exists := actIdx[name]; exists {
 		return nil, fmt.Errorf("%w: %s", ErrActivityAlreadyExists, name)
 	}
 
@@ -1333,7 +1403,7 @@ func (b *InMemoryBackend) CreateActivity(name string) (*Activity, error) {
 		CreationDate: float64(time.Now().Unix()),
 	}
 	b.activities[actARN] = a
-	b.activityNameIndex[name] = actARN
+	actIdx[name] = actARN
 	b.pendingTaskQueues[actARN] = make(chan *activityTaskEntry, maxPendingActivityTasks)
 
 	cp := *a
@@ -1352,7 +1422,9 @@ func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 	}
 
 	delete(b.activities, activityArn)
-	delete(b.activityNameIndex, a.Name)
+
+	actRegion := regionFromARN(activityArn, b.region)
+	delete(b.activityNameIndex[actRegion], a.Name)
 
 	if queue, hasQueue := b.pendingTaskQueues[activityArn]; hasQueue {
 		close(queue)
@@ -1387,13 +1459,23 @@ func (b *InMemoryBackend) DescribeActivity(activityArn string) (*Activity, error
 	return &cp, nil
 }
 
-// ListActivities returns all activities with pagination.
-func (b *InMemoryBackend) ListActivities(nextToken string, maxResults int) ([]Activity, string, error) {
+// ListActivities returns activities in the caller's region with optional pagination.
+func (b *InMemoryBackend) ListActivities(
+	ctx context.Context,
+	nextToken string,
+	maxResults int,
+) ([]Activity, string, error) {
+	region := getRegionFromContext(ctx, b.region)
+
 	b.mu.RLock("ListActivities")
 	defer b.mu.RUnlock()
 
 	all := make([]Activity, 0, len(b.activities))
 	for _, a := range b.activities {
+		if regionFromARN(a.ActivityArn, b.region) != region {
+			continue
+		}
+
 		all = append(all, *a)
 	}
 
@@ -1417,7 +1499,7 @@ func (b *InMemoryBackend) PublishStateMachineVersion(
 	}
 
 	versionNum := len(b.smVersions[smARN]) + 1
-	vARN := b.versionARN(sm.Name, versionNum)
+	vARN := b.versionARN(smARN, sm.Name, versionNum)
 
 	v := &StateMachineVersion{
 		StateMachineVersionArn: vARN,
@@ -1550,7 +1632,7 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
 	}
 
-	aARN := b.aliasARN(sm.Name, name)
+	aARN := b.aliasARN(smARN, sm.Name, name)
 
 	if _, already := b.aliases[aARN]; already {
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasAlreadyExists, name)

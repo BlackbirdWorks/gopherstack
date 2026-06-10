@@ -771,7 +771,8 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreateScheduledAction(
-					"action-1", "cron(0 12 * * ? *)", "arn:aws:iam::123:role/R", "desc", "")
+					"action-1", "cron(0 12 * * ? *)", "arn:aws:iam::123:role/R", "desc", "",
+				)
 				require.NoError(t, err)
 				assert.Equal(t, 1, redshift.ScheduledActionCount(b))
 			},
@@ -886,7 +887,8 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
 				tr, err := b.CreateTableRestoreStatus(
-					"my-cluster", "my-snap", "db1", "table1", "db1", "table1_restored")
+					"my-cluster", "my-snap", "db1", "table1", "db1", "table1_restored",
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "IN_PROGRESS", tr.Status)
 				assert.Equal(t, "my-cluster", tr.ClusterIdentifier)

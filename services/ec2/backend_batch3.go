@@ -29,60 +29,60 @@ const (
 // InstanceConnectEndpoint represents an EC2 Instance Connect Endpoint.
 type InstanceConnectEndpoint struct {
 	CreateTime                 time.Time `json:"createTime"`
-	InstanceConnectEndpointID  string    `json:"instanceConnectEndpointId"`
-	InstanceConnectEndpointARN string    `json:"instanceConnectEndpointArn"`
-	SubnetID                   string    `json:"subnetId"`
-	VPCID                      string    `json:"vpcId"`
-	State                      string    `json:"state"`
-	SecurityGroupIDs           []string  `json:"securityGroupIds"`
-	PreserveClientIP           bool      `json:"preserveClientIp"`
+	InstanceConnectEndpointID  string    `json:"instanceConnectEndpointId,omitempty"`
+	InstanceConnectEndpointARN string    `json:"instanceConnectEndpointArn,omitempty"`
+	SubnetID                   string    `json:"subnetId,omitempty"`
+	VPCID                      string    `json:"vpcId,omitempty"`
+	State                      string    `json:"state,omitempty"`
+	SecurityGroupIDs           []string  `json:"securityGroupIds,omitempty"`
+	PreserveClientIP           bool      `json:"preserveClientIp,omitempty"`
 }
 
 // InstanceEventWindow represents a scheduled maintenance window for instances.
 type InstanceEventWindow struct {
-	InstanceEventWindowID string `json:"instanceEventWindowId"`
-	Name                  string `json:"name"`
+	InstanceEventWindowID string `json:"instanceEventWindowId,omitempty"`
+	Name                  string `json:"name,omitempty"`
 	CronExpression        string `json:"cronExpression,omitempty"`
-	State                 string `json:"state"`
+	State                 string `json:"state,omitempty"`
 }
 
 // SpotDatafeed holds the spot instance data feed subscription settings.
 type SpotDatafeed struct {
-	Bucket string `json:"bucket"`
-	Prefix string `json:"prefix"`
-	State  string `json:"state"`
+	Bucket string `json:"bucket,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
+	State  string `json:"state,omitempty"`
 }
 
 // RecycleBinImage holds a soft-deleted AMI.
 type RecycleBinImage struct {
 	RecycleBinEnterTime time.Time `json:"recycleBinEnterTime"`
 	RecycleBinExitTime  time.Time `json:"recycleBinExitTime"`
-	ImageID             string    `json:"imageId"`
-	Name                string    `json:"name"`
+	ImageID             string    `json:"imageId,omitempty"`
+	Name                string    `json:"name,omitempty"`
 }
 
 // RecycleBinVolume holds a soft-deleted EBS volume.
 type RecycleBinVolume struct {
 	RecycleBinEnterTime time.Time `json:"recycleBinEnterTime"`
 	RecycleBinExitTime  time.Time `json:"recycleBinExitTime"`
-	VolumeID            string    `json:"volumeId"`
+	VolumeID            string    `json:"volumeId,omitempty"`
 }
 
 // ImageImportTask holds status for an ImportImage task.
 type ImageImportTask struct {
-	ImportTaskID string `json:"importTaskId"`
-	Description  string `json:"description"`
-	Architecture string `json:"architecture"`
-	Platform     string `json:"platform"`
-	Status       string `json:"status"`
+	ImportTaskID string `json:"importTaskId,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Architecture string `json:"architecture,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+	Status       string `json:"status,omitempty"`
 }
 
 // SnapshotImportTask holds status for an ImportSnapshot task.
 type SnapshotImportTask struct {
-	ImportTaskID string `json:"importTaskId"`
-	Description  string `json:"description"`
+	ImportTaskID string `json:"importTaskId,omitempty"`
+	Description  string `json:"description,omitempty"`
 	SnapshotID   string `json:"snapshotId,omitempty"`
-	Status       string `json:"status"`
+	Status       string `json:"status,omitempty"`
 }
 
 // ---- Capacity Reservation ----
@@ -639,8 +639,8 @@ func (b *InMemoryBackend) DisableFastLaunch(imageID string) error {
 
 // FastLaunchImageItem holds fast launch enabled state for a single AMI.
 type FastLaunchImageItem struct {
-	ImageID string
-	State   string
+	ImageID string `json:"imageID,omitempty"`
+	State   string `json:"state,omitempty"`
 }
 
 // DescribeFastLaunchImages returns AMIs with fast launch enabled.
@@ -699,9 +699,9 @@ func (b *InMemoryBackend) DisableFastSnapshotRestores(
 
 // FastSnapshotRestoreItem holds fast snapshot restore config for a snapshot/AZ combo.
 type FastSnapshotRestoreItem struct {
-	SnapshotID       string
-	AvailabilityZone string
-	State            string
+	SnapshotID       string `json:"snapshotID,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	State            string `json:"state,omitempty"`
 }
 
 // DescribeFastSnapshotRestores returns fast snapshot restore enabled items.
@@ -817,10 +817,10 @@ func (b *InMemoryBackend) GetSubnetCidrReservations(
 
 // SecurityGroupForVpcItem is a SG returned by GetSecurityGroupsForVpc.
 type SecurityGroupForVpcItem struct {
-	GroupID     string
-	GroupName   string
-	Description string
-	VPCID       string
+	GroupID     string `json:"groupID,omitempty"`
+	GroupName   string `json:"groupName,omitempty"`
+	Description string `json:"description,omitempty"`
+	VPCID       string `json:"vpcid,omitempty"`
 }
 
 // GetSecurityGroupsForVpc returns security groups associated with a VPC.
@@ -1036,9 +1036,9 @@ func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID string, _ string) 
 
 // VpnConnectionRoute represents a static route in a VPN connection.
 type VpnConnectionRoute struct {
-	VpnConnectionID string `json:"vpnConnectionId"`
-	DestinationCIDR string `json:"destinationCidrBlock"`
-	State           string `json:"state"`
+	VpnConnectionID string `json:"vpnConnectionId,omitempty"`
+	DestinationCIDR string `json:"destinationCidrBlock,omitempty"`
+	State           string `json:"state,omitempty"`
 }
 
 // CreateVpnConnectionRoute adds a static route to a VPN connection.

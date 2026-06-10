@@ -352,7 +352,8 @@ func (db *InMemoryDB) DeleteTable(
 	if table.DeletionProtectionEnabled {
 		return nil, NewValidationException(
 			"Table cannot be deleted while DeletionProtectionEnabled is set to True. " +
-				"Update the table first to disable deletion protection.")
+				"Update the table first to disable deletion protection.",
+		)
 	}
 
 	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
@@ -1115,7 +1116,7 @@ func (db *InMemoryDB) applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondar
 func (db *InMemoryDB) applyGSIDelete(table *Table, d *types.DeleteGlobalSecondaryIndexAction) {
 	idxName := aws.ToString(d.IndexName)
 
-	var foundIdx = -1
+	foundIdx := -1
 	for i, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == idxName {
 			foundIdx = i

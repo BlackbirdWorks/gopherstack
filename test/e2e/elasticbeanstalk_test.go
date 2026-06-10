@@ -18,7 +18,11 @@ import (
 func TestElasticbeanstalkDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ElasticbeanstalkHandler.Backend.CreateApplication("e2e-app", "E2E test application", map[string]string{"env": "e2e"})
+	_, err := stack.ElasticbeanstalkHandler.Backend.CreateApplication(
+		"e2e-app",
+		"E2E test application",
+		map[string]string{"env": "e2e"},
+	)
 	require.NoError(t, err)
 
 	_, err = stack.ElasticbeanstalkHandler.Backend.CreateEnvironment(

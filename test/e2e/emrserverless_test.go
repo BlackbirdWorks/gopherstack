@@ -365,13 +365,23 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Filter by CANCELLED: should return only 1.
-	runs, _, err := stack.EmrServerlessHandler.Backend.ListJobRuns(app.ApplicationID, "", 0, emrserverlessbackend.JobRunStateCancelled)
+	runs, _, err := stack.EmrServerlessHandler.Backend.ListJobRuns(
+		app.ApplicationID,
+		"",
+		0,
+		emrserverlessbackend.JobRunStateCancelled,
+	)
 	require.NoError(t, err)
 	assert.Len(t, runs, 1)
 	assert.Equal(t, emrserverlessbackend.JobRunStateCancelled, runs[0].State)
 
 	// Filter by SUBMITTED: should return only 1.
-	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(app.ApplicationID, "", 0, emrserverlessbackend.JobRunStateSubmitted)
+	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(
+		app.ApplicationID,
+		"",
+		0,
+		emrserverlessbackend.JobRunStateSubmitted,
+	)
 	require.NoError(t, err)
 	assert.Len(t, runs, 1)
 	assert.Equal(t, emrserverlessbackend.JobRunStateSubmitted, runs[0].State)

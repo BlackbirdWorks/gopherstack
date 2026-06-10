@@ -541,7 +541,6 @@ func (h *ServerlessHandler) handleDeleteWorkgroup(c *echo.Context, name string) 
 func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, workgroupName string) error {
 	dbName := c.QueryParam("dbName")
 	accessKeyID, secretKey, expiry, err := h.Backend.GetCredentials(workgroupName, dbName)
-
 	if err != nil {
 		return c.JSON(
 			http.StatusNotFound,

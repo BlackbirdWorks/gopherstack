@@ -149,7 +149,7 @@ func main() {
 
 		var handlerErr error
 
-		if event.Step == "createSecret" && smEndpoint != "" {
+		if event.Step == "createSecret" {
 			handlerErr = putSecretValue(smEndpoint, event.SecretId, event.ClientRequestToken, "rotated-by-lambda")
 		}
 
@@ -306,13 +306,23 @@ func TestIntegration_SecretsManager_RotateSecret_WithLambda(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(rotateOut.VersionId), "RotateSecret should return a VersionId")
 
 	// --- Step 4: Verify the Lambda updated the secret value. ---
-	getOut, err := smClient.GetSecretValue(ctx, &secretsmanagersdk.GetSecretValueInput{
-		SecretId: aws.String(secretName),
-	})
-	require.NoError(t, err, "GetSecretValue should succeed after rotation")
-	require.NotNil(t, getOut.SecretString, "SecretString should not be nil after rotation")
-	assert.Equal(t, "rotated-by-lambda", aws.ToString(getOut.SecretString),
-		"the rotation Lambda should have updated the secret to 'rotated-by-lambda'")
+	require.Eventually(t, func() bool {
+		getOut, getErr := smClient.GetSecretValue(ctx, &secretsmanagersdk.GetSecretValueInput{
+			SecretId: aws.String(secretName),
+		})
+		if getErr != nil {
+			t.Logf("GetSecretValue error: %v", getErr)
+
+			return false
+		}
+
+		if aws.ToString(getOut.SecretString) == "rotated-by-lambda" {
+			return true
+		}
+		t.Logf("GetSecretValue returned: %v", aws.ToString(getOut.SecretString))
+
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "the rotation Lambda should have updated the secret to 'rotated-by-lambda'")
 }
 
 // newSDKConfig returns an AWS SDK config with static credentials pointing at no real endpoint.

@@ -83,21 +83,21 @@ func wrapAccuracy[I any, O any](fn func(context.Context, *I) (*O, error)) servic
 
 // getUserWithMFAOutput extends getUserOutput with MFA preference fields.
 type getUserWithMFAOutput struct {
-	Username            string          `json:"Username"`
+	Username            string          `json:"Username,omitempty"`
 	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`
-	UserAttributes      []attributeType `json:"UserAttributes"`
+	UserAttributes      []attributeType `json:"UserAttributes,omitempty"`
 	UserMFASettingList  []string        `json:"UserMFASettingList,omitempty"`
 }
 
 // ---- AssociateSoftwareToken (accurate) ----
 
 type associateSoftwareTokenAccurateInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 	Session     string `json:"Session,omitempty"`
 }
 
 type associateSoftwareTokenAccurateOutput struct {
-	SecretCode string `json:"SecretCode"`
+	SecretCode string `json:"SecretCode,omitempty"`
 	Session    string `json:"Session,omitempty"`
 }
 
@@ -116,14 +116,14 @@ func (h *Handler) handleAssociateSoftwareTokenAccurate(
 // ---- VerifySoftwareToken (accurate) ----
 
 type verifySoftwareTokenAccurateInput struct {
-	AccessToken        string `json:"AccessToken"`
-	UserCode           string `json:"UserCode"`
+	AccessToken        string `json:"AccessToken,omitempty"`
+	UserCode           string `json:"UserCode,omitempty"`
 	FriendlyDeviceName string `json:"FriendlyDeviceName,omitempty"`
 	Session            string `json:"Session,omitempty"`
 }
 
 type verifySoftwareTokenAccurateOutput struct {
-	Status  string `json:"Status"`
+	Status  string `json:"Status,omitempty"`
 	Session string `json:"Session,omitempty"`
 }
 
@@ -141,19 +141,19 @@ func (h *Handler) handleVerifySoftwareTokenAccurate(
 // ---- SetUserMFAPreference (accurate) ----
 
 type smsMFASetting struct {
-	Enabled      bool `json:"Enabled"`
-	PreferredMfa bool `json:"PreferredMfa"`
+	Enabled      bool `json:"Enabled,omitempty"`
+	PreferredMfa bool `json:"PreferredMfa,omitempty"`
 }
 
 type softwareTokenMFASetting struct {
-	Enabled      bool `json:"Enabled"`
-	PreferredMfa bool `json:"PreferredMfa"`
+	Enabled      bool `json:"Enabled,omitempty"`
+	PreferredMfa bool `json:"PreferredMfa,omitempty"`
 }
 
 type setUserMFAPreferenceAccurateInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
-	AccessToken              string                   `json:"AccessToken"`
+	AccessToken              string                   `json:"AccessToken,omitempty"`
 }
 
 type setUserMFAPreferenceAccurateOutput struct{}
@@ -186,8 +186,8 @@ func (h *Handler) handleSetUserMFAPreferenceAccurate(
 type adminSetUserMFASettingInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
-	UserPoolID               string                   `json:"UserPoolId"`
-	Username                 string                   `json:"Username"`
+	UserPoolID               string                   `json:"UserPoolId,omitempty"`
+	Username                 string                   `json:"Username,omitempty"`
 }
 
 type adminSetUserMFASettingOutput struct{}
@@ -221,7 +221,7 @@ func (h *Handler) handleAdminSetUserMFASetting(
 
 type createUserPoolWithOptsInput struct {
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
-	PoolName               string                 `json:"PoolName"`
+	PoolName               string                 `json:"PoolName,omitempty"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
 	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
 }
@@ -231,12 +231,12 @@ type userPoolPoliciesInput struct {
 }
 
 type passwordPolicyInput struct {
-	MinimumLength                 int  `json:"MinimumLength"`
-	RequireUppercase              bool `json:"RequireUppercase"`
-	RequireLowercase              bool `json:"RequireLowercase"`
-	RequireNumbers                bool `json:"RequireNumbers"`
-	RequireSymbols                bool `json:"RequireSymbols"`
-	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays"`
+	MinimumLength                 int  `json:"MinimumLength,omitempty"`
+	RequireUppercase              bool `json:"RequireUppercase,omitempty"`
+	RequireLowercase              bool `json:"RequireLowercase,omitempty"`
+	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
+	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
+	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
 type createUserPoolWithOptsOutput struct {
@@ -249,32 +249,32 @@ type userPoolDataAccurate struct {
 	// Terraform AWS provider unconditionally accesses Policies.PasswordPolicy
 	// and Policies.SignInPolicy, and will nil-panic if the key is absent.
 	Policies               userPoolPoliciesAccurate `json:"Policies"`
-	ID                     string                   `json:"Id"`
-	Name                   string                   `json:"Name"`
-	ARN                    string                   `json:"Arn"`
-	DeletionProtection     string                   `json:"DeletionProtection"`
-	MfaConfiguration       string                   `json:"MfaConfiguration"`
+	ID                     string                   `json:"Id,omitempty"`
+	Name                   string                   `json:"Name,omitempty"`
+	ARN                    string                   `json:"Arn,omitempty"`
+	DeletionProtection     string                   `json:"DeletionProtection,omitempty"`
+	MfaConfiguration       string                   `json:"MfaConfiguration,omitempty"`
 	SchemaAttributes       []SchemaAttribute        `json:"SchemaAttributes,omitempty"`
 	AutoVerifiedAttributes []string                 `json:"AutoVerifiedAttributes,omitempty"`
-	CreationDate           float64                  `json:"CreationDate"`
-	LastModifiedDate       float64                  `json:"LastModifiedDate"`
+	CreationDate           float64                  `json:"CreationDate,omitempty"`
+	LastModifiedDate       float64                  `json:"LastModifiedDate,omitempty"`
 }
 
 type userPoolPoliciesAccurate struct {
-	PasswordPolicy *passwordPolicyData `json:"PasswordPolicy"`
-	SignInPolicy   *signInPolicyData   `json:"SignInPolicy"`
+	PasswordPolicy *passwordPolicyData `json:"PasswordPolicy,omitempty"`
+	SignInPolicy   *signInPolicyData   `json:"SignInPolicy,omitempty"`
 }
 
 // signInPolicyData mirrors SignInPolicyType; empty placeholder keeps provider happy.
 type signInPolicyData struct{}
 
 type passwordPolicyData struct {
-	MinimumLength                 int  `json:"MinimumLength"`
-	RequireUppercase              bool `json:"RequireUppercase"`
-	RequireLowercase              bool `json:"RequireLowercase"`
-	RequireNumbers                bool `json:"RequireNumbers"`
-	RequireSymbols                bool `json:"RequireSymbols"`
-	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays"`
+	MinimumLength                 int  `json:"MinimumLength,omitempty"`
+	RequireUppercase              bool `json:"RequireUppercase,omitempty"`
+	RequireLowercase              bool `json:"RequireLowercase,omitempty"`
+	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
+	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
+	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
 func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
@@ -338,13 +338,13 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 // ---- Resource Servers (accurate - persistent) ----
 
 type resourceServerScopeType struct {
-	ScopeName        string `json:"ScopeName"`
-	ScopeDescription string `json:"ScopeDescription"`
+	ScopeName        string `json:"ScopeName,omitempty"`
+	ScopeDescription string `json:"ScopeDescription,omitempty"`
 }
 
 type resourceServerAccurateType struct {
-	UserPoolID string                    `json:"UserPoolId"`
-	Identifier string                    `json:"Identifier"`
+	UserPoolID string                    `json:"UserPoolId,omitempty"`
+	Identifier string                    `json:"Identifier,omitempty"`
 	Name       string                    `json:"Name,omitempty"`
 	Scopes     []resourceServerScopeType `json:"Scopes,omitempty"`
 }
@@ -373,9 +373,9 @@ func toBackendScopes(scopes []resourceServerScopeType) []ResourceServerScope {
 }
 
 type createResourceServerAccurateInput struct {
-	UserPoolID string                    `json:"UserPoolId"`
-	Identifier string                    `json:"Identifier"`
-	Name       string                    `json:"Name"`
+	UserPoolID string                    `json:"UserPoolId,omitempty"`
+	Identifier string                    `json:"Identifier,omitempty"`
+	Name       string                    `json:"Name,omitempty"`
 	Scopes     []resourceServerScopeType `json:"Scopes,omitempty"`
 }
 
@@ -396,8 +396,8 @@ func (h *Handler) handleCreateResourceServerAccurate(
 }
 
 type describeResourceServerAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
 }
 
 type describeResourceServerAccurateOutput struct {
@@ -417,12 +417,12 @@ func (h *Handler) handleDescribeResourceServerAccurate(
 }
 
 type listResourceServersAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listResourceServersAccurateOutput struct {
-	ResourceServers []resourceServerAccurateType `json:"ResourceServers"`
+	ResourceServers []resourceServerAccurateType `json:"ResourceServers,omitempty"`
 }
 
 func (h *Handler) handleListResourceServersAccurate(
@@ -443,8 +443,8 @@ func (h *Handler) handleListResourceServersAccurate(
 }
 
 type updateResourceServerAccurateInput struct {
-	UserPoolID string                    `json:"UserPoolId"`
-	Identifier string                    `json:"Identifier"`
+	UserPoolID string                    `json:"UserPoolId,omitempty"`
+	Identifier string                    `json:"Identifier,omitempty"`
 	Name       string                    `json:"Name,omitempty"`
 	Scopes     []resourceServerScopeType `json:"Scopes,omitempty"`
 }
@@ -466,8 +466,8 @@ func (h *Handler) handleUpdateResourceServerAccurate(
 }
 
 type deleteResourceServerAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
 }
 
 type deleteResourceServerAccurateOutput struct{}
@@ -486,8 +486,8 @@ func (h *Handler) handleDeleteResourceServerAccurate(
 // ---- RespondToAuthChallenge (accurate) ----
 
 type respondToAuthChallengeAccurateInput struct {
-	ClientID           string            `json:"ClientId"`
-	ChallengeName      string            `json:"ChallengeName"`
+	ClientID           string            `json:"ClientId,omitempty"`
+	ChallengeName      string            `json:"ChallengeName,omitempty"`
 	ChallengeResponses map[string]string `json:"ChallengeResponses,omitempty"`
 	Session            string            `json:"Session,omitempty"`
 }
@@ -572,9 +572,9 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 // ---- AdminRespondToAuthChallenge ----
 
 type adminRespondToAuthChallengeInput struct {
-	UserPoolID         string            `json:"UserPoolId"`
-	ClientID           string            `json:"ClientId"`
-	ChallengeName      string            `json:"ChallengeName"`
+	UserPoolID         string            `json:"UserPoolId,omitempty"`
+	ClientID           string            `json:"ClientId,omitempty"`
+	ChallengeName      string            `json:"ChallengeName,omitempty"`
 	ChallengeResponses map[string]string `json:"ChallengeResponses,omitempty"`
 	Session            string            `json:"Session,omitempty"`
 }
@@ -642,14 +642,14 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 
 // clientDataAccurate is the wire format for UserPoolClient including OAuth fields.
 type clientDataAccurate struct {
-	ClientID              string   `json:"ClientId"`
-	ClientName            string   `json:"ClientName"`
-	UserPoolID            string   `json:"UserPoolId"`
+	ClientID              string   `json:"ClientId,omitempty"`
+	ClientName            string   `json:"ClientName,omitempty"`
+	UserPoolID            string   `json:"UserPoolId,omitempty"`
 	ClientSecret          string   `json:"ClientSecret,omitempty"`
 	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
-	CreationDate          float64  `json:"CreationDate"`
+	CreationDate          float64  `json:"CreationDate,omitempty"`
 	EnableTokenRevocation bool     `json:"EnableTokenRevocation,omitempty"`
 }
 
@@ -679,7 +679,7 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 // ---- UpdateUserPool with opts ----
 
 type updateUserPoolWithOptsInput struct {
-	UserPoolID             string                 `json:"UserPoolId"`
+	UserPoolID             string                 `json:"UserPoolId,omitempty"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
 	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
@@ -720,8 +720,8 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 // ---- CreateUserPoolClient with OAuth fields ----
 
 type createUserPoolClientWithOptsInput struct {
-	UserPoolID            string   `json:"UserPoolId"`
-	ClientName            string   `json:"ClientName"`
+	UserPoolID            string   `json:"UserPoolId,omitempty"`
+	ClientName            string   `json:"ClientName,omitempty"`
 	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows     []string `json:"ExplicitAuthFlows,omitempty"`
@@ -756,8 +756,8 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 // ---- UpdateUserPoolClient with OAuth fields ----
 
 type updateUserPoolClientWithOptsInput struct {
-	UserPoolID            string   `json:"UserPoolId"`
-	ClientID              string   `json:"ClientId"`
+	UserPoolID            string   `json:"UserPoolId,omitempty"`
+	ClientID              string   `json:"ClientId,omitempty"`
 	ClientName            string   `json:"ClientName,omitempty"`
 	AllowedOAuthFlows     []string `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes    []string `json:"AllowedOAuthScopes,omitempty"`
@@ -791,16 +791,16 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 // ---- SignUp with PasswordPolicy enforcement and AutoVerifiedAttributes ----
 
 type signUpAccurateInput struct {
-	Username       string          `json:"Username"`
-	Password       string          `json:"Password"`
-	ClientID       string          `json:"ClientId"`
+	Username       string          `json:"Username,omitempty"`
+	Password       string          `json:"Password,omitempty"`
+	ClientID       string          `json:"ClientId,omitempty"`
 	SecretHash     string          `json:"SecretHash,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes"`
+	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
 }
 
 type signUpAccurateOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-	UserSub             string            `json:"UserSub"`
+	UserSub             string            `json:"UserSub,omitempty"`
 	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
@@ -839,7 +839,7 @@ func (h *Handler) handleSignUpAccurate(
 // ---- GetUser with MFA fields ----
 
 type getUserAccurateInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 func (h *Handler) handleGetUserAccurate(
@@ -862,7 +862,7 @@ func (h *Handler) handleGetUserAccurate(
 // ---- DescribeUserPool with full fields ----
 
 type describeUserPoolAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type describeUserPoolAccurateOutput struct {
@@ -884,8 +884,8 @@ func (h *Handler) handleDescribeUserPoolAccurate(
 // ---- DescribeUserPoolClient with OAuth fields ----
 
 type describeUserPoolClientAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type describeUserPoolClientAccurateOutput struct {
@@ -907,8 +907,8 @@ func (h *Handler) handleDescribeUserPoolClientAccurate(
 // ---- ListUserPoolClients with OAuth fields ----
 
 type listUserPoolClientsAccurateInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	MaxResults int    `json:"MaxResults"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listUserPoolClientsAccurateOutput struct {
@@ -937,8 +937,8 @@ func (h *Handler) handleListUserPoolClientsAccurate(
 type adminSetUserMFAPreferenceAccurateInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
-	UserPoolID               string                   `json:"UserPoolId"`
-	Username                 string                   `json:"Username"`
+	UserPoolID               string                   `json:"UserPoolId,omitempty"`
+	Username                 string                   `json:"Username,omitempty"`
 }
 
 type adminSetUserMFAPreferenceAccurateOutput struct{}
@@ -971,9 +971,9 @@ func (h *Handler) handleAdminSetUserMFAPreferenceAccurate(
 // ---- InitiateAuth with SECRET_HASH validation ----
 
 type initiateAuthAccurateInput struct {
-	AuthParameters map[string]string `json:"AuthParameters"`
-	AuthFlow       string            `json:"AuthFlow"`
-	ClientID       string            `json:"ClientId"`
+	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
+	AuthFlow       string            `json:"AuthFlow,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
 }
 
 func (h *Handler) handleInitiateAuthAccurate(
@@ -1014,10 +1014,10 @@ func (h *Handler) handleInitiateAuthAccurate(
 // ---- AdminInitiateAuth with SECRET_HASH validation ----
 
 type adminInitiateAuthAccurateInput struct {
-	AuthParameters map[string]string `json:"AuthParameters"`
-	AuthFlow       string            `json:"AuthFlow"`
-	ClientID       string            `json:"ClientId"`
-	UserPoolID     string            `json:"UserPoolId"`
+	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
+	AuthFlow       string            `json:"AuthFlow,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	UserPoolID     string            `json:"UserPoolId,omitempty"`
 }
 
 func (h *Handler) handleAdminInitiateAuthAccurate(
@@ -1058,9 +1058,9 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 // ---- ConfirmSignUp with SECRET_HASH validation ----
 
 type confirmSignUpAccurateInput struct {
-	Username         string `json:"Username"`
-	ConfirmationCode string `json:"ConfirmationCode"`
-	ClientID         string `json:"ClientId"`
+	Username         string `json:"Username,omitempty"`
+	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
+	ClientID         string `json:"ClientId,omitempty"`
 	SecretHash       string `json:"SecretHash,omitempty"`
 }
 
@@ -1084,8 +1084,8 @@ func (h *Handler) handleConfirmSignUpAccurate(
 // ---- ForgotPassword with SECRET_HASH validation ----
 
 type forgotPasswordAccurateInput struct {
-	ClientID   string `json:"ClientId"`
-	Username   string `json:"Username"`
+	ClientID   string `json:"ClientId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 	SecretHash string `json:"SecretHash,omitempty"`
 }
 
@@ -1119,10 +1119,10 @@ func (h *Handler) handleForgotPasswordAccurate(
 // ---- ConfirmForgotPassword with SECRET_HASH validation ----
 
 type confirmForgotPasswordAccurateInput struct {
-	ClientID         string `json:"ClientId"`
-	Username         string `json:"Username"`
-	ConfirmationCode string `json:"ConfirmationCode"`
-	Password         string `json:"Password"`
+	ClientID         string `json:"ClientId,omitempty"`
+	Username         string `json:"Username,omitempty"`
+	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
+	Password         string `json:"Password,omitempty"`
 	SecretHash       string `json:"SecretHash,omitempty"`
 }
 
@@ -1148,8 +1148,8 @@ func (h *Handler) handleConfirmForgotPasswordAccurate(
 // ---- ResendConfirmationCode with SECRET_HASH validation ----
 
 type resendConfirmationCodeAccurateInput struct {
-	ClientID   string `json:"ClientId"`
-	Username   string `json:"Username"`
+	ClientID   string `json:"ClientId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 	SecretHash string `json:"SecretHash,omitempty"`
 }
 

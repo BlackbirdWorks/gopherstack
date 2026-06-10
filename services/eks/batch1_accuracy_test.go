@@ -781,13 +781,13 @@ func TestBatch1_UpdateClusterConfig_VpcEndpoint_Params_Populated(t *testing.T) {
 // Gap 11: Cluster status lifecycle (CREATING → ACTIVE → DELETING)
 // ---------------------------------------------------------------------------
 
-func TestBatch1_Cluster_Status_ACTIVE_On_Create(t *testing.T) {
+func TestBatch1_Cluster_Status_CREATING_On_Create(t *testing.T) {
 	t.Parallel()
 
 	b := newB1Backend(t)
 	c, err := b.CreateCluster("lifecycle-c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ACTIVE", c.Status, "CreateCluster must return ACTIVE status")
+	assert.Equal(t, "CREATING", c.Status, "CreateCluster must return CREATING status (async transition to ACTIVE)")
 }
 
 func TestBatch1_Cluster_Status_DELETING_On_Delete(t *testing.T) {
@@ -814,13 +814,13 @@ func TestBatch1_Cluster_Status_DELETING_Via_Handler(t *testing.T) {
 	assert.Equal(t, "DELETING", cluster["status"])
 }
 
-func TestBatch1_Nodegroup_Status_ACTIVE_On_Create(t *testing.T) {
+func TestBatch1_Nodegroup_Status_CREATING_On_Create(t *testing.T) {
 	t.Parallel()
 
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "ng-status-cluster")
 	ng := mustCreateNodegroup(t, b, "ng-status-cluster")
-	assert.Equal(t, "ACTIVE", ng.Status, "CreateNodegroup must return ACTIVE status")
+	assert.Equal(t, "CREATING", ng.Status, "CreateNodegroup must return CREATING status (async transition to ACTIVE)")
 }
 
 func TestBatch1_Nodegroup_Status_DELETING_On_Delete(t *testing.T) {
@@ -1259,7 +1259,8 @@ func TestBatch1_PodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 
 	assoc, err := b.CreatePodIdentityAssociation(
 		"pi-lifecycle-cluster", "kube-system", "aws-node",
-		"arn:aws:iam::123:role/pi-role", nil)
+		"arn:aws:iam::123:role/pi-role", nil,
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
 	assert.Equal(t, "kube-system", assoc.Namespace)
@@ -1270,7 +1271,8 @@ func TestBatch1_PodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 	assert.Equal(t, assoc.AssociationID, described.AssociationID)
 
 	updated, err := b.UpdatePodIdentityAssociation(
-		"pi-lifecycle-cluster", assoc.AssociationID, "arn:aws:iam::123:role/pi-role-v2")
+		"pi-lifecycle-cluster", assoc.AssociationID, "arn:aws:iam::123:role/pi-role-v2",
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::123:role/pi-role-v2", updated.RoleARN)
 

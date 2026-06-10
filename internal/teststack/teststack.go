@@ -333,7 +333,8 @@ func newSDKClients(t *testing.T, e *echo.Echo) sdkClients {
 
 	inMemClient := &dashboard.InMemClient{Handler: e}
 
-	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
 		awscfg.WithRegion(config.DefaultRegion),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		awscfg.WithHTTPClient(inMemClient),

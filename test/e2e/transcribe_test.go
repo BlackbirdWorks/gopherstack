@@ -19,7 +19,11 @@ func TestTranscribeDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
-		&transcribe.TranscriptionJob{JobName: "e2e-test-job", LanguageCode: "en-US", Media: transcribe.Media{MediaFileURI: "s3://my-bucket/audio.mp3"}},
+		&transcribe.TranscriptionJob{
+			JobName:      "e2e-test-job",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://my-bucket/audio.mp3"},
+		},
 	)
 	require.NoError(t, err)
 
@@ -93,7 +97,11 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
-		&transcribe.TranscriptionJob{JobName: "ui-created-job", LanguageCode: "en-US", Media: transcribe.Media{MediaFileURI: "s3://my-bucket/input.wav"}},
+		&transcribe.TranscriptionJob{
+			JobName:      "ui-created-job",
+			LanguageCode: "en-US",
+			Media:        transcribe.Media{MediaFileURI: "s3://my-bucket/input.wav"},
+		},
 	)
 	require.NoError(t, err)
 

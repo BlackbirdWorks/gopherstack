@@ -26,8 +26,10 @@ var ErrChoiceNoMatch = errors.New("States.NoChoiceMatched")
 
 // Sentinel errors for executor internals.
 var (
-	ErrStateNotFound                    = errors.New("state not found")
-	ErrMaxTransitions                   = errors.New("state machine exceeded maximum transitions")
+	ErrStateNotFound  = errors.New("state not found")
+	ErrMaxTransitions = errors.New(
+		"state machine exceeded maximum transitions",
+	)
 	ErrUnsupportedStateType             = errors.New("unsupported state type")
 	ErrChoiceNoNext                     = errors.New("choice rule has no Next")
 	ErrLambdaNotConfigured              = errors.New("lambda invoker not configured")
@@ -51,25 +53,43 @@ var (
 	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
 	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
 	ErrActivityNotConfigured            = errors.New("activity invoker not configured")
-	ErrTaskTokenCallbackNotConfigured   = errors.New("task token callback invoker not configured")
+	ErrTaskTokenCallbackNotConfigured   = errors.New(
+		"task token callback invoker not configured",
+	)
+	ErrECSIntegrationNotConfigured         = errors.New("ECS integration not configured")
+	ErrGlueIntegrationNotConfigured        = errors.New("glue integration not configured")
+	ErrEventBridgeIntegrationNotConfigured = errors.New("EventBridge integration not configured")
+	ErrUnsupportedECSAction                = errors.New("unsupported ECS action")
+	ErrUnsupportedGlueAction               = errors.New("unsupported Glue action")
+	ErrUnsupportedEventBridgeAction        = errors.New("unsupported EventBridge action")
+	ErrUnsupportedIntegration              = errors.New("unsupported service integration")
 )
 
 const (
 	errCodeStatesPermissions = "States.Permissions"
 	errCodeStatesRuntime     = "States.Runtime"
 	errCodeStatesTimeout     = "States.Timeout"
+	errCodeStatesTaskFailed  = "States.TaskFailed"
 )
 
 // LambdaInvoker can invoke a Lambda function.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name, invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // ActivityInvoker can enqueue an activity task and wait for its result.
 type ActivityInvoker interface {
 	// InvokeActivity enqueues a task and blocks until completed.
 	// heartbeatSeconds > 0 enables heartbeat timeout enforcement.
-	InvokeActivity(ctx context.Context, activityArn, input string, heartbeatSeconds int) (string, error)
+	InvokeActivity(
+		ctx context.Context,
+		activityArn, input string,
+		heartbeatSeconds int,
+	) (string, error)
 }
 
 // S3Reader reads objects from S3 for Map state ItemReader.
@@ -109,6 +129,24 @@ type DynamoDBIntegration interface {
 	SFNDeleteTable(ctx context.Context, input any) (any, error)
 }
 
+// ECSIntegration handles Step Functions ECS service integration.
+type ECSIntegration interface {
+	// SFNRunTask runs an ECS task and returns the response map (Tasks, Failures).
+	SFNRunTask(ctx context.Context, input map[string]any) (any, error)
+}
+
+// GlueIntegration handles Step Functions Glue service integration.
+type GlueIntegration interface {
+	// SFNStartJobRun starts a Glue job run and returns the JobRunId.
+	SFNStartJobRun(ctx context.Context, jobName string, arguments map[string]string) (string, error)
+}
+
+// EventBridgeIntegration handles Step Functions EventBridge service integration.
+type EventBridgeIntegration interface {
+	// SFNPutEvents puts events to an EventBridge bus and returns failed-entry count.
+	SFNPutEvents(ctx context.Context, entries []map[string]any) (int, error)
+}
+
 // TaskTokenCallbackInvoker waits for SendTaskSuccess/SendTaskFailure callbacks for a task token.
 type TaskTokenCallbackInvoker interface {
 	WaitForTaskToken(ctx context.Context, taskToken string, heartbeatSeconds int) (string, error)
@@ -130,10 +168,12 @@ type ExecutionResult struct {
 	Cause  string
 }
 
-const maxConcurrentSubExecutors = 64
-const maxJSONPathCacheEntries = int64(4096)
-const maxRetryDelay = 24 * time.Hour
-const maxCacheStoreCASAttempts = 128
+const (
+	maxConcurrentSubExecutors = 64
+	maxJSONPathCacheEntries   = int64(4096)
+	maxRetryDelay             = 24 * time.Hour
+	maxCacheStoreCASAttempts  = 128
+)
 
 type jsonPathCache struct {
 	entries    sync.Map
@@ -213,6 +253,9 @@ type Executor struct {
 	sqs           SQSIntegration
 	sns           SNSIntegration
 	dynamodb      DynamoDBIntegration
+	ecs           ECSIntegration
+	glue          GlueIntegration
+	eventbridge   EventBridgeIntegration
 	history       HistoryRecorder
 	lambda        LambdaInvoker
 	activity      ActivityInvoker
@@ -272,6 +315,9 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		sqs:           e.sqs,
 		sns:           e.sns,
 		dynamodb:      e.dynamodb,
+		ecs:           e.ecs,
+		glue:          e.glue,
+		eventbridge:   e.eventbridge,
 		history:       e.history,
 		activity:      e.activity,
 		callback:      e.callback,
@@ -376,8 +422,20 @@ func (e *Executor) SetTaskTokenCallbackInvoker(invoker TaskTokenCallbackInvoker)
 	e.callback = invoker
 }
 
+// SetECSIntegration configures the ECS integration for Task states.
+func (e *Executor) SetECSIntegration(ecs ECSIntegration) { e.ecs = ecs }
+
+// SetGlueIntegration configures the Glue integration for Task states.
+func (e *Executor) SetGlueIntegration(glue GlueIntegration) { e.glue = glue }
+
+// SetEventBridgeIntegration configures the EventBridge integration for Task states.
+func (e *Executor) SetEventBridgeIntegration(eb EventBridgeIntegration) { e.eventbridge = eb }
+
 // Execute runs the state machine with the given input JSON and returns the result.
-func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
+func (e *Executor) Execute(
+	ctx context.Context,
+	executionARN, inputJSON string,
+) (*ExecutionResult, error) {
 	var input any
 	if inputJSON != "" {
 		if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
@@ -466,7 +524,11 @@ func (e *Executor) runStates(
 }
 
 // applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
-func (e *Executor) applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
+func (e *Executor) applyStateOutputTransforms(
+	state *State,
+	input, result any,
+	stateName string,
+) (any, error) {
 	// Apply ResultSelector to filter the state output before ResultPath merge.
 	if len(state.ResultSelector) > 0 {
 		var err error
@@ -519,7 +581,12 @@ func (e *Executor) executeState(
 	case "Map":
 		return e.executeMap(ctx, executionARN, state, input)
 	default:
-		return "", nil, fmt.Errorf("%w: %q in state %q", ErrUnsupportedStateType, state.Type, stateName)
+		return "", nil, fmt.Errorf(
+			"%w: %q in state %q",
+			ErrUnsupportedStateType,
+			state.Type,
+			stateName,
+		)
 	}
 }
 
@@ -732,7 +799,12 @@ func (e *Executor) executeTask(
 	}
 }
 
-func (e *Executor) invokeTaskAttempt(ctx context.Context, state *State, input any, waitForTaskToken bool) (any, error) {
+func (e *Executor) invokeTaskAttempt(
+	ctx context.Context,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+) (any, error) {
 	if !waitForTaskToken {
 		return e.invokeTask(ctx, state, input)
 	}
@@ -959,9 +1031,26 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 	if isDynamoDBResource(state.Resource) {
 		return e.invokeDynamoDBTask(ctx, state, input)
 	}
+	if isECSResource(state.Resource) {
+		return e.invokeECSTask(ctx, state, input)
+	}
+	if isGlueResource(state.Resource) {
+		return e.invokeGlueTask(ctx, state, input)
+	}
+	if isEventBridgeResource(state.Resource) {
+		return e.invokeEventBridgeTask(ctx, state, input)
+	}
+	if isAPIGatewayResource(state.Resource) || isEMRResource(state.Resource) {
+		return nil, &FailError{
+			ErrCode: errCodeStatesTaskFailed,
+			Cause:   fmt.Sprintf("unsupported service integration: %s", state.Resource),
+		}
+	}
 
-	// For unsupported resource types, pass input through (permissive stub).
-	return input, nil
+	return nil, &FailError{
+		ErrCode: errCodeStatesTaskFailed,
+		Cause:   fmt.Sprintf("unsupported service integration: %s", state.Resource),
+	}
 }
 
 // invokeActivityTask enqueues a task for an activity worker and waits for the result.
@@ -970,7 +1059,12 @@ func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input a
 		return nil, ErrActivityNotConfigured
 	}
 
-	output, err := e.activity.InvokeActivity(ctx, state.Resource, marshalInput(input), state.HeartbeatSeconds)
+	output, err := e.activity.InvokeActivity(
+		ctx,
+		state.Resource,
+		marshalInput(input),
+		state.HeartbeatSeconds,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -995,7 +1089,12 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 		return nil, fmt.Errorf("failed to marshal task input: %w", err)
 	}
 
-	respBytes, statusCode, err := e.lambda.InvokeFunction(ctx, state.Resource, "RequestResponse", payload)
+	respBytes, statusCode, err := e.lambda.InvokeFunction(
+		ctx,
+		state.Resource,
+		"RequestResponse",
+		payload,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,9 +1105,9 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	}
 
 	var result any
-	if unmarshalErr := json.Unmarshal(respBytes, &result); unmarshalErr != nil {
-		// If not JSON, return raw string as the output — the error is expected and intentional.
-		return string(respBytes), nil //nolint:nilerr // non-JSON Lambda response is valid; return as string
+	// Non-JSON Lambda responses are valid; fall back to raw string.
+	if json.Unmarshal(respBytes, &result) != nil {
+		result = string(respBytes)
 	}
 
 	return result, nil
@@ -1033,7 +1132,14 @@ func (e *Executor) invokeSQSTask(ctx context.Context, state *State, input any) (
 		if d, ok := toFloat(m["DelaySeconds"]); ok {
 			delaySeconds = int(d)
 		}
-		msgID, md5, err := e.sqs.SFNSendMessage(ctx, queueURL, messageBody, groupID, dedupID, delaySeconds)
+		msgID, md5, err := e.sqs.SFNSendMessage(
+			ctx,
+			queueURL,
+			messageBody,
+			groupID,
+			dedupID,
+			delaySeconds,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1093,7 +1199,11 @@ func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input a
 
 // invokeDynamoDBItemOps handles per-item and batch DynamoDB actions.
 // Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
-func (e *Executor) invokeDynamoDBItemOps(ctx context.Context, action string, input any) (any, bool, error) {
+func (e *Executor) invokeDynamoDBItemOps(
+	ctx context.Context,
+	action string,
+	input any,
+) (any, bool, error) {
 	switch action {
 	case "putItem":
 		out, err := e.dynamodb.SFNPutItem(ctx, input)
@@ -1130,7 +1240,11 @@ func (e *Executor) invokeDynamoDBItemOps(ctx context.Context, action string, inp
 
 // invokeDynamoDBTableOps handles table-level and backup/policy DynamoDB actions.
 // Returns (result, true, err) on a match, or (nil, false, nil) when no action matches.
-func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, input any) (any, bool, error) {
+func (e *Executor) invokeDynamoDBTableOps(
+	ctx context.Context,
+	action string,
+	input any,
+) (any, bool, error) {
 	switch action {
 	case "createTable":
 		out, err := e.dynamodb.SFNCreateTable(ctx, input)
@@ -1159,6 +1273,93 @@ func (e *Executor) invokeDynamoDBTableOps(ctx context.Context, action string, in
 	}
 
 	return nil, false, nil
+}
+
+// invokeECSTask invokes an ECS RunTask action as a Task state.
+func (e *Executor) invokeECSTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.ecs == nil {
+		return nil, ErrECSIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+
+	switch action {
+	case "runTask":
+		m, _ := input.(map[string]any)
+
+		return e.ecs.SFNRunTask(ctx, m)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedECSAction, action)
+	}
+}
+
+// invokeGlueTask invokes a Glue action as a Task state.
+func (e *Executor) invokeGlueTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.glue == nil {
+		return nil, ErrGlueIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+
+	switch action {
+	case "startJobRun":
+		m, _ := input.(map[string]any)
+		jobName, _ := m["JobName"].(string)
+
+		var arguments map[string]string
+		if rawArgs, ok := m["Arguments"].(map[string]any); ok {
+			arguments = make(map[string]string, len(rawArgs))
+			for k, v := range rawArgs {
+				arguments[k], _ = v.(string)
+			}
+		}
+
+		runID, err := e.glue.SFNStartJobRun(ctx, jobName, arguments)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"JobRunId": runID}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedGlueAction, action)
+	}
+}
+
+// invokeEventBridgeTask invokes an EventBridge action as a Task state.
+func (e *Executor) invokeEventBridgeTask(
+	ctx context.Context,
+	state *State,
+	input any,
+) (any, error) {
+	if e.eventbridge == nil {
+		return nil, ErrEventBridgeIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+
+	switch action {
+	case "putEvents":
+		m, _ := input.(map[string]any)
+
+		var entries []map[string]any
+		if rawEntries, ok := m["Entries"].([]any); ok {
+			entries = make([]map[string]any, 0, len(rawEntries))
+			for _, e := range rawEntries {
+				if entry, ok2 := e.(map[string]any); ok2 {
+					entries = append(entries, entry)
+				}
+			}
+		}
+
+		failedCount, err := e.eventbridge.SFNPutEvents(ctx, entries)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"FailedEntryCount": failedCount, "Entries": []any{}}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedEventBridgeAction, action)
+	}
 }
 
 // serviceAction extracts the action name from a States service integration ARN,
@@ -1245,7 +1446,6 @@ func (e *Executor) runParallelBranch(
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
 	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
 	res, err := exec.Execute(ctx, executionARN, marshalInput(input))
-
 	if err != nil {
 		errs[idx] = err
 
@@ -1417,7 +1617,9 @@ func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
 var ErrS3ReaderNotConfigured = errors.New("S3 reader not configured for Map state ItemReader")
 
 // ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
-var ErrItemReaderInvalidData = errors.New("ItemReader: unable to parse S3 object as JSON array or JSON lines")
+var ErrItemReaderInvalidData = errors.New(
+	"ItemReader: unable to parse S3 object as JSON array or JSON lines",
+)
 
 func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any) ([]any, error) {
 	if state.ItemReader != nil {
@@ -1452,7 +1654,8 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, err
 	}
 
-	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 && len(items) > reader.ReaderConfig.MaxItems {
+	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 &&
+		len(items) > reader.ReaderConfig.MaxItems {
 		items = items[:reader.ReaderConfig.MaxItems]
 	}
 
@@ -1565,7 +1768,11 @@ func resolveCSVHeaders(rows [][]string, cfg *ReaderConfig) ([]string, [][]string
 
 		return rows[0], rows[1:], nil
 	default:
-		return nil, nil, fmt.Errorf("%w: unsupported CSVHeaderLocation %q", ErrItemReaderInvalidData, loc)
+		return nil, nil, fmt.Errorf(
+			"%w: unsupported CSVHeaderLocation %q",
+			ErrItemReaderInvalidData,
+			loc,
+		)
 	}
 }
 
@@ -1615,7 +1822,12 @@ func (e *Executor) spawnMapTask(
 	})
 }
 
-func (e *Executor) finalizeMap(ctx context.Context, results []any, errs []error, next string) (string, any, error) {
+func (e *Executor) finalizeMap(
+	ctx context.Context,
+	results []any,
+	errs []error,
+	next string,
+) (string, any, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", nil, ctxErr
 	}
@@ -1757,7 +1969,11 @@ func jsonPathGet(path string, value any, pathCache *jsonPathCache) (any, error) 
 	for remainingIndex, part := range parts {
 		m, ok := value.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, strings.Join(parts[remainingIndex:], "."))
+			return nil, fmt.Errorf(
+				"%w: %q",
+				ErrCannotIndexNonObject,
+				strings.Join(parts[remainingIndex:], "."),
+			)
 		}
 
 		child, ok := m[part]
@@ -1905,7 +2121,11 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *json
 }
 
 // matchStringCondition checks string comparison conditions.
-func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchStringCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	if result, matched := matchStringLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -1934,7 +2154,11 @@ func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchStringPathCondition checks path-based string comparison conditions.
-func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchStringPathCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	comparePath := func(path *string, cmp func(s1, s2 string) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -1975,7 +2199,11 @@ func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *js
 }
 
 // matchNumericCondition checks numeric comparison conditions.
-func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchNumericCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	if result, matched := matchNumericLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -2004,7 +2232,11 @@ func matchNumericLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchNumericPathCondition checks path-based numeric comparison conditions.
-func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchNumericPathCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	compareNumPath := func(path *string, cmp func(n1, n2 float64) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -2045,7 +2277,11 @@ func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *j
 }
 
 // matchBooleanCondition checks boolean comparison conditions.
-func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchBooleanCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	if rule.BooleanEquals != nil {
 		b, ok := varVal.(bool)
 
@@ -2068,7 +2304,11 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonP
 }
 
 // matchTimestampCondition checks timestamp comparison conditions.
-func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchTimestampCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	if result, matched := matchTimestampLiteralCondition(rule, varVal); matched {
 		return result, matched
 	}
@@ -2114,7 +2354,11 @@ func matchTimestampLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 }
 
 // matchTimestampPathCondition checks path-based timestamp comparison conditions.
-func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *jsonPathCache) (bool, bool) {
+func matchTimestampPathCondition(
+	rule *ChoiceRule,
+	varVal, input any,
+	pathCache *jsonPathCache,
+) (bool, bool) {
 	comparePath := func(path *string, cmp func(t1, t2 time.Time) bool) (bool, bool) {
 		if path == nil {
 			return false, false
@@ -2160,7 +2404,12 @@ func parseTimestamp(v any) (time.Time, error) {
 }
 
 // resolveTimestampPath resolves a path reference and returns both timestamps.
-func resolveTimestampPath(varVal any, path string, input any, pathCache *jsonPathCache) (time.Time, time.Time, error) {
+func resolveTimestampPath(
+	varVal any,
+	path string,
+	input any,
+	pathCache *jsonPathCache,
+) (time.Time, time.Time, error) {
 	t1, err := parseTimestamp(varVal)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
@@ -2244,7 +2493,7 @@ func catchesError(errorEquals []string, err error) bool {
 			if errCode == errCodeStatesTimeout {
 				return true
 			}
-		case "States.TaskFailed":
+		case errCodeStatesTaskFailed:
 			if errCode != errCodeStatesTimeout &&
 				errCode != errCodeStatesRuntime &&
 				errCode != errCodeStatesPermissions {
@@ -2314,6 +2563,33 @@ func isSNSResource(resource string) bool {
 func isDynamoDBResource(resource string) bool {
 	return strings.HasPrefix(resource, "arn:aws:states:::dynamodb:") ||
 		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:dynamodb:")
+}
+
+func isECSResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::ecs:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:ecs:")
+}
+
+func isGlueResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::glue:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:glue:")
+}
+
+func isEventBridgeResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::events:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:events:")
+}
+
+func isAPIGatewayResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::apigateway:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:api-gateway:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:apigateway:")
+}
+
+func isEMRResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::elasticmapreduce:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::emr-serverless:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:emr:")
 }
 
 // resolveItems returns the array of items for a Map state.

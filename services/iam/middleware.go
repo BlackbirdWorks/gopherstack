@@ -43,14 +43,14 @@ type EnforcementBackend interface {
 
 type EnforcementConfig struct {
 	// Global is the shared AWS configuration state.
-	Global *config.GlobalConfig
+	Global *config.GlobalConfig `json:"global,omitempty"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
-	ResourceProviders []ResourcePolicyProvider
+	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
 	// ActionExtractors is an optional list of per-service extractors consulted
 	// when the global ExtractIAMAction function cannot determine the IAM action
 	// (e.g. for REST-based services that bypass the standard mappers).
-	ActionExtractors []ActionExtractor
+	ActionExtractors []ActionExtractor `json:"actionExtractors,omitempty"`
 }
 
 // EnforcementMiddleware returns an Echo middleware that enforces IAM policies on

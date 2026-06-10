@@ -10,6 +10,7 @@ package ecr_test
 // CreateRepository options, identity/ARN fields.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -43,16 +44,16 @@ func TestBatch1_PutImage_DigestFromManifestOnly(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("digest-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "digest-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	img1, err := b.PutImage("digest-repo", ecr.Image{
+	img1, err := b.PutImage(context.Background(), "digest-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"content":"same"}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	img2, err := b.PutImage("digest-repo", ecr.Image{
+	img2, err := b.PutImage(context.Background(), "digest-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"content":"same"}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v2"},
 	})
@@ -66,16 +67,16 @@ func TestBatch1_PutImage_DifferentManifest_DifferentDigest(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("diff-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "diff-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	img1, err := b.PutImage("diff-repo", ecr.Image{
+	img1, err := b.PutImage(context.Background(), "diff-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":1}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	img2, err := b.PutImage("diff-repo", ecr.Image{
+	img2, err := b.PutImage(context.Background(), "diff-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
@@ -157,17 +158,17 @@ func TestBatch1_MultiTag_Backend_TagIndexPopulated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("idx-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "idx-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	manifest := `{"schemaVersion":2}`
-	_, err = b.PutImage("idx-repo", ecr.Image{
+	_, err = b.PutImage(context.Background(), "idx-repo", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "t1"},
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutImage("idx-repo", ecr.Image{
+	_, err = b.PutImage(context.Background(), "idx-repo", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "t2"},
 	})
@@ -185,12 +186,12 @@ func TestBatch1_MultiTag_ThreeTags_OneDigest(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("three-tag", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "three-tag", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	manifest := `{"schemaVersion":2,"layers":[]}`
 	for _, tag := range []string{"v1", "v1.0", "v1.0.0"} {
-		_, err = b.PutImage("three-tag", ecr.Image{
+		_, err = b.PutImage(context.Background(), "three-tag", ecr.Image{
 			ImageManifest: manifest,
 			ImageID:       ecr.ImageIdentifier{ImageTag: tag},
 		})
@@ -207,10 +208,10 @@ func TestBatch1_Retag_MUTABLE_OldImageBecomesUntagged(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("retag-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "retag-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("retag-repo", ecr.Image{
+	_, err = b.PutImage(context.Background(), "retag-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":1}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "latest"},
 	})
@@ -219,7 +220,7 @@ func TestBatch1_Retag_MUTABLE_OldImageBecomesUntagged(t *testing.T) {
 	assert.Equal(t, 1, b.RepoTagCount("retag-repo"), "one tag before retag")
 
 	// Push different content with same tag — tag should move.
-	_, err = b.PutImage("retag-repo", ecr.Image{
+	_, err = b.PutImage(context.Background(), "retag-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "latest"},
 	})
@@ -235,16 +236,16 @@ func TestBatch1_Retag_MUTABLE_NewTag_PointsToNewDigest(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("newtag-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "newtag-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	img1, err := b.PutImage("newtag-repo", ecr.Image{
+	img1, err := b.PutImage(context.Background(), "newtag-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":1}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "prod"},
 	})
 	require.NoError(t, err)
 
-	img2, err := b.PutImage("newtag-repo", ecr.Image{
+	img2, err := b.PutImage(context.Background(), "newtag-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"v":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "prod"},
 	})
@@ -277,10 +278,10 @@ func TestBatch1_Untagged_Image_PushWithoutTag(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("untag-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "untag-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("untag-repo", ecr.Image{
+	_, err = b.PutImage(context.Background(), "untag-repo", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{},
 	})
@@ -425,21 +426,21 @@ func TestBatch1_ListImages_Filter_Backend_TAGGED(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("be-tagged", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "be-tagged", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("be-tagged", ecr.Image{
+	_, err = b.PutImage(context.Background(), "be-tagged", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"u":true}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutImage("be-tagged", ecr.Image{
+	_, err = b.PutImage(context.Background(), "be-tagged", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"t":true}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	ids, err := b.ListImages("be-tagged", "TAGGED")
+	ids, err := b.ListImages(context.Background(), "be-tagged", "TAGGED")
 	require.NoError(t, err)
 	assert.Len(t, ids, 1)
 	assert.Equal(t, "v1", ids[0].ImageTag)
@@ -449,21 +450,21 @@ func TestBatch1_ListImages_Filter_Backend_UNTAGGED(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("be-untagged", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "be-untagged", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("be-untagged", ecr.Image{
+	_, err = b.PutImage(context.Background(), "be-untagged", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"u":true}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutImage("be-untagged", ecr.Image{
+	_, err = b.PutImage(context.Background(), "be-untagged", ecr.Image{
 		ImageManifest: `{"schemaVersion":2,"t":true}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	ids, err := b.ListImages("be-untagged", "UNTAGGED")
+	ids, err := b.ListImages(context.Background(), "be-untagged", "UNTAGGED")
 	require.NoError(t, err)
 	assert.Len(t, ids, 1)
 	assert.Empty(t, ids[0].ImageTag)
@@ -475,24 +476,24 @@ func TestBatch1_BatchDeleteImage_ByTag_RemovesTagOnly(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("del-by-tag", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "del-by-tag", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	manifest := `{"schemaVersion":2,"shared":true}`
-	_, err = b.PutImage("del-by-tag", ecr.Image{
+	_, err = b.PutImage(context.Background(), "del-by-tag", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutImage("del-by-tag", ecr.Image{
+	_, err = b.PutImage(context.Background(), "del-by-tag", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v2"},
 	})
 	require.NoError(t, err)
 
 	// Delete by tag v1 only.
-	deleted, failures, err := b.BatchDeleteImage("del-by-tag", []ecr.ImageIdentifier{
+	deleted, failures, err := b.BatchDeleteImage(context.Background(), "del-by-tag", []ecr.ImageIdentifier{
 		{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
@@ -509,17 +510,17 @@ func TestBatch1_BatchDeleteImage_ByDigest_RemovesAllTags(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("del-by-digest", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "del-by-digest", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	manifest := `{"schemaVersion":2,"multi":true}`
-	img1, err := b.PutImage("del-by-digest", ecr.Image{
+	img1, err := b.PutImage(context.Background(), "del-by-digest", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "alpha"},
 	})
 	require.NoError(t, err)
 
-	_, err = b.PutImage("del-by-digest", ecr.Image{
+	_, err = b.PutImage(context.Background(), "del-by-digest", ecr.Image{
 		ImageManifest: manifest,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "beta"},
 	})
@@ -528,7 +529,7 @@ func TestBatch1_BatchDeleteImage_ByDigest_RemovesAllTags(t *testing.T) {
 	assert.Equal(t, 2, b.RepoTagCount("del-by-digest"))
 
 	// Delete by digest — must remove both tag bindings.
-	deleted, failures, err := b.BatchDeleteImage("del-by-digest", []ecr.ImageIdentifier{
+	deleted, failures, err := b.BatchDeleteImage(context.Background(), "del-by-digest", []ecr.ImageIdentifier{
 		{ImageDigest: img1.ImageDigest},
 	})
 	require.NoError(t, err)
@@ -1709,12 +1710,12 @@ func TestBatch1_CreateRepository_KMS_RoundTrip_Backend(t *testing.T) {
 
 	b := newBatch1Backend()
 	kmsKey := "arn:aws:kms:us-east-1:123456789012:key/mrk-xyz"
-	repo, err := b.CreateRepository("kms-be", "MUTABLE", false, "KMS", kmsKey)
+	repo, err := b.CreateRepository(context.Background(), "kms-be", "MUTABLE", false, "KMS", kmsKey)
 	require.NoError(t, err)
 	assert.Equal(t, "KMS", repo.EncryptionType)
 	assert.Equal(t, kmsKey, repo.KMSKey)
 
-	repos, err := b.DescribeRepositories([]string{"kms-be"})
+	repos, err := b.DescribeRepositories(context.Background(), []string{"kms-be"})
 	require.NoError(t, err)
 	assert.Equal(t, kmsKey, repos[0].KMSKey,
 		"KMS key must persist in DescribeRepositories")
@@ -2401,10 +2402,10 @@ func TestBatch1_DeleteRepository_Clears_TagIndex(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("del-idx", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "del-idx", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("del-idx", ecr.Image{
+	_, err = b.PutImage(context.Background(), "del-idx", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
@@ -2412,7 +2413,7 @@ func TestBatch1_DeleteRepository_Clears_TagIndex(t *testing.T) {
 
 	assert.Equal(t, 1, b.RepoTagCount("del-idx"))
 
-	_, err = b.DeleteRepository("del-idx")
+	_, err = b.DeleteRepository(context.Background(), "del-idx")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, b.RepoTagCount("del-idx"),
@@ -2452,10 +2453,10 @@ func TestBatch1_Backend_PutImage_ReturnedValue_Isolated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("iso-img", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "iso-img", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	img, err := b.PutImage("iso-img", ecr.Image{
+	img, err := b.PutImage(context.Background(), "iso-img", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
@@ -2465,7 +2466,7 @@ func TestBatch1_Backend_PutImage_ReturnedValue_Isolated(t *testing.T) {
 	img.ImageDigest = "mutated"
 
 	// Stored state must be unaffected.
-	imgs, err := b.DescribeImages("iso-img", nil)
+	imgs, err := b.DescribeImages(context.Background(), "iso-img", nil)
 	require.NoError(t, err)
 	require.Len(t, imgs, 1)
 	assert.Equal(t, originalDigest, imgs[0].ImageDigest,
@@ -2476,23 +2477,23 @@ func TestBatch1_Backend_DescribeImages_ReturnedSlice_Isolated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch1Backend()
-	_, err := b.CreateRepository("iso-desc", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "iso-desc", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	_, err = b.PutImage("iso-desc", ecr.Image{
+	_, err = b.PutImage(context.Background(), "iso-desc", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
 	require.NoError(t, err)
 
-	imgs, err := b.DescribeImages("iso-desc", nil)
+	imgs, err := b.DescribeImages(context.Background(), "iso-desc", nil)
 	require.NoError(t, err)
 	require.Len(t, imgs, 1)
 
 	// Mutate returned copy.
 	imgs[0].RepositoryName = "mutated"
 
-	imgs2, err := b.DescribeImages("iso-desc", nil)
+	imgs2, err := b.DescribeImages(context.Background(), "iso-desc", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "iso-desc", imgs2[0].RepositoryName,
 		"mutating DescribeImages return value must not affect stored state")

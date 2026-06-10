@@ -818,6 +818,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 
 	return &cp, nil
 }
+
 func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 	b.mu.RLock("GetGuardrail")
 	defer b.mu.RUnlock()
@@ -1214,7 +1215,8 @@ func copyGuardrailPolicies(src *GuardrailPolicies) *GuardrailPolicies {
 		wp.WordsConfig = append([]GuardrailWordConfig(nil), src.WordPolicy.WordsConfig...)
 		wp.ManagedWordListsConfig = append(
 			[]GuardrailManagedWordList(nil),
-			src.WordPolicy.ManagedWordListsConfig...)
+			src.WordPolicy.ManagedWordListsConfig...,
+		)
 		dst.WordPolicy = wp
 	}
 
@@ -1222,10 +1224,12 @@ func copyGuardrailPolicies(src *GuardrailPolicies) *GuardrailPolicies {
 		sip := &GuardrailSensitiveInformationPolicyConfig{}
 		sip.PiiEntitiesConfig = append(
 			[]GuardrailPIIEntity(nil),
-			src.SensitiveInformationPolicy.PiiEntitiesConfig...)
+			src.SensitiveInformationPolicy.PiiEntitiesConfig...,
+		)
 		sip.RegexesConfig = append(
 			[]GuardrailRegexConfig(nil),
-			src.SensitiveInformationPolicy.RegexesConfig...)
+			src.SensitiveInformationPolicy.RegexesConfig...,
+		)
 		dst.SensitiveInformationPolicy = sip
 	}
 

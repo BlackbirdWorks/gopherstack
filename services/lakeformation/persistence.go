@@ -2,9 +2,8 @@ package lakeformation
 
 import (
 	"encoding/json"
-	"maps"
-
 	"log/slog"
+	"maps"
 )
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.

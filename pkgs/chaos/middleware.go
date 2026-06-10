@@ -26,7 +26,8 @@ const headerDashboardBypass = "true"
 // Returns an empty string when the header is absent or malformed.
 func extractServiceFromRequest(r interface {
 	Header(string) string
-}) string {
+},
+) string {
 	auth := r.Header("Authorization")
 	if auth == "" {
 		return ""
@@ -57,7 +58,8 @@ func extractServiceFromRequest(r interface {
 // header, falling back to the X-Amz-Region header.
 func extractRegionFromRequest(r interface {
 	Header(string) string
-}) string {
+},
+) string {
 	auth := r.Header("Authorization")
 	if auth != "" && strings.Contains(auth, "Credential=") {
 		_, after, found := strings.Cut(auth, "Credential=")
@@ -84,7 +86,8 @@ func extractRegionFromRequest(r interface {
 // (which matches any operation in the fault rules).
 func extractOperationFromRequest(r interface {
 	Header(string) string
-}) string {
+},
+) string {
 	target := r.Header("X-Amz-Target")
 	if target == "" {
 		return ""
@@ -176,7 +179,8 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 					fe := rule.EffectiveError()
 					event.FaultApplied = fe.Code
 
-					log.InfoContext(ctx, "chaos: injecting fault",
+					log.InfoContext(
+						ctx, "chaos: injecting fault",
 						"service", svc,
 						"operation", op,
 						"region", region,

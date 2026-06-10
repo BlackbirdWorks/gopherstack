@@ -62,12 +62,103 @@ const (
 	opListTagsForResource    = "ListTagsForResource"
 	opUnknown                = "Unknown"
 
+	// Appendix A ops — member management.
+	opCreateMembers          = "CreateMembers"
+	opDeleteMembers          = "DeleteMembers"
+	opGetMembers             = "GetMembers"
+	opInviteMembers          = "InviteMembers"
+	opListMembers            = "ListMembers"
+	opStartMonitoringMembers = "StartMonitoringMembers"
+	opStopMonitoringMembers  = "StopMonitoringMembers"
+	opDisassociateMembers    = "DisassociateMembers"
+	opGetMemberDetectors     = "GetMemberDetectors"
+	opUpdateMemberDetectors  = "UpdateMemberDetectors"
+
+	// Appendix A ops — invitation / admin account.
+	opAcceptAdministratorInvitation        = "AcceptAdministratorInvitation"
+	opAcceptInvitation                     = "AcceptInvitation"
+	opGetAdministratorAccount              = "GetAdministratorAccount"
+	opGetMasterAccount                     = "GetMasterAccount"
+	opDisassociateFromAdministratorAccount = "DisassociateFromAdministratorAccount"
+	opDisassociateFromMasterAccount        = "DisassociateFromMasterAccount"
+	opDeclineInvitations                   = "DeclineInvitations"
+	opDeleteInvitations                    = "DeleteInvitations"
+	opGetInvitationsCount                  = "GetInvitationsCount"
+	opListInvitations                      = "ListInvitations"
+
+	// Appendix A ops — organization.
+	opEnableOrganizationAdminAccount    = "EnableOrganizationAdminAccount"
+	opDisableOrganizationAdminAccount   = "DisableOrganizationAdminAccount"
+	opListOrganizationAdminAccounts     = "ListOrganizationAdminAccounts"
+	opDescribeOrganizationConfiguration = "DescribeOrganizationConfiguration"
+	opUpdateOrganizationConfiguration   = "UpdateOrganizationConfiguration"
+	opGetOrganizationStatistics         = "GetOrganizationStatistics"
+
+	// Appendix A ops — publishing destinations.
+	opCreatePublishingDestination   = "CreatePublishingDestination"
+	opDeletePublishingDestination   = "DeletePublishingDestination"
+	opDescribePublishingDestination = "DescribePublishingDestination"
+	opListPublishingDestinations    = "ListPublishingDestinations"
+	opUpdatePublishingDestination   = "UpdatePublishingDestination"
+
+	// Appendix A ops — malware scanning.
+	opDescribeMalwareScans      = "DescribeMalwareScans"
+	opListMalwareScans          = "ListMalwareScans"
+	opStartMalwareScan          = "StartMalwareScan"
+	opGetMalwareScan            = "GetMalwareScan"
+	opGetMalwareScanSettings    = "GetMalwareScanSettings"
+	opUpdateMalwareScanSettings = "UpdateMalwareScanSettings"
+	opGetUsageStatistics        = "GetUsageStatistics"
+	opGetRemainingFreeTrialDays = "GetRemainingFreeTrialDays"
+	opGetCoverageStatistics     = "GetCoverageStatistics"
+	opListCoverage              = "ListCoverage"
+
+	// Appendix A ops — malware protection plans.
+	opCreateMalwareProtectionPlan = "CreateMalwareProtectionPlan"
+	opDeleteMalwareProtectionPlan = "DeleteMalwareProtectionPlan"
+	opGetMalwareProtectionPlan    = "GetMalwareProtectionPlan"
+	opListMalwareProtectionPlans  = "ListMalwareProtectionPlans"
+	opUpdateMalwareProtectionPlan = "UpdateMalwareProtectionPlan"
+	opSendObjectMalwareScan       = "SendObjectMalwareScan"
+
+	// Appendix A ops — threat / trusted entity sets.
+	opCreateThreatEntitySet  = "CreateThreatEntitySet"
+	opGetThreatEntitySet     = "GetThreatEntitySet"
+	opListThreatEntitySets   = "ListThreatEntitySets"
+	opUpdateThreatEntitySet  = "UpdateThreatEntitySet"
+	opDeleteThreatEntitySet  = "DeleteThreatEntitySet"
+	opCreateTrustedEntitySet = "CreateTrustedEntitySet"
+	opGetTrustedEntitySet    = "GetTrustedEntitySet"
+	opListTrustedEntitySets  = "ListTrustedEntitySets"
+	opUpdateTrustedEntitySet = "UpdateTrustedEntitySet"
+	opDeleteTrustedEntitySet = "DeleteTrustedEntitySet"
+
 	// URL depth constants for path parsing.
 	depthRoot       = 1 // /detector
 	depthResource   = 2 // /detector/{id}
 	depthCollection = 3 // /detector/{id}/filter
 	depthItem       = 4 // /detector/{id}/filter/{name}
 	depthAction     = 4 // /detector/{id}/findings/archive
+	depthDeep       = 5 // /detector/{id}/member/detector/get
+
+	// Path constants for new resources.
+	pathMember                = "member"
+	pathAdmin                 = "admin"
+	pathAdministrator         = "administrator"
+	pathMaster                = "master"
+	pathOrganization          = "organization"
+	pathInvitation            = "invitation"
+	pathPublishingDestination = "publishingDestination"
+	pathMalwareProtectionPlan = "malware-protection-plan"
+	pathMalwareScan           = "malware-scan"
+	pathMalwareScans          = "malware-scans"
+	pathMalwareScanSettings   = "malware-scan-settings"
+	pathObjectMalwareScan     = "object-malware-scan"
+	pathThreatEntitySet       = "threatentityset"
+	pathTrustedEntitySet      = "trustedentityset"
+	pathCoverage              = "coverage"
+	pathFreeTrial             = "freeTrial"
+	pathUsage                 = "usage"
 
 	minTagPathParts       = 2
 	minDetectorSubIDParts = 4
@@ -122,6 +213,64 @@ func (h *Handler) GetSupportedOperations() []string {
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
+		// Appendix A
+		opAcceptAdministratorInvitation,
+		opAcceptInvitation,
+		opCreateMalwareProtectionPlan,
+		opCreateMembers,
+		opCreatePublishingDestination,
+		opCreateThreatEntitySet,
+		opCreateTrustedEntitySet,
+		opDeclineInvitations,
+		opDeleteInvitations,
+		opDeleteMalwareProtectionPlan,
+		opDeleteMembers,
+		opDeletePublishingDestination,
+		opDeleteThreatEntitySet,
+		opDeleteTrustedEntitySet,
+		opDescribeMalwareScans,
+		opDescribeOrganizationConfiguration,
+		opDescribePublishingDestination,
+		opDisableOrganizationAdminAccount,
+		opDisassociateFromAdministratorAccount,
+		opDisassociateFromMasterAccount,
+		opDisassociateMembers,
+		opEnableOrganizationAdminAccount,
+		opGetAdministratorAccount,
+		opGetCoverageStatistics,
+		opGetInvitationsCount,
+		opGetMalwareProtectionPlan,
+		opGetMalwareScan,
+		opGetMalwareScanSettings,
+		opGetMasterAccount,
+		opGetMemberDetectors,
+		opGetMembers,
+		opGetOrganizationStatistics,
+		opGetRemainingFreeTrialDays,
+		opGetThreatEntitySet,
+		opGetTrustedEntitySet,
+		opInviteMembers,
+		opListCoverage,
+		opListInvitations,
+		opListMalwareProtectionPlans,
+		opListMalwareScans,
+		opListMembers,
+		opListOrganizationAdminAccounts,
+		opListPublishingDestinations,
+		opListThreatEntitySets,
+		opListTrustedEntitySets,
+		opSendObjectMalwareScan,
+		opStartMalwareScan,
+		opStartMonitoringMembers,
+		opStopMonitoringMembers,
+		opGetUsageStatistics,
+		opUpdateMalwareProtectionPlan,
+		opUpdateMalwareScanSettings,
+		opUpdateMemberDetectors,
+		opUpdateOrganizationConfiguration,
+		opUpdatePublishingDestination,
+		opUpdateThreatEntitySet,
+		opUpdateTrustedEntitySet,
 	}
 }
 
@@ -131,7 +280,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/"+pathDetector) ||
-			strings.HasPrefix(path, "/"+pathTags+"/arn:aws:guardduty:")
+			strings.HasPrefix(path, "/"+pathTags+"/arn:aws:guardduty:") ||
+			strings.HasPrefix(path, "/"+pathAdmin) ||
+			strings.HasPrefix(path, "/"+pathInvitation) ||
+			strings.HasPrefix(path, "/"+pathMalwareProtectionPlan) ||
+			strings.HasPrefix(path, "/"+pathMalwareScan) ||
+			strings.HasPrefix(path, "/"+pathObjectMalwareScan) ||
+			strings.HasPrefix(path, "/"+pathOrganization)
 	}
 }
 
@@ -220,6 +375,30 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
+	if result, code, ok, err := h.dispatchMemberOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchInvitationOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchOrgOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchPublishingDestOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchMalwareOps(op, path, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchEntitySetOps(op, path, body); ok {
+		return result, code, err
+	}
+
 	return h.dispatchTagOps(op, path, query, body)
 }
 
@@ -244,7 +423,7 @@ func (h *Handler) dispatch(
 //	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) /
 //	                                          DeleteThreatIntelSet (DELETE)
 //	/tags/{resourceArn}                    → ListTagsForResource (GET) / TagResource (POST) / UntagResource (DELETE)
-func parseRESTPath(method, path string) (string, string) {
+func parseRESTPath(method, path string) (string, string) { //nolint:cyclop // existing issue.
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
 	if len(parts) == 0 {
@@ -256,13 +435,28 @@ func parseRESTPath(method, path string) (string, string) {
 		return parseDetectorPath(method, parts)
 	case pathTags:
 		return parseTagPath(method, parts)
+	case pathAdmin:
+		return parseAdminPath(method, parts)
+	case pathInvitation:
+		return parseInvitationPath(method, parts)
+	case pathMalwareProtectionPlan:
+		return parseMalwareProtectionPlanPath(method, parts)
+	case pathMalwareScan:
+		return parseMalwareScanPath(method, parts)
+	case pathObjectMalwareScan:
+		if method == http.MethodPost && len(parts) == 2 && parts[1] == "send" {
+			return opSendObjectMalwareScan, ""
+		}
+	case pathOrganization:
+		if method == http.MethodGet && len(parts) == 2 && parts[1] == "statistics" { //nolint:goconst // existing issue.
+			return opGetOrganizationStatistics, ""
+		}
 	}
 
 	return opUnknown, ""
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen // intentional switch matrix for REST path parsing
-func parseDetectorPath(method string, parts []string) (string, string) {
+func parseDetectorPath(method string, parts []string) (string, string) { //nolint:gocognit,cyclop // existing issue.
 	switch len(parts) {
 	case depthRoot: // /detector
 		switch method {
@@ -286,84 +480,250 @@ func parseDetectorPath(method string, parts []string) (string, string) {
 	case depthCollection: // /detector/{id}/{collection}
 		detectorID := parts[1]
 		collection := parts[2]
-		switch collection {
-		case pathFilter:
-			switch method {
-			case http.MethodPost:
-				return opCreateFilter, detectorID
-			case http.MethodGet:
-				return opListFilters, detectorID
-			}
-		case pathFindings:
-			if method == http.MethodPost {
-				return opListFindings, detectorID
-			}
-		case pathIPSet:
-			switch method {
-			case http.MethodPost:
-				return opCreateIPSet, detectorID
-			case http.MethodGet:
-				return opListIPSets, detectorID
-			}
-		case pathThreatIntelSet:
-			switch method {
-			case http.MethodPost:
-				return opCreateThreatIntelSet, detectorID
-			case http.MethodGet:
-				return opListThreatIntelSets, detectorID
-			}
+		if op, res := parseDetectorCollection(method, detectorID, collection); op != opUnknown {
+			return op, res
 		}
 
 	case depthItem: // /detector/{id}/{collection}/{item}
 		detectorID := parts[1]
 		collection := parts[2]
 		item := parts[3]
-		switch collection {
-		case pathFilter:
-			switch method {
-			case http.MethodGet:
-				return opGetFilter, detectorID + "/" + item
-			case http.MethodPost:
-				return opUpdateFilter, detectorID + "/" + item
-			case http.MethodDelete:
-				return opDeleteFilter, detectorID + "/" + item
-			}
-		case pathFindings:
-			// /detector/{id}/findings/{action}
-			if method == http.MethodPost {
-				switch item {
-				case "get":
-					return opGetFindings, detectorID
-				case "archive":
-					return opArchiveFindings, detectorID
-				case "unarchive":
-					return opUnarchiveFindings, detectorID
-				case "create":
-					return opCreateSampleFindings, detectorID
-				case "statistics":
-					return opGetFindingsStatistics, detectorID
-				case "feedback":
-					return opUpdateFindingsFeedback, detectorID
+		if op, res := parseDetectorItem(method, detectorID, collection, item); op != opUnknown {
+			return op, res
+		}
+
+	case depthDeep: // /detector/{id}/{collection}/{sub}/{action}
+		detectorID := parts[1]
+		collection := parts[2]
+		sub := parts[3]
+		action := parts[4]
+		if collection == pathMember && sub == "detector" {
+			switch action {
+			case "get": //nolint:goconst // existing issue.
+				if method == http.MethodPost {
+					return opGetMemberDetectors, detectorID
+				}
+			case "update":
+				if method == http.MethodPost {
+					return opUpdateMemberDetectors, detectorID
 				}
 			}
-		case pathIPSet:
-			switch method {
-			case http.MethodGet:
-				return opGetIPSet, detectorID + "/" + item
-			case http.MethodPost:
-				return opUpdateIPSet, detectorID + "/" + item
-			case http.MethodDelete:
-				return opDeleteIPSet, detectorID + "/" + item
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorCollection( //nolint:gocognit,gocyclo,cyclop,funlen // existing issue.
+	method, detectorID, collection string,
+) (string, string) {
+	switch collection {
+	case pathFilter:
+		switch method {
+		case http.MethodPost:
+			return opCreateFilter, detectorID
+		case http.MethodGet:
+			return opListFilters, detectorID
+		}
+	case pathFindings:
+		if method == http.MethodPost {
+			return opListFindings, detectorID
+		}
+	case pathIPSet:
+		switch method {
+		case http.MethodPost:
+			return opCreateIPSet, detectorID
+		case http.MethodGet:
+			return opListIPSets, detectorID
+		}
+	case pathThreatIntelSet:
+		switch method {
+		case http.MethodPost:
+			return opCreateThreatIntelSet, detectorID
+		case http.MethodGet:
+			return opListThreatIntelSets, detectorID
+		}
+	case pathMember:
+		switch method {
+		case http.MethodPost:
+			return opCreateMembers, detectorID
+		case http.MethodGet:
+			return opListMembers, detectorID
+		}
+	case pathAdministrator:
+		switch method {
+		case http.MethodPost:
+			return opAcceptAdministratorInvitation, detectorID
+		case http.MethodGet:
+			return opGetAdministratorAccount, detectorID
+		}
+	case pathMaster:
+		switch method {
+		case http.MethodPost:
+			return opAcceptInvitation, detectorID
+		case http.MethodGet:
+			return opGetMasterAccount, detectorID
+		}
+	case pathAdmin:
+		switch method {
+		case http.MethodGet:
+			return opDescribeOrganizationConfiguration, detectorID
+		case http.MethodPost:
+			return opUpdateOrganizationConfiguration, detectorID
+		}
+	case pathPublishingDestination:
+		switch method {
+		case http.MethodPost:
+			return opCreatePublishingDestination, detectorID
+		case http.MethodGet:
+			return opListPublishingDestinations, detectorID
+		}
+	case pathMalwareScans:
+		switch method { //nolint:gocritic // existing issue.
+		case http.MethodPost:
+			return opDescribeMalwareScans, detectorID
+		}
+	case pathMalwareScanSettings:
+		switch method {
+		case http.MethodGet:
+			return opGetMalwareScanSettings, detectorID
+		case http.MethodPost:
+			return opUpdateMalwareScanSettings, detectorID
+		}
+	case pathThreatEntitySet:
+		switch method {
+		case http.MethodPost:
+			return opCreateThreatEntitySet, detectorID
+		case http.MethodGet:
+			return opListThreatEntitySets, detectorID
+		}
+	case pathTrustedEntitySet:
+		switch method {
+		case http.MethodPost:
+			return opCreateTrustedEntitySet, detectorID
+		case http.MethodGet:
+			return opListTrustedEntitySets, detectorID
+		}
+	case pathCoverage:
+		if method == http.MethodPost {
+			return opListCoverage, detectorID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorItem( //nolint:gocognit,gocyclo,cyclop,funlen // existing issue.
+	method, detectorID, collection, item string,
+) (string, string) {
+	switch collection {
+	case pathFilter:
+		switch method {
+		case http.MethodGet:
+			return opGetFilter, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdateFilter, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeleteFilter, detectorID + "/" + item
+		}
+	case pathFindings:
+		if method == http.MethodPost {
+			switch item {
+			case "get":
+				return opGetFindings, detectorID
+			case "archive":
+				return opArchiveFindings, detectorID
+			case "unarchive":
+				return opUnarchiveFindings, detectorID
+			case "create":
+				return opCreateSampleFindings, detectorID
+			case "statistics":
+				return opGetFindingsStatistics, detectorID
+			case "feedback":
+				return opUpdateFindingsFeedback, detectorID
 			}
-		case pathThreatIntelSet:
-			switch method {
-			case http.MethodGet:
-				return opGetThreatIntelSet, detectorID + "/" + item
-			case http.MethodPost:
-				return opUpdateThreatIntelSet, detectorID + "/" + item
-			case http.MethodDelete:
-				return opDeleteThreatIntelSet, detectorID + "/" + item
+		}
+	case pathIPSet:
+		switch method {
+		case http.MethodGet:
+			return opGetIPSet, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdateIPSet, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeleteIPSet, detectorID + "/" + item
+		}
+	case pathThreatIntelSet:
+		switch method {
+		case http.MethodGet:
+			return opGetThreatIntelSet, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdateThreatIntelSet, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeleteThreatIntelSet, detectorID + "/" + item
+		}
+	case pathMember:
+		if method == http.MethodPost {
+			switch item {
+			case "get":
+				return opGetMembers, detectorID
+			case "delete":
+				return opDeleteMembers, detectorID
+			case "start":
+				return opStartMonitoringMembers, detectorID
+			case "stop":
+				return opStopMonitoringMembers, detectorID
+			case "invite":
+				return opInviteMembers, detectorID
+			case "disassociate": //nolint:goconst // existing issue.
+				return opDisassociateMembers, detectorID
 			}
+		}
+	case pathAdministrator:
+		if method == http.MethodPost && item == "disassociate" {
+			return opDisassociateFromAdministratorAccount, detectorID
+		}
+	case pathMaster:
+		if method == http.MethodPost && item == "disassociate" {
+			return opDisassociateFromMasterAccount, detectorID
+		}
+	case pathPublishingDestination:
+		switch method {
+		case http.MethodGet:
+			return opDescribePublishingDestination, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdatePublishingDestination, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeletePublishingDestination, detectorID + "/" + item
+		}
+	case pathThreatEntitySet:
+		switch method {
+		case http.MethodGet:
+			return opGetThreatEntitySet, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdateThreatEntitySet, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeleteThreatEntitySet, detectorID + "/" + item
+		}
+	case pathTrustedEntitySet:
+		switch method {
+		case http.MethodGet:
+			return opGetTrustedEntitySet, detectorID + "/" + item
+		case http.MethodPost:
+			return opUpdateTrustedEntitySet, detectorID + "/" + item
+		case http.MethodDelete:
+			return opDeleteTrustedEntitySet, detectorID + "/" + item
+		}
+	case pathCoverage:
+		if method == http.MethodPost && item == "statistics" {
+			return opGetCoverageStatistics, detectorID
+		}
+	case pathUsage:
+		if method == http.MethodPost && item == "statistics" {
+			return opGetUsageStatistics, detectorID
+		}
+	case pathFreeTrial:
+		if method == http.MethodPost && item == "daysRemaining" {
+			return opGetRemainingFreeTrialDays, detectorID
 		}
 	}
 
@@ -621,7 +981,7 @@ func (h *Handler) handleCreateDetector(body []byte) (any, int, error) {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"detectorId": d.DetectorID}, http.StatusOK, nil
+	return map[string]any{"detectorId": d.DetectorID}, http.StatusOK, nil //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
@@ -637,7 +997,7 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 		"createdAt":                  d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		"updatedAt":                  d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyTags:                      tagsOrEmpty(d.Tags),
-		"features":                   d.Features,
+		"features":                   d.Features, //nolint:goconst // existing issue.
 	}, http.StatusOK, nil
 }
 
@@ -916,8 +1276,8 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 
 	return map[string]any{
 		keyName:    s.Name,
-		"format":   s.Format,
-		"location": s.Location,
+		"format":   s.Format,   //nolint:goconst // existing issue.
+		"location": s.Location, //nolint:goconst // existing issue.
 		keyStatus:  s.Status,
 		keyTags:    tagsOrEmpty(s.Tags),
 	}, http.StatusOK, nil

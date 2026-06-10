@@ -73,12 +73,13 @@ func TestStartStopInstances(t *testing.T) {
 				if err != nil {
 					return ""
 				}
+				b.TickLifecycleForTest() // pending → running
 
 				return instances[0].ID
 			},
 			op:        "stop",
 			wantErr:   false,
-			wantState: "stopped",
+			wantState: "stopping",
 		},
 		{
 			name: "start_stopped_instance",
@@ -87,15 +88,17 @@ func TestStartStopInstances(t *testing.T) {
 				if err != nil {
 					return ""
 				}
+				b.TickLifecycleForTest() // pending → running
 
 				id := instances[0].ID
 				_, _ = b.StopInstances([]string{id})
+				b.TickLifecycleForTest() // stopping → stopped
 
 				return id
 			},
 			op:        "start",
 			wantErr:   false,
-			wantState: "running",
+			wantState: "pending",
 		},
 		{
 			name:       "stop_nonexistent",
@@ -110,13 +113,14 @@ func TestStartStopInstances(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			// start a running instance must fail
+			// start a running instance must fail (pending is not stopped)
 			name: "start_running_instance",
 			setup: func(b *ec2.InMemoryBackend) string {
 				instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
 				if err != nil {
 					return ""
 				}
+				b.TickLifecycleForTest() // pending → running
 
 				return instances[0].ID
 			},
@@ -131,9 +135,11 @@ func TestStartStopInstances(t *testing.T) {
 				if err != nil {
 					return ""
 				}
+				b.TickLifecycleForTest() // pending → running
 
 				id := instances[0].ID
 				_, _ = b.StopInstances([]string{id})
+				b.TickLifecycleForTest() // stopping → stopped
 
 				return id
 			},
@@ -1101,7 +1107,10 @@ func TestHandlerExtOperations(t *testing.T) {
 			name: "StartInstances_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				b := h.Backend.(*ec2.InMemoryBackend)
+				b.TickLifecycleForTest() // pending → running
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
+				b.TickLifecycleForTest() // stopping → stopped
 
 				return "Action=StartInstances&Version=2016-11-15&InstanceId.1=" + url.QueryEscape(
 					instances[0].ID,
@@ -2075,8 +2084,11 @@ func TestHandlerNewOperations(t *testing.T) {
 			name: "ModifyInstanceAttribute_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				b := h.Backend.(*ec2.InMemoryBackend)
+				b.TickLifecycleForTest() // pending → running
 				// instanceType requires stopped state.
 				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
+				b.TickLifecycleForTest() // stopping → stopped
 
 				return fmt.Sprintf(
 					"Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId=%s&InstanceType.Value=t3.micro",

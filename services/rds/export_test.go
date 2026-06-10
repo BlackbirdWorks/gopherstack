@@ -5,6 +5,21 @@ import (
 	"time"
 )
 
+// FlushInstanceLifecycle immediately transitions all pending instances to available.
+// This is a test helper that bypasses the reconciler delay.
+func FlushInstanceLifecycle(b *InMemoryBackend) {
+	b.mu.Lock("FlushInstanceLifecycle")
+	defer b.mu.Unlock()
+
+	for id, inst := range b.instances {
+		if inst.DBInstanceStatus == instanceStatusCreating || inst.DBInstanceStatus == instanceStatusModifying {
+			inst.DBInstanceStatus = instanceStatusAvailable
+		}
+
+		delete(b.instanceReadyAt, id)
+	}
+}
+
 // RDSIDFromARNForTest exposes rdsIDFromARN for unit tests.
 func RDSIDFromARNForTest(arnOrID string) string {
 	return rdsIDFromARN(arnOrID)

@@ -476,7 +476,8 @@ func TestServiceSpecificCredential_UpdateToInactive(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, b.UpdateServiceSpecificCredential(
-		"ssc-update-user", cred.ServiceSpecificCredentialID, "Inactive"))
+		"ssc-update-user", cred.ServiceSpecificCredentialID, "Inactive",
+	))
 
 	creds, err := b.ListServiceSpecificCredentials("ssc-update-user", "")
 	require.NoError(t, err)

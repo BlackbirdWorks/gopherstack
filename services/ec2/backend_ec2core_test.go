@@ -528,7 +528,8 @@ func TestEC2Core_Handler_VpcEndpointServiceConfigViaHandler(t *testing.T) {
 
 	h := newHandler()
 
-	createRec := postForm(t, h,
+	createRec := postForm(
+		t, h,
 		"Action=CreateVpcEndpointServiceConfiguration&Version=2016-11-15"+
 			"&AcceptanceRequired=true&NetworkLoadBalancerArn.1=arn:nlb:test",
 	)

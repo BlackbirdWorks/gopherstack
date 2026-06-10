@@ -260,7 +260,8 @@ func eCSManagedTags(clusterName, serviceName string, td *TaskDefinition) []Tag {
 	}
 
 	if td != nil {
-		tags = append(tags,
+		tags = append(
+			tags,
 			Tag{Key: "aws:ecs:taskDefinitionFamily", Value: td.Family},
 			Tag{Key: "aws:ecs:taskDefinitionRevision", Value: strconv.Itoa(td.Revision)},
 		)

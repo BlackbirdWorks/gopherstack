@@ -222,6 +222,7 @@ func TestJanitor_TerminatedInstancesSweep(t *testing.T) {
 
 	_, err = b.TerminateInstances([]string{instanceID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down → terminated
 
 	// Tag the (now-terminated) instance.
 	err = b.CreateTags([]string{instanceID}, map[string]string{"key": "value"})
@@ -259,6 +260,7 @@ func TestJanitor_TerminatedInstancesNotSweptBeforeTTL(t *testing.T) {
 
 	_, err = b.TerminateInstances([]string{instanceID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down → terminated
 
 	// TerminatedAt is set to now, which is within the 1-hour TTL.
 	j := ec2.NewJanitor(b, time.Minute, time.Hour, 0)
@@ -625,7 +627,8 @@ func TestUnassignPrivateIPAddresses_RecyclesIPs(t *testing.T) {
 	require.Len(t, enis[0].SecondaryPrivateIPs, 2, "expected 2 secondary IPs after reassign")
 
 	// The freed IP must have been reused.
-	assert.True(t,
+	assert.True(
+		t,
 		slices.Contains(enis[0].SecondaryPrivateIPs, allocatedIPs[0]),
 		"freed IP %s should be reused by subsequent allocation", allocatedIPs[0],
 	)
@@ -698,6 +701,7 @@ func TestJanitor_DefensiveENISweep(t *testing.T) {
 
 	_, err = b.TerminateInstances([]string{instanceID})
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down → terminated
 
 	// Inject an orphaned ENI (simulating a snapshot restore before the fix).
 	orphan := &ec2.NetworkInterface{

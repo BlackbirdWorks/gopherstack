@@ -97,23 +97,61 @@ type backendSnapshot struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	directories map[string]*storedDirectory // directoryID → directory
-	snapshots   map[string]*storedSnapshot  // snapshotID → snapshot
-	aliases     map[string]string           // alias → directoryID
-	accountID   string
-	region      string
+	domainControllers     map[string]*storedDomainController
+	adAssessments         map[string]*storedADAssessment
+	snapshots             map[string]*storedSnapshot
+	aliases               map[string]string
+	hybridADUpdates       map[string]*storedHybridADUpdate
+	updateInfoEntries     map[string][]*storedUpdateInfo
+	ipRoutes              map[string][]storedIpRoute
+	regions               map[string]*storedRegion
+	schemaExtensions      map[string]*storedSchemaExtension
+	conditionalForwarders map[string]*storedConditionalForwarder
+	logSubscriptions      map[string]*storedLogSubscription
+	eventTopics           map[string]*storedEventTopic
+	directories           map[string]*storedDirectory
+	sharedDirectories     map[string]*storedSharedDirectory
+	mu                    *lockmetrics.RWMutex
+	certificates          map[string]*storedCertificate
+	ldapsSettings         map[string]*storedLDAPSSetting
+	clientAuthSettings    map[string]*storedClientAuthSetting
+	radiusSettings        map[string]*storedRadiusSettings
+	dirDataAccess         map[string]bool
+	caEnrollment          map[string]bool
+	trusts                map[string]*storedTrust
+	dirSettings           map[string][]*storedDirectorySetting
+	region                string
+	accountID             string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.New("directoryservice"),
-		accountID:   accountID,
-		region:      region,
-		directories: make(map[string]*storedDirectory),
-		snapshots:   make(map[string]*storedSnapshot),
-		aliases:     make(map[string]string),
+		mu:                    lockmetrics.New("directoryservice"),
+		accountID:             accountID,
+		region:                region,
+		directories:           make(map[string]*storedDirectory),
+		snapshots:             make(map[string]*storedSnapshot),
+		aliases:               make(map[string]string),
+		ipRoutes:              make(map[string][]storedIpRoute),
+		regions:               make(map[string]*storedRegion),
+		schemaExtensions:      make(map[string]*storedSchemaExtension),
+		conditionalForwarders: make(map[string]*storedConditionalForwarder),
+		logSubscriptions:      make(map[string]*storedLogSubscription),
+		eventTopics:           make(map[string]*storedEventTopic),
+		domainControllers:     make(map[string]*storedDomainController),
+		trusts:                make(map[string]*storedTrust),
+		sharedDirectories:     make(map[string]*storedSharedDirectory),
+		certificates:          make(map[string]*storedCertificate),
+		ldapsSettings:         make(map[string]*storedLDAPSSetting),
+		clientAuthSettings:    make(map[string]*storedClientAuthSetting),
+		radiusSettings:        make(map[string]*storedRadiusSettings),
+		dirDataAccess:         make(map[string]bool),
+		caEnrollment:          make(map[string]bool),
+		adAssessments:         make(map[string]*storedADAssessment),
+		dirSettings:           make(map[string][]*storedDirectorySetting),
+		updateInfoEntries:     make(map[string][]*storedUpdateInfo),
+		hybridADUpdates:       make(map[string]*storedHybridADUpdate),
 	}
 }
 
@@ -341,14 +379,16 @@ func (b *InMemoryBackend) GetDirectoryLimits() *DirectoryLimits {
 	b.mu.RLock("GetDirectoryLimits")
 	defer b.mu.RUnlock()
 
-	var simpleADCount, msADCount int32
+	var simpleADCount, msADCount, connectedCount int32
 
 	for _, d := range b.directories {
-		switch DirectoryType(d.DirType) {
+		switch DirectoryType(d.DirType) { //nolint:exhaustive // existing issue.
 		case DirectoryTypeSimpleAD:
 			simpleADCount++
 		case DirectoryTypeMicrosoftAD:
 			msADCount++
+		case DirectoryTypeADConnector:
+			connectedCount++
 		}
 	}
 
@@ -359,6 +399,9 @@ func (b *InMemoryBackend) GetDirectoryLimits() *DirectoryLimits {
 		CloudOnlyMicrosoftADCurrentCount: msADCount,
 		CloudOnlyMicrosoftADLimit:        defaultMicrosoftADLimit,
 		CloudOnlyMicrosoftADLimitReached: msADCount >= defaultMicrosoftADLimit,
+		ConnectedDirectoriesCurrentCount: connectedCount,
+		ConnectedDirectoriesLimit:        10,                   //nolint:mnd // existing issue.
+		ConnectedDirectoriesLimitReached: connectedCount >= 10, //nolint:mnd // existing issue.
 	}
 }
 
@@ -574,6 +617,25 @@ func (b *InMemoryBackend) Reset() {
 	b.directories = make(map[string]*storedDirectory)
 	b.snapshots = make(map[string]*storedSnapshot)
 	b.aliases = make(map[string]string)
+	b.ipRoutes = make(map[string][]storedIpRoute)
+	b.regions = make(map[string]*storedRegion)
+	b.schemaExtensions = make(map[string]*storedSchemaExtension)
+	b.conditionalForwarders = make(map[string]*storedConditionalForwarder)
+	b.logSubscriptions = make(map[string]*storedLogSubscription)
+	b.eventTopics = make(map[string]*storedEventTopic)
+	b.domainControllers = make(map[string]*storedDomainController)
+	b.trusts = make(map[string]*storedTrust)
+	b.sharedDirectories = make(map[string]*storedSharedDirectory)
+	b.certificates = make(map[string]*storedCertificate)
+	b.ldapsSettings = make(map[string]*storedLDAPSSetting)
+	b.clientAuthSettings = make(map[string]*storedClientAuthSetting)
+	b.radiusSettings = make(map[string]*storedRadiusSettings)
+	b.dirDataAccess = make(map[string]bool)
+	b.caEnrollment = make(map[string]bool)
+	b.adAssessments = make(map[string]*storedADAssessment)
+	b.dirSettings = make(map[string][]*storedDirectorySetting)
+	b.updateInfoEntries = make(map[string][]*storedUpdateInfo)
+	b.hybridADUpdates = make(map[string]*storedHybridADUpdate)
 }
 
 // BackendSnapshot serializes the backend state to JSON.

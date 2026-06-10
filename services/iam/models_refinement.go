@@ -6,11 +6,11 @@ import "encoding/xml"
 
 // AccessKeyLastUsed contains information about the last time an access key was used.
 type AccessKeyLastUsed struct {
-	UserName     string `json:"UserName"`
-	AccessKeyID  string `json:"AccessKeyId"`
-	LastUsedDate string `json:"LastUsedDate"`
-	ServiceName  string `json:"ServiceName"`
-	Region       string `json:"Region"`
+	UserName     string `json:"UserName,omitempty"`
+	AccessKeyID  string `json:"AccessKeyId,omitempty"`
+	LastUsedDate string `json:"LastUsedDate,omitempty"`
+	ServiceName  string `json:"ServiceName,omitempty"`
+	Region       string `json:"Region,omitempty"`
 }
 
 // AccessKeyLastUsedXML is the XML representation for GetAccessKeyLastUsed response.
@@ -132,15 +132,15 @@ type DeletePolicyVersionResponse struct {
 
 // PasswordPolicy represents the IAM account password policy.
 type PasswordPolicy struct {
-	MinimumPasswordLength      int  `json:"MinimumPasswordLength"`
-	MaxPasswordAge             int  `json:"MaxPasswordAge"`
-	PasswordReusePrevention    int  `json:"PasswordReusePrevention"`
-	RequireUppercaseCharacters bool `json:"RequireUppercaseCharacters"`
-	RequireLowercaseCharacters bool `json:"RequireLowercaseCharacters"`
-	RequireNumbers             bool `json:"RequireNumbers"`
-	RequireSymbols             bool `json:"RequireSymbols"`
-	AllowUsersToChangePassword bool `json:"AllowUsersToChangePassword"`
-	HardExpiry                 bool `json:"HardExpiry"`
+	MinimumPasswordLength      int  `json:"MinimumPasswordLength,omitempty"`
+	MaxPasswordAge             int  `json:"MaxPasswordAge,omitempty"`
+	PasswordReusePrevention    int  `json:"PasswordReusePrevention,omitempty"`
+	RequireUppercaseCharacters bool `json:"RequireUppercaseCharacters,omitempty"`
+	RequireLowercaseCharacters bool `json:"RequireLowercaseCharacters,omitempty"`
+	RequireNumbers             bool `json:"RequireNumbers,omitempty"`
+	RequireSymbols             bool `json:"RequireSymbols,omitempty"`
+	AllowUsersToChangePassword bool `json:"AllowUsersToChangePassword,omitempty"`
+	HardExpiry                 bool `json:"HardExpiry,omitempty"`
 }
 
 // PasswordPolicyXML is the XML representation of the account password policy.
@@ -203,9 +203,9 @@ type PolicyEntityRole struct {
 
 // PolicyEntities is the collection of entities attached to a managed policy.
 type PolicyEntities struct {
-	PolicyUsers  []PolicyEntityUser  `json:"PolicyUsers"`
-	PolicyGroups []PolicyEntityGroup `json:"PolicyGroups"`
-	PolicyRoles  []PolicyEntityRole  `json:"PolicyRoles"`
+	PolicyUsers  []PolicyEntityUser  `json:"PolicyUsers,omitempty"`
+	PolicyGroups []PolicyEntityGroup `json:"PolicyGroups,omitempty"`
+	PolicyRoles  []PolicyEntityRole  `json:"PolicyRoles,omitempty"`
 }
 
 // ListEntitiesForPolicyResult contains the policy entity lists.

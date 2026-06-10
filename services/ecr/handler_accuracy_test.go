@@ -2,6 +2,7 @@ package ecr_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -126,14 +127,14 @@ func TestAccuracy_CreateRepository_KMSKey_Backend_DeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := newAccuracyBackend()
-	repo, err := b.CreateRepository("kms-deep", "MUTABLE", false, "KMS",
+	repo, err := b.CreateRepository(context.Background(), "kms-deep", "MUTABLE", false, "KMS",
 		"arn:aws:kms:us-east-1:123456789012:key/mrk-copy")
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/mrk-copy", repo.KMSKey)
 
 	// Mutating returned copy must not affect stored state.
 	repo.KMSKey = "mutated"
-	repos, err := b.DescribeRepositories([]string{"kms-deep"})
+	repos, err := b.DescribeRepositories(context.Background(), []string{"kms-deep"})
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/mrk-copy", repos[0].KMSKey,
 		"returned copy mutation must not affect stored state")
@@ -452,11 +453,11 @@ func TestAccuracy_DeleteRepository_Cascades_LayerUploads(t *testing.T) {
 	t.Parallel()
 
 	b := newAccuracyBackend()
-	_, err := b.CreateRepository("cascade-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "cascade-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	// Initiate a layer upload for the repo.
-	result, err := b.InitiateLayerUpload("cascade-repo")
+	result, err := b.InitiateLayerUpload(context.Background(), "cascade-repo")
 	require.NoError(t, err)
 	uploadID := result.UploadID
 
@@ -464,7 +465,7 @@ func TestAccuracy_DeleteRepository_Cascades_LayerUploads(t *testing.T) {
 	assert.Equal(t, 1, b.LayerUploadCount(), "one in-progress upload expected before delete")
 
 	// Delete the repository.
-	_, err = b.DeleteRepository("cascade-repo")
+	_, err = b.DeleteRepository(context.Background(), "cascade-repo")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, b.LayerUploadCount(),
@@ -812,10 +813,10 @@ func TestAccuracy_DescribeRepositories_ReturnedSlice_Isolated(t *testing.T) {
 	t.Parallel()
 
 	b := newAccuracyBackend()
-	_, err := b.CreateRepository("iso-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "iso-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	repos1, err := b.DescribeRepositories(nil)
+	repos1, err := b.DescribeRepositories(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, repos1, 1)
 
@@ -823,7 +824,7 @@ func TestAccuracy_DescribeRepositories_ReturnedSlice_Isolated(t *testing.T) {
 	repos1[0].RepositoryName = "mutated-name"
 	repos1[0].ImageTagMutability = "IMMUTABLE"
 
-	repos2, err := b.DescribeRepositories(nil)
+	repos2, err := b.DescribeRepositories(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, repos2, 1)
 	assert.Equal(t, "iso-repo", repos2[0].RepositoryName,
@@ -836,19 +837,19 @@ func TestAccuracy_Repository_ExclusionFilters_DeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := newAccuracyBackend()
-	_, err := b.CreateRepository("filter-repo", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "filter-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
 	filters := []ecr.ImageTagMutabilityExclusionFilter{
 		{Filter: "v1.*", FilterType: "WILDCARD"},
 	}
-	_, err = b.PutImageTagMutability("filter-repo", "IMMUTABLE", filters)
+	_, err = b.PutImageTagMutability(context.Background(), "filter-repo", "IMMUTABLE", filters)
 	require.NoError(t, err)
 
 	// Mutate the original filter slice.
 	filters[0].Filter = "mutated"
 
-	repos, err := b.DescribeRepositories([]string{"filter-repo"})
+	repos, err := b.DescribeRepositories(context.Background(), []string{"filter-repo"})
 	require.NoError(t, err)
 	require.Len(t, repos, 1)
 	require.Len(t, repos[0].ImageTagMutabilityExclusionFilters, 1)
@@ -860,10 +861,10 @@ func TestAccuracy_PutImage_ReturnedImage_DeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := newAccuracyBackend()
-	_, err := b.CreateRepository("img-copy", "MUTABLE", false, "", "")
+	_, err := b.CreateRepository(context.Background(), "img-copy", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	img1, err := b.PutImage("img-copy", ecr.Image{
+	img1, err := b.PutImage(context.Background(), "img-copy", ecr.Image{
 		ImageManifest: `{"schemaVersion":2}`,
 		ImageID:       ecr.ImageIdentifier{ImageTag: "v1"},
 	})
@@ -873,7 +874,7 @@ func TestAccuracy_PutImage_ReturnedImage_DeepCopy(t *testing.T) {
 	img1.RepositoryName = "mutated"
 
 	// Retrieve via DescribeImages — must still see original.
-	imgs, err := b.DescribeImages("img-copy", nil)
+	imgs, err := b.DescribeImages(context.Background(), "img-copy", nil)
 	require.NoError(t, err)
 	require.Len(t, imgs, 1)
 	assert.Equal(t, "img-copy", imgs[0].RepositoryName,

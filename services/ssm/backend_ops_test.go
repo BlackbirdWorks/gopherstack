@@ -5,6 +5,7 @@ package ssm_test
 // create a backend, call the operation, assert the result.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +28,7 @@ func newBackend(t *testing.T) *ssm.InMemoryBackend {
 func createTestBaseline(t *testing.T, b *ssm.InMemoryBackend, name string) string {
 	t.Helper()
 
-	out, err := b.CreatePatchBaseline(&ssm.CreatePatchBaselineInput{
+	out, err := b.CreatePatchBaseline(context.TODO(), &ssm.CreatePatchBaselineInput{
 		Name:            name,
 		OperatingSystem: "AMAZON_LINUX_2",
 	})
@@ -40,7 +41,7 @@ func createTestBaseline(t *testing.T, b *ssm.InMemoryBackend, name string) strin
 func createTestWindow(t *testing.T, b *ssm.InMemoryBackend) string {
 	t.Helper()
 
-	out, err := b.CreateMaintenanceWindow(&ssm.CreateMaintenanceWindowInput{
+	out, err := b.CreateMaintenanceWindow(context.TODO(), &ssm.CreateMaintenanceWindowInput{
 		Name:     "test-window",
 		Schedule: "cron(0 9 ? * MON *)",
 		Duration: 2,
@@ -55,7 +56,7 @@ func createTestWindow(t *testing.T, b *ssm.InMemoryBackend) string {
 func createTestOpsItem(t *testing.T, b *ssm.InMemoryBackend) string {
 	t.Helper()
 
-	out, err := b.CreateOpsItem(&ssm.CreateOpsItemInput{
+	out, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 		Title:       "test-item",
 		Source:      "test",
 		Description: "test description",
@@ -75,20 +76,20 @@ func TestBackendOps_UpdateDocumentDefaultVersion(t *testing.T) {
 	b := newBackend(t)
 
 	// Create a document with two versions.
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "TestDoc",
 		Content: `{"schemaVersion":"2.2"}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+	_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 		Name:    "TestDoc",
 		Content: `{"schemaVersion":"2.2","updated":true}`,
 	})
 	require.NoError(t, err)
 
 	// Set default version to "1".
-	out, err := b.UpdateDocumentDefaultVersion(&ssm.UpdateDocumentDefaultVersionInput{
+	out, err := b.UpdateDocumentDefaultVersion(context.TODO(), &ssm.UpdateDocumentDefaultVersionInput{
 		Name:            "TestDoc",
 		DocumentVersion: "1",
 	})
@@ -102,7 +103,7 @@ func TestBackendOps_UpdateDocumentDefaultVersion_NotFound(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.UpdateDocumentDefaultVersion(&ssm.UpdateDocumentDefaultVersionInput{
+	_, err := b.UpdateDocumentDefaultVersion(context.TODO(), &ssm.UpdateDocumentDefaultVersionInput{
 		Name:            "NoSuchDoc",
 		DocumentVersion: "1",
 	})
@@ -114,13 +115,13 @@ func TestBackendOps_UpdateDocumentMetadata(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "MetaDoc",
 		Content: `{"schemaVersion":"2.2"}`,
 	})
 	require.NoError(t, err)
 
-	out, err := b.UpdateDocumentMetadata(&ssm.UpdateDocumentMetadataInput{
+	out, err := b.UpdateDocumentMetadata(context.TODO(), &ssm.UpdateDocumentMetadataInput{
 		Name: "MetaDoc",
 	})
 	require.NoError(t, err)
@@ -132,13 +133,13 @@ func TestBackendOps_ListDocumentMetadataHistory(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "HistoryDoc",
 		Content: `{"schemaVersion":"2.2"}`,
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListDocumentMetadataHistory(&ssm.ListDocumentMetadataHistoryInput{
+	out, err := b.ListDocumentMetadataHistory(context.TODO(), &ssm.ListDocumentMetadataHistoryInput{
 		Name: "HistoryDoc",
 	})
 	require.NoError(t, err)
@@ -156,7 +157,7 @@ func TestBackendOps_PutInventory(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.PutInventory(&ssm.PutInventoryInput{
+	out, err := b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-1234567890abcdef0",
 		Items: []ssm.InventoryItem{
 			{
@@ -178,7 +179,7 @@ func TestBackendOps_GetInventory(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.PutInventory(&ssm.PutInventoryInput{
+	_, err := b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-abcdef1234567890",
 		Items: []ssm.InventoryItem{
 			{TypeName: "AWS:Network", SchemaVersion: "1.0"},
@@ -186,7 +187,7 @@ func TestBackendOps_GetInventory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetInventory(&ssm.GetInventoryInput{})
+	out, err := b.GetInventory(context.TODO(), &ssm.GetInventoryInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.Entities, 1)
 	assert.Equal(t, "i-abcdef1234567890", out.Entities[0].ID)
@@ -197,7 +198,7 @@ func TestBackendOps_GetInventorySchema(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.GetInventorySchema(&ssm.GetInventorySchemaInput{})
+	out, err := b.GetInventorySchema(context.TODO(), &ssm.GetInventorySchemaInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.Schemas)
 }
@@ -209,7 +210,7 @@ func TestBackendOps_ListInventoryEntries(t *testing.T) {
 
 	content := []map[string]string{{"Name": "sshd", "Version": "1.0"}}
 
-	_, err := b.PutInventory(&ssm.PutInventoryInput{
+	_, err := b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-entries-test",
 		Items: []ssm.InventoryItem{
 			{TypeName: "AWS:Service", SchemaVersion: "1.0", Content: content},
@@ -217,7 +218,7 @@ func TestBackendOps_ListInventoryEntries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListInventoryEntries(&ssm.ListInventoryEntriesInput{
+	out, err := b.ListInventoryEntries(context.TODO(), &ssm.ListInventoryEntriesInput{
 		InstanceID: "i-entries-test",
 		TypeName:   "AWS:Service",
 	})
@@ -232,7 +233,7 @@ func TestBackendOps_DeleteInventory(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.PutInventory(&ssm.PutInventoryInput{
+	_, err := b.PutInventory(context.TODO(), &ssm.PutInventoryInput{
 		InstanceID: "i-delete-test",
 		Items: []ssm.InventoryItem{
 			{TypeName: "AWS:Application"},
@@ -241,12 +242,12 @@ func TestBackendOps_DeleteInventory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.DeleteInventory(&ssm.DeleteInventoryInput{TypeName: "AWS:Application"})
+	out, err := b.DeleteInventory(context.TODO(), &ssm.DeleteInventoryInput{TypeName: "AWS:Application"})
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 
 	// Verify only AWS:Application was deleted.
-	listOut, err := b.ListInventoryEntries(&ssm.ListInventoryEntriesInput{
+	listOut, err := b.ListInventoryEntries(context.TODO(), &ssm.ListInventoryEntriesInput{
 		InstanceID: "i-delete-test",
 		TypeName:   "AWS:Application",
 	})
@@ -259,7 +260,7 @@ func TestBackendOps_DescribeInventoryDeletions(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribeInventoryDeletions(&ssm.DescribeInventoryDeletionsInput{})
+	out, err := b.DescribeInventoryDeletions(context.TODO(), &ssm.DescribeInventoryDeletionsInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.InventoryDeletions)
 }
@@ -273,7 +274,7 @@ func TestBackendOps_PutComplianceItems(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.PutComplianceItems(&ssm.PutComplianceItemsInput{
+	out, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
 		ResourceID:     "i-compliance-test",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Association",
@@ -290,7 +291,7 @@ func TestBackendOps_ListComplianceItems(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.PutComplianceItems(&ssm.PutComplianceItemsInput{
+	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
 		ResourceID:   "i-list-compliance",
 		ResourceType: "ManagedInstance",
 		Items: []ssm.ComplianceItem{
@@ -299,7 +300,7 @@ func TestBackendOps_ListComplianceItems(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListComplianceItems(&ssm.ListComplianceItemsInput{
+	out, err := b.ListComplianceItems(context.TODO(), &ssm.ListComplianceItemsInput{
 		ResourceID: "i-list-compliance",
 	})
 	require.NoError(t, err)
@@ -312,7 +313,7 @@ func TestBackendOps_ListComplianceSummaries(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.ListComplianceSummaries(&ssm.ListComplianceSummariesInput{})
+	out, err := b.ListComplianceSummaries(context.TODO(), &ssm.ListComplianceSummariesInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.ComplianceSummaryItems)
 }
@@ -322,7 +323,7 @@ func TestBackendOps_ListResourceComplianceSummaries(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.ListResourceComplianceSummaries(&ssm.ListResourceComplianceSummariesInput{})
+	out, err := b.ListResourceComplianceSummaries(context.TODO(), &ssm.ListResourceComplianceSummariesInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.ResourceComplianceSummaryItems)
 }
@@ -337,7 +338,7 @@ func TestBackendOps_GetPatchBaseline(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "get-baseline-test")
 
-	out, err := b.GetPatchBaseline(&ssm.GetPatchBaselineInput{BaselineID: id})
+	out, err := b.GetPatchBaseline(context.TODO(), &ssm.GetPatchBaselineInput{BaselineID: id})
 	require.NoError(t, err)
 	assert.Equal(t, id, out.BaselineID)
 }
@@ -348,7 +349,7 @@ func TestBackendOps_GetDefaultPatchBaseline_NoDefault(t *testing.T) {
 	b := newBackend(t)
 
 	// No default registered; should return a synthetic ID.
-	out, err := b.GetDefaultPatchBaseline(&ssm.GetDefaultPatchBaselineInput{})
+	out, err := b.GetDefaultPatchBaseline(context.TODO(), &ssm.GetDefaultPatchBaselineInput{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.BaselineID)
 }
@@ -359,12 +360,12 @@ func TestBackendOps_GetDefaultPatchBaseline_WithDefault(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "default-baseline")
 
-	_, err := b.RegisterDefaultPatchBaseline(&ssm.RegisterDefaultPatchBaselineInput{
+	_, err := b.RegisterDefaultPatchBaseline(context.TODO(), &ssm.RegisterDefaultPatchBaselineInput{
 		BaselineID: id,
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetDefaultPatchBaseline(&ssm.GetDefaultPatchBaselineInput{})
+	out, err := b.GetDefaultPatchBaseline(context.TODO(), &ssm.GetDefaultPatchBaselineInput{})
 	require.NoError(t, err)
 	assert.Equal(t, id, out.BaselineID)
 }
@@ -375,13 +376,13 @@ func TestBackendOps_GetPatchBaselineForPatchGroup(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "group-baseline")
 
-	_, err := b.RegisterPatchBaselineForPatchGroup(&ssm.RegisterPatchBaselineForPatchGroupInput{
+	_, err := b.RegisterPatchBaselineForPatchGroup(context.TODO(), &ssm.RegisterPatchBaselineForPatchGroupInput{
 		BaselineID: id,
 		PatchGroup: "my-group",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetPatchBaselineForPatchGroup(&ssm.GetPatchBaselineForPatchGroupInput{
+	out, err := b.GetPatchBaselineForPatchGroup(context.TODO(), &ssm.GetPatchBaselineForPatchGroupInput{
 		PatchGroup: "my-group",
 	})
 	require.NoError(t, err)
@@ -395,7 +396,7 @@ func TestBackendOps_RegisterDefaultPatchBaseline(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "reg-default-baseline")
 
-	out, err := b.RegisterDefaultPatchBaseline(&ssm.RegisterDefaultPatchBaselineInput{
+	out, err := b.RegisterDefaultPatchBaseline(context.TODO(), &ssm.RegisterDefaultPatchBaselineInput{
 		BaselineID: id,
 	})
 	require.NoError(t, err)
@@ -408,13 +409,13 @@ func TestBackendOps_DeregisterPatchBaselineForPatchGroup(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "dereg-baseline")
 
-	_, err := b.RegisterPatchBaselineForPatchGroup(&ssm.RegisterPatchBaselineForPatchGroupInput{
+	_, err := b.RegisterPatchBaselineForPatchGroup(context.TODO(), &ssm.RegisterPatchBaselineForPatchGroupInput{
 		BaselineID: id,
 		PatchGroup: "dereg-group",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DeregisterPatchBaselineForPatchGroup(&ssm.DeregisterPatchBaselineForPatchGroupInput{
+	out, err := b.DeregisterPatchBaselineForPatchGroup(context.TODO(), &ssm.DeregisterPatchBaselineForPatchGroupInput{
 		BaselineID: id,
 		PatchGroup: "dereg-group",
 	})
@@ -428,12 +429,12 @@ func TestBackendOps_DeletePatchBaseline(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "delete-baseline")
 
-	out, err := b.DeletePatchBaseline(&ssm.DeletePatchBaselineInput{BaselineID: id})
+	out, err := b.DeletePatchBaseline(context.TODO(), &ssm.DeletePatchBaselineInput{BaselineID: id})
 	require.NoError(t, err)
 	assert.Equal(t, id, out.BaselineID)
 
 	// Should be gone.
-	_, err = b.GetPatchBaseline(&ssm.GetPatchBaselineInput{BaselineID: id})
+	_, err = b.GetPatchBaseline(context.TODO(), &ssm.GetPatchBaselineInput{BaselineID: id})
 	require.Error(t, err)
 }
 
@@ -444,7 +445,7 @@ func TestBackendOps_DescribePatchBaselines(t *testing.T) {
 	createTestBaseline(t, b, "describe-baseline-1")
 	createTestBaseline(t, b, "describe-baseline-2")
 
-	out, err := b.DescribePatchBaselines(&ssm.DescribePatchBaselinesInput{})
+	out, err := b.DescribePatchBaselines(context.TODO(), &ssm.DescribePatchBaselinesInput{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(out.BaselineIdentities), 2)
 }
@@ -455,13 +456,13 @@ func TestBackendOps_DescribePatchGroups(t *testing.T) {
 	b := newBackend(t)
 	id := createTestBaseline(t, b, "pg-baseline")
 
-	_, err := b.RegisterPatchBaselineForPatchGroup(&ssm.RegisterPatchBaselineForPatchGroupInput{
+	_, err := b.RegisterPatchBaselineForPatchGroup(context.TODO(), &ssm.RegisterPatchBaselineForPatchGroupInput{
 		BaselineID: id,
 		PatchGroup: "pg-test-group",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DescribePatchGroups(&ssm.DescribePatchGroupsInput{})
+	out, err := b.DescribePatchGroups(context.TODO(), &ssm.DescribePatchGroupsInput{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.Mappings)
 }
@@ -471,7 +472,7 @@ func TestBackendOps_DescribePatchGroupState(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribePatchGroupState(&ssm.DescribePatchGroupStateInput{})
+	out, err := b.DescribePatchGroupState(context.TODO(), &ssm.DescribePatchGroupStateInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 	assert.Equal(t, int32(0), out.Instances)
@@ -482,7 +483,7 @@ func TestBackendOps_DescribePatchProperties(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribePatchProperties(&ssm.DescribePatchPropertiesInput{})
+	out, err := b.DescribePatchProperties(context.TODO(), &ssm.DescribePatchPropertiesInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.Properties)
 }
@@ -494,6 +495,7 @@ func TestBackendOps_DescribeEffectivePatchesForPatchBaseline(t *testing.T) {
 	id := createTestBaseline(t, b, "effective-patches-baseline")
 
 	out, err := b.DescribeEffectivePatchesForPatchBaseline(
+		context.TODO(),
 		&ssm.DescribeEffectivePatchesForPatchBaselineInput{BaselineID: id},
 	)
 	require.NoError(t, err)
@@ -506,6 +508,7 @@ func TestBackendOps_GetDeployablePatchSnapshotForInstance(t *testing.T) {
 	b := newBackend(t)
 
 	out, err := b.GetDeployablePatchSnapshotForInstance(
+		context.TODO(),
 		&ssm.GetDeployablePatchSnapshotForInstanceInput{
 			InstanceID: "i-snapshot-test",
 			SnapshotID: "snap-1234",
@@ -527,7 +530,7 @@ func TestBackendOps_GetMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	out, err := b.GetMaintenanceWindow(&ssm.GetMaintenanceWindowInput{WindowID: wid})
+	out, err := b.GetMaintenanceWindow(context.TODO(), &ssm.GetMaintenanceWindowInput{WindowID: wid})
 	require.NoError(t, err)
 	assert.Equal(t, wid, out.WindowID)
 }
@@ -538,12 +541,12 @@ func TestBackendOps_DeleteMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	out, err := b.DeleteMaintenanceWindow(&ssm.DeleteMaintenanceWindowInput{WindowID: wid})
+	out, err := b.DeleteMaintenanceWindow(context.TODO(), &ssm.DeleteMaintenanceWindowInput{WindowID: wid})
 	require.NoError(t, err)
 	assert.Equal(t, wid, out.WindowID)
 
 	// Should be gone.
-	_, err = b.GetMaintenanceWindow(&ssm.GetMaintenanceWindowInput{WindowID: wid})
+	_, err = b.GetMaintenanceWindow(context.TODO(), &ssm.GetMaintenanceWindowInput{WindowID: wid})
 	require.Error(t, err)
 }
 
@@ -553,7 +556,7 @@ func TestBackendOps_UpdateMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	out, err := b.UpdateMaintenanceWindow(&ssm.UpdateMaintenanceWindowInput{
+	out, err := b.UpdateMaintenanceWindow(context.TODO(), &ssm.UpdateMaintenanceWindowInput{
 		WindowID: wid,
 		Name:     "updated-window",
 	})
@@ -567,14 +570,14 @@ func TestBackendOps_GetMaintenanceWindowTask(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	taskOut, err := b.RegisterTaskWithMaintenanceWindow(&ssm.RegisterTaskWithMaintenanceWindowInput{
+	taskOut, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowID: wid,
 		TaskArn:  "AWS-RunShellScript",
 		TaskType: "RUN_COMMAND",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetMaintenanceWindowTask(&ssm.GetMaintenanceWindowTaskInput{
+	out, err := b.GetMaintenanceWindowTask(context.TODO(), &ssm.GetMaintenanceWindowTaskInput{
 		WindowID:     wid,
 		WindowTaskID: taskOut.WindowTaskID,
 	})
@@ -588,7 +591,7 @@ func TestBackendOps_RegisterTargetWithMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	out, err := b.RegisterTargetWithMaintenanceWindow(&ssm.RegisterTargetWithMaintenanceWindowInput{
+	out, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), &ssm.RegisterTargetWithMaintenanceWindowInput{
 		WindowID:     wid,
 		ResourceType: "INSTANCE",
 		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
@@ -603,7 +606,7 @@ func TestBackendOps_RegisterTaskWithMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	out, err := b.RegisterTaskWithMaintenanceWindow(&ssm.RegisterTaskWithMaintenanceWindowInput{
+	out, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowID: wid,
 		TaskArn:  "AWS-RunShellScript",
 		TaskType: "RUN_COMMAND",
@@ -618,14 +621,17 @@ func TestBackendOps_DeregisterTargetFromMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	targetOut, err := b.RegisterTargetWithMaintenanceWindow(&ssm.RegisterTargetWithMaintenanceWindowInput{
-		WindowID:     wid,
-		ResourceType: "INSTANCE",
-		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
-	})
+	targetOut, err := b.RegisterTargetWithMaintenanceWindow(
+		context.TODO(),
+		&ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		},
+	)
 	require.NoError(t, err)
 
-	out, err := b.DeregisterTargetFromMaintenanceWindow(&ssm.DeregisterTargetFromMaintenanceWindowInput{
+	out, err := b.DeregisterTargetFromMaintenanceWindow(context.TODO(), &ssm.DeregisterTargetFromMaintenanceWindowInput{
 		WindowID:       wid,
 		WindowTargetID: targetOut.WindowTargetID,
 	})
@@ -639,14 +645,14 @@ func TestBackendOps_DeregisterTaskFromMaintenanceWindow(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	taskOut, err := b.RegisterTaskWithMaintenanceWindow(&ssm.RegisterTaskWithMaintenanceWindowInput{
+	taskOut, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowID: wid,
 		TaskArn:  "AWS-RunShellScript",
 		TaskType: "RUN_COMMAND",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DeregisterTaskFromMaintenanceWindow(&ssm.DeregisterTaskFromMaintenanceWindowInput{
+	out, err := b.DeregisterTaskFromMaintenanceWindow(context.TODO(), &ssm.DeregisterTaskFromMaintenanceWindowInput{
 		WindowID:     wid,
 		WindowTaskID: taskOut.WindowTaskID,
 	})
@@ -660,7 +666,7 @@ func TestBackendOps_DescribeMaintenanceWindows(t *testing.T) {
 	b := newBackend(t)
 	createTestWindow(t, b)
 
-	out, err := b.DescribeMaintenanceWindows(&ssm.DescribeMaintenanceWindowsInput{})
+	out, err := b.DescribeMaintenanceWindows(context.TODO(), &ssm.DescribeMaintenanceWindowsInput{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.WindowIdentities)
 }
@@ -670,7 +676,7 @@ func TestBackendOps_DescribeMaintenanceWindowsForTarget(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribeMaintenanceWindowsForTarget(&ssm.DescribeMaintenanceWindowsForTargetInput{})
+	out, err := b.DescribeMaintenanceWindowsForTarget(context.TODO(), &ssm.DescribeMaintenanceWindowsForTargetInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.WindowIdentities)
 }
@@ -681,14 +687,14 @@ func TestBackendOps_DescribeMaintenanceWindowTargets(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	_, err := b.RegisterTargetWithMaintenanceWindow(&ssm.RegisterTargetWithMaintenanceWindowInput{
+	_, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), &ssm.RegisterTargetWithMaintenanceWindowInput{
 		WindowID:     wid,
 		ResourceType: "INSTANCE",
 		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
 	})
 	require.NoError(t, err)
 
-	out, err := b.DescribeMaintenanceWindowTargets(&ssm.DescribeMaintenanceWindowTargetsInput{
+	out, err := b.DescribeMaintenanceWindowTargets(context.TODO(), &ssm.DescribeMaintenanceWindowTargetsInput{
 		WindowID: wid,
 	})
 	require.NoError(t, err)
@@ -701,14 +707,14 @@ func TestBackendOps_DescribeMaintenanceWindowTasks(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	_, err := b.RegisterTaskWithMaintenanceWindow(&ssm.RegisterTaskWithMaintenanceWindowInput{
+	_, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowID: wid,
 		TaskArn:  "AWS-RunShellScript",
 		TaskType: "RUN_COMMAND",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DescribeMaintenanceWindowTasks(&ssm.DescribeMaintenanceWindowTasksInput{
+	out, err := b.DescribeMaintenanceWindowTasks(context.TODO(), &ssm.DescribeMaintenanceWindowTasksInput{
 		WindowID: wid,
 	})
 	require.NoError(t, err)
@@ -721,14 +727,17 @@ func TestBackendOps_UpdateMaintenanceWindowTarget(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	targetOut, err := b.RegisterTargetWithMaintenanceWindow(&ssm.RegisterTargetWithMaintenanceWindowInput{
-		WindowID:     wid,
-		ResourceType: "INSTANCE",
-		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
-	})
+	targetOut, err := b.RegisterTargetWithMaintenanceWindow(
+		context.TODO(),
+		&ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		},
+	)
 	require.NoError(t, err)
 
-	out, err := b.UpdateMaintenanceWindowTarget(&ssm.UpdateMaintenanceWindowTargetInput{
+	out, err := b.UpdateMaintenanceWindowTarget(context.TODO(), &ssm.UpdateMaintenanceWindowTargetInput{
 		WindowID:       wid,
 		WindowTargetID: targetOut.WindowTargetID,
 		Name:           "updated-target",
@@ -743,7 +752,7 @@ func TestBackendOps_UpdateMaintenanceWindowTask(t *testing.T) {
 	b := newBackend(t)
 	wid := createTestWindow(t, b)
 
-	taskOut, err := b.RegisterTaskWithMaintenanceWindow(&ssm.RegisterTaskWithMaintenanceWindowInput{
+	taskOut, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowID: wid,
 		TaskArn:  "AWS-RunShellScript",
 		TaskType: "RUN_COMMAND",
@@ -751,7 +760,7 @@ func TestBackendOps_UpdateMaintenanceWindowTask(t *testing.T) {
 	require.NoError(t, err)
 
 	priority := int32(5)
-	out, err := b.UpdateMaintenanceWindowTask(&ssm.UpdateMaintenanceWindowTaskInput{
+	out, err := b.UpdateMaintenanceWindowTask(context.TODO(), &ssm.UpdateMaintenanceWindowTaskInput{
 		WindowID:     wid,
 		WindowTaskID: taskOut.WindowTaskID,
 		Name:         "updated-task",
@@ -772,7 +781,7 @@ func TestBackendOps_GetOpsItem(t *testing.T) {
 	b := newBackend(t)
 	id := createTestOpsItem(t, b)
 
-	out, err := b.GetOpsItem(&ssm.GetOpsItemInput{OpsItemID: id})
+	out, err := b.GetOpsItem(context.TODO(), &ssm.GetOpsItemInput{OpsItemID: id})
 	require.NoError(t, err)
 	assert.Equal(t, id, out.OpsItem.OpsItemID)
 }
@@ -783,12 +792,12 @@ func TestBackendOps_DeleteOpsItem(t *testing.T) {
 	b := newBackend(t)
 	id := createTestOpsItem(t, b)
 
-	out, err := b.DeleteOpsItem(&ssm.DeleteOpsItemInput{OpsItemID: id})
+	out, err := b.DeleteOpsItem(context.TODO(), &ssm.DeleteOpsItemInput{OpsItemID: id})
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 
 	// Should be gone.
-	_, err = b.GetOpsItem(&ssm.GetOpsItemInput{OpsItemID: id})
+	_, err = b.GetOpsItem(context.TODO(), &ssm.GetOpsItemInput{OpsItemID: id})
 	require.Error(t, err)
 }
 
@@ -799,7 +808,7 @@ func TestBackendOps_DescribeOpsItems(t *testing.T) {
 	createTestOpsItem(t, b)
 	createTestOpsItem(t, b)
 
-	out, err := b.DescribeOpsItems(&ssm.DescribeOpsItemsInput{})
+	out, err := b.DescribeOpsItems(context.TODO(), &ssm.DescribeOpsItemsInput{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(out.OpsItemSummaries), 2)
 }
@@ -810,7 +819,7 @@ func TestBackendOps_UpdateOpsItem(t *testing.T) {
 	b := newBackend(t)
 	id := createTestOpsItem(t, b)
 
-	out, err := b.UpdateOpsItem(&ssm.UpdateOpsItemInput{
+	out, err := b.UpdateOpsItem(context.TODO(), &ssm.UpdateOpsItemInput{
 		OpsItemID: id,
 		Title:     "updated-title",
 		Status:    "Resolved",
@@ -819,7 +828,7 @@ func TestBackendOps_UpdateOpsItem(t *testing.T) {
 	assert.NotNil(t, out)
 
 	// Verify update took effect.
-	getOut, err := b.GetOpsItem(&ssm.GetOpsItemInput{OpsItemID: id})
+	getOut, err := b.GetOpsItem(context.TODO(), &ssm.GetOpsItemInput{OpsItemID: id})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-title", getOut.OpsItem.Title)
 	assert.Equal(t, "Resolved", getOut.OpsItem.Status)
@@ -832,7 +841,7 @@ func TestBackendOps_DisassociateOpsItemRelatedItem(t *testing.T) {
 	id := createTestOpsItem(t, b)
 
 	// Associate a related item first.
-	assocOut, err := b.AssociateOpsItemRelatedItem(&ssm.AssociateOpsItemRelatedItemInput{
+	assocOut, err := b.AssociateOpsItemRelatedItem(context.TODO(), &ssm.AssociateOpsItemRelatedItemInput{
 		OpsItemID:       id,
 		AssociationType: "IsRelatedTo",
 		ResourceType:    "AWS::EC2::Instance",
@@ -841,7 +850,7 @@ func TestBackendOps_DisassociateOpsItemRelatedItem(t *testing.T) {
 	require.NoError(t, err)
 
 	// Disassociate.
-	out, err := b.DisassociateOpsItemRelatedItem(&ssm.DisassociateOpsItemRelatedItemInput{
+	out, err := b.DisassociateOpsItemRelatedItem(context.TODO(), &ssm.DisassociateOpsItemRelatedItemInput{
 		OpsItemID:     id,
 		AssociationID: assocOut.AssociationID,
 	})
@@ -855,7 +864,7 @@ func TestBackendOps_ListOpsItemRelatedItems(t *testing.T) {
 	b := newBackend(t)
 	id := createTestOpsItem(t, b)
 
-	_, err := b.AssociateOpsItemRelatedItem(&ssm.AssociateOpsItemRelatedItemInput{
+	_, err := b.AssociateOpsItemRelatedItem(context.TODO(), &ssm.AssociateOpsItemRelatedItemInput{
 		OpsItemID:       id,
 		AssociationType: "IsRelatedTo",
 		ResourceType:    "AWS::EC2::Instance",
@@ -863,7 +872,7 @@ func TestBackendOps_ListOpsItemRelatedItems(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListOpsItemRelatedItems(&ssm.ListOpsItemRelatedItemsInput{OpsItemID: id})
+	out, err := b.ListOpsItemRelatedItems(context.TODO(), &ssm.ListOpsItemRelatedItemsInput{OpsItemID: id})
 	require.NoError(t, err)
 	assert.Len(t, out.Summaries, 1)
 }
@@ -873,7 +882,7 @@ func TestBackendOps_ListOpsItemEvents(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.ListOpsItemEvents(&ssm.ListOpsItemEventsInput{})
+	out, err := b.ListOpsItemEvents(context.TODO(), &ssm.ListOpsItemEventsInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, out.Summaries)
 }
@@ -883,12 +892,12 @@ func TestBackendOps_GetOpsMetadata(t *testing.T) {
 
 	b := newBackend(t)
 
-	createOut, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	createOut, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-meta-test",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetOpsMetadata(&ssm.GetOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
+	out, err := b.GetOpsMetadata(context.TODO(), &ssm.GetOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
 	require.NoError(t, err)
 	assert.Equal(t, createOut.OpsMetadataArn, out.OpsMetadataArn)
 }
@@ -898,12 +907,12 @@ func TestBackendOps_UpdateOpsMetadata(t *testing.T) {
 
 	b := newBackend(t)
 
-	createOut, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	createOut, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-update-meta",
 	})
 	require.NoError(t, err)
 
-	out, err := b.UpdateOpsMetadata(&ssm.UpdateOpsMetadataInput{
+	out, err := b.UpdateOpsMetadata(context.TODO(), &ssm.UpdateOpsMetadataInput{
 		OpsMetadataArn: createOut.OpsMetadataArn,
 		Metadata: map[string]ssm.MetadataValue{
 			"env": {Value: "prod"},
@@ -918,16 +927,19 @@ func TestBackendOps_DeleteOpsMetadata(t *testing.T) {
 
 	b := newBackend(t)
 
-	createOut, err := b.CreateOpsMetadata(&ssm.CreateOpsMetadataInput{
+	createOut, err := b.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{
 		ResourceID: "arn:aws:ec2:us-east-1:123456789012:instance/i-delete-meta",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DeleteOpsMetadata(&ssm.DeleteOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
+	out, err := b.DeleteOpsMetadata(
+		context.TODO(),
+		&ssm.DeleteOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn},
+	)
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 
 	// Should be gone.
-	_, err = b.GetOpsMetadata(&ssm.GetOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
+	_, err = b.GetOpsMetadata(context.TODO(), &ssm.GetOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
 	require.Error(t, err)
 }

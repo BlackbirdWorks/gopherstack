@@ -1,11 +1,13 @@
 // Package dns provides an embedded DNS server for Gopherstack that resolves
 // synthetic AWS-style hostnames (e.g. my-cluster.abc.us-east-1.cache.amazonaws.com)
 // back to a configured IP address (typically 127.0.0.1).
+// It also supports per-record values for A, CNAME, and AAAA records via RegisterRecord.
 //
 // Usage:
 //
 //	srv, err := dns.New(dns.Config{ListenAddr: ":10053", ResolveIP: "127.0.0.1"})
 //	srv.Register("my-cluster.abc.us-east-1.cache.amazonaws.com")
+//	srv.RegisterRecord("www.example.com", "A", []string{"1.2.3.4"})
 //	if err := srv.Start(ctx); err != nil { ... }
 //	defer srv.Stop()
 package dns
@@ -56,10 +58,18 @@ type Config struct {
 	ResolveIP string
 }
 
+// dnsEntry stores the record type and values for a per-record DNS registration.
+type dnsEntry struct {
+	recordType string
+	values     []string
+}
+
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	names     map[string]struct{}
+	names   map[string]struct{}
+	records map[string][]*dnsEntry // per-record typed values (RegisterRecord)
+
 	udpServer *dns.Server
 	tcpServer *dns.Server
 
@@ -96,6 +106,7 @@ func New(cfg Config) (*Server, error) {
 
 	return &Server{
 		names:      make(map[string]struct{}),
+		records:    make(map[string][]*dnsEntry),
 		cfg:        cfg,
 		resolveIP:  ip,
 		listenAddr: cfg.ListenAddr,
@@ -120,13 +131,43 @@ func (s *Server) Register(hostname string) {
 	}
 }
 
+// RegisterRecord stores per-record typed values for a hostname.
+// recordType must be one of "A", "CNAME", "AAAA", or "ALIAS".
+// Multiple calls with the same hostname and recordType append values.
+// Calls are safe for concurrent use.
+func (s *Server) RegisterRecord(hostname, recordType string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+
+	fqdn := strings.ToLower(dns.Fqdn(hostname))
+
+	cp := make([]string, len(values))
+	copy(cp, values)
+
+	s.mu.Lock("RegisterRecord")
+	for _, e := range s.records[fqdn] {
+		if e.recordType == recordType {
+			e.values = append(e.values, cp...)
+			s.mu.Unlock()
+
+			return
+		}
+	}
+
+	s.records[fqdn] = append(s.records[fqdn], &dnsEntry{recordType: recordType, values: cp})
+	s.mu.Unlock()
+}
+
 // Deregister removes a hostname from the set the server will resolve.
+// It clears both simple registrations (Register) and typed records (RegisterRecord).
 // Calls are safe for concurrent use.
 func (s *Server) Deregister(hostname string) {
 	fqdn := strings.ToLower(dns.Fqdn(hostname))
 
 	s.mu.Lock("Deregister")
 	delete(s.names, fqdn)
+	delete(s.records, fqdn)
 	s.mu.Unlock()
 }
 
@@ -241,7 +282,7 @@ func (s *Server) Stop() error {
 	return errors.Join(udpErr, tcpErr)
 }
 
-// handleQuery is the DNS handler that answers A queries for registered names.
+// handleQuery is the DNS handler that answers A/CNAME/AAAA queries for registered names.
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -252,31 +293,22 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 	// inconsistent Rcode/answer combinations for multi-question messages.
 	if len(r.Question) > 0 {
 		q := r.Question[0]
+		name := strings.ToLower(q.Name)
+
+		s.mu.RLock("handleQuery")
+		entries := s.records[name]
+		_, inNames := s.names[name]
+		s.mu.RUnlock()
 
 		switch q.Qtype {
 		case dns.TypeA:
-			name := strings.ToLower(q.Name)
-
-			s.mu.RLock("handleQuery")
-			_, registered := s.names[name]
-			s.mu.RUnlock()
-
-			if registered {
-				rr := &dns.A{
-					Hdr: dns.RR_Header{
-						Name:   q.Name,
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    defaultTTL,
-					},
-					A: s.resolveIP,
-				}
-				msg.Answer = append(msg.Answer, rr)
-			} else {
-				msg.Rcode = dns.RcodeNameError
-			}
+			s.handleAQuery(msg, q, entries, inNames)
+		case dns.TypeCNAME:
+			s.handleCNAMEQuery(msg, q, entries)
+		case dns.TypeAAAA:
+			s.handleAAAAQuery(msg, q, entries)
 		default:
-			// For non-A queries, return NOERROR with empty answer (NODATA).
+			// For other query types, return NOERROR with empty answer (NODATA).
 		}
 	}
 
@@ -284,6 +316,95 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		if s.cfg.Logger != nil {
 			s.cfg.Logger.Warn("dns: write response failed", "error", werr)
 		}
+	}
+}
+
+func (s *Server) handleAQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry, inNames bool) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "A" {
+			continue
+		}
+
+		for _, v := range e.values {
+			ip := net.ParseIP(v)
+			if ip4 := ip.To4(); ip4 != nil {
+				msg.Answer = append(msg.Answer, &dns.A{
+					Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
+					A:   ip4,
+				})
+				answered = true
+			}
+		}
+	}
+
+	if !answered {
+		if inNames {
+			msg.Answer = append(msg.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: defaultTTL},
+				A:   s.resolveIP,
+			})
+		} else {
+			msg.Rcode = dns.RcodeNameError
+		}
+	}
+}
+
+func (s *Server) handleCNAMEQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "CNAME" && e.recordType != "ALIAS" {
+			continue
+		}
+
+		for _, v := range e.values {
+			msg.Answer = append(msg.Answer, &dns.CNAME{
+				Hdr: dns.RR_Header{
+					Name:   q.Name,
+					Rrtype: dns.TypeCNAME,
+					Class:  dns.ClassINET,
+					Ttl:    defaultTTL,
+				},
+				Target: dns.Fqdn(strings.TrimSuffix(v, ".")),
+			})
+			answered = true
+		}
+	}
+
+	if !answered {
+		msg.Rcode = dns.RcodeNameError
+	}
+}
+
+func (s *Server) handleAAAAQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry) {
+	answered := false
+
+	for _, e := range entries {
+		if e.recordType != "AAAA" {
+			continue
+		}
+
+		for _, v := range e.values {
+			ip := net.ParseIP(v)
+			if ip != nil && ip.To4() == nil {
+				msg.Answer = append(msg.Answer, &dns.AAAA{
+					Hdr: dns.RR_Header{
+						Name:   q.Name,
+						Rrtype: dns.TypeAAAA,
+						Class:  dns.ClassINET,
+						Ttl:    defaultTTL,
+					},
+					AAAA: ip.To16(),
+				})
+				answered = true
+			}
+		}
+	}
+
+	if !answered {
+		msg.Rcode = dns.RcodeNameError
 	}
 }
 

@@ -1889,7 +1889,8 @@ func TestAudit_DerivedFields_CeleryExecutorQueue(t *testing.T) {
 	require.NoError(t, err)
 
 	// CeleryExecutorQueue must be an SQS URL.
-	assert.True(t,
+	assert.True(
+		t,
 		strings.HasPrefix(env.CeleryExecutorQueue, "https://sqs."),
 		"CeleryExecutorQueue must start with https://sqs., got %q", env.CeleryExecutorQueue,
 	)
@@ -1909,7 +1910,8 @@ func TestAudit_DerivedFields_ServiceRoleArn(t *testing.T) {
 	require.NoError(t, err)
 
 	// ServiceRoleArn must be an IAM ARN.
-	assert.True(t,
+	assert.True(
+		t,
 		strings.HasPrefix(env.ServiceRoleArn, "arn:aws:iam::"),
 		"ServiceRoleArn must be an IAM ARN, got %q", env.ServiceRoleArn,
 	)
@@ -1928,7 +1930,8 @@ func TestAudit_DerivedFields_WebserverURL(t *testing.T) {
 	env, err := b.GetEnvironment("ws-url-env")
 	require.NoError(t, err)
 
-	assert.True(t,
+	assert.True(
+		t,
 		strings.HasPrefix(env.WebserverURL, "https://"),
 		"WebserverURL must start with https://, got %q", env.WebserverURL,
 	)

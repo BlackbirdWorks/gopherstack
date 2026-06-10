@@ -175,10 +175,8 @@ func (b *InMemoryBackend) DeleteDeviceFleet(name string) error {
 // Device
 // ---------------------------------------------------------------------------
 
-var (
-	// ErrDeviceNotFound is returned when a device does not exist.
-	ErrDeviceNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
-)
+// ErrDeviceNotFound is returned when a device does not exist.
+var ErrDeviceNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 
 // deviceKey uniquely identifies a device within a fleet.
 type deviceKey struct {

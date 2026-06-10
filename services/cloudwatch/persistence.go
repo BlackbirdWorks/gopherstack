@@ -19,6 +19,7 @@ type backendSnapshot struct {
 	MetricFilters    map[string]*MetricFilter            `json:"metricFilters"`
 	AccountID        string                              `json:"accountID"`
 	Region           string                              `json:"region"`
+	TotalMetrics     int                                 `json:"totalMetrics"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -40,6 +41,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		MetricFilters:    b.metricFilters,
 		AccountID:        b.accountID,
 		Region:           b.region,
+		TotalMetrics:     b.totalMetrics,
 	}
 
 	data, err := json.Marshal(snap)
@@ -114,6 +116,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.metricFilters = snap.MetricFilters
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.totalMetrics = snap.TotalMetrics
+
+	// #60: recompute running total from restored metrics.
+	total := 0
+	for _, nsMap := range b.metrics {
+		total += len(nsMap)
+	}
+
+	b.totalMetrics = total
 
 	return nil
 }

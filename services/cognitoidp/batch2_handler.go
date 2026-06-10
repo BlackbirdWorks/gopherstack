@@ -79,7 +79,7 @@ type smsConfigJSON struct {
 }
 
 type softwareTokenMfaConfigJSON struct {
-	Enabled bool `json:"Enabled"`
+	Enabled bool `json:"Enabled,omitempty"`
 }
 
 type emailMfaConfigJSON struct {
@@ -88,14 +88,14 @@ type emailMfaConfigJSON struct {
 }
 
 type getUserPoolMfaConfigFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type getUserPoolMfaConfigFullOutput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
-	MfaConfiguration              string                      `json:"MfaConfiguration"`
+	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }
 
 func (h *Handler) handleGetUserPoolMfaConfigFull(
@@ -144,15 +144,15 @@ type setUserPoolMfaConfigFullInput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
-	UserPoolID                    string                      `json:"UserPoolId"`
-	MfaConfiguration              string                      `json:"MfaConfiguration"`
+	UserPoolID                    string                      `json:"UserPoolId,omitempty"`
+	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }
 
 type setUserPoolMfaConfigFullOutput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
-	MfaConfiguration              string                      `json:"MfaConfiguration"`
+	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }
 
 func (h *Handler) handleSetUserPoolMfaConfigFull(
@@ -207,14 +207,14 @@ func (h *Handler) handleSetUserPoolMfaConfigFull(
 // ---------------------------------------------------------------------------
 
 type setUICustomizationFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 	CSS        string `json:"CSS,omitempty"`
 	ImageData  string `json:"ImageData,omitempty"`
 }
 
 type uiCustomizationJSON struct {
-	UserPoolID       string  `json:"UserPoolId"`
+	UserPoolID       string  `json:"UserPoolId,omitempty"`
 	ClientID         string  `json:"ClientId,omitempty"`
 	CSS              string  `json:"CSS,omitempty"`
 	ImageURL         string  `json:"ImageUrl,omitempty"`
@@ -223,7 +223,7 @@ type uiCustomizationJSON struct {
 }
 
 type setUICustomizationFullOutput struct {
-	UICustomization *uiCustomizationJSON `json:"UICustomization"`
+	UICustomization *uiCustomizationJSON `json:"UICustomization,omitempty"`
 }
 
 func (h *Handler) handleSetUICustomizationFull(
@@ -239,12 +239,12 @@ func (h *Handler) handleSetUICustomizationFull(
 }
 
 type getUICustomizationFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type getUICustomizationFullOutput struct {
-	UICustomization *uiCustomizationJSON `json:"UICustomization"`
+	UICustomization *uiCustomizationJSON `json:"UICustomization,omitempty"`
 }
 
 func (h *Handler) handleGetUICustomizationFull(
@@ -283,12 +283,12 @@ func toUICustomizationJSON(ui *UICustomization) *uiCustomizationJSON {
 // ---------------------------------------------------------------------------
 
 type getUserAttributeVerifCodeFullInput struct {
-	AccessToken   string `json:"AccessToken"`
-	AttributeName string `json:"AttributeName"`
+	AccessToken   string `json:"AccessToken,omitempty"`
+	AttributeName string `json:"AttributeName,omitempty"`
 }
 
 type getUserAttributeVerifCodeFullOutput struct {
-	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 }
 
 func (h *Handler) handleGetUserAttributeVerificationCodeFull(
@@ -314,9 +314,9 @@ func (h *Handler) handleGetUserAttributeVerificationCodeFull(
 // ---------------------------------------------------------------------------
 
 type verifyUserAttributeFullInput struct {
-	AccessToken   string `json:"AccessToken"`
-	AttributeName string `json:"AttributeName"`
-	Code          string `json:"Code"`
+	AccessToken   string `json:"AccessToken,omitempty"`
+	AttributeName string `json:"AttributeName,omitempty"`
+	Code          string `json:"Code,omitempty"`
 }
 
 type verifyUserAttributeFullOutput struct{}
@@ -336,31 +336,33 @@ func (h *Handler) handleVerifyUserAttributeFull(
 // IdentityProvider — full with AttributeMapping and IdpIdentifiers
 // ---------------------------------------------------------------------------
 
-type idpProviderDetails map[string]string
-type idpAttributeMapping map[string]string
+type (
+	idpProviderDetails  map[string]string
+	idpAttributeMapping map[string]string
+)
 
 type createIdentityProviderFullInput struct {
-	UserPoolID       string              `json:"UserPoolId"`
-	ProviderName     string              `json:"ProviderName"`
-	ProviderType     string              `json:"ProviderType"`
-	ProviderDetails  idpProviderDetails  `json:"ProviderDetails,omitempty"`
-	AttributeMapping idpAttributeMapping `json:"AttributeMapping,omitempty"`
+	UserPoolID       string              `json:"UserPoolId,omitempty"`
+	ProviderName     string              `json:"ProviderName,omitempty"`
+	ProviderType     string              `json:"ProviderType,omitempty"`
+	ProviderDetails  idpProviderDetails  `json:"ProviderDetails"`
+	AttributeMapping idpAttributeMapping `json:"AttributeMapping"`
 	IdpIdentifiers   []string            `json:"IdpIdentifiers,omitempty"`
 }
 
 type identityProviderJSON struct {
-	UserPoolID       string              `json:"UserPoolId"`
-	ProviderName     string              `json:"ProviderName"`
+	UserPoolID       string              `json:"UserPoolId,omitempty"`
+	ProviderName     string              `json:"ProviderName,omitempty"`
 	ProviderType     string              `json:"ProviderType,omitempty"`
-	ProviderDetails  idpProviderDetails  `json:"ProviderDetails,omitempty"`
-	AttributeMapping idpAttributeMapping `json:"AttributeMapping,omitempty"`
+	ProviderDetails  idpProviderDetails  `json:"ProviderDetails"`
+	AttributeMapping idpAttributeMapping `json:"AttributeMapping"`
 	IdpIdentifiers   []string            `json:"IdpIdentifiers,omitempty"`
 	CreationDate     float64             `json:"CreationDate,omitempty"`
 	LastModifiedDate float64             `json:"LastModifiedDate,omitempty"`
 }
 
 type createIdentityProviderFullOutput struct {
-	IdentityProvider *identityProviderJSON `json:"IdentityProvider"`
+	IdentityProvider *identityProviderJSON `json:"IdentityProvider,omitempty"`
 }
 
 func (h *Handler) handleCreateIdentityProviderFull(
@@ -381,15 +383,15 @@ func (h *Handler) handleCreateIdentityProviderFull(
 }
 
 type updateIdentityProviderFullInput struct {
-	UserPoolID       string              `json:"UserPoolId"`
-	ProviderName     string              `json:"ProviderName"`
-	ProviderDetails  idpProviderDetails  `json:"ProviderDetails,omitempty"`
-	AttributeMapping idpAttributeMapping `json:"AttributeMapping,omitempty"`
+	UserPoolID       string              `json:"UserPoolId,omitempty"`
+	ProviderName     string              `json:"ProviderName,omitempty"`
+	ProviderDetails  idpProviderDetails  `json:"ProviderDetails"`
+	AttributeMapping idpAttributeMapping `json:"AttributeMapping"`
 	IdpIdentifiers   []string            `json:"IdpIdentifiers,omitempty"`
 }
 
 type updateIdentityProviderFullOutput struct {
-	IdentityProvider *identityProviderJSON `json:"IdentityProvider"`
+	IdentityProvider *identityProviderJSON `json:"IdentityProvider,omitempty"`
 }
 
 func (h *Handler) handleUpdateIdentityProviderFull(
@@ -410,12 +412,12 @@ func (h *Handler) handleUpdateIdentityProviderFull(
 }
 
 type describeIdentityProviderFullInput struct {
-	UserPoolID   string `json:"UserPoolId"`
-	ProviderName string `json:"ProviderName"`
+	UserPoolID   string `json:"UserPoolId,omitempty"`
+	ProviderName string `json:"ProviderName,omitempty"`
 }
 
 type describeIdentityProviderFullOutput struct {
-	IdentityProvider *identityProviderJSON `json:"IdentityProvider"`
+	IdentityProvider *identityProviderJSON `json:"IdentityProvider,omitempty"`
 }
 
 func (h *Handler) handleDescribeIdentityProviderFull(
@@ -431,12 +433,12 @@ func (h *Handler) handleDescribeIdentityProviderFull(
 }
 
 type getIdentityProviderByIdentFullInput struct {
-	UserPoolID    string `json:"UserPoolId"`
-	IdpIdentifier string `json:"IdpIdentifier"`
+	UserPoolID    string `json:"UserPoolId,omitempty"`
+	IdpIdentifier string `json:"IdpIdentifier,omitempty"`
 }
 
 type getIdentityProviderByIdentFullOutput struct {
-	IdentityProvider *identityProviderJSON `json:"IdentityProvider"`
+	IdentityProvider *identityProviderJSON `json:"IdentityProvider,omitempty"`
 }
 
 func (h *Handler) handleGetIdentityProviderByIdentifierFull(
@@ -452,7 +454,7 @@ func (h *Handler) handleGetIdentityProviderByIdentifierFull(
 }
 
 type listIdentityProvidersFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
@@ -463,7 +465,7 @@ type listIdentityProvidersFullOutput struct {
 }
 
 type identityProviderSummaryJSON struct {
-	ProviderName     string  `json:"ProviderName"`
+	ProviderName     string  `json:"ProviderName,omitempty"`
 	ProviderType     string  `json:"ProviderType,omitempty"`
 	CreationDate     float64 `json:"CreationDate,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
@@ -531,8 +533,8 @@ type customDomainConfigJSON struct {
 
 type createUserPoolDomainFullInput struct {
 	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
-	UserPoolID         string                  `json:"UserPoolId"`
-	Domain             string                  `json:"Domain"`
+	UserPoolID         string                  `json:"UserPoolId,omitempty"`
+	Domain             string                  `json:"Domain,omitempty"`
 }
 
 type createUserPoolDomainFullOutput struct {
@@ -565,8 +567,8 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 
 type updateUserPoolDomainFullInput struct {
 	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
-	UserPoolID         string                  `json:"UserPoolId"`
-	Domain             string                  `json:"Domain"`
+	UserPoolID         string                  `json:"UserPoolId,omitempty"`
+	Domain             string                  `json:"Domain,omitempty"`
 }
 
 type updateUserPoolDomainFullOutput struct {
@@ -595,7 +597,7 @@ func (h *Handler) handleUpdateUserPoolDomainFull(
 // ---------------------------------------------------------------------------
 
 type compromisedCredActionsJSON struct {
-	EventAction string `json:"EventAction"`
+	EventAction string `json:"EventAction,omitempty"`
 }
 
 type compromisedCredRiskConfigJSON struct {
@@ -604,8 +606,8 @@ type compromisedCredRiskConfigJSON struct {
 }
 
 type accountTakeoverActionTypeJSON struct {
-	EventAction string `json:"EventAction"`
-	Notify      bool   `json:"Notify"`
+	EventAction string `json:"EventAction,omitempty"`
+	Notify      bool   `json:"Notify,omitempty"`
 }
 
 type accountTakeoverActionsJSON struct {
@@ -640,7 +642,7 @@ type riskExceptionConfigJSON struct {
 }
 
 type describeRiskConfigFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
@@ -653,7 +655,7 @@ type riskConfigurationJSON struct {
 }
 
 type describeRiskConfigFullOutput struct {
-	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration"`
+	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration,omitempty"`
 }
 
 func (h *Handler) handleDescribeRiskConfigurationFull(
@@ -672,12 +674,12 @@ type setRiskConfigFullInput struct {
 	CompromisedCredentialsRiskConfiguration *compromisedCredRiskConfigJSON `json:"CompromisedCredentialsRiskConfiguration,omitempty"` //nolint:lll // AWS field name
 	AccountTakeoverRiskConfiguration        *accountTakeoverRiskConfigJSON `json:"AccountTakeoverRiskConfiguration,omitempty"`        //nolint:lll // AWS field name
 	RiskExceptionConfiguration              *riskExceptionConfigJSON       `json:"RiskExceptionConfiguration,omitempty"`
-	UserPoolID                              string                         `json:"UserPoolId"`
+	UserPoolID                              string                         `json:"UserPoolId,omitempty"`
 	ClientID                                string                         `json:"ClientId,omitempty"`
 }
 
 type setRiskConfigFullOutput struct {
-	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration"`
+	RiskConfiguration *riskConfigurationJSON `json:"RiskConfiguration,omitempty"`
 }
 
 func (h *Handler) handleSetRiskConfigurationFull(
@@ -905,8 +907,8 @@ func fromNotifyConfigJSON(in *notifyConfigJSON) *NotifyConfigurationType {
 // ---------------------------------------------------------------------------
 
 type adminCreateUserFullInput struct {
-	UserPoolID             string          `json:"UserPoolId"`
-	Username               string          `json:"Username"`
+	UserPoolID             string          `json:"UserPoolId,omitempty"`
+	Username               string          `json:"Username,omitempty"`
 	TemporaryPassword      string          `json:"TemporaryPassword,omitempty"`
 	UserAttributes         []attributeType `json:"UserAttributes,omitempty"`
 	MessageAction          string          `json:"MessageAction,omitempty"`
@@ -915,16 +917,16 @@ type adminCreateUserFullInput struct {
 }
 
 type adminCreateUserFullOutput struct {
-	User *adminUserJSON `json:"User"`
+	User *adminUserJSON `json:"User,omitempty"`
 }
 
 type adminUserJSON struct {
-	Username             string          `json:"Username"`
-	UserStatus           string          `json:"UserStatus"`
-	UserAttributes       []attributeType `json:"UserAttributes"`
-	UserCreateDate       float64         `json:"UserCreateDate"`
-	UserLastModifiedDate float64         `json:"UserLastModifiedDate"`
-	Enabled              bool            `json:"Enabled"`
+	Username             string          `json:"Username,omitempty"`
+	UserStatus           string          `json:"UserStatus,omitempty"`
+	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
+	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
+	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`
+	Enabled              bool            `json:"Enabled,omitempty"`
 }
 
 func (h *Handler) handleAdminCreateUserFull(
@@ -965,10 +967,10 @@ func toAdminUserJSON(u *User) *adminUserJSON {
 // ---------------------------------------------------------------------------
 
 type adminSetUserPasswordFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	Password   string `json:"Password"`
-	Permanent  bool   `json:"Permanent"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	Password   string `json:"Password,omitempty"`
+	Permanent  bool   `json:"Permanent,omitempty"`
 }
 
 type adminSetUserPasswordFullOutput struct{}
@@ -989,25 +991,25 @@ func (h *Handler) handleAdminSetUserPasswordFull(
 // ---------------------------------------------------------------------------
 
 type createGroupFullInput struct {
-	UserPoolID  string `json:"UserPoolId"`
-	GroupName   string `json:"GroupName"`
+	UserPoolID  string `json:"UserPoolId,omitempty"`
+	GroupName   string `json:"GroupName,omitempty"`
 	Description string `json:"Description,omitempty"`
 	RoleArn     string `json:"RoleArn,omitempty"`
 	Precedence  int32  `json:"Precedence,omitempty"`
 }
 
 type groupFullSummary struct {
-	GroupName        string  `json:"GroupName"`
-	UserPoolID       string  `json:"UserPoolId"`
+	GroupName        string  `json:"GroupName,omitempty"`
+	UserPoolID       string  `json:"UserPoolId,omitempty"`
 	Description      string  `json:"Description,omitempty"`
 	RoleArn          string  `json:"RoleArn,omitempty"`
-	Precedence       int32   `json:"Precedence"`
+	Precedence       int32   `json:"Precedence,omitempty"`
 	CreationDate     float64 `json:"CreationDate,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 }
 
 type createGroupFullOutput struct {
-	Group *groupFullSummary `json:"Group"`
+	Group *groupFullSummary `json:"Group,omitempty"`
 }
 
 func (h *Handler) handleCreateGroupFull(
@@ -1023,15 +1025,15 @@ func (h *Handler) handleCreateGroupFull(
 }
 
 type updateGroupFullInput struct {
-	UserPoolID  string `json:"UserPoolId"`
-	GroupName   string `json:"GroupName"`
+	UserPoolID  string `json:"UserPoolId,omitempty"`
+	GroupName   string `json:"GroupName,omitempty"`
 	Description string `json:"Description,omitempty"`
 	RoleArn     string `json:"RoleArn,omitempty"`
 	Precedence  int32  `json:"Precedence,omitempty"`
 }
 
 type updateGroupFullOutput struct {
-	Group *groupFullSummary `json:"Group"`
+	Group *groupFullSummary `json:"Group,omitempty"`
 }
 
 func (h *Handler) handleUpdateGroupFull(
@@ -1047,12 +1049,12 @@ func (h *Handler) handleUpdateGroupFull(
 }
 
 type getGroupFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type getGroupFullOutput struct {
-	Group *groupFullSummary `json:"Group"`
+	Group *groupFullSummary `json:"Group,omitempty"`
 }
 
 func (h *Handler) handleGetGroupFull(
@@ -1068,7 +1070,7 @@ func (h *Handler) handleGetGroupFull(
 }
 
 type listGroupsFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
 	Limit      int    `json:"Limit,omitempty"`
 }
@@ -1097,15 +1099,15 @@ func (h *Handler) handleListGroupsFull(
 }
 
 type listUsersInGroupFullInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
 	Limit      int    `json:"Limit,omitempty"`
 }
 
 type listUsersInGroupFullOutput struct {
 	NextToken string          `json:"NextToken,omitempty"`
-	Users     []adminUserJSON `json:"Users"`
+	Users     []adminUserJSON `json:"Users,omitempty"`
 }
 
 func (h *Handler) handleListUsersInGroupFull(

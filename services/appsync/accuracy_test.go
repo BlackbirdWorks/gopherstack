@@ -2130,8 +2130,10 @@ func TestCreateFunction_SyncConfig_RoundTrip(t *testing.T) {
 	api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	ds := &appsync.DataSource{Name: "DYNAMO", Type: appsync.DataSourceTypeDynamoDB,
-		DynamoDBConfig: &appsync.DynamoDBDataSourceConfig{TableName: "t", AWSRegion: "us-east-1"}}
+	ds := &appsync.DataSource{
+		Name: "DYNAMO", Type: appsync.DataSourceTypeDynamoDB,
+		DynamoDBConfig: &appsync.DynamoDBDataSourceConfig{TableName: "t", AWSRegion: "us-east-1"},
+	}
 	_, err = b.CreateDataSource(api.APIID, ds)
 	require.NoError(t, err)
 

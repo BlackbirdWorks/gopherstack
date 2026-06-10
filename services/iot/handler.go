@@ -157,7 +157,8 @@ func (h *Handler) Name() string { return "IoT" }
 func (h *Handler) GetSupportedOperations() []string {
 	const coreOpCount = 65
 	core := make([]string, 0, coreOpCount)
-	core = append(core,
+	core = append(
+		core,
 		opAcceptCertificateTransfer,
 		opAddThingToBillingGroup,
 		opAddThingToThingGroup,

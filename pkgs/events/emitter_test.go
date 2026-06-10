@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var errListenerTest = errors.New("listener error")
-var errListenerPanic = errors.New("panic error")
+var (
+	errListenerTest  = errors.New("listener error")
+	errListenerPanic = errors.New("panic error")
+)
 
 func TestInMemoryEmitter_EventTypes(t *testing.T) {
 	t.Parallel()

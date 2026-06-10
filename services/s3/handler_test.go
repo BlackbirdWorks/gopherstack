@@ -1282,6 +1282,7 @@ func TestHandler_MultipartUpload_Errors(t *testing.T) {
 		})
 	}
 }
+
 func TestHandler_DeleteObjects(t *testing.T) {
 	t.Parallel()
 

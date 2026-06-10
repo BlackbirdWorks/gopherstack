@@ -44,7 +44,7 @@ var errUnknownAction = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP handler for Cognito IDP operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend *InMemoryBackend `json:"backend,omitempty"`
 	janitor *Janitor
 	ops     map[string]service.JSONOpFunc
 	region  string
@@ -273,9 +273,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		UserPoolID string `json:"UserPoolId"`
-		ClientID   string `json:"ClientId"`
-		Username   string `json:"Username"`
+		UserPoolID string `json:"UserPoolId,omitempty"`
+		ClientID   string `json:"ClientId,omitempty"`
+		Username   string `json:"Username,omitempty"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -479,7 +479,7 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 // --- Request/Response types ---
 
 type createUserPoolInput struct {
-	PoolName string `json:"PoolName"`
+	PoolName string `json:"PoolName,omitempty"`
 }
 
 // userPoolPoliciesData holds the Policies block returned by the Cognito IDP API.
@@ -487,8 +487,8 @@ type createUserPoolInput struct {
 // AWS provider, which accesses Policies.PasswordPolicy and Policies.SignInPolicy
 // unconditionally.
 type userPoolPoliciesData struct {
-	PasswordPolicy *userPoolPasswordPolicyData `json:"PasswordPolicy"`
-	SignInPolicy   *userPoolSignInPolicyData   `json:"SignInPolicy"`
+	PasswordPolicy *userPoolPasswordPolicyData `json:"PasswordPolicy,omitempty"`
+	SignInPolicy   *userPoolSignInPolicyData   `json:"SignInPolicy,omitempty"`
 }
 
 // userPoolPasswordPolicyData is a minimal representation of PasswordPolicyType.
@@ -499,14 +499,14 @@ type userPoolSignInPolicyData struct{}
 
 type userPoolData struct {
 	Policies           userPoolPoliciesData `json:"Policies"`
-	ID                 string               `json:"Id"`
-	Name               string               `json:"Name"`
-	ARN                string               `json:"Arn"`
-	DeletionProtection string               `json:"DeletionProtection"`
-	MfaConfiguration   string               `json:"MfaConfiguration"`
+	ID                 string               `json:"Id,omitempty"`
+	Name               string               `json:"Name,omitempty"`
+	ARN                string               `json:"Arn,omitempty"`
+	DeletionProtection string               `json:"DeletionProtection,omitempty"`
+	MfaConfiguration   string               `json:"MfaConfiguration,omitempty"`
 	SchemaAttributes   []SchemaAttribute    `json:"SchemaAttributes,omitempty"`
-	CreationDate       float64              `json:"CreationDate"`
-	LastModifiedDate   float64              `json:"LastModifiedDate"`
+	CreationDate       float64              `json:"CreationDate,omitempty"`
+	LastModifiedDate   float64              `json:"LastModifiedDate,omitempty"`
 }
 
 func mfaConfigOrDefault(s string) string {
@@ -545,7 +545,7 @@ func (h *Handler) handleCreateUserPool(_ context.Context, in *createUserPoolInpu
 }
 
 type describeUserPoolInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type describeUserPoolOutput struct {
@@ -565,7 +565,7 @@ func (h *Handler) handleDescribeUserPool(
 }
 
 type listUserPoolsInput struct {
-	MaxResults int `json:"MaxResults"`
+	MaxResults int `json:"MaxResults,omitempty"`
 }
 
 type listUserPoolsOutput struct {
@@ -584,16 +584,16 @@ func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) 
 }
 
 type createUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientName string `json:"ClientName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientName string `json:"ClientName,omitempty"`
 }
 
 type userPoolClientData struct {
-	ClientID     string  `json:"ClientId"`
-	ClientName   string  `json:"ClientName"`
-	UserPoolID   string  `json:"UserPoolId"`
+	ClientID     string  `json:"ClientId,omitempty"`
+	ClientName   string  `json:"ClientName,omitempty"`
+	UserPoolID   string  `json:"UserPoolId,omitempty"`
 	ClientSecret string  `json:"ClientSecret,omitempty"`
-	CreationDate float64 `json:"CreationDate"`
+	CreationDate float64 `json:"CreationDate,omitempty"`
 }
 
 // clientToData converts a UserPoolClient to the wire format.
@@ -624,8 +624,8 @@ func (h *Handler) handleCreateUserPoolClient(
 }
 
 type describeUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type describeUserPoolClientOutput struct {
@@ -645,7 +645,7 @@ func (h *Handler) handleDescribeUserPoolClient(
 }
 
 type deleteUserPoolInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type deleteUserPoolOutput struct{}
@@ -659,8 +659,8 @@ func (h *Handler) handleDeleteUserPool(_ context.Context, in *deleteUserPoolInpu
 }
 
 type deleteUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type deleteUserPoolClientOutput struct{}
@@ -677,11 +677,11 @@ func (h *Handler) handleDeleteUserPoolClient(
 }
 
 type getUserPoolMfaConfigInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type getUserPoolMfaConfigOutput struct {
-	MfaConfiguration string `json:"MfaConfiguration"`
+	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 }
 
 func (h *Handler) handleGetUserPoolMfaConfig(
@@ -702,8 +702,8 @@ func (h *Handler) handleGetUserPoolMfaConfig(
 }
 
 type listUserPoolClientsInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	MaxResults int    `json:"MaxResults"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listUserPoolClientsOutput struct {
@@ -728,20 +728,20 @@ func (h *Handler) handleListUserPoolClients(
 }
 
 type attributeType struct {
-	Name  string `json:"Name"`
-	Value string `json:"Value"`
+	Name  string `json:"Name,omitempty"`
+	Value string `json:"Value,omitempty"`
 }
 
 type signUpInput struct {
-	Username       string          `json:"Username"`
-	Password       string          `json:"Password"`
-	ClientID       string          `json:"ClientId"`
-	UserAttributes []attributeType `json:"UserAttributes"`
+	Username       string          `json:"Username,omitempty"`
+	Password       string          `json:"Password,omitempty"`
+	ClientID       string          `json:"ClientId,omitempty"`
+	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
 }
 
 type signUpOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-	UserSub             string            `json:"UserSub"`
+	UserSub             string            `json:"UserSub,omitempty"`
 	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
@@ -774,9 +774,9 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 }
 
 type confirmSignUpInput struct {
-	Username         string `json:"Username"`
-	ConfirmationCode string `json:"ConfirmationCode"`
-	ClientID         string `json:"ClientId"`
+	Username         string `json:"Username,omitempty"`
+	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
+	ClientID         string `json:"ClientId,omitempty"`
 }
 
 type confirmSignUpOutput struct{}
@@ -790,18 +790,18 @@ func (h *Handler) handleConfirmSignUp(_ context.Context, in *confirmSignUpInput)
 }
 
 type authInput struct {
-	AuthParameters map[string]string `json:"AuthParameters"`
-	AuthFlow       string            `json:"AuthFlow"`
-	ClientID       string            `json:"ClientId"`
-	UserPoolID     string            `json:"UserPoolId"`
+	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
+	AuthFlow       string            `json:"AuthFlow,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	UserPoolID     string            `json:"UserPoolId,omitempty"`
 }
 
 type authResult struct {
-	AccessToken  string `json:"AccessToken"`
-	IDToken      string `json:"IdToken"`
-	RefreshToken string `json:"RefreshToken"`
-	TokenType    string `json:"TokenType"`
-	ExpiresIn    int32  `json:"ExpiresIn"`
+	AccessToken  string `json:"AccessToken,omitempty"`
+	IDToken      string `json:"IdToken,omitempty"`
+	RefreshToken string `json:"RefreshToken,omitempty"`
+	TokenType    string `json:"TokenType,omitempty"`
+	ExpiresIn    int32  `json:"ExpiresIn,omitempty"`
 }
 
 type authOutput struct {
@@ -902,17 +902,17 @@ func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*au
 }
 
 type adminCreateUserInput struct {
-	UserPoolID        string          `json:"UserPoolId"`
-	Username          string          `json:"Username"`
-	TemporaryPassword string          `json:"TemporaryPassword"`
-	UserAttributes    []attributeType `json:"UserAttributes"`
+	UserPoolID        string          `json:"UserPoolId,omitempty"`
+	Username          string          `json:"Username,omitempty"`
+	TemporaryPassword string          `json:"TemporaryPassword,omitempty"`
+	UserAttributes    []attributeType `json:"UserAttributes,omitempty"`
 }
 
 type adminUserType struct {
-	Username       string          `json:"Username"`
-	UserStatus     string          `json:"UserStatus"`
-	Attributes     []attributeType `json:"Attributes"`
-	UserCreateDate float64         `json:"UserCreateDate"`
+	Username       string          `json:"Username,omitempty"`
+	UserStatus     string          `json:"UserStatus,omitempty"`
+	Attributes     []attributeType `json:"Attributes,omitempty"`
+	UserCreateDate float64         `json:"UserCreateDate,omitempty"`
 	Enabled        bool            `json:"Enabled"`
 }
 
@@ -940,10 +940,10 @@ func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserIn
 }
 
 type adminSetUserPasswordInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	Password   string `json:"Password"`
-	Permanent  bool   `json:"Permanent"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	Password   string `json:"Password,omitempty"`
+	Permanent  bool   `json:"Permanent,omitempty"`
 }
 
 type adminSetUserPasswordOutput struct{}
@@ -960,16 +960,16 @@ func (h *Handler) handleAdminSetUserPassword(
 }
 
 type adminGetUserInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminGetUserOutput struct {
-	Username             string          `json:"Username"`
-	UserStatus           string          `json:"UserStatus"`
-	UserAttributes       []attributeType `json:"UserAttributes"`
-	UserCreateDate       float64         `json:"UserCreateDate"`
-	UserLastModifiedDate float64         `json:"UserLastModifiedDate"`
+	Username             string          `json:"Username,omitempty"`
+	UserStatus           string          `json:"UserStatus,omitempty"`
+	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
+	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
+	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`
 	Enabled              bool            `json:"Enabled"`
 }
 
@@ -1041,8 +1041,8 @@ func sortedAttributeList(m map[string]string) []attributeType {
 }
 
 type adminConfirmSignUpInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminConfirmSignUpOutput struct{}
@@ -1059,8 +1059,8 @@ func (h *Handler) handleAdminConfirmSignUp(
 }
 
 type adminDeleteUserInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminDeleteUserOutput struct{}
@@ -1094,9 +1094,9 @@ func toUserSummary(u *User) *userSummary {
 }
 
 type listUsersInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Filter     string `json:"Filter"`
-	Limit      int    `json:"Limit"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Filter     string `json:"Filter,omitempty"`
+	Limit      int    `json:"Limit,omitempty"`
 }
 
 type listUsersOutput struct {
@@ -1104,11 +1104,11 @@ type listUsersOutput struct {
 }
 
 type userSummary struct {
-	Username         string          `json:"Username"`
-	UserStatus       string          `json:"UserStatus"`
-	Attributes       []attributeType `json:"Attributes"`
-	UserCreateDate   float64         `json:"UserCreateDate"`
-	UserLastModified float64         `json:"UserLastModifiedDate"`
+	Username         string          `json:"Username,omitempty"`
+	UserStatus       string          `json:"UserStatus,omitempty"`
+	Attributes       []attributeType `json:"Attributes,omitempty"`
+	UserCreateDate   float64         `json:"UserCreateDate,omitempty"`
+	UserLastModified float64         `json:"UserLastModifiedDate,omitempty"`
 	Enabled          bool            `json:"Enabled"`
 }
 
@@ -1130,8 +1130,8 @@ func (h *Handler) handleListUsers(
 }
 
 type forgotPasswordInput struct {
-	ClientID string `json:"ClientId"`
-	Username string `json:"Username"`
+	ClientID string `json:"ClientId,omitempty"`
+	Username string `json:"Username,omitempty"`
 }
 
 type forgotPasswordOutput struct {
@@ -1158,10 +1158,10 @@ func (h *Handler) handleForgotPassword(
 }
 
 type confirmForgotPasswordInput struct {
-	ClientID         string `json:"ClientId"`
-	Username         string `json:"Username"`
-	ConfirmationCode string `json:"ConfirmationCode"`
-	Password         string `json:"Password"`
+	ClientID         string `json:"ClientId,omitempty"`
+	Username         string `json:"Username,omitempty"`
+	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
+	Password         string `json:"Password,omitempty"`
 }
 
 type confirmForgotPasswordOutput struct{}
@@ -1178,12 +1178,12 @@ func (h *Handler) handleConfirmForgotPassword(
 }
 
 type getUserInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type getUserOutput struct {
-	Username       string          `json:"Username"`
-	UserAttributes []attributeType `json:"UserAttributes"`
+	Username       string          `json:"Username,omitempty"`
+	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
 }
 
 func (h *Handler) handleGetUser(
@@ -1202,9 +1202,9 @@ func (h *Handler) handleGetUser(
 }
 
 type changePasswordInput struct {
-	AccessToken      string `json:"AccessToken"`
-	PreviousPassword string `json:"PreviousPassword"`
-	ProposedPassword string `json:"ProposedPassword"`
+	AccessToken      string `json:"AccessToken,omitempty"`
+	PreviousPassword string `json:"PreviousPassword,omitempty"`
+	ProposedPassword string `json:"ProposedPassword,omitempty"`
 }
 
 type changePasswordOutput struct{}
@@ -1221,22 +1221,22 @@ func (h *Handler) handleChangePassword(
 }
 
 type createGroupInput struct {
-	UserPoolID  string `json:"UserPoolId"`
-	GroupName   string `json:"GroupName"`
-	Description string `json:"Description"`
-	Precedence  int32  `json:"Precedence"`
+	UserPoolID  string `json:"UserPoolId,omitempty"`
+	GroupName   string `json:"GroupName,omitempty"`
+	Description string `json:"Description,omitempty"`
+	Precedence  int32  `json:"Precedence,omitempty"`
 }
 
 type createGroupOutput struct {
-	Group *groupSummary `json:"Group"`
+	Group *groupSummary `json:"Group,omitempty"`
 }
 
 type groupSummary struct {
-	GroupName    string  `json:"GroupName"`
-	UserPoolID   string  `json:"UserPoolId"`
+	GroupName    string  `json:"GroupName,omitempty"`
+	UserPoolID   string  `json:"UserPoolId,omitempty"`
 	Description  string  `json:"Description,omitempty"`
-	Precedence   int32   `json:"Precedence"`
-	CreationDate float64 `json:"CreationDate"`
+	Precedence   int32   `json:"Precedence,omitempty"`
+	CreationDate float64 `json:"CreationDate,omitempty"`
 }
 
 func toGroupSummary(g *Group) *groupSummary {
@@ -1262,8 +1262,8 @@ func (h *Handler) handleCreateGroup(
 }
 
 type deleteGroupInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type deleteGroupOutput struct{}
@@ -1277,7 +1277,7 @@ func (h *Handler) handleDeleteGroup(_ context.Context, in *deleteGroupInput) (*d
 }
 
 type listGroupsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type listGroupsOutput struct {
@@ -1299,9 +1299,9 @@ func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*lis
 }
 
 type adminAddUserToGroupInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type adminAddUserToGroupOutput struct{}
@@ -1318,9 +1318,9 @@ func (h *Handler) handleAdminAddUserToGroup(
 }
 
 type adminRemoveUserFromGroupInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type adminRemoveUserFromGroupOutput struct{}
@@ -1337,8 +1337,8 @@ func (h *Handler) handleAdminRemoveUserFromGroup(
 }
 
 type adminListGroupsForUserInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminListGroupsForUserOutput struct {
@@ -1363,8 +1363,8 @@ func (h *Handler) handleAdminListGroupsForUser(
 }
 
 type updateUserAttributesInput struct {
-	AccessToken    string          `json:"AccessToken"`
-	UserAttributes []attributeType `json:"UserAttributes"`
+	AccessToken    string          `json:"AccessToken,omitempty"`
+	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
 }
 
 type updateUserAttributesOutput struct{}
@@ -1382,9 +1382,9 @@ func (h *Handler) handleUpdateUserAttributes(
 }
 
 type adminUpdateUserAttributesInput struct {
-	UserPoolID     string          `json:"UserPoolId"`
-	Username       string          `json:"Username"`
-	UserAttributes []attributeType `json:"UserAttributes"`
+	UserPoolID     string          `json:"UserPoolId,omitempty"`
+	Username       string          `json:"Username,omitempty"`
+	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
 }
 
 type adminUpdateUserAttributesOutput struct{}
@@ -1402,8 +1402,8 @@ func (h *Handler) handleAdminUpdateUserAttributes(
 }
 
 type revokeTokenInput struct {
-	Token    string `json:"Token"`
-	ClientID string `json:"ClientId"`
+	Token    string `json:"Token,omitempty"`
+	ClientID string `json:"ClientId,omitempty"`
 }
 
 type revokeTokenOutput struct{}
@@ -1417,8 +1417,8 @@ func (h *Handler) handleRevokeToken(_ context.Context, in *revokeTokenInput) (*r
 }
 
 type addCustomAttributesInput struct {
-	UserPoolID       string            `json:"UserPoolId"`
-	CustomAttributes []SchemaAttribute `json:"CustomAttributes"`
+	UserPoolID       string            `json:"UserPoolId,omitempty"`
+	CustomAttributes []SchemaAttribute `json:"CustomAttributes,omitempty"`
 }
 
 type addCustomAttributesOutput struct{}
@@ -1435,12 +1435,12 @@ func (h *Handler) handleAddCustomAttributes(
 }
 
 type addUserPoolClientSecretInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type addUserPoolClientSecretOutput struct {
-	ClientSecret string `json:"ClientSecret"`
+	ClientSecret string `json:"ClientSecret,omitempty"`
 }
 
 func (h *Handler) handleAddUserPoolClientSecret(
@@ -1456,9 +1456,9 @@ func (h *Handler) handleAddUserPoolClientSecret(
 }
 
 type adminDeleteUserAttributesInput struct {
-	UserPoolID         string   `json:"UserPoolId"`
-	Username           string   `json:"Username"`
-	UserAttributeNames []string `json:"UserAttributeNames"`
+	UserPoolID         string   `json:"UserPoolId,omitempty"`
+	Username           string   `json:"Username,omitempty"`
+	UserAttributeNames []string `json:"UserAttributeNames,omitempty"`
 }
 
 type adminDeleteUserAttributesOutput struct{}
@@ -1475,13 +1475,13 @@ func (h *Handler) handleAdminDeleteUserAttributes(
 }
 
 type providerUserIdentifierType struct {
-	ProviderAttributeName  string `json:"ProviderAttributeName"`
-	ProviderAttributeValue string `json:"ProviderAttributeValue"`
-	ProviderName           string `json:"ProviderName"`
+	ProviderAttributeName  string `json:"ProviderAttributeName,omitempty"`
+	ProviderAttributeValue string `json:"ProviderAttributeValue,omitempty"`
+	ProviderName           string `json:"ProviderName,omitempty"`
 }
 
 type adminDisableProviderForUserInput struct {
-	UserPoolID string                     `json:"UserPoolId"`
+	UserPoolID string                     `json:"UserPoolId,omitempty"`
 	User       providerUserIdentifierType `json:"User"`
 }
 
@@ -1499,8 +1499,8 @@ func (h *Handler) handleAdminDisableProviderForUser(
 }
 
 type adminDisableUserInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminDisableUserOutput struct{}
@@ -1517,8 +1517,8 @@ func (h *Handler) handleAdminDisableUser(
 }
 
 type adminEnableUserInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminEnableUserOutput struct{}
@@ -1535,9 +1535,9 @@ func (h *Handler) handleAdminEnableUser(
 }
 
 type adminForgetDeviceInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	DeviceKey  string `json:"DeviceKey"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	DeviceKey  string `json:"DeviceKey,omitempty"`
 }
 
 type adminForgetDeviceOutput struct{}
@@ -1554,12 +1554,12 @@ func (h *Handler) handleAdminForgetDevice(
 }
 
 type listUsersInGroupInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type listUsersInGroupOutput struct {
-	Users []*userSummary `json:"Users"`
+	Users []*userSummary `json:"Users,omitempty"`
 }
 
 func (h *Handler) handleListUsersInGroup(
@@ -1580,8 +1580,8 @@ func (h *Handler) handleListUsersInGroup(
 }
 
 type adminUserGlobalSignOutInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminUserGlobalSignOutOutput struct{}
@@ -1598,7 +1598,7 @@ func (h *Handler) handleAdminUserGlobalSignOut(
 }
 
 type globalSignOutInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type globalSignOutOutput struct{}
@@ -1612,8 +1612,8 @@ func (h *Handler) handleGlobalSignOut(_ context.Context, in *globalSignOutInput)
 }
 
 type resendConfirmationCodeInput struct {
-	ClientID string `json:"ClientId"`
-	Username string `json:"Username"`
+	ClientID string `json:"ClientId,omitempty"`
+	Username string `json:"Username,omitempty"`
 }
 
 type resendConfirmationCodeOutput struct {
@@ -1640,12 +1640,12 @@ func (h *Handler) handleResendConfirmationCode(
 }
 
 type setUserPoolMfaConfigInput struct {
-	UserPoolID       string `json:"UserPoolId"`
-	MfaConfiguration string `json:"MfaConfiguration"`
+	UserPoolID       string `json:"UserPoolId,omitempty"`
+	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 }
 
 type setUserPoolMfaConfigOutput struct {
-	MfaConfiguration string `json:"MfaConfiguration"`
+	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 }
 
 func (h *Handler) handleSetUserPoolMfaConfig(
@@ -1660,14 +1660,14 @@ func (h *Handler) handleSetUserPoolMfaConfig(
 }
 
 type updateGroupInput struct {
-	UserPoolID  string `json:"UserPoolId"`
-	GroupName   string `json:"GroupName"`
-	Description string `json:"Description"`
-	Precedence  int32  `json:"Precedence"`
+	UserPoolID  string `json:"UserPoolId,omitempty"`
+	GroupName   string `json:"GroupName,omitempty"`
+	Description string `json:"Description,omitempty"`
+	Precedence  int32  `json:"Precedence,omitempty"`
 }
 
 type updateGroupOutput struct {
-	Group *groupSummary `json:"Group"`
+	Group *groupSummary `json:"Group,omitempty"`
 }
 
 func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
@@ -1680,11 +1680,11 @@ func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*u
 }
 
 type getSigningCertificateInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type getSigningCertificateOutput struct {
-	Certificate string `json:"Certificate"`
+	Certificate string `json:"Certificate,omitempty"`
 }
 
 func (h *Handler) handleGetSigningCertificate(
@@ -1701,8 +1701,8 @@ func (h *Handler) handleGetSigningCertificate(
 // --- UpdateUserPool ---
 
 type updateUserPoolInput struct {
-	UserPoolID       string `json:"UserPoolId"`
-	MfaConfiguration string `json:"MfaConfiguration"`
+	UserPoolID       string `json:"UserPoolId,omitempty"`
+	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 }
 
 type updateUserPoolOutput struct{}
@@ -1718,9 +1718,9 @@ func (h *Handler) handleUpdateUserPool(_ context.Context, in *updateUserPoolInpu
 // --- UpdateUserPoolClient ---
 
 type updateUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
-	ClientName string `json:"ClientName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
+	ClientName string `json:"ClientName,omitempty"`
 }
 
 type updateUserPoolClientOutput struct {
@@ -1742,8 +1742,8 @@ func (h *Handler) handleUpdateUserPoolClient(
 // --- AdminResetUserPassword ---
 
 type adminResetUserPasswordInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminResetUserPasswordOutput struct{}
@@ -1762,12 +1762,12 @@ func (h *Handler) handleAdminResetUserPassword(
 // --- GetGroup ---
 
 type getGroupInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	GroupName  string `json:"GroupName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	GroupName  string `json:"GroupName,omitempty"`
 }
 
 type getGroupOutput struct {
-	Group *groupSummary `json:"Group"`
+	Group *groupSummary `json:"Group,omitempty"`
 }
 
 func (h *Handler) handleGetGroup(_ context.Context, in *getGroupInput) (*getGroupOutput, error) {
@@ -1782,7 +1782,7 @@ func (h *Handler) handleGetGroup(_ context.Context, in *getGroupInput) (*getGrou
 // --- DeleteUser (self-service) ---
 
 type deleteUserInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type deleteUserOutput struct{}
@@ -1798,8 +1798,8 @@ func (h *Handler) handleDeleteUser(_ context.Context, in *deleteUserInput) (*del
 // --- DeleteUserAttributes (self-service) ---
 
 type deleteUserAttributesInput struct {
-	AccessToken        string   `json:"AccessToken"`
-	UserAttributeNames []string `json:"UserAttributeNames"`
+	AccessToken        string   `json:"AccessToken,omitempty"`
+	UserAttributeNames []string `json:"UserAttributeNames,omitempty"`
 }
 
 type deleteUserAttributesOutput struct{}
@@ -1818,9 +1818,9 @@ func (h *Handler) handleDeleteUserAttributes(
 // --- VerifyUserAttribute ---
 
 type verifyUserAttributeInput struct {
-	AccessToken   string `json:"AccessToken"`
-	AttributeName string `json:"AttributeName"`
-	Code          string `json:"Code"`
+	AccessToken   string `json:"AccessToken,omitempty"`
+	AttributeName string `json:"AttributeName,omitempty"`
+	Code          string `json:"Code,omitempty"`
 }
 
 type verifyUserAttributeOutput struct{}

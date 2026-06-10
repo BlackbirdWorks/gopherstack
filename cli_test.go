@@ -32,7 +32,8 @@ func parseCLI(t *testing.T, envPairs map[string]string) CLI {
 
 	var root rootCLI
 
-	parser, err := kong.New(&root,
+	parser, err := kong.New(
+		&root,
 		kong.Name("gopherstack"),
 		kong.Writers(nil, nil), // suppress help/error output
 	)
@@ -457,7 +458,8 @@ func TestHealthCmd_NoServer(t *testing.T) {
 func TestHealthCmd_KongParsing(t *testing.T) {
 	var root rootCLI
 
-	parser, err := kong.New(&root,
+	parser, err := kong.New(
+		&root,
 		kong.Name("gopherstack"),
 		kong.Writers(nil, nil),
 	)

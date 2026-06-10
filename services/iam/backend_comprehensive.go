@@ -18,30 +18,30 @@ import (
 // SSHPublicKey represents an IAM SSH public key for a user.
 type SSHPublicKey struct {
 	UploadDate       time.Time `json:"UploadDate"`
-	UserName         string    `json:"UserName"`
-	SSHPublicKeyID   string    `json:"SSHPublicKeyId"`
-	SSHPublicKeyBody string    `json:"SSHPublicKeyBody"`
-	Fingerprint      string    `json:"Fingerprint"`
-	Status           string    `json:"Status"`
+	UserName         string    `json:"UserName,omitempty"`
+	SSHPublicKeyID   string    `json:"SSHPublicKeyId,omitempty"`
+	SSHPublicKeyBody string    `json:"SSHPublicKeyBody,omitempty"`
+	Fingerprint      string    `json:"Fingerprint,omitempty"`
+	Status           string    `json:"Status,omitempty"`
 }
 
 // ---- Access Advisor ----
 
 // ServiceLastAccessedDetail tracks when a service was last accessed.
 type ServiceLastAccessedDetail struct {
-	ServiceName                string    `json:"ServiceName"`
-	ServiceNamespace           string    `json:"ServiceNamespace"`
+	ServiceName                string    `json:"ServiceName,omitempty"`
+	ServiceNamespace           string    `json:"ServiceNamespace,omitempty"`
 	LastAuthenticated          time.Time `json:"LastAuthenticated"`
 	LastAuthenticatedArn       string    `json:"LastAuthenticatedArn,omitempty"`
-	TotalAuthenticatedEntities int       `json:"TotalAuthenticatedEntities"`
+	TotalAuthenticatedEntities int       `json:"TotalAuthenticatedEntities,omitempty"`
 }
 
 // accessAdvisorJob represents a pending/completed access advisor job.
 type accessAdvisorJob struct {
-	JobID     string
-	EntityARN string
-	CreatedAt time.Time
-	Status    string // IN_PROGRESS or COMPLETED
+	JobID     string    `json:"jobID,omitempty"`
+	EntityARN string    `json:"entityARN,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	Status    string    `json:"status,omitempty"` // IN_PROGRESS or COMPLETED
 }
 
 // ---- Comprehensive backend additions ----

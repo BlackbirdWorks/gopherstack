@@ -630,7 +630,8 @@ func TestHandler_SimulatePrincipalPolicy_MultipleResources(t *testing.T) {
 	pol, _ := b.CreatePolicy("AllowS3", "/", s3Policy)
 	_ = b.AttachUserPolicy("multi-res-user", pol.Arn)
 
-	req := iamRequestWithMembers("SimulatePrincipalPolicy",
+	req := iamRequestWithMembers(
+		"SimulatePrincipalPolicy",
 		map[string]string{
 			"PolicySourceArn": "arn:aws:iam::000000000000:user/multi-res-user",
 		},

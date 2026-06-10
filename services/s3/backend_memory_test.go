@@ -1440,7 +1440,8 @@ func TestCompressionMinBytes_PutObject(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantCompressed, rc.compressCalled,
+			assert.Equal(
+				t, tt.wantCompressed, rc.compressCalled,
 				"unexpected compression decision for object of size %d with threshold %d",
 				len(tt.data), tt.compressionMinBytes,
 			)
@@ -1552,7 +1553,8 @@ func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantCompressed, rc.compressCalled,
+			assert.Equal(
+				t, tt.wantCompressed, rc.compressCalled,
 				"unexpected compression decision for assembled size %d with threshold %d",
 				len(partData)*2, tt.compressionMinBytes,
 			)

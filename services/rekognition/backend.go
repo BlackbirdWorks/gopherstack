@@ -170,25 +170,43 @@ type snapshot struct {
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu               *lockmetrics.RWMutex
-	collections      map[string]*storedCollection
-	faces            map[string][]*storedFace // collectionID -> faces
-	streamProcessors map[string]*storedStreamProcessor
-	tags             map[string]map[string]string // resourceARN -> tags
-	accountID        string
-	region           string
+	mu                *lockmetrics.RWMutex
+	collections       map[string]*storedCollection
+	faces             map[string][]*storedFace // collectionID -> faces
+	streamProcessors  map[string]*storedStreamProcessor
+	tags              map[string]map[string]string // resourceARN -> tags
+	projects          map[string]*storedProject
+	projectVersions   map[string]*storedProjectVersion
+	projectPolicies   map[string]map[string]*storedProjectPolicy // projectArn → policyName → policy
+	datasets          map[string]*storedDataset
+	datasetEntries    map[string][]string               // datasetArn → jsonLines
+	users             map[string]map[string]*storedUser // collectionID → userID → user
+	livenessSessions  map[string]*storedLivenessSession
+	asyncJobs         map[string]*storedAsyncJob
+	mediaAnalysisJobs map[string]*storedMediaAnalysisJob
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:               lockmetrics.New("rekognition"),
-		accountID:        accountID,
-		region:           region,
-		collections:      make(map[string]*storedCollection),
-		faces:            make(map[string][]*storedFace),
-		streamProcessors: make(map[string]*storedStreamProcessor),
-		tags:             make(map[string]map[string]string),
+		mu:                lockmetrics.New("rekognition"),
+		accountID:         accountID,
+		region:            region,
+		collections:       make(map[string]*storedCollection),
+		faces:             make(map[string][]*storedFace),
+		streamProcessors:  make(map[string]*storedStreamProcessor),
+		tags:              make(map[string]map[string]string),
+		projects:          make(map[string]*storedProject),
+		projectVersions:   make(map[string]*storedProjectVersion),
+		projectPolicies:   make(map[string]map[string]*storedProjectPolicy),
+		datasets:          make(map[string]*storedDataset),
+		datasetEntries:    make(map[string][]string),
+		users:             make(map[string]map[string]*storedUser),
+		livenessSessions:  make(map[string]*storedLivenessSession),
+		asyncJobs:         make(map[string]*storedAsyncJob),
+		mediaAnalysisJobs: make(map[string]*storedMediaAnalysisJob),
 	}
 }
 
@@ -719,6 +737,15 @@ func (b *InMemoryBackend) Reset() {
 	b.faces = make(map[string][]*storedFace)
 	b.streamProcessors = make(map[string]*storedStreamProcessor)
 	b.tags = make(map[string]map[string]string)
+	b.projects = make(map[string]*storedProject)
+	b.projectVersions = make(map[string]*storedProjectVersion)
+	b.projectPolicies = make(map[string]map[string]*storedProjectPolicy)
+	b.datasets = make(map[string]*storedDataset)
+	b.datasetEntries = make(map[string][]string)
+	b.users = make(map[string]map[string]*storedUser)
+	b.livenessSessions = make(map[string]*storedLivenessSession)
+	b.asyncJobs = make(map[string]*storedAsyncJob)
+	b.mediaAnalysisJobs = make(map[string]*storedMediaAnalysisJob)
 }
 
 // Snapshot serializes the backend state to JSON.

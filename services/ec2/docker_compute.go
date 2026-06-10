@@ -34,15 +34,15 @@ const regionUSEast1 = "us-east-1"
 
 // DockerComputeConfig configures a DockerCompute provider.
 type DockerComputeConfig struct {
-	Labels    map[string]string
-	Image     string
-	Network   string
-	SSHHostIP string
+	Labels    map[string]string `json:"labels,omitempty"`
+	Image     string            `json:"image,omitempty"`
+	Network   string            `json:"network,omitempty"`
+	SSHHostIP string            `json:"sshHostIP,omitempty"`
 	// Region is used to render the public DNS name suffix
 	// (e.g. us-east-1 → "compute-1.amazonaws.com").
-	Region     string
-	SSHPortMin int
-	SSHPortMax int
+	Region     string `json:"region,omitempty"`
+	SSHPortMin int    `json:"sshPortMin,omitempty"`
+	SSHPortMax int    `json:"sshPortMax,omitempty"`
 }
 
 // dockerAPI is the subset of the Docker SDK the DockerCompute uses.

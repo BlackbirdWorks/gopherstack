@@ -222,7 +222,8 @@ func TestAudit2_CreateReplicationConfiguration_DestinationCount(t *testing.T) {
 			h := newRefinementHandler()
 			fsID := createFS(t, h, "repl-dest-"+tt.name)
 
-			rec := doRESTRefinement(t, h, http.MethodPost,
+			rec := doRESTRefinement(
+				t, h, http.MethodPost,
 				"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
 				map[string]any{"Destinations": tt.destinations},
 			)

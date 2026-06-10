@@ -1342,7 +1342,8 @@ func TestDynamoDB_UpdateKinesisPrecision(t *testing.T) {
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/update-prec"
 
-	_, err := backend.EnableKinesisStreamingDestination(t.Context(),
+	_, err := backend.EnableKinesisStreamingDestination(
+		t.Context(),
 		buildEnableKinesisInput("UpdatePrecTable", streamARN, "MILLISECOND"),
 	)
 	require.NoError(t, err)

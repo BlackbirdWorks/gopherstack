@@ -155,7 +155,7 @@ func isUnknownOp(err error) bool {
 }
 
 // buildOps constructs the operation dispatch table.
-func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // existing issue.
 	return map[string]service.JSONOpFunc{
 		// Organizations
 		"CreateOrganization":   service.WrapOp(h.handleCreateOrganization),
@@ -234,6 +234,66 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 
 		// Describe entity
 		"DescribeEntity": service.WrapOp(h.handleDescribeEntity),
+
+		// Availability configurations
+		"CreateAvailabilityConfiguration": service.WrapOp(h.handleCreateAvailabilityConfiguration),
+		"DeleteAvailabilityConfiguration": service.WrapOp(h.handleDeleteAvailabilityConfiguration),
+		"UpdateAvailabilityConfiguration": service.WrapOp(h.handleUpdateAvailabilityConfiguration),
+		"ListAvailabilityConfigurations":  service.WrapOp(h.handleListAvailabilityConfigurations),
+		"TestAvailabilityConfiguration":   service.WrapOp(h.handleTestAvailabilityConfiguration),
+
+		// Mobile device access rules
+		"CreateMobileDeviceAccessRule": service.WrapOp(h.handleCreateMobileDeviceAccessRule),
+		"DeleteMobileDeviceAccessRule": service.WrapOp(h.handleDeleteMobileDeviceAccessRule),
+		"UpdateMobileDeviceAccessRule": service.WrapOp(h.handleUpdateMobileDeviceAccessRule),
+		"ListMobileDeviceAccessRules":  service.WrapOp(h.handleListMobileDeviceAccessRules),
+		"GetMobileDeviceAccessEffect":  service.WrapOp(h.handleGetMobileDeviceAccessEffect),
+
+		// Mobile device access overrides
+		"PutMobileDeviceAccessOverride":    service.WrapOp(h.handlePutMobileDeviceAccessOverride),
+		"DeleteMobileDeviceAccessOverride": service.WrapOp(h.handleDeleteMobileDeviceAccessOverride),
+		"GetMobileDeviceAccessOverride":    service.WrapOp(h.handleGetMobileDeviceAccessOverride),
+		"ListMobileDeviceAccessOverrides":  service.WrapOp(h.handleListMobileDeviceAccessOverrides),
+
+		// Email monitoring configuration
+		"PutEmailMonitoringConfiguration":      service.WrapOp(h.handlePutEmailMonitoringConfiguration),
+		"DeleteEmailMonitoringConfiguration":   service.WrapOp(h.handleDeleteEmailMonitoringConfiguration),
+		"DescribeEmailMonitoringConfiguration": service.WrapOp(h.handleDescribeEmailMonitoringConfiguration),
+
+		// Inbound DMARC settings
+		"PutInboundDmarcSettings":      service.WrapOp(h.handlePutInboundDmarcSettings),
+		"DescribeInboundDmarcSettings": service.WrapOp(h.handleDescribeInboundDmarcSettings),
+
+		// Retention policies
+		"PutRetentionPolicy":        service.WrapOp(h.handlePutRetentionPolicy),
+		"DeleteRetentionPolicy":     service.WrapOp(h.handleDeleteRetentionPolicy),
+		"GetDefaultRetentionPolicy": service.WrapOp(h.handleGetDefaultRetentionPolicy),
+
+		// Mailbox export jobs
+		"StartMailboxExportJob":    service.WrapOp(h.handleStartMailboxExportJob),
+		"CancelMailboxExportJob":   service.WrapOp(h.handleCancelMailboxExportJob),
+		"DescribeMailboxExportJob": service.WrapOp(h.handleDescribeMailboxExportJob),
+		"ListMailboxExportJobs":    service.WrapOp(h.handleListMailboxExportJobs),
+
+		// Identity center applications
+		"CreateIdentityCenterApplication": service.WrapOp(h.handleCreateIdentityCenterApplication),
+		"DeleteIdentityCenterApplication": service.WrapOp(h.handleDeleteIdentityCenterApplication),
+
+		// Identity provider configuration
+		"PutIdentityProviderConfiguration":      service.WrapOp(h.handlePutIdentityProviderConfiguration),
+		"DeleteIdentityProviderConfiguration":   service.WrapOp(h.handleDeleteIdentityProviderConfiguration),
+		"DescribeIdentityProviderConfiguration": service.WrapOp(h.handleDescribeIdentityProviderConfiguration),
+
+		// Personal access tokens
+		"DeletePersonalAccessToken":      service.WrapOp(h.handleDeletePersonalAccessToken),
+		"GetPersonalAccessTokenMetadata": service.WrapOp(h.handleGetPersonalAccessTokenMetadata),
+		"ListPersonalAccessTokens":       service.WrapOp(h.handleListPersonalAccessTokens),
+
+		// Impersonation role effect
+		"GetImpersonationRoleEffect": service.WrapOp(h.handleGetImpersonationRoleEffect),
+
+		// Assume impersonation role
+		"AssumeImpersonationRole": service.WrapOp(h.handleAssumeImpersonationRole),
 	}
 }
 
@@ -1598,4 +1658,1012 @@ func (h *Handler) handleDescribeEntity(_ context.Context, req *describeEntityReq
 	}
 
 	return &describeEntityResp{EntityID: entity.EntityID, Name: entity.Name, Type: entity.Type}, nil
+}
+
+// ---- Availability Configurations ----
+
+type ewsProviderJSON struct {
+	EwsEndpoint string `json:"EwsEndpoint"`
+	EwsUsername string `json:"EwsUsername"`
+	EwsPassword string `json:"EwsPassword"`
+}
+
+type lambdaProviderJSON struct {
+	LambdaArn string `json:"LambdaArn"`
+}
+
+type createAvailabilityConfigReq struct {
+	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
+	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
+}
+
+func (h *Handler) handleCreateAvailabilityConfiguration(
+	_ context.Context, req *createAvailabilityConfigReq,
+) (*struct{}, error) {
+	var ewsProv *AvailabilityEwsProvider
+	var lambdaARN string
+	if req.EwsProvider != nil {
+		ewsProv = &AvailabilityEwsProvider{
+			EwsEndpoint: req.EwsProvider.EwsEndpoint,
+			EwsUsername: req.EwsProvider.EwsUsername,
+			EwsPassword: req.EwsProvider.EwsPassword,
+		}
+	} else if req.LambdaProvider != nil {
+		lambdaARN = req.LambdaProvider.LambdaArn
+	}
+	_, err := h.Backend.CreateAvailabilityConfiguration(req.OrganizationID, req.DomainName, ewsProv, lambdaARN)
+	if err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type deleteAvailabilityConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	DomainName     string `json:"DomainName"`
+}
+
+func (h *Handler) handleDeleteAvailabilityConfiguration(
+	_ context.Context, req *deleteAvailabilityConfigReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteAvailabilityConfiguration(req.OrganizationID, req.DomainName)
+}
+
+type updateAvailabilityConfigReq struct {
+	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
+	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
+}
+
+func (h *Handler) handleUpdateAvailabilityConfiguration(
+	_ context.Context, req *updateAvailabilityConfigReq,
+) (*struct{}, error) {
+	var ewsProv *AvailabilityEwsProvider
+	var lambdaARN string
+	if req.EwsProvider != nil {
+		ewsProv = &AvailabilityEwsProvider{
+			EwsEndpoint: req.EwsProvider.EwsEndpoint,
+			EwsUsername: req.EwsProvider.EwsUsername,
+			EwsPassword: req.EwsProvider.EwsPassword,
+		}
+	} else if req.LambdaProvider != nil {
+		lambdaARN = req.LambdaProvider.LambdaArn
+	}
+
+	return &struct{}{}, h.Backend.UpdateAvailabilityConfiguration(
+		req.OrganizationID,
+		req.DomainName,
+		ewsProv,
+		lambdaARN,
+	)
+}
+
+type listAvailabilityConfigsReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	MaxResults     *int32 `json:"MaxResults"`
+	NextToken      string `json:"NextToken"`
+}
+
+type availabilityConfigJSON struct {
+	EwsProvider    *json.RawMessage `json:"EwsProvider,omitempty"`
+	LambdaProvider *json.RawMessage `json:"LambdaProvider,omitempty"`
+	DomainName     string           `json:"DomainName"`
+	ProviderType   string           `json:"ProviderType"`
+	DateCreated    int64            `json:"DateCreated"`
+	DateModified   int64            `json:"DateModified"`
+}
+
+type listAvailabilityConfigsResp struct {
+	NextToken                  string                   `json:"NextToken,omitempty"`
+	AvailabilityConfigurations []availabilityConfigJSON `json:"AvailabilityConfigurations"`
+}
+
+func (h *Handler) handleListAvailabilityConfigurations(
+	_ context.Context, req *listAvailabilityConfigsReq,
+) (*listAvailabilityConfigsResp, error) {
+	maxResults := int32(0)
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
+	cfgs, next, err := h.Backend.ListAvailabilityConfigurations(req.OrganizationID, maxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]availabilityConfigJSON, 0, len(cfgs))
+	for _, c := range cfgs {
+		item := availabilityConfigJSON{
+			DomainName:   c.DomainName,
+			ProviderType: c.ProviderType,
+			DateCreated:  c.DateCreated.Unix(),
+			DateModified: c.DateModified.Unix(),
+		}
+		if c.ProviderType == "EWS" { //nolint:goconst // existing issue.
+			raw, _ := json.Marshal(map[string]string{
+				"EwsEndpoint": c.EwsEndpoint,
+				"EwsUsername": c.EwsUsername,
+			})
+			rm := json.RawMessage(raw)
+			item.EwsProvider = &rm
+		} else {
+			raw, _ := json.Marshal(map[string]string{"LambdaArn": c.LambdaARN})
+			rm := json.RawMessage(raw)
+			item.LambdaProvider = &rm
+		}
+		result = append(result, item)
+	}
+
+	return &listAvailabilityConfigsResp{AvailabilityConfigurations: result, NextToken: next}, nil
+}
+
+type testAvailabilityConfigReq struct {
+	EwsProvider    *ewsProviderJSON    `json:"EwsProvider"`
+	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
+	OrganizationID string              `json:"OrganizationId"`
+	DomainName     string              `json:"DomainName"`
+}
+
+type testAvailabilityConfigResp struct {
+	FailureReason string `json:"FailureReason,omitempty"`
+	TestPassed    bool   `json:"TestPassed"`
+}
+
+func (h *Handler) handleTestAvailabilityConfiguration(
+	_ context.Context, req *testAvailabilityConfigReq,
+) (*testAvailabilityConfigResp, error) {
+	passed, reason, err := h.Backend.TestAvailabilityConfiguration(req.OrganizationID, req.DomainName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &testAvailabilityConfigResp{TestPassed: passed, FailureReason: reason}, nil
+}
+
+// ---- Mobile Device Access Rules ----
+
+type createMobileDeviceAccessRuleReq struct {
+	OrganizationID            string   `json:"OrganizationId"`
+	Name                      string   `json:"Name"`
+	Effect                    string   `json:"Effect"`
+	Description               string   `json:"Description"`
+	DeviceModels              []string `json:"DeviceModels"`
+	NotDeviceModels           []string `json:"NotDeviceModels"`
+	DeviceTypes               []string `json:"DeviceTypes"`
+	NotDeviceTypes            []string `json:"NotDeviceTypes"`
+	DeviceOperatingSystems    []string `json:"DeviceOperatingSystems"`
+	NotDeviceOperatingSystems []string `json:"NotDeviceOperatingSystems"`
+	DeviceUserAgents          []string `json:"DeviceUserAgents"`
+	NotDeviceUserAgents       []string `json:"NotDeviceUserAgents"`
+}
+
+type createMobileDeviceAccessRuleResp struct {
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleCreateMobileDeviceAccessRule(
+	_ context.Context, req *createMobileDeviceAccessRuleReq,
+) (*createMobileDeviceAccessRuleResp, error) {
+	rule, err := h.Backend.CreateMobileDeviceAccessRule(
+		req.OrganizationID, req.Name, req.Effect, req.Description,
+		req.DeviceModels, req.NotDeviceModels, req.DeviceTypes, req.NotDeviceTypes,
+		req.DeviceOperatingSystems, req.NotDeviceOperatingSystems, req.DeviceUserAgents, req.NotDeviceUserAgents,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createMobileDeviceAccessRuleResp{MobileDeviceAccessRuleId: rule.RuleID}, nil
+}
+
+type deleteMobileDeviceAccessRuleReq struct {
+	OrganizationID           string `json:"OrganizationId"`
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleDeleteMobileDeviceAccessRule(
+	_ context.Context, req *deleteMobileDeviceAccessRuleReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteMobileDeviceAccessRule(req.OrganizationID, req.MobileDeviceAccessRuleId)
+}
+
+type updateMobileDeviceAccessRuleReq struct {
+	OrganizationID            string   `json:"OrganizationId"`
+	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
+	Name                      string   `json:"Name"`
+	Effect                    string   `json:"Effect"`
+	Description               string   `json:"Description"`
+	DeviceModels              []string `json:"DeviceModels"`
+	NotDeviceModels           []string `json:"NotDeviceModels"`
+	DeviceTypes               []string `json:"DeviceTypes"`
+	NotDeviceTypes            []string `json:"NotDeviceTypes"`
+	DeviceOperatingSystems    []string `json:"DeviceOperatingSystems"`
+	NotDeviceOperatingSystems []string `json:"NotDeviceOperatingSystems"`
+	DeviceUserAgents          []string `json:"DeviceUserAgents"`
+	NotDeviceUserAgents       []string `json:"NotDeviceUserAgents"`
+}
+
+func (h *Handler) handleUpdateMobileDeviceAccessRule(
+	_ context.Context, req *updateMobileDeviceAccessRuleReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.UpdateMobileDeviceAccessRule(
+		req.OrganizationID, req.MobileDeviceAccessRuleId, req.Name, req.Effect, req.Description,
+		req.DeviceModels, req.NotDeviceModels, req.DeviceTypes, req.NotDeviceTypes,
+		req.DeviceOperatingSystems, req.NotDeviceOperatingSystems, req.DeviceUserAgents, req.NotDeviceUserAgents,
+	)
+}
+
+type listMobileDeviceAccessRulesReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+type mobileDeviceAccessRuleJSON struct {
+	MobileDeviceAccessRuleId  string   `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
+	Name                      string   `json:"Name"`
+	Effect                    string   `json:"Effect"`
+	Description               string   `json:"Description,omitempty"`
+	DeviceModels              []string `json:"DeviceModels,omitempty"`
+	NotDeviceModels           []string `json:"NotDeviceModels,omitempty"`
+	DeviceTypes               []string `json:"DeviceTypes,omitempty"`
+	NotDeviceTypes            []string `json:"NotDeviceTypes,omitempty"`
+	DeviceOperatingSystems    []string `json:"DeviceOperatingSystems,omitempty"`
+	NotDeviceOperatingSystems []string `json:"NotDeviceOperatingSystems,omitempty"`
+	DeviceUserAgents          []string `json:"DeviceUserAgents,omitempty"`
+	NotDeviceUserAgents       []string `json:"NotDeviceUserAgents,omitempty"`
+	DateCreated               int64    `json:"DateCreated"`
+	DateModified              int64    `json:"DateModified"`
+}
+
+type listMobileDeviceAccessRulesResp struct {
+	Rules []mobileDeviceAccessRuleJSON `json:"Rules"`
+}
+
+func mobileRuleToJSON(r *MobileDeviceAccessRule) mobileDeviceAccessRuleJSON {
+	return mobileDeviceAccessRuleJSON{
+		MobileDeviceAccessRuleId:  r.RuleID,
+		Name:                      r.Name,
+		Effect:                    r.Effect,
+		Description:               r.Description,
+		DeviceModels:              r.DeviceModels,
+		NotDeviceModels:           r.NotDeviceModels,
+		DeviceTypes:               r.DeviceTypes,
+		NotDeviceTypes:            r.NotDeviceTypes,
+		DeviceOperatingSystems:    r.DeviceOperatingSystems,
+		NotDeviceOperatingSystems: r.NotDeviceOperatingSystems,
+		DeviceUserAgents:          r.DeviceUserAgents,
+		NotDeviceUserAgents:       r.NotDeviceUserAgents,
+		DateCreated:               r.DateCreated.Unix(),
+		DateModified:              r.DateModified.Unix(),
+	}
+}
+
+func (h *Handler) handleListMobileDeviceAccessRules(
+	_ context.Context, req *listMobileDeviceAccessRulesReq,
+) (*listMobileDeviceAccessRulesResp, error) {
+	rules, err := h.Backend.ListMobileDeviceAccessRules(req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]mobileDeviceAccessRuleJSON, 0, len(rules))
+	for _, r := range rules {
+		result = append(result, mobileRuleToJSON(r))
+	}
+
+	return &listMobileDeviceAccessRulesResp{Rules: result}, nil
+}
+
+type getMobileDeviceAccessEffectReq struct {
+	OrganizationID        string `json:"OrganizationId"`
+	DeviceType            string `json:"DeviceType"`
+	DeviceModel           string `json:"DeviceModel"`
+	DeviceOperatingSystem string `json:"DeviceOperatingSystem"`
+	DeviceUserAgent       string `json:"DeviceUserAgent"`
+}
+
+type mobileDeviceMatchedRuleJSON struct {
+	MobileDeviceAccessRuleId string `json:"MobileDeviceAccessRuleId"` //nolint:revive,staticcheck // existing issue.
+	Name                     string `json:"Name"`
+}
+
+type getMobileDeviceAccessEffectResp struct {
+	Effect       string                        `json:"Effect"`
+	MatchedRules []mobileDeviceMatchedRuleJSON `json:"MatchedRules"`
+}
+
+func (h *Handler) handleGetMobileDeviceAccessEffect(
+	_ context.Context, req *getMobileDeviceAccessEffectReq,
+) (*getMobileDeviceAccessEffectResp, error) {
+	effect, matched, err := h.Backend.GetMobileDeviceAccessEffect(
+		req.OrganizationID, req.DeviceType, req.DeviceModel, req.DeviceOperatingSystem, req.DeviceUserAgent,
+	)
+	if err != nil {
+		return nil, err
+	}
+	matchedJSON := make([]mobileDeviceMatchedRuleJSON, 0, len(matched))
+	for _, m := range matched {
+		matchedJSON = append(matchedJSON, mobileDeviceMatchedRuleJSON{
+			MobileDeviceAccessRuleId: m.RuleID,
+			Name:                     m.Name,
+		})
+	}
+
+	return &getMobileDeviceAccessEffectResp{Effect: effect, MatchedRules: matchedJSON}, nil
+}
+
+// ---- Mobile Device Access Overrides ----
+
+type putMobileDeviceAccessOverrideReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
+	Effect         string `json:"Effect"`
+	Description    string `json:"Description"`
+}
+
+func (h *Handler) handlePutMobileDeviceAccessOverride(
+	_ context.Context, req *putMobileDeviceAccessOverrideReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.PutMobileDeviceAccessOverride(
+		req.OrganizationID, req.UserId, req.DeviceId, req.Effect, req.Description,
+	)
+}
+
+type deleteMobileDeviceAccessOverrideReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleDeleteMobileDeviceAccessOverride(
+	_ context.Context, req *deleteMobileDeviceAccessOverrideReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteMobileDeviceAccessOverride(
+		req.OrganizationID, req.UserId, req.DeviceId,
+	)
+}
+
+type getMobileDeviceAccessOverrideReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
+}
+
+type mobileDeviceAccessOverrideJSON struct {
+	UserId       string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId     string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
+	Effect       string `json:"Effect"`
+	Description  string `json:"Description,omitempty"`
+	DateCreated  int64  `json:"DateCreated"`
+	DateModified int64  `json:"DateModified"`
+}
+
+func (h *Handler) handleGetMobileDeviceAccessOverride(
+	_ context.Context, req *getMobileDeviceAccessOverrideReq,
+) (*mobileDeviceAccessOverrideJSON, error) {
+	ov, err := h.Backend.GetMobileDeviceAccessOverride(req.OrganizationID, req.UserId, req.DeviceId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mobileDeviceAccessOverrideJSON{
+		UserId:       ov.UserID,
+		DeviceId:     ov.DeviceID,
+		Effect:       ov.Effect,
+		Description:  ov.Description,
+		DateCreated:  ov.DateCreated.Unix(),
+		DateModified: ov.DateModified.Unix(),
+	}, nil
+}
+
+type listMobileDeviceAccessOverridesReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	UserId         string `json:"UserId"`   //nolint:revive,staticcheck // existing issue.
+	DeviceId       string `json:"DeviceId"` //nolint:revive,staticcheck // existing issue.
+	MaxResults     *int32 `json:"MaxResults"`
+	NextToken      string `json:"NextToken"`
+}
+
+type listMobileDeviceAccessOverridesResp struct {
+	NextToken string                           `json:"NextToken,omitempty"`
+	Overrides []mobileDeviceAccessOverrideJSON `json:"Overrides"`
+}
+
+func (h *Handler) handleListMobileDeviceAccessOverrides(
+	_ context.Context, req *listMobileDeviceAccessOverridesReq,
+) (*listMobileDeviceAccessOverridesResp, error) {
+	maxResults := int32(0)
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
+	overrides, next, err := h.Backend.ListMobileDeviceAccessOverrides(
+		req.OrganizationID, req.UserId, req.DeviceId, maxResults, req.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]mobileDeviceAccessOverrideJSON, 0, len(overrides))
+	for _, ov := range overrides {
+		result = append(result, mobileDeviceAccessOverrideJSON{
+			UserId:       ov.UserID,
+			DeviceId:     ov.DeviceID,
+			Effect:       ov.Effect,
+			Description:  ov.Description,
+			DateCreated:  ov.DateCreated.Unix(),
+			DateModified: ov.DateModified.Unix(),
+		})
+	}
+
+	return &listMobileDeviceAccessOverridesResp{Overrides: result, NextToken: next}, nil
+}
+
+// ---- Email Monitoring Configuration ----
+
+type putEmailMonitoringConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	RoleArn        string `json:"RoleArn"`
+	LogGroupArn    string `json:"LogGroupArn"`
+}
+
+func (h *Handler) handlePutEmailMonitoringConfiguration(
+	_ context.Context, req *putEmailMonitoringConfigReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.PutEmailMonitoringConfiguration(req.OrganizationID, req.RoleArn, req.LogGroupArn)
+}
+
+type deleteEmailMonitoringConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+func (h *Handler) handleDeleteEmailMonitoringConfiguration(
+	_ context.Context, req *deleteEmailMonitoringConfigReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteEmailMonitoringConfiguration(req.OrganizationID)
+}
+
+type describeEmailMonitoringConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+type describeEmailMonitoringConfigResp struct {
+	RoleArn     string `json:"RoleArn,omitempty"`
+	LogGroupArn string `json:"LogGroupArn,omitempty"`
+}
+
+func (h *Handler) handleDescribeEmailMonitoringConfiguration(
+	_ context.Context, req *describeEmailMonitoringConfigReq,
+) (*describeEmailMonitoringConfigResp, error) {
+	cfg, err := h.Backend.DescribeEmailMonitoringConfiguration(req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeEmailMonitoringConfigResp{RoleArn: cfg.RoleARN, LogGroupArn: cfg.LogGroupARN}, nil
+}
+
+// ---- Inbound DMARC Settings ----
+
+type putInboundDmarcSettingsReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	Enforced       bool   `json:"Enforced"`
+}
+
+func (h *Handler) handlePutInboundDmarcSettings(
+	_ context.Context, req *putInboundDmarcSettingsReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.PutInboundDmarcSettings(req.OrganizationID, req.Enforced)
+}
+
+type describeInboundDmarcSettingsReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+type describeInboundDmarcSettingsResp struct {
+	Enforced bool `json:"Enforced"`
+}
+
+func (h *Handler) handleDescribeInboundDmarcSettings(
+	_ context.Context, req *describeInboundDmarcSettingsReq,
+) (*describeInboundDmarcSettingsResp, error) {
+	enforced, err := h.Backend.DescribeInboundDmarcSettings(req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeInboundDmarcSettingsResp{Enforced: enforced}, nil
+}
+
+// ---- Retention Policies ----
+
+type folderConfigJSON struct {
+	Period *int32 `json:"Period,omitempty"`
+	Name   string `json:"Name"`
+	Action string `json:"Action"`
+}
+
+type putRetentionPolicyReq struct {
+	OrganizationID       string             `json:"OrganizationId"`
+	ID                   string             `json:"Id"`
+	Name                 string             `json:"Name"`
+	Description          string             `json:"Description"`
+	FolderConfigurations []folderConfigJSON `json:"FolderConfigurations"`
+}
+
+func (h *Handler) handlePutRetentionPolicy(
+	_ context.Context, req *putRetentionPolicyReq,
+) (*struct{}, error) {
+	folderCfgs := make([]*FolderConfiguration, 0, len(req.FolderConfigurations))
+	for _, fc := range req.FolderConfigurations {
+		folderCfgs = append(folderCfgs, &FolderConfiguration{
+			Name:   fc.Name,
+			Action: fc.Action,
+			Period: fc.Period,
+		})
+	}
+
+	return &struct{}{}, h.Backend.PutRetentionPolicy(
+		req.OrganizationID, req.ID, req.Name, req.Description, folderCfgs,
+	)
+}
+
+type deleteRetentionPolicyReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	Id             string `json:"Id"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleDeleteRetentionPolicy(
+	_ context.Context, req *deleteRetentionPolicyReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteRetentionPolicy(req.OrganizationID, req.Id)
+}
+
+type getDefaultRetentionPolicyReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+type getDefaultRetentionPolicyResp struct {
+	Id                   string             `json:"Id,omitempty"` //nolint:revive,staticcheck // existing issue.
+	Name                 string             `json:"Name,omitempty"`
+	Description          string             `json:"Description,omitempty"`
+	FolderConfigurations []folderConfigJSON `json:"FolderConfigurations"`
+}
+
+func (h *Handler) handleGetDefaultRetentionPolicy(
+	_ context.Context, req *getDefaultRetentionPolicyReq,
+) (*getDefaultRetentionPolicyResp, error) {
+	pol, err := h.Backend.GetDefaultRetentionPolicy(req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	folderCfgs := make([]folderConfigJSON, 0, len(pol.FolderConfigurations))
+	for _, fc := range pol.FolderConfigurations {
+		folderCfgs = append(folderCfgs, folderConfigJSON{
+			Name:   fc.Name,
+			Action: fc.Action,
+			Period: fc.Period,
+		})
+	}
+
+	return &getDefaultRetentionPolicyResp{
+		Id:                   pol.ID,
+		Name:                 pol.Name,
+		Description:          pol.Description,
+		FolderConfigurations: folderCfgs,
+	}, nil
+}
+
+// ---- Mailbox Export Jobs ----
+
+type startMailboxExportJobReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	EntityId       string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
+	Description    string `json:"Description"`
+	RoleArn        string `json:"RoleArn"`
+	KmsKeyArn      string `json:"KmsKeyArn"`
+	S3BucketName   string `json:"S3BucketName"`
+	S3Prefix       string `json:"S3Prefix"`
+}
+
+type startMailboxExportJobResp struct {
+	JobId string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleStartMailboxExportJob(
+	_ context.Context, req *startMailboxExportJobReq,
+) (*startMailboxExportJobResp, error) {
+	job, err := h.Backend.StartMailboxExportJob(
+		req.OrganizationID, req.EntityId, req.Description, req.RoleArn, req.KmsKeyArn,
+		req.S3BucketName, req.S3Prefix,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMailboxExportJobResp{JobId: job.JobID}, nil
+}
+
+type cancelMailboxExportJobReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	JobId          string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleCancelMailboxExportJob(
+	_ context.Context, req *cancelMailboxExportJobReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.CancelMailboxExportJob(req.OrganizationID, req.JobId)
+}
+
+type describeMailboxExportJobReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	JobId          string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+}
+
+type describeMailboxExportJobResp struct {
+	S3Prefix          string `json:"S3Prefix,omitempty"`
+	EntityId          string `json:"EntityId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	Description       string `json:"Description,omitempty"`
+	RoleArn           string `json:"RoleArn,omitempty"`
+	KmsKeyArn         string `json:"KmsKeyArn,omitempty"`
+	S3BucketName      string `json:"S3BucketName,omitempty"`
+	JobId             string `json:"JobId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	S3Path            string `json:"S3Path,omitempty"`
+	State             string `json:"State,omitempty"`
+	ErrorInfo         string `json:"ErrorInfo,omitempty"`
+	StartTime         int64  `json:"StartTime,omitempty"`
+	EndTime           int64  `json:"EndTime,omitempty"`
+	EstimatedProgress int32  `json:"EstimatedProgress"`
+}
+
+func (h *Handler) handleDescribeMailboxExportJob(
+	_ context.Context, req *describeMailboxExportJobReq,
+) (*describeMailboxExportJobResp, error) {
+	job, err := h.Backend.DescribeMailboxExportJob(req.OrganizationID, req.JobId)
+	if err != nil {
+		return nil, err
+	}
+	resp := &describeMailboxExportJobResp{
+		JobId:             job.JobID,
+		EntityId:          job.EntityID,
+		Description:       job.Description,
+		RoleArn:           job.RoleARN,
+		KmsKeyArn:         job.KmsKeyARN,
+		S3BucketName:      job.S3BucketName,
+		S3Prefix:          job.S3Prefix,
+		S3Path:            job.S3Path,
+		EstimatedProgress: job.EstimatedProgress,
+		State:             job.State,
+		ErrorInfo:         job.ErrorInfo,
+		StartTime:         job.StartTime.Unix(),
+	}
+	if !job.EndTime.IsZero() {
+		resp.EndTime = job.EndTime.Unix()
+	}
+
+	return resp, nil
+}
+
+type listMailboxExportJobsReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	MaxResults     *int32 `json:"MaxResults"`
+	NextToken      string `json:"NextToken"`
+}
+
+type mailboxExportJobSummaryJSON struct {
+	JobId        string `json:"JobId"`    //nolint:revive,staticcheck // existing issue.
+	EntityId     string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
+	Description  string `json:"Description,omitempty"`
+	S3BucketName string `json:"S3BucketName,omitempty"`
+	State        string `json:"State"`
+	StartTime    int64  `json:"StartTime,omitempty"`
+	EndTime      int64  `json:"EndTime,omitempty"`
+}
+
+type listMailboxExportJobsResp struct {
+	NextToken string                        `json:"NextToken,omitempty"`
+	Jobs      []mailboxExportJobSummaryJSON `json:"Jobs"`
+}
+
+func (h *Handler) handleListMailboxExportJobs(
+	_ context.Context, req *listMailboxExportJobsReq,
+) (*listMailboxExportJobsResp, error) {
+	maxResults := int32(0)
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
+	jobs, next, err := h.Backend.ListMailboxExportJobs(req.OrganizationID, maxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]mailboxExportJobSummaryJSON, 0, len(jobs))
+	for _, j := range jobs {
+		item := mailboxExportJobSummaryJSON{
+			JobId:        j.JobID,
+			EntityId:     j.EntityID,
+			Description:  j.Description,
+			S3BucketName: j.S3BucketName,
+			State:        j.State,
+			StartTime:    j.StartTime.Unix(),
+		}
+		if !j.EndTime.IsZero() {
+			item.EndTime = j.EndTime.Unix()
+		}
+		result = append(result, item)
+	}
+
+	return &listMailboxExportJobsResp{Jobs: result, NextToken: next}, nil
+}
+
+// ---- Identity Center Applications ----
+
+type createIdentityCenterApplicationReq struct {
+	InstanceArn string `json:"InstanceArn"`
+	Name        string `json:"Name"`
+}
+
+type createIdentityCenterApplicationResp struct {
+	ApplicationArn string `json:"ApplicationArn"`
+}
+
+func (h *Handler) handleCreateIdentityCenterApplication(
+	_ context.Context, req *createIdentityCenterApplicationReq,
+) (*createIdentityCenterApplicationResp, error) {
+	appARN, err := h.Backend.CreateIdentityCenterApplication(req.InstanceArn, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createIdentityCenterApplicationResp{ApplicationArn: appARN}, nil
+}
+
+type deleteIdentityCenterApplicationReq struct {
+	ApplicationArn string `json:"ApplicationArn"`
+}
+
+func (h *Handler) handleDeleteIdentityCenterApplication(
+	_ context.Context, req *deleteIdentityCenterApplicationReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteIdentityCenterApplication(req.ApplicationArn)
+}
+
+// ---- Identity Provider Configuration ----
+
+type identityCenterConfigJSON struct {
+	ApplicationArn string `json:"ApplicationArn"`
+	InstanceArn    string `json:"InstanceArn"`
+}
+
+type personalAccessTokenConfigJSON struct {
+	LifetimeInDays *int32 `json:"LifetimeInDays,omitempty"`
+	Status         string `json:"Status"`
+}
+
+type putIdentityProviderConfigReq struct {
+	IdentityCenterConfiguration      *identityCenterConfigJSON      `json:"IdentityCenterConfiguration"`
+	PersonalAccessTokenConfiguration *personalAccessTokenConfigJSON `json:"PersonalAccessTokenConfiguration"`
+	OrganizationID                   string                         `json:"OrganizationId"`
+	AuthenticationMode               string                         `json:"AuthenticationMode"`
+}
+
+func (h *Handler) handlePutIdentityProviderConfiguration(
+	_ context.Context, req *putIdentityProviderConfigReq,
+) (*struct{}, error) {
+	appARN, instanceARN, patStatus := "", "", ""
+	var patLifetime int32
+	if req.IdentityCenterConfiguration != nil {
+		appARN = req.IdentityCenterConfiguration.ApplicationArn
+		instanceARN = req.IdentityCenterConfiguration.InstanceArn
+	}
+	if req.PersonalAccessTokenConfiguration != nil {
+		patStatus = req.PersonalAccessTokenConfiguration.Status
+		if req.PersonalAccessTokenConfiguration.LifetimeInDays != nil {
+			patLifetime = *req.PersonalAccessTokenConfiguration.LifetimeInDays
+		}
+	}
+
+	return &struct{}{}, h.Backend.PutIdentityProviderConfiguration(
+		req.OrganizationID, req.AuthenticationMode, appARN, instanceARN, patStatus, patLifetime,
+	)
+}
+
+type deleteIdentityProviderConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+func (h *Handler) handleDeleteIdentityProviderConfiguration(
+	_ context.Context, req *deleteIdentityProviderConfigReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeleteIdentityProviderConfiguration(req.OrganizationID)
+}
+
+type describeIdentityProviderConfigReq struct {
+	OrganizationID string `json:"OrganizationId"`
+}
+
+type describeIdentityProviderConfigResp struct {
+	IdentityCenterConfiguration      *identityCenterConfigJSON      `json:"IdentityCenterConfiguration,omitempty"`
+	PersonalAccessTokenConfiguration *personalAccessTokenConfigJSON `json:"PersonalAccessTokenConfiguration,omitempty"`
+	AuthenticationMode               string                         `json:"AuthenticationMode,omitempty"`
+}
+
+func (h *Handler) handleDescribeIdentityProviderConfiguration(
+	_ context.Context, req *describeIdentityProviderConfigReq,
+) (*describeIdentityProviderConfigResp, error) {
+	cfg, err := h.Backend.DescribeIdentityProviderConfiguration(req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	resp := &describeIdentityProviderConfigResp{AuthenticationMode: cfg.AuthMode}
+	if cfg.IdentityCenterAppARN != "" || cfg.IdentityCenterInstanceARN != "" {
+		resp.IdentityCenterConfiguration = &identityCenterConfigJSON{
+			ApplicationArn: cfg.IdentityCenterAppARN,
+			InstanceArn:    cfg.IdentityCenterInstanceARN,
+		}
+	}
+	if cfg.PATStatus != "" {
+		resp.PersonalAccessTokenConfiguration = &personalAccessTokenConfigJSON{
+			Status:         cfg.PATStatus,
+			LifetimeInDays: cfg.PATLifetimeDays,
+		}
+	}
+
+	return resp, nil
+}
+
+// ---- Personal Access Tokens ----
+
+type deletePersonalAccessTokenReq struct {
+	OrganizationID        string `json:"OrganizationId"`
+	PersonalAccessTokenId string `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
+}
+
+func (h *Handler) handleDeletePersonalAccessToken(
+	_ context.Context, req *deletePersonalAccessTokenReq,
+) (*struct{}, error) {
+	return &struct{}{}, h.Backend.DeletePersonalAccessToken(req.OrganizationID, req.PersonalAccessTokenId)
+}
+
+type getPersonalAccessTokenMetadataReq struct {
+	OrganizationID        string `json:"OrganizationId"`
+	PersonalAccessTokenId string `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
+}
+
+type personalAccessTokenMetadataResp struct {
+	PersonalAccessTokenId string   `json:"PersonalAccessTokenId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	UserId                string   `json:"UserId,omitempty"`                //nolint:revive // existing issue.
+	Name                  string   `json:"Name,omitempty"`
+	Scopes                []string `json:"Scopes,omitempty"`
+	DateCreated           int64    `json:"DateCreated,omitempty"`
+	DateLastUsed          int64    `json:"DateLastUsed,omitempty"`
+	ExpiresTime           int64    `json:"ExpiresTime,omitempty"`
+}
+
+func (h *Handler) handleGetPersonalAccessTokenMetadata(
+	_ context.Context, req *getPersonalAccessTokenMetadataReq,
+) (*personalAccessTokenMetadataResp, error) {
+	tok, err := h.Backend.GetPersonalAccessTokenMetadata(req.OrganizationID, req.PersonalAccessTokenId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &personalAccessTokenMetadataResp{
+		PersonalAccessTokenId: tok.TokenID,
+		UserId:                tok.UserID,
+		Name:                  tok.Name,
+		DateCreated:           tok.DateCreated.Unix(),
+		DateLastUsed:          tok.DateLastUsed.Unix(),
+		ExpiresTime:           tok.ExpiresTime.Unix(),
+		Scopes:                tok.Scopes,
+	}, nil
+}
+
+type listPersonalAccessTokensReq struct {
+	OrganizationID string `json:"OrganizationId"`
+	UserId         string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	MaxResults     *int32 `json:"MaxResults"`
+	NextToken      string `json:"NextToken"`
+}
+
+type personalAccessTokenSummaryJSON struct {
+	PersonalAccessTokenId string   `json:"PersonalAccessTokenId"` //nolint:revive,staticcheck // existing issue.
+	UserId                string   `json:"UserId,omitempty"`      //nolint:revive // existing issue.
+	Name                  string   `json:"Name,omitempty"`
+	Scopes                []string `json:"Scopes,omitempty"`
+	DateCreated           int64    `json:"DateCreated,omitempty"`
+	DateLastUsed          int64    `json:"DateLastUsed,omitempty"`
+	ExpiresTime           int64    `json:"ExpiresTime,omitempty"`
+}
+
+type listPersonalAccessTokensResp struct {
+	NextToken                    string                           `json:"NextToken,omitempty"`
+	PersonalAccessTokenSummaries []personalAccessTokenSummaryJSON `json:"PersonalAccessTokenSummaries"`
+}
+
+func (h *Handler) handleListPersonalAccessTokens(
+	_ context.Context, req *listPersonalAccessTokensReq,
+) (*listPersonalAccessTokensResp, error) {
+	maxResults := int32(0)
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
+	tokens, next, err := h.Backend.ListPersonalAccessTokens(req.OrganizationID, req.UserId, maxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]personalAccessTokenSummaryJSON, 0, len(tokens))
+	for _, tok := range tokens {
+		result = append(result, personalAccessTokenSummaryJSON{
+			PersonalAccessTokenId: tok.TokenID,
+			UserId:                tok.UserID,
+			Name:                  tok.Name,
+			DateCreated:           tok.DateCreated.Unix(),
+			DateLastUsed:          tok.DateLastUsed.Unix(),
+			ExpiresTime:           tok.ExpiresTime.Unix(),
+			Scopes:                tok.Scopes,
+		})
+	}
+
+	return &listPersonalAccessTokensResp{PersonalAccessTokenSummaries: result, NextToken: next}, nil
+}
+
+// ---- Impersonation Role Effect ----
+
+type getImpersonationRoleEffectReq struct {
+	OrganizationID      string `json:"OrganizationId"`
+	ImpersonationRoleId string `json:"ImpersonationRoleId"` //nolint:revive,staticcheck // existing issue.
+	TargetUser          string `json:"TargetUser"`
+}
+
+type impersonationMatchedRuleJSON struct {
+	ImpersonationRuleId string `json:"ImpersonationRuleId"` //nolint:revive,staticcheck // existing issue.
+	Name                string `json:"Name,omitempty"`
+}
+
+type getImpersonationRoleEffectResp struct {
+	Effect       string                         `json:"Effect,omitempty"`
+	Type         string                         `json:"Type,omitempty"`
+	MatchedRules []impersonationMatchedRuleJSON `json:"MatchedRules,omitempty"`
+}
+
+func (h *Handler) handleGetImpersonationRoleEffect(
+	_ context.Context, req *getImpersonationRoleEffectReq,
+) (*getImpersonationRoleEffectResp, error) {
+	effect, roleType, matched, err := h.Backend.GetImpersonationRoleEffect(
+		req.OrganizationID, req.ImpersonationRoleId, req.TargetUser,
+	)
+	if err != nil {
+		return nil, err
+	}
+	matchedJSON := make([]impersonationMatchedRuleJSON, 0, len(matched))
+	for _, m := range matched {
+		matchedJSON = append(matchedJSON, impersonationMatchedRuleJSON{
+			ImpersonationRuleId: m.RuleID,
+			Name:                m.Name,
+		})
+	}
+
+	return &getImpersonationRoleEffectResp{Effect: effect, Type: roleType, MatchedRules: matchedJSON}, nil
+}
+
+// ---- Assume Impersonation Role ----
+
+type assumeImpersonationRoleReq struct {
+	OrganizationID      string `json:"OrganizationId"`
+	ImpersonationRoleId string `json:"ImpersonationRoleId"` //nolint:revive,staticcheck // existing issue.
+}
+
+type assumeImpersonationRoleResp struct {
+	Token     string `json:"Token,omitempty"`
+	ExpiresIn int64  `json:"ExpiresIn,omitempty"`
+}
+
+func (h *Handler) handleAssumeImpersonationRole(
+	_ context.Context, req *assumeImpersonationRoleReq,
+) (*assumeImpersonationRoleResp, error) {
+	token, expiresIn, err := h.Backend.AssumeImpersonationRole(req.OrganizationID, req.ImpersonationRoleId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &assumeImpersonationRoleResp{Token: token, ExpiresIn: expiresIn}, nil
 }

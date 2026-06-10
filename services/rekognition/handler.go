@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -95,7 +96,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
+	ops := map[string]service.JSONOpFunc{
 		"CreateCollection":        service.WrapOp(h.handleCreateCollection),
 		"DeleteCollection":        service.WrapOp(h.handleDeleteCollection),
 		"DescribeCollection":      service.WrapOp(h.handleDescribeCollection),
@@ -116,6 +117,10 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"UntagResource":           service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
 	}
+
+	maps.Copy(ops, h.appendixAOps())
+
+	return ops
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {

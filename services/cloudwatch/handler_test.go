@@ -1839,8 +1839,10 @@ func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		ts := base.Add(time.Duration(i) * time.Minute)
 		_, _ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
-			{MetricName: "Counter", Value: float64(i), Count: 1,
-				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts},
+			{
+				MetricName: "Counter", Value: float64(i), Count: 1,
+				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts,
+			},
 		})
 	}
 
@@ -1883,8 +1885,10 @@ func TestCloudWatchHandler_PutMetricData_UnprocessedOnCap(t *testing.T) {
 	b := h.Backend.(*cloudwatch.InMemoryBackend)
 	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
 		_, _ = b.PutMetricData("FullNS", []cloudwatch.MetricDatum{
-			{MetricName: strings.Repeat("x", 1) + strings.Repeat("y", i%10) + strings.Repeat("z", i/10),
-				Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1},
+			{
+				MetricName: strings.Repeat("x", 1) + strings.Repeat("y", i%10) + strings.Repeat("z", i/10),
+				Value:      1, Count: 1, Sum: 1, Min: 1, Max: 1,
+			},
 		})
 	}
 
@@ -1936,8 +1940,10 @@ func TestCloudWatchHandler_GetInsightRuleReport_WithData(t *testing.T) {
 	}))
 
 	_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
-		{MetricName: "Hits", Value: 100, Count: 100, Sum: 1000, Min: 5, Max: 15,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}}},
+		{
+			MetricName: "Hits", Value: 100, Count: 100, Sum: 1000, Min: 5, Max: 15,
+			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},
+		},
 	})
 
 	body := strings.Join([]string{

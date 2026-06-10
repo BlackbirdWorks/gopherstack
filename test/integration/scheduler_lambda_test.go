@@ -2,6 +2,8 @@ package integration_test
 
 import (
 	"context"
+	"log/slog"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -14,10 +16,6 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"log/slog"
-
-	"net/http/httptest"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"

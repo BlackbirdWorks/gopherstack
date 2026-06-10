@@ -206,7 +206,8 @@ func TestBatch1_LayerVersionPermission_AddGetRemove(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add permission
-	rec := callInMemoryHandler(t, h, http.MethodPost,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2018-10-31/layers/my-layer/versions/1/policy",
 		`{"StatementId":"allow-all","Action":"lambda:GetLayerVersion","Principal":"*"}`,
 	)
@@ -230,7 +231,8 @@ func TestBatch1_LayerVersionPermission_AddNotFound(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	rec := callInMemoryHandler(t, h, http.MethodPost,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2018-10-31/layers/nonexistent-layer/versions/1/policy",
 		`{"StatementId":"s1","Action":"lambda:GetLayerVersion","Principal":"*"}`,
 	)
@@ -252,7 +254,8 @@ func TestBatch1_Alias_CreateGetListUpdateDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// Create alias
-	rec = callInMemoryHandler(t, h, http.MethodPost,
+	rec = callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2015-03-31/functions/"+fnName+"/aliases",
 		`{"Name":"live","FunctionVersion":"1","Description":"production alias"}`,
 	)
@@ -272,7 +275,8 @@ func TestBatch1_Alias_CreateGetListUpdateDelete(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "live")
 
 	// Update alias
-	rec = callInMemoryHandler(t, h, http.MethodPut,
+	rec = callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/"+fnName+"/aliases/live",
 		`{"FunctionVersion":"$LATEST","Description":"updated"}`,
 	)
@@ -303,7 +307,8 @@ func TestBatch1_ProvisionedConcurrency_PutGetDeleteList(t *testing.T) {
 		"/2015-03-31/functions/"+fnName+"/versions", "{}")
 
 	// Put provisioned concurrency
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/"+fnName+"/provisioned-concurrency?Qualifier=1",
 		`{"ProvisionedConcurrentExecutions":5}`,
 	)
@@ -336,7 +341,8 @@ func TestBatch1_ESM_ListByFunctionName(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Create ESM
-	rec := callInMemoryHandler(t, h, http.MethodPost,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2015-03-31/event-source-mappings",
 		`{"FunctionName":"esm-fn",`+
 			`"EventSourceArn":"arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",`+
@@ -360,7 +366,8 @@ func TestBatch1_ESM_ListByFunctionName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update ESM
-	rec = callInMemoryHandler(t, h, http.MethodPut,
+	rec = callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/event-source-mappings/"+uuid,
 		`{"BatchSize":50}`,
 	)
@@ -382,7 +389,8 @@ func TestBatch1_FunctionURL_CreateGetUpdateDelete(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Create Function URL config
-	rec := callInMemoryHandler(t, h, http.MethodPost,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2021-10-31/functions/"+fnName+"/url",
 		`{"AuthType":"NONE"}`,
 	)
@@ -400,7 +408,8 @@ func TestBatch1_FunctionURL_CreateGetUpdateDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update Function URL config
-	rec = callInMemoryHandler(t, h, http.MethodPut,
+	rec = callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2021-10-31/functions/"+fnName+"/url",
 		`{"AuthType":"AWS_IAM"}`,
 	)
@@ -437,7 +446,8 @@ func TestBatch1_FunctionConfig_StateAfterUpdateCode(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Update function code
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/"+fnName+"/code",
 		`{"ImageUri":"ecr.example.com/my-image:v2"}`,
 	)
@@ -453,7 +463,8 @@ func TestBatch1_FunctionConfig_StateAfterUpdateConfiguration(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Update function configuration
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/"+fnName+"/configuration",
 		`{"Description":"updated description"}`,
 	)
@@ -471,7 +482,8 @@ func TestBatch1_FunctionRecursionConfig_PutGet(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Put recursion config
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2024-08-28/functions/"+fnName+"/recursion-config",
 		`{"RecursiveLoop":"Deny"}`,
 	)
@@ -495,7 +507,8 @@ func TestBatch1_FunctionScalingConfig_PutGet(t *testing.T) {
 	maxConc := 10
 
 	// Put scaling config
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2023-10-26/functions/"+fnName+"/scaling-config",
 		`{"MaximumConcurrency":10}`,
 	)
@@ -519,7 +532,8 @@ func TestBatch1_RuntimeManagementConfig_PutGet(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Put runtime management config
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2021-07-20/functions/"+fnName+"/runtime-management-config",
 		`{"UpdateRuntimeOn":"Manual","RuntimeVersionArn":"arn:aws:lambda:us-east-1::runtime:python3.12:v1"}`,
 	)
@@ -542,7 +556,8 @@ func TestBatch1_FunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 	createFunctionForTest(t, h, fnName)
 
 	// Put event invoke config
-	rec := callInMemoryHandler(t, h, http.MethodPut,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
 		"/2015-03-31/functions/"+fnName+"/event-invoke-config",
 		`{"MaximumRetryAttempts":2,"MaximumEventAgeInSeconds":300}`,
 	)
@@ -555,7 +570,8 @@ func TestBatch1_FunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update (POST) event invoke config
-	rec = callInMemoryHandler(t, h, http.MethodPost,
+	rec = callInMemoryHandler(
+		t, h, http.MethodPost,
 		"/2015-03-31/functions/"+fnName+"/event-invoke-config",
 		`{"MaximumRetryAttempts":1}`,
 	)

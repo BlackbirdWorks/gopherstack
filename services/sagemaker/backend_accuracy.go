@@ -222,22 +222,13 @@ func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
 // ---------------------------------------------------------------------------
 
 // scheduleNotebookTransition asynchronously transitions a notebook to nextStatus after delay.
-// ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
+// Must be called while holding b.mu (runDelayed captures the lifecycle context).
 func (b *InMemoryBackend) scheduleNotebookTransition(
 	ctx context.Context,
 	name, nextStatus string,
 	delay time.Duration,
 ) {
-	go func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(ctx, delay, func() {
 		b.mu.Lock("scheduleNotebookTransition.goroutine")
 		defer b.mu.Unlock()
 
@@ -245,7 +236,7 @@ func (b *InMemoryBackend) scheduleNotebookTransition(
 			nb.NotebookInstanceStatus = nextStatus
 			nb.LastModifiedTime = time.Now()
 		}
-	}()
+	})
 }
 
 // StartNotebookInstanceFSM transitions: Stopped → Pending, then Pending → InService.
@@ -553,16 +544,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*Train
 // scheduleTrainingCompletion drives InProgress → Completed after delay.
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
 func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name string) {
-	go func() {
-		timer := time.NewTimer(trainingInProgressToCompleted)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(ctx, trainingInProgressToCompleted, func() {
 		b.mu.Lock("scheduleTrainingCompletion.goroutine")
 		defer b.mu.Unlock()
 
@@ -590,10 +572,11 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 			tj.ModelArtifacts.S3ModelArtifacts = tj.OutputDataConfig.S3OutputPath + "/output/model.tar.gz"
 		}
 
-		tj.SecondaryStatusTransitions = append(tj.SecondaryStatusTransitions,
+		tj.SecondaryStatusTransitions = append(
+			tj.SecondaryStatusTransitions,
 			SecondaryStatusTransition{StartTime: now, EndTime: &now, Status: algorithmStatusCompleted},
 		)
-	}()
+	})
 }
 
 // StopTrainingJobFSM transitions InProgress → Stopping → Stopped.
@@ -609,17 +592,7 @@ func (b *InMemoryBackend) StopTrainingJobFSM(name string) error {
 	tj.TrainingJobStatus = pipelineStatusStopping
 	tj.LastModifiedTime = time.Now()
 
-	ctx := b.lifecycleCtx
-	go func() {
-		timer := time.NewTimer(trainingStoppingToStopped)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(b.lifecycleCtx, trainingStoppingToStopped, func() {
 		b.mu.Lock("StopTrainingJobFSM.goroutine")
 		defer b.mu.Unlock()
 
@@ -628,7 +601,7 @@ func (b *InMemoryBackend) StopTrainingJobFSM(name string) error {
 			tj2.TrainingJobStatus = pipelineStatusStopped
 			tj2.LastModifiedTime = time.Now()
 		}
-	}()
+	})
 
 	return nil
 }
@@ -706,16 +679,7 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 	name, nextStatus string,
 	delay time.Duration,
 ) {
-	go func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(ctx, delay, func() {
 		b.mu.Lock("scheduleEndpointTransition.goroutine")
 		defer b.mu.Unlock()
 
@@ -723,7 +687,7 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 			ep.EndpointStatus = nextStatus
 			ep.LastModifiedTime = time.Now()
 		}
-	}()
+	})
 }
 
 // CreateEndpointFSM creates an endpoint and schedules Creating → InService.
@@ -978,16 +942,7 @@ func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJo
 // scheduleProcessingCompletion transitions a processing job to Completed.
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
 func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name string) {
-	go func() {
-		timer := time.NewTimer(processingJobCompletionDelay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(ctx, processingJobCompletionDelay, func() {
 		b.mu.Lock("scheduleProcessingCompletion.goroutine")
 		defer b.mu.Unlock()
 
@@ -999,7 +954,7 @@ func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name
 		pj.ProcessingJobStatus = algorithmStatusCompleted
 		pj.ProcessingEndTime = &now
 		pj.LastModifiedTime = now
-	}()
+	})
 }
 
 // DescribeProcessingJob returns a processing job by name.
@@ -1028,17 +983,7 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 	pj.ProcessingJobStatus = "Stopping"
 	pj.LastModifiedTime = time.Now()
 
-	ctx := b.lifecycleCtx
-	go func() {
-		timer := time.NewTimer(processingJobStopDelay)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
+	b.runDelayed(b.lifecycleCtx, processingJobStopDelay, func() {
 		b.mu.Lock("StopProcessingJob.goroutine")
 		defer b.mu.Unlock()
 
@@ -1046,7 +991,7 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 			pj2.ProcessingJobStatus = "Stopped"
 			pj2.LastModifiedTime = time.Now()
 		}
-	}()
+	})
 
 	return nil
 }
@@ -1103,9 +1048,60 @@ func (b *InMemoryBackend) resetLifecycleContext() {
 		b.lifecycleCancel()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := b.lifecycleParent
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(parent)
 	b.lifecycleCtx = ctx
 	b.lifecycleCancel = cancel
+}
+
+// runDelayed runs fn after delay unless ctx is cancelled first (via Reset,
+// Restore, or Shutdown, all of which cancel the lifecycle context). The goroutine
+// is tracked by b.wg so Shutdown can wait for in-flight transitions to drain. fn is
+// responsible for taking any locks it needs and re-checking resource existence.
+//
+// ctx must be the backend's lifecycle context (b.lifecycleCtx) captured by the
+// caller — typically while holding b.mu — so a concurrent Reset that swaps
+// b.lifecycleCtx cannot race this goroutine's select.
+func (b *InMemoryBackend) runDelayed(ctx context.Context, delay time.Duration, fn func()) {
+	b.wg.Go(func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+
+		fn()
+	})
+}
+
+// Shutdown cancels all pending lifecycle-transition goroutines and waits for the
+// in-flight ones to finish, bounded by ctx. It implements the shutdown half of the
+// service.Shutdowner contract (wired through the Handler).
+func (b *InMemoryBackend) Shutdown(ctx context.Context) {
+	b.mu.Lock("Shutdown")
+	if b.lifecycleCancel != nil {
+		b.lifecycleCancel()
+	}
+	b.mu.Unlock()
+
+	done := make(chan struct{})
+
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // ---------------------------------------------------------------------------

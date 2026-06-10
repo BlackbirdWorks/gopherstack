@@ -441,7 +441,8 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	// Create hosted configuration version with raw body.
 	e := echo.New()
 	content := []byte(`{"feature":"enabled"}`)
-	req := httptest.NewRequest(http.MethodPost,
+	req := httptest.NewRequest(
+		http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions",
 		bytes.NewReader(content),
 	)
@@ -1099,7 +1100,8 @@ func TestHandler_HostedConfigVersion_HTTP_ListEmpty(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
 
-	profRec := doRequest(t, h, http.MethodPost,
+	profRec := doRequest(
+		t, h, http.MethodPost,
 		"/applications/"+appOut.ID+"/configurationprofiles",
 		[]byte(`{"Name":"my-profile","LocationUri":"hosted"}`),
 	)
@@ -1222,7 +1224,8 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
 
-	envRec := doRequest(t, h, http.MethodPost,
+	envRec := doRequest(
+		t, h, http.MethodPost,
 		"/applications/"+appOut.ID+"/environments",
 		[]byte(`{"Name":"production"}`),
 	)
@@ -1234,7 +1237,8 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &envOut))
 
-	listRec := doRequest(t, h, http.MethodGet,
+	listRec := doRequest(
+		t, h, http.MethodGet,
 		"/applications/"+appOut.ID+"/environments/"+envOut.ID+"/deployments",
 		nil,
 	)

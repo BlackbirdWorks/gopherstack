@@ -120,7 +120,8 @@ func TestNewOps_AddPermission(t *testing.T) {
 			h, _ := newInMemoryHandler(t)
 			createFunctionForTest(t, h, "add-perm-fn")
 
-			rec := callInMemoryHandler(t, h,
+			rec := callInMemoryHandler(
+				t, h,
 				http.MethodPost,
 				fmt.Sprintf("/2015-03-31/functions/%s/policy", tt.fn),
 				tt.body,

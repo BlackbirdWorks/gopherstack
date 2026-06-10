@@ -1,6 +1,7 @@
 package firehose_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestBackend_StreamCount(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, firehose.StreamCount(b))
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "s1"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s1"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, firehose.StreamCount(b))
 
@@ -56,7 +57,7 @@ func TestBackend_AddStreamInternal(t *testing.T) {
 	}
 	b.AddStreamInternal(s)
 
-	got, err := b.DescribeDeliveryStream("injected")
+	got, err := b.DescribeDeliveryStream(context.TODO(), "injected")
 	require.NoError(t, err)
 	assert.Equal(t, "injected", got.Name)
 }
@@ -65,7 +66,7 @@ func TestCreateDeliveryStream_EmptyName(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "   "})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "   "})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, firehose.ErrValidation)
 }
@@ -74,10 +75,10 @@ func TestCreateDeliveryStream_SetsVersionAndType(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "typed-stream"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "typed-stream"})
 	require.NoError(t, err)
 
-	s, err := b.DescribeDeliveryStream("typed-stream")
+	s, err := b.DescribeDeliveryStream(context.TODO(), "typed-stream")
 	require.NoError(t, err)
 	assert.Equal(t, "DirectPut", s.DeliveryStreamType)
 	assert.Equal(t, "1", s.VersionID)
@@ -87,7 +88,7 @@ func TestCreateDeliveryStream_SetsDestinationID(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "dest-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::my-bucket",
@@ -95,7 +96,7 @@ func TestCreateDeliveryStream_SetsDestinationID(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	s, err := b.DescribeDeliveryStream("dest-stream")
+	s, err := b.DescribeDeliveryStream(context.TODO(), "dest-stream")
 	require.NoError(t, err)
 	require.NotNil(t, s.S3Destination)
 	assert.Equal(t, "destinationId-000000000001", s.S3Destination.DestinationID)
@@ -131,12 +132,17 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 			t.Parallel()
 
 			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "ver-stream"})
+			_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "ver-stream"})
 			require.NoError(t, err)
 
-			err = b.UpdateDestination("ver-stream", tt.currentVersionID, &firehose.S3DestinationDescription{
-				BucketARN: "arn:aws:s3:::new-bucket",
-			})
+			err = b.UpdateDestination(
+				context.TODO(),
+				"ver-stream",
+				tt.currentVersionID,
+				&firehose.S3DestinationDescription{
+					BucketARN: "arn:aws:s3:::new-bucket",
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -154,15 +160,15 @@ func TestUpdateDestination_IncrementsVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "ver-inc"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "ver-inc"})
 	require.NoError(t, err)
 
-	err = b.UpdateDestination("ver-inc", "1", &firehose.S3DestinationDescription{
+	err = b.UpdateDestination(context.TODO(), "ver-inc", "1", &firehose.S3DestinationDescription{
 		BucketARN: "arn:aws:s3:::bucket",
 	})
 	require.NoError(t, err)
 
-	s, err := b.DescribeDeliveryStream("ver-inc")
+	s, err := b.DescribeDeliveryStream(context.TODO(), "ver-inc")
 	require.NoError(t, err)
 	assert.Equal(t, "2", s.VersionID)
 }

@@ -674,6 +674,7 @@ func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
 
 	return copyAccount(a), nil
 }
+
 func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 	b.mu.RLock("ListAccounts")
 	defer b.mu.RUnlock()

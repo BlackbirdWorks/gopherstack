@@ -166,12 +166,15 @@ func hasSuffixConcurrency(rest string) bool   { return strings.HasSuffix(rest, "
 func hasSuffixProvisionedConcurrency(rest string) bool {
 	return strings.HasSuffix(rest, "/provisioned-concurrency")
 }
+
 func hasSuffixEventInvokeConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/event-invoke-config")
 }
+
 func hasSuffixEventInvokeConfigs(rest string) bool {
 	return strings.HasSuffix(rest, "/event-invoke-configs")
 }
+
 func hasSuffixCodeSigningConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/code-signing-config")
 }
@@ -181,6 +184,7 @@ func hasSuffixInvokeAsync(rest string) bool { return strings.HasSuffix(rest, "/i
 func hasSuffixResponseStream(rest string) bool {
 	return strings.HasSuffix(rest, "/response-streaming-invocations")
 }
+
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
@@ -1104,6 +1108,7 @@ type handleCreateESMInput struct {
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
 	Topics                              []string                             `json:"Topics"`
 	Queues                              []string                             `json:"Queues"`
+	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`
@@ -1144,6 +1149,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			SourceAccessConfigurations:          req.SourceAccessConfigurations,
 			Topics:                              req.Topics,
 			Queues:                              req.Queues,
+			FunctionResponseTypes:               req.FunctionResponseTypes,
 			MaximumBatchingWindowInSeconds:      req.MaximumBatchingWindowInSeconds,
 			TumblingWindowInSeconds:             req.TumblingWindowInSeconds,
 			MaximumRecordAgeInSeconds:           req.MaximumRecordAgeInSeconds,
@@ -1215,6 +1221,7 @@ type handleUpdateESMInput struct {
 	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
 	Topics                         []string                    `json:"Topics"`
 	Queues                         []string                    `json:"Queues"`
+	FunctionResponseTypes          []string                    `json:"FunctionResponseTypes"`
 	BatchSize                      int                         `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds int                         `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds        int                         `json:"TumblingWindowInSeconds"`
@@ -1248,6 +1255,7 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 		SourceAccessConfigurations:     req.SourceAccessConfigurations,
 		Topics:                         req.Topics,
 		Queues:                         req.Queues,
+		FunctionResponseTypes:          req.FunctionResponseTypes,
 		MaximumBatchingWindowInSeconds: req.MaximumBatchingWindowInSeconds,
 		TumblingWindowInSeconds:        req.TumblingWindowInSeconds,
 		MaximumRecordAgeInSeconds:      req.MaximumRecordAgeInSeconds,
@@ -1644,7 +1652,8 @@ func (h *Handler) maybePublishVersion(ctx context.Context, fn *FunctionConfigura
 
 	v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, "")
 	if pubErr != nil {
-		logger.Load(ctx).WarnContext(ctx,
+		logger.Load(ctx).WarnContext(
+			ctx,
 			"lambda: Publish=true but PublishVersion failed",
 			"op", op, "function", fn.FunctionName, "error", pubErr,
 		)

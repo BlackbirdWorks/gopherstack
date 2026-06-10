@@ -24,6 +24,10 @@ type backendSnapshot struct {
 	DomainNameAccessAssociations map[string]*DomainNameAccessAssociation `json:"domainNameAccessAssociations"`
 	UsagePlans                   map[string]*UsagePlan                   `json:"usagePlans"`
 	UsagePlanKeys                map[string]map[string]*UsagePlanKey     `json:"usagePlanKeys"`
+	Account                      *Account                                `json:"account,omitempty"`
+	GatewayResponses             map[string]*GatewayResponse             `json:"gatewayResponses,omitempty"`
+	ClientCertificates           map[string]*ClientCertificate           `json:"clientCertificates,omitempty"`
+	VpcLinks                     map[string]*VpcLink                     `json:"vpcLinks,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -40,6 +44,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		DomainNameAccessAssociations: b.domainNameAccessAssociations,
 		UsagePlans:                   b.usagePlans,
 		UsagePlanKeys:                b.usagePlanKeys,
+		Account:                      b.account,
+		GatewayResponses:             b.gatewayResponses,
+		ClientCertificates:           b.clientCertificates,
+		VpcLinks:                     b.vpcLinks,
 	}
 
 	for id, d := range b.apis {
@@ -173,6 +181,30 @@ func (b *InMemoryBackend) restoreMaps(snap backendSnapshot) {
 		b.usagePlanKeys = snap.UsagePlanKeys
 	} else {
 		b.usagePlanKeys = make(map[string]map[string]*UsagePlanKey)
+	}
+
+	if snap.Account != nil {
+		b.account = snap.Account
+	} else {
+		b.account = &Account{}
+	}
+
+	if snap.GatewayResponses != nil {
+		b.gatewayResponses = snap.GatewayResponses
+	} else {
+		b.gatewayResponses = make(map[string]*GatewayResponse)
+	}
+
+	if snap.ClientCertificates != nil {
+		b.clientCertificates = snap.ClientCertificates
+	} else {
+		b.clientCertificates = make(map[string]*ClientCertificate)
+	}
+
+	if snap.VpcLinks != nil {
+		b.vpcLinks = snap.VpcLinks
+	} else {
+		b.vpcLinks = make(map[string]*VpcLink)
 	}
 }
 

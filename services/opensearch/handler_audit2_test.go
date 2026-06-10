@@ -757,7 +757,8 @@ func TestAudit2_Persistence_OutboundConnectionsRoundTrip(t *testing.T) {
 
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	conn, err := b.CreateOutboundConnection("test-alias",
+	conn, err := b.CreateOutboundConnection(
+		"test-alias",
 		map[string]any{"DomainName": "local-domain"},
 		map[string]any{"DomainName": "remote-domain"},
 	)
@@ -818,7 +819,8 @@ func TestAudit2_Persistence_DomainIndexesRoundTrip(t *testing.T) {
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 	b.AddDomainInternal("idx-persist", "")
 
-	idx, err := b.CreateIndex("idx-persist", "my-index",
+	idx, err := b.CreateIndex(
+		"idx-persist", "my-index",
 		map[string]any{"properties": map[string]any{"field": "text"}},
 		map[string]any{"number_of_shards": 1},
 		map[string]any{},

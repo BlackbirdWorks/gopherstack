@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -38,12 +39,12 @@ type inProcessCWLogsAdapter struct {
 }
 
 func (a *inProcessCWLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(groupName, "", ""); err != nil &&
+	if _, err := a.backend.CreateLogGroup(context.Background(), groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogspkg.ErrLogGroupAlreadyExists) {
 		return err
 	}
 
-	if _, err := a.backend.CreateLogStream(groupName, streamName); err != nil &&
+	if _, err := a.backend.CreateLogStream(context.Background(), groupName, streamName); err != nil &&
 		!errors.Is(err, cwlogspkg.ErrLogStreamAlreadyExist) {
 		return err
 	}
@@ -59,7 +60,7 @@ func (a *inProcessCWLogsAdapter) PutLogLines(groupName, streamName string, messa
 		events[i] = cwlogspkg.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(groupName, streamName, "", events)
+	_, err := a.backend.PutLogEvents(context.Background(), groupName, streamName, "", events)
 
 	return err
 }
@@ -133,7 +134,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	// Verify that pushInvocationLog created the log group in CloudWatch Logs.
 	groupName := "/aws/lambda/" + "log-test-fn"
 
-	groups, _, err := cwlogsBackend.DescribeLogGroups(groupName, "", 10)
+	groups, _, err := cwlogsBackend.DescribeLogGroups(context.Background(), groupName, "", 10)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, groupName, groups[0].LogGroupName)

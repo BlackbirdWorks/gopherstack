@@ -389,7 +389,8 @@ func TestBatch2_AccessEntry_KubernetesGroups_Update(t *testing.T) {
 		"principalArn": "arn:aws:iam::123456789012:role/my-role",
 	})
 
-	rec := doREST(t, h, http.MethodPut,
+	rec := doREST(
+		t, h, http.MethodPut,
 		"/clusters/ae-upd-cluster/access-entries/arn:aws:iam::123456789012:role/my-role",
 		map[string]any{
 			"kubernetesGroups": []string{"system:masters"},
@@ -410,7 +411,8 @@ func TestBatch2_AccessEntry_KubernetesGroups_Backend_DirectCreate(t *testing.T) 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	entry, err := b.CreateAccessEntry("c1",
+	entry, err := b.CreateAccessEntry(
+		"c1",
 		"arn:aws:iam::123456789012:role/r1",
 		"STANDARD", "",
 		[]string{"system:masters", "devs"},

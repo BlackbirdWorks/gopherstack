@@ -240,9 +240,16 @@ func applyCreateClusterDefaults(input *CreateClusterInput) {
 
 // buildClusterNodes builds the node list for a new cluster.
 func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.Time) []Node {
-	nodes := make([]Node, 0, input.ReplicationFactor)
+	capacity := input.ReplicationFactor
+	const maxCapacity = 100
+	if capacity > maxCapacity {
+		capacity = maxCapacity
+	} else if capacity < 0 {
+		capacity = 0
+	}
+	nodes := make([]Node, 0, capacity)
 
-	for i := range input.ReplicationFactor {
+	for i := range capacity {
 		nodeID := fmt.Sprintf("%s-%04d", input.ClusterName, i)
 		az := b.Region + "a"
 

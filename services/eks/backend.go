@@ -22,6 +22,12 @@ const (
 	priorK8sVersion   = "1.31"
 )
 
+// clusterTransitionDelay is the async delay before a CREATING cluster reaches ACTIVE.
+const clusterTransitionDelay = 100 * time.Millisecond
+
+// nodegroupTransitionDelay is the async delay before a CREATING nodegroup reaches ACTIVE.
+const nodegroupTransitionDelay = 100 * time.Millisecond
+
 var (
 	// ErrNotFound is returned when an EKS resource is not found.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -335,7 +341,7 @@ type ClusterOptionalConfig struct {
 }
 
 // CreateCluster creates a new EKS cluster.
-func (b *InMemoryBackend) CreateCluster(
+func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 	name, version, roleARN string,
 	vpcConfig *VpcConfig,
 	networkConfig *KubernetesNetworkConfig,
@@ -405,7 +411,7 @@ func (b *InMemoryBackend) CreateCluster(
 		ARN:                     clusterARN,
 		Version:                 version,
 		RoleARN:                 roleARN,
-		Status:                  statusActive,
+		Status:                  statusCreating,
 		Endpoint:                fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
 		OIDCIssuer:              fmt.Sprintf("https://oidc.eks.%s.amazonaws.com/id/%s", b.region, randomHex16()),
 		PlatformVersion:         "eks.1",
@@ -429,6 +435,17 @@ func (b *InMemoryBackend) CreateCluster(
 	b.addons[name] = make(map[string]*Addon)
 	b.fargateProfiles[name] = make(map[string]*FargateProfile)
 	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
+
+	// Schedule async transition CREATING -> ACTIVE.
+	time.AfterFunc(clusterTransitionDelay, func() {
+		b.mu.Lock("CreateCluster-async")
+		defer b.mu.Unlock()
+
+		if cl, found := b.clusters[name]; found && cl.Status == statusCreating {
+			cl.Status = statusActive
+		}
+	})
+
 	cp := *c
 
 	return &cp, nil
@@ -562,11 +579,13 @@ type NodegroupInput struct {
 	DiskSize       int32
 }
 
-const nodegroupDiskSizeMin = 20
-const nodegroupDiskSizeMax = 16384
+const (
+	nodegroupDiskSizeMin = 20
+	nodegroupDiskSizeMax = 16384
+)
 
 // CreateNodegroup creates a new node group in a cluster.
-func (b *InMemoryBackend) CreateNodegroup(
+func (b *InMemoryBackend) CreateNodegroup( //nolint:funlen // existing issue.
 	clusterName, nodegroupName, nodeRole, amiType, capacityType, version, releaseVersion string,
 	instanceTypes []string,
 	desiredSize, minSize, maxSize int32,
@@ -635,7 +654,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 		ClusterName:    clusterName,
 		ARN:            ngARN,
 		NodeRole:       nodeRole,
-		Status:         statusActive,
+		Status:         statusCreating,
 		AMIType:        amiType,
 		CapacityType:   capacityType,
 		InstanceTypes:  cloneStrings(instanceTypes),
@@ -660,6 +679,19 @@ func (b *InMemoryBackend) CreateNodegroup(
 		Tags:      t,
 	}
 	b.nodegroups[clusterName][nodegroupName] = ng
+
+	// Schedule async transition CREATING -> ACTIVE.
+	time.AfterFunc(nodegroupTransitionDelay, func() {
+		b.mu.Lock("CreateNodegroup-async")
+		defer b.mu.Unlock()
+
+		if ngs, ok := b.nodegroups[clusterName]; ok {
+			if n, found := ngs[nodegroupName]; found && n.Status == statusCreating {
+				n.Status = statusActive
+			}
+		}
+	})
+
 	cp := deepCopyNodegroup(ng)
 
 	return cp, nil

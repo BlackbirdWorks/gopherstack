@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -93,4 +94,72 @@ func PeekStoredBytes(b *InMemoryBackend, bucketName, key string) []byte {
 	}
 
 	return ver.Data
+}
+
+// BackdateObjectForTest sets LastModified on all versions of key to t.
+// Used in lifecycle transition tests to simulate aged objects.
+func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Time) {
+	b.mu.RLock("BackdateObjectForTest")
+	region, ok := b.bucketIndex[bucketName]
+	if !ok {
+		b.mu.RUnlock()
+
+		return
+	}
+	bucket := b.buckets[region][bucketName]
+	b.mu.RUnlock()
+
+	if bucket == nil {
+		return
+	}
+
+	bucket.mu.RLock("BackdateObjectForTest")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return
+	}
+
+	obj.mu.Lock("BackdateObjectForTest")
+	for _, ver := range obj.Versions {
+		ver.LastModified = t
+	}
+	obj.mu.Unlock()
+}
+
+// StorageClassTransitionsForObject returns the StorageClassTransitions history
+// for the latest version of an object. Used in janitor transition tests.
+func StorageClassTransitionsForObject(b *InMemoryBackend, bucketName, key string) []StorageClassTransition {
+	b.mu.RLock("StorageClassTransitionsForObject")
+	region, ok := b.bucketIndex[bucketName]
+	if !ok {
+		b.mu.RUnlock()
+
+		return nil
+	}
+	bucket := b.buckets[region][bucketName]
+	b.mu.RUnlock()
+
+	if bucket == nil {
+		return nil
+	}
+
+	bucket.mu.RLock("StorageClassTransitionsForObject")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	obj.mu.RLock("StorageClassTransitionsForObject")
+	defer obj.mu.RUnlock()
+
+	ver := findLatestVersion(obj.Versions)
+	if ver == nil {
+		return nil
+	}
+
+	return slices.Clone(ver.StorageClassTransitions)
 }

@@ -135,9 +135,7 @@ const (
 	stubTokenExpireHours = 12
 )
 
-var (
-	errInvalidRequest = errors.New("invalid request")
-)
+var errInvalidRequest = errors.New("invalid request")
 
 // Handler is the Echo HTTP handler for AWS CodeArtifact operations (REST-JSON protocol).
 type Handler struct {

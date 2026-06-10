@@ -84,9 +84,9 @@ func (h *Handler) completenessDispatchTable() map[string]service.JSONOpFunc {
 // ----- Device stubs -----
 
 type adminGetDeviceInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
-	DeviceKey  string `json:"DeviceKey"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+	DeviceKey  string `json:"DeviceKey,omitempty"`
 }
 
 type deviceType struct {
@@ -106,9 +106,9 @@ func (h *Handler) handleAdminGetDevice(_ context.Context, _ *adminGetDeviceInput
 }
 
 type adminLinkProviderForUserInput struct {
-	DestinationUser map[string]any `json:"DestinationUser"`
-	SourceUser      map[string]any `json:"SourceUser"`
-	UserPoolID      string         `json:"UserPoolId"`
+	DestinationUser map[string]any `json:"DestinationUser,omitempty"`
+	SourceUser      map[string]any `json:"SourceUser,omitempty"`
+	UserPoolID      string         `json:"UserPoolId,omitempty"`
 }
 
 type adminLinkProviderForUserOutput struct{}
@@ -121,12 +121,12 @@ func (h *Handler) handleAdminLinkProviderForUser(
 }
 
 type adminListDevicesInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminListDevicesOutput struct {
-	Devices []deviceType `json:"Devices"`
+	Devices []deviceType `json:"Devices,omitempty"`
 }
 
 func (h *Handler) handleAdminListDevices(_ context.Context, _ *adminListDevicesInput) (*adminListDevicesOutput, error) {
@@ -134,12 +134,12 @@ func (h *Handler) handleAdminListDevices(_ context.Context, _ *adminListDevicesI
 }
 
 type adminListUserAuthEventsInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminListUserAuthEventsOutput struct {
-	AuthEvents []map[string]any `json:"AuthEvents"`
+	AuthEvents []map[string]any `json:"AuthEvents,omitempty"`
 }
 
 func (h *Handler) handleAdminListUserAuthEvents(
@@ -152,13 +152,13 @@ func (h *Handler) handleAdminListUserAuthEvents(
 type adminSetUserMFAPreferenceInput struct {
 	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *mfaSettings `json:"SoftwareTokenMfaSettings,omitempty"`
-	UserPoolID               string       `json:"UserPoolId"`
-	Username                 string       `json:"Username"`
+	UserPoolID               string       `json:"UserPoolId,omitempty"`
+	Username                 string       `json:"Username,omitempty"`
 }
 
 type mfaSettings struct {
-	Enabled      bool `json:"Enabled"`
-	PreferredMfa bool `json:"PreferredMfa"`
+	Enabled      bool `json:"Enabled,omitempty"`
+	PreferredMfa bool `json:"PreferredMfa,omitempty"`
 }
 
 type adminSetUserMFAPreferenceOutput struct{}
@@ -171,8 +171,8 @@ func (h *Handler) handleAdminSetUserMFAPreference(
 }
 
 type adminSetUserSettingsInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Username   string `json:"Username"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
 }
 
 type adminSetUserSettingsOutput struct{}
@@ -185,10 +185,10 @@ func (h *Handler) handleAdminSetUserSettings(
 }
 
 type adminUpdateAuthEventFeedbackInput struct {
-	UserPoolID    string `json:"UserPoolId"`
-	Username      string `json:"Username"`
-	EventID       string `json:"EventId"`
-	FeedbackValue string `json:"FeedbackValue"`
+	UserPoolID    string `json:"UserPoolId,omitempty"`
+	Username      string `json:"Username,omitempty"`
+	EventID       string `json:"EventId,omitempty"`
+	FeedbackValue string `json:"FeedbackValue,omitempty"`
 }
 
 type adminUpdateAuthEventFeedbackOutput struct{}
@@ -201,10 +201,10 @@ func (h *Handler) handleAdminUpdateAuthEventFeedback(
 }
 
 type adminUpdateDeviceStatusInput struct {
-	UserPoolID             string `json:"UserPoolId"`
-	Username               string `json:"Username"`
-	DeviceKey              string `json:"DeviceKey"`
-	DeviceRememberedStatus string `json:"DeviceRememberedStatus"`
+	UserPoolID             string `json:"UserPoolId,omitempty"`
+	Username               string `json:"Username,omitempty"`
+	DeviceKey              string `json:"DeviceKey,omitempty"`
+	DeviceRememberedStatus string `json:"DeviceRememberedStatus,omitempty"`
 }
 
 type adminUpdateDeviceStatusOutput struct{}
@@ -217,8 +217,8 @@ func (h *Handler) handleAdminUpdateDeviceStatus(
 }
 
 type associateSoftwareTokenInput struct {
-	AccessToken string `json:"AccessToken"`
-	Session     string `json:"Session"`
+	AccessToken string `json:"AccessToken,omitempty"`
+	Session     string `json:"Session,omitempty"`
 }
 
 type associateSoftwareTokenOutput struct {
@@ -237,8 +237,8 @@ func (h *Handler) handleAssociateSoftwareToken(
 }
 
 type completeWebAuthnRegistrationInput struct {
-	Credential  map[string]any `json:"Credential"`
-	AccessToken string         `json:"AccessToken"`
+	Credential  map[string]any `json:"Credential,omitempty"`
+	AccessToken string         `json:"AccessToken,omitempty"`
 }
 
 type completeWebAuthnRegistrationOutput struct{}
@@ -251,14 +251,14 @@ func (h *Handler) handleCompleteWebAuthnRegistration(
 }
 
 type confirmDeviceInput struct {
-	AccessToken                string            `json:"AccessToken"`
-	DeviceKey                  string            `json:"DeviceKey"`
+	AccessToken                string            `json:"AccessToken,omitempty"`
+	DeviceKey                  string            `json:"DeviceKey,omitempty"`
 	DeviceSecretVerifierConfig map[string]string `json:"DeviceSecretVerifierConfig,omitempty"`
 	DeviceName                 string            `json:"DeviceName,omitempty"`
 }
 
 type confirmDeviceOutput struct {
-	UserConfirmationNecessary bool `json:"UserConfirmationNecessary"`
+	UserConfirmationNecessary bool `json:"UserConfirmationNecessary,omitempty"`
 }
 
 func (h *Handler) handleConfirmDevice(_ context.Context, _ *confirmDeviceInput) (*confirmDeviceOutput, error) {
@@ -278,9 +278,9 @@ type identityProviderType struct {
 
 type createIdentityProviderInput struct {
 	ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
-	UserPoolID      string            `json:"UserPoolId"`
-	ProviderName    string            `json:"ProviderName"`
-	ProviderType    string            `json:"ProviderType"`
+	UserPoolID      string            `json:"UserPoolId,omitempty"`
+	ProviderName    string            `json:"ProviderName,omitempty"`
+	ProviderType    string            `json:"ProviderType,omitempty"`
 }
 
 type createIdentityProviderOutput struct {
@@ -311,8 +311,8 @@ func (h *Handler) handleCreateIdentityProvider(
 }
 
 type deleteIdentityProviderInput struct {
-	UserPoolID   string `json:"UserPoolId"`
-	ProviderName string `json:"ProviderName"`
+	UserPoolID   string `json:"UserPoolId,omitempty"`
+	ProviderName string `json:"ProviderName,omitempty"`
 }
 
 type deleteIdentityProviderOutput struct{}
@@ -329,8 +329,8 @@ func (h *Handler) handleDeleteIdentityProvider(
 }
 
 type describeIdentityProviderInput struct {
-	UserPoolID   string `json:"UserPoolId"`
-	ProviderName string `json:"ProviderName"`
+	UserPoolID   string `json:"UserPoolId,omitempty"`
+	ProviderName string `json:"ProviderName,omitempty"`
 }
 
 type describeIdentityProviderOutput struct {
@@ -362,8 +362,8 @@ func (h *Handler) handleDescribeIdentityProvider(
 }
 
 type getIdentityProviderByIdentifierInput struct {
-	UserPoolID    string `json:"UserPoolId"`
-	IdpIdentifier string `json:"IdpIdentifier"`
+	UserPoolID    string `json:"UserPoolId,omitempty"`
+	IdpIdentifier string `json:"IdpIdentifier,omitempty"`
 }
 
 type getIdentityProviderByIdentifierOutput struct {
@@ -393,7 +393,7 @@ func (h *Handler) handleGetIdentityProviderByIdentifier(
 }
 
 type listIdentityProvidersInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type identityProviderSummary struct {
@@ -427,8 +427,8 @@ func (h *Handler) handleListIdentityProviders(
 
 type updateIdentityProviderInput struct {
 	ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
-	UserPoolID      string            `json:"UserPoolId"`
-	ProviderName    string            `json:"ProviderName"`
+	UserPoolID      string            `json:"UserPoolId,omitempty"`
+	ProviderName    string            `json:"ProviderName,omitempty"`
 }
 
 type updateIdentityProviderOutput struct {
@@ -460,8 +460,8 @@ func (h *Handler) handleUpdateIdentityProvider(
 // ----- Managed Login Branding -----
 
 type createManagedLoginBrandingInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type managedLoginBrandingType struct {
@@ -491,8 +491,8 @@ func (h *Handler) handleCreateManagedLoginBranding(
 }
 
 type deleteManagedLoginBrandingInput struct {
-	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId"`
-	UserPoolID             string `json:"UserPoolId"`
+	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID             string `json:"UserPoolId,omitempty"`
 }
 
 type deleteManagedLoginBrandingOutput struct{}
@@ -509,8 +509,8 @@ func (h *Handler) handleDeleteManagedLoginBranding(
 }
 
 type describeManagedLoginBrandingInput struct {
-	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId"`
-	UserPoolID             string `json:"UserPoolId"`
+	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID             string `json:"UserPoolId,omitempty"`
 }
 
 type describeManagedLoginBrandingOutput struct {
@@ -535,8 +535,8 @@ func (h *Handler) handleDescribeManagedLoginBranding(
 }
 
 type describeManagedLoginBrandingByClientInput struct {
-	ClientID   string `json:"ClientId"`
-	UserPoolID string `json:"UserPoolId"`
+	ClientID   string `json:"ClientId,omitempty"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type describeManagedLoginBrandingByClientOutput struct {
@@ -561,8 +561,8 @@ func (h *Handler) handleDescribeManagedLoginBrandingByClient(
 }
 
 type updateManagedLoginBrandingInput struct {
-	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId"`
-	UserPoolID             string `json:"UserPoolId"`
+	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID             string `json:"UserPoolId,omitempty"`
 }
 
 type updateManagedLoginBrandingOutput struct {
@@ -596,9 +596,9 @@ type resourceServerType struct {
 }
 
 type createResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
-	Name       string `json:"Name"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
+	Name       string `json:"Name,omitempty"`
 }
 
 type createResourceServerOutput struct {
@@ -615,8 +615,8 @@ func (h *Handler) handleCreateResourceServer(
 }
 
 type deleteResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
 }
 
 type deleteResourceServerOutput struct{}
@@ -629,8 +629,8 @@ func (h *Handler) handleDeleteResourceServer(
 }
 
 type describeResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
 }
 
 type describeResourceServerOutput struct {
@@ -647,11 +647,11 @@ func (h *Handler) handleDescribeResourceServer(
 }
 
 type listResourceServersInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type listResourceServersOutput struct {
-	ResourceServers []resourceServerType `json:"ResourceServers"`
+	ResourceServers []resourceServerType `json:"ResourceServers,omitempty"`
 }
 
 func (h *Handler) handleListResourceServers(
@@ -662,9 +662,9 @@ func (h *Handler) handleListResourceServers(
 }
 
 type updateResourceServerInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Identifier string `json:"Identifier"`
-	Name       string `json:"Name"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Identifier string `json:"Identifier,omitempty"`
+	Name       string `json:"Name,omitempty"`
 }
 
 type updateResourceServerOutput struct {
@@ -687,7 +687,7 @@ type termsType struct {
 }
 
 type createTermsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type createTermsOutput struct {
@@ -704,7 +704,7 @@ func (h *Handler) handleCreateTerms(_ context.Context, in *createTermsInput) (*c
 }
 
 type deleteTermsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type deleteTermsOutput struct{}
@@ -718,7 +718,7 @@ func (h *Handler) handleDeleteTerms(_ context.Context, in *deleteTermsInput) (*d
 }
 
 type describeTermsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type describeTermsOutput struct {
@@ -735,7 +735,7 @@ func (h *Handler) handleDescribeTerms(_ context.Context, in *describeTermsInput)
 }
 
 type listTermsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type listTermsOutput struct {
@@ -757,7 +757,7 @@ func (h *Handler) handleListTerms(_ context.Context, in *listTermsInput) (*listT
 }
 
 type updateTermsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type updateTermsOutput struct {
@@ -783,8 +783,8 @@ type userImportJobType struct {
 }
 
 type createUserImportJobInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	JobName    string `json:"JobName"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	JobName    string `json:"JobName,omitempty"`
 }
 
 type createUserImportJobOutput struct {
@@ -811,8 +811,8 @@ func (h *Handler) handleCreateUserImportJob(
 }
 
 type describeUserImportJobInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	JobID      string `json:"JobId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	JobID      string `json:"JobId,omitempty"`
 }
 
 type describeUserImportJobOutput struct {
@@ -839,11 +839,11 @@ func (h *Handler) handleDescribeUserImportJob(
 }
 
 type listUserImportJobsInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type listUserImportJobsOutput struct {
-	UserImportJobs []userImportJobType `json:"UserImportJobs"`
+	UserImportJobs []userImportJobType `json:"UserImportJobs,omitempty"`
 }
 
 func (h *Handler) handleListUserImportJobs(
@@ -869,8 +869,8 @@ func (h *Handler) handleListUserImportJobs(
 }
 
 type startUserImportJobInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	JobID      string `json:"JobId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	JobID      string `json:"JobId,omitempty"`
 }
 
 type startUserImportJobOutput struct {
@@ -897,8 +897,8 @@ func (h *Handler) handleStartUserImportJob(
 }
 
 type stopUserImportJobInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	JobID      string `json:"JobId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	JobID      string `json:"JobId,omitempty"`
 }
 
 type stopUserImportJobOutput struct {
@@ -927,8 +927,8 @@ func (h *Handler) handleStopUserImportJob(
 // ----- User Pool Domain -----
 
 type createUserPoolDomainInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Domain     string `json:"Domain"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Domain     string `json:"Domain,omitempty"`
 }
 
 type createUserPoolDomainOutput struct {
@@ -948,8 +948,8 @@ func (h *Handler) handleCreateUserPoolDomain(
 }
 
 type deleteUserPoolDomainInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Domain     string `json:"Domain"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Domain     string `json:"Domain,omitempty"`
 }
 
 type deleteUserPoolDomainOutput struct{}
@@ -966,7 +966,7 @@ func (h *Handler) handleDeleteUserPoolDomain(
 }
 
 type describeUserPoolDomainInput struct {
-	Domain string `json:"Domain"`
+	Domain string `json:"Domain,omitempty"`
 }
 
 type userPoolDomainDescription struct {
@@ -1001,8 +1001,8 @@ func (h *Handler) handleDescribeUserPoolDomain(
 }
 
 type updateUserPoolDomainInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	Domain     string `json:"Domain"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Domain     string `json:"Domain,omitempty"`
 }
 
 type updateUserPoolDomainOutput struct {
@@ -1024,8 +1024,8 @@ func (h *Handler) handleUpdateUserPoolDomain(
 // ----- WebAuthn -----
 
 type deleteWebAuthnCredentialInput struct {
-	AccessToken  string `json:"AccessToken"`
-	CredentialID string `json:"CredentialId"`
+	AccessToken  string `json:"AccessToken,omitempty"`
+	CredentialID string `json:"CredentialId,omitempty"`
 }
 
 type deleteWebAuthnCredentialOutput struct{}
@@ -1038,11 +1038,11 @@ func (h *Handler) handleDeleteWebAuthnCredential(
 }
 
 type listWebAuthnCredentialsInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type listWebAuthnCredentialsOutput struct {
-	Credentials []map[string]any `json:"Credentials"`
+	Credentials []map[string]any `json:"Credentials,omitempty"`
 }
 
 func (h *Handler) handleListWebAuthnCredentials(
@@ -1053,7 +1053,7 @@ func (h *Handler) handleListWebAuthnCredentials(
 }
 
 type startWebAuthnRegistrationInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type startWebAuthnRegistrationOutput struct {
@@ -1070,7 +1070,7 @@ func (h *Handler) handleStartWebAuthnRegistration(
 // ----- Risk Configuration -----
 
 type describeRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
@@ -1092,7 +1092,7 @@ func (h *Handler) handleDescribeRiskConfiguration(
 }
 
 type setRiskConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
@@ -1114,7 +1114,7 @@ func (h *Handler) handleSetRiskConfiguration(
 // ----- Log Delivery -----
 
 type getLogDeliveryConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type getLogDeliveryConfigurationOutput struct {
@@ -1139,7 +1139,7 @@ func (h *Handler) handleGetLogDeliveryConfiguration(
 }
 
 type setLogDeliveryConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type setLogDeliveryConfigurationOutput struct {
@@ -1160,8 +1160,8 @@ func (h *Handler) handleSetLogDeliveryConfiguration(
 // ----- Tokens -----
 
 type getTokensFromRefreshTokenInput struct {
-	RefreshToken string `json:"RefreshToken"`
-	ClientID     string `json:"ClientId"`
+	RefreshToken string `json:"RefreshToken,omitempty"`
+	ClientID     string `json:"ClientId,omitempty"`
 }
 
 type getTokensFromRefreshTokenOutput struct {
@@ -1197,7 +1197,7 @@ type uiCustomizationType struct {
 }
 
 type getUICustomizationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
@@ -1222,7 +1222,7 @@ func (h *Handler) handleGetUICustomization(
 }
 
 type setUICustomizationInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 	CSS        string `json:"CSS,omitempty"`
 }
@@ -1250,8 +1250,8 @@ func (h *Handler) handleSetUICustomization(
 // ----- User Attribute Verification -----
 
 type getUserAttributeVerificationCodeInput struct {
-	AccessToken   string `json:"AccessToken"`
-	AttributeName string `json:"AttributeName"`
+	AccessToken   string `json:"AccessToken,omitempty"`
+	AttributeName string `json:"AttributeName,omitempty"`
 }
 
 type getUserAttributeVerificationCodeOutput struct {
@@ -1274,12 +1274,12 @@ func (h *Handler) handleGetUserAttributeVerificationCode(
 // ----- User Auth Factors -----
 
 type getUserAuthFactorsInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type getUserAuthFactorsOutput struct {
 	Username                  string   `json:"Username,omitempty"`
-	ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors"`
+	ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors,omitempty"`
 }
 
 func (h *Handler) handleGetUserAuthFactors(
@@ -1292,11 +1292,11 @@ func (h *Handler) handleGetUserAuthFactors(
 // ----- Devices -----
 
 type listDevicesInput struct {
-	AccessToken string `json:"AccessToken"`
+	AccessToken string `json:"AccessToken,omitempty"`
 }
 
 type listDevicesOutput struct {
-	Devices []deviceType `json:"Devices"`
+	Devices []deviceType `json:"Devices,omitempty"`
 }
 
 func (h *Handler) handleListDevices(_ context.Context, _ *listDevicesInput) (*listDevicesOutput, error) {
@@ -1304,8 +1304,8 @@ func (h *Handler) handleListDevices(_ context.Context, _ *listDevicesInput) (*li
 }
 
 type forgetDeviceInput struct {
-	AccessToken string `json:"AccessToken"`
-	DeviceKey   string `json:"DeviceKey"`
+	AccessToken string `json:"AccessToken,omitempty"`
+	DeviceKey   string `json:"DeviceKey,omitempty"`
 }
 
 type forgetDeviceOutput struct{}
@@ -1315,8 +1315,8 @@ func (h *Handler) handleForgetDevice(_ context.Context, _ *forgetDeviceInput) (*
 }
 
 type getDeviceInput struct {
-	AccessToken string `json:"AccessToken"`
-	DeviceKey   string `json:"DeviceKey"`
+	AccessToken string `json:"AccessToken,omitempty"`
+	DeviceKey   string `json:"DeviceKey,omitempty"`
 }
 
 type getDeviceOutput struct {
@@ -1328,9 +1328,9 @@ func (h *Handler) handleGetDevice(_ context.Context, _ *getDeviceInput) (*getDev
 }
 
 type updateDeviceStatusInput struct {
-	AccessToken            string `json:"AccessToken"`
-	DeviceKey              string `json:"DeviceKey"`
-	DeviceRememberedStatus string `json:"DeviceRememberedStatus"`
+	AccessToken            string `json:"AccessToken,omitempty"`
+	DeviceKey              string `json:"DeviceKey,omitempty"`
+	DeviceRememberedStatus string `json:"DeviceRememberedStatus,omitempty"`
 }
 
 type updateDeviceStatusOutput struct{}
@@ -1345,12 +1345,12 @@ func (h *Handler) handleUpdateDeviceStatus(
 // ----- CSV Header -----
 
 type getCSVHeaderInput struct {
-	UserPoolID string `json:"UserPoolId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
 }
 
 type getCSVHeaderOutput struct {
 	UserPoolID string   `json:"UserPoolId,omitempty"`
-	CSVHeader  []string `json:"CSVHeader"`
+	CSVHeader  []string `json:"CSVHeader,omitempty"`
 }
 
 func (h *Handler) handleGetCSVHeader(_ context.Context, in *getCSVHeaderInput) (*getCSVHeaderOutput, error) {
@@ -1363,11 +1363,11 @@ func (h *Handler) handleGetCSVHeader(_ context.Context, in *getCSVHeaderInput) (
 // ----- Tags -----
 
 type listTagsForResourceInput struct {
-	ResourceArn string `json:"ResourceArn"`
+	ResourceArn string `json:"ResourceArn,omitempty"`
 }
 
 type listTagsForResourceOutput struct {
-	Tags map[string]string `json:"Tags"`
+	Tags map[string]string `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -1383,8 +1383,8 @@ func (h *Handler) handleListTagsForResource(
 }
 
 type tagResourceInput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn"`
+	Tags        map[string]string `json:"Tags,omitempty"`
+	ResourceArn string            `json:"ResourceArn,omitempty"`
 }
 
 type tagResourceOutput struct{}
@@ -1396,8 +1396,8 @@ func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*t
 }
 
 type untagResourceInput struct {
-	ResourceArn string   `json:"ResourceArn"`
-	TagKeys     []string `json:"TagKeys"`
+	ResourceArn string   `json:"ResourceArn,omitempty"`
+	TagKeys     []string `json:"TagKeys,omitempty"`
 }
 
 type untagResourceOutput struct{}
@@ -1411,9 +1411,9 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 // ----- User Pool Client Secret -----
 
 type deleteUserPoolClientSecretInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
-	SecretHash string `json:"SecretHash"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
+	SecretHash string `json:"SecretHash,omitempty"`
 }
 
 type deleteUserPoolClientSecretOutput struct{}
@@ -1430,8 +1430,8 @@ func (h *Handler) handleDeleteUserPoolClientSecret(
 }
 
 type listUserPoolClientSecretsInput struct {
-	UserPoolID string `json:"UserPoolId"`
-	ClientID   string `json:"ClientId"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type listUserPoolClientSecretsOutput struct {
@@ -1455,7 +1455,7 @@ func (h *Handler) handleListUserPoolClientSecrets(
 type setUserMFAPreferenceInput struct {
 	SMSMfaSettings           *mfaSettings `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *mfaSettings `json:"SoftwareTokenMfaSettings,omitempty"`
-	AccessToken              string       `json:"AccessToken"`
+	AccessToken              string       `json:"AccessToken,omitempty"`
 }
 
 type setUserMFAPreferenceOutput struct{}
@@ -1468,8 +1468,8 @@ func (h *Handler) handleSetUserMFAPreference(
 }
 
 type setUserSettingsInput struct {
-	AccessToken string              `json:"AccessToken"`
-	MFAOptions  []map[string]string `json:"MFAOptions"`
+	AccessToken string              `json:"AccessToken,omitempty"`
+	MFAOptions  []map[string]string `json:"MFAOptions,omitempty"`
 }
 
 type setUserSettingsOutput struct{}
@@ -1481,11 +1481,11 @@ func (h *Handler) handleSetUserSettings(_ context.Context, _ *setUserSettingsInp
 // ----- Auth Event Feedback -----
 
 type updateAuthEventFeedbackInput struct {
-	UserPoolID    string `json:"UserPoolId"`
-	Username      string `json:"Username"`
-	EventID       string `json:"EventId"`
-	FeedbackToken string `json:"FeedbackToken"`
-	FeedbackValue string `json:"FeedbackValue"`
+	UserPoolID    string `json:"UserPoolId,omitempty"`
+	Username      string `json:"Username,omitempty"`
+	EventID       string `json:"EventId,omitempty"`
+	FeedbackToken string `json:"FeedbackToken,omitempty"`
+	FeedbackValue string `json:"FeedbackValue,omitempty"`
 }
 
 type updateAuthEventFeedbackOutput struct{}
@@ -1500,8 +1500,8 @@ func (h *Handler) handleUpdateAuthEventFeedback(
 // ----- Respond To Auth Challenge -----
 
 type respondToAuthChallengeInput struct {
-	ClientID           string            `json:"ClientId"`
-	ChallengeName      string            `json:"ChallengeName"`
+	ClientID           string            `json:"ClientId,omitempty"`
+	ChallengeName      string            `json:"ChallengeName,omitempty"`
 	ChallengeResponses map[string]string `json:"ChallengeResponses,omitempty"`
 	Session            string            `json:"Session,omitempty"`
 }
@@ -1541,8 +1541,8 @@ func (h *Handler) handleRespondToAuthChallenge(
 // ----- Verify Software Token -----
 
 type verifySoftwareTokenInput struct {
-	AccessToken        string `json:"AccessToken"`
-	UserCode           string `json:"UserCode"`
+	AccessToken        string `json:"AccessToken,omitempty"`
+	UserCode           string `json:"UserCode,omitempty"`
 	FriendlyDeviceName string `json:"FriendlyDeviceName,omitempty"`
 	Session            string `json:"Session,omitempty"`
 }

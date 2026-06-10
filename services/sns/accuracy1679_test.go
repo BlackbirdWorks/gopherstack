@@ -1392,10 +1392,14 @@ func TestTopicAttributeRoundTrips(t *testing.T) {
 	}{
 		{"DisplayName", "DisplayName", "My Test Topic"},
 		{"HTTPSuccessFeedbackSampleRate", "HTTPSuccessFeedbackSampleRate", "100"},
-		{"SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackRoleArn",
-			"arn:aws:iam::000000000000:role/sqs-feedback"},
-		{"LambdaFailureFeedbackRoleArn", "LambdaFailureFeedbackRoleArn",
-			"arn:aws:iam::000000000000:role/lambda-feedback"},
+		{
+			"SQSSuccessFeedbackRoleArn", "SQSSuccessFeedbackRoleArn",
+			"arn:aws:iam::000000000000:role/sqs-feedback",
+		},
+		{
+			"LambdaFailureFeedbackRoleArn", "LambdaFailureFeedbackRoleArn",
+			"arn:aws:iam::000000000000:role/lambda-feedback",
+		},
 	}
 
 	for _, tc := range cases {

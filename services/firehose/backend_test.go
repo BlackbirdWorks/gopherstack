@@ -33,7 +33,7 @@ func TestCreateDeliveryStream(t *testing.T) {
 			name:       "already_exists",
 			streamName: "my-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "my-stream"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "my-stream"})
 			},
 			wantErr: firehose.ErrAlreadyExists,
 		},
@@ -46,7 +46,7 @@ func TestCreateDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			s, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: tt.streamName})
+			s, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: tt.streamName})
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -74,7 +74,7 @@ func TestDeleteDeliveryStream(t *testing.T) {
 			name:       "success",
 			streamName: "my-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "my-stream"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "my-stream"})
 			},
 		},
 		{
@@ -91,7 +91,7 @@ func TestDeleteDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.DeleteDeliveryStream(tt.streamName)
+			err := b.DeleteDeliveryStream(context.TODO(), tt.streamName)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -99,7 +99,7 @@ func TestDeleteDeliveryStream(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			names := b.ListDeliveryStreams()
+			names := b.ListDeliveryStreams(context.TODO())
 			assert.Empty(t, names)
 		})
 	}
@@ -118,7 +118,7 @@ func TestDescribeDeliveryStream(t *testing.T) {
 			name:       "success",
 			streamName: "my-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "my-stream"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "my-stream"})
 			},
 		},
 		{
@@ -135,7 +135,7 @@ func TestDescribeDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			s, err := b.DescribeDeliveryStream(tt.streamName)
+			s, err := b.DescribeDeliveryStream(context.TODO(), tt.streamName)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -152,9 +152,9 @@ func TestPutRecord(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "my-stream"})
+	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "my-stream"})
 
-	err := b.PutRecord("my-stream", []byte("hello world"))
+	err := b.PutRecord(context.TODO(), "my-stream", []byte("hello world"))
 	require.NoError(t, err)
 }
 
@@ -162,9 +162,9 @@ func TestPutRecordBatch(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "my-stream"})
+	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "my-stream"})
 
-	failed, err := b.PutRecordBatch("my-stream", [][]byte{[]byte("a"), []byte("b")})
+	failed, err := b.PutRecordBatch(context.TODO(), "my-stream", [][]byte{[]byte("a"), []byte("b")})
 	require.NoError(t, err)
 	assert.Equal(t, 0, failed)
 }
@@ -173,10 +173,10 @@ func TestListDeliveryStreams(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "s1"})
-	_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "s2"})
+	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s1"})
+	_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "s2"})
 
-	names := b.ListDeliveryStreams()
+	names := b.ListDeliveryStreams(context.TODO())
 	assert.Len(t, names, 2)
 }
 
@@ -195,7 +195,7 @@ func TestTagDeliveryStream(t *testing.T) {
 			name:       "success",
 			streamName: "tagged-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "tagged-stream"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "tagged-stream"})
 			},
 			tags:     map[string]string{"env": "prod", "team": "platform"},
 			wantTags: map[string]string{"env": "prod", "team": "platform"},
@@ -204,8 +204,11 @@ func TestTagDeliveryStream(t *testing.T) {
 			name:       "overwrite",
 			streamName: "overwrite-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "overwrite-stream"})
-				_ = b.TagDeliveryStream("overwrite-stream", map[string]string{"env": "dev"})
+				_, _ = b.CreateDeliveryStream(
+					context.TODO(),
+					firehose.CreateDeliveryStreamInput{Name: "overwrite-stream"},
+				)
+				_ = b.TagDeliveryStream(context.TODO(), "overwrite-stream", map[string]string{"env": "dev"})
 			},
 			tags:     map[string]string{"env": "prod"},
 			wantTags: map[string]string{"env": "prod"},
@@ -225,7 +228,7 @@ func TestTagDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.TagDeliveryStream(tt.streamName, tt.tags)
+			err := b.TagDeliveryStream(context.TODO(), tt.streamName, tt.tags)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -233,7 +236,7 @@ func TestTagDeliveryStream(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			tags, err := b.ListTagsForDeliveryStream(context.TODO(), tt.streamName)
 			require.NoError(t, err)
 			for k, v := range tt.wantTags {
 				assert.Equal(t, v, tags[k])
@@ -258,8 +261,12 @@ func TestUntagDeliveryStream(t *testing.T) {
 			name:       "success",
 			streamName: "untag-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "untag-stream"})
-				_ = b.TagDeliveryStream("untag-stream", map[string]string{"env": "prod", "team": "platform"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "untag-stream"})
+				_ = b.TagDeliveryStream(
+					context.TODO(),
+					"untag-stream",
+					map[string]string{"env": "prod", "team": "platform"},
+				)
 			},
 			keysToRemove:   []string{"env"},
 			wantAbsentKeys: []string{"env"},
@@ -280,7 +287,7 @@ func TestUntagDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.UntagDeliveryStream(tt.streamName, tt.keysToRemove)
+			err := b.UntagDeliveryStream(context.TODO(), tt.streamName, tt.keysToRemove)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -288,7 +295,7 @@ func TestUntagDeliveryStream(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			tags, err := b.ListTagsForDeliveryStream(context.TODO(), tt.streamName)
 			require.NoError(t, err)
 			for _, k := range tt.wantAbsentKeys {
 				assert.NotContains(t, tags, k)
@@ -319,7 +326,7 @@ func TestListTagsForDeliveryStream(t *testing.T) {
 			name:       "empty",
 			streamName: "empty-tags",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "empty-tags"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "empty-tags"})
 			},
 			wantEmpty: true,
 		},
@@ -332,7 +339,7 @@ func TestListTagsForDeliveryStream(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			tags, err := b.ListTagsForDeliveryStream(context.TODO(), tt.streamName)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -394,7 +401,7 @@ func TestS3Delivery_SizeBasedFlush(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetS3Backend(s3mock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "flush-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::my-bucket",
@@ -408,12 +415,12 @@ func TestS3Delivery_SizeBasedFlush(t *testing.T) {
 
 	// Write just under 1 MB — should not flush yet.
 	underLimit := make([]byte, 900*1024)
-	require.NoError(t, b.PutRecord("flush-stream", underLimit))
+	require.NoError(t, b.PutRecord(context.TODO(), "flush-stream", underLimit))
 	assert.Empty(t, s3mock.calls, "should not flush before size limit")
 
 	// Push over 1 MB — should trigger a flush.
 	overLimit := make([]byte, 200*1024)
-	require.NoError(t, b.PutRecord("flush-stream", overLimit))
+	require.NoError(t, b.PutRecord(context.TODO(), "flush-stream", overLimit))
 	assert.Len(t, s3mock.calls, 1, "should have flushed to S3")
 	assert.Equal(t, "my-bucket", s3mock.calls[0].bucket)
 }
@@ -425,7 +432,7 @@ func TestS3Delivery_FlushAll(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetS3Backend(s3mock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "flush-all-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::flush-bucket",
@@ -433,7 +440,7 @@ func TestS3Delivery_FlushAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("flush-all-stream", []byte("hello")))
+	require.NoError(t, b.PutRecord(context.TODO(), "flush-all-stream", []byte("hello")))
 	b.FlushAll(t.Context())
 
 	require.Len(t, s3mock.calls, 1)
@@ -448,7 +455,7 @@ func TestS3Delivery_GzipCompression(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetS3Backend(s3mock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "gzip-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN:         "arn:aws:s3:::gzip-bucket",
@@ -457,7 +464,7 @@ func TestS3Delivery_GzipCompression(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("gzip-stream", []byte("compressed content")))
+	require.NoError(t, b.PutRecord(context.TODO(), "gzip-stream", []byte("compressed content")))
 	b.FlushAll(t.Context())
 
 	require.Len(t, s3mock.calls, 1)
@@ -470,7 +477,7 @@ func TestS3Delivery_NoS3Backend(t *testing.T) {
 
 	// Without S3 backend, records are buffered but no delivery is attempted.
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "no-s3-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::bucket",
@@ -483,8 +490,8 @@ func TestS3Delivery_NoS3Backend(t *testing.T) {
 
 	// Two records of 512 KB each sum to 1 MB and would trigger a size-based flush —
 	// but with no S3 backend wired up, no delivery should be attempted.
-	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
-	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord(context.TODO(), "no-s3-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord(context.TODO(), "no-s3-stream", make([]byte, 512*1024)))
 }
 
 func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
@@ -502,7 +509,7 @@ func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
 	b.SetS3Backend(s3mock)
 	b.SetLambdaBackend(lambdaMock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "lambda-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::transform-bucket",
@@ -521,7 +528,7 @@ func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("lambda-stream", []byte("input")))
+	require.NoError(t, b.PutRecord(context.TODO(), "lambda-stream", []byte("input")))
 	b.FlushAll(t.Context())
 
 	require.Len(t, s3mock.calls, 1)
@@ -540,7 +547,7 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 	b.SetS3Backend(s3mock)
 	b.SetLambdaBackend(lambdaMock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "drop-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::drop-bucket",
@@ -559,7 +566,7 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("drop-stream", []byte("input")))
+	require.NoError(t, b.PutRecord(context.TODO(), "drop-stream", []byte("input")))
 	b.FlushAll(t.Context())
 
 	// All records dropped → no S3 delivery.
@@ -573,7 +580,7 @@ func TestDeliverToS3_EmptyRecord(t *testing.T) {
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "empty-rec-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::empty-bucket",
@@ -582,7 +589,7 @@ func TestDeliverToS3_EmptyRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	// AWS rejects empty records at ingestion.
-	err = b.PutRecord("empty-rec-stream", []byte{})
+	err = b.PutRecord(context.TODO(), "empty-rec-stream", []byte{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, firehose.ErrValidation)
 }
@@ -594,7 +601,7 @@ func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "all-empty-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::empty-bucket",
@@ -603,7 +610,7 @@ func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
 	require.NoError(t, err)
 
 	// Batch with empty records is rejected.
-	_, batchErr := b.PutRecordBatch("all-empty-stream", [][]byte{{}, {}})
+	_, batchErr := b.PutRecordBatch(context.TODO(), "all-empty-stream", [][]byte{{}, {}})
 	require.Error(t, batchErr)
 	assert.ErrorIs(t, batchErr, firehose.ErrValidation)
 }
@@ -615,19 +622,19 @@ func TestDeleteDeliveryStream_ClosesTags(t *testing.T) {
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "tag-leak-stream",
 	})
 	require.NoError(t, err)
 
 	// Tag the stream so the Tags collection is active.
-	require.NoError(t, b.TagDeliveryStream("tag-leak-stream", map[string]string{"env": "test"}))
+	require.NoError(t, b.TagDeliveryStream(context.TODO(), "tag-leak-stream", map[string]string{"env": "test"}))
 
 	// Delete must succeed without panicking; tags are closed internally.
-	require.NoError(t, b.DeleteDeliveryStream("tag-leak-stream"))
+	require.NoError(t, b.DeleteDeliveryStream(context.TODO(), "tag-leak-stream"))
 
 	// Subsequent lookup must return not-found.
-	_, descErr := b.DescribeDeliveryStream("tag-leak-stream")
+	_, descErr := b.DescribeDeliveryStream(context.TODO(), "tag-leak-stream")
 	require.Error(t, descErr)
 	assert.ErrorIs(t, descErr, firehose.ErrNotFound)
 }
@@ -644,7 +651,7 @@ func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
 	b.SetS3Backend(s3mock)
 	b.SetLambdaBackend(lambdaMock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "err-lambda-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::err-bucket",
@@ -663,7 +670,7 @@ func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutRecord("err-lambda-stream", []byte("input")))
+	require.NoError(t, b.PutRecord(context.TODO(), "err-lambda-stream", []byte("input")))
 	b.FlushAll(t.Context())
 
 	// Lambda error → records must not be delivered to S3.
@@ -680,7 +687,7 @@ func TestPutRecord_FlushSnapshotUnderLock(t *testing.T) {
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetS3Backend(s3mock)
 
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{
 		Name: "atomic-flush-stream",
 		S3Destination: &firehose.S3DestinationDescription{
 			BucketARN: "arn:aws:s3:::atomic-bucket",
@@ -693,12 +700,12 @@ func TestPutRecord_FlushSnapshotUnderLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Two records of 512 KB each sum to 1 MB and trigger one size-based flush.
-	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
-	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord(context.TODO(), "atomic-flush-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord(context.TODO(), "atomic-flush-stream", make([]byte, 512*1024)))
 
 	// After the flush, the buffer is zeroed; a small subsequent record should not
 	// trigger another flush automatically.
-	require.NoError(t, b.PutRecord("atomic-flush-stream", []byte("small")))
+	require.NoError(t, b.PutRecord(context.TODO(), "atomic-flush-stream", []byte("small")))
 
 	// Only one S3 delivery should have occurred (from the over-limit puts).
 	assert.Len(t, s3mock.calls, 1)
@@ -718,7 +725,7 @@ func TestUpdateDestination(t *testing.T) {
 			name:       "success",
 			streamName: "update-stream",
 			setup: func(b *firehose.InMemoryBackend) {
-				_, _ = b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "update-stream"})
+				_, _ = b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "update-stream"})
 			},
 			newDest: &firehose.S3DestinationDescription{BucketARN: "arn:aws:s3:::new-bucket"},
 		},
@@ -736,7 +743,7 @@ func TestUpdateDestination(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.UpdateDestination(tt.streamName, "", tt.newDest)
+			err := b.UpdateDestination(context.TODO(), tt.streamName, "", tt.newDest)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -744,7 +751,7 @@ func TestUpdateDestination(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			s, descErr := b.DescribeDeliveryStream(tt.streamName)
+			s, descErr := b.DescribeDeliveryStream(context.TODO(), tt.streamName)
 			require.NoError(t, descErr)
 			require.NotNil(t, s.S3Destination)
 			assert.Equal(t, "arn:aws:s3:::new-bucket", s.S3Destination.BucketARN)
@@ -759,11 +766,11 @@ func TestListDeliveryStreams_SortedOrder(t *testing.T) {
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	for _, name := range []string{"zebra-stream", "alpha-stream", "middle-stream"} {
-		_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: name})
+		_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: name})
 		require.NoError(t, err)
 	}
 
-	names := b.ListDeliveryStreams()
+	names := b.ListDeliveryStreams(context.TODO())
 	require.Len(t, names, 3)
 	assert.Equal(t, []string{"alpha-stream", "middle-stream", "zebra-stream"}, names)
 }
@@ -774,11 +781,11 @@ func TestPutRecord_RecordTooLarge(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "limit-stream"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "limit-stream"})
 	require.NoError(t, err)
 
 	oversized := make([]byte, 1_001*1024) // 1,001 KB — one byte over the limit
-	putErr := b.PutRecord("limit-stream", oversized)
+	putErr := b.PutRecord(context.TODO(), "limit-stream", oversized)
 	require.Error(t, putErr)
 	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
 }
@@ -789,7 +796,7 @@ func TestPutRecordBatch_TooManyRecords(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-limit-stream"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "batch-limit-stream"})
 	require.NoError(t, err)
 
 	records := make([][]byte, 501)
@@ -797,7 +804,7 @@ func TestPutRecordBatch_TooManyRecords(t *testing.T) {
 		records[i] = []byte("x")
 	}
 
-	_, putErr := b.PutRecordBatch("batch-limit-stream", records)
+	_, putErr := b.PutRecordBatch(context.TODO(), "batch-limit-stream", records)
 	require.Error(t, putErr)
 	assert.ErrorIs(t, putErr, firehose.ErrBatchTooLarge)
 }
@@ -808,7 +815,7 @@ func TestPutRecordBatch_RecordInBatchTooLarge(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-rec-limit-stream"})
+	_, err := b.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "batch-rec-limit-stream"})
 	require.NoError(t, err)
 
 	records := [][]byte{
@@ -816,7 +823,7 @@ func TestPutRecordBatch_RecordInBatchTooLarge(t *testing.T) {
 		make([]byte, 1_001*1024), // oversized second record
 	}
 
-	_, putErr := b.PutRecordBatch("batch-rec-limit-stream", records)
+	_, putErr := b.PutRecordBatch(context.TODO(), "batch-rec-limit-stream", records)
 	require.Error(t, putErr)
 	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
 }

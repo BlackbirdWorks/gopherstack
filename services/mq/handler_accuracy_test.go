@@ -967,7 +967,8 @@ func TestAccuracy_ListConfigurations_MaxResults(t *testing.T) {
 		createAccuracyConfig(t, h, "cfg-paginate-"+string(rune('a'+i)), mq.EngineTypeActiveMQ)
 	}
 
-	rec := doAccuracyMQ(t, h, http.MethodGet,
+	rec := doAccuracyMQ(
+		t, h, http.MethodGet,
 		"/v1/configurations?maxResults=3",
 		nil,
 	)

@@ -288,7 +288,8 @@ func (h *Handler) handleGetResourcePolicy(c *echo.Context) error {
 	return xmlResp(c, http.StatusOK, fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
 			`<ResourcePolicy xmlns="%s"><Policy>%s</Policy></ResourcePolicy>`,
-		cfNS, policy))
+		cfNS, policy,
+	))
 }
 
 func (h *Handler) handlePutResourcePolicy(c *echo.Context) error {
@@ -503,7 +504,8 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, _ string) error 
 			`<TestResult xmlns="%s">`+
 			`<FunctionExecutionLogs><member>Test passed</member></FunctionExecutionLogs>`+
 			`</TestResult>`,
-		cfNS))
+		cfNS,
+	))
 }
 
 // ---------------------------------------------------------------------------

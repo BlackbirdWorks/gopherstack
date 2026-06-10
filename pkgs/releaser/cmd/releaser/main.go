@@ -20,7 +20,8 @@ type cli struct {
 
 func main() {
 	var c cli
-	kctx := kong.Parse(&c,
+	kctx := kong.Parse(
+		&c,
 		kong.Name("releaser"),
 		kong.Description("Generate AI-powered release notes for Gopherstack."),
 	)

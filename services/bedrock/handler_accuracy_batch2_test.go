@@ -270,7 +270,8 @@ func TestAccuracy_MarketplaceEndpoint_CreateStartsAsCreating(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/marketplace-model/endpoints",
+			rec := doRequest(
+				t, h, http.MethodPost, "/marketplace-model/endpoints",
 				map[string]any{
 					"endpointName":          tt.endpointName,
 					"modelSourceIdentifier": tt.modelSourceID,
@@ -458,7 +459,8 @@ func TestAccuracy_LoggingConfig_RoundTrip(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			rec := doRequest(t, h, http.MethodPut, "/logging/modelinvocations",
+			rec := doRequest(
+				t, h, http.MethodPut, "/logging/modelinvocations",
 				map[string]any{
 					"loggingEnabled": tt.enabled,
 					"s3BucketName":   tt.bucket,
@@ -666,7 +668,8 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 
-			rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs",
+			rec := doRequest(
+				t, h, http.MethodPost, "/model-customization-jobs",
 				map[string]any{
 					"jobName":           fmt.Sprintf("job-%s", tt.name),
 					"baseModelId":       "amazon.titan-text-express-v1",
@@ -1365,7 +1368,8 @@ func TestAccuracy_Guardrail_UpdatePreservesAllFields(t *testing.T) {
 			g, err := b.CreateGuardrail(tt.initialName, "", "", "", nil)
 			require.NoError(t, err)
 
-			rec := doRequest(t, h, http.MethodPut, "/guardrails/"+g.GuardrailID,
+			rec := doRequest(
+				t, h, http.MethodPut, "/guardrails/"+g.GuardrailID,
 				map[string]any{
 					"name":        tt.newName,
 					"description": tt.newDesc,
@@ -1411,7 +1415,8 @@ func TestAccuracy_PMT_UpdateCommitCountUnits(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			rec := doRequest(t, h, http.MethodPut,
+			rec := doRequest(
+				t, h, http.MethodPut,
 				"/provisioned-model-throughput/"+url.PathEscape(pmt.ProvisionedModelArn),
 				map[string]any{"desiredProvisionedModelThroughput": tt.newUnits},
 			)
@@ -1455,7 +1460,8 @@ func TestAccuracy_EnforcedGuardrail_PutAndList(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 
-			recPut := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
+			recPut := doRequest(
+				t, h, http.MethodPut, "/enforced-guardrail-configuration",
 				map[string]any{
 					"guardrailId":      tt.guardrailID,
 					"guardrailVersion": tt.guardrailVersion,
@@ -1573,7 +1579,8 @@ func TestAccuracy_Tags_TagGuardrailAfterCreate(t *testing.T) {
 			g, err := b.CreateGuardrail("tag-later-"+tt.name, "", "", "", nil)
 			require.NoError(t, err)
 
-			recTag := doRequest(t, h, http.MethodPost, "/tagResource",
+			recTag := doRequest(
+				t, h, http.MethodPost, "/tagResource",
 				map[string]any{
 					"resourceARN": g.GuardrailArn,
 					"tags":        []map[string]any{{"key": tt.key, "value": tt.val}},
@@ -1710,7 +1717,8 @@ func TestAccuracy_UseCaseForModelAccess_PutAndGet(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			recPut := doRequest(t, h, http.MethodPut, "/usecase-for-model-access",
+			recPut := doRequest(
+				t, h, http.MethodPut, "/usecase-for-model-access",
 				map[string]any{
 					"useCaseType":        tt.useCaseType,
 					"useCaseDescription": tt.description,

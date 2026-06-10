@@ -23,11 +23,11 @@ const (
 // remain visible for approximately one hour. It also removes cancelled/closed
 // spot instance requests after a separate TTL.
 type Janitor struct {
-	Backend          *InMemoryBackend
-	Interval         time.Duration
-	TerminatedTTL    time.Duration
-	CancelledSpotTTL time.Duration
-	TaskTimeout      time.Duration
+	Backend          *InMemoryBackend `json:"backend,omitempty"`
+	Interval         time.Duration    `json:"interval"`
+	TerminatedTTL    time.Duration    `json:"terminatedTTL"`
+	CancelledSpotTTL time.Duration    `json:"cancelledSpotTTL"`
+	TaskTimeout      time.Duration    `json:"taskTimeout"`
 }
 
 // NewJanitor creates a new EC2 Janitor for the given backend.

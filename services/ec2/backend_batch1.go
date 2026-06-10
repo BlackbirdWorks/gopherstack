@@ -35,12 +35,12 @@ const (
 type VolumeModification struct {
 	StartTime         time.Time `json:"startTime"`
 	EndTime           time.Time `json:"endTime"`
-	VolumeID          string    `json:"volumeID"`
-	ModificationState string    `json:"modificationState"`
-	TargetVolumeType  string    `json:"targetVolumeType"`
-	OrigVolumeType    string    `json:"origVolumeType"`
-	TargetSize        int       `json:"targetSize"`
-	OrigSize          int       `json:"origSize"`
+	VolumeID          string    `json:"volumeID,omitempty"`
+	ModificationState string    `json:"modificationState,omitempty"`
+	TargetVolumeType  string    `json:"targetVolumeType,omitempty"`
+	OrigVolumeType    string    `json:"origVolumeType,omitempty"`
+	TargetSize        int       `json:"targetSize,omitempty"`
+	OrigSize          int       `json:"origSize,omitempty"`
 	TargetIops        int       `json:"targetIops,omitempty"`
 	OrigIops          int       `json:"origIops,omitempty"`
 	Progress          int64     `json:"progress"`
@@ -48,41 +48,41 @@ type VolumeModification struct {
 
 // NetworkInterfacePermission is a permission granted on a network interface.
 type NetworkInterfacePermission struct {
-	PermissionID       string `json:"permissionID"`
-	NetworkInterfaceID string `json:"networkInterfaceID"`
+	PermissionID       string `json:"permissionID,omitempty"`
+	NetworkInterfaceID string `json:"networkInterfaceID,omitempty"`
 	AwsAccountID       string `json:"awsAccountID,omitempty"`
 	AwsService         string `json:"awsService,omitempty"`
-	Permission         string `json:"permission"`
-	State              string `json:"state"`
+	Permission         string `json:"permission,omitempty"`
+	State              string `json:"state,omitempty"`
 }
 
 // PeeringConnectionOptions holds DNS/routing options for a VPC peering connection.
 type PeeringConnectionOptions struct {
-	AllowDNSResolutionFromRemoteVPC            bool `json:"allowDnsResolutionFromRemoteVpc"`
-	AllowEgressFromLocalClassicLinkToRemoteVPC bool `json:"allowEgressFromLocalClassicLinkToRemoteVpc"`
-	AllowEgressFromLocalVPCToRemoteClassicLink bool `json:"allowEgressFromLocalVpcToRemoteClassicLink"`
+	AllowDNSResolutionFromRemoteVPC            bool `json:"allowDnsResolutionFromRemoteVpc,omitempty"`
+	AllowEgressFromLocalClassicLinkToRemoteVPC bool `json:"allowEgressFromLocalClassicLinkToRemoteVpc,omitempty"`
+	AllowEgressFromLocalVPCToRemoteClassicLink bool `json:"allowEgressFromLocalVpcToRemoteClassicLink,omitempty"`
 }
 
 // AddressAttribute holds domain-name attributes for an Elastic IP.
 type AddressAttribute struct {
-	AllocationID string `json:"allocationID"`
-	PublicIP     string `json:"publicIP"`
+	AllocationID string `json:"allocationID,omitempty"`
+	PublicIP     string `json:"publicIP,omitempty"`
 	DomainName   string `json:"domainName,omitempty"`
 }
 
 // InstanceMetadataDefaults holds account-level IMDS defaults.
 type InstanceMetadataDefaults struct {
-	HTTPTokens              string `json:"httpTokens"`
-	HTTPEndpoint            string `json:"httpEndpoint"`
-	InstanceMetadataTags    string `json:"instanceMetadataTags"`
-	HTTPPutResponseHopLimit int    `json:"httpPutResponseHopLimit"`
+	HTTPTokens              string `json:"httpTokens,omitempty"`
+	HTTPEndpoint            string `json:"httpEndpoint,omitempty"`
+	InstanceMetadataTags    string `json:"instanceMetadataTags,omitempty"`
+	HTTPPutResponseHopLimit int    `json:"httpPutResponseHopLimit,omitempty"`
 }
 
 // SubnetCIDRAssociation tracks an IPv6 CIDR associated with a subnet.
 type SubnetCIDRAssociation struct {
-	AssociationID string `json:"associationID"`
-	IPv6CIDRBlock string `json:"ipv6CidrBlock"`
-	State         string `json:"state"`
+	AssociationID string `json:"associationID,omitempty"`
+	IPv6CIDRBlock string `json:"ipv6CidrBlock,omitempty"`
+	State         string `json:"state,omitempty"`
 }
 
 // ---- ModifyVolume ----
@@ -139,10 +139,10 @@ func (b *InMemoryBackend) ModifyVolume(
 
 // VolumeStatusItem represents the status of a single EBS volume.
 type VolumeStatusItem struct {
-	VolumeID         string
-	AvailabilityZone string
-	VolumeStatus     string
-	StatusMessage    string
+	VolumeID         string `json:"volumeID,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	VolumeStatus     string `json:"volumeStatus,omitempty"`
+	StatusMessage    string `json:"statusMessage,omitempty"`
 }
 
 // DescribeVolumeStatus returns health status for the given volumes (all if ids is empty).
@@ -242,10 +242,10 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 
 // SnapshotEntry is used by CreateSnapshots to specify a volume.
 type SnapshotEntry struct {
-	VolumeID    string
-	SnapshotID  string
-	Description string
-	State       string
+	VolumeID    string `json:"volumeID,omitempty"`
+	SnapshotID  string `json:"snapshotID,omitempty"`
+	Description string `json:"description,omitempty"`
+	State       string `json:"state,omitempty"`
 }
 
 // CreateSnapshots creates one snapshot per volumeID in the list.
@@ -331,9 +331,9 @@ func (b *InMemoryBackend) DisableSnapshotBlockPublicAccess() {
 
 // SnapshotTierItem contains tier info for a single snapshot.
 type SnapshotTierItem struct {
-	SnapshotID  string
-	VolumeID    string
-	StorageTier string
+	SnapshotID  string `json:"snapshotID,omitempty"`
+	VolumeID    string `json:"volumeID,omitempty"`
+	StorageTier string `json:"storageTier,omitempty"`
 }
 
 // DescribeSnapshotTierStatus returns tier info for given snapshot IDs (or all).
@@ -518,9 +518,9 @@ func (b *InMemoryBackend) DisassociateSubnetCidrBlock(associationID string) (str
 
 // SGVpcAssociationState holds the state of a security group VPC association.
 type SGVpcAssociationState struct {
-	SGID  string
-	VPCID string
-	State string
+	SGID  string `json:"sgid,omitempty"`
+	VPCID string `json:"vpcid,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 // AssociateSecurityGroupVpc extends a security group to an additional VPC.
@@ -579,9 +579,9 @@ func (b *InMemoryBackend) DisassociateSecurityGroupVpc(sgID, vpcID string) error
 
 // SGReference represents a reference to a security group from another VPC.
 type SGReference struct {
-	GroupID                string
-	ReferencingVPCID       string
-	VpcPeeringConnectionID string
+	GroupID                string `json:"groupID,omitempty"`
+	ReferencingVPCID       string `json:"referencingVPCID,omitempty"`
+	VpcPeeringConnectionID string `json:"vpcPeeringConnectionID,omitempty"`
 }
 
 // DescribeSecurityGroupReferences returns cross-VPC references for the given SG IDs.
@@ -618,10 +618,10 @@ func (b *InMemoryBackend) DescribeSecurityGroupReferences(sgIDs []string) []SGRe
 
 // StaleSGItem is a stale security group entry.
 type StaleSGItem struct {
-	GroupID     string
-	GroupName   string
-	Description string
-	VPCID       string
+	GroupID     string `json:"groupID,omitempty"`
+	GroupName   string `json:"groupName,omitempty"`
+	Description string `json:"description,omitempty"`
+	VPCID       string `json:"vpcid,omitempty"`
 }
 
 // findDeletedPeerVPCsLocked returns VPC IDs with terminated peering connections to vpcID.
@@ -688,9 +688,9 @@ func (b *InMemoryBackend) DescribeStaleSecurityGroups(vpcID string) []StaleSGIte
 
 // SGVpcAssocItem is an entry returned by DescribeSecurityGroupVpcAssociations.
 type SGVpcAssocItem struct {
-	SGID  string
-	VPCID string
-	State string
+	SGID  string `json:"sgid,omitempty"`
+	VPCID string `json:"vpcid,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 // DescribeSecurityGroupVpcAssociations returns SG-VPC associations for the given SG IDs.
@@ -870,11 +870,11 @@ func (b *InMemoryBackend) GetConsoleOutput(instanceID string) (string, time.Time
 
 // IMDSOptions holds per-instance IMDS configuration.
 type IMDSOptions struct {
-	HTTPTokens              string `json:"httpTokens"`
-	HTTPEndpoint            string `json:"httpEndpoint"`
-	InstanceMetadataTags    string `json:"instanceMetadataTags"`
-	State                   string `json:"state"`
-	HTTPPutResponseHopLimit int    `json:"httpPutResponseHopLimit"`
+	HTTPTokens              string `json:"httpTokens,omitempty"`
+	HTTPEndpoint            string `json:"httpEndpoint,omitempty"`
+	InstanceMetadataTags    string `json:"instanceMetadataTags,omitempty"`
+	State                   string `json:"state,omitempty"`
+	HTTPPutResponseHopLimit int    `json:"httpPutResponseHopLimit,omitempty"`
 }
 
 // ModifyInstanceMetadataOptions updates IMDS settings for an instance.
@@ -977,8 +977,8 @@ func (b *InMemoryBackend) ModifyInstanceMetadataDefaults(
 
 // InstanceCreditSpec holds the CPU credit configuration for burstable instances.
 type InstanceCreditSpec struct {
-	InstanceID string `json:"instanceID"`
-	CPUCredits string `json:"cpuCredits"` // "standard" or "unlimited"
+	InstanceID string `json:"instanceID,omitempty"`
+	CPUCredits string `json:"cpuCredits,omitempty"` // "standard" or "unlimited"
 }
 
 // DescribeInstanceCreditSpecifications returns CPU credit specs for the given instances.
@@ -1032,12 +1032,12 @@ func (b *InMemoryBackend) ModifyInstanceCreditSpecification(
 
 // InstanceTopologyItem holds topology info for an instance.
 type InstanceTopologyItem struct {
-	InstanceID       string
-	InstanceType     string
-	GroupName        string
-	AvailabilityZone string
-	ZoneID           string
-	NetworkNodes     []string
+	InstanceID       string   `json:"instanceID,omitempty"`
+	InstanceType     string   `json:"instanceType,omitempty"`
+	GroupName        string   `json:"groupName,omitempty"`
+	AvailabilityZone string   `json:"availabilityZone,omitempty"`
+	ZoneID           string   `json:"zoneID,omitempty"`
+	NetworkNodes     []string `json:"networkNodes,omitempty"`
 }
 
 // DescribeInstanceTopology returns placement topology info for instances.
@@ -1076,8 +1076,8 @@ func (b *InMemoryBackend) DescribeInstanceTopology(ids []string) []InstanceTopol
 
 // MonitoringState holds the monitoring state for an instance.
 type MonitoringState struct {
-	InstanceID string
-	State      string // "pending" | "enabled" | "disabling" | "disabled"
+	InstanceID string `json:"instanceID,omitempty"`
+	State      string `json:"state,omitempty"` // "pending" | "enabled" | "disabling" | "disabled"
 }
 
 // MonitorInstances enables detailed monitoring for the given instances.
@@ -1126,10 +1126,10 @@ func (b *InMemoryBackend) UnmonitorInstances(instanceIDs []string) ([]Monitoring
 
 // NIAttributeResult holds the result of DescribeNetworkInterfaceAttribute.
 type NIAttributeResult struct {
-	NetworkInterfaceID string
-	Description        string
-	GroupIDs           []string
-	SourceDestCheck    bool
+	NetworkInterfaceID string   `json:"networkInterfaceID,omitempty"`
+	Description        string   `json:"description,omitempty"`
+	GroupIDs           []string `json:"groupIDs,omitempty"`
+	SourceDestCheck    bool     `json:"sourceDestCheck,omitempty"`
 }
 
 // DescribeNetworkInterfaceAttribute returns a requested attribute for a network interface.
@@ -1306,8 +1306,8 @@ func (b *InMemoryBackend) UnassignIpv6Addresses(niID string, addresses []string)
 
 // AccountAttribute represents a single EC2 account attribute.
 type AccountAttribute struct {
-	Name   string
-	Values []string
+	Name   string   `json:"name,omitempty"`
+	Values []string `json:"values,omitempty"`
 }
 
 // DescribeAccountAttributes returns fixed account attributes.
@@ -1347,9 +1347,9 @@ func (b *InMemoryBackend) DescribeAccountAttributes(names []string) []AccountAtt
 
 // PrefixList represents an AWS-managed prefix list.
 type PrefixList struct {
-	PrefixListID   string
-	PrefixListName string
-	CIDRs          []string
+	PrefixListID   string   `json:"prefixListID,omitempty"`
+	PrefixListName string   `json:"prefixListName,omitempty"`
+	CIDRs          []string `json:"cidRs,omitempty"`
 }
 
 // DescribePrefixLists returns AWS-managed prefix lists (static).
@@ -1393,9 +1393,9 @@ func (b *InMemoryBackend) DescribePrefixLists(ids []string) []PrefixList {
 
 // IDFormatItem represents an ID format setting for a resource type.
 type IDFormatItem struct {
-	Resource   string
-	Deadline   string
-	UseLongIDs bool
+	Resource   string `json:"resource,omitempty"`
+	Deadline   string `json:"deadline,omitempty"`
+	UseLongIDs bool   `json:"useLongIDs,omitempty"`
 }
 
 // DescribeIDFormat returns ID format settings for the account.
@@ -1465,7 +1465,7 @@ func (b *InMemoryBackend) DescribePrincipalIDFormat(_ string) []IDFormatItem {
 
 // InstanceEventNotificationAttributes holds account-level event notification settings.
 type InstanceEventNotificationAttributes struct {
-	IncludeAllTagsOfInstance bool
+	IncludeAllTagsOfInstance bool `json:"includeAllTagsOfInstance,omitempty"`
 }
 
 // DescribeInstanceEventNotificationAttributes returns account-level settings.

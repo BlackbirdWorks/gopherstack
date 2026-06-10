@@ -224,8 +224,8 @@ var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup d
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	standardsSubscriptions map[string]*StandardsSubscription
-	controlOverrides       map[string]*StandardsControl
+	configPolicyAssocs     map[string]*ConfigurationPolicyAssociation
+	orgConfig              *OrgConfig
 	tags                   map[string]map[string]string
 	automationRules        map[string]*AutomationRule
 	hub                    *Hub
@@ -235,13 +235,35 @@ type InMemoryBackend struct {
 	productSubscriptions   map[string]string
 	mu                     *lockmetrics.RWMutex
 	actionTargets          map[string]*ActionTarget
-	accountID              string
+	members                map[string]*Member
+	invitations            map[string]*Invitation
+	adminAccount           *AdminAccount
+	configPolicies         map[string]*ConfigurationPolicy
+	orgAdminAccounts       map[string]string
+	recommendedPoliciesV2  map[string]*RecommendedPolicyV2
+	findingAggregators     map[string]*FindingAggregator
+	controlOverrides       map[string]*StandardsControl
+	ticketsV2              map[string]*TicketV2
+	connectorsV2           map[string]*ConnectorV2
+	standardsSubscriptions map[string]*StandardsSubscription
+	hubV2                  *HubV2
+	aggregatorsV2          map[string]*AggregatorV2
+	automationRulesV2      map[string]*AutomationRuleV2
 	region                 string
+	accountID              string
+	aggregatorV2Seq        int
+	connectorV2Seq         int
+	automationRuleV2Seq    int
+	configPolicySeq        int
+	memberSeq              int
+	findingAggregatorSeq   int
+	ticketV2Seq            int
 	standardsSeq           int
 	actionTargetSeq        int
 	insightSeq             int
 	automationRuleSeq      int
 	hubEnabled             bool
+	hubV2Enabled           bool
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
@@ -259,6 +281,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		controlParams:          make(map[string]map[string]any),
 		automationRules:        make(map[string]*AutomationRule),
 		tags:                   make(map[string]map[string]string),
+		// Members / Invitations / Admin
+		members:          make(map[string]*Member),
+		invitations:      make(map[string]*Invitation),
+		orgAdminAccounts: make(map[string]string),
+		// Finding Aggregator
+		findingAggregators: make(map[string]*FindingAggregator),
+		// Configuration Policy
+		configPolicies:     make(map[string]*ConfigurationPolicy),
+		configPolicyAssocs: make(map[string]*ConfigurationPolicyAssociation),
+		// V2 resources
+		aggregatorsV2:         make(map[string]*AggregatorV2),
+		automationRulesV2:     make(map[string]*AutomationRuleV2),
+		connectorsV2:          make(map[string]*ConnectorV2),
+		ticketsV2:             make(map[string]*TicketV2),
+		recommendedPoliciesV2: make(map[string]*RecommendedPolicyV2),
 	}
 }
 
@@ -311,6 +348,32 @@ func (b *InMemoryBackend) Reset() {
 	b.automationRules = make(map[string]*AutomationRule)
 	b.automationRuleSeq = 0
 	b.tags = make(map[string]map[string]string)
+	// Members / Invitations / Admin
+	b.members = make(map[string]*Member)
+	b.invitations = make(map[string]*Invitation)
+	b.adminAccount = nil
+	b.orgConfig = nil
+	b.orgAdminAccounts = make(map[string]string)
+	b.memberSeq = 0
+	// Finding Aggregator
+	b.findingAggregators = make(map[string]*FindingAggregator)
+	b.findingAggregatorSeq = 0
+	// Configuration Policy
+	b.configPolicies = make(map[string]*ConfigurationPolicy)
+	b.configPolicyAssocs = make(map[string]*ConfigurationPolicyAssociation)
+	b.configPolicySeq = 0
+	// V2
+	b.hubV2Enabled = false
+	b.hubV2 = nil
+	b.aggregatorsV2 = make(map[string]*AggregatorV2)
+	b.aggregatorV2Seq = 0
+	b.automationRulesV2 = make(map[string]*AutomationRuleV2)
+	b.automationRuleV2Seq = 0
+	b.connectorsV2 = make(map[string]*ConnectorV2)
+	b.connectorV2Seq = 0
+	b.ticketsV2 = make(map[string]*TicketV2)
+	b.ticketV2Seq = 0
+	b.recommendedPoliciesV2 = make(map[string]*RecommendedPolicyV2)
 }
 
 // persistence structs for Snapshot/Restore.
@@ -325,11 +388,37 @@ type snapshot struct {
 	ControlOverrides       map[string]*StandardsControl      `json:"controlOverrides"`
 	ActionTargets          map[string]*ActionTarget          `json:"actionTargets"`
 	ControlParams          map[string]map[string]any         `json:"controlParams"`
-	StandardsSeq           int                               `json:"standardsSeq"`
-	ActionTargetSeq        int                               `json:"actionTargetSeq"`
-	AutomationRuleSeq      int                               `json:"automationRuleSeq"`
-	InsightSeq             int                               `json:"insightSeq"`
-	HubEnabled             bool                              `json:"hubEnabled"`
+	// Members / Invitations / Admin
+	Members          map[string]*Member     `json:"members"`
+	Invitations      map[string]*Invitation `json:"invitations"`
+	AdminAccount     *AdminAccount          `json:"adminAccount"`
+	OrgConfig        *OrgConfig             `json:"orgConfig"`
+	OrgAdminAccounts map[string]string      `json:"orgAdminAccounts"`
+	// Finding Aggregator
+	FindingAggregators map[string]*FindingAggregator `json:"findingAggregators"`
+	// Configuration Policy
+	ConfigPolicies     map[string]*ConfigurationPolicy            `json:"configPolicies"`
+	ConfigPolicyAssocs map[string]*ConfigurationPolicyAssociation `json:"configPolicyAssocs"`
+	// V2
+	HubV2                 *HubV2                          `json:"hubV2"`
+	AggregatorsV2         map[string]*AggregatorV2        `json:"aggregatorsV2"`
+	AutomationRulesV2     map[string]*AutomationRuleV2    `json:"automationRulesV2"`
+	ConnectorsV2          map[string]*ConnectorV2         `json:"connectorsV2"`
+	TicketsV2             map[string]*TicketV2            `json:"ticketsV2"`
+	RecommendedPoliciesV2 map[string]*RecommendedPolicyV2 `json:"recommendedPoliciesV2"`
+	StandardsSeq          int                             `json:"standardsSeq"`
+	ActionTargetSeq       int                             `json:"actionTargetSeq"`
+	AutomationRuleSeq     int                             `json:"automationRuleSeq"`
+	InsightSeq            int                             `json:"insightSeq"`
+	MemberSeq             int                             `json:"memberSeq"`
+	FindingAggregatorSeq  int                             `json:"findingAggregatorSeq"`
+	ConfigPolicySeq       int                             `json:"configPolicySeq"`
+	AggregatorV2Seq       int                             `json:"aggregatorV2Seq"`
+	AutomationRuleV2Seq   int                             `json:"automationRuleV2Seq"`
+	ConnectorV2Seq        int                             `json:"connectorV2Seq"`
+	TicketV2Seq           int                             `json:"ticketV2Seq"`
+	HubEnabled            bool                            `json:"hubEnabled"`
+	HubV2Enabled          bool                            `json:"hubV2Enabled"`
 }
 
 func (b *InMemoryBackend) Snapshot() []byte {
@@ -352,6 +441,32 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AutomationRules:        b.automationRules,
 		AutomationRuleSeq:      b.automationRuleSeq,
 		Tags:                   b.tags,
+		// Members / Invitations / Admin
+		Members:          b.members,
+		Invitations:      b.invitations,
+		AdminAccount:     b.adminAccount,
+		OrgConfig:        b.orgConfig,
+		OrgAdminAccounts: b.orgAdminAccounts,
+		MemberSeq:        b.memberSeq,
+		// Finding Aggregator
+		FindingAggregators:   b.findingAggregators,
+		FindingAggregatorSeq: b.findingAggregatorSeq,
+		// Configuration Policy
+		ConfigPolicies:     b.configPolicies,
+		ConfigPolicyAssocs: b.configPolicyAssocs,
+		ConfigPolicySeq:    b.configPolicySeq,
+		// V2
+		HubV2Enabled:          b.hubV2Enabled,
+		HubV2:                 b.hubV2,
+		AggregatorsV2:         b.aggregatorsV2,
+		AggregatorV2Seq:       b.aggregatorV2Seq,
+		AutomationRulesV2:     b.automationRulesV2,
+		AutomationRuleV2Seq:   b.automationRuleV2Seq,
+		ConnectorsV2:          b.connectorsV2,
+		ConnectorV2Seq:        b.connectorV2Seq,
+		TicketsV2:             b.ticketsV2,
+		TicketV2Seq:           b.ticketV2Seq,
+		RecommendedPoliciesV2: b.recommendedPoliciesV2,
 	}
 
 	data, _ := json.Marshal(snap)
@@ -359,7 +474,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
@@ -383,6 +498,70 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.automationRules = snap.AutomationRules
 	b.automationRuleSeq = snap.AutomationRuleSeq
 	b.tags = snap.Tags
+	// Members / Invitations / Admin
+	if snap.Members != nil {
+		b.members = snap.Members
+	}
+
+	if snap.Invitations != nil {
+		b.invitations = snap.Invitations
+	}
+
+	b.adminAccount = snap.AdminAccount
+	b.orgConfig = snap.OrgConfig
+
+	if snap.OrgAdminAccounts != nil {
+		b.orgAdminAccounts = snap.OrgAdminAccounts
+	}
+
+	b.memberSeq = snap.MemberSeq
+	// Finding Aggregator
+	if snap.FindingAggregators != nil {
+		b.findingAggregators = snap.FindingAggregators
+	}
+
+	b.findingAggregatorSeq = snap.FindingAggregatorSeq
+	// Configuration Policy
+	if snap.ConfigPolicies != nil {
+		b.configPolicies = snap.ConfigPolicies
+	}
+
+	if snap.ConfigPolicyAssocs != nil {
+		b.configPolicyAssocs = snap.ConfigPolicyAssocs
+	}
+
+	b.configPolicySeq = snap.ConfigPolicySeq
+	// V2
+	b.hubV2Enabled = snap.HubV2Enabled
+	b.hubV2 = snap.HubV2
+
+	if snap.AggregatorsV2 != nil {
+		b.aggregatorsV2 = snap.AggregatorsV2
+	}
+
+	b.aggregatorV2Seq = snap.AggregatorV2Seq
+
+	if snap.AutomationRulesV2 != nil {
+		b.automationRulesV2 = snap.AutomationRulesV2
+	}
+
+	b.automationRuleV2Seq = snap.AutomationRuleV2Seq
+
+	if snap.ConnectorsV2 != nil {
+		b.connectorsV2 = snap.ConnectorsV2
+	}
+
+	b.connectorV2Seq = snap.ConnectorV2Seq
+
+	if snap.TicketsV2 != nil {
+		b.ticketsV2 = snap.TicketsV2
+	}
+
+	b.ticketV2Seq = snap.TicketV2Seq
+
+	if snap.RecommendedPoliciesV2 != nil {
+		b.recommendedPoliciesV2 = snap.RecommendedPoliciesV2
+	}
 
 	return nil
 }
@@ -510,7 +689,7 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 			failedCount++
 			failedFindings = append(failedFindings, map[string]any{
 				"Id":            id,
-				"ProductArn":    productArn,
+				"ProductArn":    productArn, //nolint:goconst // existing issue.
 				keyErrorCode:    "InternalException",
 				keyErrorMessage: "ProductArn and Id are required",
 			})

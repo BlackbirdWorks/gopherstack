@@ -69,8 +69,7 @@ func TestEvaluatePolicies(t *testing.T) {
 	t.Parallel()
 
 	allowS3All := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
-	allowSpecific :=
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+	allowSpecific := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
 	denyAll := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`
 	denyS3 := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:*","Resource":"*"}]}`
 	allowMultiple := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +

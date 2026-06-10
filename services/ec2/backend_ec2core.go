@@ -32,53 +32,53 @@ const (
 // EgressOnlyInternetGateway represents an EC2 egress-only internet gateway.
 type EgressOnlyInternetGateway struct {
 	CreateTime time.Time `json:"createTime"`
-	ID         string    `json:"id"`
-	VPCID      string    `json:"vpcID"`
-	State      string    `json:"state"`
+	ID         string    `json:"id,omitempty"`
+	VPCID      string    `json:"vpcID,omitempty"`
+	State      string    `json:"state,omitempty"`
 }
 
 // IamInstanceProfileAssociation represents an IAM instance profile association.
 type IamInstanceProfileAssociation struct {
 	Timestamp          time.Time `json:"timestamp"`
-	AssociationID      string    `json:"associationID"`
-	InstanceID         string    `json:"instanceID"`
-	IamInstanceProfile string    `json:"iamInstanceProfile"` // ARN or name
-	State              string    `json:"state"`
+	AssociationID      string    `json:"associationID,omitempty"`
+	InstanceID         string    `json:"instanceID,omitempty"`
+	IamInstanceProfile string    `json:"iamInstanceProfile,omitempty"` // ARN or name
+	State              string    `json:"state,omitempty"`
 }
 
 // TransitGatewayRouteTable represents a TGW route table.
 type TransitGatewayRouteTable struct {
 	CreateTime         time.Time `json:"createTime"`
-	TransitGatewayID   string    `json:"transitGatewayID"`
-	RouteTableID       string    `json:"routeTableID"`
-	State              string    `json:"state"`
-	DefaultAssociation bool      `json:"defaultAssociation"`
-	DefaultPropagation bool      `json:"defaultPropagation"`
+	TransitGatewayID   string    `json:"transitGatewayID,omitempty"`
+	RouteTableID       string    `json:"routeTableID,omitempty"`
+	State              string    `json:"state,omitempty"`
+	DefaultAssociation bool      `json:"defaultAssociation,omitempty"`
+	DefaultPropagation bool      `json:"defaultPropagation,omitempty"`
 }
 
 // TransitGatewayRoute represents a route in a TGW route table.
 type TransitGatewayRoute struct {
-	DestinationCidrBlock       string `json:"destinationCidrBlock"`
-	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentID"`
-	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID"`
-	State                      string `json:"state"`
-	Type                       string `json:"type"`
+	DestinationCidrBlock       string `json:"destinationCidrBlock,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentID,omitempty"`
+	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID,omitempty"`
+	State                      string `json:"state,omitempty"`
+	Type                       string `json:"type,omitempty"`
 }
 
 // TransitGatewayRouteTableAssociation represents an association between a TGW route table and attachment.
 type TransitGatewayRouteTableAssociation struct {
-	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID"`
-	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentID"`
-	ResourceID                 string `json:"resourceID"`
-	ResourceType               string `json:"resourceType"`
-	State                      string `json:"state"`
+	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentID,omitempty"`
+	ResourceID                 string `json:"resourceID,omitempty"`
+	ResourceType               string `json:"resourceType,omitempty"`
+	State                      string `json:"state,omitempty"`
 }
 
 // VpcCidrBlockAssociation represents a secondary CIDR block associated with a VPC.
 type VpcCidrBlockAssociation struct {
-	AssociationID string `json:"associationID"`
-	CidrBlock     string `json:"cidrBlock"`
-	State         string `json:"state"`
+	AssociationID string `json:"associationID,omitempty"`
+	CidrBlock     string `json:"cidrBlock,omitempty"`
+	State         string `json:"state,omitempty"`
 }
 
 // ---- EgressOnly Internet Gateway ----
