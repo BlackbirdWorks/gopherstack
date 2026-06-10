@@ -569,7 +569,7 @@ type listUserPoolsInput struct {
 }
 
 type listUserPoolsOutput struct {
-	UserPools []userPoolData `json:"UserPools,omitempty"`
+	UserPools []userPoolData `json:"UserPools"`
 }
 
 func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) (*listUserPoolsOutput, error) {
@@ -707,7 +707,7 @@ type listUserPoolClientsInput struct {
 }
 
 type listUserPoolClientsOutput struct {
-	UserPoolClients []userPoolClientData `json:"UserPoolClients,omitempty"`
+	UserPoolClients []userPoolClientData `json:"UserPoolClients"`
 }
 
 func (h *Handler) handleListUserPoolClients(
@@ -742,7 +742,7 @@ type signUpInput struct {
 type signUpOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	UserSub             string            `json:"UserSub,omitempty"`
-	UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
+	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
 func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutput, error) {
@@ -913,7 +913,7 @@ type adminUserType struct {
 	UserStatus     string          `json:"UserStatus,omitempty"`
 	Attributes     []attributeType `json:"Attributes,omitempty"`
 	UserCreateDate float64         `json:"UserCreateDate,omitempty"`
-	Enabled        bool            `json:"Enabled,omitempty"`
+	Enabled        bool            `json:"Enabled"`
 }
 
 type adminCreateUserOutput struct {
@@ -970,7 +970,7 @@ type adminGetUserOutput struct {
 	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
 	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
 	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`
-	Enabled              bool            `json:"Enabled,omitempty"`
+	Enabled              bool            `json:"Enabled"`
 }
 
 func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (*adminGetUserOutput, error) {
@@ -1100,7 +1100,7 @@ type listUsersInput struct {
 }
 
 type listUsersOutput struct {
-	Users []*userSummary `json:"Users,omitempty"`
+	Users []*userSummary `json:"Users"`
 }
 
 type userSummary struct {
@@ -1109,7 +1109,7 @@ type userSummary struct {
 	Attributes       []attributeType `json:"Attributes,omitempty"`
 	UserCreateDate   float64         `json:"UserCreateDate,omitempty"`
 	UserLastModified float64         `json:"UserLastModifiedDate,omitempty"`
-	Enabled          bool            `json:"Enabled,omitempty"`
+	Enabled          bool            `json:"Enabled"`
 }
 
 func (h *Handler) handleListUsers(
@@ -1281,7 +1281,7 @@ type listGroupsInput struct {
 }
 
 type listGroupsOutput struct {
-	Groups []*groupSummary `json:"Groups,omitempty"`
+	Groups []*groupSummary `json:"Groups"`
 }
 
 func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
@@ -1342,7 +1342,7 @@ type adminListGroupsForUserInput struct {
 }
 
 type adminListGroupsForUserOutput struct {
-	Groups []*groupSummary `json:"Groups,omitempty"`
+	Groups []*groupSummary `json:"Groups"`
 }
 
 func (h *Handler) handleAdminListGroupsForUser(
