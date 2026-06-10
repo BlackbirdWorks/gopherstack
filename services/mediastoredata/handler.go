@@ -16,6 +16,8 @@ import (
 
 const (
 	itemTypeObject = "OBJECT"
+	// maxListItemsResults is the AWS upper bound on ListItems MaxResults.
+	maxListItemsResults = 1000
 )
 
 const (
@@ -276,9 +278,16 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 	}
 
 	if raw := q.Get("MaxResults"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			in.MaxResults = n
+		// AWS MediaStore Data bounds ListItems MaxResults to 1-1000.
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxListItemsResults {
+			return c.JSON(http.StatusBadRequest, errorResponse(
+				"ValidationException",
+				"MaxResults must be between 1 and 1000",
+			))
 		}
+
+		in.MaxResults = n
 	}
 
 	result := h.Backend.ListItems(in)
