@@ -246,6 +246,22 @@ func (h *Handler) handlePutAlternateContact(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "InvalidRequest", err.Error())
 	}
 
+	// AWS Account.PutAlternateContact requires AlternateContactType,
+	// EmailAddress, Name, PhoneNumber and Title; an empty value is a
+	// ValidationException. Checked in a stable order for deterministic messages.
+	requiredFields := []struct{ name, value string }{
+		{"AlternateContactType", string(req.AlternateContactType)},
+		{"EmailAddress", req.EmailAddress},
+		{"Name", req.Name},
+		{"PhoneNumber", req.PhoneNumber},
+		{"Title", req.Title},
+	}
+	for _, f := range requiredFields {
+		if strings.TrimSpace(f.value) == "" {
+			return writeError(c, http.StatusBadRequest, "ValidationException", f.name+" is required")
+		}
+	}
+
 	contact := &AlternateContact{
 		AlternateContactType: req.AlternateContactType,
 		EmailAddress:         req.EmailAddress,
