@@ -17,6 +17,15 @@ import (
 
 const integrationTable = "dax-integration"
 
+// Tests that drive the amazon-dax-go client through an expression
+// (Update/Query/Scan/Transact carrying a *Expression) intentionally omit
+// t.Parallel(): the client parses those expressions with the old ANTLR Go
+// runtime, whose shared ATN/DFA caches are not goroutine-safe, so running the
+// parses concurrently would race inside that third-party, test-only dependency.
+// The gopherstack server itself is concurrency-safe; serializing only the
+// expression-bearing tests keeps the parse single-threaded while letting the
+// purely key-based tests (Put/Get/Delete) still run in parallel.
+
 // newDataPlaneFixture starts a DAX data-plane listener on an ephemeral port with
 // a single table created in its backing DynamoDB store. It returns the bound
 // "dax://host:port" endpoint.
@@ -245,8 +254,6 @@ func createRangeTable(t *testing.T, backend interface {
 // TestDataPlaneUpdateItem exercises an UpdateItem with a SET expression and an
 // expression attribute value, then verifies the stored item.
 func TestDataPlaneUpdateItem(t *testing.T) {
-	t.Parallel()
-
 	endpoint := newDataPlaneFixture(t)
 	client := newDaxClient(t, endpoint)
 
@@ -292,8 +299,6 @@ func TestDataPlaneUpdateItem(t *testing.T) {
 // TestDataPlaneUpdateItemReturnAllNew verifies UpdateItem with ReturnValues
 // ALL_NEW returns the updated attributes.
 func TestDataPlaneUpdateItemReturnAllNew(t *testing.T) {
-	t.Parallel()
-
 	endpoint := newDataPlaneFixture(t)
 	client := newDaxClient(t, endpoint)
 
@@ -328,49 +333,141 @@ func TestDataPlaneUpdateItemReturnAllNew(t *testing.T) {
 	assertNumber(t, out.Attributes, "count", "7")
 }
 
-// TestDataPlaneUpdateItemReturnUpdatedNewRejected verifies UpdateItem with
-// ReturnValues UPDATED_NEW is surfaced as a request failure (the projected
-// response sub-protocol is not served) rather than corrupting the response.
-func TestDataPlaneUpdateItemReturnUpdatedNewRejected(t *testing.T) {
-	t.Parallel()
-
-	endpoint := newDataPlaneFixture(t)
-	client := newDaxClient(t, endpoint)
-
-	if _, err := client.PutItem(&v1dynamodb.PutItemInput{
-		TableName: new(integrationTable),
-		Item: map[string]*v1dynamodb.AttributeValue{
-			"pk":    {S: new("user#un")},
-			"count": {N: new("1")},
-		},
-	}); err != nil {
-		t.Fatalf("PutItem via DAX: %v", err)
+// TestDataPlaneUpdateItemReturnUpdated verifies UpdateItem with ReturnValues
+// UPDATED_NEW and UPDATED_OLD returns the touched attributes via the
+// ordinal-keyed attribute-projection response sub-protocol.
+func TestDataPlaneUpdateItemReturnUpdated(t *testing.T) {
+	tests := []struct {
+		name string
+		rv   string
+		want string
+	}{
+		{name: "updated_new", rv: v1dynamodb.ReturnValueUpdatedNew, want: "2"},
+		{name: "updated_old", rv: v1dynamodb.ReturnValueUpdatedOld, want: "1"},
 	}
 
-	_, err := client.UpdateItem(&v1dynamodb.UpdateItemInput{
-		TableName: new(integrationTable),
-		Key: map[string]*v1dynamodb.AttributeValue{
-			"pk": {S: new("user#un")},
-		},
-		UpdateExpression: new("SET #c = :c"),
-		ExpressionAttributeNames: map[string]*string{
-			"#c": new("count"),
-		},
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			endpoint := newDataPlaneFixture(t)
+			client := newDaxClient(t, endpoint)
+
+			pk := "user#" + tc.name
+			if _, err := client.PutItem(&v1dynamodb.PutItemInput{
+				TableName: new(integrationTable),
+				Item: map[string]*v1dynamodb.AttributeValue{
+					"pk":    {S: new(pk)},
+					"count": {N: new("1")},
+				},
+			}); err != nil {
+				t.Fatalf("PutItem via DAX: %v", err)
+			}
+
+			out, err := client.UpdateItem(&v1dynamodb.UpdateItemInput{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new(pk)},
+				},
+				UpdateExpression: new("SET #c = :c"),
+				ExpressionAttributeNames: map[string]*string{
+					"#c": new("count"),
+				},
+				ExpressionAttributeValues: map[string]*v1dynamodb.AttributeValue{
+					":c": {N: new("2")},
+				},
+				ReturnValues: new(tc.rv),
+			})
+			if err != nil {
+				t.Fatalf("UpdateItem via DAX: %v", err)
+			}
+
+			assertNumber(t, out.Attributes, "count", tc.want)
+
+			// UPDATED_* must not echo the (unchanged) primary key.
+			if _, ok := out.Attributes["pk"]; ok {
+				t.Fatalf("UPDATED_* response unexpectedly included key: %#v", out.Attributes)
+			}
+		})
+	}
+}
+
+// TestDataPlaneQueryProjection exercises a Query carrying a
+// KeyConditionExpression and a ProjectionExpression, asserting that only the
+// projected attributes are returned via the projection response sub-protocol.
+func TestDataPlaneQueryProjection(t *testing.T) {
+	endpoint := newRangeFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	seedRangeItems(t, client)
+
+	out, err := client.Query(&v1dynamodb.QueryInput{
+		TableName:              new(rangeTable),
+		KeyConditionExpression: new("pk = :p"),
+		ProjectionExpression:   new("sk, label"),
 		ExpressionAttributeValues: map[string]*v1dynamodb.AttributeValue{
-			":c": {N: new("2")},
+			":p": {S: new("g1")},
 		},
-		ReturnValues: new(v1dynamodb.ReturnValueUpdatedNew),
 	})
-	if err == nil {
-		t.Fatal("expected UPDATED_NEW UpdateItem to be rejected")
+	if err != nil {
+		t.Fatalf("Query projection via DAX: %v", err)
+	}
+
+	if got := len(out.Items); got != 3 {
+		t.Fatalf("projected Query count: got %d want 3", got)
+	}
+
+	for _, item := range out.Items {
+		if _, ok := item["sk"]; !ok {
+			t.Fatalf("projected item missing sk: %#v", item)
+		}
+
+		if _, ok := item["label"]; !ok {
+			t.Fatalf("projected item missing label: %#v", item)
+		}
+
+		// pk was not projected, so it must be absent.
+		if _, ok := item["pk"]; ok {
+			t.Fatalf("projected item unexpectedly included pk: %#v", item)
+		}
+	}
+}
+
+// TestDataPlaneScanProjection exercises a Scan with a ProjectionExpression that
+// uses an expression-attribute-name substitution.
+func TestDataPlaneScanProjection(t *testing.T) {
+	endpoint := newRangeFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	seedRangeItems(t, client)
+
+	out, err := client.Scan(&v1dynamodb.ScanInput{
+		TableName:            new(rangeTable),
+		ProjectionExpression: new("#l"),
+		ExpressionAttributeNames: map[string]*string{
+			"#l": new("label"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Scan projection via DAX: %v", err)
+	}
+
+	if got := len(out.Items); got != 3 {
+		t.Fatalf("projected Scan count: got %d want 3", got)
+	}
+
+	for _, item := range out.Items {
+		if len(item) != 1 {
+			t.Fatalf("projected Scan item should have exactly 1 attribute: %#v", item)
+		}
+
+		if _, ok := item["label"]; !ok {
+			t.Fatalf("projected Scan item missing label: %#v", item)
+		}
 	}
 }
 
 // TestDataPlaneQuery exercises a Query with a KeyConditionExpression over a
 // numeric range key and asserts the matching items come back in order.
 func TestDataPlaneQuery(t *testing.T) {
-	t.Parallel()
-
 	endpoint := newRangeFixture(t)
 	client := newDaxClient(t, endpoint)
 
@@ -399,8 +496,6 @@ func TestDataPlaneQuery(t *testing.T) {
 // TestDataPlaneQueryWithFilter exercises a Query carrying both a
 // KeyConditionExpression and a FilterExpression.
 func TestDataPlaneQueryWithFilter(t *testing.T) {
-	t.Parallel()
-
 	endpoint := newRangeFixture(t)
 	client := newDaxClient(t, endpoint)
 
@@ -428,8 +523,6 @@ func TestDataPlaneQueryWithFilter(t *testing.T) {
 
 // TestDataPlaneScan exercises a Scan with a FilterExpression.
 func TestDataPlaneScan(t *testing.T) {
-	t.Parallel()
-
 	endpoint := newRangeFixture(t)
 	client := newDaxClient(t, endpoint)
 
@@ -484,6 +577,188 @@ func TestDataPlaneNumericRangeKeyRoundTrip(t *testing.T) {
 
 		assertNumber(t, out.Item, "sk", sk)
 		assertString(t, out.Item, "note", "v"+sk)
+	}
+}
+
+// TestDataPlaneTransactWriteAndGet exercises TransactWriteItems (Put + Update)
+// followed by TransactGetItems against the real amazon-dax-go client, verifying
+// the multi-section transact request/response framing round-trips.
+func TestDataPlaneTransactWriteAndGet(t *testing.T) {
+	endpoint := newDataPlaneFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	// Seed an item that the transaction will update.
+	if _, err := client.PutItem(&v1dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]*v1dynamodb.AttributeValue{
+			"pk":    {S: new("tx#b")},
+			"count": {N: new("1")},
+		},
+	}); err != nil {
+		t.Fatalf("seed PutItem via DAX: %v", err)
+	}
+
+	_, err := client.TransactWriteItems(&v1dynamodb.TransactWriteItemsInput{
+		TransactItems: []*v1dynamodb.TransactWriteItem{
+			{Put: &v1dynamodb.Put{
+				TableName: new(integrationTable),
+				Item: map[string]*v1dynamodb.AttributeValue{
+					"pk":   {S: new("tx#a")},
+					"name": {S: new("alpha")},
+				},
+			}},
+			{Update: &v1dynamodb.Update{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("tx#b")},
+				},
+				UpdateExpression: new("SET #c = :c"),
+				ExpressionAttributeNames: map[string]*string{
+					"#c": new("count"),
+				},
+				ExpressionAttributeValues: map[string]*v1dynamodb.AttributeValue{
+					":c": {N: new("9")},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransactWriteItems via DAX: %v", err)
+	}
+
+	out, err := client.TransactGetItems(&v1dynamodb.TransactGetItemsInput{
+		TransactItems: []*v1dynamodb.TransactGetItem{
+			{Get: &v1dynamodb.Get{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("tx#a")},
+				},
+			}},
+			{Get: &v1dynamodb.Get{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("tx#b")},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransactGetItems via DAX: %v", err)
+	}
+
+	if got := len(out.Responses); got != 2 {
+		t.Fatalf("TransactGetItems response count: got %d want 2", got)
+	}
+
+	assertString(t, out.Responses[0].Item, "pk", "tx#a")
+	assertString(t, out.Responses[0].Item, "name", "alpha")
+	assertNumber(t, out.Responses[1].Item, "count", "9")
+}
+
+// TestDataPlaneTransactGetProjection verifies TransactGetItems honors a
+// per-item ProjectionExpression via the projection response sub-protocol.
+func TestDataPlaneTransactGetProjection(t *testing.T) {
+	endpoint := newDataPlaneFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	if _, err := client.PutItem(&v1dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]*v1dynamodb.AttributeValue{
+			"pk":    {S: new("txp#1")},
+			"name":  {S: new("zed")},
+			"score": {N: new("3")},
+		},
+	}); err != nil {
+		t.Fatalf("seed PutItem via DAX: %v", err)
+	}
+
+	out, err := client.TransactGetItems(&v1dynamodb.TransactGetItemsInput{
+		TransactItems: []*v1dynamodb.TransactGetItem{
+			{Get: &v1dynamodb.Get{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("txp#1")},
+				},
+				ProjectionExpression: new("#n"),
+				ExpressionAttributeNames: map[string]*string{
+					"#n": new("name"),
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransactGetItems projection via DAX: %v", err)
+	}
+
+	if got := len(out.Responses); got != 1 {
+		t.Fatalf("response count: got %d want 1", got)
+	}
+
+	item := out.Responses[0].Item
+	assertString(t, item, "name", "zed")
+
+	if len(item) != 1 {
+		t.Fatalf("projected transact-get item should have exactly 1 attribute: %#v", item)
+	}
+}
+
+// TestDataPlaneTransactWriteConditionFails verifies a TransactWriteItems whose
+// ConditionCheck fails is surfaced as an error (atomic rollback), exercising the
+// condition-expression section of the request framing.
+func TestDataPlaneTransactWriteConditionFails(t *testing.T) {
+	endpoint := newDataPlaneFixture(t)
+	client := newDaxClient(t, endpoint)
+
+	if _, err := client.PutItem(&v1dynamodb.PutItemInput{
+		TableName: new(integrationTable),
+		Item: map[string]*v1dynamodb.AttributeValue{
+			"pk":    {S: new("txc#guard")},
+			"state": {S: new("locked")},
+		},
+	}); err != nil {
+		t.Fatalf("seed PutItem via DAX: %v", err)
+	}
+
+	_, err := client.TransactWriteItems(&v1dynamodb.TransactWriteItemsInput{
+		TransactItems: []*v1dynamodb.TransactWriteItem{
+			{ConditionCheck: &v1dynamodb.ConditionCheck{
+				TableName: new(integrationTable),
+				Key: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("txc#guard")},
+				},
+				ConditionExpression: new("#s = :open"),
+				ExpressionAttributeNames: map[string]*string{
+					"#s": new("state"),
+				},
+				ExpressionAttributeValues: map[string]*v1dynamodb.AttributeValue{
+					":open": {S: new("open")},
+				},
+			}},
+			{Put: &v1dynamodb.Put{
+				TableName: new(integrationTable),
+				Item: map[string]*v1dynamodb.AttributeValue{
+					"pk": {S: new("txc#new")},
+				},
+			}},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected TransactWriteItems with failing ConditionCheck to error")
+	}
+
+	// The aborted transaction must not have written the second item.
+	got, err := client.GetItem(&v1dynamodb.GetItemInput{
+		TableName: new(integrationTable),
+		Key: map[string]*v1dynamodb.AttributeValue{
+			"pk": {S: new("txc#new")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetItem via DAX: %v", err)
+	}
+
+	if len(got.Item) != 0 {
+		t.Fatalf("aborted transaction leaked a write: %#v", got.Item)
 	}
 }
 

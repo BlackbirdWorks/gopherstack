@@ -64,12 +64,27 @@ func mustWrite(t *testing.T, err error) {
 	}
 }
 
-// docPath writes an opDocumentPath node for a single top-level attribute name.
-func docPath(t *testing.T, w *dataplane.TestWriter, name string) {
+// docPath writes an opDocumentPath node for a path of one or more attribute
+// name elements (e.g. "a" or "b","c" for b.c).
+func docPath(t *testing.T, w *dataplane.TestWriter, names ...string) {
 	t.Helper()
-	mustWrite(t, w.WriteArrayHeader(2))
+	mustWrite(t, w.WriteArrayHeader(1+len(names)))
+	mustWrite(t, w.WriteInt(dataplane.OpDocumentPath))
+
+	for _, n := range names {
+		mustWrite(t, w.WriteString(n))
+	}
+}
+
+// docPathIndexed writes an opDocumentPath node for name[idx], encoding the index
+// as the tag-3324 list-access atom the DAX parser emits.
+func docPathIndexed(t *testing.T, w *dataplane.TestWriter, name string, idx int64) {
+	t.Helper()
+	mustWrite(t, w.WriteArrayHeader(3))
 	mustWrite(t, w.WriteInt(dataplane.OpDocumentPath))
 	mustWrite(t, w.WriteString(name))
+	mustWrite(t, w.WriteTag(dataplane.TagDocumentPathOrdinal))
+	mustWrite(t, dataplane.WriteInt64ForTest(w, idx))
 }
 
 // variable writes an opVariable node referencing value index id.
@@ -211,18 +226,85 @@ func TestDecodeUpdateExpressionMultipleClauses(t *testing.T) {
 	}
 }
 
-func TestDecodeProjectionUnsupported(t *testing.T) {
+// TestDecodeProjectionBlob verifies that a ProjectionExpression blob decodes to
+// the expected expression string and that projecting an item against it yields
+// the ordinal-keyed entries the response sub-protocol emits, including nested
+// map paths and list-index paths.
+func TestDecodeProjectionBlob(t *testing.T) {
 	t.Parallel()
 
-	// projection blob: [version, tree] (2 elements, no values).
+	// projection blob: [version, [path0, path1, path2]] for "a, b.c, d[1]".
 	b := newBlobBuilder()
 	mustWrite(t, b.w.WriteArrayHeader(2))
 	mustWrite(t, b.w.WriteInt(dataplane.ExprVersion))
-	mustWrite(t, b.w.WriteArrayHeader(1))
-	docPath(t, b.w, "x")
+	mustWrite(t, b.w.WriteArrayHeader(3))
+	docPath(t, b.w, "a")
+	docPath(t, b.w, "b", "c")
+	docPathIndexed(t, b.w, "d", 1)
 
-	if _, err := dataplane.DecodeExpressionBlobForTest(b.bytes(t), dataplane.KindProjection); err == nil {
-		t.Fatal("expected projection to be reported unsupported")
+	item := map[string]types.AttributeValue{
+		"a": &types.AttributeValueMemberS{Value: "av"},
+		"b": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+			"c": &types.AttributeValueMemberN{Value: "7"},
+		}},
+		"d": &types.AttributeValueMemberL{Value: []types.AttributeValue{
+			&types.AttributeValueMemberN{Value: "0"},
+			&types.AttributeValueMemberS{Value: "d1"},
+		}},
+		"ignored": &types.AttributeValueMemberS{Value: "no"},
+	}
+
+	expr, entries, err := dataplane.ProjectedItemForTest(b.bytes(t), item)
+	if err != nil {
+		t.Fatalf("ProjectedItemForTest: %v", err)
+	}
+
+	const wantExpr = "#n0, #n1.#n2, #n3[1]"
+	if expr != wantExpr {
+		t.Fatalf("projection expr: got %q want %q", expr, wantExpr)
+	}
+
+	wantOrdinals := map[int]string{0: "av", 1: "7", 2: "d1"}
+	if len(entries) != len(wantOrdinals) {
+		t.Fatalf("entry count: got %d want %d", len(entries), len(wantOrdinals))
+	}
+
+	for ord, want := range wantOrdinals {
+		got := renderAttrValue(t, entries[ord])
+		if got != want {
+			t.Fatalf("ordinal %d: got %q want %q", ord, got, want)
+		}
+	}
+}
+
+// TestDecodeProjectionMissingPath verifies that a projection path that does not
+// resolve in the item is omitted from the response entries (matching the real
+// service), rather than emitting a null.
+func TestDecodeProjectionMissingPath(t *testing.T) {
+	t.Parallel()
+
+	b := newBlobBuilder()
+	mustWrite(t, b.w.WriteArrayHeader(2))
+	mustWrite(t, b.w.WriteInt(dataplane.ExprVersion))
+	mustWrite(t, b.w.WriteArrayHeader(2))
+	docPath(t, b.w, "present")
+	docPath(t, b.w, "absent")
+
+	item := map[string]types.AttributeValue{
+		"present": &types.AttributeValueMemberS{Value: "yes"},
+	}
+
+	_, entries, err := dataplane.ProjectedItemForTest(b.bytes(t), item)
+	if err != nil {
+		t.Fatalf("ProjectedItemForTest: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("entry count: got %d want 1", len(entries))
+	}
+
+	if got := renderAttrValue(t, entries[0]); got != "yes" {
+		t.Fatalf("ordinal 0: got %q want %q", got, "yes")
 	}
 }
 

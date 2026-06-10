@@ -67,9 +67,11 @@ Method IDs implemented:
 | DeleteItem            | `1013539361`  | Implemented                          |
 | BatchGetItem          | `-697851100`  | Implemented                          |
 | BatchWriteItem        | `116217951`   | Implemented                          |
-| UpdateItem            | `1425579023`  | Implemented (expression blob decode) |
-| Query                 | `-931250863`  | Implemented (key/filter expressions) |
-| Scan                  | `-1875390620` | Implemented (filter expression)      |
+| UpdateItem            | `1425579023`  | Implemented (expr blob + UPDATED_*)  |
+| Query                 | `-931250863`  | Implemented (key/filter/projection)  |
+| Scan                  | `-1875390620` | Implemented (filter/projection)      |
+| TransactWriteItems    | `-1160037738` | Implemented (multi-section framing)  |
+| TransactGetItems      | `1866287579`  | Implemented (multi-section framing)  |
 
 ### Response framing
 
@@ -99,6 +101,27 @@ statusCode]` info array. On success the operation-specific body follows.
   (`dataplane/attrval.go`): strings, numbers (int / big.Int / CBOR tag-4
   decimal), binary, bool, null, string/number/binary sets (CBOR tags
   3321/3322/3323), lists, and maps.
+- **Projected attributes** (a `ProjectionExpression` on Query/Scan/GetItem, or
+  `ReturnValues=UPDATED_*` on UpdateItem) use a distinct response sub-protocol
+  (`dataplane/projection.go`). The server decodes the projection's pre-parsed
+  blob into the same ordered document paths the client builds via
+  `buildProjectionOrdinals`, resolves each path against the backend's returned
+  item, and emits the ordinal-keyed shape the client expects: a bare
+  `{ordinal: value}` map per item for Query/Scan/GetItem (`decodeProjection`), or
+  a byte-wrapped `[attrListId, {ordinal: value}]` payload for UpdateItem
+  UPDATED_* (`decodeAttributeProjection`). Paths that do not resolve in the item
+  are omitted, matching the real service.
+- **Transactions** (`dataplane/transact.go`) arrive not as a per-item frame but
+  as parallel arrays — operations / tableNames / keys / values /
+  conditionExpressions / updateExpressions for writes; tableNames / keys /
+  projectionExpressions for reads — exactly as `encodeTransactWriteItemsInput` /
+  `encodeTransactGetItemsInput` emit them. The server rebuilds the SDK
+  `TransactItems` (Put / Update / Delete / ConditionCheck for writes; Get for
+  reads) and delegates to the backend's transaction path, so atomicity, the
+  duplicate-item check, and condition-check rollback come from the real
+  DynamoDB emulation. Responses are the multi-section
+  `[returnValues, consumedCapacity, itemCollectionMetrics]` (write) and
+  `[responses, consumedCapacity]` (read) shapes the client decodes.
 
 ## What works end to end
 
@@ -113,46 +136,56 @@ Verified with the **real `amazon-dax-go` client** in
   values/names, including `ReturnValues=ALL_NEW`,
 - **Query** with a `KeyConditionExpression` over a numeric range key, with and
   without an additional `FilterExpression`,
+- **Query / Scan** with a `ProjectionExpression` (including an
+  `ExpressionAttributeNames` substitution), returning only the projected
+  attributes via the projection response sub-protocol,
+- **UpdateItem** with `ReturnValues=UPDATED_NEW` and `UPDATED_OLD` (in addition
+  to `ALL_NEW`/`ALL_OLD`/`NONE`), returning the touched attributes,
 - **Scan** with a `FilterExpression`,
+- **TransactWriteItems** (Put + Update) followed by **TransactGetItems**, a
+  TransactGetItems with a per-item `ProjectionExpression`, and a
+  TransactWriteItems whose `ConditionCheck` fails (verifying the whole
+  transaction is rolled back),
 - a **numeric (N) range-key** round-trip across a hash+range table (negative,
   zero, integer and fractional sort keys), exercising the lexdecimal codec.
 
 `BatchGetItem` and `BatchWriteItem` are implemented and decode/delegate using the
 same key + attribute machinery. Protocol-level encode/decode is unit-tested in
-`dataplane/codec_test.go`; the expression-blob decoder and the lexdecimal
-range-key codec have dedicated unit tests in `dataplane/expression_test.go` and
-`dataplane/lexdecimal_test.go`.
+`dataplane/codec_test.go`; the expression-blob decoder, the projection ordinal
+decoder/resolver, the transact response writers, and the lexdecimal range-key
+codec have dedicated unit tests in `dataplane/expression_test.go`,
+`dataplane/transact_test.go` and `dataplane/lexdecimal_test.go`.
 
 ## Known gaps (honest status)
 
 The full item read/write path — GetItem, PutItem, DeleteItem, BatchGetItem,
-BatchWriteItem, **UpdateItem, Query and Scan** — now works end to end against the
-real client, including the pre-parsed expression sub-protocol and numeric range
-keys. The remaining gaps are deliberate and surfaced as DAX errors (the client
-reports a normal request failure) rather than silently corrupting data:
+BatchWriteItem, **UpdateItem (including `UPDATED_OLD`/`UPDATED_NEW`), Query and
+Scan (including `ProjectionExpression`)** — and the **TransactWriteItems /
+TransactGetItems** transaction operations now work end to end against the real
+client, including the pre-parsed expression sub-protocol, the ordinal-keyed
+projection response sub-protocol, and numeric range keys. There are no remaining
+data-plane operations served as `UnknownOperation`.
 
-1. **ProjectionExpression on Query / Scan / UpdateItem.** A `ProjectionExpression`
-   (and `ReturnValues=UPDATED_*` on UpdateItem) makes the client decode a
-   distinct *attribute-projection* response sub-protocol — items are returned as
-   an ordinal-keyed map keyed by document-path ordinals (`projection.go` /
-   `decodeProjection` in the client) rather than as `[key, nonKeyBlob]` pairs.
-   That response shape is not emitted. Query/Scan with a `ProjectionExpression`
-   therefore return a `ValidationException`; the (common) non-projected path is
-   fully supported. UpdateItem with `ReturnValues=ALL_OLD`/`ALL_NEW` is
-   supported; `UPDATED_OLD`/`UPDATED_NEW` fall back to returning the full
-   attribute map. *Next step:* port `buildProjectionOrdinals` + the
-   ordinal-keyed projection response writer.
-2. **TransactGetItems / TransactWriteItems.** Method IDs are recognized but not
-   served (they return `UnknownOperation`). Their request encoding is a large,
-   multi-section buffered sub-protocol (operations/tableNames/keys/values/
-   conditionExpressions buffers; see `encodeTransactWriteItemsInput`) distinct
-   from the single-item ops. *Next step:* port the multi-buffer transact
-   request/response framing and delegate to the backend's transact methods.
-3. **TLS / SigV4 verification.** The listener speaks plain TCP and accepts any
+The remaining gaps are intentional emulator simplifications, not protocol
+omissions:
+
+1. **TLS / SigV4 verification.** The listener speaks plain TCP and accepts any
    credentials, which is appropriate for a local emulator. `daxs://` (encrypted)
    endpoints are not served.
-4. **ConsumedCapacity / ItemCollectionMetrics.** Responses report empty/zero
-   values rather than computed capacity.
+2. **ConsumedCapacity / ItemCollectionMetrics.** Responses report empty/zero
+   values rather than computed capacity. (For transactions the client decodes
+   these as empty arrays / an empty map, which is accepted.)
+
+### Test-harness note
+
+The integration tests drive the real `amazon-dax-go` client, whose client-side
+expression parser uses the old ANTLR Go runtime. That runtime mutates shared,
+process-global ATN/DFA caches on every parse and is not goroutine-safe. The
+expression-bearing integration tests therefore run sequentially (no
+`t.Parallel()`); `paralleltest` is excluded for
+`dax/dataplane_integration_test.go` in `.golangci.yml` for that reason. This is a
+limitation of the third-party, test-only client, not of the gopherstack server,
+whose listener is concurrency-safe (verified under `go test -race`).
 
 ## Lifecycle wiring
 

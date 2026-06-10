@@ -154,6 +154,52 @@ func DecodeExpressionBlobForTest(blob []byte, kind int) (DecodedExpression, erro
 	return DecodedExpression{Expr: expr, Names: dec.names, Values: dec.values}, nil
 }
 
+// WriteTransactWriteResponseForTest emits the TransactWriteItems success body.
+func WriteTransactWriteResponseForTest(w *TestWriter) error {
+	return writeTransactWriteResponse(w)
+}
+
+// AttrListServer wraps a Server so tests can emit an attribute-projection
+// payload and then resolve the ordinals it used via the registered name list.
+type AttrListServer struct {
+	s *Server
+}
+
+// NewAttrListServerForTest builds a server wrapper whose attribute-list id
+// allocations can be inspected by tests.
+func NewAttrListServerForTest() *AttrListServer { return &AttrListServer{s: NewServer(nil, nil)} }
+
+// WriteAttributeProjection emits an attribute-projection payload via the wrapped
+// server, so the test can then resolve ordinals through Names.
+func (a *AttrListServer) WriteAttributeProjection(w *TestWriter, attrs map[string]types.AttributeValue) error {
+	return a.s.writeAttributeProjection(w, attrs)
+}
+
+// Names returns the attribute names registered for an id.
+func (a *AttrListServer) Names(id int64) []string { return a.s.attrListNames(id) }
+
+// ProjectedItemForTest decodes a ProjectionExpression blob, then projects the
+// given item against it and returns the ordinal/value entries that a Query/Scan
+// projected response would emit, along with the reconstructed projection-
+// expression string. Used to verify the projection response sub-protocol.
+func ProjectedItemForTest(
+	blob []byte, item map[string]types.AttributeValue,
+) (string, map[int]types.AttributeValue, error) {
+	dec := newDecodedExpression()
+
+	proj, err := dec.decodeProjectionBlob(blob)
+	if err != nil {
+		return "", nil, err
+	}
+
+	out := map[int]types.AttributeValue{}
+	for _, e := range projectedEntries(item, proj.ordinals) {
+		out[e.ordinal] = e.value
+	}
+
+	return proj.expression, out, nil
+}
+
 // Expression op-code constants exported for building test blobs.
 const (
 	OpEqual        = opEqual
@@ -164,4 +210,8 @@ const (
 	OpSetAction    = opSetAction
 	OpRemoveAction = opRemoveAction
 	ExprVersion    = exprEncodingVersion
+
+	// TagDocumentPathOrdinal is the CBOR tag for a list-access index in a
+	// document path.
+	TagDocumentPathOrdinal = tagDocumentPathOrdinal
 )

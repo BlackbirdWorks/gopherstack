@@ -72,6 +72,8 @@ type Backend interface {
 	Scan(context.Context, *awsddb.ScanInput) (*awsddb.ScanOutput, error)
 	BatchGetItem(context.Context, *awsddb.BatchGetItemInput) (*awsddb.BatchGetItemOutput, error)
 	BatchWriteItem(context.Context, *awsddb.BatchWriteItemInput) (*awsddb.BatchWriteItemOutput, error)
+	TransactGetItems(context.Context, *awsddb.TransactGetItemsInput) (*awsddb.TransactGetItemsOutput, error)
+	TransactWriteItems(context.Context, *awsddb.TransactWriteItemsInput) (*awsddb.TransactWriteItemsOutput, error)
 	DescribeTable(context.Context, *awsddb.DescribeTableInput) (*awsddb.DescribeTableOutput, error)
 }
 
@@ -367,33 +369,60 @@ func (r *Reader) ReadNullableString() (string, error) {
 }
 
 func (s *Server) dispatch(r *Reader, w *Writer, method int) error {
+	if handled, err := s.dispatchControl(r, w, method); handled {
+		return err
+	}
+
+	if handled, err := s.dispatchItem(r, w, method); handled {
+		return err
+	}
+
+	return s.writeError(w, statusInternalServerError, "UnknownOperation", "dax: unsupported method")
+}
+
+// dispatchControl handles the cluster-discovery and schema/attribute-list
+// control methods. The bool reports whether the method was recognised.
+func (s *Server) dispatchControl(r *Reader, w *Writer, method int) (bool, error) {
 	switch method {
 	case methodEndpoints:
-		return s.handleEndpoints(w)
+		return true, s.handleEndpoints(w)
 	case methodDefineKeySchema:
-		return s.handleDefineKeySchema(r, w)
+		return true, s.handleDefineKeySchema(r, w)
 	case methodDefineAttributeListID:
-		return s.handleDefineAttributeListID(r, w)
+		return true, s.handleDefineAttributeListID(r, w)
 	case methodDefineAttributeList:
-		return s.handleDefineAttributeList(r, w)
-	case methodGetItem:
-		return s.handleGetItem(r, w)
-	case methodPutItem:
-		return s.handlePutItem(r, w)
-	case methodDeleteItem:
-		return s.handleDeleteItem(r, w)
-	case methodUpdateItem:
-		return s.handleUpdateItem(r, w)
-	case methodQuery:
-		return s.handleQuery(r, w)
-	case methodScan:
-		return s.handleScan(r, w)
-	case methodBatchGetItem:
-		return s.handleBatchGetItem(r, w)
-	case methodBatchWriteItem:
-		return s.handleBatchWriteItem(r, w)
+		return true, s.handleDefineAttributeList(r, w)
 	default:
-		return s.writeError(w, statusInternalServerError, "UnknownOperation", "dax: unsupported method")
+		return false, nil
+	}
+}
+
+// dispatchItem handles the item read/write and transaction methods. The bool
+// reports whether the method was recognised.
+func (s *Server) dispatchItem(r *Reader, w *Writer, method int) (bool, error) {
+	switch method {
+	case methodGetItem:
+		return true, s.handleGetItem(r, w)
+	case methodPutItem:
+		return true, s.handlePutItem(r, w)
+	case methodDeleteItem:
+		return true, s.handleDeleteItem(r, w)
+	case methodUpdateItem:
+		return true, s.handleUpdateItem(r, w)
+	case methodQuery:
+		return true, s.handleQuery(r, w)
+	case methodScan:
+		return true, s.handleScan(r, w)
+	case methodBatchGetItem:
+		return true, s.handleBatchGetItem(r, w)
+	case methodBatchWriteItem:
+		return true, s.handleBatchWriteItem(r, w)
+	case methodTransactWriteItems:
+		return true, s.handleTransactWriteItems(r, w)
+	case methodTransactGetItems:
+		return true, s.handleTransactGetItems(r, w)
+	default:
+		return false, nil
 	}
 }
 

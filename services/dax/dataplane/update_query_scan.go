@@ -57,15 +57,6 @@ func (s *Server) handleUpdateItem(r *Reader, w *Writer) error {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
-	if rv == rvUpdatedOld || rv == rvUpdatedNew {
-		// UPDATED_OLD/UPDATED_NEW require the ordinal-keyed attribute-projection
-		// response sub-protocol, which the data plane does not emit. Reject
-		// rather than return a malformed body. ALL_OLD/ALL_NEW/NONE are served.
-		return s.writeError(w, statusBadRequest, "ValidationException",
-			"dax: UpdateItem ReturnValues UPDATED_OLD/UPDATED_NEW not supported by the data plane",
-		)
-	}
-
 	out, err := s.backend.UpdateItem(ctx, in)
 	if err != nil {
 		return s.writeBackendError(w, err)
@@ -135,10 +126,26 @@ func (s *Server) writeUpdateResponse(
 		return w.WriteNull()
 	}
 
-	// For ALL_OLD / ALL_NEW the client decodes the byte-wrapped non-key
-	// attribute blob and merges the request key back in. UPDATED_* is rejected
-	// earlier, so only the non-key blob form is needed here.
-	return s.writeItemMap(w, respParamAttributes, out.Attributes, ks)
+	if err := w.WriteMapHeader(1); err != nil {
+		return err
+	}
+
+	if err := w.WriteInt(respParamAttributes); err != nil {
+		return err
+	}
+
+	switch rv {
+	case rvUpdatedOld, rvUpdatedNew:
+		// UPDATED_OLD/UPDATED_NEW use the byte-wrapped [attrListId, {ord: value}]
+		// attribute-projection shape the client decodes via
+		// decodeAttributeProjection. The backend already narrows out.Attributes
+		// to only the attributes the update touched.
+		return s.writeAttributeProjection(w, out.Attributes)
+	default:
+		// For ALL_OLD / ALL_NEW the client decodes the byte-wrapped non-key
+		// attribute blob and merges the request key back in.
+		return s.writeNonKeyAttributes(w, out.Attributes, ks)
+	}
 }
 
 // handleQuery decodes a Query request and delegates to the backend.
@@ -158,7 +165,9 @@ func (s *Server) handleQuery(r *Reader, w *Writer) error {
 
 	in.KeyConditionExpression = aws.String(keyCond)
 
-	if err = s.decodeScanQueryParams(r, dec, &queryScanParams{query: in}); err != nil {
+	params := &queryScanParams{query: in}
+
+	if err = s.decodeScanQueryParams(r, dec, params); err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
@@ -182,7 +191,12 @@ func (s *Server) handleQuery(r *Reader, w *Writer) error {
 		return err
 	}
 
-	return s.writeScanQueryResponse(w, out.Items, out.Count, out.ScannedCount, out.LastEvaluatedKey, ks)
+	return s.writeScanQueryResponse(w, scanQueryResult{
+		items:        out.Items,
+		count:        out.Count,
+		scannedCount: out.ScannedCount,
+		lastKey:      out.LastEvaluatedKey,
+	}, ks, params.proj)
 }
 
 // handleScan decodes a Scan request and delegates to the backend.
@@ -194,8 +208,9 @@ func (s *Server) handleScan(r *Reader, w *Writer) error {
 
 	in := &awsddb.ScanInput{TableName: &table}
 	dec := newDecodedExpression()
+	params := &queryScanParams{scan: in}
 
-	if err = s.decodeScanQueryParams(r, dec, &queryScanParams{scan: in}); err != nil {
+	if err = s.decodeScanQueryParams(r, dec, params); err != nil {
 		return s.writeError(w, statusBadRequest, "ValidationException", err.Error())
 	}
 
@@ -219,14 +234,21 @@ func (s *Server) handleScan(r *Reader, w *Writer) error {
 		return err
 	}
 
-	return s.writeScanQueryResponse(w, out.Items, out.Count, out.ScannedCount, out.LastEvaluatedKey, ks)
+	return s.writeScanQueryResponse(w, scanQueryResult{
+		items:        out.Items,
+		count:        out.Count,
+		scannedCount: out.ScannedCount,
+		lastKey:      out.LastEvaluatedKey,
+	}, ks, params.proj)
 }
 
 // queryScanParams holds exactly one of a Query or Scan input being populated
-// from the shared scan/query optional-params map.
+// from the shared scan/query optional-params map. proj, when set, carries the
+// projection ordinals used to shape the response.
 type queryScanParams struct {
 	query *awsddb.QueryInput
 	scan  *awsddb.ScanInput
+	proj  *projection
 }
 
 func (p *queryScanParams) table() string {
@@ -258,6 +280,16 @@ func (p *queryScanParams) setStartKey(k map[string]types.AttributeValue) {
 		p.query.ExclusiveStartKey = k
 	} else {
 		p.scan.ExclusiveStartKey = k
+	}
+}
+
+func (p *queryScanParams) setProjection(proj *projection) {
+	p.proj = proj
+
+	if p.query != nil {
+		p.query.ProjectionExpression = aws.String(proj.expression)
+	} else {
+		p.scan.ProjectionExpression = aws.String(proj.expression)
 	}
 }
 
@@ -308,12 +340,19 @@ func (s *Server) decodeOneScanQueryParam(
 
 		return nil
 	case reqParamProjectionExpression:
-		// Consume the blob and surface the projection limitation explicitly.
-		if _, e := r.ReadBytes(); e != nil {
+		blob, e := r.ReadBytes()
+		if e != nil {
 			return e
 		}
 
-		return errProjectionUnsupported
+		proj, e := dec.decodeProjectionBlob(blob)
+		if e != nil {
+			return e
+		}
+
+		p.setProjection(proj)
+
+		return nil
 	case reqParamLimit:
 		v, e := r.ReadInt64()
 		p.setLimit(clampInt32(v))
@@ -363,19 +402,28 @@ const (
 	respParamScannedCount     = 10
 )
 
+// scanQueryResult bundles the fields of a Scan/Query backend result that the
+// DAX response encoder needs.
+type scanQueryResult struct {
+	lastKey      map[string]types.AttributeValue
+	items        []map[string]types.AttributeValue
+	count        int32
+	scannedCount int32
+}
+
 // writeScanQueryResponse encodes a Scan/Query result map: items, count,
-// scannedCount, and (when present) the lastEvaluatedKey. Each item is encoded
-// as a [keyBytes, nonKeyAttrsBlob] pair, matching the non-projected response
-// the DAX client decodes.
+// scannedCount, and (when present) the lastEvaluatedKey. Without a projection,
+// each item is a [keyBytes, nonKeyAttrsBlob] pair. With a projection, each item
+// is the bare ordinal-keyed projection map the client decodes via
+// decodeProjection.
 func (s *Server) writeScanQueryResponse(
 	w *Writer,
-	items []map[string]types.AttributeValue,
-	count, scannedCount int32,
-	lastKey map[string]types.AttributeValue,
+	res scanQueryResult,
 	ks keySchema,
+	proj *projection,
 ) error {
 	entries := 3
-	if len(lastKey) > 0 {
+	if len(res.lastKey) > 0 {
 		entries++
 	}
 
@@ -383,24 +431,24 @@ func (s *Server) writeScanQueryResponse(
 		return err
 	}
 
-	if err := s.writeScanQueryItems(w, items, ks); err != nil {
+	if err := s.writeScanQueryItems(w, res.items, ks, proj); err != nil {
 		return err
 	}
 
-	if err := writeMapInt(w, respParamCount, int(count)); err != nil {
+	if err := writeMapInt(w, respParamCount, int(res.count)); err != nil {
 		return err
 	}
 
-	if err := writeMapInt(w, respParamScannedCount, int(scannedCount)); err != nil {
+	if err := writeMapInt(w, respParamScannedCount, int(res.scannedCount)); err != nil {
 		return err
 	}
 
-	if len(lastKey) > 0 {
+	if len(res.lastKey) > 0 {
 		if err := w.WriteInt(respParamLastEvaluatedKey); err != nil {
 			return err
 		}
 
-		if err := encodeItemKey(w, lastKey, ks); err != nil {
+		if err := encodeItemKey(w, res.lastKey, ks); err != nil {
 			return err
 		}
 	}
@@ -408,13 +456,25 @@ func (s *Server) writeScanQueryResponse(
 	return nil
 }
 
-func (s *Server) writeScanQueryItems(w *Writer, items []map[string]types.AttributeValue, ks keySchema) error {
+func (s *Server) writeScanQueryItems(
+	w *Writer, items []map[string]types.AttributeValue, ks keySchema, proj *projection,
+) error {
 	if err := w.WriteInt(respParamItems); err != nil {
 		return err
 	}
 
 	if err := w.WriteArrayHeader(len(items)); err != nil {
 		return err
+	}
+
+	if proj.hasProjection() {
+		for _, item := range items {
+			if err := writeProjectionMap(w, projectedEntries(item, proj.ordinals)); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
 	const itemPairArity = 2
