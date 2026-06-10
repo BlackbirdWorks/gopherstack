@@ -800,3 +800,176 @@ cited handlers/backends; the inference "canned result" items are intentional moc
 opportunities, not bugs). The AppStream/WorkSpaces sub-resource items are flagged as
 *needs-verification* because the size check (120/96 backend funcs) contradicts the raw "unrouted"
 estimate — a precise op diff is required before treating them as confirmed.
+
+---
+
+# Platform, CloudFormation & deep-accuracy audit (2026-06-10, pass 3)
+
+Pass 3 looks at the dimensions that most determine "can a real IaC stack / SDK app run unchanged":
+CloudFormation resource-type breadth, platform features LocalStack ships, the cross-service event
+glue, and op-level AWS accuracy in the popular services. **Headline: the engine is already strong**
+— DynamoDB, SQS, and Lambda (real Docker runtimes) are close to AWS-accurate, and almost every
+cross-service trigger is wired. The remaining gaps are specific and enumerated below. Only
+`parity.md` is edited.
+
+## K. CloudFormation resource-type coverage
+
+The CFN engine wires **~111 `AWS::*` resource types** and a solid intrinsic-function set:
+`Ref` (incl. pseudo-params), `Fn::GetAtt`, `Fn::Sub`, `Fn::Join`, `Fn::Select`, `Fn::Split`,
+`Fn::FindInMap`, `Fn::If`, `Fn::Equals`, `Fn::ImportValue`; plus Conditions, Mappings, Parameters,
+Outputs/Exports, `DependsOn`, nested stacks, and dynamic refs
+(`{{resolve:ssm:…}}` / `{{resolve:secretsmanager:…}}`) — see
+`services/cloudformation/template.go:236-498` and `dynamic_refs.go:21-200`.
+
+**Genuinely missing, common, real CFN resource types** (curated — excludes non-types like
+`AWS::S3::BucketVersioning` which are `Bucket` properties, not resources):
+- **API Gateway v2 (blocks most HTTP-API templates):** `AWS::ApiGatewayV2::Integration`, `::Route`,
+  `::Authorizer`, `::DomainName`, `::ApiMapping`, `::Stage` (Stage exists; Integration/Route do not).
+- **API Gateway v1:** `AWS::ApiGateway::Model`, `::RequestValidator`, `::Authorizer`, `::ApiKey`,
+  `::UsagePlan`, `::UsagePlanKey`, `::DomainName`, `::BasePathMapping`, `::Account`, `::GatewayResponse`.
+- **Logs:** `AWS::Logs::LogStream`, `::MetricFilter`, `::SubscriptionFilter`, `::ResourcePolicy`,
+  `::QueryDefinition`.
+- **Events:** `AWS::Events::Connection`, `::ApiDestination`, `::Archive`, `::EventBusPolicy`.
+- **KMS:** `AWS::KMS::Alias`, `::ReplicaKey`.
+- **Cognito:** `AWS::Cognito::IdentityPool`, `::IdentityPoolRoleAttachment`, `::UserPoolDomain`,
+  `::UserPoolGroup`.
+- **EC2:** `AWS::EC2::Volume`, `::VolumeAttachment`, `::NetworkInterface`, `::VPCPeeringConnection`,
+  `::NetworkAcl`(+`Entry`), `::KeyPair`, `::SecurityGroupIngress`/`Egress` (standalone), `::FlowLog`.
+- **ELBv2:** `AWS::ElasticLoadBalancingV2::ListenerRule`.
+- **Lambda:** `AWS::Lambda::EventInvokeConfig`, `::Url`.
+- **AutoScaling for ECS/etc.:** `AWS::ApplicationAutoScaling::ScalableTarget`, `::ScalingPolicy`.
+- **Secrets Manager:** `AWS::SecretsManager::RotationSchedule`, `::ResourcePolicy`,
+  `::SecretTargetAttachment`.
+- **SSM:** `AWS::SSM::Document`, `::MaintenanceWindow`, `::Association`.
+- **DynamoDB:** `AWS::DynamoDB::GlobalTable`.
+- **Glue:** `AWS::Glue::Crawler`, `::Table`, `::Trigger`, `::Connection`, `::Partition`.
+- **AppSync:** `AWS::AppSync::DataSource`, `::Resolver`, `::FunctionConfiguration`, `::ApiKey`.
+- **Step Functions:** `AWS::StepFunctions::Activity`.
+- **Policies:** `AWS::SNS::TopicPolicy`.
+- **CloudFront:** `AWS::CloudFront::Function`, `::OriginAccessControl`, `::CachePolicy`,
+  `::ResponseHeadersPolicy`.
+- **Extensibility (high value):** `AWS::CloudFormation::CustomResource` / `Custom::*` (custom
+  resources), `AWS::CloudFormation::Macro` (template macros), `WaitCondition`/`WaitConditionHandle`.
+
+Custom resources and macros are the biggest single gap for "eclipse LocalStack" — many real
+templates (and CDK output) depend on `Custom::` Lambda-backed resources.
+
+## L. Platform-feature parity vs LocalStack
+
+Checklist of LocalStack platform capabilities (✅ present / ◑ partial / ❌ missing), with
+file:line:
+
+- ✅ **Health endpoint** — `GET /_gopherstack/health` (`cli.go:1993,2030`) returns status,
+  services, runtime metrics. ◑ no separate `/_localstack/info`-style endpoint (folded into health).
+- ✅ **Reset endpoint** — `POST /_gopherstack/reset[?service=…]` resets `Resettable` services
+  (`cli.go:1994,2056`).
+- ◑ **Persistence** — `--persist` + `--data-dir` with debounced auto-snapshot
+  (`cli.go:409,5144`, `pkgs/persistence/manager.go`). **Missing: an explicit save/load (Cloud-Pods
+  style) API endpoint** — persistence is background-only; you can't trigger/export a snapshot via API.
+- ✅ **Init hooks** — `--init-script`/`INIT_SCRIPTS` run shell scripts on startup
+  (`pkgs/inithooks/inithooks.go`, `cli.go:1859`); arguably more flexible than LocalStack's
+  `init/ready.d`.
+- ✅ **Embedded DNS** — `--dns-addr` resolves Lambda/Route53/RDS/Redshift/OpenSearch/ElastiCache/EC2
+  hostnames (`pkgs/dns/dns.go`, `cli.go:1966-1974`).
+- ❌ **SigV4 request-signature validation** — auth headers are parsed for region/service routing
+  only, never cryptographically verified (`pkgs/httputils/httputils.go:306-326`). Any credentials
+  are accepted. (LocalStack Pro can enforce IAM; even an *opt-in* validation mode would exceed the
+  open tier.)
+- ❌ **Multi-account / multi-region isolation** — a single fixed `--account-id`/`--region`; the
+  account/region in the request is ignored, so state is not partitioned per account or region
+  (`pkgs/config/config.go`). This is a significant parity gap — LocalStack keys stores by
+  account+region.
+- ◑ **Protocol coverage** — query/EC2, JSON (`x-amz-target`), rest-JSON, rest-XML all handled
+  (`pkgs/service/jsondisp.go`, `priorities.go`). **Missing: CBOR** (used by newer DynamoDB/Kinesis
+  SDKs and timestream) — not implemented.
+- ❌ **HTTPS/TLS listener** — HTTP only; no `ListenAndServeTLS`/cert flags (`cli.go:4307-4311`).
+  Some SDKs/tools default to HTTPS endpoints.
+- ◑ **Single edge-port multiplexing** — services share one HTTP listener via a priority router
+  (`pkgs/service/router.go`), but there's no LocalStack-style `:4566` edge with host/SNI-based
+  service routing + TLS.
+
+Highest-leverage platform gaps to close: **multi-account/region isolation**, **optional SigV4/IAM
+enforcement mode**, **CBOR**, **TLS**, and a **persistence save/load API**.
+
+## M. Cross-service event/integration wiring (largely a strength)
+
+Most "service A triggers service B" glue is implemented — this is an area where gopherstack already
+matches or beats LocalStack's open tier. Confirmed working (file:line):
+- **S3 notifications → SQS / SNS / Lambda / EventBridge** with filtering
+  (`services/s3/notification.go:358-464`).
+- **SNS → SQS / Lambda / Firehose** with filter policies, raw delivery, DLQ
+  (`services/sqs/sns_delivery.go:46-97`, `services/sns/lambda_firehose_delivery.go:79-119`).
+- **Lambda ESM polling for SQS / DynamoDB Streams / Kinesis** with batch-item-failure reporting
+  (`services/lambda/event_source_poller.go:320-795`).
+- **EventBridge rule → Lambda/SQS/SNS/StepFunctions/ECS/Kinesis/Firehose** with retries, DLQ, event-age
+  (`services/eventbridge/delivery.go:215-488`).
+- **EventBridge Pipes** source→enrichment→target and **Scheduler** → 8 target types with backoff+DLQ
+  (`services/pipes/runner.go:287-379`, `services/scheduler/runner.go:281-421`).
+- **CloudWatch alarm → SNS actions** (`services/cloudwatch/backend.go:1617-1640`).
+- **Firehose → S3 + Lambda transform** (`services/firehose/transform.go:38-90`).
+- **Step Functions task → Lambda/SNS/SQS/DynamoDB** integrations (`services/stepfunctions/integrations.go`).
+
+Remaining wiring gaps:
+- ◑ **CloudWatch Logs subscription filter → Lambda/Kinesis/Firehose** — `deliverToFilters` hands the
+  encoded batch to an external `SubscriptionDeliverer` but does **no destination-ARN type routing in
+  the backend itself** (`services/cloudwatchlogs/backend.go:1548-1602`); verify all three
+  destination types actually deliver end-to-end (and add an integration test).
+- **SNS → HTTP/HTTPS and email/email-json** delivery — confirm these subscription protocols deliver
+  (only SQS/Lambda/Firehose were positively traced).
+- **DLQ/RedrivePolicy on the SNS subscription and EventBridge target paths** — see §B; failed HTTP/
+  Lambda deliveries should land in a DLQ.
+
+## N. Deep op-level AWS accuracy in popular services
+
+Read-confirmed accuracy (good news, recorded so it isn't re-flagged): **DynamoDB** — PartiQL
+(`partiql.go:142-641`), TransactWrite atomicity + cancellation reasons
+(`transact_ops.go:30-124`), TTL sweep every 5s (`janitor.go:79-100`), all 4 stream view types,
+export-to-S3; **SQS** — FIFO dedup window + content-based SHA-256 dedup, group ordering,
+visibility extension, DelaySeconds, max-receive→DLQ; **Lambda** — real Docker runtimes
+(`backend.go:2300-2319`), RequestResponse/Event/DryRun, function URLs, layers, env, response
+streaming; **S3** — correct multipart ETag (`backend_memory.go:2129`), conditional requests +
+range GET, object-lock/legal-hold enforcement, CORS preflight.
+
+Specific **not-emulated / inaccurate** behaviors to close:
+- **S3 — SigV4 presigned-URL signature not verified** (`services/s3/presign.go:42-45`): the
+  signature is extracted but never validated, so any presigned URL is accepted. (Mirrors the
+  platform-level SigV4 gap; an opt-in verification mode would exceed LocalStack.)
+- **S3 — requester-pays not modeled** (no `x-amz-request-payer` handling) and
+  **transfer-acceleration** stores status but doesn't change the endpoint
+  (`services/s3/extra_backend.go:38-71`).
+- **EC2 — IMDSv2 not enforced**: `MetadataOptions` are stored but there's no `169.254.169.254`
+  metadata endpoint and no token TTL/enforcement (`services/ec2/backend.go:78-92,758-816`).
+- **EC2 — security-group rules not evaluated**: rules are stored but no traffic/ACL simulation;
+  network isolation is not enforced.
+- **EC2 — routing/NAT/IGW and EBS/Spot are structural stubs**: route tables/NAT/IGW don't route
+  packets, EBS snapshots don't capture data, spot has no market price/interruption
+  (`services/ec2/backend_ec2core.go:362-401`).
+- **Lambda — SnapStart not implemented** (no config parsed or honored).
+
+## O. Concrete integration + Terraform test targets (to lock parity in)
+
+To maximize int/terraform coverage (the strongest parity signal), the highest-value additions,
+each as a `success.tf`(+`import.tf`+`drift.tf`) fixture and/or an SDK round-trip test:
+1. **API Gateway v2 full stack** — `Api`+`Integration`+`Route`+`Stage`+`Authorizer` via Terraform
+   *and* via CFN (exercises the missing CFN types in §K) — currently HTTP-API templates can't deploy.
+2. **CloudFormation custom resource** — a `Custom::` Lambda-backed resource round-trip (closes the
+   single biggest CFN gap).
+3. **Cross-service event e2e tests** — S3→Lambda, SNS→SQS, EventBridge→StepFunctions,
+   DynamoDB-Streams→Lambda, CW-Logs-subscription→Firehose — assert the *target* actually received
+   the event (locks the §M wiring against regressions).
+4. **Fixtures for the 34 services in §H**, prioritising fsx, apprunner, appstream, workspaces, waf,
+   datasync, directoryservice, dlm, guardduty, securityhub.
+5. **Multi-account/region test** — once isolation lands (§L), a test that writes to two accounts/
+   regions and asserts state separation.
+6. **`*-comprehensive` Terraform modules** for Logs (MetricFilter/SubscriptionFilter), Cognito
+   (IdentityPool + role attachment), Glue (Crawler/Table/Trigger), and AppSync (DataSource/Resolver)
+   — all common in real stacks and currently un-fixtured at the resource level.
+
+## Notes on pass 3
+
+The CFN supported-count (~111) and intrinsic list are from the engine's registry/template code;
+the "missing types" list was curated down to real, common `AWS::*` resources (the raw grep also
+surfaced several non-types and niche resources, omitted here). Platform and op-accuracy items are
+cited to the files read. The cross-service section is deliberately recorded as a *strength* with
+only the true partials called out, to keep the parity picture honest rather than inflating the
+gap count.
