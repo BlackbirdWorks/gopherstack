@@ -60,6 +60,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend(accountID, region)
+	backend.StartLifecycleReconciler()
 
 	if cp, ok := ctx.Config.(ComputeProviderConfig); ok && cp.GetEC2ComputeProvider() == "docker" {
 		dc, err := NewDockerCompute(cp.GetEC2DockerComputeConfig())

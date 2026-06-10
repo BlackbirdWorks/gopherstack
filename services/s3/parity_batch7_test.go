@@ -159,6 +159,17 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
+	// Put the object into both buckets BEFORE enabling replication. Doing the
+	// PUTs first ensures the source PUT does not spawn an object-replication
+	// goroutine that would otherwise race with (and re-create the object after)
+	// the delete-marker replication we are exercising below.
+	for _, b := range []string{src, dst} {
+		req := httptest.NewRequest(http.MethodPut, "/"+b+"/note.txt", strings.NewReader("content"))
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
 	cfgXML := fmt.Sprintf(`<ReplicationConfiguration>
 <Role>arn:aws:iam::123456789012:role/repl</Role>
 <Rule>
@@ -174,14 +185,6 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Put object in both buckets directly.
-	for _, b := range []string{src, dst} {
-		req = httptest.NewRequest(http.MethodPut, "/"+b+"/note.txt", strings.NewReader("content"))
-		rec = httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
 
 	// Delete from source — should trigger delete-marker replication to dest.
 	req = httptest.NewRequest(http.MethodDelete, "/"+src+"/note.txt", nil)

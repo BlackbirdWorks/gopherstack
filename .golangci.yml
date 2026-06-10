@@ -472,6 +472,12 @@ linters:
         linters: [ govet ]
       - path: 'kms/models.go'
         linters: [ govet ]
+      # The DAX data-plane integration tests drive the real amazon-dax-go client,
+      # which parses expressions with the old ANTLR Go runtime whose shared
+      # ATN/DFA caches are not goroutine-safe. The expression-bearing tests must
+      # therefore run sequentially, so paralleltest is not applicable here.
+      - path: 'dax/dataplane_integration_test.go'
+        linters: [ paralleltest ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

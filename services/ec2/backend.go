@@ -302,6 +302,7 @@ type InMemoryBackend struct {
 	reservedInstancesListings          map[string]*ReservedInstancesListing
 	reservedInstancesModifications     map[string]*ReservedInstancesModification
 	mu                                 *lockmetrics.RWMutex
+	lifecycleStop                      chan struct{}
 	eniIDByAttachment                  map[string]string
 	eniIDsByInstance                   map[string]map[string]struct{}
 	instanceIDsByVPC                   map[string]map[string]struct{}
@@ -317,6 +318,7 @@ type InMemoryBackend struct {
 	ebsEncryptionByDefault             bool
 	serialConsoleAccess                bool
 	lifecycleOnce                      sync.Once
+	lifecycleStopOnce                  sync.Once
 }
 
 func newInMemoryBackendMaps() *InMemoryBackend {
@@ -444,25 +446,42 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.AccountID = accountID
 	b.Region = region
 	b.mu = lockmetrics.New("ec2")
+	b.lifecycleStop = make(chan struct{})
 	b.initDefaults()
-	b.ensureLifecycleReconciler()
 
 	return b
 }
 
-// ensureLifecycleReconciler starts the background goroutine that advances
+// StartLifecycleReconciler starts the background goroutine that advances
 // instances through their transitional states (pending→running, stopping→stopped,
-// shutting-down→terminated). Idempotent — safe to call multiple times.
-func (b *InMemoryBackend) ensureLifecycleReconciler() {
+// shutting-down→terminated). It is started by the production provider; tests
+// drive lifecycle transitions deterministically via TickLifecycleForTest and so
+// deliberately do NOT start the background ticker (which would otherwise race
+// with their direct ticks and state assertions). Idempotent — safe to call
+// multiple times; only the first call starts the goroutine.
+func (b *InMemoryBackend) StartLifecycleReconciler() {
 	b.lifecycleOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(lifecycleReconcileInterval)
 			defer ticker.Stop()
 
-			for range ticker.C {
-				b.reconcileInstanceLifecycle()
+			for {
+				select {
+				case <-b.lifecycleStop:
+					return
+				case <-ticker.C:
+					b.reconcileInstanceLifecycle()
+				}
 			}
 		}()
+	})
+}
+
+// StopLifecycleReconciler signals the background lifecycle goroutine (if any) to
+// exit. Idempotent and safe to call even if the reconciler was never started.
+func (b *InMemoryBackend) StopLifecycleReconciler() {
+	b.lifecycleStopOnce.Do(func() {
+		close(b.lifecycleStop)
 	})
 }
 
