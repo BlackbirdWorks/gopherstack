@@ -127,7 +127,7 @@ type BackendsProvider interface {
 	GetFISHandler() service.Registerable
 	GetIdentityStoreHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
-	GetWAFv2Handler() service.Registerable
+	GetWafv2Handler() service.Registerable
 	GetELBv2Handler() service.Registerable
 	GetBackupHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
@@ -164,7 +164,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SecretsManager, _ = getHandler[*secretsmanagerbackend.Handler](bp.GetSecretsManagerHandler())
 	// Added handlers for dynamic ref resolution and resource provisioning
 	backends.MemoryDB, _ = getHandler[*memorydb.Handler](bp.GetMemoryDBHandler())
-	backends.WAFv2, _ = getHandler[*wafv2backend.Handler](bp.GetWAFv2Handler())
+	backends.WAFv2, _ = getHandler[*wafv2backend.Handler](bp.GetWafv2Handler())
 	backends.ELBv2, _ = getHandler[*elbv2backend.Handler](bp.GetELBv2Handler())
 	backends.Backup, _ = getHandler[*backupbackend.Handler](bp.GetBackupHandler())
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())

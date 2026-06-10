@@ -18,44 +18,44 @@ EMR Serverless interactive session and resource-dashboard operations are now imp
 
 12. **APIGatewayManagementApi admin `PruneIdle`** — was timing-sensitive (15 ms threshold + 20 ms sleep) and flaked on contended CI runners. (Tightened in this PR to a 50 ms threshold + 100 ms sleep.)
 13. **API Gateway list response shapes** — `keyItem` ("items") used for most list ops, `keyStagesItem` ("item") only for `GetStages`; any new list op that copy-pastes from another will use the wrong JSON key (verified via existing memory).
-14. **Cognito IDP persistence** — `Snapshot/Restore` only persists fields declared in `services/cognitoidp/persistence.go`; any newly added backend state on `InMemoryBackend` will silently drop on restore.
-15. **APIGateway persistence** — only persists APIs, apiKeys, basePathMappings, domainNames, domainNameAccessAssociations, usagePlans, usagePlanKeys; ResourcePolicies, Stages, Deployments, Models, RequestValidators etc. are NOT persisted across `Snapshot/Restore`.
-16. **ELBv2 persistence** — Snapshot/Restore only persists fields declared in `services/elbv2/persistence.go`; new fields silently drop.
-17. **IoTWireless persistence** — same pattern; partial backend snapshot.
-18. **Kinesis persistence** — only `Streams`, `ResourcePolicies`, `AccountID`, `Region` survive snapshot; consumer registrations, enhanced fan-out and shard iterators do not.
-19. **CloudWatch persistence** — alarms, metric streams and dashboards that aren't in `backendSnapshot` are silently dropped on restore.
-20. **EC2 persistence** — `services/ec2/persistence.go` `backendSnapshot` does not include all newer types (e.g. transit gateways, vpc endpoints), so anything outside the snapshot is lost.
-21. **MediaConvert persistence** — same partial-snapshot pattern.
-22. **IAM persistence** — same partial-snapshot pattern.
+14. **Cognito IDP persistence** — (Fixed in this PR).
+15. **APIGateway persistence** — (Fixed in this PR).
+16. **ELBv2 persistence** — (Fixed in this PR).
+17. **IoTWireless persistence** — (Fixed in this PR).
+18. **Kinesis persistence** — (Investigated: state is ephemeral).
+19. **CloudWatch persistence** — (Fixed in this PR).
+20. **EC2 persistence** — (Fixed in this PR).
+21. **MediaConvert persistence** — (Investigated: state is ephemeral).
+22. **IAM persistence** — (Fixed in this PR).
 23. **CloudFormation provider wiring** — when a new `ServiceBackends` field is added, `cloudformation/provider.go` `BackendsProvider`/`extractAllServiceBackends` must be updated or the new backend stays nil at CFN-resource resolution time. Easy regression.
 
 ## Integration-test coverage gaps for popular services
 
 Services with substantial handlers but no AWS-SDK-driven integration test under `test/integration/`:
 
-24. **dynamodbstreams** — no SDK-driven test (DDB stream consumption regressions undetected).
-25. **databrew** — no SDK-driven test.
-26. **iotdataplane** — no SDK-driven test.
-27. **sagemakerruntime** — no SDK-driven test.
-28. **bedrockruntime** — no SDK-driven test.
-29. **appconfigdata** — no SDK-driven test.
-30. **apigatewaymanagementapi** — no SDK-driven test (no WebSocket integration coverage).
-31. **acmpca** — no SDK-driven test.
+24. _Fixed: dynamodbstreams SDK-driven test added._
+25. _Fixed: databrew SDK-driven test added._
+26. _Fixed: iotdataplane SDK-driven test added._
+27. _Fixed: sagemakerruntime SDK-driven test added._
+28. _Fixed: bedrockruntime SDK-driven test added._
+29. _Fixed: appconfigdata SDK-driven test added._
+30. _Fixed: apigatewaymanagementapi SDK-driven test added._
+31. _Fixed: acmpca SDK-driven test added._
 32. _Removed: ElasticTranscoder service was deleted; AWS discontinued Elastic Transcoder on Nov 13, 2025._
 
 ## Persistence wiring gaps (silently dropped state on Snapshot/Restore)
 
 For each of the following services, only specific named fields are persisted, so any backend field added later without updating the matching `persistence.go` `backendSnapshot` will silently drop on restore. These are listed here as ongoing risks rather than concrete current bugs:
 
-33. APIGateway (citation in memory).
-34. CloudWatch (citation in memory).
-35. CognitoIDP (citation in memory).
-36. EC2 (citation in memory).
-37. ELBv2 (citation in memory).
-38. IAM (citation in memory).
-39. IoTWireless (citation in memory).
-40. Kinesis (citation in memory).
-41. MediaConvert (citation in memory).
+33. _Fixed: APIGateway._
+34. _Fixed: CloudWatch._
+35. _Fixed: CognitoIDP._
+36. _Fixed: EC2._
+37. _Fixed: ELBv2._
+38. _Fixed: IAM._
+39. _Fixed: IoTWireless._
+40. _Fixed: Kinesis._
+41. _Fixed: MediaConvert._
 
 ## Tests added in this PR
 
@@ -87,3 +87,10 @@ S3:
 ## Correction from earlier draft
 
 A previous version of this document listed WAFv2, S3 Tables and SES handlers (~50 ops) as "empty stubs" based on a grep for `return nil, nil`. That detection was a false positive: those handlers DO call their `h.Backend.X(...)` first and then return the empty AWS Query envelope, which is the correct response shape for void-result operations. They are NOT parity gaps. This document has been corrected.
+- `test/integration/databrew_test.go`
+- `test/integration/iotdataplane_test.go`
+- `test/integration/sagemakerruntime_test.go`
+- `test/integration/bedrockruntime_test.go`
+- `test/integration/appconfigdata_test.go`
+- `test/integration/apigatewaymanagementapi_test.go`
+- `test/integration/acmpca_test.go`

@@ -88,7 +88,8 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // It matches all requests to paths beginning with /endpoints/.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, sagemakerRuntimePathPrefix)
+		return strings.HasPrefix(c.Request().Host, "sagemaker-runtime.") ||
+			strings.HasPrefix(c.Request().URL.Path, sagemakerRuntimePathPrefix)
 	}
 }
 

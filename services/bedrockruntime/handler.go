@@ -171,6 +171,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if strings.HasPrefix(c.Request().Host, "bedrock-runtime.") {
+			return true
+		}
+
 		return strings.HasPrefix(path, modelPathPrefix) ||
 			strings.HasPrefix(path, guardrailPathPrefix) ||
 			path == asyncInvokePathPrefix ||

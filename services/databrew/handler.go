@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	databrewPathPrefix = "/databrew/v1/"
+	databrewPathPrefix = "/"
 
 	segDatasets    = "datasets"
 	segRecipes     = "recipes"
@@ -144,9 +144,7 @@ func (h *Handler) GetSupportedOperations() []string {
 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, databrewPathPrefix) || path == "/databrew/v1"
+		return strings.HasPrefix(c.Request().Host, "databrew.")
 	}
 }
 
