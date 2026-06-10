@@ -31,3 +31,24 @@ func InputDeviceCount(b *InMemoryBackend) int {
 
 	return len(b.inputDevices)
 }
+
+// MultiplexCount returns the number of stored multiplexes.
+func MultiplexCount(b *InMemoryBackend) int {
+	b.mu.RLock("MultiplexCount")
+	defer b.mu.RUnlock()
+
+	return len(b.multiplexes)
+}
+
+// MultiplexProgramCount returns the number of programs in a multiplex.
+func MultiplexProgramCount(b *InMemoryBackend, multiplexID string) int {
+	b.mu.RLock("MultiplexProgramCount")
+	defer b.mu.RUnlock()
+
+	m, ok := b.multiplexes[multiplexID]
+	if !ok {
+		return 0
+	}
+
+	return len(m.Programs)
+}
