@@ -1130,6 +1130,92 @@ before the fix. The `omitzero` "bug" reported by one sub-pass was rejected (`go 
 This backlog is intentionally line-level so it can be burned down item-by-item; it does not
 duplicate the category-level findings in §A–§O.
 
+## Pass 4 — implementation status (fixing agent, 2026-06-10)
+
+A fixing agent verified each §P item against current code. Many were false positives (see below);
+the genuine ones were fixed with table-driven tests.
+
+**Fixed (file → change):**
+- **Cognito IDP pagination + bounds** — `cognitoidp/handler.go`: `ListUserPools`/`ListUserPoolClients`
+  now honor MaxResults + emit NextToken; `ListUsers` honors Limit + PaginationToken. Added
+  `validateCognitoMaxResults` (1–60, else `InvalidParameterException`). Backends already sorted, so
+  pagination cursors are stable.
+- **Cognito IDP AdminSetUserPassword** — `cognitoidp/backend.go`: now enforces the pool password
+  policy (was skipped vs `ConfirmForgotPassword`); returns `InvalidPasswordException`.
+- **Glue StopCrawler** — `glue/backend.go`: STOPPING crawlers now transition STOPPING→READY via the
+  reconciler instead of hanging in STOPPING forever.
+- **RDS** — `rds/handler.go`: `AllocatedStorage` now range-checked (20–65536); `BackupRetentionPeriod`
+  response field no longer `omitempty` (AWS always emits it). Added `ErrInvalidParameterCombination`.
+- **KMS** — `kms/backend.go` + `handler.go`: `ListKeys`/`ListAliases` Limit bounded to 1–1000,
+  `ListResourceTags` Limit bounded to 1–50, out-of-range → `ValidationException`.
+- **IAM** — `iam/handler.go`: `parseMaxItems` clamps MaxItems to ≤1000 (AWS upper bound).
+- **CodePipeline** — `codepipeline/handler.go`: `ListPipelineExecutions` now honors maxResults +
+  emits nextToken (previously ignored both); `ListWebhooks`/`ListActionExecutions`/`ListActionTypes`/
+  `ListRuleExecutions` output structs gained the NextToken field.
+- **Athena** — `athena/handler.go`: `ListQueryExecutions` now honors MaxResults (cap 50) + NextToken
+  and omits NextToken on the last page (was hardcoded `""`).
+- **IoT** — `iot/handler.go`: `ListThings`/`ListTopicRules`/`ListPolicies` now paginate via
+  maxResults + nextToken/nextMarker.
+- **EC2 DescribeInstanceStatus** — `ec2/handler_ext.go`: emits `systemStatus`/`instanceStatus` health
+  objects (status "ok" + reachability "passed" when running) so SDK `InstanceStatusOk` waiter works.
+- **S3** — `s3/object_ops.go`: DeleteObjects >1000 keys now returns `MalformedXML` (was generic
+  `InvalidArgument`); `s3/bucket_ops.go`: ListObjects MaxKeys>1000 explicitly clamped to 1000;
+  `s3/model.go`: `ListMultipartUploadsResult.Prefix` no longer `omitempty` (AWS always emits `<Prefix>`).
+- **StepFunctions / EventBridge** — output-struct `NextToken` fields gained `,omitempty` so the last
+  page omits the field (StepFunctions list*Output ×4; EventBridge listEventBuses/listRules/
+  listTargetsByRule).
+
+**Verified already-correct / false positives (NO change — would have regressed AWS fidelity):**
+- **All "pagination cursor off-by-one" items** (ECR, QuickSight, DataBrew, MQ, AutoScaling, ELBv2):
+  each is internally consistent — token is the first-un-returned item with `start = i` (include), or
+  the last-of-page item with `start = i+1` (skip). The convention-check caveat applies; none were bugs.
+- **SNS XML tag casing** (`isOptedOut`, `phoneNumbers`, `nextToken`, attribute `key`/`value`/`entry`):
+  the AWS SDK deserializes these case-insensitively (`strings.EqualFold`), and AWS's real wire format
+  for the legacy SMS APIs is lowercase. Current code already matches AWS; PascalCasing would diverge.
+- **SQS `queueUrls`**: AWS `ListDeadLetterSourceQueues` genuinely uses lowercase `queueUrls`
+  (confirmed in SDK deserializer, case-sensitive JSON). Current code is correct.
+- **Cognito `TokenResult` casing**: `TokenResult` is an internal struct; the wire response is
+  `authResult` which already uses `IdToken`/`AccessToken`/`RefreshToken`. `UserLastModified` already
+  has the `UserLastModifiedDate` JSON tag. `Enabled` correctly lacks `omitempty`.
+- **DynamoDB Scan ScannedCount**: `doScan` already increments per-candidate (pre-filter); `Count` is
+  post-filter. Correct.
+- **DynamoDB DescribeTable StreamSpecification**: AWS omits StreamSpecification when streams were
+  never enabled; current behavior matches. `BillingModeSummary` already always present.
+- **Lambda `validateMemoryAndTimeout`**: already validates memory (128–10240). `LastUpdateStatus`
+  already defaults to `Successful`.
+- **SecretsManager ListSecrets MaxResults**: already bounded 1–100 via `validateMaxResults`.
+- **SecurityHub `intFromBody`**: returns 0, but `GetFindings`/`paginateSlice` already default 0→100.
+- **CloudFormation ListStacks/ListExports/ListStackResources MaxResults**: these AWS ops have **no**
+  MaxResults parameter (only NextToken); nothing to bound.
+- **S3 `ListBucketResult.Prefix`**: already lacks `omitempty` (AWS-correct).
+
+**Deferred / not done (remaining §P):**
+- **Lambda CreateFunction State Pending→Active delay** (`lambda/handler.go:1490`): returns Active
+  immediately; SDK `FunctionActiveV2` waiter still succeeds (just doesn't wait), so not a correctness
+  bug. Mirroring the DynamoDB create→active delay is a fidelity nicety — deferred.
+- **EC2 RequestSpotFleet TargetCapacity≥1** (`ec2/backend_spot_fleet.go`): AWS permits 0-capacity
+  fleets and an existing test (`TestRequestSpotFleet_ZeroCapacity`) codifies that; left as `>= 0`.
+- **STS DurationSeconds pre-validation in dispatch** (`sts/handler.go`): the backend already validates
+  the 900–43200 range with the correct error; moving it earlier is stylistic only — deferred.
+- **RDS MonitoringInterval>0 requires MonitoringRoleArn**: AWS-accurate, but existing accuracy test
+  `TestMonitoringIntervalValidation` asserts it is accepted without a role; not changed to avoid
+  breaking the branch's test contract. `ErrInvalidParameterCombination` was added for future use.
+- **RAM list ops MaxResults bound (cap 100)** (`ram/handler.go`): list ops don't parse MaxResults at
+  all; adding validation + pagination across ~10 ops is a broad change — deferred.
+- **SSM list/describe per-op MaxResults bounds** (`ssm/handler.go`): broad, many ops — deferred.
+- **CodePipeline ListWebhooks/ListActionExecutions/ListActionTypes/ListRuleExecutions**: NextToken
+  field added to output structs, but actual paging not implemented (backend returns single page) —
+  deferred full pagination.
+- **ACM / ACM PCA input `NextToken` omitempty** (`acm/handler.go:136`, `acmpca/handler.go:287`): these
+  are request (input) structs; omitempty there does not affect the server's wire response — no-op,
+  deferred.
+- **API Gateway list-op wrapper keys** (`apigateway/handler.go`): needs per-op AWS-shape confirmation
+  — deferred (verify item).
+- **IAM policy evaluation / SimulatePrincipalPolicy real vs canned** — research/verify item, not a
+  discrete line fix — deferred (cross-refs §L platform finding).
+- **KMS encryption-context-size error wording** (`kms/backend.go:634`) — minor wording fidelity,
+  deferred.
+
 ---
 
 # Q. Actionable backlog — additional services (2026-06-10, pass 5)

@@ -28,6 +28,10 @@ var (
 	ErrSubnetGroupAlreadyExists = errors.New("DBSubnetGroupAlreadyExists")
 	// ErrInvalidParameter is returned for invalid input.
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
+	// ErrInvalidParameterCombination is returned when a set of otherwise-valid
+	// parameters cannot be used together (e.g. MonitoringInterval>0 without a
+	// MonitoringRoleArn). AWS returns the InvalidParameterCombination error code.
+	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
 	// ErrUnknownAction is returned for unrecognized RDS actions.
 	ErrUnknownAction = errors.New("InvalidAction")
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.

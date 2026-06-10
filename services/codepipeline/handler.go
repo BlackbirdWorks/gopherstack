@@ -1042,8 +1042,13 @@ type listPipelineExecutionsInput struct {
 }
 
 type listPipelineExecutionsOutput struct {
+	NextToken                  string           `json:"nextToken,omitempty"`
 	PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 }
+
+// maxPipelineExecutionResults is the AWS upper bound (and default) for the
+// MaxResults parameter on ListPipelineExecutions.
+const maxPipelineExecutionResults int32 = 100
 
 func (h *Handler) handleListPipelineExecutions(
 	_ context.Context,
@@ -1058,6 +1063,32 @@ func (h *Handler) handleListPipelineExecutions(
 		return nil, err
 	}
 
+	limit := int(maxPipelineExecutionResults)
+	if in.MaxResults > 0 && int(in.MaxResults) < limit {
+		limit = int(in.MaxResults)
+	}
+
+	// nextToken is the pipelineExecutionId of the first item to return on this
+	// page (the first un-returned item from the previous page).
+	start := 0
+	if in.NextToken != "" {
+		for i, e := range execs {
+			if e.PipelineExecutionID == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	execs = execs[start:]
+
+	nextToken := ""
+	if len(execs) > limit {
+		nextToken = execs[limit].PipelineExecutionID
+		execs = execs[:limit]
+	}
+
 	items := make([]map[string]any, len(execs))
 	for i, e := range execs {
 		items[i] = map[string]any{
@@ -1068,7 +1099,10 @@ func (h *Handler) handleListPipelineExecutions(
 		}
 	}
 
-	return &listPipelineExecutionsOutput{PipelineExecutionSummaries: items}, nil
+	return &listPipelineExecutionsOutput{
+		PipelineExecutionSummaries: items,
+		NextToken:                  nextToken,
+	}, nil
 }
 
 // --- Pipeline state ---
@@ -1223,7 +1257,8 @@ type webhookListEntry struct {
 }
 
 type listWebhooksOutput struct {
-	Webhooks []webhookListEntry `json:"webhooks"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Webhooks  []webhookListEntry `json:"webhooks"`
 }
 
 func (h *Handler) handleListWebhooks(
@@ -1569,6 +1604,7 @@ type listActionExecutionsInput struct {
 }
 
 type listActionExecutionsOutput struct {
+	NextToken              string           `json:"nextToken,omitempty"`
 	ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 }
 
@@ -1600,6 +1636,7 @@ type listActionTypesInput struct {
 }
 
 type listActionTypesOutput struct {
+	NextToken   string           `json:"nextToken,omitempty"`
 	ActionTypes []map[string]any `json:"actionTypes"`
 }
 
@@ -1713,6 +1750,7 @@ type listRuleExecutionsInput struct {
 }
 
 type listRuleExecutionsOutput struct {
+	NextToken            string           `json:"nextToken,omitempty"`
 	RuleExecutionDetails []map[string]any `json:"ruleExecutionDetails"`
 }
 
