@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	databrewPathPrefix = "/"
+	databrewPathPrefix = "/databrew/v1/"
 
 	segDatasets    = "datasets"
 	segRecipes     = "recipes"
@@ -144,7 +144,11 @@ func (h *Handler) GetSupportedOperations() []string {
 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Host, "databrew.")
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(c.Request().Host, "databrew.") ||
+			strings.HasPrefix(path, databrewPathPrefix) ||
+			path == "/databrew/v1"
 	}
 }
 
@@ -225,9 +229,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 func parseDataBrewRESTPath(method, path string) (string, string) {
-	after, ok := strings.CutPrefix(path, databrewPathPrefix)
-	if !ok {
-		return opUnknown, ""
+	after := path
+	if strings.HasPrefix(path, databrewPathPrefix) {
+		after = strings.TrimPrefix(path, databrewPathPrefix)
+	} else if strings.HasPrefix(path, "/") {
+		after = strings.TrimPrefix(path, "/")
 	}
 
 	segments := strings.SplitN(after, "/", minPathSegments+1)
