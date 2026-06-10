@@ -18,6 +18,11 @@ import (
 )
 
 const (
+	// listAppsMinResults / listAppsMaxResults bound the maxResults query
+	// parameter on EMR Serverless list operations (AWS range: 1-50).
+	listAppsMinResults = 1
+	listAppsMaxResults = 50
+
 	opUnknown        = "Unknown"
 	keyApplicationID = "applicationId"
 	keyArn           = "arn"
@@ -576,9 +581,16 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 
 	maxResults := 0
 	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
+		// AWS EMR Serverless bounds list maxResults to 1-50.
+		n, err := strconv.Atoi(s)
+		if err != nil || n < listAppsMinResults || n > listAppsMaxResults {
+			return c.JSON(http.StatusBadRequest, errResp(
+				"ValidationException",
+				"maxResults must be between 1 and 50",
+			))
 		}
+
+		maxResults = n
 	}
 
 	var states []string
@@ -702,9 +714,16 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 
 	maxResults := 0
 	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
+		// AWS EMR Serverless bounds list maxResults to 1-50.
+		n, err := strconv.Atoi(s)
+		if err != nil || n < listAppsMinResults || n > listAppsMaxResults {
+			return c.JSON(http.StatusBadRequest, errResp(
+				"ValidationException",
+				"maxResults must be between 1 and 50",
+			))
 		}
+
+		maxResults = n
 	}
 
 	var states []string
@@ -782,9 +801,16 @@ func (h *Handler) handleListJobRunAttempts(c *echo.Context, applicationID, jobRu
 
 	maxResults := 0
 	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
+		// AWS EMR Serverless bounds list maxResults to 1-50.
+		n, err := strconv.Atoi(s)
+		if err != nil || n < listAppsMinResults || n > listAppsMaxResults {
+			return c.JSON(http.StatusBadRequest, errResp(
+				"ValidationException",
+				"maxResults must be between 1 and 50",
+			))
 		}
+
+		maxResults = n
 	}
 
 	attempts, outToken, err := h.Backend.ListJobRunAttempts(applicationID, jobRunID, nextToken, maxResults)

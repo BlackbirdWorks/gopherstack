@@ -280,33 +280,43 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 		name          string
 		queryString   string
 		wantCount     int
+		wantStatus    int
 		wantNextToken bool
 	}{
 		{
 			name:        "no_pagination_returns_all",
 			queryString: "",
 			wantCount:   4,
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:          "first_page",
 			queryString:   "?maxResults=2",
 			wantCount:     2,
+			wantStatus:    http.StatusOK,
 			wantNextToken: true,
 		},
 		{
 			name:        "second_page",
 			queryString: "?maxResults=2&nextToken=2",
 			wantCount:   2,
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "token_beyond_end",
 			queryString: "?maxResults=2&nextToken=100",
 			wantCount:   0,
+			wantStatus:  http.StatusOK,
 		},
 		{
-			name:        "invalid_max_results_ignored",
+			name:        "invalid_max_results_rejected",
 			queryString: "?maxResults=notanumber",
-			wantCount:   4,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "max_results_over_bound_rejected",
+			queryString: "?maxResults=51",
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 
@@ -321,7 +331,11 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
 
 			var out map[string]any
 			mustUnmarshal(t, rec, &out)
