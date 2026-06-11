@@ -15,7 +15,7 @@
 		type MaintenanceWindowIdentity
 	} from '@aws-sdk/client-ssm';
 	import { toast } from 'svelte-sonner';
-	import { Settings, Search, RefreshCw, Plus, Trash2, Eye, EyeOff, Edit2, Check, X, Calendar } from 'lucide-svelte';
+	import { Settings, Search, RefreshCw, Plus, Trash2, Eye, EyeOff, Edit2, Check, X, Calendar, FileText, Folder, ChevronRight, ChevronDown } from 'lucide-svelte';
 
 	const ssm = getSSMClient();
 
@@ -26,6 +26,42 @@
 	let selectedValue = $state<string | null>(null);
 	let loadingValue = $state(false);
 	let showValue = $state(false);
+	// Flat list vs. /-path folder tree
+	let listView = $state<'flat' | 'tree'>('flat');
+	let collapsedFolders = $state(new Set<string>());
+
+	type TreeNode = { name: string; path: string; children: TreeNode[]; param?: ParameterMetadata };
+
+	// Build a folder tree from parameter names delimited by "/".
+	const paramTree = $derived.by(() => {
+		const root: TreeNode = { name: '', path: '', children: [] };
+		for (const p of parameters) {
+			const name = p.Name ?? '';
+			const segments = name.replace(/^\//, '').split('/');
+			let node = root;
+			let acc = '';
+			for (let i = 0; i < segments.length; i++) {
+				const seg = segments[i];
+				acc = `${acc}/${seg}`;
+				const isLeaf = i === segments.length - 1;
+				let child = node.children.find((c) => c.name === seg && (isLeaf ? !!c.param === false : true));
+				if (!child) {
+					child = { name: seg, path: acc, children: [] };
+					node.children.push(child);
+				}
+				if (isLeaf) child.param = p;
+				node = child;
+			}
+		}
+		return root;
+	});
+
+	function toggleFolder(path: string) {
+		const next = new Set(collapsedFolders);
+		if (next.has(path)) next.delete(path);
+		else next.add(path);
+		collapsedFolders = next;
+	}
 
 	// Create/Edit modal
 	let showModal = $state(false);
@@ -300,6 +336,10 @@
 		<button onclick={() => loadParameters()} class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600">
 			Search
 		</button>
+		<div class="flex items-center gap-1" title="List view">
+			<button type="button" onclick={() => { listView = 'flat'; }} class="px-2.5 py-2 text-xs rounded-lg {listView === 'flat' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">Flat</button>
+			<button type="button" onclick={() => { listView = 'tree'; }} class="px-2.5 py-2 text-xs rounded-lg {listView === 'tree' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">Tree</button>
+		</div>
 	</div>
 
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -315,7 +355,7 @@
 					<Settings class="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
 					<p class="text-slate-500 dark:text-slate-400">No parameters found</p>
 				</div>
-			{:else}
+			{:else if listView === 'flat'}
 				<div class="space-y-2">
 					{#each parameters as param}
 						<button
@@ -332,7 +372,58 @@
 						</button>
 					{/each}
 				</div>
+			{:else}
+				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-2">
+					{#each paramTree.children as child}
+						{@render treeNode(child, 0)}
+					{/each}
+				</div>
 			{/if}
+
+			{#snippet treeNode(node: TreeNode, depth: number)}
+				{#if node.param && node.children.length === 0}
+					<button
+						onclick={() => node.param && getValue(node.param)}
+						class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 {selectedParam?.Name === node.param.Name ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}"
+						style="padding-left: {depth * 14 + 8}px"
+					>
+						<FileText class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+						<span class="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">{node.name}</span>
+						<span class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-full {typeColors[node.param.Type ?? 'String'] ?? typeColors.String}">{node.param.Type}</span>
+					</button>
+				{:else}
+					<button
+						type="button"
+						onclick={() => toggleFolder(node.path)}
+						class="w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50"
+						style="padding-left: {depth * 14 + 8}px"
+					>
+						{#if collapsedFolders.has(node.path)}
+							<ChevronRight class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+						{:else}
+							<ChevronDown class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+						{/if}
+						<Folder class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+						<span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{node.name}</span>
+					</button>
+					{#if !collapsedFolders.has(node.path)}
+						{#each node.children as child}
+							{@render treeNode(child, depth + 1)}
+						{/each}
+						{#if node.param}
+							<button
+								onclick={() => node.param && getValue(node.param)}
+								class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 {selectedParam?.Name === node.param.Name ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}"
+								style="padding-left: {(depth + 1) * 14 + 8}px"
+							>
+								<FileText class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+								<span class="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">(self)</span>
+								<span class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-full {typeColors[node.param.Type ?? 'String'] ?? typeColors.String}">{node.param.Type}</span>
+							</button>
+						{/if}
+					{/if}
+				{/if}
+			{/snippet}
 		</div>
 
 		<!-- Parameter Detail -->

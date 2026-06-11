@@ -17,6 +17,7 @@
 		DeleteAliasCommand,
 		ListEventSourceMappingsCommand,
 		CreateEventSourceMappingCommand,
+		UpdateEventSourceMappingCommand,
 		DeleteEventSourceMappingCommand,
 		type FunctionConfiguration,
 		type InvocationResponse,
@@ -25,9 +26,9 @@
 		type EventSourceMappingConfiguration
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
-	import { 
-		Zap, Search, RefreshCw, Plus, Trash2, Play, 
-		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X
+	import {
+		Zap, Search, RefreshCw, Plus, Trash2, Play,
+		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X, Link2
 	} from 'lucide-svelte';
 
 	const lambda = getLambdaClient();
@@ -90,6 +91,17 @@
 	let layers = $state<LayersListItem[]>([]);
 	let layersLoading = $state(false);
 	let showLayerTab = $state(false);
+
+	// Event Source Mappings (triggers)
+	let eventSourceMappings = $state<EventSourceMappingConfiguration[]>([]);
+	let esmLoading = $state(false);
+	let showEsmPanel = $state(false);
+	let showCreateEsmModal = $state(false);
+	let creatingEsm = $state(false);
+	let newEsmArn = $state('');
+	let newEsmBatchSize = $state(10);
+	let newEsmEnabled = $state(true);
+	let newEsmStartPosition = $state<'' | 'LATEST' | 'TRIM_HORIZON'>('');
 
 	// Env Var Editor
 	let editingEnvVars = $state(false);
@@ -365,6 +377,81 @@
 			toast.error(`Failed to load layers: ${(err as Error).message}`);
 		} finally {
 			layersLoading = false;
+		}
+	}
+
+	// Reload triggers when the selected function changes while the panel is open.
+	$effect(() => {
+		const name = selectedFunction?.FunctionName;
+		if (showEsmPanel && name) {
+			void loadEventSourceMappings();
+		}
+	});
+
+	async function loadEventSourceMappings() {
+		if (!selectedFunction?.FunctionName) return;
+		esmLoading = true;
+		try {
+			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: selectedFunction.FunctionName }));
+			eventSourceMappings = res.EventSourceMappings ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load triggers: ${(err as Error).message}`);
+		} finally {
+			esmLoading = false;
+		}
+	}
+
+	function toggleEsmPanel() {
+		showEsmPanel = !showEsmPanel;
+		if (showEsmPanel) loadEventSourceMappings();
+	}
+
+	async function createEventSourceMapping() {
+		if (!selectedFunction?.FunctionName || !newEsmArn.trim()) return;
+		creatingEsm = true;
+		try {
+			await lambda.send(new CreateEventSourceMappingCommand({
+				FunctionName: selectedFunction.FunctionName,
+				EventSourceArn: newEsmArn.trim(),
+				BatchSize: newEsmBatchSize,
+				Enabled: newEsmEnabled,
+				StartingPosition: newEsmStartPosition || undefined
+			}));
+			toast.success('Trigger created');
+			showCreateEsmModal = false;
+			newEsmArn = '';
+			newEsmBatchSize = 10;
+			newEsmEnabled = true;
+			newEsmStartPosition = '';
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Create trigger failed: ${(err as Error).message}`);
+		} finally {
+			creatingEsm = false;
+		}
+	}
+
+	async function toggleEsmEnabled(esm: EventSourceMappingConfiguration) {
+		if (!esm.UUID) return;
+		const enable = esm.State === 'Disabled' || esm.State === 'Disabling';
+		try {
+			await lambda.send(new UpdateEventSourceMappingCommand({ UUID: esm.UUID, Enabled: enable }));
+			toast.success(enable ? 'Trigger enabling' : 'Trigger disabling');
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Update failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function deleteEventSourceMapping(esm: EventSourceMappingConfiguration) {
+		if (!esm.UUID) return;
+		if (!await confirmDestructive({ title: 'Delete Trigger', message: `Delete event-source mapping ${esm.UUID}?`, confirmLabel: 'Delete' })) return;
+		try {
+			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: esm.UUID }));
+			toast.success('Trigger deleted');
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -705,6 +792,55 @@
 							{/if}
 						</div>
 
+						<!-- Event Source Mappings (Triggers) -->
+						<div>
+							<div class="flex items-center justify-between mb-3">
+								<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+									<Link2 class="w-3 h-3" />
+									Triggers (Event Source Mappings)
+								</h3>
+								<button onclick={toggleEsmPanel} class="text-xs text-orange-500 hover:text-orange-700">
+									{showEsmPanel ? 'Hide' : 'Show'}
+								</button>
+							</div>
+							{#if showEsmPanel}
+								<div class="flex justify-end mb-2">
+									<button onclick={() => { showCreateEsmModal = true; }} class="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1">
+										<Plus class="w-3 h-3" /> Add Trigger
+									</button>
+								</div>
+								{#if esmLoading}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div></div>
+								{:else if eventSourceMappings.length === 0}
+									<p class="text-xs text-slate-400 italic text-center py-4">No triggers configured for this function.</p>
+								{:else}
+									<div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+										{#each eventSourceMappings as esm}
+											<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
+												<div class="flex items-center justify-between gap-2">
+													<span class="text-xs font-mono text-slate-700 dark:text-slate-200 truncate flex-1">{esm.EventSourceArn ?? esm.UUID}</span>
+													<span class="flex-shrink-0 px-2 py-0.5 text-[10px] rounded-full {esm.State === 'Enabled' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : esm.State === 'Disabled' ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}">{esm.State ?? '—'}</span>
+												</div>
+												<div class="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+													<span>Batch: {esm.BatchSize ?? '—'}</span>
+													{#if esm.LastModified}<span>Modified: {new Date(esm.LastModified).toLocaleDateString()}</span>{/if}
+												</div>
+												<div class="flex items-center gap-2 mt-2">
+													<button onclick={() => toggleEsmEnabled(esm)} class="text-[11px] px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+														{esm.State === 'Disabled' || esm.State === 'Disabling' ? 'Enable' : 'Disable'}
+													</button>
+													<button onclick={() => deleteEventSourceMapping(esm)} class="text-[11px] px-2 py-0.5 rounded border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+														Delete
+													</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							{/if}
+						</div>
+
+
 						<button
 							onclick={() => showInvokeModal = true}
 							class="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold shadow-lg shadow-teal-600/20 transition-all active:scale-[0.98]"
@@ -868,6 +1004,47 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Create Trigger Modal -->
+{#if showCreateEsmModal && selectedFunction}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+			<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2"><Link2 class="w-5 h-5" /> Add Trigger</h3>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Create an event-source mapping for <span class="font-mono">{selectedFunction.FunctionName}</span>. Supports SQS, DynamoDB Streams, and Kinesis.</p>
+			<form onsubmit={(e) => { e.preventDefault(); createEventSourceMapping(); }} class="space-y-4">
+				<div>
+					<label for="esm-arn" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Source ARN</label>
+					<input id="esm-arn" type="text" bind:value={newEsmArn} required placeholder="arn:aws:sqs:us-east-1:000000000000:my-queue"
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500" />
+				</div>
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="esm-batch" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Batch Size</label>
+						<input id="esm-batch" type="number" min="1" max="10000" bind:value={newEsmBatchSize}
+							class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+					</div>
+					<div>
+						<label for="esm-start" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Starting Position <span class="text-slate-400 font-normal">(streams)</span></label>
+						<select id="esm-start" bind:value={newEsmStartPosition}
+							class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
+							<option value="">N/A (SQS)</option>
+							<option value="LATEST">LATEST</option>
+							<option value="TRIM_HORIZON">TRIM_HORIZON</option>
+						</select>
+					</div>
+				</div>
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input type="checkbox" bind:checked={newEsmEnabled} class="rounded" />
+					<span class="text-sm text-slate-700 dark:text-slate-300">Enabled</span>
+				</label>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreateEsmModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+					<button type="submit" disabled={creatingEsm} class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">{creatingEsm ? 'Creating...' : 'Create Trigger'}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <!-- Invoke Modal -->
 {#if showInvokeModal && selectedFunction}
