@@ -410,7 +410,7 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 			keyDirectoryID: r.DirectoryID,
 			"RegionName":   r.RegionName,
 			"RegionType":   r.RegionType,
-			"Status":       r.Status, //nolint:goconst // existing issue.
+			keyStatus:      r.Status,
 			keyLaunchTime:  r.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
@@ -844,7 +844,7 @@ func (h *Handler) handleDescribeEventTopics(c *echo.Context) error {
 			keyDirectoryID:    t.DirectoryID,
 			"TopicName":       t.TopicName,
 			"TopicArn":        t.TopicARN,
-			"Status":          t.Status,
+			keyStatus:         t.Status,
 			"CreatedDateTime": t.CreatedDateTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
 		})
 	}
@@ -889,7 +889,7 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 		dcList = append(dcList, map[string]any{
 			"DomainControllerId": dc.ControllerID,
 			keyDirectoryID:       dc.DirectoryID,
-			"Status":             dc.Status,
+			keyStatus:            dc.Status,
 			"AvailabilityZone":   dc.AvailabilityZone,
 			keyLaunchTime:        dc.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 		})
@@ -1623,7 +1623,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 	for _, s := range settings {
 		settingList = append(settingList, map[string]any{
 			"Type":                s.AuthType,
-			"Status":              s.Status,
+			keyStatus:             s.Status,
 			"LastUpdatedDateTime": s.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
@@ -2009,9 +2009,9 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 		"ADAssessment": map[string]any{
 			"AssessmentId":   a.AssessmentID,
 			keyDirectoryID:   a.DirectoryID,
-			"Status":         a.Status,
+			keyStatus:        a.Status,
 			"AssessmentType": a.AssessType,
-			"Region":         a.Region, //nolint:goconst // existing issue.
+			keyRegion:        a.Region,
 			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
 		},
 	})
@@ -2045,9 +2045,9 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 		assessList = append(assessList, map[string]any{
 			"AssessmentId":   a.AssessmentID,
 			keyDirectoryID:   a.DirectoryID,
-			"Status":         a.Status,
+			keyStatus:        a.Status,
 			"AssessmentType": a.AssessType,
-			"Region":         a.Region,
+			keyRegion:        a.Region,
 			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
@@ -2166,7 +2166,7 @@ func (h *Handler) handleDescribeHybridADUpdate(c *echo.Context) error {
 		updateList = append(updateList, map[string]any{
 			"RequestId":    u.RequestID,
 			keyDirectoryID: u.DirectoryID,
-			"Status":       u.Status,
+			keyStatus:      u.Status,
 		})
 	}
 
@@ -2279,7 +2279,7 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 			"AllowedValues":       s.AllowedValues,
 			"AppliedValue":        s.AppliedValue,
 			"RequestedValue":      s.RequestedValue,
-			"Status":              s.Status,
+			keyStatus:             s.Status,
 			"LastUpdatedDateTime": s.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
@@ -2355,11 +2355,11 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	for _, e := range entries {
 		entryList = append(entryList, map[string]any{
 			"UpdateType":          e.UpdateType,
-			"Status":              e.Status,
+			keyStatus:             e.Status,
 			"NewValue":            e.NewValue,
 			"PreviousValue":       e.PreviousValue,
 			"InitiatedBy":         e.InitiatedBy,
-			"Region":              e.Region,
+			keyRegion:             e.Region,
 			keyStartTime:          e.StartTime.Format("2006-01-02T15:04:05.000Z"),
 			"LastUpdatedDateTime": e.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
 		})

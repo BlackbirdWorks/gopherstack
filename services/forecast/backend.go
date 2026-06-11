@@ -26,6 +26,35 @@ const (
 	// backtestWindowDuration is the synthetic span between a backtest window's
 	// start and end in GetAccuracyMetrics responses.
 	backtestWindowDuration = 24 * time.Hour
+
+	// Synthetic accuracy-metric generation. The metrics returned by
+	// GetAccuracyMetrics are deterministic, derived from a per-window seed so
+	// the same resource always yields the same values. The constants below
+	// name the otherwise-magic numbers used in that derivation.
+
+	// windowSeedPrime is a prime multiplier mixed into the seed to vary
+	// metrics between backtest windows.
+	windowSeedPrime = 7919
+
+	// Per-metric base values and the modulus/scale used to spread the seed
+	// across a small synthetic range.
+	rmseBase       = 10.0
+	rmseSeedMod    = 500
+	rmseSeedScale  = 10.0
+	wapeBase       = 0.05
+	wapeSeedMod    = 200
+	wapeSeedScale  = 1000.0
+	mapeBase       = 0.10
+	mapeSeedMod    = 150
+	mapeSeedScale  = 1000.0
+	maseBase       = 0.50
+	maseSeedMod    = 300
+	maseSeedScale  = 1000.0
+	lossValueBase  = 0.02
+	lossValueMod   = 100
+	lossValueScale = 1000.0
+	itemCountBase  = 100
+	itemCountMod   = 900
 )
 
 var (
@@ -394,24 +423,24 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 	windows := make([]map[string]any, 0, numWindows)
 
 	for w := range numWindows {
-		windowSeed := seed + uint32(w)*7919 //nolint:mnd // prime offset for per-window variation
+		windowSeed := seed + uint32(w)*windowSeedPrime
 
-		rmse := 10.0 + float64(windowSeed%500)/10.0   //nolint:mnd // deterministic synthetic metric
-		wape := 0.05 + float64(windowSeed%200)/1000.0 //nolint:mnd // deterministic synthetic metric
-		mape := 0.10 + float64(windowSeed%150)/1000.0 //nolint:mnd // deterministic synthetic metric
-		mase := 0.50 + float64(windowSeed%300)/1000.0 //nolint:mnd // deterministic synthetic metric
+		rmse := rmseBase + float64(windowSeed%rmseSeedMod)/rmseSeedScale
+		wape := wapeBase + float64(windowSeed%wapeSeedMod)/wapeSeedScale
+		mape := mapeBase + float64(windowSeed%mapeSeedMod)/mapeSeedScale
+		mase := maseBase + float64(windowSeed%maseSeedMod)/maseSeedScale
 
 		quantileLosses := make([]map[string]any, 0, len(quantiles))
 		for i, q := range quantiles {
 			quantileLosses = append(quantileLosses, map[string]any{
 				"Quantile":  q,
-				"LossValue": 0.02 + float64((windowSeed+uint32(i))%100)/1000.0, //nolint:mnd // synthetic
+				"LossValue": lossValueBase + float64((windowSeed+uint32(i))%lossValueMod)/lossValueScale,
 			})
 		}
 
 		windows = append(windows, map[string]any{
 			"EvaluationType":  evaluationTypeForWindow(w),
-			"ItemCount":       int64(100 + windowSeed%900), //nolint:mnd // synthetic item count
+			"ItemCount":       int64(itemCountBase + windowSeed%itemCountMod),
 			"TestWindowStart": resource.CreatedAt.UTC().Format(time.RFC3339),
 			"TestWindowEnd":   resource.CreatedAt.UTC().Add(backtestWindowDuration).Format(time.RFC3339),
 			"Metrics": map[string]any{

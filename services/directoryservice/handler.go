@@ -43,6 +43,8 @@ const (
 	keySnapshotID  = "SnapshotId"
 	keyLaunchTime  = "LaunchTime"
 	keyStartTime   = "StartTime"
+	keyStatus      = "Status"
+	keyRegion      = "Region"
 )
 
 // Handler handles DirectoryService HTTP requests.
@@ -716,7 +718,7 @@ func snapshotToJSON(s *Snapshot) map[string]any {
 		keySnapshotID:  s.SnapshotID,
 		keyDirectoryID: s.DirectoryID,
 		"Name":         s.Name,
-		"Status":       string(s.Status), //nolint:goconst // existing issue.
+		keyStatus:      string(s.Status),
 		"Type":         string(s.Type),
 		keyStartTime:   awstime.Epoch(s.StartTime),
 	}

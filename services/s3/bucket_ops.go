@@ -578,18 +578,18 @@ func (h *S3Handler) listObjects(
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
 
-	maxKeys := int32(defaultMaxKeys)
+	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
+	// starts at the constant default and is only reassigned to a parsed value
+	// that is non-negative and strictly less than defaultMaxKeys. AWS clamps
+	// MaxKeys to [0, 1000] rather than rejecting an over-limit value, so a
+	// value at or above the limit is treated as the limit.
+	n := defaultMaxKeys
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			// AWS clamps MaxKeys to [0, 1000] rather than rejecting an
-			// over-limit value; a value above 1000 is treated as 1000.
-			if n > defaultMaxKeys {
-				n = defaultMaxKeys
-			}
-
-			maxKeys = int32(n) //nolint:gosec // Clamped to [0, 1000]
+		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v < defaultMaxKeys {
+			n = v
 		}
 	}
+	maxKeys := int32(n)
 
 	// Pass marker and delimiter to backend so it can seek and group correctly.
 	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
@@ -831,12 +831,16 @@ func (h *S3Handler) listObjectVersions(
 	versionIDMarker := q.Get("version-id-marker")
 	delimiter := q.Get("delimiter")
 
-	maxKeys := int32(defaultMaxKeys)
+	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
+	// starts at the constant default and is only reassigned to a parsed value
+	// that is positive and no greater than defaultMaxKeys.
+	n := defaultMaxKeys
 	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n > 0 && n <= defaultMaxKeys {
-			maxKeys = int32(n) //nolint:gosec // validated range
+		if v, err := strconv.Atoi(mk); err == nil && v > 0 && v <= defaultMaxKeys {
+			n = v
 		}
 	}
+	maxKeys := int32(n)
 
 	input := &s3.ListObjectVersionsInput{
 		Bucket:          aws.String(bucketName),

@@ -673,11 +673,11 @@ type s3DestinationOutput struct {
 type harvestJobOutput struct {
 	S3Destination    *s3DestinationOutput `json:"s3Destination"`
 	Arn              string               `json:"arn"`
-	ChannelId        string               `json:"channelId"` //nolint:revive,staticcheck // existing issue.
+	ChannelID        string               `json:"channelId"`
 	CreatedAt        string               `json:"createdAt"`
 	EndTime          string               `json:"endTime"`
-	Id               string               `json:"id"`               //nolint:revive,staticcheck // existing issue.
-	OriginEndpointId string               `json:"originEndpointId"` //nolint:revive,staticcheck // existing issue.
+	ID               string               `json:"id"`
+	OriginEndpointID string               `json:"originEndpointId"`
 	StartTime        string               `json:"startTime"`
 	Status           string               `json:"status"`
 }
@@ -685,11 +685,11 @@ type harvestJobOutput struct {
 func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
 	out := harvestJobOutput{
 		Arn:              j.ARN,
-		ChannelId:        j.ChannelID,
+		ChannelID:        j.ChannelID,
 		CreatedAt:        j.CreatedAt,
 		EndTime:          j.EndTime,
-		Id:               j.ID,
-		OriginEndpointId: j.OriginEndpointID,
+		ID:               j.ID,
+		OriginEndpointID: j.OriginEndpointID,
 		StartTime:        j.StartTime,
 		Status:           j.Status,
 	}
