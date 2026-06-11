@@ -1,6 +1,7 @@
 package emr_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -737,7 +738,7 @@ func TestAccuracy_Persistence_InstanceGroups(t *testing.T) {
 	t.Parallel()
 
 	src := emr.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := src.RunJobFlow(emr.RunJobFlowParams{
+	_, err := src.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name:         "persist-ig-cluster",
 		ReleaseLabel: "emr-7.3.0",
 		Instances: emr.RunJobFlowInstances{
@@ -755,10 +756,10 @@ func TestAccuracy_Persistence_InstanceGroups(t *testing.T) {
 	dst := emr.NewInMemoryBackend(testAccountID, testRegion)
 	require.NoError(t, dst.Restore(snap))
 
-	clusters, _ := dst.ListClusters(emr.ListClustersParams{})
+	clusters, _ := dst.ListClusters(context.Background(), emr.ListClustersParams{})
 	require.Len(t, clusters, 1)
 
-	groups, err := dst.ListInstanceGroups(clusters[0].ID)
+	groups, err := dst.ListInstanceGroups(context.Background(), clusters[0].ID)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
 }
@@ -1198,7 +1199,7 @@ func TestAccuracy_NotebookExecution_Persistence(t *testing.T) {
 	t.Parallel()
 
 	src := emr.NewInMemoryBackend(testAccountID, testRegion)
-	ne, err := src.StartNotebookExecution("e-ED1", "persist-run", "{}", "j-1", nil)
+	ne, err := src.StartNotebookExecution(context.Background(), "e-ED1", "persist-run", "{}", "j-1", nil)
 	require.NoError(t, err)
 
 	snap := src.Snapshot()
@@ -1207,7 +1208,7 @@ func TestAccuracy_NotebookExecution_Persistence(t *testing.T) {
 	dst := emr.NewInMemoryBackend("", "")
 	require.NoError(t, dst.Restore(snap))
 
-	restored, err := dst.DescribeNotebookExecution(ne.NotebookExecutionID)
+	restored, err := dst.DescribeNotebookExecution(context.Background(), ne.NotebookExecutionID)
 	require.NoError(t, err)
 	assert.Equal(t, "persist-run", restored.NotebookExecutionName)
 	assert.Equal(t, "RUNNING", restored.Status)

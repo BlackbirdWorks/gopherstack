@@ -85,12 +85,17 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 
 	var swept []string
 
-	for id, c := range j.Backend.clusters {
-		terminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
-		if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
-			swept = append(swept, id)
-			delete(j.Backend.clusters, id)
-			delete(j.Backend.arnIndex, c.ARN)
+	// Clusters are region-nested (outer key = region); sweep every region.
+	for region, clusters := range j.Backend.clusters {
+		for id, c := range clusters {
+			terminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
+			if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
+				swept = append(swept, id)
+				delete(clusters, id)
+				if arnIndex := j.Backend.arnIndex[region]; arnIndex != nil {
+					delete(arnIndex, c.ARN)
+				}
+			}
 		}
 	}
 
