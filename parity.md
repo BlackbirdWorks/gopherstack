@@ -1706,3 +1706,89 @@ regressed fidelity).
   bounds (AppConfig 1-50 vs the note's 1-100); left for a focused follow-up.
 - **DAX `ClusterDiscoveryEndpoint` omitempty**, **Support CaseIdNotFound 400/`__type`**: ambiguous
   vs. the codebase's established 404/`{"message":...}` convention; low value.
+
+---
+
+# §I / §N + deferred — implementation status (pass-7, 2026-06-10)
+
+Tackled §I op-level gaps in thin services, §N deep-accuracy items, and the
+previously-deferred high-value items. Every flagged item was re-verified against
+current code first; the §I empty-stub list turned out to be **almost entirely
+stale** (prior passes had already implemented them) — those are recorded as
+false-positives so they aren't re-flagged.
+
+## Implemented (with table-driven tests)
+
+- **Inspector2 — seedable findings (§I, exceeds LocalStack)** (`backend.go`,
+  `backend_appendixa.go`, `handler.go`, `interfaces.go`): `ListFindings` is now
+  seedable (`SeedFinding`) and evaluates the AWS `filterCriteria` shape
+  (severity / findingType / findingStatus / awsAccountId string filters with
+  EQUALS / NOT_EQUALS / PREFIX, multi-value OR), with stable ARN-cursor
+  pagination. `ListFindingAggregations` reports real per-account severity counts
+  when findings are seeded. Severity/status validated against the AWS enums.
+  LocalStack's `ListFindings` is hardwired empty, so this exceeds it.
+- **Forecast — `GetAccuracyMetrics` (§I)** (`backend.go`): was an empty
+  `PredictorEvaluationResults`; now returns AWS-shaped backtest windows (RMSE,
+  `WeightedQuantileLosses` per configured `ForecastTypes` quantile,
+  WAPE/MAPE/MASE `ErrorMetrics`), deterministic via a stable hash of the
+  predictor ARN and honoring `NumberOfBacktestWindows`.
+- **DataSync — `UpdateTaskExecution` (§I)** (`backend.go`, `handler.go`,
+  `interfaces.go`): was a no-op that mutated no state; now requires `Options`
+  (AWS-accurate), merges them onto the running execution, rejects terminal
+  (SUCCESS/ERROR) executions, and `DescribeTaskExecution` returns the persisted
+  `Options` — fixing the update→describe round-trip.
+- **ApplicationAutoScaling — NextToken population (deferred item)**
+  (`backend.go`, `handler.go`): `DescribeScalableTargets` /
+  `DescribeScalingPolicies` / `DescribeScheduledActions` now emit a real
+  `NextToken` via deterministic sorted pagination (a shared `paginate` helper);
+  previously accepted `MaxResults` but never returned a cursor.
+- **SSO Admin — NextToken population (deferred item)** (`handler.go`):
+  `ListInstances` / `ListPermissionSets` / `ListAccountAssignments` /
+  `ListApplications` now emit a real `NextToken` (were hardcoded `null`), using
+  shared sorted `paginateStrings` / `paginateBy` helpers.
+
+## Verified false-positives (§I empty-stub list is stale — NO change)
+
+Re-reading the handlers/backends showed these were already fully implemented by
+earlier passes; changing them would add nothing:
+
+- **MediaTailor** — `StartChannel`/`StopChannel` transition state
+  (RUNNING/STOPPED) and `DescribeChannel`/`DescribeSourceLocation`/
+  `DescribeVodSource`/`DescribeLiveSource`/`DescribeProgram` all read real stored
+  state (return ResourceNotFound on miss).
+- **MediaPackage** — `RotateIngestEndpointCredentials` genuinely rotates the
+  ingest-endpoint username/password and validates channel + endpoint existence.
+- **AccessAnalyzer** — `GetFindingsStatistics` is routed (`/statistics`) and
+  backed by `Backend.GetFindingsStatistics`; not a 404.
+- **GuardDuty** — `CreateMalwareProtectionPlan`/`GetMalwareProtectionPlan`/
+  `SendObjectMalwareScan` (+ List/Delete/Update) are all routed in
+  `handler_appendixa.go` and backed by real state in `backend_appendixa.go`.
+- **Detective** — `ListIndicators` and investigation state read/write real
+  backend state (`UpdateInvestigationState`, stored indicators); not hardcoded
+  stubs.
+
+## Deferred-remaining (genuine, still not done)
+
+- **CFN `Fn::GetAtt`/`Fn::Sub`/`Fn::ImportValue` error propagation +
+  unsupported-resource-type failure**: still requires threading `error` through
+  the whole string-returning intrinsic resolver and reclassifying intentional
+  stubs vs. true unknowns — large refactor, high regression risk. Left deferred.
+- **Inspector2 `CreateFilter` requires `filterCriteria`** and **RedshiftData
+  `ExecuteStatement` exactly-one of ClusterIdentifier/WorkgroupName**: confirmed
+  AWS-accurate but the branch's own test suites create these without the field
+  as ubiquitous fixtures (e.g. `redshiftdata` concurrency test seeds with both
+  empty and asserts a non-zero count); enforcing the constraint would break the
+  existing test contract. Left deferred per the "don't regress the branch's
+  tests" guidance.
+- **Personalize `GetRecommendations`/`GetPersonalizedRanking`**: these are
+  `personalize-runtime` ops (separate service endpoint not present in the repo);
+  adding them is a new-service/registration change, not an op fix. Deferred.
+  `DescribeFeatureTransformation` fabrication is low-value (FTs aren't tracked
+  and aren't a Terraform-managed resource).
+- **DirectoryService certificate / conditional-forwarder ops**, **MediaPackage-VOD
+  PackagingConfiguration / lifecycle ops**: not advertised/routed today, so no
+  round-trip breaks; genuine surface-expansion work, deferred.
+- **Macie2 / MediaConvert / MediaPackage / SecurityHub remaining empty-stubs and
+  §N EC2 structural items (IMDSv2 endpoint, SG traffic eval, routing/NAT/IGW,
+  EBS/Spot data, Lambda SnapStart, S3 SigV4-presign verify / requester-pays)**:
+  large structural emulation, unchanged this pass.
