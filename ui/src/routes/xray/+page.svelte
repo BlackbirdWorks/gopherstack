@@ -8,7 +8,8 @@
 		BatchGetTracesCommand,
 		type TraceSummary,
 		type Group,
-		type Service
+		type Service,
+		type Trace
 	} from '@aws-sdk/client-xray';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -19,7 +20,9 @@
 		AlertCircle,
 		Layers,
 		Filter,
-		Share2
+		Share2,
+		X,
+		ChevronRight
 	} from 'lucide-svelte';
 
 	const xray = getXRayClient();
@@ -81,6 +84,77 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Trace detail
+	type SegmentRow = {
+		name: string;
+		start: number;
+		end: number;
+		depth: number;
+		hasError: boolean;
+		hasFault: boolean;
+	};
+	let selectedTrace = $state<Trace | null>(null);
+	let traceDetailLoading = $state(false);
+	let segmentRows = $state<SegmentRow[]>([]);
+	let traceStart = $state(0);
+	let traceEnd = $state(0);
+
+	function flattenSegments(doc: Record<string, unknown>, depth: number, rows: SegmentRow[]) {
+		const start = typeof doc.start_time === 'number' ? doc.start_time : 0;
+		const end = typeof doc.end_time === 'number' ? doc.end_time : start;
+		rows.push({
+			name: typeof doc.name === 'string' ? doc.name : '(unnamed)',
+			start,
+			end,
+			depth,
+			hasError: doc.error === true,
+			hasFault: doc.fault === true
+		});
+		const subs = Array.isArray(doc.subsegments) ? (doc.subsegments as Record<string, unknown>[]) : [];
+		for (const sub of subs) flattenSegments(sub, depth + 1, rows);
+	}
+
+	async function openTraceDetail(traceId: string | undefined) {
+		if (!traceId) return;
+		traceDetailLoading = true;
+		segmentRows = [];
+		selectedTrace = null;
+		try {
+			const res = await xray.send(new BatchGetTracesCommand({ TraceIds: [traceId] }));
+			const trace = (res.Traces ?? [])[0] ?? null;
+			selectedTrace = trace;
+			const rows: SegmentRow[] = [];
+			for (const seg of trace?.Segments ?? []) {
+				if (!seg.Document) continue;
+				try {
+					flattenSegments(JSON.parse(seg.Document) as Record<string, unknown>, 0, rows);
+				} catch {
+					// skip unparseable segment document
+				}
+			}
+			rows.sort((a, b) => a.start - b.start);
+			segmentRows = rows;
+			traceStart = rows.length > 0 ? Math.min(...rows.map((r) => r.start)) : 0;
+			traceEnd = rows.length > 0 ? Math.max(...rows.map((r) => r.end)) : 0;
+		} catch (e) {
+			toast.error(`Failed to load trace detail: ${e}`);
+		} finally {
+			traceDetailLoading = false;
+		}
+	}
+
+	function closeTraceDetail() {
+		selectedTrace = null;
+		segmentRows = [];
+	}
+
+	function barStyle(row: SegmentRow): string {
+		const span = traceEnd - traceStart || 1;
+		const left = ((row.start - traceStart) / span) * 100;
+		const width = Math.max(((row.end - row.start) / span) * 100, 0.5);
+		return `left:${left}%;width:${width}%`;
 	}
 
 	async function loadGroups() {
@@ -285,7 +359,9 @@
 								<td class="px-4 py-3">
 									<span class="text-xs font-medium {status.color}">{status.label}</span>
 								</td>
-								<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{trace.Id}</td>
+								<td class="px-4 py-3 font-mono text-xs">
+									<button onclick={() => openTraceDetail(trace.Id)} class="text-indigo-600 dark:text-indigo-400 hover:underline">{trace.Id}</button>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">
 									{trace.Duration != null ? trace.Duration.toFixed(3) + 's' : '—'}
 								</td>
@@ -300,6 +376,59 @@
 								<td class="px-4 py-3 text-xs text-muted-foreground">
 									{trace.ResponseTime != null ? (trace.ResponseTime * 1000).toFixed(0) + 'ms' : '—'}
 								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Service Graph Tab -->
+	{#if activeTab === 'service-graph'}
+		<div class="flex flex-wrap gap-3 rounded-lg border p-3 bg-muted/20">
+			<div class="flex gap-2 items-center text-sm">
+				<label for="sg-start" class="font-medium">From:</label>
+				<input id="sg-start" type="datetime-local" bind:value={serviceGraphStartTime} class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+			</div>
+			<div class="flex gap-2 items-center text-sm">
+				<label for="sg-end" class="font-medium">To:</label>
+				<input id="sg-end" type="datetime-local" bind:value={serviceGraphEndTime} class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+			</div>
+			<button onclick={loadServiceGraph} disabled={loading} class="flex items-center gap-2 rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+				<RefreshCw class="h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" /> Load
+			</button>
+		</div>
+		{#if loading}
+			<div class="flex justify-center py-12"><RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" /></div>
+		{:else if serviceGraphNodes.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Share2 class="h-12 w-12 mb-3 opacity-30" />
+				<p>No service-graph data for this range</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Service</th>
+							<th class="px-4 py-3 text-left font-medium">Type</th>
+							<th class="px-4 py-3 text-right font-medium">Requests</th>
+							<th class="px-4 py-3 text-right font-medium">Faults</th>
+							<th class="px-4 py-3 text-right font-medium">Errors</th>
+							<th class="px-4 py-3 text-right font-medium">Avg Latency</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each serviceGraphNodes as svc}
+							{@const stat = svc.SummaryStatistics}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{svc.Name ?? '—'}</td>
+								<td class="px-4 py-3 text-xs text-muted-foreground">{svc.Type ?? '—'}</td>
+								<td class="px-4 py-3 text-right text-muted-foreground">{stat?.TotalCount ?? 0}</td>
+								<td class="px-4 py-3 text-right text-red-500">{stat?.FaultStatistics?.TotalCount ?? 0}</td>
+								<td class="px-4 py-3 text-right text-orange-500">{stat?.ErrorStatistics?.TotalCount ?? 0}</td>
+								<td class="px-4 py-3 text-right text-muted-foreground">{stat?.TotalResponseTime !== undefined && stat?.TotalResponseTime !== null ? (stat.TotalResponseTime * 1000).toFixed(0) + 'ms' : '—'}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -341,3 +470,41 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Trace Detail Modal: segment timeline -->
+{#if selectedTrace || traceDetailLoading}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+		<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+			<div class="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800">
+				<div class="flex items-center gap-2">
+					<Share2 class="w-4 h-4 text-indigo-500" />
+					<h2 class="text-sm font-semibold text-slate-900 dark:text-white">Trace {selectedTrace?.Id ?? ''}</h2>
+					{#if selectedTrace?.Duration !== undefined && selectedTrace?.Duration !== null}<span class="text-xs text-slate-400">{selectedTrace.Duration.toFixed(3)}s</span>{/if}
+				</div>
+				<button onclick={closeTraceDetail} class="text-slate-400 hover:text-slate-600"><X class="w-5 h-5" /></button>
+			</div>
+			<div class="overflow-y-auto p-5">
+				{#if traceDetailLoading}
+					<div class="flex justify-center py-12"><RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" /></div>
+				{:else if segmentRows.length === 0}
+					<div class="text-center py-10 text-slate-500 text-sm">No segment documents for this trace.</div>
+				{:else}
+					<div class="space-y-1.5">
+						{#each segmentRows as row}
+							<div class="flex items-center gap-3">
+								<div class="w-1/3 truncate text-xs" style={`padding-left:${row.depth * 12}px`}>
+									{#if row.depth > 0}<ChevronRight class="inline w-3 h-3 text-slate-400" />{/if}
+									<span class={row.hasFault ? 'text-red-500' : row.hasError ? 'text-orange-500' : 'text-slate-700 dark:text-slate-200'}>{row.name}</span>
+								</div>
+								<div class="flex-1 relative h-4 bg-slate-100 dark:bg-slate-800 rounded">
+									<div class={`absolute top-0 h-4 rounded ${row.hasFault ? 'bg-red-500' : row.hasError ? 'bg-orange-500' : 'bg-indigo-500'}`} style={barStyle(row)}></div>
+								</div>
+								<div class="w-16 text-right text-xs text-slate-400 tabular-nums">{((row.end - row.start) * 1000).toFixed(0)}ms</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

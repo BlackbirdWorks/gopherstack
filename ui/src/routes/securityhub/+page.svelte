@@ -6,6 +6,7 @@
 		GetInsightsCommand,
 		DescribeHubCommand,
 		ListStandardsControlAssociationsCommand,
+		BatchUpdateFindingsCommand,
 		type AwsSecurityFinding,
 		type Insight
 	} from '@aws-sdk/client-securityhub';
@@ -18,7 +19,8 @@
 		CheckCircle,
 		XCircle,
 		BarChart2,
-		Filter
+		Filter,
+		X
 	} from 'lucide-svelte';
 
 	const hub = getSecurityHubClient();
@@ -85,6 +87,33 @@
 			toast.error(`Failed to load findings: ${e}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Finding detail + workflow update
+	let selectedFinding = $state<AwsSecurityFinding | null>(null);
+	let updatingWorkflow = $state(false);
+
+	async function setWorkflowStatus(
+		finding: AwsSecurityFinding,
+		status: 'NEW' | 'NOTIFIED' | 'RESOLVED' | 'SUPPRESSED'
+	) {
+		if (!finding.Id || !finding.ProductArn) return;
+		updatingWorkflow = true;
+		try {
+			await hub.send(
+				new BatchUpdateFindingsCommand({
+					FindingIdentifiers: [{ Id: finding.Id, ProductArn: finding.ProductArn }],
+					Workflow: { Status: status }
+				})
+			);
+			toast.success(`Workflow set to ${status}`);
+			selectedFinding = null;
+			await loadFindings();
+		} catch (e) {
+			toast.error(`Failed to update finding: ${e}`);
+		} finally {
+			updatingWorkflow = false;
 		}
 	}
 
@@ -276,13 +305,15 @@
 					</thead>
 					<tbody class="divide-y">
 						{#each filteredFindings as finding}
-							<tr class="hover:bg-muted/30">
+							<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => { selectedFinding = finding; }}>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium {severityBadge(finding.Severity?.Label)}">
 										{finding.Severity?.Label ?? '—'}
 									</span>
 								</td>
-								<td class="px-4 py-3 font-medium max-w-[250px] truncate">{finding.Title ?? '—'}</td>
+								<td class="px-4 py-3 font-medium max-w-[250px] truncate">
+									<button class="text-left hover:text-primary hover:underline">{finding.Title ?? '—'}</button>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">{finding.ProductName ?? '—'}</td>
 								<td class="px-4 py-3">
 									{#if finding.Compliance?.Status}
@@ -327,3 +358,64 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Finding Detail Drawer -->
+{#if selectedFinding}
+	<div class="fixed inset-0 z-50 flex justify-end bg-black/40">
+		<div class="h-full w-full max-w-xl overflow-y-auto bg-background shadow-xl">
+			<div class="sticky top-0 flex items-center justify-between border-b bg-background px-5 py-3">
+				<div class="flex items-center gap-2">
+					<Shield class="h-5 w-5 text-blue-500" />
+					<h2 class="text-sm font-semibold">Finding Detail</h2>
+					<span class="rounded-full px-2 py-0.5 text-xs font-medium {severityBadge(selectedFinding.Severity?.Label)}">{selectedFinding.Severity?.Label ?? "—"}</span>
+				</div>
+				<button onclick={() => { selectedFinding = null; }} class="text-muted-foreground hover:text-foreground"><X class="h-5 w-5" /></button>
+			</div>
+			<div class="space-y-4 p-5">
+				<div>
+					<h3 class="text-base font-semibold">{selectedFinding.Title ?? "—"}</h3>
+					<p class="mt-1 text-sm text-muted-foreground">{selectedFinding.Description ?? ""}</p>
+				</div>
+				<div class="grid grid-cols-2 gap-3 text-sm">
+					{#each [{ label: "Product", value: selectedFinding.ProductName ?? "—" }, { label: "Compliance", value: selectedFinding.Compliance?.Status ?? "—" }, { label: "Workflow", value: selectedFinding.Workflow?.Status ?? "NEW" }, { label: "Record State", value: selectedFinding.RecordState ?? "—" }, { label: "First Observed", value: selectedFinding.FirstObservedAt ?? "—" }, { label: "Last Observed", value: selectedFinding.LastObservedAt ?? "—" }] as row}
+						<div class="rounded-md border p-3">
+							<div class="text-xs text-muted-foreground">{row.label}</div>
+							<div class="mt-0.5 truncate font-mono text-xs">{row.value}</div>
+						</div>
+					{/each}
+				</div>
+				{#if selectedFinding.Remediation?.Recommendation}
+					<div class="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/40 dark:bg-blue-900/20">
+						<div class="mb-1 text-xs font-semibold text-blue-700 dark:text-blue-300">Remediation</div>
+						<p class="text-sm text-blue-900 dark:text-blue-200">{selectedFinding.Remediation.Recommendation.Text ?? ""}</p>
+						{#if selectedFinding.Remediation.Recommendation.Url}
+							<a href={selectedFinding.Remediation.Recommendation.Url} target="_blank" rel="noopener noreferrer" class="mt-1 inline-block text-xs text-blue-600 underline">View guidance</a>
+						{/if}
+					</div>
+				{/if}
+				{#if (selectedFinding.Resources ?? []).length > 0}
+					<div>
+						<div class="mb-1 text-xs font-medium text-muted-foreground">Affected Resources</div>
+						<div class="rounded-md border divide-y">
+							{#each selectedFinding.Resources ?? [] as res}
+								<div class="p-3 text-xs">
+									<span class="rounded bg-muted px-1.5 py-0.5 font-medium">{res.Type ?? "—"}</span>
+									<span class="ml-2 font-mono text-muted-foreground break-all">{res.Id ?? "—"}</span>
+									{#if res.Region}<span class="ml-2 text-muted-foreground">({res.Region})</span>{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+				<div class="border-t pt-4">
+					<div class="mb-2 text-xs font-medium text-muted-foreground">Set Workflow Status</div>
+					<div class="flex flex-wrap gap-2">
+						{#each (['NEW', 'NOTIFIED', 'RESOLVED', 'SUPPRESSED'] as const) as st}
+							<button onclick={() => setWorkflowStatus(selectedFinding!, st)} disabled={updatingWorkflow || selectedFinding.Workflow?.Status === st} class="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40">{st}</button>
+						{/each}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}

@@ -7,13 +7,16 @@
 		DescribeEndpointsCommand,
 		DescribeTableStatisticsCommand,
 		ModifyEndpointCommand,
+		TestConnectionCommand,
+		DescribeConnectionsCommand,
 		type ReplicationInstance,
 		type ReplicationTask,
 		type Endpoint,
-		type TableStatistics
+		type TableStatistics,
+		type Connection
 	} from '@aws-sdk/client-database-migration-service';
 	import { toast } from 'svelte-sonner';
-	import { Server, Search, RefreshCw, ChevronRight, GitBranch, Plug, Table2, Edit2, X, Check } from 'lucide-svelte';
+	import { Server, Search, RefreshCw, ChevronRight, GitBranch, Plug, Table2, Edit2, X, Check, Plug2 } from 'lucide-svelte';
 
 	const client = getDMSClient();
 
@@ -32,6 +35,12 @@
 	let editingEndpoint = $state<Endpoint | null>(null);
 	let editForm = $state({ serverName: '', databaseName: '', username: '', port: '' });
 	let editSaving = $state(false);
+
+	// Connection test modal state
+	let testingEndpoint = $state<Endpoint | null>(null);
+	let testInstanceArn = $state('');
+	let testRunning = $state(false);
+	let testResult = $state<Connection | null>(null);
 
 	const filteredInstances = $derived(
 		instances.filter(
@@ -125,6 +134,62 @@
 		}
 	}
 
+	function openConnectionTest(ep: Endpoint) {
+		testingEndpoint = ep;
+		testResult = null;
+		testRunning = false;
+		testInstanceArn = instances[0]?.ReplicationInstanceArn ?? '';
+	}
+
+	function closeConnectionTest() {
+		testingEndpoint = null;
+		testInstanceArn = '';
+		testResult = null;
+		testRunning = false;
+	}
+
+	async function runConnectionTest() {
+		if (!testingEndpoint?.EndpointArn || !testInstanceArn) return;
+		testRunning = true;
+		testResult = null;
+		try {
+			const resp = await client.send(
+				new TestConnectionCommand({
+					ReplicationInstanceArn: testInstanceArn,
+					EndpointArn: testingEndpoint.EndpointArn
+				})
+			);
+			testResult = resp.Connection ?? null;
+			const endpointArn = testingEndpoint.EndpointArn;
+			const instanceArn = testInstanceArn;
+			// Poll DescribeConnections a few times until the test settles.
+			for (let i = 0; i < 6; i++) {
+				if (testResult?.Status && testResult.Status !== 'testing') break;
+				await new Promise((resolve) => {
+					setTimeout(resolve, 1500);
+				});
+				const dc = await client.send(
+					new DescribeConnectionsCommand({
+						Filters: [{ Name: 'endpoint-arn', Values: [endpointArn] }]
+					})
+				);
+				const match = (dc.Connections ?? []).find(
+					(c) => c.ReplicationInstanceArn === instanceArn
+				);
+				if (match) testResult = match;
+			}
+			if (testResult?.Status === 'successful') {
+				toast.success('Connection test successful');
+			} else if (testResult?.Status === 'failed') {
+				toast.error('Connection test failed');
+			}
+		} catch (e) {
+			toast.error('Failed to test connection: ' + String(e));
+		} finally {
+			testRunning = false;
+		}
+	}
+
 	function parseTableMappings(tableMappings: string | undefined): { schema: string; table: string }[] {
 		if (!tableMappings) return [];
 		try {
@@ -178,6 +243,50 @@
 				<button onclick={saveEndpointChanges} disabled={editSaving} class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
 					{#if editSaving}<div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>{:else}<Check class="w-4 h-4" />{/if}
 					Save
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Connection test modal -->
+{#if testingEndpoint}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-lg p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Plug2 class="w-5 h-5 text-blue-500" /> Test Connection: {testingEndpoint.EndpointIdentifier}</h2>
+				<button onclick={closeConnectionTest} class="text-gray-400 hover:text-gray-600"><X class="w-5 h-5" /></button>
+			</div>
+			<div class="space-y-4">
+				<div>
+					<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Replication Instance</label>
+					{#if instances.length === 0}
+						<p class="text-sm text-gray-500">No replication instances available to test from.</p>
+					{:else}
+						<select bind:value={testInstanceArn} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+							{#each instances as inst}
+								<option value={inst.ReplicationInstanceArn}>{inst.ReplicationInstanceIdentifier} ({inst.ReplicationInstanceClass})</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+				{#if testResult}
+					<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+						<div class="flex items-center gap-2">
+							<span class="text-xs text-gray-500">Status:</span>
+							<span class={`px-2 py-0.5 rounded text-xs font-medium ${testResult.Status === 'successful' ? 'bg-green-100 text-green-700' : testResult.Status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{testResult.Status ?? '-'}</span>
+						</div>
+						{#if testResult.LastFailureMessage}
+							<div class="text-xs text-red-600 dark:text-red-400 font-mono break-all">{testResult.LastFailureMessage}</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+			<div class="flex justify-end gap-2 mt-6">
+				<button onclick={closeConnectionTest} class="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Close</button>
+				<button onclick={runConnectionTest} disabled={testRunning || !testInstanceArn} class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+					{#if testRunning}<div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>{:else}<Plug2 class="w-4 h-4" />{/if}
+					Run Test
 				</button>
 			</div>
 		</div>
@@ -482,9 +591,14 @@
 										<span class={`px-2 py-0.5 rounded text-xs font-medium ${ep.Status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{ep.Status ?? '-'}</span>
 									</td>
 									<td class="px-4 py-3">
-										<button onclick={() => openEndpointEditor(ep)} class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit endpoint">
-											<Edit2 class="w-4 h-4" />
-										</button>
+										<div class="flex items-center gap-3">
+											<button onclick={() => openConnectionTest(ep)} class="text-gray-400 hover:text-blue-600 transition-colors" title="Test connection">
+												<Plug2 class="w-4 h-4" />
+											</button>
+											<button onclick={() => openEndpointEditor(ep)} class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit endpoint">
+												<Edit2 class="w-4 h-4" />
+											</button>
+										</div>
 									</td>
 								</tr>
 							{/each}

@@ -16,6 +16,7 @@ CreateResolverRuleCommand,
 DeleteResolverRuleCommand,
 CreateFirewallRuleGroupCommand,
 DeleteFirewallRuleGroupCommand,
+UpdateFirewallRuleCommand,
 CreateFirewallDomainListCommand,
 DeleteFirewallDomainListCommand,
 CreateResolverQueryLogConfigCommand,
@@ -44,6 +45,7 @@ FileText,
 BarChart3,
 ChevronDown,
 ChevronRight,
+ChevronUp,
 Copy,
 X
 } from 'lucide-svelte';
@@ -269,6 +271,47 @@ expandedFwGroupRules = { ...expandedFwGroupRules, [id]: res.FirewallRules ?? [] 
 } catch {
 expandedFwGroupRules = { ...expandedFwGroupRules, [id]: [] };
 }
+}
+}
+
+let reorderingRule = $state('');
+
+// Reorder a firewall rule within its group by swapping its priority with the
+// adjacent rule (rules are displayed sorted by priority).
+async function moveFwRule(groupId: string, index: number, dir: -1 | 1) {
+const list = [...(expandedFwGroupRules[groupId] ?? [])].toSorted(
+(a, b) => (a.Priority ?? 0) - (b.Priority ?? 0)
+);
+const target = index + dir;
+if (target < 0 || target >= list.length) return;
+const a = list[index];
+const b = list[target];
+if (!a?.FirewallDomainListId || !b?.FirewallDomainListId) return;
+const pa = a.Priority ?? 0;
+const pb = b.Priority ?? 0;
+reorderingRule = a.FirewallDomainListId ?? `${groupId}:${index}`;
+try {
+await r53r.send(
+new UpdateFirewallRuleCommand({
+FirewallRuleGroupId: groupId,
+FirewallDomainListId: a.FirewallDomainListId,
+Priority: pb
+})
+);
+await r53r.send(
+new UpdateFirewallRuleCommand({
+FirewallRuleGroupId: groupId,
+FirewallDomainListId: b.FirewallDomainListId,
+Priority: pa
+})
+);
+toast.success('Rule priority updated');
+const res = await r53r.send(new ListFirewallRulesCommand({ FirewallRuleGroupId: groupId }));
+expandedFwGroupRules = { ...expandedFwGroupRules, [groupId]: res.FirewallRules ?? [] };
+} catch (e) {
+toast.error('Failed to reorder rule: ' + String(e));
+} finally {
+reorderingRule = '';
 }
 }
 
@@ -635,9 +678,9 @@ class="px-3 py-1.5 rounded-lg text-sm font-medium
 <p class="text-sm text-gray-500">No rules in this group.</p>
 {:else}
 <table class="w-full text-xs">
-<thead><tr class="text-gray-500 dark:text-gray-400"><th class="pb-1 pr-3 text-left">Name</th><th class="pb-1 pr-3 text-left">Action</th><th class="pb-1 pr-3 text-left">Priority</th><th class="pb-1 text-left">Domain List ID</th></tr></thead>
+<thead><tr class="text-gray-500 dark:text-gray-400"><th class="pb-1 pr-3 text-left">Name</th><th class="pb-1 pr-3 text-left">Action</th><th class="pb-1 pr-3 text-left">Priority</th><th class="pb-1 pr-3 text-left">Domain List ID</th><th class="pb-1 text-left">Order</th></tr></thead>
 <tbody>
-{#each expandedFwGroupRules[grp.Id ?? ''] as fwRule}
+{#each [...expandedFwGroupRules[grp.Id ?? '']].sort((a, b) => (a.Priority ?? 0) - (b.Priority ?? 0)) as fwRule, ri (fwRule.FirewallDomainListId ?? ri)}
 <tr class="border-t border-slate-100 dark:border-slate-700">
 <td class="py-1 pr-3">{fwRule.Name}</td>
 <td class="py-1 pr-3">
@@ -647,7 +690,23 @@ class="px-3 py-1.5 rounded-lg text-sm font-medium
 </span>
 </td>
 <td class="py-1 pr-3 font-mono">{fwRule.Priority}</td>
-<td class="py-1 font-mono text-gray-400 truncate max-w-[180px]">{fwRule.FirewallDomainListId ?? '—'}</td>
+<td class="py-1 pr-3 font-mono text-gray-400 truncate max-w-[180px]">{fwRule.FirewallDomainListId ?? '—'}</td>
+<td class="py-1">
+<div class="flex items-center gap-1">
+<button
+disabled={ri === 0 || reorderingRule !== ''}
+onclick={() => moveFwRule(grp.Id ?? '', ri, -1)}
+class="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-400"
+title="Move up (higher priority)"
+><ChevronUp class="w-3.5 h-3.5" /></button>
+<button
+disabled={ri === expandedFwGroupRules[grp.Id ?? ''].length - 1 || reorderingRule !== ''}
+onclick={() => moveFwRule(grp.Id ?? '', ri, 1)}
+class="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-400"
+title="Move down (lower priority)"
+><ChevronDown class="w-3.5 h-3.5" /></button>
+</div>
+</td>
 </tr>
 {/each}
 </tbody>

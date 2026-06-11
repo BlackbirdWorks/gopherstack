@@ -459,6 +459,44 @@ Also missing at the platform level:
 >   tab (`DescribeScalingActivities`, includes not-scaled activities) with
 >   status-coloured event markers, cause/status messages, and start/end times.
 >
+> **Fourth pass (branch `parity/mega-v2`)** — next batch of non-popular-group
+> per-service features shipped (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders):
+>
+> - **DMS** (Networking/edge) — endpoint **TestConnection**: per-endpoint modal
+>   that picks a replication instance, runs `TestConnection`, then polls
+>   `DescribeConnections` (endpoint-arn filter) until the test settles, showing
+>   status pill + `LastFailureMessage`.
+> - **EFS** (Storage/database) — **access-point** management in the file-system
+>   detail: list (`DescribeAccessPoints`), create (`CreateAccessPoint` with root
+>   path + POSIX UID/GID + creation-info permissions), and delete
+>   (`DeleteAccessPoint`).
+> - **CodeBuild** (Compute) — **Start Build** action on the project detail
+>   (`StartBuild`, refreshes history) and **Stop Build** on in-progress builds
+>   (`StopBuild`).
+> - **X-Ray** (Messaging/misc) — trace **detail drawer** with a segment
+>   **timeline** (`BatchGetTraces`, recursively flattens segment/subsegment
+>   documents into proportional latency bars, fault/error coloured), plus the
+>   previously-missing **Service Graph** tab rendering (`GetServiceGraph`
+>   summary statistics: requests / faults / errors / avg latency).
+> - **Route53Resolver** (Networking/edge) — firewall-rule **priority reorder**
+>   (up/down arrows swap adjacent priorities via two `UpdateFirewallRule` calls,
+>   then re-lists the group's rules).
+> - **Batch** (Compute) — container **log streaming**: the job-detail modal
+>   fetches `GetLogEvents` from the `/aws/batch/job` CloudWatch log group keyed
+>   by the container's `logStreamName`, rendered as a timestamped console.
+> - **AppSync** (API/app-integration) — **data-source create** UI
+>   (`CreateDataSource` for DynamoDB / Lambda / HTTP / NONE / Relational, with
+>   per-type config fields) + **delete** (`DeleteDataSource`); GraphQL **schema
+>   upload (SDL)** via `StartSchemaCreation`.
+> - **GuardDuty** (Security/identity) — finding **detail drawer**
+>   (resource/service metadata + raw JSON) with **archive / unarchive**
+>   (`ArchiveFindings` / `UnarchiveFindings`).
+> - **SecurityHub** (Security/identity) — finding **detail drawer** (remediation
+>   recommendation + affected resources) with **workflow-status** update
+>   (`BatchUpdateFindings`: NEW / NOTIFIED / RESOLVED / SUPPRESSED).
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched
@@ -474,20 +512,36 @@ Also missing at the platform level:
 >   visual builder + DLQ + API-destination rotation; CloudFormation dependency
 >   **graph** + nested-stack drill-down + change-set approval; ElastiCache
 >   performance-metrics graphs + event timeline + user/ACL viewer.
-> - **Non-popular groups — remaining (largely unimplemented).** The third pass
->   above shipped one solid feature each for Translate, Comprehend, Polly,
->   WorkSpaces, CloudTrail, Transfer, Firehose, and ApplicationAutoScaling. The
->   rest of the API/app-integration, Compute, Data/analytics, Storage/database,
->   Networking/edge, Security/identity, ML/AI/media, and Messaging groups listed
->   below remain open and are accurate enhancement candidates. Specifically
->   still-outstanding within the partially-touched services: Comprehend
->   training-accuracy/F1 + model-version compare; Polly lexicon XML editor;
->   Transcribe/Textract upload + transcript/result download; WorkSpaces bundle
->   selector + connection diagnostics; CloudTrail attribute-filter builder +
->   delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
+> - **Non-popular groups — remaining.** The third and fourth passes have now
+>   shipped at least one solid feature each for Translate, Comprehend, Polly,
+>   WorkSpaces, CloudTrail, Transfer, Firehose, ApplicationAutoScaling (pass 3)
+>   and DMS, EFS, CodeBuild, X-Ray, Route53Resolver, Batch, AppSync, GuardDuty,
+>   SecurityHub (pass 4). **Already-complete on inspection** (no work needed):
+>   Glacier already displays job/inventory output via `GetJobOutput`; AutoScaling
+>   already wires instance-protection toggle + lifecycle-hook view/create/delete.
+>   Still-outstanding enhancement candidates within partially-touched services:
+>   Comprehend training-accuracy/F1 + model-version compare; Polly lexicon XML
+>   editor; Transcribe/Textract upload + transcript/result download; WorkSpaces
+>   bundle selector + connection diagnostics; CloudTrail attribute-filter builder
+>   + delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
 >   Firehose throughput charts + test-delivery; ApplicationAutoScaling
->   step-scaling threshold editor + policy adjustment history. **MQ is not
->   wirable** (the `services/mq` backend registers no operations) and
+>   step-scaling threshold editor + policy adjustment history; CodeBuild build-log
+>   streaming (logs land in CloudWatch — same pattern as the Batch log viewer
+>   shipped in pass 4) + cache/artifact info; X-Ray segment annotations/metadata
+>   inspection + trace comparison; AppSync resolver field-mapping builder +
+>   pipeline-function config; GuardDuty detector publishing-frequency/SNS config +
+>   finding export; SecurityHub custom-insight creation. Untouched groups with
+>   open items: Data/analytics (Glue, EMR, Kinesis monitoring, KinesisAnalytics
+>   code editor, RedshiftData result-grid, LakeFormation permission-matrix),
+>   Storage/database (FSx create, Neptune query console, DocDB/MemoryDB param
+>   editors), Networking/edge (CloudFront cache-behaviour editor, ELBv2
+>   listener-rule reorder, OpenSearch/Elasticsearch config), Security/identity
+>   (Cognito user drill-down, Organizations move-account, SSOAdmin inline policy,
+>   VerifiedPermissions Cedar linter), ML/AI/media (Bedrock playground, SageMaker
+>   A/B split, Rekognition face detail, MediaConvert settings editor), and
+>   Messaging (SES receipt-rule actions, Pinpoint journey builder, SWF payload
+>   viewer, IoT rule tester, the Code* suite, Amplify, MWAA, S3Control/S3Tables).
+>   **MQ is not wirable** (the `services/mq` backend registers no operations) and
 >   **AppConfig/AppConfigData** likewise expose no backend operations, so their
 >   §F editors cannot be wired to real data yet.
 

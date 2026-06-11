@@ -9,11 +9,15 @@
 		CreateMountTargetCommand,
 		DeleteMountTargetCommand,
 		DescribeMountTargetsCommand,
+		CreateAccessPointCommand,
+		DeleteAccessPointCommand,
+		DescribeAccessPointsCommand,
 		type FileSystemDescription,
-		type MountTargetDescription
+		type MountTargetDescription,
+		type AccessPointDescription
 	} from '@aws-sdk/client-efs';
 	import { toast } from 'svelte-sonner';
-	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2 } from 'lucide-svelte';
+	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2, FolderTree } from 'lucide-svelte';
 
 	const client = getEFSClient();
 
@@ -36,6 +40,17 @@
 	let showCreateMTModal = $state(false);
 	let creatingMT = $state(false);
 	let newMTSubnetId = $state('');
+
+	// Access points (per file system)
+	let accessPoints = $state<AccessPointDescription[]>([]);
+	let accessPointsLoading = $state(false);
+	let showCreateAPModal = $state(false);
+	let creatingAP = $state(false);
+	let newAPName = $state('');
+	let newAPPath = $state('');
+	let newAPUid = $state('');
+	let newAPGid = $state('');
+	let newAPPermissions = $state('0755');
 
 	const filteredFS = $derived(
 		fileSystems.filter(
@@ -158,6 +173,74 @@
 			toast.error('Failed to create mount target: ' + String(e));
 		} finally {
 			creatingMT = false;
+		}
+	}
+
+	async function loadAccessPoints(fsId: string) {
+		accessPointsLoading = true;
+		accessPoints = [];
+		try {
+			const resp = await client.send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
+			accessPoints = resp.AccessPoints ?? [];
+		} catch (e) {
+			toast.error('Failed to load access points: ' + String(e));
+		} finally {
+			accessPointsLoading = false;
+		}
+	}
+
+	async function createAccessPoint() {
+		if (!selectedFS?.FileSystemId) return;
+		creatingAP = true;
+		try {
+			const uid = newAPUid.trim() ? parseInt(newAPUid.trim(), 10) : undefined;
+			const gid = newAPGid.trim() ? parseInt(newAPGid.trim(), 10) : undefined;
+			await client.send(
+				new CreateAccessPointCommand({
+					FileSystemId: selectedFS.FileSystemId,
+					Tags: newAPName.trim() ? [{ Key: 'Name', Value: newAPName.trim() }] : undefined,
+					PosixUser: uid !== undefined && gid !== undefined ? { Uid: uid, Gid: gid } : undefined,
+					RootDirectory: newAPPath.trim()
+						? {
+								Path: newAPPath.trim(),
+								CreationInfo:
+									uid !== undefined && gid !== undefined
+										? { OwnerUid: uid, OwnerGid: gid, Permissions: newAPPermissions.trim() || '0755' }
+										: undefined
+							}
+						: undefined
+				})
+			);
+			toast.success('Access point created');
+			showCreateAPModal = false;
+			newAPName = '';
+			newAPPath = '';
+			newAPUid = '';
+			newAPGid = '';
+			newAPPermissions = '0755';
+			await loadAccessPoints(selectedFS.FileSystemId);
+		} catch (e) {
+			toast.error('Failed to create access point: ' + String(e));
+		} finally {
+			creatingAP = false;
+		}
+	}
+
+	async function deleteAccessPoint(ap: AccessPointDescription) {
+		const id = ap.AccessPointId ?? '';
+		if (
+			!(await confirmDestructive({
+				title: 'Delete Access Point',
+				message: `Delete access point "${ap.Name ?? id}"?`
+			}))
+		)
+			return;
+		try {
+			await client.send(new DeleteAccessPointCommand({ AccessPointId: id }));
+			toast.success(`Access point ${id} deleted`);
+			if (selectedFS?.FileSystemId) await loadAccessPoints(selectedFS.FileSystemId);
+		} catch (e) {
+			toast.error('Failed to delete access point: ' + String(e));
 		}
 	}
 
@@ -317,6 +400,63 @@
 				</table>
 			{/if}
 		</div>
+
+		<!-- Access Point Management -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+			<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2"><FolderTree class="w-4 h-4 text-teal-500" /> Access Points</h2>
+				<div class="flex items-center gap-2">
+					{#if accessPointsLoading}<div class="animate-spin w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full"></div>{/if}
+					<button
+						onclick={() => { showCreateAPModal = true; }}
+						class="flex items-center gap-1 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-xs font-medium"
+					>
+						<Plus class="w-3 h-3" /> Add Access Point
+					</button>
+				</div>
+			</div>
+			{#if accessPoints.length === 0 && !accessPointsLoading}
+				<div class="text-center py-8 text-gray-500 dark:text-gray-400">
+					<FolderTree class="w-8 h-8 mx-auto mb-2 opacity-40" />
+					<p class="text-sm">No access points</p>
+				</div>
+			{:else if accessPoints.length > 0}
+				<table class="w-full text-sm">
+					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
+						<tr>
+							<th class="px-4 py-3 text-left">Name</th>
+							<th class="px-4 py-3 text-left">Access Point ID</th>
+							<th class="px-4 py-3 text-left">Root Path</th>
+							<th class="px-4 py-3 text-left">POSIX User</th>
+							<th class="px-4 py-3 text-left">State</th>
+							<th class="px-4 py-3 text-left"></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+						{#each accessPoints as ap}
+							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+								<td class="px-4 py-3 text-gray-900 dark:text-white">{ap.Name ?? '-'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{ap.AccessPointId ?? '-'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{ap.RootDirectory?.Path ?? '/'}</td>
+								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{ap.PosixUser ? `${ap.PosixUser.Uid}:${ap.PosixUser.Gid}` : '-'}</td>
+								<td class="px-4 py-3">
+									<span class={`px-2 py-0.5 rounded text-xs font-medium ${ap.LifeCycleState === 'available' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{ap.LifeCycleState ?? '-'}</span>
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => deleteAccessPoint(ap)}
+										class="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+										title="Delete access point"
+									>
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</div>
 	{:else}
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
 			{#each [['filesystems', 'File Systems'], ['mounttargets', 'Mount Targets']] as [tab, label]}
@@ -359,7 +499,7 @@
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
 										<button
-											onclick={async () => { selectedFS = fs; await loadMountTargets(fs.FileSystemId ?? ''); }}
+											onclick={async () => { selectedFS = fs; await loadMountTargets(fs.FileSystemId ?? ''); await loadAccessPoints(fs.FileSystemId ?? ''); }}
 											class="text-teal-600 dark:text-teal-400 hover:underline font-medium"
 										>{fs.FileSystemId ?? '-'}</button>
 									</td>
@@ -499,6 +639,51 @@
 					disabled={creatingMT}
 					class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
 				>{creatingMT ? 'Creating...' : 'Create'}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Access Point Modal -->
+{#if showCreateAPModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Access Point</h2>
+			<div class="space-y-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+					<input bind:value={newAPName} type="text" placeholder="my-access-point" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Root Directory Path</label>
+					<input bind:value={newAPPath} type="text" placeholder="/data" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+				<div class="grid grid-cols-3 gap-3">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UID</label>
+						<input bind:value={newAPUid} type="number" placeholder="1000" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">GID</label>
+						<input bind:value={newAPGid} type="number" placeholder="1000" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Permissions</label>
+						<input bind:value={newAPPermissions} type="text" placeholder="0755" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+				</div>
+				<p class="text-xs text-gray-500 dark:text-gray-400">UID + GID set the POSIX user and the root-directory owner (permissions apply when EFS creates the path).</p>
+			</div>
+			<div class="flex justify-end gap-3 mt-6">
+				<button
+					onclick={() => { showCreateAPModal = false; newAPName = ''; newAPPath = ''; newAPUid = ''; newAPGid = ''; newAPPermissions = '0755'; }}
+					class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+				>Cancel</button>
+				<button
+					onclick={createAccessPoint}
+					disabled={creatingAP}
+					class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
+				>{creatingAP ? 'Creating...' : 'Create'}</button>
 			</div>
 		</div>
 	</div>

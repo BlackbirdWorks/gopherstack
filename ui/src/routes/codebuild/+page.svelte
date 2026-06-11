@@ -9,6 +9,8 @@
 		BatchGetBuildsCommand,
 		CreateProjectCommand,
 		DeleteProjectCommand,
+		StartBuildCommand,
+		StopBuildCommand,
 		ListFleetsCommand,
 		BatchGetFleetsCommand,
 		ListReportGroupsCommand,
@@ -121,6 +123,33 @@
 			toast.error(`Creation failed: ${(err as Error).message}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	let startingBuild = $state(false);
+
+	async function startBuild() {
+		if (!selectedProject?.name) return;
+		startingBuild = true;
+		try {
+			const res = await codebuild.send(new StartBuildCommand({ projectName: selectedProject.name }));
+			toast.success(`Build started: ${res.build?.id?.split(':').pop() ?? 'OK'}`);
+			await selectProject(selectedProject);
+		} catch (err: unknown) {
+			toast.error(`Failed to start build: ${(err as Error).message}`);
+		} finally {
+			startingBuild = false;
+		}
+	}
+
+	async function stopBuild(id: string | undefined) {
+		if (!id) return;
+		try {
+			await codebuild.send(new StopBuildCommand({ id }));
+			toast.success('Build stopped');
+			if (selectedProject) await selectProject(selectedProject);
+		} catch (err: unknown) {
+			toast.error(`Failed to stop build: ${(err as Error).message}`);
 		}
 	}
 
@@ -392,13 +421,24 @@
 										</div>
 									</div>
 								</div>
-								<button 
-									onclick={() => deleteProject(selectedProject?.name)}
-									class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
-									title="Explode Project"
-								>
-									<Trash2 class="w-4 h-4" />
-								</button>
+								<div class="flex items-center gap-2">
+									<button
+										onclick={startBuild}
+										disabled={startingBuild}
+										class="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl transition-all shadow-lg shadow-emerald-600/20 active:scale-95 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest"
+										title="Start a build"
+									>
+										{#if startingBuild}<RefreshCw class="w-4 h-4 animate-spin" />{:else}<Play class="w-4 h-4" />{/if}
+										Start Build
+									</button>
+									<button
+										onclick={() => deleteProject(selectedProject?.name)}
+										class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
+										title="Explode Project"
+									>
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</div>
 							</div>
 
 							<div class="p-8 space-y-8">
@@ -470,11 +510,18 @@
 														<span class="text-[10px] font-black text-white uppercase tracking-widest">{build.buildStatus}</span>
 													</div>
 												</div>
-												<div class="text-right">
-													<div class="text-[8px] font-black text-slate-600 uppercase">Duration</div>
-													<span class="text-[10px] font-black text-slate-400 tabular-nums italic">
-														{Math.round(((build.endTime?.getTime() || 0) - (build.startTime?.getTime() || 0)) / 1000)}s
-													</span>
+												<div class="flex items-center gap-3">
+													<div class="text-right">
+														<div class="text-[8px] font-black text-slate-600 uppercase">Duration</div>
+														<span class="text-[10px] font-black text-slate-400 tabular-nums italic">
+															{Math.round(((build.endTime?.getTime() || 0) - (build.startTime?.getTime() || 0)) / 1000)}s
+														</span>
+													</div>
+													{#if build.buildStatus === 'IN_PROGRESS'}
+														<button onclick={() => stopBuild(build.id)} class="p-2 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 rounded-xl transition-all" title="Stop build">
+															<XCircle class="w-4 h-4" />
+														</button>
+													{/if}
 												</div>
 											</div>
 											<div class="flex items-center justify-between pt-4 border-t border-white/5">
