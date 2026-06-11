@@ -1,6 +1,7 @@
 package account_test
 
 import (
+	"maps"
 	"net/http"
 	"testing"
 
@@ -41,9 +42,8 @@ func TestParity_PutAlternateContact_RequiredFields(t *testing.T) {
 			h := newTestHandler(t)
 
 			body := make(map[string]any, len(full))
-			for k, v := range full {
-				body[k] = v
-			}
+			maps.Copy(body, full)
+
 			if tt.omit != "" {
 				delete(body, tt.omit)
 			}

@@ -31,7 +31,7 @@ func TestParity_ListTrustAnchors_TokenWalk(t *testing.T) {
 	seen := make(map[string]int)
 	token := ""
 
-	for pages := 0; pages < total+2; pages++ {
+	for range total + 2 {
 		items, next, err := b.ListTrustAnchors(token, 2)
 		require.NoError(t, err)
 

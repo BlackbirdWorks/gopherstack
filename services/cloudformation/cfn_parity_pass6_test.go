@@ -68,10 +68,10 @@ func TestParity_CreateStack_ErrorMapping(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		seedDup  bool
 		stack    string
 		template string
 		wantCode string
+		seedDup  bool
 	}{
 		{
 			name:     "duplicate_stack_already_exists",

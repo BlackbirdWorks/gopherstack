@@ -433,6 +433,10 @@ func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, user)
 }
 
+// errMaxResultsOutOfRange is returned when a list MaxResults value falls
+// outside the AWS-permitted 1-100 range.
+var errMaxResultsOutOfRange = fmt.Errorf("MaxResults must be between 1 and %d", maxListPageSize)
+
 // validateMaxResults enforces the AWS Identity Store list MaxResults bound.
 // MaxResults is optional (0 = unset); when supplied it must be 1-100.
 func validateMaxResults(maxResults int32) error {
@@ -441,7 +445,7 @@ func validateMaxResults(maxResults int32) error {
 	}
 
 	if maxResults < 1 || maxResults > maxListPageSize {
-		return fmt.Errorf("MaxResults must be between 1 and %d", maxListPageSize)
+		return errMaxResultsOutOfRange
 	}
 
 	return nil

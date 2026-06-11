@@ -86,9 +86,6 @@ const (
 
 	// minSegmentsForResource is the minimum number of path segments for a resource op.
 	minSegmentsForResource = 2
-
-	// base10 is the radix for integer parsing in query string parameters.
-	base10 = 10
 )
 
 // Handler handles Roles Anywhere HTTP requests.

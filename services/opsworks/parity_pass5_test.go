@@ -16,8 +16,8 @@ func TestParity_UnknownAction_ReturnsValidationException(t *testing.T) {
 	tests := []struct {
 		name      string
 		operation string
-		wantCode  int
 		wantType  string
+		wantCode  int
 	}{
 		{
 			name:      "unknown_action",
