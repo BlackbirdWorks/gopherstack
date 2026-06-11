@@ -1,6 +1,7 @@
 package elb_test
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"net/http"
@@ -287,7 +288,7 @@ func TestRefinement1_DeepCopy_Listeners(t *testing.T) {
 	mustCreateLB(t, h, "dc-lb")
 
 	// First describe: copy has 1 listener (from mustCreateLB).
-	lbs, err := b.DescribeLoadBalancers([]string{"dc-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"dc-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 
@@ -298,7 +299,7 @@ func TestRefinement1_DeepCopy_Listeners(t *testing.T) {
 	require.Len(t, lbs[0].Listeners, originalCount+1)
 
 	// Second describe: stored state must still have only originalCount listeners.
-	lbs2, err := b.DescribeLoadBalancers([]string{"dc-lb"})
+	lbs2, err := b.DescribeLoadBalancers(context.Background(), []string{"dc-lb"})
 	require.NoError(t, err)
 	assert.Len(t, lbs2[0].Listeners, originalCount, "mutation of returned copy must not modify stored state")
 }
@@ -311,7 +312,7 @@ func TestRefinement1_NonNilSlices(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "non-nil-lb")
 
-	lbs, err := b.DescribeLoadBalancers([]string{"non-nil-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"non-nil-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 
@@ -332,7 +333,7 @@ func TestRefinement1_ARNSet(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "arn-lb")
 
-	lbs, err := b.DescribeLoadBalancers([]string{"arn-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"arn-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 
@@ -359,7 +360,7 @@ func TestRefinement1_VPCId_SetFromSubnets(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	lbs, err := b.DescribeLoadBalancers([]string{"vpc-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"vpc-lb"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, lbs[0].VPCId, "VPCId must be set when subnets are provided")
 }
@@ -383,7 +384,7 @@ func TestRefinement1_VPCId_EmptyWithoutSubnets(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	lbs, err := b.DescribeLoadBalancers([]string{"classic-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"classic-lb"})
 	require.NoError(t, err)
 	assert.Empty(t, lbs[0].VPCId, "VPCId must be empty for classic (non-VPC) load balancers")
 }
@@ -399,7 +400,7 @@ func TestRefinement1_SortedDescribeLoadBalancers(t *testing.T) {
 		mustCreateLB(t, h, name)
 	}
 
-	lbs, err := b.DescribeLoadBalancers(nil)
+	lbs, err := b.DescribeLoadBalancers(context.Background(), nil)
 	require.NoError(t, err)
 
 	names := make([]string, len(lbs))
@@ -416,7 +417,7 @@ func TestRefinement1_DescribeAccountLimits_Locked(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	limits, err := b.DescribeAccountLimits()
+	limits, err := b.DescribeAccountLimits(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, limits, 3)
 }
@@ -427,7 +428,7 @@ func TestRefinement1_DescribeLoadBalancerPolicyTypes_UnknownReturnsError(t *test
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.DescribeLoadBalancerPolicyTypes([]string{"NoSuchPolicyType"})
+	_, err := b.DescribeLoadBalancerPolicyTypes(context.Background(), []string{"NoSuchPolicyType"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, elb.ErrPolicyNotFound)
 }
@@ -466,11 +467,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, b2.PolicyCount())
 
 	// Verify tags were persisted.
-	lbs, err := b2.DescribeLoadBalancers([]string{"persist-lb"})
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"persist-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 
-	tagMap, err := b2.DescribeTags([]string{"persist-lb"})
+	tagMap, err := b2.DescribeTags(context.Background(), []string{"persist-lb"})
 	require.NoError(t, err)
 	require.Len(t, tagMap["persist-lb"], 1)
 	assert.Equal(t, "Env", tagMap["persist-lb"][0].Key)
@@ -507,7 +508,7 @@ func TestRefinement1_SeedHelper_DeepCopy(t *testing.T) {
 		elb.Listener{Protocol: "HTTPS", LoadBalancerPort: 443, InstancePort: 8443},
 	)
 
-	lbs, err := b.DescribeLoadBalancers([]string{"seed-dc-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"seed-dc-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 	assert.Len(t, lbs[0].Listeners, 1, "stored LB must not reflect post-seed mutation")

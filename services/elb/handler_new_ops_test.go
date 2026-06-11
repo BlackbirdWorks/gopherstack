@@ -1,6 +1,7 @@
 package elb_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -391,7 +392,7 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantCertID != "" {
 				lbName := tt.vals.Get("LoadBalancerName")
-				lbs, err := h.Backend.DescribeLoadBalancers([]string{lbName})
+				lbs, err := h.Backend.DescribeLoadBalancers(context.Background(), []string{lbName})
 				require.NoError(t, err)
 				require.Len(t, lbs, 1)
 
@@ -519,7 +520,7 @@ func TestSetLoadBalancerPoliciesOfListener(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				lbName := tt.vals.Get("LoadBalancerName")
-				lbs, err := h.Backend.DescribeLoadBalancers([]string{lbName})
+				lbs, err := h.Backend.DescribeLoadBalancers(context.Background(), []string{lbName})
 				require.NoError(t, err)
 				require.Len(t, lbs, 1)
 
@@ -662,7 +663,7 @@ func TestSetLoadBalancerPoliciesForBackendServer(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantPort > 0 {
 				lbName := tt.vals.Get("LoadBalancerName")
-				lbs, err := h.Backend.DescribeLoadBalancers([]string{lbName})
+				lbs, err := h.Backend.DescribeLoadBalancers(context.Background(), []string{lbName})
 				require.NoError(t, err)
 				require.Len(t, lbs, 1)
 

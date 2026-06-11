@@ -1,6 +1,7 @@
 package elb
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -34,7 +35,7 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	// ops is the pre-built dispatch table mapping action names to handler functions.
-	ops map[string]func(url.Values) (any, error)
+	ops map[string]func(context.Context, url.Values) (any, error)
 }
 
 // NewHandler creates a new ELB handler.
@@ -46,8 +47,8 @@ func NewHandler(backend StorageBackend) *Handler {
 }
 
 // buildOps returns the action-to-handler dispatch table.
-func (h *Handler) buildOps() map[string]func(url.Values) (any, error) {
-	return map[string]func(url.Values) (any, error){
+func (h *Handler) buildOps() map[string]func(context.Context, url.Values) (any, error) {
+	return map[string]func(context.Context, url.Values) (any, error){
 		"CreateLoadBalancer":                      h.handleCreateLoadBalancer,
 		"DeleteLoadBalancer":                      h.handleDeleteLoadBalancer,
 		"DescribeLoadBalancers":                   h.handleDescribeLoadBalancers,
@@ -136,7 +137,7 @@ func (h *Handler) ChaosRegions() []string {
 	}
 
 	if ib, ok := h.Backend.(*InMemoryBackend); ok {
-		return []string{ib.region}
+		return []string{ib.Region()}
 	}
 
 	return []string{config.DefaultRegion}
@@ -216,10 +217,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
-		log := logger.Load(r.Context())
-		log.Debug("elb request", "action", action)
+		ctx := h.contextWithRegion(c)
 
-		resp, opErr := h.dispatch(action, vals)
+		logger.Load(ctx).Debug("elb request", "action", action)
+
+		resp, opErr := h.dispatch(ctx, action, vals)
 		if opErr != nil {
 			return h.handleOpError(c, action, opErr)
 		}
@@ -233,17 +235,28 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// contextWithRegion returns the request context with the resolved AWS region
+// attached under regionContextKey so that backend operations are routed to the
+// correct region. The region is extracted from the request's SigV4
+// Authorization header (or X-Amz headers), falling back to the backend's
+// default region.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 // dispatch routes the ELB action to the appropriate handler.
-func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, vals url.Values) (any, error) {
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
 
-	return fn(vals)
+	return fn(ctx, vals)
 }
 
-func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
+func (h *Handler) handleCreateLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -259,7 +272,7 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 	subnets := parseMembers(vals, "Subnets.member")
 	scheme := vals.Get("Scheme")
 
-	lb, createErr := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
+	lb, createErr := h.Backend.CreateLoadBalancer(ctx, CreateLoadBalancerInput{
 		LoadBalancerName:  name,
 		Scheme:            scheme,
 		AvailabilityZones: azs,
@@ -273,7 +286,7 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 
 	// AWS allows passing initial Tags at CreateLoadBalancer time.
 	if initialTags := parseTagKVs(vals, "Tags.member"); len(initialTags) > 0 {
-		if tagErr := h.Backend.AddTags([]string{name}, initialTags); tagErr != nil {
+		if tagErr := h.Backend.AddTags(ctx, []string{name}, initialTags); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -287,13 +300,13 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteLoadBalancer(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteLoadBalancer(name); err != nil {
+	if err := h.Backend.DeleteLoadBalancer(ctx, name); err != nil {
 		return nil, err
 	}
 
@@ -303,10 +316,10 @@ func (h *Handler) handleDeleteLoadBalancer(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeLoadBalancers(ctx context.Context, vals url.Values) (any, error) {
 	names := parseMembers(vals, "LoadBalancerNames.member")
 
-	lbs, err := h.Backend.DescribeLoadBalancers(names)
+	lbs, err := h.Backend.DescribeLoadBalancers(ctx, names)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +375,7 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRegisterInstances(vals url.Values) (any, error) {
+func (h *Handler) handleRegisterInstances(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -370,7 +383,7 @@ func (h *Handler) handleRegisterInstances(vals url.Values) (any, error) {
 
 	instances := parseInstances(vals)
 
-	remaining, err := h.Backend.RegisterInstancesWithLoadBalancer(name, instances)
+	remaining, err := h.Backend.RegisterInstancesWithLoadBalancer(ctx, name, instances)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +399,7 @@ func (h *Handler) handleRegisterInstances(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeregisterInstances(vals url.Values) (any, error) {
+func (h *Handler) handleDeregisterInstances(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -394,7 +407,7 @@ func (h *Handler) handleDeregisterInstances(vals url.Values) (any, error) {
 
 	instances := parseInstances(vals)
 
-	remaining, err := h.Backend.DeregisterInstancesFromLoadBalancer(name, instances)
+	remaining, err := h.Backend.DeregisterInstancesFromLoadBalancer(ctx, name, instances)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +423,7 @@ func (h *Handler) handleDeregisterInstances(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
+func (h *Handler) handleConfigureHealthCheck(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -418,7 +431,7 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 
 	// Check LB exists before validating the remaining parameters; AWS returns
 	// LoadBalancerNotFound before complaining about invalid HC params.
-	if _, err := h.Backend.DescribeLoadBalancers([]string{name}); err != nil {
+	if _, err := h.Backend.DescribeLoadBalancers(ctx, []string{name}); err != nil {
 		return nil, err
 	}
 
@@ -427,7 +440,7 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	result, hcErr := h.Backend.ConfigureHealthCheck(name, hc)
+	result, hcErr := h.Backend.ConfigureHealthCheck(ctx, name, hc)
 	if hcErr != nil {
 		return nil, hcErr
 	}
@@ -537,7 +550,7 @@ func parseHealthCheckThresholds(vals url.Values) (int32, int32, error) {
 	return unhealthy, healthy, nil
 }
 
-func (h *Handler) handleAddTags(vals url.Values) (any, error) {
+func (h *Handler) handleAddTags(ctx context.Context, vals url.Values) (any, error) {
 	names := parseMembers(vals, "LoadBalancerNames.member")
 	if len(names) == 0 {
 		return nil, fmt.Errorf("%w: at least one LoadBalancerName is required", ErrInvalidParameter)
@@ -551,7 +564,7 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 		}
 	}
 
-	if err := h.Backend.AddTags(names, kvs); err != nil {
+	if err := h.Backend.AddTags(ctx, names, kvs); err != nil {
 		return nil, err
 	}
 
@@ -561,13 +574,13 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeTags(ctx context.Context, vals url.Values) (any, error) {
 	names := parseMembers(vals, "LoadBalancerNames.member")
 	if len(names) == 0 {
 		return nil, fmt.Errorf("%w: at least one LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	tagMap, err := h.Backend.DescribeTags(names)
+	tagMap, err := h.Backend.DescribeTags(ctx, names)
 	if err != nil {
 		return nil, err
 	}
@@ -596,7 +609,7 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRemoveTags(vals url.Values) (any, error) {
+func (h *Handler) handleRemoveTags(ctx context.Context, vals url.Values) (any, error) {
 	names := parseMembers(vals, "LoadBalancerNames.member")
 	if len(names) == 0 {
 		return nil, fmt.Errorf("%w: at least one LoadBalancerName is required", ErrInvalidParameter)
@@ -608,7 +621,7 @@ func (h *Handler) handleRemoveTags(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Tags must not be empty", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.RemoveTags(names, keys); err != nil {
+	if err := h.Backend.RemoveTags(ctx, names, keys); err != nil {
 		return nil, err
 	}
 
@@ -618,7 +631,7 @@ func (h *Handler) handleRemoveTags(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error) {
+func (h *Handler) handleCreateLoadBalancerListeners(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -633,7 +646,7 @@ func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error
 		return nil, fmt.Errorf("%w: at least one listener is required", ErrInvalidParameter)
 	}
 
-	if createErr := h.Backend.CreateLoadBalancerListeners(name, listeners); createErr != nil {
+	if createErr := h.Backend.CreateLoadBalancerListeners(ctx, name, listeners); createErr != nil {
 		return nil, createErr
 	}
 
@@ -643,7 +656,7 @@ func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleDeleteLoadBalancerListeners(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteLoadBalancerListeners(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -651,7 +664,7 @@ func (h *Handler) handleDeleteLoadBalancerListeners(vals url.Values) (any, error
 
 	ports := parseListenerPorts(vals, "LoadBalancerPorts.member")
 
-	if err := h.Backend.DeleteLoadBalancerListeners(name, ports); err != nil {
+	if err := h.Backend.DeleteLoadBalancerListeners(ctx, name, ports); err != nil {
 		return nil, err
 	}
 
@@ -661,7 +674,7 @@ func (h *Handler) handleDeleteLoadBalancerListeners(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, error) {
+func (h *Handler) handleModifyLoadBalancerAttributes(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -711,7 +724,7 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		)
 	}
 
-	result, err := h.Backend.ModifyLoadBalancerAttributes(name, attrs)
+	result, err := h.Backend.ModifyLoadBalancerAttributes(ctx, name, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -725,13 +738,13 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeLoadBalancerAttributes(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	attrs, err := h.Backend.DescribeLoadBalancerAttributes(name)
+	attrs, err := h.Backend.DescribeLoadBalancerAttributes(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -745,7 +758,7 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 	}, nil
 }
 
-func (h *Handler) handleApplySecurityGroupsToLoadBalancer(vals url.Values) (any, error) {
+func (h *Handler) handleApplySecurityGroupsToLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -753,7 +766,7 @@ func (h *Handler) handleApplySecurityGroupsToLoadBalancer(vals url.Values) (any,
 
 	sgs := parseMembers(vals, "SecurityGroups.member")
 
-	result, err := h.Backend.ApplySecurityGroupsToLoadBalancer(name, sgs)
+	result, err := h.Backend.ApplySecurityGroupsToLoadBalancer(ctx, name, sgs)
 	if err != nil {
 		return nil, err
 	}
@@ -772,7 +785,7 @@ func (h *Handler) handleApplySecurityGroupsToLoadBalancer(vals url.Values) (any,
 	}, nil
 }
 
-func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error) {
+func (h *Handler) handleAttachLoadBalancerToSubnets(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -780,7 +793,7 @@ func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error
 
 	subnets := parseMembers(vals, "Subnets.member")
 
-	result, err := h.Backend.AttachLoadBalancerToSubnets(name, subnets)
+	result, err := h.Backend.AttachLoadBalancerToSubnets(ctx, name, subnets)
 	if err != nil {
 		return nil, err
 	}
@@ -799,7 +812,7 @@ func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleDetachLoadBalancerFromSubnets(vals url.Values) (any, error) {
+func (h *Handler) handleDetachLoadBalancerFromSubnets(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -807,7 +820,7 @@ func (h *Handler) handleDetachLoadBalancerFromSubnets(vals url.Values) (any, err
 
 	subnets := parseMembers(vals, "Subnets.member")
 
-	result, err := h.Backend.DetachLoadBalancerFromSubnets(name, subnets)
+	result, err := h.Backend.DetachLoadBalancerFromSubnets(ctx, name, subnets)
 	if err != nil {
 		return nil, err
 	}
@@ -826,7 +839,7 @@ func (h *Handler) handleDetachLoadBalancerFromSubnets(vals url.Values) (any, err
 	}, nil
 }
 
-func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -834,7 +847,7 @@ func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(vals url.Values) 
 
 	azs := parseMembers(vals, "AvailabilityZones.member")
 
-	result, err := h.Backend.EnableAvailabilityZonesForLoadBalancer(name, azs)
+	result, err := h.Backend.EnableAvailabilityZonesForLoadBalancer(ctx, name, azs)
 	if err != nil {
 		return nil, err
 	}
@@ -853,7 +866,7 @@ func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(vals url.Values) 
 	}, nil
 }
 
-func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -861,7 +874,7 @@ func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(vals url.Values)
 
 	azs := parseMembers(vals, "AvailabilityZones.member")
 
-	result, err := h.Backend.DisableAvailabilityZonesForLoadBalancer(name, azs)
+	result, err := h.Backend.DisableAvailabilityZonesForLoadBalancer(ctx, name, azs)
 	if err != nil {
 		return nil, err
 	}
@@ -880,7 +893,7 @@ func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(vals url.Values)
 	}, nil
 }
 
-func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (any, error) {
+func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -900,7 +913,7 @@ func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (
 		return nil, certErr
 	}
 
-	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(name, port, certID); setErr != nil {
+	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(ctx, name, port, certID); setErr != nil {
 		return nil, setErr
 	}
 
@@ -910,7 +923,7 @@ func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (
 	}, nil
 }
 
-func (h *Handler) handleSetLoadBalancerPoliciesOfListener(vals url.Values) (any, error) {
+func (h *Handler) handleSetLoadBalancerPoliciesOfListener(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -923,7 +936,7 @@ func (h *Handler) handleSetLoadBalancerPoliciesOfListener(vals url.Values) (any,
 
 	policyNames := parseMembers(vals, "PolicyNames.member")
 
-	if setErr := h.Backend.SetLoadBalancerPoliciesOfListener(name, port, policyNames); setErr != nil {
+	if setErr := h.Backend.SetLoadBalancerPoliciesOfListener(ctx, name, port, policyNames); setErr != nil {
 		return nil, setErr
 	}
 
@@ -933,7 +946,7 @@ func (h *Handler) handleSetLoadBalancerPoliciesOfListener(vals url.Values) (any,
 	}, nil
 }
 
-func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(vals url.Values) (any, error) {
+func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -946,7 +959,8 @@ func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(vals url.Values)
 
 	policyNames := parseMembers(vals, "PolicyNames.member")
 
-	if setErr := h.Backend.SetLoadBalancerPoliciesForBackendServer(name, instancePort, policyNames); setErr != nil {
+	setErr := h.Backend.SetLoadBalancerPoliciesForBackendServer(ctx, name, instancePort, policyNames)
+	if setErr != nil {
 		return nil, setErr
 	}
 
@@ -956,7 +970,7 @@ func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(vals url.Values)
 	}, nil
 }
 
-func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, error) {
+func (h *Handler) handleCreateAppCookieStickinessPolicy(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -980,7 +994,7 @@ func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, e
 		return nil, fmt.Errorf("%w: CookieName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.CreateAppCookieStickinessPolicy(name, policyName, cookieName); err != nil {
+	if err := h.Backend.CreateAppCookieStickinessPolicy(ctx, name, policyName, cookieName); err != nil {
 		return nil, err
 	}
 
@@ -990,7 +1004,7 @@ func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, e
 	}, nil
 }
 
-func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, error) {
+func (h *Handler) handleCreateLBCookieStickinessPolicy(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -1018,7 +1032,7 @@ func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, er
 		cookieExpiration = n
 	}
 
-	if err := h.Backend.CreateLBCookieStickinessPolicy(name, policyName, cookieExpiration); err != nil {
+	if err := h.Backend.CreateLBCookieStickinessPolicy(ctx, name, policyName, cookieExpiration); err != nil {
 		return nil, err
 	}
 
@@ -1028,7 +1042,7 @@ func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, er
 	}, nil
 }
 
-func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
+func (h *Handler) handleCreateLoadBalancerPolicy(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -1065,7 +1079,7 @@ func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
 
 	attrs := parsePolicyAttributes(vals)
 
-	if err := h.Backend.CreateLoadBalancerPolicy(name, policyName, policyTypeName, attrs); err != nil {
+	if err := h.Backend.CreateLoadBalancerPolicy(ctx, name, policyName, policyTypeName, attrs); err != nil {
 		return nil, err
 	}
 
@@ -1075,7 +1089,7 @@ func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteLoadBalancerPolicy(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteLoadBalancerPolicy(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -1086,7 +1100,7 @@ func (h *Handler) handleDeleteLoadBalancerPolicy(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteLoadBalancerPolicy(name, policyName); err != nil {
+	if err := h.Backend.DeleteLoadBalancerPolicy(ctx, name, policyName); err != nil {
 		return nil, err
 	}
 
@@ -1096,8 +1110,8 @@ func (h *Handler) handleDeleteLoadBalancerPolicy(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
-	limits, err := h.Backend.DescribeAccountLimits()
+func (h *Handler) handleDescribeAccountLimits(ctx context.Context, _ url.Values) (any, error) {
+	limits, err := h.Backend.DescribeAccountLimits(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,7 +1130,7 @@ func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeInstanceHealth(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeInstanceHealth(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
@@ -1124,7 +1138,7 @@ func (h *Handler) handleDescribeInstanceHealth(vals url.Values) (any, error) {
 
 	instances := parseInstances(vals)
 
-	states, err := h.Backend.DescribeInstanceHealth(name, instances)
+	states, err := h.Backend.DescribeInstanceHealth(ctx, name, instances)
 	if err != nil {
 		return nil, err
 	}
@@ -1143,11 +1157,11 @@ func (h *Handler) handleDescribeInstanceHealth(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeLoadBalancerPolicies(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeLoadBalancerPolicies(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	policyNames := parseMembers(vals, "PolicyNames.member")
 
-	policies, err := h.Backend.DescribeLoadBalancerPolicies(name, policyNames)
+	policies, err := h.Backend.DescribeLoadBalancerPolicies(ctx, name, policyNames)
 	if err != nil {
 		return nil, err
 	}
@@ -1175,10 +1189,10 @@ func (h *Handler) handleDescribeLoadBalancerPolicies(vals url.Values) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleDescribeLoadBalancerPolicyTypes(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeLoadBalancerPolicyTypes(ctx context.Context, vals url.Values) (any, error) {
 	typeNames := parseMembers(vals, "PolicyTypeNames.member")
 
-	types, err := h.Backend.DescribeLoadBalancerPolicyTypes(typeNames)
+	types, err := h.Backend.DescribeLoadBalancerPolicyTypes(ctx, typeNames)
 	if err != nil {
 		return nil, err
 	}
