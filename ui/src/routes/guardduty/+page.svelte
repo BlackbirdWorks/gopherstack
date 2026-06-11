@@ -193,6 +193,26 @@
 		}
 	}
 
+	let updatingFrequency = $state<string | null>(null);
+
+	async function updatePublishingFrequency(id: string, frequency: string) {
+		updatingFrequency = id;
+		try {
+			await gd.send(
+				new UpdateDetectorCommand({
+					DetectorId: id,
+					FindingPublishingFrequency: frequency as 'FIFTEEN_MINUTES' | 'ONE_HOUR' | 'SIX_HOURS'
+				})
+			);
+			toast.success('Finding publishing frequency updated');
+			await loadDetectors();
+		} catch (e) {
+			toast.error(`Failed to update frequency: ${e}`);
+		} finally {
+			updatingFrequency = null;
+		}
+	}
+
 	async function selectDetectorForFindings(id: string) {
 		selectedDetectorId = id;
 		activeTab = 'findings';
@@ -285,6 +305,20 @@
 								<p class="text-xs text-muted-foreground">
 									Created: {detail?.CreatedAt ?? '—'} · Updated: {detail?.UpdatedAt ?? '—'}
 								</p>
+								<div class="flex items-center gap-2 pt-1">
+									<label for="gd-freq-{id}" class="text-xs text-muted-foreground">Publishing frequency:</label>
+									<select
+										id="gd-freq-{id}"
+										value={detail?.FindingPublishingFrequency ?? 'SIX_HOURS'}
+										disabled={updatingFrequency === id}
+										onchange={(e) => updatePublishingFrequency(id, (e.currentTarget as HTMLSelectElement).value)}
+										class="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+									>
+										<option value="FIFTEEN_MINUTES">15 minutes</option>
+										<option value="ONE_HOUR">1 hour</option>
+										<option value="SIX_HOURS">6 hours</option>
+									</select>
+								</div>
 							</div>
 							<div class="flex gap-2">
 								<button

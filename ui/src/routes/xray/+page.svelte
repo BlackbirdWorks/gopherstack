@@ -94,23 +94,43 @@
 		depth: number;
 		hasError: boolean;
 		hasFault: boolean;
+		annotations: [string, string][];
+		metadata: [string, string][];
 	};
+	let expandedSegment = $state<number | null>(null);
 	let selectedTrace = $state<Trace | null>(null);
 	let traceDetailLoading = $state(false);
 	let segmentRows = $state<SegmentRow[]>([]);
 	let traceStart = $state(0);
 	let traceEnd = $state(0);
 
+	function pairsFrom(obj: unknown): [string, string][] {
+		if (!obj || typeof obj !== 'object') return [];
+		return Object.entries(obj as Record<string, unknown>).map(([k, v]) => [
+			k,
+			typeof v === 'object' ? JSON.stringify(v) : String(v)
+		]);
+	}
+
 	function flattenSegments(doc: Record<string, unknown>, depth: number, rows: SegmentRow[]) {
 		const start = typeof doc.start_time === 'number' ? doc.start_time : 0;
 		const end = typeof doc.end_time === 'number' ? doc.end_time : start;
+		// X-Ray metadata is namespaced (e.g. { default: {...} }); flatten one level.
+		const metaPairs: [string, string][] = [];
+		if (doc.metadata && typeof doc.metadata === 'object') {
+			for (const [ns, val] of Object.entries(doc.metadata as Record<string, unknown>)) {
+				for (const [k, v] of pairsFrom(val)) metaPairs.push([`${ns}.${k}`, v]);
+			}
+		}
 		rows.push({
 			name: typeof doc.name === 'string' ? doc.name : '(unnamed)',
 			start,
 			end,
 			depth,
 			hasError: doc.error === true,
-			hasFault: doc.fault === true
+			hasFault: doc.fault === true,
+			annotations: pairsFrom(doc.annotations),
+			metadata: metaPairs
 		});
 		const subs = Array.isArray(doc.subsegments) ? (doc.subsegments as Record<string, unknown>[]) : [];
 		for (const sub of subs) flattenSegments(sub, depth + 1, rows);
@@ -148,6 +168,7 @@
 	function closeTraceDetail() {
 		selectedTrace = null;
 		segmentRows = [];
+		expandedSegment = null;
 	}
 
 	function barStyle(row: SegmentRow): string {
@@ -490,17 +511,50 @@
 					<div class="text-center py-10 text-slate-500 text-sm">No segment documents for this trace.</div>
 				{:else}
 					<div class="space-y-1.5">
-						{#each segmentRows as row}
+						{#each segmentRows as row, i}
+							{@const hasDetail = row.annotations.length > 0 || row.metadata.length > 0}
 							<div class="flex items-center gap-3">
-								<div class="w-1/3 truncate text-xs" style={`padding-left:${row.depth * 12}px`}>
-									{#if row.depth > 0}<ChevronRight class="inline w-3 h-3 text-slate-400" />{/if}
-									<span class={row.hasFault ? 'text-red-500' : row.hasError ? 'text-orange-500' : 'text-slate-700 dark:text-slate-200'}>{row.name}</span>
+								<div class="w-1/3 truncate text-xs flex items-center" style={`padding-left:${row.depth * 12}px`}>
+									{#if row.depth > 0}<ChevronRight class="inline w-3 h-3 text-slate-400 flex-shrink-0" />{/if}
+									{#if hasDetail}
+										<button
+											onclick={() => (expandedSegment = expandedSegment === i ? null : i)}
+											class="truncate text-left hover:underline {row.hasFault ? 'text-red-500' : row.hasError ? 'text-orange-500' : 'text-indigo-600 dark:text-indigo-400'}"
+											title="Show annotations / metadata"
+										>{row.name}</button>
+									{:else}
+										<span class="truncate {row.hasFault ? 'text-red-500' : row.hasError ? 'text-orange-500' : 'text-slate-700 dark:text-slate-200'}">{row.name}</span>
+									{/if}
 								</div>
 								<div class="flex-1 relative h-4 bg-slate-100 dark:bg-slate-800 rounded">
 									<div class={`absolute top-0 h-4 rounded ${row.hasFault ? 'bg-red-500' : row.hasError ? 'bg-orange-500' : 'bg-indigo-500'}`} style={barStyle(row)}></div>
 								</div>
 								<div class="w-16 text-right text-xs text-slate-400 tabular-nums">{((row.end - row.start) * 1000).toFixed(0)}ms</div>
 							</div>
+							{#if expandedSegment === i && hasDetail}
+								<div class="ml-4 mb-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs space-y-2">
+									{#if row.annotations.length > 0}
+										<div>
+											<div class="font-medium text-slate-500 dark:text-slate-400 mb-1">Annotations</div>
+											<div class="space-y-0.5">
+												{#each row.annotations as [k, v]}
+													<div class="flex gap-2"><span class="font-mono text-indigo-600 dark:text-indigo-400">{k}</span><span class="font-mono text-slate-700 dark:text-slate-200 break-all">{v}</span></div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									{#if row.metadata.length > 0}
+										<div>
+											<div class="font-medium text-slate-500 dark:text-slate-400 mb-1">Metadata</div>
+											<div class="space-y-0.5">
+												{#each row.metadata as [k, v]}
+													<div class="flex gap-2"><span class="font-mono text-emerald-600 dark:text-emerald-400">{k}</span><span class="font-mono text-slate-700 dark:text-slate-200 break-all">{v}</span></div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/if}
 						{/each}
 					</div>
 				{/if}

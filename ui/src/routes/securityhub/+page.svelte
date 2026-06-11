@@ -7,7 +7,10 @@
 		DescribeHubCommand,
 		ListStandardsControlAssociationsCommand,
 		BatchUpdateFindingsCommand,
+		CreateInsightCommand,
+		DeleteInsightCommand,
 		type AwsSecurityFinding,
+		type AwsSecurityFindingFilters,
 		type Insight
 	} from '@aws-sdk/client-securityhub';
 	import { toast } from 'svelte-sonner';
@@ -20,6 +23,8 @@
 		XCircle,
 		BarChart2,
 		Filter,
+		Plus,
+		Trash2,
 		X
 	} from 'lucide-svelte';
 
@@ -126,6 +131,72 @@
 			toast.error(`Failed to load insights: ${e}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	// ── Custom insight creation (CreateInsight / DeleteInsight) ──────────────
+	let showInsightModal = $state(false);
+	let savingInsight = $state(false);
+	let deletingInsight = $state<string | null>(null);
+	let newInsightName = $state('');
+	let newInsightGroupBy = $state('ResourceType');
+	let newInsightSeverity = $state<'all' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+
+	const groupByAttributes = [
+		'ResourceType',
+		'SeverityLabel',
+		'ProductName',
+		'WorkflowStatus',
+		'ComplianceStatus',
+		'RecordState',
+		'ResourceId'
+	];
+
+	function openCreateInsight() {
+		newInsightName = '';
+		newInsightGroupBy = 'ResourceType';
+		newInsightSeverity = 'all';
+		showInsightModal = true;
+	}
+
+	async function createInsight() {
+		if (!newInsightName.trim()) {
+			toast.error('Insight name is required');
+			return;
+		}
+		savingInsight = true;
+		try {
+			const filters: AwsSecurityFindingFilters =
+				newInsightSeverity === 'all'
+					? { RecordState: [{ Value: 'ACTIVE', Comparison: 'EQUALS' }] }
+					: { SeverityLabel: [{ Value: newInsightSeverity, Comparison: 'EQUALS' }] };
+			await hub.send(
+				new CreateInsightCommand({
+					Name: newInsightName.trim(),
+					Filters: filters,
+					GroupByAttribute: newInsightGroupBy
+				})
+			);
+			toast.success(`Insight "${newInsightName.trim()}" created`);
+			showInsightModal = false;
+			await loadInsights();
+		} catch (e) {
+			toast.error(`Failed to create insight: ${e}`);
+		} finally {
+			savingInsight = false;
+		}
+	}
+
+	async function deleteInsight(arn: string) {
+		deletingInsight = arn;
+		try {
+			await hub.send(new DeleteInsightCommand({ InsightArn: arn }));
+			toast.success('Insight deleted');
+			await loadInsights();
+		} catch (e) {
+			toast.error(`Failed to delete insight: ${e}`);
+		} finally {
+			deletingInsight = null;
 		}
 	}
 
@@ -337,6 +408,15 @@
 
 	<!-- Insights Tab -->
 	{#if activeTab === 'insights'}
+		<div class="mb-3 flex justify-end">
+			<button
+				onclick={openCreateInsight}
+				class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Insight
+			</button>
+		</div>
 		{#if loading}
 			<div class="flex justify-center py-12">
 				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
@@ -349,15 +429,73 @@
 		{:else}
 			<div class="space-y-3">
 				{#each insights as insight}
-					<div class="rounded-lg border p-4">
-						<div class="font-medium">{insight.Name}</div>
-						<div class="text-xs text-muted-foreground mt-1 font-mono">{insight.InsightArn}</div>
+					<div class="flex items-start justify-between gap-3 rounded-lg border p-4">
+						<div class="min-w-0">
+							<div class="font-medium">{insight.Name}</div>
+							{#if insight.GroupByAttribute}
+								<div class="mt-0.5 text-xs text-muted-foreground">Grouped by: <span class="font-medium">{insight.GroupByAttribute}</span></div>
+							{/if}
+							<div class="text-xs text-muted-foreground mt-1 font-mono truncate">{insight.InsightArn}</div>
+						</div>
+						<button
+							onclick={() => insight.InsightArn && deleteInsight(insight.InsightArn)}
+							disabled={deletingInsight === insight.InsightArn}
+							class="flex-shrink-0 rounded p-1.5 text-red-500 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+							title="Delete insight"
+							aria-label="Delete insight"
+						>
+							{#if deletingInsight === insight.InsightArn}
+								<div class="h-4 w-4 animate-spin rounded-full border-b-2 border-red-500"></div>
+							{:else}
+								<Trash2 class="h-4 w-4" />
+							{/if}
+						</button>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	{/if}
 </div>
+
+<!-- Create Insight Modal -->
+{#if showInsightModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showInsightModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showInsightModal = false)} role="dialog" aria-modal="true">
+		<div class="w-full max-w-md rounded-lg border bg-background shadow-xl" role="document">
+			<div class="flex items-center justify-between border-b px-5 py-3">
+				<h2 class="text-sm font-semibold">Create Custom Insight</h2>
+				<button onclick={() => { showInsightModal = false; }} class="text-muted-foreground hover:text-foreground" aria-label="Close"><X class="h-5 w-5" /></button>
+			</div>
+			<form class="space-y-4 p-5" onsubmit={(e) => { e.preventDefault(); createInsight(); }}>
+				<div>
+					<label for="insight-name" class="mb-1 block text-sm font-medium">Name</label>
+					<input id="insight-name" type="text" bind:value={newInsightName} placeholder="High-severity findings by resource" required class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+				</div>
+				<div>
+					<label for="insight-groupby" class="mb-1 block text-sm font-medium">Group by attribute</label>
+					<select id="insight-groupby" bind:value={newInsightGroupBy} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+						{#each groupByAttributes as attr}
+							<option value={attr}>{attr}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label for="insight-severity" class="mb-1 block text-sm font-medium">Severity filter</label>
+					<select id="insight-severity" bind:value={newInsightSeverity} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+						<option value="all">All active findings</option>
+						<option value="CRITICAL">Critical only</option>
+						<option value="HIGH">High only</option>
+						<option value="MEDIUM">Medium only</option>
+						<option value="LOW">Low only</option>
+					</select>
+				</div>
+				<div class="flex justify-end gap-2 pt-1">
+					<button type="button" onclick={() => { showInsightModal = false; }} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+					<button type="submit" disabled={savingInsight} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingInsight ? 'Creating...' : 'Create Insight'}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <!-- Finding Detail Drawer -->
 {#if selectedFinding}
