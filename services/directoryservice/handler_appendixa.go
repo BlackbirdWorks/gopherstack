@@ -1,6 +1,7 @@
 package directoryservice
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -10,6 +11,9 @@ import (
 )
 
 const (
+	keyRemoteDomainName = "RemoteDomainName"
+	keyTopicName        = "TopicName"
+
 	opAcceptSharedDirectory                = "AcceptSharedDirectory"
 	opAddIpRoutes                          = "AddIpRoutes" //nolint:revive,staticcheck // existing issue.
 	opAddRegion                            = "AddRegion"
@@ -216,6 +220,59 @@ func appendixAOpsNames() []string {
 	}
 }
 
+// twoFieldOp describes an operation that takes a directory ID plus one secondary
+// string field and returns only an error. It centralises the identical request
+// parsing, validation and error mapping shared by several Appendix A handlers.
+type twoFieldOp struct {
+	invoke    func(ctx context.Context, dirID, second string) error
+	secondKey string // JSON key (and human label) of the secondary field
+}
+
+// handleTwoFieldOp parses {DirectoryId, <secondKey>} from the request body,
+// validates both are present, resolves the request region and invokes op.
+func (h *Handler) handleTwoFieldOp(c *echo.Context, op twoFieldOp) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
+	}
+
+	var raw map[string]json.RawMessage
+	if jsonErr := json.Unmarshal(body, &raw); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
+	}
+
+	dirID := jsonString(raw, keyDirectoryID)
+	second := jsonString(raw, op.secondKey)
+
+	if dirID == "" || second == "" {
+		msg := "DirectoryId and " + op.secondKey + " are required"
+
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", msg))
+	}
+
+	if opErr := op.invoke(h.contextWithRegion(c), dirID, second); opErr != nil {
+		return h.mapError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// jsonString returns the string value stored under key in raw, or "" if absent
+// or not a JSON string.
+func jsonString(raw map[string]json.RawMessage, key string) string {
+	v, ok := raw[key]
+	if !ok {
+		return ""
+	}
+
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return ""
+	}
+
+	return s
+}
+
 // --- IP Routes ---
 
 func (h *Handler) handleAddIpRoutes(c *echo.Context) error { //nolint:revive,staticcheck // existing issue.
@@ -245,7 +302,7 @@ func (h *Handler) handleAddIpRoutes(c *echo.Context) error { //nolint:revive,sta
 		routes = append(routes, IpRoute{CidrIP: r.CidrIp, Description: r.Description})
 	}
 
-	if addErr := h.Backend.AddIpRoutes(req.DirectoryID, routes); addErr != nil {
+	if addErr := h.Backend.AddIpRoutes(h.contextWithRegion(c), req.DirectoryID, routes); addErr != nil {
 		return h.mapError(c, addErr)
 	}
 
@@ -271,7 +328,7 @@ func (h *Handler) handleRemoveIpRoutes(c *echo.Context) error { //nolint:revive,
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if removeErr := h.Backend.RemoveIpRoutes(req.DirectoryID, req.CidrIPs); removeErr != nil {
+	if removeErr := h.Backend.RemoveIpRoutes(h.contextWithRegion(c), req.DirectoryID, req.CidrIPs); removeErr != nil {
 		return h.mapError(c, removeErr)
 	}
 
@@ -300,7 +357,12 @@ func (h *Handler) handleListIpRoutes(c *echo.Context) error { //nolint:revive,st
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	routes, nextToken, listErr := h.Backend.ListIpRoutes(req.DirectoryID, req.Limit, req.NextToken)
+	routes, nextToken, listErr := h.Backend.ListIpRoutes(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -327,29 +389,12 @@ func (h *Handler) handleListIpRoutes(c *echo.Context) error { //nolint:revive,st
 // --- Regions ---
 
 func (h *Handler) handleAddRegion(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-		RegionName  string `json:"RegionName"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.RegionName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and RegionName are required"))
-	}
-
-	if addErr := h.Backend.AddRegion(req.DirectoryID, req.RegionName); addErr != nil {
-		return h.mapError(c, addErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: "RegionName",
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.AddRegion(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleRemoveRegion(c *echo.Context) error {
@@ -370,7 +415,7 @@ func (h *Handler) handleRemoveRegion(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if removeErr := h.Backend.RemoveRegion(req.DirectoryID); removeErr != nil {
+	if removeErr := h.Backend.RemoveRegion(h.contextWithRegion(c), req.DirectoryID); removeErr != nil {
 		return h.mapError(c, removeErr)
 	}
 
@@ -399,7 +444,12 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	regions, nextToken, descErr := h.Backend.DescribeRegions(req.DirectoryID, req.RegionName, req.NextToken)
+	regions, nextToken, descErr := h.Backend.DescribeRegions(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.RegionName,
+		req.NextToken,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -446,7 +496,12 @@ func (h *Handler) handleStartSchemaExtension(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	id, startErr := h.Backend.StartSchemaExtension(req.DirectoryID, req.Description, req.LdifContent)
+	id, startErr := h.Backend.StartSchemaExtension(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Description,
+		req.LdifContent,
+	)
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}
@@ -478,7 +533,8 @@ func (h *Handler) handleCancelSchemaExtension(c *echo.Context) error {
 		)
 	}
 
-	if cancelErr := h.Backend.CancelSchemaExtension(req.DirectoryID, req.SchemaExtensionID); cancelErr != nil {
+	cancelErr := h.Backend.CancelSchemaExtension(h.contextWithRegion(c), req.DirectoryID, req.SchemaExtensionID)
+	if cancelErr != nil {
 		return h.mapError(c, cancelErr)
 	}
 
@@ -507,7 +563,12 @@ func (h *Handler) handleListSchemaExtensions(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	exts, nextToken, listErr := h.Backend.ListSchemaExtensions(req.DirectoryID, req.Limit, req.NextToken)
+	exts, nextToken, listErr := h.Backend.ListSchemaExtensions(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -558,6 +619,7 @@ func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //no
 	}
 
 	if createErr := h.Backend.CreateConditionalForwarder(
+		h.contextWithRegion(c),
 		req.DirectoryID,
 		req.RemoteDomainName,
 		req.DNSIpAddrs,
@@ -592,6 +654,7 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 	}
 
 	if updateErr := h.Backend.UpdateConditionalForwarder(
+		h.contextWithRegion(c),
 		req.DirectoryID,
 		req.RemoteDomainName,
 		req.DNSIpAddrs,
@@ -603,32 +666,12 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 }
 
 func (h *Handler) handleDeleteConditionalForwarder(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID      string `json:"DirectoryId"`
-		RemoteDomainName string `json:"RemoteDomainName"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.RemoteDomainName == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			errResp("ClientException", "DirectoryId and RemoteDomainName are required"),
-		)
-	}
-
-	if delErr := h.Backend.DeleteConditionalForwarder(req.DirectoryID, req.RemoteDomainName); delErr != nil {
-		return h.mapError(c, delErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: keyRemoteDomainName,
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.DeleteConditionalForwarder(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
@@ -652,7 +695,11 @@ func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	fwds, descErr := h.Backend.DescribeConditionalForwarders(req.DirectoryID, req.RemoteDomainNames)
+	fwds, descErr := h.Backend.DescribeConditionalForwarders(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.RemoteDomainNames,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -672,29 +719,12 @@ func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
 // --- Log Subscriptions ---
 
 func (h *Handler) handleCreateLogSubscription(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID  string `json:"DirectoryId"`
-		LogGroupName string `json:"LogGroupName"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.LogGroupName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and LogGroupName are required"))
-	}
-
-	if createErr := h.Backend.CreateLogSubscription(req.DirectoryID, req.LogGroupName); createErr != nil {
-		return h.mapError(c, createErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: "LogGroupName",
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.CreateLogSubscription(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleDeleteLogSubscription(c *echo.Context) error {
@@ -715,7 +745,7 @@ func (h *Handler) handleDeleteLogSubscription(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if delErr := h.Backend.DeleteLogSubscription(req.DirectoryID); delErr != nil {
+	if delErr := h.Backend.DeleteLogSubscription(h.contextWithRegion(c), req.DirectoryID); delErr != nil {
 		return h.mapError(c, delErr)
 	}
 
@@ -740,7 +770,12 @@ func (h *Handler) handleListLogSubscriptions(c *echo.Context) error {
 		}
 	}
 
-	subs, nextToken, listErr := h.Backend.ListLogSubscriptions(req.DirectoryID, req.Limit, req.NextToken)
+	subs, nextToken, listErr := h.Backend.ListLogSubscriptions(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -765,55 +800,21 @@ func (h *Handler) handleListLogSubscriptions(c *echo.Context) error {
 // --- Event Topics ---
 
 func (h *Handler) handleRegisterEventTopic(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-		TopicName   string `json:"TopicName"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.TopicName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and TopicName are required"))
-	}
-
-	if regErr := h.Backend.RegisterEventTopic(req.DirectoryID, req.TopicName); regErr != nil {
-		return h.mapError(c, regErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: keyTopicName,
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.RegisterEventTopic(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleDeregisterEventTopic(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-		TopicName   string `json:"TopicName"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.TopicName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and TopicName are required"))
-	}
-
-	if deregErr := h.Backend.DeregisterEventTopic(req.DirectoryID, req.TopicName); deregErr != nil {
-		return h.mapError(c, deregErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: keyTopicName,
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.DeregisterEventTopic(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleDescribeEventTopics(c *echo.Context) error {
@@ -833,7 +834,7 @@ func (h *Handler) handleDescribeEventTopics(c *echo.Context) error {
 		}
 	}
 
-	topics, descErr := h.Backend.DescribeEventTopics(req.DirectoryID, req.TopicNames)
+	topics, descErr := h.Backend.DescribeEventTopics(h.contextWithRegion(c), req.DirectoryID, req.TopicNames)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -878,6 +879,7 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 	}
 
 	dcs, nextToken, descErr := h.Backend.DescribeDomainControllers(
+		h.contextWithRegion(c),
 		req.DirectoryID, req.DomainControllerIDs, req.Limit, req.NextToken,
 	)
 	if descErr != nil {
@@ -922,7 +924,8 @@ func (h *Handler) handleUpdateNumberOfDomainControllers(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if updateErr := h.Backend.UpdateNumberOfDomainControllers(req.DirectoryID, req.DesiredNumber); updateErr != nil {
+	updateErr := h.Backend.UpdateNumberOfDomainControllers(h.contextWithRegion(c), req.DirectoryID, req.DesiredNumber)
+	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
 
@@ -962,6 +965,7 @@ func (h *Handler) handleCreateTrust(c *echo.Context) error {
 	}
 
 	trustID, createErr := h.Backend.CreateTrust(
+		h.contextWithRegion(c),
 		req.DirectoryID, req.RemoteDomainName, req.TrustPassword, req.TrustDirection, trustType,
 	)
 	if createErr != nil {
@@ -992,7 +996,7 @@ func (h *Handler) handleDeleteTrust(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
 	}
 
-	trustID, delErr := h.Backend.DeleteTrust(req.TrustID)
+	trustID, delErr := h.Backend.DeleteTrust(h.contextWithRegion(c), req.TrustID)
 	if delErr != nil {
 		return h.mapError(c, delErr)
 	}
@@ -1019,7 +1023,13 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 		}
 	}
 
-	trusts, nextToken, descErr := h.Backend.DescribeTrusts(req.DirectoryID, req.TrustIDs, req.Limit, req.NextToken)
+	trusts, nextToken, descErr := h.Backend.DescribeTrusts(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.TrustIDs,
+		req.Limit,
+		req.NextToken,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -1068,7 +1078,7 @@ func (h *Handler) handleUpdateTrust(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
 	}
 
-	trustID, updateErr := h.Backend.UpdateTrust(req.TrustID, req.SelectiveAuth)
+	trustID, updateErr := h.Backend.UpdateTrust(h.contextWithRegion(c), req.TrustID, req.SelectiveAuth)
 	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -1097,7 +1107,7 @@ func (h *Handler) handleVerifyTrust(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
 	}
 
-	trustID, verifyErr := h.Backend.VerifyTrust(req.TrustID)
+	trustID, verifyErr := h.Backend.VerifyTrust(h.contextWithRegion(c), req.TrustID)
 	if verifyErr != nil {
 		return h.mapError(c, verifyErr)
 	}
@@ -1136,7 +1146,13 @@ func (h *Handler) handleShareDirectory(c *echo.Context) error {
 		shareMethod = "HANDSHAKE"
 	}
 
-	sharedDirID, shareErr := h.Backend.ShareDirectory(req.DirectoryID, shareMethod, req.ShareNotes, req.ShareTarget.ID)
+	sharedDirID, shareErr := h.Backend.ShareDirectory(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		shareMethod,
+		req.ShareNotes,
+		req.ShareTarget.ID,
+	)
 	if shareErr != nil {
 		return h.mapError(c, shareErr)
 	}
@@ -1166,7 +1182,7 @@ func (h *Handler) handleUnshareDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	sharedDirID, unshareErr := h.Backend.UnshareDirectory(req.DirectoryID, req.UnshareTarget.ID)
+	sharedDirID, unshareErr := h.Backend.UnshareDirectory(h.contextWithRegion(c), req.DirectoryID, req.UnshareTarget.ID)
 	if unshareErr != nil {
 		return h.mapError(c, unshareErr)
 	}
@@ -1192,7 +1208,7 @@ func (h *Handler) handleAcceptSharedDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SharedDirectoryId is required"))
 	}
 
-	id, acceptErr := h.Backend.AcceptSharedDirectory(req.SharedDirectoryID)
+	id, acceptErr := h.Backend.AcceptSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
 	if acceptErr != nil {
 		return h.mapError(c, acceptErr)
 	}
@@ -1220,7 +1236,7 @@ func (h *Handler) handleRejectSharedDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SharedDirectoryId is required"))
 	}
 
-	id, rejectErr := h.Backend.RejectSharedDirectory(req.SharedDirectoryID)
+	id, rejectErr := h.Backend.RejectSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
 	if rejectErr != nil {
 		return h.mapError(c, rejectErr)
 	}
@@ -1252,6 +1268,7 @@ func (h *Handler) handleDescribeSharedDirectories(c *echo.Context) error {
 	}
 
 	dirs, nextToken, descErr := h.Backend.DescribeSharedDirectories(
+		h.contextWithRegion(c),
 		req.OwnerDirectoryID, req.SharedDirectoryIDs, req.Limit, req.NextToken,
 	)
 	if descErr != nil {
@@ -1308,7 +1325,12 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 		certType = "ClientLDAPS"
 	}
 
-	certID, regErr := h.Backend.RegisterCertificate(req.DirectoryID, req.CertificateData, certType)
+	certID, regErr := h.Backend.RegisterCertificate(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.CertificateData,
+		certType,
+	)
 	if regErr != nil {
 		return h.mapError(c, regErr)
 	}
@@ -1317,29 +1339,12 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeregisterCertificate(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID   string `json:"DirectoryId"`
-		CertificateID string `json:"CertificateId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.CertificateID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and CertificateId are required"))
-	}
-
-	if deregErr := h.Backend.DeregisterCertificate(req.DirectoryID, req.CertificateID); deregErr != nil {
-		return h.mapError(c, deregErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: "CertificateId",
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.DeregisterCertificate(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleListCertificates(c *echo.Context) error {
@@ -1364,7 +1369,12 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	certs, nextToken, listErr := h.Backend.ListCertificates(req.DirectoryID, req.PageSize, req.NextToken)
+	certs, nextToken, listErr := h.Backend.ListCertificates(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.PageSize,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -1407,7 +1417,7 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and CertificateId are required"))
 	}
 
-	cert, descErr := h.Backend.DescribeCertificate(req.DirectoryID, req.CertificateID)
+	cert, descErr := h.Backend.DescribeCertificate(h.contextWithRegion(c), req.DirectoryID, req.CertificateID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -1450,7 +1460,7 @@ func (h *Handler) handleEnableLDAPS(c *echo.Context) error { //nolint:dupl // ex
 		ldapsType = "Client"
 	}
 
-	if enableErr := h.Backend.EnableLDAPS(req.DirectoryID, ldapsType); enableErr != nil {
+	if enableErr := h.Backend.EnableLDAPS(h.contextWithRegion(c), req.DirectoryID, ldapsType); enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -1481,7 +1491,7 @@ func (h *Handler) handleDisableLDAPS(c *echo.Context) error { //nolint:dupl // e
 		ldapsType = "Client"
 	}
 
-	if disableErr := h.Backend.DisableLDAPS(req.DirectoryID, ldapsType); disableErr != nil {
+	if disableErr := h.Backend.DisableLDAPS(h.contextWithRegion(c), req.DirectoryID, ldapsType); disableErr != nil {
 		return h.mapError(c, disableErr)
 	}
 
@@ -1511,7 +1521,13 @@ func (h *Handler) handleDescribeLDAPSSettings(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	settings, nextToken, descErr := h.Backend.DescribeLDAPSSettings(req.DirectoryID, req.Type, req.Limit, req.NextToken)
+	settings, nextToken, descErr := h.Backend.DescribeLDAPSSettings(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Type,
+		req.Limit,
+		req.NextToken,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -1556,7 +1572,8 @@ func (h *Handler) handleEnableClientAuthentication(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if enableErr := h.Backend.EnableClientAuthentication(req.DirectoryID, req.Type); enableErr != nil {
+	enableErr := h.Backend.EnableClientAuthentication(h.contextWithRegion(c), req.DirectoryID, req.Type)
+	if enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -1582,7 +1599,8 @@ func (h *Handler) handleDisableClientAuthentication(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if disableErr := h.Backend.DisableClientAuthentication(req.DirectoryID, req.Type); disableErr != nil {
+	disableErr := h.Backend.DisableClientAuthentication(h.contextWithRegion(c), req.DirectoryID, req.Type)
+	if disableErr != nil {
 		return h.mapError(c, disableErr)
 	}
 
@@ -1613,6 +1631,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 	}
 
 	settings, nextToken, descErr := h.Backend.DescribeClientAuthenticationSettings(
+		h.contextWithRegion(c),
 		req.DirectoryID, req.Type, req.PageSize, req.NextToken,
 	)
 	if descErr != nil {
@@ -1677,7 +1696,7 @@ func (h *Handler) handleEnableRadius(c *echo.Context) error { //nolint:dupl // e
 		UseSameUsername:        req.RadiusSettings.UseSameUsername,
 	}
 
-	if enableErr := h.Backend.EnableRadius(req.DirectoryID, settings); enableErr != nil {
+	if enableErr := h.Backend.EnableRadius(h.contextWithRegion(c), req.DirectoryID, settings); enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -1702,7 +1721,7 @@ func (h *Handler) handleDisableRadius(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if disableErr := h.Backend.DisableRadius(req.DirectoryID); disableErr != nil {
+	if disableErr := h.Backend.DisableRadius(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
 		return h.mapError(c, disableErr)
 	}
 
@@ -1748,7 +1767,7 @@ func (h *Handler) handleUpdateRadius(c *echo.Context) error { //nolint:dupl // e
 		UseSameUsername:        req.RadiusSettings.UseSameUsername,
 	}
 
-	if updateErr := h.Backend.UpdateRadius(req.DirectoryID, settings); updateErr != nil {
+	if updateErr := h.Backend.UpdateRadius(h.contextWithRegion(c), req.DirectoryID, settings); updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
 
@@ -1775,7 +1794,7 @@ func (h *Handler) handleEnableDirectoryDataAccess(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if enableErr := h.Backend.EnableDirectoryDataAccess(req.DirectoryID); enableErr != nil {
+	if enableErr := h.Backend.EnableDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID); enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -1800,7 +1819,7 @@ func (h *Handler) handleDisableDirectoryDataAccess(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if disableErr := h.Backend.DisableDirectoryDataAccess(req.DirectoryID); disableErr != nil {
+	if disableErr := h.Backend.DisableDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
 		return h.mapError(c, disableErr)
 	}
 
@@ -1825,7 +1844,7 @@ func (h *Handler) handleDescribeDirectoryDataAccess(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	status, descErr := h.Backend.DescribeDirectoryDataAccess(req.DirectoryID)
+	status, descErr := h.Backend.DescribeDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -1860,7 +1879,7 @@ func (h *Handler) handleEnableCAEnrollmentPolicy(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if enableErr := h.Backend.EnableCAEnrollmentPolicy(req.DirectoryID); enableErr != nil {
+	if enableErr := h.Backend.EnableCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID); enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -1885,7 +1904,7 @@ func (h *Handler) handleDisableCAEnrollmentPolicy(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if disableErr := h.Backend.DisableCAEnrollmentPolicy(req.DirectoryID); disableErr != nil {
+	if disableErr := h.Backend.DisableCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
 		return h.mapError(c, disableErr)
 	}
 
@@ -1910,7 +1929,7 @@ func (h *Handler) handleDescribeCAEnrollmentPolicy(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	policy, descErr := h.Backend.DescribeCAEnrollmentPolicy(req.DirectoryID)
+	policy, descErr := h.Backend.DescribeCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -1947,7 +1966,7 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	assessmentID, startErr := h.Backend.StartADAssessment(req.DirectoryID)
+	assessmentID, startErr := h.Backend.StartADAssessment(h.contextWithRegion(c), req.DirectoryID)
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}
@@ -1956,29 +1975,12 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteADAssessment(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID  string `json:"DirectoryId"`
-		AssessmentID string `json:"AssessmentId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.AssessmentID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and AssessmentId are required"))
-	}
-
-	if delErr := h.Backend.DeleteADAssessment(req.DirectoryID, req.AssessmentID); delErr != nil {
-		return h.mapError(c, delErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+	return h.handleTwoFieldOp(c, twoFieldOp{
+		secondKey: "AssessmentId",
+		invoke: func(ctx context.Context, dirID, second string) error {
+			return h.Backend.DeleteADAssessment(ctx, dirID, second)
+		},
+	})
 }
 
 func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
@@ -2000,7 +2002,7 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and AssessmentId are required"))
 	}
 
-	a, descErr := h.Backend.DescribeADAssessment(req.DirectoryID, req.AssessmentID)
+	a, descErr := h.Backend.DescribeADAssessment(h.contextWithRegion(c), req.DirectoryID, req.AssessmentID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -2035,7 +2037,12 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 		}
 	}
 
-	assessments, nextToken, listErr := h.Backend.ListADAssessments(req.DirectoryID, req.PageSize, req.NextToken)
+	assessments, nextToken, listErr := h.Backend.ListADAssessments(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.PageSize,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -2095,6 +2102,7 @@ func (h *Handler) handleCreateHybridAD(c *echo.Context) error {
 
 	tags := reqTagsToTags(req.Tags)
 	d, requestID, createErr := h.Backend.CreateHybridAD(
+		h.contextWithRegion(c),
 		req.Name,
 		req.ShortName,
 		req.Description,
@@ -2130,7 +2138,7 @@ func (h *Handler) handleUpdateHybridAD(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	requestID, updateErr := h.Backend.UpdateHybridAD(req.DirectoryID)
+	requestID, updateErr := h.Backend.UpdateHybridAD(h.contextWithRegion(c), req.DirectoryID)
 	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -2156,7 +2164,7 @@ func (h *Handler) handleDescribeHybridADUpdate(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	updates, descErr := h.Backend.DescribeHybridADUpdate(req.DirectoryID)
+	updates, descErr := h.Backend.DescribeHybridADUpdate(h.contextWithRegion(c), req.DirectoryID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -2195,7 +2203,12 @@ func (h *Handler) handleCreateComputer(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and ComputerName are required"))
 	}
 
-	computer, createErr := h.Backend.CreateComputer(req.DirectoryID, req.ComputerName, req.Password)
+	computer, createErr := h.Backend.CreateComputer(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.ComputerName,
+		req.Password,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -2237,7 +2250,7 @@ func (h *Handler) handleUpdateSettings(c *echo.Context) error {
 		settings = append(settings, DirectorySetting{Name: s.Name, Value: s.Value})
 	}
 
-	directoryID, updateErr := h.Backend.UpdateSettings(req.DirectoryID, settings)
+	directoryID, updateErr := h.Backend.UpdateSettings(h.contextWithRegion(c), req.DirectoryID, settings)
 	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -2267,7 +2280,12 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	settings, nextToken, descErr := h.Backend.DescribeSettings(req.DirectoryID, req.Status, req.NextToken)
+	settings, nextToken, descErr := h.Backend.DescribeSettings(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.Status,
+		req.NextToken,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -2316,6 +2334,7 @@ func (h *Handler) handleUpdateDirectorySetup(c *echo.Context) error {
 	}
 
 	if updateErr := h.Backend.UpdateDirectorySetup(
+		h.contextWithRegion(c),
 		req.DirectoryID, req.UpdateType, req.CreateSnapshotBeforeUpdate,
 	); updateErr != nil {
 		return h.mapError(c, updateErr)
@@ -2346,7 +2365,12 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	entries, nextToken, descErr := h.Backend.DescribeUpdateDirectory(req.DirectoryID, req.UpdateType, req.NextToken)
+	entries, nextToken, descErr := h.Backend.DescribeUpdateDirectory(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.UpdateType,
+		req.NextToken,
+	)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -2395,7 +2419,8 @@ func (h *Handler) handleResetUserPassword(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and UserName are required"))
 	}
 
-	if resetErr := h.Backend.ResetUserPassword(req.DirectoryID, req.UserName, req.NewPassword); resetErr != nil {
+	resetErr := h.Backend.ResetUserPassword(h.contextWithRegion(c), req.DirectoryID, req.UserName, req.NewPassword)
+	if resetErr != nil {
 		return h.mapError(c, resetErr)
 	}
 
@@ -2432,6 +2457,7 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error { //nolint:dupl 
 
 	tags := reqTagsToTags(req.Tags)
 	d, createErr := h.Backend.ConnectDirectory(
+		h.contextWithRegion(c),
 		req.Name,
 		req.ShortName,
 		req.Description,
