@@ -9,6 +9,8 @@
 		DeleteDetectorCommand,
 		ListFindingsCommand,
 		GetFindingsCommand,
+		ArchiveFindingsCommand,
+		UnarchiveFindingsCommand,
 		UpdateDetectorCommand,
 		type GetDetectorCommandOutput,
 		type Finding
@@ -24,7 +26,10 @@
 		AlertTriangle,
 		CheckCircle,
 		XCircle,
-		Filter
+		Filter,
+		Archive,
+		ArchiveRestore,
+		X
 	} from 'lucide-svelte';
 
 	const gd = getGuardDutyClient();
@@ -90,6 +95,34 @@
 			toast.error(`Failed to load detectors: ${e}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Finding detail + archive
+	let selectedFinding = $state<Finding | null>(null);
+	let archiving = $state(false);
+
+	async function archiveFinding(finding: Finding, archive: boolean) {
+		if (!finding.Id || !selectedDetectorId) return;
+		archiving = true;
+		try {
+			if (archive) {
+				await gd.send(
+					new ArchiveFindingsCommand({ DetectorId: selectedDetectorId, FindingIds: [finding.Id] })
+				);
+				toast.success('Finding archived');
+			} else {
+				await gd.send(
+					new UnarchiveFindingsCommand({ DetectorId: selectedDetectorId, FindingIds: [finding.Id] })
+				);
+				toast.success('Finding unarchived');
+			}
+			selectedFinding = null;
+			await loadFindings(selectedDetectorId);
+		} catch (e) {
+			toast.error(`Failed to update finding: ${e}`);
+		} finally {
+			archiving = false;
 		}
 	}
 
@@ -351,14 +384,16 @@
 						<tbody class="divide-y">
 							{#each filteredFindings as finding}
 								{@const badge = severityBadge(finding.Severity)}
-								<tr class="hover:bg-muted/30">
+								<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => { selectedFinding = finding; }}>
 									<td class="px-4 py-3">
 										<span class="rounded-full px-2 py-0.5 text-xs font-medium {badge.color}">
 											{badge.label} ({finding.Severity?.toFixed(1) ?? '?'})
 										</span>
 									</td>
 									<td class="px-4 py-3 text-xs font-mono text-muted-foreground">{finding.Type ?? '—'}</td>
-									<td class="px-4 py-3 font-medium">{finding.Title ?? '—'}</td>
+									<td class="px-4 py-3 font-medium">
+										<button class="text-left hover:text-primary hover:underline">{finding.Title ?? '—'}</button>
+									</td>
 									<td class="px-4 py-3 text-muted-foreground">{finding.Region ?? '—'}</td>
 									<td class="px-4 py-3 text-xs text-muted-foreground">
 										{finding.UpdatedAt ?? '—'}
@@ -372,3 +407,60 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Finding Detail Drawer -->
+{#if selectedFinding}
+	{@const badge = severityBadge(selectedFinding.Severity)}
+	<div class="fixed inset-0 z-50 flex justify-end bg-black/40">
+		<div class="h-full w-full max-w-xl overflow-y-auto bg-background shadow-xl">
+			<div class="sticky top-0 flex items-center justify-between border-b bg-background px-5 py-3">
+				<div class="flex items-center gap-2">
+					<ShieldAlert class="h-5 w-5 text-rose-500" />
+					<h2 class="text-sm font-semibold">Finding Detail</h2>
+					<span class="rounded-full px-2 py-0.5 text-xs font-medium {badge.color}">{badge.label} ({selectedFinding.Severity?.toFixed(1) ?? '?'})</span>
+				</div>
+				<button onclick={() => { selectedFinding = null; }} class="text-muted-foreground hover:text-foreground"><X class="h-5 w-5" /></button>
+			</div>
+			<div class="space-y-4 p-5">
+				<div>
+					<h3 class="text-base font-semibold">{selectedFinding.Title ?? '—'}</h3>
+					<p class="mt-1 font-mono text-xs text-muted-foreground">{selectedFinding.Type ?? '—'}</p>
+				</div>
+				{#if selectedFinding.Description}
+					<p class="text-sm text-muted-foreground">{selectedFinding.Description}</p>
+				{/if}
+				<div class="grid grid-cols-2 gap-3 text-sm">
+					{#each [
+						{ label: 'Region', value: selectedFinding.Region ?? '—' },
+						{ label: 'Account', value: selectedFinding.AccountId ?? '—' },
+						{ label: 'Resource Type', value: selectedFinding.Resource?.ResourceType ?? '—' },
+						{ label: 'Count', value: String(selectedFinding.Service?.Count ?? '—') },
+						{ label: 'First Seen', value: selectedFinding.Service?.EventFirstSeen ?? '—' },
+						{ label: 'Last Seen', value: selectedFinding.Service?.EventLastSeen ?? '—' },
+						{ label: 'Archived', value: selectedFinding.Service?.Archived ? 'Yes' : 'No' }
+					] as row}
+						<div class="rounded-md border p-3">
+							<div class="text-xs text-muted-foreground">{row.label}</div>
+							<div class="mt-0.5 truncate font-mono text-xs">{row.value}</div>
+						</div>
+					{/each}
+				</div>
+				<div>
+					<div class="mb-1 text-xs font-medium text-muted-foreground">Raw Finding</div>
+					<pre class="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">{JSON.stringify(selectedFinding, null, 2)}</pre>
+				</div>
+				<div class="flex justify-end gap-2 border-t pt-4">
+					{#if selectedFinding.Service?.Archived}
+						<button onclick={() => archiveFinding(selectedFinding!, false)} disabled={archiving} class="flex items-center gap-2 rounded-md border px-4 py-2 text-sm hover:bg-accent disabled:opacity-50">
+							<ArchiveRestore class="h-4 w-4" /> Unarchive
+						</button>
+					{:else}
+						<button onclick={() => archiveFinding(selectedFinding!, true)} disabled={archiving} class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+							<Archive class="h-4 w-4" /> Archive
+						</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}

@@ -1,7 +1,8 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
-import { getBatchClient } from '$lib/aws-client';
+import { getBatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
+import { GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import {
 DescribeComputeEnvironmentsCommand,
 DescribeJobQueuesCommand,
@@ -28,9 +29,10 @@ type ServiceEnvironmentDetail,
 type DescribeServiceEnvironmentsCommandOutput
 } from '@aws-sdk/client-batch';
 import { toast } from 'svelte-sonner';
-import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, Server, BookOpen } from 'lucide-svelte';
+import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, Server, BookOpen, Terminal } from 'lucide-svelte';
 
 const batch = getBatchClient();
+const cwl = getCloudWatchLogsClient();
 
 type ActiveTab = 'queues' | 'compute-environments' | 'service-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
 
@@ -343,6 +345,8 @@ toast.error('Failed to update queue: ' + String(e));
 
 async function loadJobDetail(job: JobSummary) {
 loadingJobDetail = true;
+jobLogEvents = [];
+jobLogError = '';
 try {
 const resp = await batch.send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
 selectedJob = (resp.jobs ?? [])[0] ?? null;
@@ -350,6 +354,38 @@ selectedJob = (resp.jobs ?? [])[0] ?? null;
 toast.error('Failed to load job details: ' + String(e));
 } finally {
 loadingJobDetail = false;
+}
+}
+
+let jobLogEvents = $state<{ timestamp?: number; message?: string }[]>([]);
+let loadingJobLogs = $state(false);
+let jobLogError = $state('');
+
+// AWS Batch container logs land in the /aws/batch/job CloudWatch log group,
+// keyed by the container's logStreamName.
+async function loadJobLogs() {
+const stream = selectedJob?.container?.logStreamName;
+if (!stream) {
+jobLogError = 'No log stream is associated with this job yet.';
+return;
+}
+loadingJobLogs = true;
+jobLogError = '';
+try {
+const resp = await cwl.send(
+new GetLogEventsCommand({
+logGroupName: '/aws/batch/job',
+logStreamName: stream,
+startFromHead: true,
+limit: 500
+})
+);
+jobLogEvents = (resp.events ?? []).map((e) => ({ timestamp: e.timestamp, message: e.message }));
+if (jobLogEvents.length === 0) jobLogError = 'No log events found for this stream.';
+} catch (e) {
+jobLogError = 'Failed to load logs: ' + String(e);
+} finally {
+loadingJobLogs = false;
 }
 }
 
@@ -807,14 +843,49 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Job Details</h2>
-<button onclick={() => { selectedJob = null; }} aria-label="Close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+<button onclick={() => { selectedJob = null; jobLogEvents = []; jobLogError = ''; }} aria-label="Close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 </button>
 </div>
 {#if loadingJobDetail}
 <div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full"></div></div>
 {:else if selectedJob}
-<pre class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-gray-800 dark:text-gray-200">{JSON.stringify(selectedJob, null, 2)}</pre>
+<pre class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-xs font-mono overflow-auto max-h-72 text-gray-800 dark:text-gray-200">{JSON.stringify(selectedJob, null, 2)}</pre>
+
+<!-- Container log streaming (CloudWatch /aws/batch/job) -->
+<div class="border border-gray-200 dark:border-gray-700 rounded-lg">
+<div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+<div class="flex items-center gap-2">
+<Terminal class="w-4 h-4 text-purple-500" />
+<span class="text-sm font-semibold text-gray-700 dark:text-gray-300">Container Logs</span>
+{#if selectedJob.container?.logStreamName}
+<span class="text-xs font-mono text-gray-400 truncate max-w-[200px]">{selectedJob.container.logStreamName}</span>
+{/if}
+</div>
+<button
+onclick={loadJobLogs}
+disabled={loadingJobLogs || !selectedJob.container?.logStreamName}
+class="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+>
+{#if loadingJobLogs}<RefreshCw class="w-3 h-3 animate-spin" />{:else}<RefreshCw class="w-3 h-3" />{/if}
+Fetch Logs
+</button>
+</div>
+{#if jobLogError}
+<p class="px-3 py-3 text-xs text-gray-500">{jobLogError}</p>
+{:else if jobLogEvents.length > 0}
+<div class="bg-gray-950 text-gray-100 rounded-b-lg p-3 text-xs font-mono overflow-auto max-h-72 space-y-0.5">
+{#each jobLogEvents as ev}
+<div class="flex gap-3">
+<span class="text-gray-500 shrink-0">{ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : ''}</span>
+<span class="whitespace-pre-wrap break-all">{ev.message}</span>
+</div>
+{/each}
+</div>
+{:else}
+<p class="px-3 py-3 text-xs text-gray-500">Click "Fetch Logs" to load container output from CloudWatch.</p>
+{/if}
+</div>
 {/if}
 </div>
 </div>
