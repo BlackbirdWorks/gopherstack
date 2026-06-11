@@ -40,6 +40,9 @@ const (
 
 const cfnNS = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
 
+// errCodeValidation is the AWS CloudFormation generic validation error code.
+const errCodeValidation = "ValidationError"
+
 // Handler is the Echo HTTP service handler for CloudFormation operations.
 type Handler struct {
 	Backend StorageBackend
@@ -576,31 +579,24 @@ func parseStackOptions(form url.Values) StackOptions {
 // mapCreateStackError maps a CreateStack backend error to the AWS error code
 // and message. AWS distinguishes AlreadyExistsException from capability and
 // role-ARN validation failures rather than collapsing them all into one code.
-func mapCreateStackError(err error) (code, message string) {
+func mapCreateStackError(err error) (string, string) {
 	switch {
 	case errors.Is(err, ErrStackAlreadyExists):
 		return "AlreadyExistsException", err.Error()
 	case errors.Is(err, ErrInsufficientCapabilities):
 		return "InsufficientCapabilitiesException", err.Error()
-	case errors.Is(err, ErrInvalidRoleARN):
-		return "ValidationError", err.Error()
 	default:
-		return "ValidationError", err.Error()
+		return errCodeValidation, err.Error()
 	}
 }
 
 // mapUpdateStackError maps an UpdateStack backend error to the AWS error code.
-func mapUpdateStackError(err error) (code, message string) {
-	switch {
-	case errors.Is(err, ErrStackNotFound):
-		return "ValidationError", err.Error()
-	case errors.Is(err, ErrInsufficientCapabilities):
+func mapUpdateStackError(err error) (string, string) {
+	if errors.Is(err, ErrInsufficientCapabilities) {
 		return "InsufficientCapabilitiesException", err.Error()
-	case errors.Is(err, ErrInvalidRoleARN):
-		return "ValidationError", err.Error()
-	default:
-		return "ValidationError", err.Error()
 	}
+
+	return errCodeValidation, err.Error()
 }
 
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {

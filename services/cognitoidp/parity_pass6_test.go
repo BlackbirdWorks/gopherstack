@@ -15,10 +15,10 @@ func TestParity_GetUser_RejectsIDToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errTarget error
 		name      string
 		useID     bool
 		wantErr   bool
-		errTarget error
 	}{
 		{name: "access_token_accepted", useID: false, wantErr: false},
 		{name: "id_token_rejected", useID: true, wantErr: true, errTarget: cognitoidp.ErrNotAuthorized},
@@ -59,8 +59,7 @@ func TestParity_GlobalSignOut_RejectsIDToken(t *testing.T) {
 	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "sigouter")
 
 	err := b.GlobalSignOut(tokens.IDToken)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
+	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
 
 	// The access token must still work.
 	err = b.GlobalSignOut(tokens.AccessToken)
@@ -86,7 +85,7 @@ func TestParity_RefreshToken_PreservesAuthTime(t *testing.T) {
 	newAuthTime, ok := newClaims["auth_time"].(float64)
 	require.True(t, ok, "refreshed access token must carry auth_time")
 
-	assert.Equal(t, origAuthTime, newAuthTime,
+	assert.InDelta(t, origAuthTime, newAuthTime, 0,
 		"auth_time must be preserved across refresh, not reset")
 }
 
@@ -97,10 +96,10 @@ func TestParity_ConfirmSignUp_EmptyStoredCode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(b *cognitoidp.InMemoryBackend) (clientID, username, code string)
-		wantErr   bool
 		errTarget error
+		name      string
+		wantErr   bool
 	}{
 		{
 			name: "unconfirmed_empty_stored_code_rejected",

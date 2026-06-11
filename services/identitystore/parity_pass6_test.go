@@ -16,8 +16,8 @@ func TestParity_ListUsers_MaxResultsBound(t *testing.T) {
 	const storeID = "d-1234567890"
 
 	tests := []struct {
-		name       string
 		maxResults any
+		name       string
 		wantStatus int
 	}{
 		{name: "unset_ok", maxResults: nil, wantStatus: http.StatusOK},
