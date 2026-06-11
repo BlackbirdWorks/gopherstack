@@ -13,10 +13,19 @@
 		CreateEventSourceMappingCommand,
 		UpdateEventSourceMappingCommand,
 		DeleteEventSourceMappingCommand,
+		ListVersionsByFunctionCommand,
+		PublishVersionCommand,
+		ListAliasesCommand,
+		CreateAliasCommand,
+		DeleteAliasCommand,
+		PutFunctionConcurrencyCommand,
+		DeleteFunctionConcurrencyCommand,
+		GetFunctionConcurrencyCommand,
 		type FunctionConfiguration,
 		type InvocationResponse,
 		type LayersListItem,
-		type EventSourceMappingConfiguration
+		type EventSourceMappingConfiguration,
+		type AliasConfiguration
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -68,6 +77,19 @@
 	let newEsmBatchSize = $state(10);
 	let newEsmEnabled = $state(true);
 	let newEsmStartPosition = $state<'' | 'LATEST' | 'TRIM_HORIZON'>('');
+
+	// Versions / Aliases / Concurrency
+	let showVersionsPanel = $state(false);
+	let versionsLoading = $state(false);
+	let fnVersions = $state<FunctionConfiguration[]>([]);
+	let fnAliases = $state<AliasConfiguration[]>([]);
+	let publishingVersion = $state(false);
+	let newAliasName = $state('');
+	let newAliasVersion = $state('');
+	let creatingAlias = $state(false);
+	let reservedConcurrency = $state<number | null>(null);
+	let concurrencyDraft = $state('');
+	let savingConcurrency = $state(false);
 
 	// Env Var Editor
 	let editingEnvVars = $state(false);
@@ -252,6 +274,107 @@
 	function toggleEsmPanel() {
 		showEsmPanel = !showEsmPanel;
 		if (showEsmPanel) loadEventSourceMappings();
+	}
+
+	function toggleVersionsPanel() {
+		showVersionsPanel = !showVersionsPanel;
+		if (showVersionsPanel) void loadVersionsAndAliases();
+	}
+
+	async function loadVersionsAndAliases() {
+		if (!selectedFunction?.FunctionName) return;
+		versionsLoading = true;
+		try {
+			const fnName = selectedFunction.FunctionName;
+			const [vers, aliases, conc] = await Promise.all([
+				lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName })),
+				lambda.send(new ListAliasesCommand({ FunctionName: fnName })),
+				lambda.send(new GetFunctionConcurrencyCommand({ FunctionName: fnName })).catch(() => null)
+			]);
+			fnVersions = vers.Versions ?? [];
+			fnAliases = aliases.Aliases ?? [];
+			reservedConcurrency = conc?.ReservedConcurrentExecutions ?? null;
+			concurrencyDraft = reservedConcurrency === null ? '' : String(reservedConcurrency);
+		} catch (err: unknown) {
+			toast.error(`Failed to load versions: ${(err as Error).message}`);
+		} finally {
+			versionsLoading = false;
+		}
+	}
+
+	async function publishVersion() {
+		if (!selectedFunction?.FunctionName) return;
+		publishingVersion = true;
+		try {
+			const res = await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName }));
+			toast.success(`Published version ${res.Version ?? ''}`);
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to publish version: ${(err as Error).message}`);
+		} finally {
+			publishingVersion = false;
+		}
+	}
+
+	async function createAlias() {
+		if (!selectedFunction?.FunctionName || !newAliasName.trim() || !newAliasVersion.trim()) {
+			toast.error('Alias name and version are required');
+			return;
+		}
+		creatingAlias = true;
+		try {
+			await lambda.send(new CreateAliasCommand({
+				FunctionName: selectedFunction.FunctionName,
+				Name: newAliasName.trim(),
+				FunctionVersion: newAliasVersion.trim()
+			}));
+			toast.success(`Alias "${newAliasName.trim()}" created`);
+			newAliasName = '';
+			newAliasVersion = '';
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to create alias: ${(err as Error).message}`);
+		} finally {
+			creatingAlias = false;
+		}
+	}
+
+	async function deleteAlias(name: string) {
+		if (!selectedFunction?.FunctionName) return;
+		try {
+			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			toast.success('Alias deleted');
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to delete alias: ${(err as Error).message}`);
+		}
+	}
+
+	async function saveConcurrency() {
+		if (!selectedFunction?.FunctionName) return;
+		savingConcurrency = true;
+		try {
+			if (concurrencyDraft.trim() === '') {
+				await lambda.send(new DeleteFunctionConcurrencyCommand({ FunctionName: selectedFunction.FunctionName }));
+				toast.success('Reserved concurrency removed');
+			} else {
+				const n = Number(concurrencyDraft);
+				if (!Number.isInteger(n) || n < 0) {
+					toast.error('Concurrency must be a non-negative integer');
+					return;
+				}
+				await lambda.send(new PutFunctionConcurrencyCommand({
+					FunctionName: selectedFunction.FunctionName,
+					ReservedConcurrentExecutions: n
+				}));
+				toast.success(`Reserved concurrency set to ${n}`);
+			}
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to update concurrency: ${(err as Error).message}`);
+		} finally {
+			savingConcurrency = false;
+		}
 	}
 
 	async function createEventSourceMapping() {
@@ -683,6 +806,74 @@
 												</div>
 											</div>
 										{/each}
+									</div>
+								{/if}
+							{/if}
+						</div>
+
+						<!-- Versions / Aliases / Concurrency -->
+						<div>
+							<div class="flex items-center justify-between mb-3">
+								<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+									<Code class="w-3 h-3" />
+									Versions, Aliases &amp; Concurrency
+								</h3>
+								<button onclick={toggleVersionsPanel} class="text-xs text-orange-500 hover:text-orange-700">
+									{showVersionsPanel ? 'Hide' : 'Show'}
+								</button>
+							</div>
+							{#if showVersionsPanel}
+								{#if versionsLoading}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div></div>
+								{:else}
+									<!-- Concurrency -->
+									<div class="mb-4 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
+										<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Reserved Concurrency</p>
+										<div class="flex items-center gap-2">
+											<input type="number" min="0" bind:value={concurrencyDraft} placeholder="Unreserved" class="w-28 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<button disabled={savingConcurrency} onclick={saveConcurrency} class="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50">{savingConcurrency ? 'Saving...' : 'Save'}</button>
+											<span class="text-[11px] text-slate-400">leave blank to clear</span>
+										</div>
+									</div>
+
+									<!-- Versions -->
+									<div class="mb-4">
+										<div class="flex items-center justify-between mb-2">
+											<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Versions</p>
+											<button disabled={publishingVersion} onclick={publishVersion} class="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1 disabled:opacity-50">
+												<Plus class="w-3 h-3" /> {publishingVersion ? 'Publishing...' : 'Publish Version'}
+											</button>
+										</div>
+										<div class="space-y-1 max-h-32 overflow-y-auto pr-1">
+											{#each fnVersions as v}
+												<div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700/50">
+													<span class="font-mono text-slate-700 dark:text-slate-200">{v.Version}</span>
+													<span class="text-slate-400">{v.LastModified ? new Date(v.LastModified).toLocaleDateString() : ''}</span>
+												</div>
+											{/each}
+										</div>
+									</div>
+
+									<!-- Aliases -->
+									<div>
+										<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Aliases</p>
+										{#if fnAliases.length === 0}
+											<p class="text-xs text-slate-400 italic mb-2">No aliases.</p>
+										{:else}
+											<div class="space-y-1 mb-2">
+												{#each fnAliases as a}
+													<div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700/50">
+														<span class="font-mono text-slate-700 dark:text-slate-200">{a.Name} → v{a.FunctionVersion}</span>
+														<button onclick={() => deleteAlias(a.Name ?? '')} class="p-0.5 text-red-400 hover:text-red-600"><Trash2 class="w-3 h-3" /></button>
+													</div>
+												{/each}
+											</div>
+										{/if}
+										<div class="flex items-center gap-1">
+											<input type="text" bind:value={newAliasName} placeholder="alias name" class="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<input type="text" bind:value={newAliasVersion} placeholder="version" class="w-20 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<button disabled={creatingAlias} onclick={createAlias} class="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50">Add</button>
+										</div>
 									</div>
 								{/if}
 							{/if}

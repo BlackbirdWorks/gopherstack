@@ -13,6 +13,9 @@
 		DescribeCacheParameterGroupsCommand,
 		CreateCacheParameterGroupCommand,
 		DeleteCacheParameterGroupCommand,
+		DescribeCacheParametersCommand,
+		ModifyCacheParameterGroupCommand,
+		TestFailoverCommand,
 		DescribeCacheSubnetGroupsCommand,
 		CreateCacheSubnetGroupCommand,
 		DeleteCacheSubnetGroupCommand,
@@ -39,7 +42,8 @@
 		type UserGroup,
 		type ServerlessCache,
 		type ReservedCacheNode,
-		type Event as ElastiCacheEvent
+		type Event as ElastiCacheEvent,
+		type Parameter as CacheParameter
 	} from '@aws-sdk/client-elasticache';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -114,6 +118,16 @@
 
 	// ─── Parameter Groups ─────────────────────────────────────────────────────
 	let parameterGroups = $state<CacheParameterGroup[]>([]);
+	let expandedPG = $state<string | null>(null);
+	let pgParams = $state<CacheParameter[]>([]);
+	let pgParamsLoading = $state(false);
+	let pgParamSearch = $state('');
+	let pgEdits = $state<Record<string, string>>({});
+	let savingPgParams = $state(false);
+	// Replication group failover
+	let failoverRG = $state<string | null>(null);
+	let failoverNodeGroup = $state('');
+	let failingOver = $state(false);
 	let showCreatePGModal = $state(false);
 	let newPGName = $state('');
 	let newPGFamily = $state('redis7');
@@ -447,6 +461,70 @@
 			await loadParameterGroups();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function togglePGParams(name: string) {
+		if (expandedPG === name) {
+			expandedPG = null;
+			return;
+		}
+		expandedPG = name;
+		pgParams = [];
+		pgEdits = {};
+		pgParamSearch = '';
+		pgParamsLoading = true;
+		try {
+			const res = await ec.send(new DescribeCacheParametersCommand({ CacheParameterGroupName: name, MaxRecords: 100 }));
+			pgParams = res.Parameters ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load parameters: ${(err as Error).message}`);
+		} finally {
+			pgParamsLoading = false;
+		}
+	}
+
+	async function savePGParams(name: string) {
+		const changed = Object.entries(pgEdits).filter(([k, v]) => {
+			const orig = pgParams.find((p) => p.ParameterName === k);
+			return orig && v !== (orig.ParameterValue ?? '');
+		});
+		if (changed.length === 0) {
+			toast.error('No parameter changes to save');
+			return;
+		}
+		savingPgParams = true;
+		try {
+			await ec.send(new ModifyCacheParameterGroupCommand({
+				CacheParameterGroupName: name,
+				ParameterNameValues: changed.map(([k, v]) => ({ ParameterName: k, ParameterValue: v }))
+			}));
+			toast.success(`Updated ${changed.length} parameter(s)`);
+			await togglePGParams(name);
+			expandedPG = name;
+		} catch (err: unknown) {
+			toast.error(`Failed to update parameters: ${(err as Error).message}`);
+		} finally {
+			savingPgParams = false;
+		}
+	}
+
+	async function testFailover(rgId: string) {
+		if (!failoverNodeGroup.trim()) {
+			toast.error('Node group ID is required (e.g. 0001)');
+			return;
+		}
+		failingOver = true;
+		try {
+			await ec.send(new TestFailoverCommand({ ReplicationGroupId: rgId, NodeGroupId: failoverNodeGroup.trim() }));
+			toast.success(`Failover test started for node group ${failoverNodeGroup.trim()}`);
+			failoverRG = null;
+			failoverNodeGroup = '';
+			await loadReplicationGroups();
+		} catch (err: unknown) {
+			toast.error(`Failover test failed: ${(err as Error).message}`);
+		} finally {
+			failingOver = false;
 		}
 	}
 
@@ -1402,13 +1480,22 @@
 									{rg.AutomaticFailover ?? '—'}
 								</td>
 								<td class="px-6 py-4 text-right">
-									<button
-										onclick={() => deleteReplicationGroup(rg.ReplicationGroupId!)}
-										class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
-										title="Delete"
-									>
-										<Trash2 class="w-4 h-4" />
-									</button>
+									<div class="inline-flex items-center gap-2 justify-end">
+										{#if failoverRG === rg.ReplicationGroupId}
+											<input type="text" bind:value={failoverNodeGroup} placeholder="node group id" class="w-28 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<button disabled={failingOver} onclick={() => testFailover(rg.ReplicationGroupId!)} class="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50">{failingOver ? '...' : 'Go'}</button>
+											<button onclick={() => { failoverRG = null; failoverNodeGroup = ''; }} class="px-2 py-1 text-xs text-slate-500">Cancel</button>
+										{:else}
+											<button onclick={() => { failoverRG = rg.ReplicationGroupId ?? null; failoverNodeGroup = '0001'; }} class="px-2 py-1 text-xs border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20">Test Failover</button>
+										{/if}
+										<button
+											onclick={() => deleteReplicationGroup(rg.ReplicationGroupId!)}
+											class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+											title="Delete"
+										>
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -1476,6 +1563,12 @@
 								</td>
 								<td class="px-6 py-4 text-right">
 									<button
+										onclick={() => togglePGParams(pg.CacheParameterGroupName!)}
+										class="px-2 py-1 mr-1 text-xs border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 rounded hover:bg-purple-50 dark:hover:bg-purple-900/20"
+									>
+										{expandedPG === pg.CacheParameterGroupName ? 'Hide' : 'Edit'}
+									</button>
+									<button
 										onclick={() => deleteParameterGroup(pg.CacheParameterGroupName!)}
 										class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
 										title="Delete"
@@ -1484,6 +1577,42 @@
 									</button>
 								</td>
 							</tr>
+							{#if expandedPG === pg.CacheParameterGroupName}
+								<tr class="bg-slate-50/60 dark:bg-slate-900/30">
+									<td colspan="4" class="px-6 py-4">
+										{#if pgParamsLoading}
+											<p class="text-sm text-slate-500">Loading parameters...</p>
+										{:else}
+											<div class="flex items-center justify-between gap-2 mb-2">
+												<input type="text" bind:value={pgParamSearch} placeholder="Filter parameters..." class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+												<button disabled={savingPgParams} onclick={() => savePGParams(pg.CacheParameterGroupName!)} class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap">{savingPgParams ? 'Saving...' : 'Save Changes'}</button>
+											</div>
+											<div class="max-h-72 overflow-y-auto">
+												<table class="w-full text-xs">
+													<thead class="text-slate-500 dark:text-slate-400">
+														<tr><th class="text-left py-1">Parameter</th><th class="text-left py-1">Value</th><th class="text-left py-1">Allowed</th></tr>
+													</thead>
+													<tbody>
+														{#each pgParams.filter((p) => !pgParamSearch || (p.ParameterName ?? '').toLowerCase().includes(pgParamSearch.toLowerCase())) as param}
+															<tr class="border-t border-slate-200 dark:border-slate-700">
+																<td class="py-1.5 font-mono text-slate-700 dark:text-slate-300 pr-2">{param.ParameterName}</td>
+																<td class="py-1.5 pr-2">
+																	{#if param.IsModifiable}
+																		<input type="text" value={pgEdits[param.ParameterName ?? ''] ?? param.ParameterValue ?? ''} oninput={(e) => { pgEdits[param.ParameterName ?? ''] = e.currentTarget.value; }} class="w-40 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+																	{:else}
+																		<span class="text-slate-500 font-mono">{param.ParameterValue || '—'} <span class="text-[10px] italic">(read-only)</span></span>
+																	{/if}
+																</td>
+																<td class="py-1.5 text-slate-400 max-w-[12rem] truncate">{param.AllowedValues ?? '—'}</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											</div>
+										{/if}
+									</td>
+								</tr>
+							{/if}
 						{/each}
 						{#if !filteredPGs.length}
 							<tr>

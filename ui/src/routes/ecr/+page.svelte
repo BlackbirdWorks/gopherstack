@@ -13,6 +13,8 @@
 		PutImageScanningConfigurationCommand,
 		PutLifecyclePolicyCommand,
 		StartImageScanCommand,
+		DescribeImageScanFindingsCommand,
+		GetAuthorizationTokenCommand,
 		DescribeRegistryCommand,
 		GetRegistryScanningConfigurationCommand,
 		GetSigningConfigurationCommand,
@@ -25,7 +27,8 @@
 		type RegistryScanningConfiguration,
 		type SigningConfiguration,
 		type PullThroughCacheRule,
-		type RepositoryCreationTemplate
+		type RepositoryCreationTemplate,
+		type ImageScanFinding
 	} from '@aws-sdk/client-ecr';
 	import { toast } from 'svelte-sonner';
 	import { Archive, Search, RefreshCw, Plus, Trash2, Image, Lock, Copy, ShieldCheck, ScanLine } from 'lucide-svelte';
@@ -42,6 +45,11 @@
 	let repoPolicy = $state<string | null>(null);
 	let lifecyclePolicy = $state<string | null>(null);
 	let scanningImages = $state<string[]>([]);
+	// CVE scan findings detail
+	let cveImageDigest = $state<string | null>(null);
+	let cveFindings = $state<ImageScanFinding[]>([]);
+	let cveLoading = $state(false);
+	let dockerRegistry = $state<string>('');
 	let loadingRegistry = $state(false);
 	let registryReplication = $state<ReplicationConfiguration | null>(null);
 	let registryScanning = $state<RegistryScanningConfiguration | null>(null);
@@ -126,7 +134,11 @@
 		repoPolicy = null;
 		lifecyclePolicy = null;
 		detailTab = 'images';
+		cveImageDigest = null;
+		cveFindings = [];
+		dockerRegistry = repo.repositoryUri ? repo.repositoryUri.split('/')[0] : '';
 		await loadImages(repo.repositoryName ?? '');
+		void loadDockerRegistry();
 	}
 
 	async function loadImages(repoName: string) {
@@ -226,6 +238,59 @@
 			toast.error(`Scan failed: ${(err as Error).message}`);
 		} finally {
 			scanningImages = scanningImages.filter((d) => d !== digest);
+		}
+	}
+
+	async function viewCveFindings(img: ImageDetail) {
+		if (!selectedRepo?.repositoryName) return;
+		const digest = img.imageDigest ?? '';
+		if (cveImageDigest === digest) {
+			cveImageDigest = null;
+			return;
+		}
+		cveImageDigest = digest;
+		cveFindings = [];
+		cveLoading = true;
+		try {
+			const res = await ecr.send(new DescribeImageScanFindingsCommand({
+				repositoryName: selectedRepo.repositoryName,
+				imageId: { imageDigest: img.imageDigest }
+			}));
+			cveFindings = res.imageScanFindings?.findings ?? [];
+			if (cveFindings.length === 0) {
+				toast.success('No CVE findings for this image');
+			}
+		} catch (err: unknown) {
+			toast.error(`Failed to load scan findings: ${(err as Error).message}`);
+			cveImageDigest = null;
+		} finally {
+			cveLoading = false;
+		}
+	}
+
+	async function loadDockerRegistry() {
+		try {
+			const res = await ecr.send(new GetAuthorizationTokenCommand({}));
+			const ep = res.authorizationData?.[0]?.proxyEndpoint;
+			if (ep) dockerRegistry = ep.replace(/^https?:\/\//, '');
+			else if (selectedRepo?.repositoryUri) dockerRegistry = selectedRepo.repositoryUri.split('/')[0];
+		} catch {
+			if (selectedRepo?.repositoryUri) dockerRegistry = selectedRepo.repositoryUri.split('/')[0];
+		}
+	}
+
+	function severityClass(sev?: string): string {
+		switch (sev) {
+			case 'CRITICAL':
+				return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+			case 'HIGH':
+				return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+			case 'MEDIUM':
+				return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+			case 'LOW':
+				return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300';
+			default:
+				return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
 		}
 	}
 
@@ -479,6 +544,16 @@
 					</div>
 
 					{#if detailTab === 'images'}
+						{#if selectedRepo.repositoryUri}
+							<div class="mb-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
+								<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Docker Commands</p>
+								<div class="space-y-1 text-xs font-mono text-slate-700 dark:text-slate-300">
+									<div class="truncate">aws ecr get-login-password | docker login --username AWS --password-stdin {dockerRegistry || selectedRepo.repositoryUri.split('/')[0]}</div>
+									<div class="flex items-center justify-between gap-2"><span class="truncate">docker pull {selectedRepo.repositoryUri}:latest</span><button onclick={() => copyUri(`docker pull ${selectedRepo?.repositoryUri}:latest`)} class="shrink-0 text-slate-400 hover:text-indigo-500">Copy</button></div>
+									<div class="flex items-center justify-between gap-2"><span class="truncate">docker push {selectedRepo.repositoryUri}:tag</span><button onclick={() => copyUri(`docker push ${selectedRepo?.repositoryUri}:tag`)} class="shrink-0 text-slate-400 hover:text-indigo-500">Copy</button></div>
+								</div>
+							</div>
+						{/if}
 						{#if loadingImages}
 							<div class="text-center py-6"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></div></div>
 						{:else if images.length === 0}
@@ -490,34 +565,68 @@
 						{:else}
 							<div class="space-y-2">
 								{#each images as img}
-									<div class="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
-										<div class="min-w-0 flex-1">
-											<p class="text-sm font-medium text-slate-900 dark:text-white font-mono">{imageTags(img)}</p>
-											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-												{formatBytes(img.imageSizeInBytes)} · pushed {formatDate(img.imagePushedAt)}
-											</p>
-											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-												Scan: {img.imageScanStatus?.status ?? 'Not scanned'} · Findings: {Object.values(img.imageScanFindingsSummary?.findingSeverityCounts ?? {}).reduce((sum, count) => sum + count, 0)}
-											</p>
-											<p class="text-xs text-slate-400 font-mono truncate">{img.imageDigest}</p>
+									{@const findingsCount = Object.values(img.imageScanFindingsSummary?.findingSeverityCounts ?? {}).reduce((sum, count) => sum + count, 0)}
+									<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
+										<div class="flex items-center justify-between">
+											<div class="min-w-0 flex-1">
+												<p class="text-sm font-medium text-slate-900 dark:text-white font-mono">{imageTags(img)}</p>
+												<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+													{formatBytes(img.imageSizeInBytes)} · pushed {formatDate(img.imagePushedAt)}
+												</p>
+												<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+													Scan: {img.imageScanStatus?.status ?? 'Not scanned'} · Findings: {findingsCount}
+												</p>
+												<p class="text-xs text-slate-400 font-mono truncate">{img.imageDigest}</p>
+											</div>
+											<div class="ml-3 flex items-center gap-1">
+												{#if findingsCount > 0 || img.imageScanStatus?.status === 'COMPLETE'}
+													<button
+														onclick={() => viewCveFindings(img)}
+														class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700"
+														title="View CVE findings"
+													>
+														{cveImageDigest === img.imageDigest ? 'Hide CVEs' : 'View CVEs'}
+													</button>
+												{/if}
+												<button
+													onclick={() => startImageScan(img)}
+													disabled={scanningImages.includes(img.imageDigest ?? '')}
+													class="p-1.5 text-slate-400 hover:text-indigo-500 disabled:opacity-50"
+													title="Start image scan"
+												>
+													<ScanLine class="w-4 h-4" />
+												</button>
+												<button
+													onclick={() => deleteImage(img)}
+													disabled={deletingImages.includes(img.imageDigest ?? '')}
+													class="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
+												>
+													<Trash2 class="w-4 h-4" />
+												</button>
+											</div>
 										</div>
-										<div class="ml-3 flex items-center gap-1">
-											<button
-												onclick={() => startImageScan(img)}
-												disabled={scanningImages.includes(img.imageDigest ?? '')}
-												class="p-1.5 text-slate-400 hover:text-indigo-500 disabled:opacity-50"
-												title="Start image scan"
-											>
-												<ScanLine class="w-4 h-4" />
-											</button>
-											<button
-												onclick={() => deleteImage(img)}
-												disabled={deletingImages.includes(img.imageDigest ?? '')}
-												class="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
-											>
-												<Trash2 class="w-4 h-4" />
-											</button>
-										</div>
+										{#if cveImageDigest === img.imageDigest}
+											<div class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
+												{#if cveLoading}
+													<p class="text-xs text-slate-500">Loading findings...</p>
+												{:else if cveFindings.length === 0}
+													<p class="text-xs text-slate-500">No CVE findings.</p>
+												{:else}
+													<div class="space-y-1.5 max-h-64 overflow-y-auto">
+														{#each cveFindings as f}
+															<div class="text-xs border border-slate-200 dark:border-slate-600 rounded p-2">
+																<div class="flex items-center justify-between gap-2">
+																	<span class="font-mono font-medium text-slate-800 dark:text-slate-200 truncate">{f.name}</span>
+																	<span class="shrink-0 px-1.5 py-0.5 rounded {severityClass(f.severity)}">{f.severity}</span>
+																</div>
+																{#if f.description}<p class="text-slate-500 dark:text-slate-400 mt-1">{f.description}</p>{/if}
+																{#if f.uri}<a href={f.uri} target="_blank" rel="noopener noreferrer" class="text-indigo-500 hover:underline">More info →</a>{/if}
+															</div>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{/each}
 							</div>

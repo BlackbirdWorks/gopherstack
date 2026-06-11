@@ -13,6 +13,8 @@
 		CreateStateMachineCommand,
 		UpdateStateMachineCommand,
 		GetExecutionHistoryCommand,
+		RedriveExecutionCommand,
+		ValidateStateMachineDefinitionCommand,
 		CreateActivityCommand,
 		DeleteActivityCommand,
 		ListActivitiesCommand,
@@ -60,6 +62,41 @@
 	let loadingHistory = $state(false);
 	let historyNextToken = $state<string>('');
 	let historyHasMore = $state(false);
+	let redriving = $state(false);
+	// ASL validation
+	let validationResult = $state<{ ok: boolean; message: string } | null>(null);
+	let validating = $state(false);
+
+	type TimelineState = { name: string; entered?: Date; exited?: Date; status: 'succeeded' | 'failed' | 'running' };
+	const executionTimeline = $derived(() => {
+		const states = new Map<string, TimelineState>();
+		const order: string[] = [];
+		for (const ev of historyEvents) {
+			const enterName = ev.stateEnteredEventDetails?.name;
+			const exitName = ev.stateExitedEventDetails?.name;
+			if (enterName && !states.has(enterName)) {
+				states.set(enterName, { name: enterName, entered: ev.timestamp, status: 'running' });
+				order.push(enterName);
+			}
+			if (exitName && states.has(exitName)) {
+				const s = states.get(exitName)!;
+				s.exited = ev.timestamp;
+				s.status = 'succeeded';
+			}
+			if ((ev.type ?? '').includes('Failed')) {
+				// mark the most recent running state as failed
+				for (let i = order.length - 1; i >= 0; i--) {
+					const s = states.get(order[i])!;
+					if (s.status === 'running') {
+						s.status = 'failed';
+						s.exited = ev.timestamp;
+						break;
+					}
+				}
+			}
+		}
+		return order.map((n) => states.get(n)!);
+	});
 
 	// Versions
 	interface VersionSummary { stateMachineVersionArn?: string; description?: string; creationDate?: Date; }
@@ -202,6 +239,35 @@
 			}
 			await refreshExecs();
 		} catch (e: unknown) { toast.error((e as Error).message); }
+	}
+	async function redriveExec(arn: string) {
+		redriving = true;
+		try {
+			await sfn.send(new RedriveExecutionCommand({ executionArn: arn }));
+			toast.success('Redrive requested');
+			if (selectedExecution?.executionArn === arn) {
+				selectedExecution = await sfn.send(new DescribeExecutionCommand({ executionArn: arn }));
+			}
+			await refreshExecs();
+		} catch (e: unknown) { toast.error((e as Error).message); }
+		finally { redriving = false; }
+	}
+	async function validateDefinition() {
+		validating = true;
+		validationResult = null;
+		try {
+			const r = await sfn.send(new ValidateStateMachineDefinitionCommand({ definition: editDefinition }));
+			if (r.result === 'OK') {
+				validationResult = { ok: true, message: 'Definition is valid.' };
+			} else {
+				const diags = (r.diagnostics ?? []).map((d) => `${d.severity}: ${d.message}${d.location ? ` (${d.location})` : ''}`).join('\n');
+				validationResult = { ok: false, message: diags || 'Definition is invalid.' };
+			}
+		} catch (e: unknown) {
+			validationResult = { ok: false, message: (e as Error).message };
+		} finally {
+			validating = false;
+		}
 	}
 	async function startExecution() {
 		if (!selectedSM) return;
@@ -482,6 +548,9 @@
 									{#if selectedExecution.status === 'RUNNING'}
 										<button onclick={() => stopExec(selectedExecution!.executionArn!)} class="p-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded-lg" title="Stop"><Square class="w-3.5 h-3.5 fill-current" /></button>
 									{/if}
+									{#if selectedExecution.status === 'FAILED' || selectedExecution.status === 'TIMED_OUT' || selectedExecution.status === 'ABORTED'}
+										<button disabled={redriving} onclick={() => redriveExec(selectedExecution!.executionArn!)} class="px-2 py-1 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-50" title="Redrive failed execution">{redriving ? '...' : 'Redrive'}</button>
+									{/if}
 									<button onclick={() => loadHistory()} class="p-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg" title="Load history"><ListFilter class="w-3.5 h-3.5" /></button>
 									<button onclick={() => selectedExecution = null} class="text-slate-500 hover:text-white"><X class="w-4 h-4" /></button>
 								</div>
@@ -522,6 +591,20 @@
 									<div class="text-[8px] font-black text-rose-400 uppercase flex items-center gap-1"><AlertCircle class="w-3 h-3" /> Error</div>
 									<div class="text-[10px] text-rose-300 font-mono mt-1">{selectedExecution.error}</div>
 									{#if selectedExecution.cause}<div class="text-[9px] text-rose-400/70 mt-1">{selectedExecution.cause}</div>{/if}
+								</div>
+								{/if}
+								{#if executionTimeline().length > 0}
+								<div>
+									<div class="text-[8px] font-black text-slate-500 uppercase mb-2 flex items-center gap-1"><Activity class="w-3 h-3" /> State Timeline ({executionTimeline().length})</div>
+									<div class="space-y-1">
+										{#each executionTimeline() as st}
+											<div class="flex items-center gap-2 p-1.5 rounded-lg border {st.status === 'failed' ? 'bg-rose-950/40 border-rose-900/50' : st.status === 'running' ? 'bg-amber-950/30 border-amber-900/40' : 'bg-emerald-950/30 border-emerald-900/40'}">
+												<span class="w-2 h-2 rounded-full shrink-0 {st.status === 'failed' ? 'bg-rose-400' : st.status === 'running' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}"></span>
+												<span class="text-[10px] font-mono text-slate-200 truncate flex-1">{st.name}</span>
+												<span class="text-[8px] text-slate-500 font-mono shrink-0">{duration(st.entered, st.exited)}</span>
+											</div>
+										{/each}
+									</div>
 								</div>
 								{/if}
 								{#if historyEvents.length > 0}
@@ -808,8 +891,14 @@
 					<input bind:value={editRoleArn} type="text" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm font-mono" />
 				</div>
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">ASL Definition</label>
+					<div class="flex items-center justify-between mb-1.5">
+						<label class="block text-[10px] font-black text-slate-500 uppercase">ASL Definition</label>
+						<button type="button" disabled={validating} onclick={validateDefinition} class="px-2 py-1 bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-50">{validating ? 'Validating...' : 'Validate'}</button>
+					</div>
 					<textarea bind:value={editDefinition} rows="12" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
+					{#if validationResult}
+						<div class="mt-2 p-2 rounded-lg text-[10px] font-mono whitespace-pre-wrap {validationResult.ok ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-900/50' : 'bg-rose-950/40 text-rose-300 border border-rose-900/50'}">{validationResult.message}</div>
+					{/if}
 				</div>
 				<div class="flex gap-3">
 					<button type="button" onclick={() => showEditModal = false} class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
