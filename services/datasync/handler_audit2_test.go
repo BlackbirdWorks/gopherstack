@@ -76,9 +76,17 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "update existing execution",
-			body:     map[string]any{"TaskExecutionArn": execArn},
+			name: "update existing execution with options",
+			body: map[string]any{
+				"TaskExecutionArn": execArn,
+				"Options":          map[string]any{"BytesPerSecond": 1048576},
+			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing Options returns 400",
+			body:     map[string]any{"TaskExecutionArn": execArn},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "missing TaskExecutionArn returns 400",
@@ -89,6 +97,7 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 			name: "not found returns 400",
 			body: map[string]any{
 				"TaskExecutionArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist/execution/notexist",
+				"Options":          map[string]any{"BytesPerSecond": 1048576},
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -101,6 +110,23 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
+
+	// The Options applied via UpdateTaskExecution must be observable on
+	// DescribeTaskExecution (the round-trip the prior stub broke).
+	updRec := doRequest(t, h, "UpdateTaskExecution", map[string]any{
+		"TaskExecutionArn": execArn,
+		"Options":          map[string]any{"BytesPerSecond": 2097152},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	descRec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp struct {
+		Options map[string]any `json:"Options"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	assert.InDelta(t, float64(2097152), descResp.Options["BytesPerSecond"], 0)
 }
 
 // TestDataSync_AzureBlob covers the AzureBlob location lifecycle.

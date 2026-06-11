@@ -478,52 +478,45 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"filters": result})
 }
 
-// filterListRequest is the common paginated-filter request shape used by
-// ListFindings and ListCoverage.
+// filterListRequest is the shared shape of the filterCriteria/maxResults/
+// nextToken list requests used by ListFindings and ListCoverage.
 type filterListRequest struct {
 	FilterCriteria map[string]any `json:"filterCriteria"`
 	NextToken      string         `json:"nextToken"`
 	MaxResults     int32          `json:"maxResults"`
 }
 
-// parseFilterListRequest reads and JSON-decodes a filterListRequest from the
-// request body. On error it writes the appropriate 400 response and returns
-// (zero, error) so the caller can return that error directly.
-func parseFilterListRequest(c *echo.Context) (filterListRequest, error) {
+// decodeFilterListRequest reads and decodes a filterListRequest. On a malformed
+// body it returns ok=false after writing the appropriate error response.
+func decodeFilterListRequest(c *echo.Context) (filterListRequest, bool) {
 	var req filterListRequest
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return req, c.JSON(
-			http.StatusBadRequest,
-			errorResponse("ValidationException", "invalid body"),
-		)
+		_ = c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
+
+		return req, false
 	}
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return req, c.JSON(
-				http.StatusBadRequest,
-				errorResponse("ValidationException", "invalid JSON"),
-			)
+			_ = c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+
+			return req, false
 		}
 	}
 
-	return req, nil
+	return req, true
 }
 
 // handleListFindings handles POST /findings/list.
 func (h *Handler) handleListFindings(c *echo.Context) error {
-	req, err := parseFilterListRequest(c)
-	if err != nil {
-		return err
+	req, ok := decodeFilterListRequest(c)
+	if !ok {
+		return nil
 	}
 
-	findings, nextToken, findErr := h.Backend.ListFindings(
-		req.FilterCriteria,
-		req.MaxResults,
-		req.NextToken,
-	)
+	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken, req.FilterCriteria)
 	if findErr != nil {
 		return h.mapError(c, findErr)
 	}

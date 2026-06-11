@@ -26,6 +26,7 @@ const (
 
 	executionStatusLaunching = "LAUNCHING"
 	executionStatusSuccess   = "SUCCESS"
+	executionStatusError     = "ERROR"
 
 	defaultMaxResults = 100
 
@@ -278,13 +279,14 @@ func (t *storedTask) toTask() Task {
 // storedTaskExecution holds a task execution with all fields.
 // StartTime is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedTaskExecution struct {
-	StartTime                time.Time `json:"startTime"`
-	TaskExecutionArn         string    `json:"taskExecutionArn"`
-	Status                   string    `json:"status"`
-	EstimatedFilesToTransfer int64     `json:"estimatedFilesToTransfer"`
-	EstimatedBytesToTransfer int64     `json:"estimatedBytesToTransfer"`
-	FilesTransferred         int64     `json:"filesTransferred"`
-	BytesTransferred         int64     `json:"bytesTransferred"`
+	StartTime                time.Time      `json:"startTime"`
+	Options                  map[string]any `json:"options,omitempty"`
+	TaskExecutionArn         string         `json:"taskExecutionArn"`
+	Status                   string         `json:"status"`
+	EstimatedFilesToTransfer int64          `json:"estimatedFilesToTransfer"`
+	EstimatedBytesToTransfer int64          `json:"estimatedBytesToTransfer"`
+	FilesTransferred         int64          `json:"filesTransferred"`
+	BytesTransferred         int64          `json:"bytesTransferred"`
 }
 
 func (e *storedTaskExecution) toTaskExecution() TaskExecution {
@@ -292,6 +294,7 @@ func (e *storedTaskExecution) toTaskExecution() TaskExecution {
 		TaskExecutionArn:         e.TaskExecutionArn,
 		Status:                   e.Status,
 		StartTime:                e.StartTime,
+		Options:                  maps.Clone(e.Options),
 		EstimatedFilesToTransfer: e.EstimatedFilesToTransfer,
 		EstimatedBytesToTransfer: e.EstimatedBytesToTransfer,
 		FilesTransferred:         e.FilesTransferred,
@@ -1016,9 +1019,9 @@ func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageC
 }
 
 // UpdateTaskExecution updates a task execution (no-op: options are advisory only).
-func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string) error {
-	b.mu.RLock("UpdateTaskExecution")
-	defer b.mu.RUnlock()
+func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string, options map[string]any) error {
+	b.mu.Lock("UpdateTaskExecution")
+	defer b.mu.Unlock()
 
 	taskArn := extractTaskArnFromExecution(taskExecutionArn)
 	if taskArn == "" {
@@ -1030,8 +1033,29 @@ func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
-	if _, ok = execMap[taskExecutionArn]; !ok {
+	exec, ok := execMap[taskExecutionArn]
+	if !ok {
 		return ErrNotFound
+	}
+
+	// AWS only allows UpdateTaskExecution while the execution is still in a
+	// pre-transfer/transfer phase; terminal (SUCCESS/ERROR) executions cannot
+	// be updated.
+	if exec.Status == executionStatusSuccess || exec.Status == executionStatusError {
+		return fmt.Errorf(
+			"%w: task execution %s is in terminal state %s and cannot be updated",
+			ErrInvalidParameter, taskExecutionArn, exec.Status,
+		)
+	}
+
+	// Merge the supplied Options onto the execution (AWS updates only the
+	// fields present in the request). BytesPerSecond is the most common knob.
+	if len(options) > 0 {
+		if exec.Options == nil {
+			exec.Options = make(map[string]any, len(options))
+		}
+
+		maps.Copy(exec.Options, options)
 	}
 
 	return nil

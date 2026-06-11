@@ -1720,16 +1720,12 @@ func (h *Handler) handleGetSbomExport(c *echo.Context) error {
 }
 
 func (h *Handler) handleListCoverage(c *echo.Context) error {
-	req, err := parseFilterListRequest(c)
-	if err != nil {
-		return err
+	req, ok := decodeFilterListRequest(c)
+	if !ok {
+		return nil
 	}
 
-	entries, nextToken, listErr := h.Backend.ListCoverage(
-		req.FilterCriteria,
-		req.MaxResults,
-		req.NextToken,
-	)
+	entries, nextToken, listErr := h.Backend.ListCoverage(req.FilterCriteria, req.MaxResults, req.NextToken)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}

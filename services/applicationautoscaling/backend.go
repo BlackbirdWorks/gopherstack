@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -438,32 +439,58 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 type DescribeScalableTargetsFilter struct {
 	ServiceNamespace  string
 	ScalableDimension string
-	ResourceIDs       []string
+	// NextToken is the opaque pagination cursor returned by a prior call.
+	NextToken   string
+	ResourceIDs []string
 	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
 	MaxResults int32
 }
 
-// applyMaxResults returns at most maxResults elements from list.
-// When maxResults is 0 or negative the full list is returned.
-// maxResults is capped at maxDescribeResults before truncation.
-func applyMaxResults[T any](list []T, maxResults int32) []T {
-	if maxResults <= 0 {
-		return list
+// paginate sorts list by keyFn, applies the opaque nextToken cursor, and returns
+// at most maxResults items plus the token for the following page (empty when the
+// page is the last). The token is the sort key of the first item of the next
+// page, which is a stable cursor as long as keyFn is unique and ordering is
+// deterministic. This is what lets Application Auto Scaling Describe* ops report
+// a real NextToken rather than always-empty.
+func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T) string) ([]T, string) {
+	sort.Slice(list, func(i, j int) bool {
+		return keyFn(list[i]) < keyFn(list[j])
+	})
+
+	start := 0
+
+	if nextToken != "" {
+		for i := range list {
+			if keyFn(list[i]) >= nextToken {
+				start = i
+
+				break
+			}
+
+			start = i + 1
+		}
 	}
 
-	if maxResults > maxDescribeResults {
-		maxResults = maxDescribeResults
+	limit := int(maxResults)
+	if limit <= 0 || limit > int(maxDescribeResults) {
+		limit = int(maxDescribeResults)
 	}
 
-	if int(maxResults) >= len(list) {
-		return list
+	end := min(start+limit, len(list))
+
+	page := list[start:end]
+
+	next := ""
+	if end < len(list) {
+		next = keyFn(list[end])
 	}
 
-	return list[:maxResults]
+	return page, next
 }
 
-// DescribeScalableTargets lists scalable targets, optionally filtered.
-func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) []*ScalableTarget {
+// DescribeScalableTargets lists scalable targets, optionally filtered, and
+// returns the NextToken for the following page (empty on the last page).
+func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string) {
 	b.mu.RLock("DescribeScalableTargets")
 	defer b.mu.RUnlock()
 
@@ -495,7 +522,9 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 		list = append(list, &cp)
 	}
 
-	return applyMaxResults(list, f.MaxResults)
+	return paginate(list, f.MaxResults, f.NextToken, func(t *ScalableTarget) string {
+		return t.ResourceID + "|" + t.ScalableDimension
+	})
 }
 
 // PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
@@ -631,6 +660,8 @@ type DescribeScalingPoliciesFilter struct {
 	ScalableDimension string
 	// PolicyNames, when non-empty, limits results to the named policies.
 	PolicyNames []string
+	// NextToken is the opaque pagination cursor returned by a prior call.
+	NextToken string
 	// PolicyARNs, when non-empty, limits results to these ARNs.
 	PolicyARNs []string
 	// MaxResults, when > 0, limits the number of returned items.
@@ -680,8 +711,9 @@ func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, name
 	return true
 }
 
-// DescribeScalingPolicies lists scaling policies, optionally filtered.
-func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilter) []*ScalingPolicy {
+// DescribeScalingPolicies lists scaling policies, optionally filtered, and
+// returns the NextToken for the following page (empty on the last page).
+func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilter) ([]*ScalingPolicy, string) {
 	b.mu.RLock("DescribeScalingPolicies")
 	defer b.mu.RUnlock()
 
@@ -695,7 +727,9 @@ func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilte
 		}
 	}
 
-	return applyMaxResults(list, f.MaxResults)
+	return paginate(list, f.MaxResults, f.NextToken, func(p *ScalingPolicy) string {
+		return p.ARN
+	})
 }
 
 // PutScheduledAction upserts a scheduled action.
@@ -823,14 +857,17 @@ type DescribeScheduledActionsFilter struct {
 	ResourceID string
 	// ScalableDimension limits results to this dimension when non-empty.
 	ScalableDimension string
+	// NextToken is the opaque pagination cursor returned by a prior call.
+	NextToken string
 	// ScheduledActionNames, when non-empty, limits results to the named actions.
 	ScheduledActionNames []string
 	// MaxResults, when > 0, limits the number of returned items.
 	MaxResults int32
 }
 
-// DescribeScheduledActions lists scheduled actions, optionally filtered.
-func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFilter) []*ScheduledAction {
+// DescribeScheduledActions lists scheduled actions, optionally filtered, and
+// returns the NextToken for the following page (empty on the last page).
+func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFilter) ([]*ScheduledAction, string) {
 	b.mu.RLock("DescribeScheduledActions")
 	defer b.mu.RUnlock()
 
@@ -864,7 +901,9 @@ func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFil
 		list = append(list, &cp)
 	}
 
-	return applyMaxResults(list, f.MaxResults)
+	return paginate(list, f.MaxResults, f.NextToken, func(a *ScheduledAction) string {
+		return a.ServiceNamespace + "|" + a.ResourceID + "|" + a.ScalableDimension + "|" + a.ScheduledActionName
+	})
 }
 
 // TagResource adds or updates tags on a scalable target identified by its ARN.
