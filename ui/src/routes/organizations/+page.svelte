@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getOrganizationsClient } from '$lib/aws-client';
 	import {
 		DescribeOrganizationCommand,
@@ -8,6 +9,13 @@
 		ListRootsCommand,
 		ListPoliciesCommand,
 		CreateAccountCommand,
+		MoveAccountCommand,
+		AttachPolicyCommand,
+		DetachPolicyCommand,
+		ListParentsCommand,
+		ListPoliciesForTargetCommand,
+		CloseAccountCommand,
+		type OrganizationsClient,
 		type Organization,
 		type Account,
 		type OrganizationalUnit,
@@ -25,10 +33,18 @@
 		Shield,
 		CheckCircle,
 		XCircle,
-		Clock
+		Clock,
+		MoveRight,
+		Link2,
+		Unlink,
+		Ban
 	} from 'lucide-svelte';
 
-	const org = getOrganizationsClient();
+	let org: OrganizationsClient | undefined;
+
+	function client(): OrganizationsClient {
+		return (org ??= getOrganizationsClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'overview' | 'accounts' | 'ous' | 'policies'>('overview');
@@ -76,8 +92,8 @@
 		loading = true;
 		try {
 			const [orgRes, rootsRes] = await Promise.all([
-				org.send(new DescribeOrganizationCommand({})),
-				org.send(new ListRootsCommand({}))
+				client().send(new DescribeOrganizationCommand({})),
+				client().send(new ListRootsCommand({}))
 			]);
 			organization = orgRes.Organization ?? null;
 			roots = rootsRes.Roots ?? [];
@@ -91,7 +107,7 @@
 	async function loadAccounts() {
 		loading = true;
 		try {
-			const res = await org.send(new ListAccountsCommand({ MaxResults: 100 }));
+			const res = await client().send(new ListAccountsCommand({ MaxResults: 100 }));
 			accounts = res.Accounts ?? [];
 		} catch (e) {
 			toast.error(`Failed to load accounts: ${e}`);
@@ -104,10 +120,10 @@
 		loading = true;
 		try {
 			// First get roots, then OUs for root
-			const rootsRes = await org.send(new ListRootsCommand({}));
+			const rootsRes = await client().send(new ListRootsCommand({}));
 			const root = rootsRes.Roots?.[0];
 			if (root?.Id) {
-				const ouRes = await org.send(
+				const ouRes = await client().send(
 					new ListOrganizationalUnitsForParentCommand({ ParentId: root.Id, MaxResults: 100 })
 				);
 				ous = ouRes.OrganizationalUnits ?? [];
@@ -122,7 +138,7 @@
 	async function loadPolicies() {
 		loading = true;
 		try {
-			const res = await org.send(
+			const res = await client().send(
 				new ListPoliciesCommand({ Filter: policyType, MaxResults: 100 })
 			);
 			policies = res.Policies ?? [];
@@ -137,7 +153,7 @@
 		if (!newAccountName.trim() || !newAccountEmail.trim()) return;
 		creatingAccount = true;
 		try {
-			await org.send(
+			await client().send(
 				new CreateAccountCommand({
 					AccountName: newAccountName.trim(),
 					Email: newAccountEmail.trim(),
@@ -153,6 +169,147 @@
 			toast.error(`Failed to create account: ${e}`);
 		} finally {
 			creatingAccount = false;
+		}
+	}
+
+	// Move account
+	let showMoveModal = $state(false);
+	let moveAccount = $state<Account | null>(null);
+	let moveParents = $state<{ Id?: string; Type?: string }[]>([]);
+	let moveSourceParentId = $state('');
+	let moveDestParentId = $state('');
+	let moving = $state(false);
+	let moveTargets = $state<{ Id: string; label: string }[]>([]);
+
+	// Close account
+	let closingId = $state<string | null>(null);
+
+	async function openMoveModal(account: Account) {
+		moveAccount = account;
+		moveDestParentId = '';
+		showMoveModal = true;
+		moving = true;
+		try {
+			const parentsRes = await client().send(
+				new ListParentsCommand({ ChildId: account.Id })
+			);
+			moveParents = parentsRes.Parents ?? [];
+			moveSourceParentId = moveParents[0]?.Id ?? '';
+			// Build the list of move targets: roots + their OUs.
+			const rootsRes = await client().send(new ListRootsCommand({}));
+			const targets: { Id: string; label: string }[] = [];
+			for (const root of rootsRes.Roots ?? []) {
+				if (root.Id) {
+					targets.push({ Id: root.Id, label: `Root: ${root.Name ?? root.Id}` });
+					const ouRes = await client().send(
+						new ListOrganizationalUnitsForParentCommand({ ParentId: root.Id, MaxResults: 100 })
+					);
+					for (const ou of ouRes.OrganizationalUnits ?? []) {
+						if (ou.Id) targets.push({ Id: ou.Id, label: `OU: ${ou.Name ?? ou.Id}` });
+					}
+				}
+			}
+			moveTargets = targets;
+		} catch (e) {
+			toast.error(`Failed to load parents: ${e}`);
+		} finally {
+			moving = false;
+		}
+	}
+
+	async function doMoveAccount() {
+		if (!moveAccount?.Id || !moveSourceParentId || !moveDestParentId) return;
+		if (moveSourceParentId === moveDestParentId) {
+			toast.error('Destination must differ from current parent');
+			return;
+		}
+		moving = true;
+		try {
+			await client().send(
+				new MoveAccountCommand({
+					AccountId: moveAccount.Id,
+					SourceParentId: moveSourceParentId,
+					DestinationParentId: moveDestParentId
+				})
+			);
+			toast.success(`Moved account ${moveAccount.Id}`);
+			showMoveModal = false;
+			await loadAccounts();
+		} catch (e) {
+			toast.error(`Failed to move account: ${e}`);
+		} finally {
+			moving = false;
+		}
+	}
+
+	async function closeAccount(account: Account) {
+		if (!account.Id) return;
+		if (!(await confirmDestructive({ title: 'Close Account', message: `Close account ${account.Name ?? account.Id}? This cannot be undone.`, confirmLabel: 'Close Account' }))) return;
+		closingId = account.Id;
+		try {
+			await client().send(new CloseAccountCommand({ AccountId: account.Id }));
+			toast.success(`Close requested for ${account.Id}`);
+			await loadAccounts();
+		} catch (e) {
+			toast.error(`Failed to close account: ${e}`);
+		} finally {
+			closingId = null;
+		}
+	}
+
+	// Policy attach/detach. A target's currently-attached policies can be
+	// inspected via ListPoliciesForTarget once a target ID is entered.
+	let showAttachModal = $state(false);
+	let attachPolicy = $state<PolicySummary | null>(null);
+	let attachTargetId = $state('');
+	let attaching = $state(false);
+	let targetPolicies = $state<PolicySummary[]>([]);
+
+	function openAttachModal(policy: PolicySummary) {
+		attachPolicy = policy;
+		attachTargetId = '';
+		targetPolicies = [];
+		showAttachModal = true;
+	}
+
+	async function loadTargetPolicies() {
+		if (!attachTargetId.trim()) {
+			targetPolicies = [];
+			return;
+		}
+		attaching = true;
+		try {
+			const res = await client().send(
+				new ListPoliciesForTargetCommand({ TargetId: attachTargetId.trim(), Filter: policyType })
+			);
+			targetPolicies = res.Policies ?? [];
+		} catch (e) {
+			toast.error(`Failed to load target policies: ${e}`);
+		} finally {
+			attaching = false;
+		}
+	}
+
+	async function doAttachPolicy(detach = false) {
+		if (!attachPolicy?.Id || !attachTargetId.trim()) return;
+		attaching = true;
+		try {
+			if (detach) {
+				await client().send(
+					new DetachPolicyCommand({ PolicyId: attachPolicy.Id, TargetId: attachTargetId.trim() })
+				);
+				toast.success(`Detached policy from ${attachTargetId}`);
+			} else {
+				await client().send(
+					new AttachPolicyCommand({ PolicyId: attachPolicy.Id, TargetId: attachTargetId.trim() })
+				);
+				toast.success(`Attached policy to ${attachTargetId}`);
+			}
+			await loadTargetPolicies();
+		} catch (e) {
+			toast.error(`Failed to ${detach ? 'detach' : 'attach'} policy: ${e}`);
+		} finally {
+			attaching = false;
 		}
 	}
 
@@ -290,6 +447,7 @@
 							<th class="px-4 py-3 text-left font-medium">Email</th>
 							<th class="px-4 py-3 text-left font-medium">Status</th>
 							<th class="px-4 py-3 text-left font-medium">Joined</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
@@ -305,6 +463,25 @@
 								</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">
 									{account.JoinedTimestamp ? new Date(account.JoinedTimestamp).toLocaleDateString() : '—'}
+								</td>
+								<td class="px-4 py-3 text-right whitespace-nowrap">
+									<button
+										onclick={() => openMoveModal(account)}
+										class="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+										title="Move account to another root or OU"
+									>
+										<MoveRight class="h-3.5 w-3.5" />
+										Move
+									</button>
+									<button
+										onclick={() => closeAccount(account)}
+										disabled={closingId === account.Id || account.Status !== 'ACTIVE'}
+										class="ml-1 inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-950"
+										title="Close account"
+									>
+										<Ban class="h-3.5 w-3.5" />
+										{closingId === account.Id ? 'Closing…' : 'Close'}
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -388,6 +565,7 @@
 							<th class="px-4 py-3 text-left font-medium">Name</th>
 							<th class="px-4 py-3 text-left font-medium">Description</th>
 							<th class="px-4 py-3 text-left font-medium">AWS Managed</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
@@ -403,6 +581,16 @@
 									{:else}
 										<XCircle class="h-4 w-4 text-muted-foreground" />
 									{/if}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => openAttachModal(policy)}
+										class="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+										title="Attach or detach this policy"
+									>
+										<Link2 class="h-3.5 w-3.5" />
+										Attach / Detach
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -465,6 +653,129 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{creatingAccount ? 'Creating...' : 'Create Account'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Move Account Modal -->
+{#if showMoveModal && moveAccount}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-1">Move Account</h2>
+			<p class="text-sm text-muted-foreground mb-4">
+				{moveAccount.Name ?? moveAccount.Id} ({moveAccount.Id})
+			</p>
+			<div class="space-y-3">
+				<div>
+					<label for="move-src" class="block text-sm font-medium mb-1">Current Parent</label>
+					<select
+						id="move-src"
+						bind:value={moveSourceParentId}
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						{#each moveParents as p}
+							<option value={p.Id}>{p.Type}: {p.Id}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label for="move-dest" class="block text-sm font-medium mb-1">Destination (Root / OU)</label>
+					<select
+						id="move-dest"
+						bind:value={moveDestParentId}
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						<option value="" disabled>Select destination…</option>
+						{#each moveTargets as t}
+							<option value={t.Id}>{t.label} ({t.Id})</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showMoveModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={doMoveAccount}
+					disabled={moving || !moveSourceParentId || !moveDestParentId}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{moving ? 'Moving…' : 'Move'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Attach / Detach Policy Modal -->
+{#if showAttachModal && attachPolicy}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-1">Attach / Detach Policy</h2>
+			<p class="text-sm text-muted-foreground mb-4">{attachPolicy.Name} ({attachPolicy.Id})</p>
+			<div class="space-y-3">
+				<div>
+					<label for="attach-target" class="block text-sm font-medium mb-1">
+						Target ID (root / OU / account)
+					</label>
+					<div class="flex gap-2">
+						<input
+							id="attach-target"
+							type="text"
+							bind:value={attachTargetId}
+							placeholder="r-xxxx / ou-xxxx / 123456789012"
+							class="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<button
+							onclick={loadTargetPolicies}
+							disabled={attaching || !attachTargetId.trim()}
+							class="rounded-md border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+						>
+							Inspect
+						</button>
+					</div>
+				</div>
+				{#if targetPolicies.length > 0}
+					<div class="rounded border p-2 text-xs">
+						<p class="font-medium mb-1">Policies currently on target:</p>
+						<ul class="list-disc pl-4 space-y-0.5">
+							{#each targetPolicies as tp}
+								<li class={tp.Id === attachPolicy.Id ? 'font-semibold text-primary' : ''}>
+									{tp.Name} ({tp.Id})
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showAttachModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Close
+				</button>
+				<button
+					onclick={() => doAttachPolicy(true)}
+					disabled={attaching || !attachTargetId.trim()}
+					class="inline-flex items-center gap-1 rounded-md border px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+				>
+					<Unlink class="h-4 w-4" />
+					Detach
+				</button>
+				<button
+					onclick={() => doAttachPolicy(false)}
+					disabled={attaching || !attachTargetId.trim()}
+					class="inline-flex items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					<Link2 class="h-4 w-4" />
+					Attach
 				</button>
 			</div>
 		</div>

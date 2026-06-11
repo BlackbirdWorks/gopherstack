@@ -14,6 +14,11 @@
 		CreatePolicyCommand,
 		DeletePolicyCommand,
 		GetPolicyCommand,
+		UpdateThingCommand,
+		AttachPolicyCommand,
+		DetachPolicyCommand,
+		ListAttachedPoliciesCommand,
+		type IoTClient,
 		type ThingAttribute,
 		type GroupNameAndArn,
 		type TopicRuleListItem,
@@ -30,10 +35,15 @@
 		Tag,
 		GitBranch,
 		Radio,
-		ShieldCheck
+		ShieldCheck,
+		Pencil,
+		Link2
 	} from 'lucide-svelte';
 
-	const iot = getIoTClient();
+	let iotClient: IoTClient | undefined;
+	function iot(): IoTClient {
+		return (iotClient ??= getIoTClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'things' | 'groups' | 'rules' | 'policies'>('things');
@@ -106,7 +116,7 @@
 	async function loadThings() {
 		loading = true;
 		try {
-			const res = await iot.send(new ListThingsCommand({ maxResults: 100 }));
+			const res = await iot().send(new ListThingsCommand({ maxResults: 100 }));
 			things = res.things ?? [];
 		} catch (e) {
 			toast.error(`Failed to load things: ${e}`);
@@ -118,7 +128,7 @@
 	async function loadGroups() {
 		loading = true;
 		try {
-			const res = await iot.send(new ListThingGroupsCommand({ maxResults: 100 }));
+			const res = await iot().send(new ListThingGroupsCommand({ maxResults: 100 }));
 			groups = res.thingGroups ?? [];
 		} catch (e) {
 			toast.error(`Failed to load thing groups: ${e}`);
@@ -130,7 +140,7 @@
 	async function loadRules() {
 		loading = true;
 		try {
-			const res = await iot.send(new ListTopicRulesCommand({ maxResults: 100 }));
+			const res = await iot().send(new ListTopicRulesCommand({ maxResults: 100 }));
 			rules = res.rules ?? [];
 		} catch (e) {
 			toast.error(`Failed to load topic rules: ${e}`);
@@ -142,7 +152,7 @@
 	async function loadPolicies() {
 		loading = true;
 		try {
-			const res = await iot.send(new ListPoliciesCommand({ pageSize: 100 }));
+			const res = await iot().send(new ListPoliciesCommand({ pageSize: 100 }));
 			policies = res.policies ?? [];
 		} catch (e) {
 			toast.error(`Failed to load policies: ${e}`);
@@ -156,12 +166,117 @@
 		if (!thing.thingName) return;
 		loadingDetail = true;
 		try {
-			const res = await iot.send(new DescribeThingCommand({ thingName: thing.thingName }));
+			const res = await iot().send(new DescribeThingCommand({ thingName: thing.thingName }));
 			thingDetail = res;
 		} catch (e) {
 			toast.error(`Failed to load thing details: ${e}`);
 		} finally {
 			loadingDetail = false;
+		}
+	}
+
+	// Thing attribute editor
+	let editingAttrs = $state(false);
+	let attrRows = $state<{ key: string; value: string }[]>([]);
+	let savingAttrs = $state(false);
+
+	function startEditAttributes() {
+		const attrs = selectedThing?.attributes ?? {};
+		attrRows = Object.entries(attrs).map(([key, value]) => ({ key, value: String(value) }));
+		if (attrRows.length === 0) attrRows = [{ key: '', value: '' }];
+		editingAttrs = true;
+	}
+
+	function addAttrRow() {
+		attrRows = [...attrRows, { key: '', value: '' }];
+	}
+
+	function removeAttrRow(i: number) {
+		attrRows = attrRows.filter((_, idx) => idx !== i);
+	}
+
+	async function saveAttributes() {
+		if (!selectedThing?.thingName) return;
+		savingAttrs = true;
+		try {
+			const attributes: Record<string, string> = {};
+			for (const r of attrRows) {
+				if (r.key.trim()) attributes[r.key.trim()] = r.value;
+			}
+			await iot().send(
+				new UpdateThingCommand({
+					thingName: selectedThing.thingName,
+					attributePayload: { attributes, merge: false }
+				})
+			);
+			toast.success('Thing attributes updated');
+			editingAttrs = false;
+			// Reflect the change locally and re-fetch detail.
+			selectedThing = { ...selectedThing, attributes };
+			things = things.map((t) =>
+				t.thingName === selectedThing?.thingName ? { ...t, attributes } : t
+			);
+			await viewThing(selectedThing);
+		} catch (e) {
+			toast.error(`Failed to update attributes: ${e}`);
+		} finally {
+			savingAttrs = false;
+		}
+	}
+
+	// Policy attach/detach to a target (certificate ARN, thing-group ARN, or
+	// Cognito identity), plus listing what is already attached.
+	let showAttachModal = $state(false);
+	let attachTarget = $state('');
+	let attachPolicyName = $state('');
+	let attaching = $state(false);
+	let attachedPolicies = $state<{ policyName?: string; policyArn?: string }[]>([]);
+
+	function openAttachModal(policy: Policy) {
+		attachPolicyName = policy.policyName ?? '';
+		attachTarget = '';
+		attachedPolicies = [];
+		showAttachModal = true;
+	}
+
+	async function listAttached() {
+		if (!attachTarget.trim()) {
+			attachedPolicies = [];
+			return;
+		}
+		attaching = true;
+		try {
+			const res = await iot().send(
+				new ListAttachedPoliciesCommand({ target: attachTarget.trim() })
+			);
+			attachedPolicies = res.policies ?? [];
+		} catch (e) {
+			toast.error(`Failed to list attached policies: ${e}`);
+		} finally {
+			attaching = false;
+		}
+	}
+
+	async function attachOrDetach(detach = false) {
+		if (!attachPolicyName.trim() || !attachTarget.trim()) return;
+		attaching = true;
+		try {
+			if (detach) {
+				await iot().send(
+					new DetachPolicyCommand({ policyName: attachPolicyName.trim(), target: attachTarget.trim() })
+				);
+				toast.success(`Detached ${attachPolicyName} from target`);
+			} else {
+				await iot().send(
+					new AttachPolicyCommand({ policyName: attachPolicyName.trim(), target: attachTarget.trim() })
+				);
+				toast.success(`Attached ${attachPolicyName} to target`);
+			}
+			await listAttached();
+		} catch (e) {
+			toast.error(`Failed to ${detach ? 'detach' : 'attach'} policy: ${e}`);
+		} finally {
+			attaching = false;
 		}
 	}
 
@@ -175,7 +290,7 @@
 		)
 			return;
 		try {
-			await iot.send(new DeleteThingCommand({ thingName: thing.thingName }));
+			await iot().send(new DeleteThingCommand({ thingName: thing.thingName }));
 			toast.success(`Thing "${thing.thingName}" deleted`);
 			if (selectedThing?.thingName === thing.thingName) selectedThing = null;
 			await loadThings();
@@ -188,7 +303,7 @@
 		if (!newThingName.trim()) return;
 		creating = true;
 		try {
-			await iot.send(
+			await iot().send(
 				new CreateThingCommand({
 					thingName: newThingName.trim(),
 					thingTypeName: newThingType.trim() || undefined
@@ -211,7 +326,7 @@
 		if (!rule.ruleName) return;
 		loadingRuleDetail = true;
 		try {
-			const res = await iot.send(new GetTopicRuleCommand({ ruleName: rule.ruleName }));
+			const res = await iot().send(new GetTopicRuleCommand({ ruleName: rule.ruleName }));
 			ruleDetail = res;
 		} catch (e) {
 			toast.error(`Failed to load rule details: ${e}`);
@@ -225,7 +340,7 @@
 		if (!policy.policyName) return;
 		loadingPolicyDetail = true;
 		try {
-			const res = await iot.send(new GetPolicyCommand({ policyName: policy.policyName }));
+			const res = await iot().send(new GetPolicyCommand({ policyName: policy.policyName }));
 			policyDetail = res;
 		} catch (e) {
 			toast.error(`Failed to load policy details: ${e}`);
@@ -244,7 +359,7 @@
 		)
 			return;
 		try {
-			await iot.send(new DeletePolicyCommand({ policyName: policy.policyName }));
+			await iot().send(new DeletePolicyCommand({ policyName: policy.policyName }));
 			toast.success(`Policy "${policy.policyName}" deleted`);
 			if (selectedPolicy?.policyName === policy.policyName) selectedPolicy = null;
 			await loadPolicies();
@@ -257,7 +372,7 @@
 		if (!newPolicyName.trim()) return;
 		creatingPolicy = true;
 		try {
-			await iot.send(
+			await iot().send(
 				new CreatePolicyCommand({
 					policyName: newPolicyName.trim(),
 					policyDocument: newPolicyDocument.trim()
@@ -403,15 +518,59 @@
 				<div class="rounded-lg border p-4 space-y-3">
 					<div class="flex items-center justify-between">
 						<h3 class="font-semibold">{selectedThing.thingName}</h3>
-						<button
-							onclick={() => (selectedThing = null)}
-							class="text-xs text-muted-foreground hover:text-foreground"
-						>
-							Close
-						</button>
+						<div class="flex items-center gap-2">
+							{#if !editingAttrs}
+								<button
+									onclick={startEditAttributes}
+									class="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+								>
+									<Pencil class="h-3.5 w-3.5" /> Edit Attributes
+								</button>
+							{/if}
+							<button
+								onclick={() => { selectedThing = null; editingAttrs = false; }}
+								class="text-xs text-muted-foreground hover:text-foreground"
+							>
+								Close
+							</button>
+						</div>
 					</div>
 					{#if loadingDetail}
 						<RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
+					{:else if editingAttrs}
+						<div class="space-y-2">
+							<p class="text-sm font-medium">Attributes</p>
+							{#each attrRows as row, i}
+								<div class="flex items-center gap-2">
+									<input
+										type="text"
+										bind:value={row.key}
+										placeholder="key"
+										class="w-1/3 rounded-md border bg-background px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+									/>
+									<input
+										type="text"
+										bind:value={row.value}
+										placeholder="value"
+										class="flex-1 rounded-md border bg-background px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+									/>
+									<button onclick={() => removeAttrRow(i)} class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Remove">
+										<Trash2 class="h-3.5 w-3.5" />
+									</button>
+								</div>
+							{/each}
+							<div class="flex items-center gap-2 pt-1">
+								<button onclick={addAttrRow} class="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent">
+									<Plus class="h-3.5 w-3.5" /> Add Attribute
+								</button>
+								<div class="flex-1"></div>
+								<button onclick={() => (editingAttrs = false)} class="rounded border px-3 py-1 text-xs hover:bg-accent">Cancel</button>
+								<button onclick={saveAttributes} disabled={savingAttrs} class="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+									{savingAttrs ? 'Saving…' : 'Save'}
+								</button>
+							</div>
+							<p class="text-xs text-muted-foreground">Saving replaces all attributes on the thing.</p>
+						</div>
 					{:else if selectedThing.attributes && Object.keys(selectedThing.attributes).length > 0}
 						<div>
 							<p class="text-sm font-medium mb-2">Attributes</p>
@@ -657,6 +816,16 @@
 									<button
 										onclick={(e) => {
 											e.stopPropagation();
+											openAttachModal(policy);
+										}}
+										class="rounded p-1 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950"
+										title="Attach / detach policy"
+									>
+										<Link2 class="h-4 w-4" />
+									</button>
+									<button
+										onclick={(e) => {
+											e.stopPropagation();
 											deletePolicy(policy);
 										}}
 										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
@@ -790,6 +959,68 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{creatingPolicy ? 'Creating...' : 'Create Policy'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Attach / Detach Policy Modal -->
+{#if showAttachModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-lg rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-1">Attach / Detach Policy</h2>
+			<p class="text-sm text-muted-foreground mb-4">Policy: <span class="font-mono">{attachPolicyName}</span></p>
+			<div class="space-y-3">
+				<div>
+					<label for="attach-tgt" class="block text-sm font-medium mb-1">
+						Target (certificate ARN, thing-group ARN, or Cognito identity)
+					</label>
+					<div class="flex gap-2">
+						<input
+							id="attach-tgt"
+							type="text"
+							bind:value={attachTarget}
+							placeholder="arn:aws:iot:…:cert/… or us-east-1:…"
+							class="flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<button
+							onclick={listAttached}
+							disabled={attaching || !attachTarget.trim()}
+							class="rounded-md border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+						>
+							List Attached
+						</button>
+					</div>
+				</div>
+				{#if attachedPolicies.length > 0}
+					<div class="rounded border p-2 text-xs">
+						<p class="font-medium mb-1">Policies on target:</p>
+						<ul class="list-disc pl-4 space-y-0.5">
+							{#each attachedPolicies as ap}
+								<li class={ap.policyName === attachPolicyName ? 'font-semibold text-primary' : ''}>
+									{ap.policyName}
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button onclick={() => (showAttachModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Close</button>
+				<button
+					onclick={() => attachOrDetach(true)}
+					disabled={attaching || !attachTarget.trim()}
+					class="inline-flex items-center gap-1 rounded-md border px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+				>
+					Detach
+				</button>
+				<button
+					onclick={() => attachOrDetach(false)}
+					disabled={attaching || !attachTarget.trim()}
+					class="inline-flex items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					<Link2 class="h-4 w-4" /> Attach
 				</button>
 			</div>
 		</div>

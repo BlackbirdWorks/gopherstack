@@ -13,15 +13,21 @@
 		CreateJourneyCommand,
 		DeleteJourneyCommand,
 		GetApplicationDateRangeKpiCommand,
+		UpdateCampaignCommand,
+		type PinpointClient,
 		type ApplicationResponse,
 		type CampaignResponse,
 		type SegmentResponse,
-		type JourneyResponse
+		type JourneyResponse,
+		type Frequency
 	} from '@aws-sdk/client-pinpoint';
 	import { toast } from 'svelte-sonner';
-	import { MapPin, RefreshCw, Search, Megaphone, Users, Activity, GitBranch, Plus, Trash2, BarChart2 } from 'lucide-svelte';
+	import { MapPin, RefreshCw, Search, Megaphone, Users, Activity, GitBranch, Plus, Trash2, BarChart2, CalendarClock } from 'lucide-svelte';
 
-	const pp = getPinpointClient();
+	let ppClient: PinpointClient | undefined;
+	function pp(): PinpointClient {
+		return (ppClient ??= getPinpointClient());
+	}
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -62,7 +68,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await pp.send(new GetAppsCommand({}));
+			const resp = await pp().send(new GetAppsCommand({}));
 			apps = resp.ApplicationsResponse?.Item ?? [];
 		} catch (e) {
 			toast.error('Failed to load Pinpoint apps: ' + String(e));
@@ -76,9 +82,9 @@
 		loading = true;
 		try {
 			const [campResp, segResp, journeyResp] = await Promise.all([
-				pp.send(new GetCampaignsCommand({ ApplicationId: appId })),
-				pp.send(new GetSegmentsCommand({ ApplicationId: appId })),
-				pp.send(new ListJourneysCommand({ ApplicationId: appId }))
+				pp().send(new GetCampaignsCommand({ ApplicationId: appId })),
+				pp().send(new GetSegmentsCommand({ ApplicationId: appId })),
+				pp().send(new ListJourneysCommand({ ApplicationId: appId }))
 			]);
 			campaigns = campResp.CampaignsResponse?.Item ?? [];
 			segments = segResp.SegmentsResponse?.Item ?? [];
@@ -100,7 +106,7 @@
 		try {
 			const end = new Date().toISOString();
 			const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-			const resp = await pp.send(
+			const resp = await pp().send(
 				new GetApplicationDateRangeKpiCommand({
 					ApplicationId: selectedAppId,
 					KpiName: 'successful-delivery-rate',
@@ -121,7 +127,7 @@
 	async function createCampaign() {
 		if (!selectedAppId || !newCampaignName.trim()) return;
 		try {
-			await pp.send(
+			await pp().send(
 				new CreateCampaignCommand({
 					ApplicationId: selectedAppId,
 					WriteCampaignRequest: {
@@ -143,7 +149,7 @@
 	async function deleteCampaign(campaignId: string) {
 		if (!selectedAppId) return;
 		try {
-			await pp.send(new DeleteCampaignCommand({ ApplicationId: selectedAppId, CampaignId: campaignId }));
+			await pp().send(new DeleteCampaignCommand({ ApplicationId: selectedAppId, CampaignId: campaignId }));
 			toast.success('Campaign deleted');
 			campaigns = campaigns.filter((c) => c.Id !== campaignId);
 		} catch (e) {
@@ -151,11 +157,58 @@
 		}
 	}
 
+	// ── Campaign schedule editor ────────────────────────────────────────────────
+	let showScheduleModal = $state(false);
+	let scheduleCampaign = $state<CampaignResponse | null>(null);
+	let schedStart = $state('');
+	let schedEnd = $state('');
+	let schedFrequency = $state<Frequency>('ONCE');
+	let savingSchedule = $state(false);
+	const frequencyOptions: Frequency[] = ['ONCE', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY'];
+
+	function openScheduleEditor(campaign: CampaignResponse) {
+		scheduleCampaign = campaign;
+		const sch = campaign.Schedule;
+		schedStart = sch?.StartTime && sch.StartTime !== 'IMMEDIATE' ? sch.StartTime.slice(0, 16) : '';
+		schedEnd = sch?.EndTime ? sch.EndTime.slice(0, 16) : '';
+		schedFrequency = (sch?.Frequency as Frequency) ?? 'ONCE';
+		showScheduleModal = true;
+	}
+
+	async function saveSchedule() {
+		if (!selectedAppId || !scheduleCampaign?.Id) return;
+		savingSchedule = true;
+		try {
+			await pp().send(
+				new UpdateCampaignCommand({
+					ApplicationId: selectedAppId,
+					CampaignId: scheduleCampaign.Id,
+					WriteCampaignRequest: {
+						Name: scheduleCampaign.Name,
+						SegmentId: scheduleCampaign.SegmentId,
+						Schedule: {
+							StartTime: schedStart ? new Date(schedStart).toISOString() : 'IMMEDIATE',
+							EndTime: schedEnd ? new Date(schedEnd).toISOString() : undefined,
+							Frequency: schedFrequency
+						}
+					}
+				})
+			);
+			toast.success('Campaign schedule updated');
+			showScheduleModal = false;
+			await loadAppDetails(selectedAppId);
+		} catch (e) {
+			toast.error('Failed to update schedule: ' + String(e));
+		} finally {
+			savingSchedule = false;
+		}
+	}
+
 	// ── Segment CRUD ───────────────────────────────────────────────────────────
 	async function createSegment() {
 		if (!selectedAppId || !newSegmentName.trim()) return;
 		try {
-			await pp.send(
+			await pp().send(
 				new CreateSegmentCommand({
 					ApplicationId: selectedAppId,
 					WriteSegmentRequest: { Name: newSegmentName.trim() }
@@ -173,7 +226,7 @@
 	async function deleteSegment(segmentId: string) {
 		if (!selectedAppId) return;
 		try {
-			await pp.send(new DeleteSegmentCommand({ ApplicationId: selectedAppId, SegmentId: segmentId }));
+			await pp().send(new DeleteSegmentCommand({ ApplicationId: selectedAppId, SegmentId: segmentId }));
 			toast.success('Segment deleted');
 			segments = segments.filter((s) => s.Id !== segmentId);
 		} catch (e) {
@@ -185,7 +238,7 @@
 	async function createJourney() {
 		if (!selectedAppId || !newJourneyName.trim()) return;
 		try {
-			await pp.send(
+			await pp().send(
 				new CreateJourneyCommand({
 					ApplicationId: selectedAppId,
 					WriteJourneyRequest: { Name: newJourneyName.trim() }
@@ -203,7 +256,7 @@
 	async function deleteJourney(journeyId: string) {
 		if (!selectedAppId) return;
 		try {
-			await pp.send(new DeleteJourneyCommand({ ApplicationId: selectedAppId, JourneyId: journeyId }));
+			await pp().send(new DeleteJourneyCommand({ ApplicationId: selectedAppId, JourneyId: journeyId }));
 			toast.success('Journey deleted');
 			journeys = journeys.filter((j) => j.Id !== journeyId);
 		} catch (e) {
@@ -369,10 +422,21 @@
 									<div>
 										<p class="font-medium text-gray-900 dark:text-white">{camp.Name}</p>
 										<p class="text-xs text-gray-500 dark:text-gray-400">{camp.Id}</p>
+										{#if camp.Schedule}
+											<p class="text-xs text-gray-400">
+												{camp.Schedule.Frequency ?? 'ONCE'}
+												{#if camp.Schedule.StartTime && camp.Schedule.StartTime !== 'IMMEDIATE'}· starts {camp.Schedule.StartTime}{/if}
+											</p>
+										{/if}
 									</div>
 								</div>
 								<div class="flex items-center gap-2">
 									<span class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">{camp.State?.CampaignStatus}</span>
+									<button
+										onclick={() => openScheduleEditor(camp)}
+										class="text-pink-500 hover:text-pink-700 p-1 rounded"
+										title="Edit schedule"
+									><CalendarClock class="w-4 h-4" /></button>
 									<button
 										onclick={() => deleteCampaign(camp.Id ?? '')}
 										class="text-red-400 hover:text-red-600 p-1 rounded"
@@ -563,3 +627,33 @@
 		</div>
 	</div>
 </div>
+
+<!-- Campaign Schedule Editor -->
+{#if showScheduleModal && scheduleCampaign}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<div class="w-full max-w-md rounded-xl bg-white dark:bg-slate-800 p-6 shadow-xl space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Campaign Schedule</h2>
+			<p class="text-sm text-gray-500 dark:text-gray-400">{scheduleCampaign.Name}</p>
+			<div>
+				<label for="sched-start" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Time (blank = immediate)</label>
+				<input id="sched-start" type="datetime-local" bind:value={schedStart} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-700 text-sm" />
+			</div>
+			<div>
+				<label for="sched-end" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Time (optional)</label>
+				<input id="sched-end" type="datetime-local" bind:value={schedEnd} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-700 text-sm" />
+			</div>
+			<div>
+				<label for="sched-freq" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Frequency</label>
+				<select id="sched-freq" bind:value={schedFrequency} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-700 text-sm">
+					{#each frequencyOptions as f}<option value={f}>{f}</option>{/each}
+				</select>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showScheduleModal = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+				<button onclick={saveSchedule} disabled={savingSchedule} class="flex-1 px-4 py-2 rounded-lg bg-pink-600 text-white text-sm font-medium hover:bg-pink-700 disabled:opacity-50">
+					{savingSchedule ? 'Saving…' : 'Save Schedule'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

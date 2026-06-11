@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getCodeDeployClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -16,15 +17,24 @@
 		GetOnPremisesInstanceCommand,
 		RegisterOnPremisesInstanceCommand,
 		DeregisterOnPremisesInstanceCommand,
+		ListDeploymentTargetsCommand,
+		GetDeploymentTargetCommand,
+		GetDeploymentGroupCommand,
+		type CodeDeployClient,
 		type ApplicationInfo,
 		type DeploymentInfo,
 		type DeploymentConfigInfo,
-		type InstanceInfo
+		type InstanceInfo,
+		type DeploymentTarget,
+		type DeploymentGroupInfo
 	} from '@aws-sdk/client-codedeploy';
 	import { toast } from 'svelte-sonner';
-	import { Package, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, CheckCircle, AlertCircle, Server, Settings } from 'lucide-svelte';
+	import { Package, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, CheckCircle, AlertCircle, Server, Settings, RotateCcw, ListChecks } from 'lucide-svelte';
 
-	const codedeploy = getCodeDeployClient();
+	let codedeployClient: CodeDeployClient | undefined;
+	function codedeploy(): CodeDeployClient {
+		return (codedeployClient ??= getCodeDeployClient());
+	}
 
 	let loading = $state(false);
 	let appNames = $state<string[]>([]);
@@ -89,7 +99,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const resp = await codedeploy.send(new ListApplicationsCommand({}));
+			const resp = await codedeploy().send(new ListApplicationsCommand({}));
 			appNames = resp.applications ?? [];
 		} catch (e) {
 			toast.error('Failed to load applications: ' + String(e));
@@ -103,8 +113,8 @@
 		activeTab = 'groups';
 		try {
 			const [appResp, groupsResp] = await Promise.all([
-				codedeploy.send(new GetApplicationCommand({ applicationName: name })),
-				codedeploy.send(new ListDeploymentGroupsCommand({ applicationName: name }))
+				codedeploy().send(new GetApplicationCommand({ applicationName: name })),
+				codedeploy().send(new ListDeploymentGroupsCommand({ applicationName: name }))
 			]);
 			selectedApp = appResp.application ?? null;
 			deploymentGroups = groupsResp.deploymentGroups ?? [];
@@ -119,14 +129,14 @@
 		if (!selectedApp) return;
 		loadingDeployments = true;
 		try {
-			const resp = await codedeploy.send(new ListDeploymentsCommand({
+			const resp = await codedeploy().send(new ListDeploymentsCommand({
 				applicationName: selectedApp.applicationName,
 				includeOnlyStatuses: ['Created', 'Queued', 'InProgress', 'Succeeded', 'Failed', 'Stopped', 'Ready']
 			}));
 			deployments = resp.deployments ?? [];
 			const details = await Promise.allSettled(
 				deployments.slice(0, 10).map((id) =>
-					codedeploy.send(new GetDeploymentCommand({ deploymentId: id })).then((r) => r.deploymentInfo)
+					codedeploy().send(new GetDeploymentCommand({ deploymentId: id })).then((r) => r.deploymentInfo)
 				)
 			);
 			deploymentDetails = details
@@ -166,7 +176,7 @@
 								commitId: deployGitHubCommit.trim()
 							}
 						};
-			const resp = await codedeploy.send(new CreateDeploymentCommand({
+			const resp = await codedeploy().send(new CreateDeploymentCommand({
 				applicationName: selectedApp.applicationName,
 				deploymentGroupName: deployGroup.trim(),
 				revision
@@ -195,11 +205,102 @@
 
 	async function stopDeployment(id: string) {
 		try {
-			await codedeploy.send(new StopDeploymentCommand({ deploymentId: id, autoRollbackEnabled: false }));
+			await codedeploy().send(new StopDeploymentCommand({ deploymentId: id, autoRollbackEnabled: false }));
 			toast.success('Deployment stop requested');
 			await loadDeployments();
 		} catch (e) {
 			toast.error('Failed to stop deployment: ' + String(e));
+		}
+	}
+
+	// Rollback: stop the in-progress deployment with auto-rollback enabled so
+	// CodeDeploy reverts targets to the last successful revision.
+	async function rollbackDeployment(id: string) {
+		if (!(await confirmDestructive({ title: 'Roll Back Deployment', message: `Stop deployment ${id} and roll back to the previous revision?`, confirmLabel: 'Roll Back' }))) return;
+		try {
+			await codedeploy().send(new StopDeploymentCommand({ deploymentId: id, autoRollbackEnabled: true }));
+			toast.success('Rollback initiated');
+			await loadDeployments();
+		} catch (e) {
+			toast.error('Failed to roll back: ' + String(e));
+		}
+	}
+
+	// Per-instance / per-target status drill-down.
+	let expandedTargetsFor = $state<string | null>(null);
+	let deploymentTargets = $state<DeploymentTarget[]>([]);
+	let loadingTargets = $state(false);
+
+	async function toggleTargets(dep: DeploymentInfo) {
+		const id = dep.deploymentId ?? '';
+		if (expandedTargetsFor === id) {
+			expandedTargetsFor = null;
+			return;
+		}
+		expandedTargetsFor = id;
+		deploymentTargets = [];
+		loadingTargets = true;
+		try {
+			const listResp = await codedeploy().send(
+				new ListDeploymentTargetsCommand({ deploymentId: id })
+			);
+			const ids = listResp.targetIds ?? [];
+			if (ids.length > 0) {
+				const targets = await Promise.allSettled(
+					ids.slice(0, 50).map((tid) =>
+						codedeploy()
+							.send(new GetDeploymentTargetCommand({ deploymentId: id, targetId: tid }))
+							.then((r) => r.deploymentTarget)
+					)
+				);
+				deploymentTargets = targets
+					.filter((r) => r.status === 'fulfilled')
+					.map((r) => (r as PromiseFulfilledResult<DeploymentTarget | undefined>).value!)
+					.filter(Boolean);
+			}
+		} catch (e) {
+			toast.error('Failed to load deployment targets: ' + String(e));
+		} finally {
+			loadingTargets = false;
+		}
+	}
+
+	function targetStatus(t: DeploymentTarget): { id?: string; status?: string } {
+		if (t.instanceTarget) return { id: t.instanceTarget.targetId, status: t.instanceTarget.status };
+		if (t.lambdaTarget) return { id: t.lambdaTarget.targetId, status: t.lambdaTarget.status };
+		if (t.ecsTarget) return { id: t.ecsTarget.targetId, status: t.ecsTarget.status };
+		if (t.cloudFormationTarget)
+			return { id: t.cloudFormationTarget.targetId, status: t.cloudFormationTarget.status };
+		return {};
+	}
+
+	// ASG / load-balancer integration view for a deployment group.
+	let showAsgFor = $state<string | null>(null);
+	let asgGroupInfo = $state<DeploymentGroupInfo | null>(null);
+	let loadingAsg = $state(false);
+
+	async function toggleAsg(groupName: string) {
+		if (!selectedApp) return;
+		if (showAsgFor === groupName) {
+			showAsgFor = null;
+			asgGroupInfo = null;
+			return;
+		}
+		showAsgFor = groupName;
+		asgGroupInfo = null;
+		loadingAsg = true;
+		try {
+			const resp = await codedeploy().send(
+				new GetDeploymentGroupCommand({
+					applicationName: selectedApp.applicationName,
+					deploymentGroupName: groupName
+				})
+			);
+			asgGroupInfo = resp.deploymentGroupInfo ?? null;
+		} catch (e) {
+			toast.error('Failed to load deployment group: ' + String(e));
+		} finally {
+			loadingAsg = false;
 		}
 	}
 
@@ -211,10 +312,10 @@
 	async function loadConfigs() {
 		loadingConfigs = true;
 		try {
-			const listResp = await codedeploy.send(new ListDeploymentConfigsCommand({}));
+			const listResp = await codedeploy().send(new ListDeploymentConfigsCommand({}));
 			const names = listResp.deploymentConfigsList ?? [];
 			const details = await Promise.allSettled(
-				names.map((n) => codedeploy.send(new GetDeploymentConfigCommand({ deploymentConfigName: n })).then((r) => r.deploymentConfigInfo))
+				names.map((n) => codedeploy().send(new GetDeploymentConfigCommand({ deploymentConfigName: n })).then((r) => r.deploymentConfigInfo))
 			);
 			deployConfigs = details
 				.filter((r) => r.status === 'fulfilled')
@@ -231,7 +332,7 @@
 		if (!newConfigName.trim()) return;
 		creatingConfig = true;
 		try {
-			await codedeploy.send(new CreateDeploymentConfigCommand({
+			await codedeploy().send(new CreateDeploymentConfigCommand({
 				deploymentConfigName: newConfigName.trim(),
 				computePlatform: newConfigPlatform as 'Server' | 'Lambda' | 'ECS'
 			}));
@@ -249,10 +350,10 @@
 	async function loadOnPremInstances() {
 		loadingOnPrem = true;
 		try {
-			const listResp = await codedeploy.send(new ListOnPremisesInstancesCommand({}));
+			const listResp = await codedeploy().send(new ListOnPremisesInstancesCommand({}));
 			const names = listResp.instanceNames ?? [];
 			const details = await Promise.allSettled(
-				names.map((n) => codedeploy.send(new GetOnPremisesInstanceCommand({ instanceName: n })).then((r) => r.instanceInfo))
+				names.map((n) => codedeploy().send(new GetOnPremisesInstanceCommand({ instanceName: n })).then((r) => r.instanceInfo))
 			);
 			onPremInstances = details
 				.filter((r) => r.status === 'fulfilled')
@@ -269,7 +370,7 @@
 		if (!newInstanceName.trim()) return;
 		registeringInstance = true;
 		try {
-			await codedeploy.send(new RegisterOnPremisesInstanceCommand({
+			await codedeploy().send(new RegisterOnPremisesInstanceCommand({
 				instanceName: newInstanceName.trim(),
 				iamUserArn: newInstanceIamArn.trim() || undefined
 			}));
@@ -287,7 +388,7 @@
 
 	async function deregisterInstance(name: string) {
 		try {
-			await codedeploy.send(new DeregisterOnPremisesInstanceCommand({ instanceName: name }));
+			await codedeploy().send(new DeregisterOnPremisesInstanceCommand({ instanceName: name }));
 			toast.success(`Instance "${name}" deregistered`);
 			await loadOnPremInstances();
 		} catch (e) {
@@ -483,13 +584,69 @@
 				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 					<table class="w-full text-sm">
 						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
-							<tr><th class="px-4 py-3 text-left">Deployment Group</th></tr>
+							<tr>
+								<th class="px-4 py-3 text-left">Deployment Group</th>
+								<th class="px-4 py-3 text-right">ASG / LB</th>
+							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 							{#each deploymentGroups as grp}
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 									<td class="px-4 py-3 font-medium text-green-600 dark:text-green-400">{grp}</td>
+									<td class="px-4 py-3 text-right">
+										<button onclick={() => toggleAsg(grp)} class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800">
+											<Server class="w-3.5 h-3.5" /> {showAsgFor === grp ? 'Hide' : 'Integration'}
+										</button>
+									</td>
 								</tr>
+								{#if showAsgFor === grp}
+									<tr>
+										<td colspan="2" class="px-4 py-3 bg-gray-50/60 dark:bg-gray-800/40">
+											{#if loadingAsg}
+												<div class="flex justify-center py-3"><div class="animate-spin w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full"></div></div>
+											{:else if asgGroupInfo}
+												<div class="grid gap-3 sm:grid-cols-2 text-xs">
+													<div>
+														<div class="font-semibold text-gray-600 dark:text-gray-300 mb-1">Auto Scaling Groups</div>
+														{#if (asgGroupInfo.autoScalingGroups ?? []).length === 0}
+															<div class="text-gray-500">None attached</div>
+														{:else}
+															<ul class="space-y-0.5">
+																{#each asgGroupInfo.autoScalingGroups ?? [] as asg}
+																	<li class="font-mono">{asg.name}{asg.hook ? ` (hook: ${asg.hook})` : ''}</li>
+																{/each}
+															</ul>
+														{/if}
+													</div>
+													<div>
+														<div class="font-semibold text-gray-600 dark:text-gray-300 mb-1">Deployment Style</div>
+														<div class="text-gray-500">
+															Type: {asgGroupInfo.deploymentStyle?.deploymentType ?? 'IN_PLACE'}<br />
+															Option: {asgGroupInfo.deploymentStyle?.deploymentOption ?? 'WITHOUT_TRAFFIC_CONTROL'}
+														</div>
+													</div>
+													<div class="sm:col-span-2">
+														<div class="font-semibold text-gray-600 dark:text-gray-300 mb-1">Load Balancer Target Groups</div>
+														{#if (asgGroupInfo.loadBalancerInfo?.targetGroupInfoList ?? []).length === 0 && (asgGroupInfo.loadBalancerInfo?.elbInfoList ?? []).length === 0}
+															<div class="text-gray-500">None configured</div>
+														{:else}
+															<ul class="space-y-0.5">
+																{#each asgGroupInfo.loadBalancerInfo?.targetGroupInfoList ?? [] as tg}
+																	<li class="font-mono">TG: {tg.name}</li>
+																{/each}
+																{#each asgGroupInfo.loadBalancerInfo?.elbInfoList ?? [] as elb}
+																	<li class="font-mono">ELB: {elb.name}</li>
+																{/each}
+															</ul>
+														{/if}
+													</div>
+												</div>
+											{:else}
+												<div class="text-xs text-gray-500">No integration details available.</div>
+											{/if}
+										</td>
+									</tr>
+								{/if}
 							{/each}
 						</tbody>
 					</table>
@@ -526,11 +683,19 @@
 										<div class="text-xs text-gray-500 mt-0.5">{dep.description}</div>
 									{/if}
 								</div>
-								{#if dep.status === 'InProgress'}
-									<button onclick={() => stopDeployment(dep.deploymentId ?? '')} class="flex items-center gap-1 px-3 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50">
-										<XCircle class="w-3.5 h-3.5" /> Stop
+								<div class="flex items-center gap-2">
+									<button onclick={() => toggleTargets(dep)} class="flex items-center gap-1 px-3 py-1 text-xs text-gray-600 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
+										<ListChecks class="w-3.5 h-3.5" /> {expandedTargetsFor === dep.deploymentId ? 'Hide' : 'Targets'}
 									</button>
-								{/if}
+									{#if dep.status === 'InProgress'}
+										<button onclick={() => stopDeployment(dep.deploymentId ?? '')} class="flex items-center gap-1 px-3 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50">
+											<XCircle class="w-3.5 h-3.5" /> Stop
+										</button>
+										<button onclick={() => rollbackDeployment(dep.deploymentId ?? '')} class="flex items-center gap-1 px-3 py-1 text-xs text-orange-600 border border-orange-200 rounded hover:bg-orange-50">
+											<RotateCcw class="w-3.5 h-3.5" /> Rollback
+										</button>
+									{/if}
+								</div>
 							</div>
 							{#if dep.deploymentOverview}
 								<div class="mt-3 grid grid-cols-5 gap-2 text-xs">
@@ -546,6 +711,40 @@
 											<div class="text-gray-500">{stat.label}</div>
 										</div>
 									{/each}
+								</div>
+							{/if}
+							{#if expandedTargetsFor === dep.deploymentId}
+								<div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
+									<div class="text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">Per-Target Status</div>
+									{#if loadingTargets}
+										<div class="flex justify-center py-4"><div class="animate-spin w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full"></div></div>
+									{:else if deploymentTargets.length === 0}
+										<div class="text-xs text-gray-500">No targets reported for this deployment.</div>
+									{:else}
+										<div class="overflow-hidden rounded border border-gray-100 dark:border-gray-800">
+											<table class="w-full text-xs">
+												<thead class="bg-gray-50 dark:bg-gray-800 text-gray-500 uppercase">
+													<tr>
+														<th class="px-3 py-2 text-left">Target ID</th>
+														<th class="px-3 py-2 text-left">Type</th>
+														<th class="px-3 py-2 text-left">Status</th>
+													</tr>
+												</thead>
+												<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+													{#each deploymentTargets as t}
+														{@const ts = targetStatus(t)}
+														<tr>
+															<td class="px-3 py-2 font-mono truncate max-w-xs">{ts.id ?? '-'}</td>
+															<td class="px-3 py-2 text-gray-500">{t.deploymentTargetType ?? '-'}</td>
+															<td class="px-3 py-2">
+																<span class={`px-2 py-0.5 rounded bg-${statusColor(ts.status)}-100 text-${statusColor(ts.status)}-700`}>{ts.status ?? '-'}</span>
+															</td>
+														</tr>
+													{/each}
+												</tbody>
+											</table>
+										</div>
+									{/if}
 								</div>
 							{/if}
 						</div>

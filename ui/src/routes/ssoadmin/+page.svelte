@@ -26,15 +26,21 @@
 		ListRegionsCommand,
 		ListTrustedTokenIssuersCommand,
 		ProvisionPermissionSetCommand,
+		PutInlinePolicyToPermissionSetCommand,
+		DeleteInlinePolicyFromPermissionSetCommand,
 		RemoveRegionCommand,
-		UpdateApplicationCommand
+		UpdateApplicationCommand,
+		type SSOAdminClient
 	} from '@aws-sdk/client-sso-admin';
 	import { toast } from 'svelte-sonner';
 
 	import { getSSOAdminClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 
-	const ssoadmin = getSSOAdminClient();
+	let ssoadminClient: SSOAdminClient | undefined;
+	function ssoadmin(): SSOAdminClient {
+		return (ssoadminClient ??= getSSOAdminClient());
+	}
 	const defaultAccountID = '123456789012';
 	const defaultProviderArn = 'arn:aws:sso::123456789012:applicationProvider/custom';
 
@@ -155,7 +161,7 @@
 	}
 
 	async function loadInstances() {
-		const out = await ssoadmin.send(new ListInstancesCommand({}));
+		const out = await ssoadmin().send(new ListInstancesCommand({}));
 		instances = out.Instances ?? [];
 		if (!selectedInstanceArn && instances.length > 0) {
 			selectedInstanceArn = instances[0].InstanceArn ?? '';
@@ -168,7 +174,7 @@
 			instanceDetails = null;
 			return;
 		}
-		const out = await ssoadmin.send(new DescribeInstanceCommand({ InstanceArn: instanceArn }));
+		const out = await ssoadmin().send(new DescribeInstanceCommand({ InstanceArn: instanceArn }));
 		instanceDetails = out.InstanceArn
 			? {
 					Name: out.Name,
@@ -186,7 +192,7 @@
 			return;
 		}
 		try {
-			const out = await ssoadmin.send(new ListRegionsCommand({ InstanceArn: selectedInstanceArn }));
+			const out = await ssoadmin().send(new ListRegionsCommand({ InstanceArn: selectedInstanceArn }));
 			instanceRegions = (out as unknown as { Regions?: Array<{ Region?: string; RegionScopeType?: string }> }).Regions ?? [];
 			metricsRegionCount = instanceRegions.length;
 		} catch {
@@ -200,7 +206,7 @@
 			permissionSetDetails = {};
 			return;
 		}
-		const out = await ssoadmin.send(new ListPermissionSetsCommand({ InstanceArn: selectedInstanceArn }));
+		const out = await ssoadmin().send(new ListPermissionSetsCommand({ InstanceArn: selectedInstanceArn }));
 		permissionSetArns = out.PermissionSets ?? [];
 		if (!selectedPermissionSetArn && permissionSetArns.length > 0) {
 			selectedPermissionSetArn = permissionSetArns[0] ?? '';
@@ -211,12 +217,12 @@
 		await Promise.all(
 			permissionSetArns.map(async (arn) => {
 				try {
-					const d = await ssoadmin.send(
+					const d = await ssoadmin().send(
 						new DescribePermissionSetCommand({ InstanceArn: selectedInstanceArn, PermissionSetArn: arn })
 					);
 					let hasInlinePolicy = false;
 					try {
-						const ip = await ssoadmin.send(
+						const ip = await ssoadmin().send(
 							new GetInlinePolicyForPermissionSetCommand({
 								InstanceArn: selectedInstanceArn,
 								PermissionSetArn: arn
@@ -228,7 +234,7 @@
 					}
 					let assignmentCount = 0;
 					try {
-						const ar = await ssoadmin.send(
+						const ar = await ssoadmin().send(
 							new ListAccountAssignmentsCommand({
 								InstanceArn: selectedInstanceArn,
 								PermissionSetArn: arn,
@@ -254,12 +260,97 @@
 		permissionSetDetails = details;
 	}
 
+	// Inline-policy editor for a permission set.
+	let showInlineEditor = $state(false);
+	let inlineEditorArn = $state('');
+	let inlinePolicyText = $state('');
+	let loadingInlinePolicy = $state(false);
+	let savingInlinePolicy = $state(false);
+
+	async function openInlineEditor(arn: string) {
+		inlineEditorArn = arn;
+		inlinePolicyText = '';
+		showInlineEditor = true;
+		loadingInlinePolicy = true;
+		try {
+			const res = await ssoadmin().send(
+				new GetInlinePolicyForPermissionSetCommand({
+					InstanceArn: selectedInstanceArn,
+					PermissionSetArn: arn
+				})
+			);
+			inlinePolicyText = res.InlinePolicy?.trim()
+				? JSON.stringify(JSON.parse(res.InlinePolicy), null, 2)
+				: JSON.stringify(
+						{
+							Version: '2012-10-17',
+							Statement: [{ Effect: 'Allow', Action: '*', Resource: '*' }]
+						},
+						null,
+						2
+					);
+		} catch (e) {
+			toast.error(`Failed to load inline policy: ${e}`);
+		} finally {
+			loadingInlinePolicy = false;
+		}
+	}
+
+	async function saveInlinePolicy() {
+		if (!selectedInstanceArn || !inlineEditorArn) return;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(inlinePolicyText);
+		} catch {
+			toast.error('Inline policy must be valid JSON');
+			return;
+		}
+		savingInlinePolicy = true;
+		try {
+			await ssoadmin().send(
+				new PutInlinePolicyToPermissionSetCommand({
+					InstanceArn: selectedInstanceArn,
+					PermissionSetArn: inlineEditorArn,
+					InlinePolicy: JSON.stringify(parsed)
+				})
+			);
+			toast.success('Inline policy saved');
+			showInlineEditor = false;
+			await loadPermissionSets();
+		} catch (e) {
+			toast.error(`Failed to save inline policy: ${e}`);
+		} finally {
+			savingInlinePolicy = false;
+		}
+	}
+
+	async function deleteInlinePolicy() {
+		if (!selectedInstanceArn || !inlineEditorArn) return;
+		if (!(await confirmDestructive({ title: 'Remove Inline Policy', message: 'Remove the inline policy from this permission set?' }))) return;
+		savingInlinePolicy = true;
+		try {
+			await ssoadmin().send(
+				new DeleteInlinePolicyFromPermissionSetCommand({
+					InstanceArn: selectedInstanceArn,
+					PermissionSetArn: inlineEditorArn
+				})
+			);
+			toast.success('Inline policy removed');
+			showInlineEditor = false;
+			await loadPermissionSets();
+		} catch (e) {
+			toast.error(`Failed to remove inline policy: ${e}`);
+		} finally {
+			savingInlinePolicy = false;
+		}
+	}
+
 	async function loadAssignments() {
 		if (!selectedInstanceArn || !selectedPermissionSetArn) {
 			accountAssignments = [];
 			return;
 		}
-		const out = await ssoadmin.send(
+		const out = await ssoadmin().send(
 			new ListAccountAssignmentsCommand({
 				InstanceArn: selectedInstanceArn,
 				PermissionSetArn: selectedPermissionSetArn,
@@ -276,7 +367,7 @@
 			applicationAssignmentCounts = {};
 			return;
 		}
-		const out = await ssoadmin.send(new ListApplicationsCommand({ InstanceArn: selectedInstanceArn }));
+		const out = await ssoadmin().send(new ListApplicationsCommand({ InstanceArn: selectedInstanceArn }));
 		applications = out.Applications ?? [];
 		metricsAppCount = applications.length;
 
@@ -286,7 +377,7 @@
 			applications.map(async (app) => {
 				if (!app.ApplicationArn) return;
 				try {
-					const aa = await ssoadmin.send(
+					const aa = await ssoadmin().send(
 						new ListApplicationAssignmentsCommand({ ApplicationArn: app.ApplicationArn })
 					);
 					counts[app.ApplicationArn] = (aa.ApplicationAssignments ?? []).length;
@@ -301,7 +392,7 @@
 	async function toggleApplicationStatus(appArn: string, currentStatus?: string) {
 		const newStatus = currentStatus === 'ENABLED' ? 'DISABLED' : 'ENABLED';
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new UpdateApplicationCommand({ ApplicationArn: appArn, Status: newStatus as 'ENABLED' | 'DISABLED' })
 			);
 			toast.success(`Application ${newStatus === 'ENABLED' ? 'enabled' : 'disabled'}`);
@@ -316,7 +407,7 @@
 			trustedTokenIssuers = [];
 			return;
 		}
-		const out = await ssoadmin.send(
+		const out = await ssoadmin().send(
 			new ListTrustedTokenIssuersCommand({ InstanceArn: selectedInstanceArn })
 		);
 		trustedTokenIssuers = (out.TrustedTokenIssuers ?? []) as typeof trustedTokenIssuers;
@@ -353,7 +444,7 @@
 		if (!selectedInstanceArn || !selectedPermissionSetArn || !selectedAccountID) return;
 		accountsForPSLoading = true;
 		try {
-			const out = await ssoadmin.send(
+			const out = await ssoadmin().send(
 				new ListAccountAssignmentsCommand({
 					InstanceArn: selectedInstanceArn,
 					PermissionSetArn: selectedPermissionSetArn,
@@ -381,13 +472,13 @@
 		}
 		try {
 			const [cr, dr, pr] = await Promise.all([
-				ssoadmin.send(
+				ssoadmin().send(
 					new ListAccountAssignmentCreationStatusCommand({ InstanceArn: selectedInstanceArn })
 				),
-				ssoadmin.send(
+				ssoadmin().send(
 					new ListAccountAssignmentDeletionStatusCommand({ InstanceArn: selectedInstanceArn })
 				),
-				ssoadmin.send(
+				ssoadmin().send(
 					new ListPermissionSetProvisioningStatusCommand({ InstanceArn: selectedInstanceArn })
 				)
 			]);
@@ -417,30 +508,30 @@
 
 	async function seedDemoData() {
 		try {
-			const instResp = await ssoadmin.send(new CreateInstanceCommand({ Name: 'demo-instance' }));
+			const instResp = await ssoadmin().send(new CreateInstanceCommand({ Name: 'demo-instance' }));
 			const demoInstanceArn = instResp.InstanceArn;
 			if (!demoInstanceArn) return;
 
 			await Promise.all([
-				ssoadmin.send(
+				ssoadmin().send(
 					new CreatePermissionSetCommand({
 						InstanceArn: demoInstanceArn,
 						Name: 'AdminAccess',
 						Description: 'Full administrator access'
 					})
 				),
-				ssoadmin.send(
+				ssoadmin().send(
 					new CreatePermissionSetCommand({
 						InstanceArn: demoInstanceArn,
 						Name: 'ReadOnlyAccess',
 						Description: 'Read-only access'
 					})
 				),
-				ssoadmin.send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'us-east-1' })),
-				ssoadmin.send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'eu-west-1' }))
+				ssoadmin().send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'us-east-1' })),
+				ssoadmin().send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'eu-west-1' }))
 			]);
 
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreateApplicationCommand({
 					InstanceArn: demoInstanceArn,
 					Name: 'demo-app',
@@ -448,7 +539,7 @@
 				})
 			);
 
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreateTrustedTokenIssuerCommand({
 					InstanceArn: demoInstanceArn,
 					Name: 'demo-issuer',
@@ -477,7 +568,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(new CreateInstanceCommand({ Name: newInstanceName.trim() }));
+			await ssoadmin().send(new CreateInstanceCommand({ Name: newInstanceName.trim() }));
 			newInstanceName = '';
 			await refreshAll();
 		} catch (err: unknown) {
@@ -488,7 +579,7 @@
 	async function removeInstance(instanceArn: string, name: string) {
 		if (!(await confirmDestructive(`Delete instance "${name}"? This will remove all dependent resources.`))) return;
 		try {
-			await ssoadmin.send(new DeleteInstanceCommand({ InstanceArn: instanceArn }));
+			await ssoadmin().send(new DeleteInstanceCommand({ InstanceArn: instanceArn }));
 			if (selectedInstanceArn === instanceArn) {
 				selectedInstanceArn = '';
 				selectedPermissionSetArn = '';
@@ -505,7 +596,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new AddRegionCommand({ InstanceArn: selectedInstanceArn, RegionName: newRegionName.trim() })
 			);
 			newRegionName = '';
@@ -519,7 +610,7 @@
 		if (!selectedInstanceArn) return;
 		if (!(await confirmDestructive(`Remove region "${regionName}" from this instance?`))) return;
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new RemoveRegionCommand({ InstanceArn: selectedInstanceArn, RegionName: regionName })
 			);
 			await loadRegions();
@@ -534,7 +625,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreatePermissionSetCommand({
 					InstanceArn: selectedInstanceArn,
 					Name: newPermissionSetName.trim()
@@ -551,7 +642,7 @@
 		if (!selectedInstanceArn) return;
 		if (!(await confirmDestructive(`Delete permission set "${name}"?`))) return;
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new DeletePermissionSetCommand({
 					InstanceArn: selectedInstanceArn,
 					PermissionSetArn: permissionSetArn
@@ -570,7 +661,7 @@
 	async function provisionPermissionSet(permissionSetArn: string) {
 		if (!selectedInstanceArn) return;
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new ProvisionPermissionSetCommand({
 					InstanceArn: selectedInstanceArn,
 					PermissionSetArn: permissionSetArn,
@@ -589,7 +680,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreateAccountAssignmentCommand({
 					InstanceArn: selectedInstanceArn,
 					PermissionSetArn: selectedPermissionSetArn,
@@ -614,7 +705,7 @@
 		if (!selectedInstanceArn || !selectedPermissionSetArn) return;
 		if (!(await confirmDestructive(`Remove assignment for ${principalType} "${principalID}"?`))) return;
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new DeleteAccountAssignmentCommand({
 					InstanceArn: selectedInstanceArn,
 					PermissionSetArn: selectedPermissionSetArn,
@@ -636,7 +727,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreateApplicationCommand({
 					InstanceArn: selectedInstanceArn,
 					Name: newApplicationName.trim(),
@@ -653,7 +744,7 @@
 	async function removeApplication(applicationArn: string, name: string) {
 		if (!(await confirmDestructive(`Delete application "${name}"?`))) return;
 		try {
-			await ssoadmin.send(new DeleteApplicationCommand({ ApplicationArn: applicationArn }));
+			await ssoadmin().send(new DeleteApplicationCommand({ ApplicationArn: applicationArn }));
 			await loadApplications();
 		} catch (err: unknown) {
 			toast.error(`Failed to delete application: ${(err as Error).message}`);
@@ -666,7 +757,7 @@
 			return;
 		}
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new CreateTrustedTokenIssuerCommand({
 					InstanceArn: selectedInstanceArn,
 					Name: newTrustedTokenIssuerName.trim(),
@@ -694,7 +785,7 @@
 	) {
 		if (!(await confirmDestructive(`Delete trusted token issuer "${name}"?`))) return;
 		try {
-			await ssoadmin.send(
+			await ssoadmin().send(
 				new DeleteTrustedTokenIssuerCommand({ TrustedTokenIssuerArn: trustedTokenIssuerArn })
 			);
 			await loadTrustedTokenIssuers();
@@ -997,6 +1088,13 @@
 								</p>
 							</div>
 							<div class="ml-3 flex shrink-0 gap-2">
+								<button
+									type="button"
+									class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+									onclick={() => void openInlineEditor(permissionSetArn)}
+								>
+									Inline Policy
+								</button>
 								<button
 									type="button"
 									class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
@@ -1644,3 +1742,42 @@
 		</div>
 	{/if}
 </div>
+
+{#if showInlineEditor}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<div class="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl dark:bg-slate-800">
+			<div class="mb-3 flex items-center justify-between">
+				<h2 class="text-lg font-semibold">Inline Policy</h2>
+				<button class="text-sm text-slate-400 hover:text-slate-600" onclick={() => (showInlineEditor = false)}>Close</button>
+			</div>
+			<p class="mb-3 truncate font-mono text-xs text-slate-500">{inlineEditorArn}</p>
+			{#if loadingInlinePolicy}
+				<div class="flex justify-center py-8 text-sm text-slate-400">Loading…</div>
+			{:else}
+				<textarea
+					bind:value={inlinePolicyText}
+					rows={16}
+					class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs dark:border-slate-600 dark:bg-slate-900"
+				></textarea>
+			{/if}
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					type="button"
+					class="rounded border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:text-red-400"
+					onclick={deleteInlinePolicy}
+					disabled={savingInlinePolicy}
+				>
+					Remove
+				</button>
+				<button
+					type="button"
+					class="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+					onclick={saveInlinePolicy}
+					disabled={savingInlinePolicy || loadingInlinePolicy}
+				>
+					{savingInlinePolicy ? 'Saving…' : 'Save Policy'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

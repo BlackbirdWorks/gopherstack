@@ -625,6 +625,66 @@ Also missing at the platform level:
 >   managed-scaling policy editor, bootstrap-action list, steps, notebooks, and
 >   studios are all present and SDK-wired; no further work needed.
 >
+> **Seventh pass (branch `parity/mega-v2`)** — Security/identity + Messaging/
+> engagement + remaining-misc service group (all wired to the live AWS JS SDK
+> through the gopherstack endpoint, lazily-constructed clients, matching each
+> page's existing tab/list/detail patterns, no placeholders):
+>
+> - **Organizations** (Security/identity) — **move account / reparent OU**
+>   (`MoveAccount` with a source/destination picker built from `ListParents` +
+>   `ListRoots`/`ListOrganizationalUnitsForParent`), policy **attach/detach** to a
+>   target (`AttachPolicy`/`DetachPolicy` + `ListPoliciesForTarget` inspection),
+>   and account **close** (`CloseAccount`).
+> - **SSO Admin** (Security/identity) — permission-set **inline-policy editor**
+>   (`GetInlinePolicyForPermissionSet` → JSON textarea, `PutInlinePolicyTo…` save
+>   with validation, `DeleteInlinePolicyFrom…` remove).
+> - **IAM** (Security/identity) — user **login-profile / console-password**
+>   create/reset/delete (`GetLoginProfile`/`CreateLoginProfile`/
+>   `UpdateLoginProfile`/`DeleteLoginProfile`) + **MFA-device** list/deactivate
+>   (`ListMFADevices`/`DeactivateMFADevice`) in the user detail.
+> - **SES** (Messaging) — template **test-render / send-test** in the template
+>   drawer (`TestRenderTemplate` against sample JSON template-data, rendered output
+>   preview).
+> - **SESv2** (Messaging) — contact-list **member management** (`ListContacts`/
+>   `CreateContact`/`UpdateContact`/`DeleteContact`) with an unsubscribe-all toggle
+>   and **CSV export** of the list's members.
+> - **Pinpoint** (Messaging) — campaign **schedule editor** (`UpdateCampaign`
+>   `Schedule` start/end/frequency: ONCE/HOURLY/DAILY/WEEKLY/MONTHLY).
+> - **SWF** (Messaging) — execution **input/output payload viewer** (expandable
+>   history events surface input/result/details/reason from the event attributes;
+>   `DescribeWorkflowExecution` open-counts), history **event-type filter**, and
+>   activity-type **detail** (`DescribeActivityType` timeouts/heartbeat/task-list).
+> - **CloudTrail** (Messaging) — **attribute-based filter builder** (server-side
+>   `LookupAttributes`: EventName/Username/EventSource/ResourceName/… key + value).
+> - **WorkSpaces** (Messaging) — **bundle comparison** table (compute / user &
+>   root storage / description / owner from `DescribeWorkspaceBundles`).
+> - **IoT** (Messaging) — thing **attribute editor** (`UpdateThing`
+>   `attributePayload`) and policy **attach/detach** to a target
+>   (`AttachPolicy`/`DetachPolicy` + `ListAttachedPolicies`).
+> - **Amplify** (Messaging) — **build-trigger webhooks** (`ListWebhooks`/
+>   `CreateWebhook`/`DeleteWebhook` + `StartJob` to fire a build) and custom-domain
+>   **associations** (`ListDomainAssociations`/`CreateDomainAssociation`).
+> - **MWAA** (Messaging) — **Airflow Web UI** access (`CreateWebLoginToken` opens
+>   the console SSO URL) and **CLI token** generation (`CreateCliToken`).
+> - **CodePipeline** (Messaging) — execution **action timeline** with per-action
+>   **durations** (`ListActionExecutions` filtered by execution id).
+> - **CodeDeploy** (Messaging) — deployment **rollback** (`StopDeployment`
+>   auto-rollback), **per-target status** drill-down (`ListDeploymentTargets`/
+>   `GetDeploymentTarget`), and ASG/LB **integration view** (`GetDeploymentGroup`).
+> - **CodeCommit** (Messaging) — **file browser** (`GetFolder` navigation by
+>   branch) and **commit log** (walk `GetBranch` tip → `GetCommit` parents).
+> - **CodeArtifact** (Messaging) — package-version **promote / dispose**
+>   (`UpdatePackageVersionsStatus` → Published / Disposed).
+> - **Transfer** (Messaging) — user **SSH-key fingerprint** display (now via
+>   `DescribeUser`, with a derived key-type + hash-style fingerprint).
+> - Note: **CognitoIDP/CognitoIdentity** were left as-is — their pages use the
+>   bespoke `/dashboard/api/cognitoidp/*` backend (not the AWS JS SDK) and already
+>   cover user attributes / group membership / password-reset, so SDK-wiring them
+>   would conflict with the existing architecture. **Firehose** and
+>   **ApplicationAutoScaling** were already complete (pass 3 batch PutRecords /
+>   scaling-activity timeline; AAS also has target-tracking + step-scaling
+>   `PutScalingPolicy`), so no further work was needed.
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched

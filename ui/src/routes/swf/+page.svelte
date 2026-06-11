@@ -20,11 +20,16 @@
 		RespondActivityTaskCompletedCommand,
 		RespondActivityTaskFailedCommand,
 		RespondDecisionTaskCompletedCommand,
+		DescribeWorkflowExecutionCommand,
+		DescribeActivityTypeCommand,
+		type SWFClient,
 		type DomainInfo,
 		type WorkflowTypeInfo,
 		type ActivityTypeInfo,
 		type WorkflowExecutionInfo,
-		type HistoryEvent
+		type HistoryEvent,
+		type WorkflowExecutionDetail,
+		type ActivityTypeDetail
 	} from '@aws-sdk/client-swf';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -47,7 +52,10 @@
 		History
 	} from 'lucide-svelte';
 
-	const swf = getSWFClient();
+	let swfClient: SWFClient | undefined;
+	function swf(): SWFClient {
+		return (swfClient ??= getSWFClient());
+	}
 
 	type Tab = 'domains' | 'workflows' | 'executions' | 'history' | 'polling';
 
@@ -126,12 +134,12 @@
 	);
 
 	async function loadDomains() {
-		const out = await swf.send(
+		const out = await swf().send(
 			new ListDomainsCommand({ registrationStatus: 'REGISTERED', maximumPageSize: 100 })
 		);
 		domains = out.domainInfos ?? [];
 		// also fetch deprecated
-		const dep = await swf.send(
+		const dep = await swf().send(
 			new ListDomainsCommand({ registrationStatus: 'DEPRECATED', maximumPageSize: 100 })
 		);
 		domains = [...domains, ...(dep.domainInfos ?? [])];
@@ -144,14 +152,14 @@
 			return;
 		}
 		const [wfResp, atResp] = await Promise.all([
-			swf.send(
+			swf().send(
 				new ListWorkflowTypesCommand({
 					domain: selectedDomain,
 					registrationStatus: 'REGISTERED',
 					maximumPageSize: 100
 				})
 			),
-			swf.send(
+			swf().send(
 				new ListActivityTypesCommand({
 					domain: selectedDomain,
 					registrationStatus: 'REGISTERED',
@@ -172,14 +180,14 @@
 		const now = new Date();
 		const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 		const [openResp, closedResp] = await Promise.all([
-			swf.send(
+			swf().send(
 				new ListOpenWorkflowExecutionsCommand({
 					domain: selectedDomain,
 					startTimeFilter: { oldestDate: oneWeekAgo, latestDate: now },
 					maximumPageSize: 100
 				})
 			),
-			swf.send(
+			swf().send(
 				new ListClosedWorkflowExecutionsCommand({
 					domain: selectedDomain,
 					startTimeFilter: { oldestDate: oneWeekAgo, latestDate: now },
@@ -204,27 +212,104 @@
 		}
 	}
 
+	let historyRunId = $state('');
+	let historyEventFilter = $state('');
+	let expandedEventId = $state<number | null>(null);
+	let execDetail = $state<WorkflowExecutionDetail | null>(null);
+
+	const filteredHistoryEvents = $derived(
+		historyEventFilter.trim()
+			? historyEvents.filter((e) =>
+					(e.eventType ?? '').toLowerCase().includes(historyEventFilter.trim().toLowerCase())
+				)
+			: historyEvents
+	);
+
+	// Extract the input/result/details payload attributes attached to a history
+	// event so the operator can inspect the workflow/activity I/O.
+	function eventPayload(event: HistoryEvent): Record<string, unknown> | null {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const ev = event as unknown as Record<string, any>;
+		const attrKey = Object.keys(ev).find((k) => k.endsWith('EventAttributes'));
+		if (!attrKey) return null;
+		const attrs = ev[attrKey] as Record<string, unknown>;
+		if (!attrs) return null;
+		const picked: Record<string, unknown> = {};
+		for (const key of ['input', 'result', 'details', 'reason', 'control', 'signalName', 'cause']) {
+			if (attrs[key] !== undefined) picked[key] = attrs[key];
+		}
+		return Object.keys(picked).length > 0 ? picked : attrs;
+	}
+
+	function toggleEvent(id: number | undefined) {
+		if (id === undefined) return;
+		expandedEventId = expandedEventId === id ? null : id;
+	}
+
 	async function loadHistory() {
 		if (!historyDomain || !historyWorkflowId) return;
 		try {
-			const resp = await swf.send(
+			const resp = await swf().send(
 				new GetWorkflowExecutionHistoryCommand({
 					domain: historyDomain,
-					execution: { workflowId: historyWorkflowId, runId: '' }
+					execution: { workflowId: historyWorkflowId, runId: historyRunId || '' }
 				})
 			);
 			historyEvents = resp.events ?? [];
+			// Also fetch the execution detail for the open-execution input/output.
+			execDetail = null;
+			if (historyRunId) {
+				try {
+					const det = await swf().send(
+						new DescribeWorkflowExecutionCommand({
+							domain: historyDomain,
+							execution: { workflowId: historyWorkflowId, runId: historyRunId }
+						})
+					);
+					execDetail = det ?? null;
+				} catch {
+					execDetail = null;
+				}
+			}
 		} catch (e) {
 			toast.error('Failed to load history: ' + String(e));
 		}
 	}
 
-	async function openHistory(domain: string, workflowId: string) {
+	async function openHistory(domain: string, workflowId: string, runId = '') {
 		historyDomain = domain;
 		historyWorkflowId = workflowId;
+		historyRunId = runId;
 		historyEvents = [];
+		expandedEventId = null;
+		execDetail = null;
 		activeTab = 'history';
 		await loadHistory();
+	}
+
+	// Activity-type detail (timeouts / heartbeat config).
+	let showActivityDetail = $state(false);
+	let activityDetail = $state<ActivityTypeDetail | null>(null);
+	let loadingActivityDetail = $state(false);
+
+	async function viewActivityType(at: ActivityTypeInfo) {
+		if (!selectedDomain || !at.activityType?.name || !at.activityType?.version) return;
+		showActivityDetail = true;
+		activityDetail = null;
+		loadingActivityDetail = true;
+		try {
+			const resp = await swf().send(
+				new DescribeActivityTypeCommand({
+					domain: selectedDomain,
+					activityType: { name: at.activityType.name, version: at.activityType.version }
+				})
+			);
+			activityDetail = resp ?? null;
+		} catch (e) {
+			toast.error('Failed to load activity type: ' + String(e));
+		} finally {
+			loadingActivityDetail = false;
+		}
 	}
 
 	async function registerDomain() {
@@ -234,7 +319,7 @@
 		}
 		registeringDomain = true;
 		try {
-			await swf.send(
+			await swf().send(
 				new RegisterDomainCommand({
 					name: newDomainName.trim(),
 					description: newDomainDesc || undefined,
@@ -260,7 +345,7 @@
 		}
 		startingExec = true;
 		try {
-			await swf.send(new StartWorkflowExecutionCommand({
+			await swf().send(new StartWorkflowExecutionCommand({
 				domain: startDomain,
 				workflowId: startWorkflowId.trim(),
 				workflowType: {
@@ -281,7 +366,7 @@
 
 	async function terminateExecution(domain: string, workflowId: string) {
 		try {
-			await swf.send(
+			await swf().send(
 				new TerminateWorkflowExecutionCommand({
 					domain,
 					workflowId,
@@ -297,7 +382,7 @@
 
 	async function cancelExecution(domain: string, workflowId: string) {
 		try {
-			await swf.send(
+			await swf().send(
 				new RequestCancelWorkflowExecutionCommand({ domain, workflowId })
 			);
 			toast.success(`Cancel requested for ${workflowId}`);
@@ -314,7 +399,7 @@
 		}
 		sendingSignal = true;
 		try {
-			await swf.send(
+			await swf().send(
 				new SignalWorkflowExecutionCommand({
 					domain: signalDomain,
 					workflowId: signalWorkflowId,
@@ -350,12 +435,12 @@
 		polledTask = null;
 		try {
 			if (pollMode === 'activity') {
-				const resp = await swf.send(
+				const resp = await swf().send(
 					new PollForActivityTaskCommand({ domain: pollDomain, taskList: { name: pollTaskList } })
 				);
 				polledTask = resp.taskToken ? (resp as unknown as Record<string, unknown>) : null;
 			} else {
-				const resp = await swf.send(
+				const resp = await swf().send(
 					new PollForDecisionTaskCommand({ domain: pollDomain, taskList: { name: pollTaskList } })
 				);
 				polledTask = resp.taskToken ? (resp as unknown as Record<string, unknown>) : null;
@@ -375,16 +460,16 @@
 		try {
 			if (pollMode === 'activity') {
 				if (outcome === 'completed') {
-					await swf.send(
+					await swf().send(
 						new RespondActivityTaskCompletedCommand({ taskToken: token, result: pollResult })
 					);
 				} else {
-					await swf.send(
+					await swf().send(
 						new RespondActivityTaskFailedCommand({ taskToken: token, reason: pollReason })
 					);
 				}
 			} else {
-				await swf.send(new RespondDecisionTaskCompletedCommand({ taskToken: token }));
+				await swf().send(new RespondDecisionTaskCompletedCommand({ taskToken: token }));
 			}
 			toast.success(`Task responded as ${outcome}`);
 			polledTask = null;
@@ -403,7 +488,7 @@
 		showTags = true;
 		tagsList = [];
 		try {
-			const resp = await swf.send(new ListTagsForResourceCommand({ resourceArn: arn }));
+			const resp = await swf().send(new ListTagsForResourceCommand({ resourceArn: arn }));
 			tagsList = (resp.tags ?? []).map((t) => ({ key: t.key ?? '', value: t.value ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load tags: ' + String(e));
@@ -418,7 +503,7 @@
 			return;
 		}
 		try {
-			await swf.send(
+			await swf().send(
 				new TagResourceCommand({
 					resourceArn: tagsArn,
 					tags: [{ key: newTagKey.trim(), value: newTagValue }]
@@ -681,7 +766,15 @@
 												{#if at.description}<p class="text-xs text-gray-500 dark:text-gray-400">{at.description}</p>{/if}
 											</div>
 										</div>
-										<span class="rounded-full px-2 py-1 text-xs font-medium {statusColor(at.status)}">{at.status}</span>
+										<div class="flex items-center gap-2">
+											<button
+												onclick={() => viewActivityType(at)}
+												class="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+											>
+												Detail
+											</button>
+											<span class="rounded-full px-2 py-1 text-xs font-medium {statusColor(at.status)}">{at.status}</span>
+										</div>
 									</div>
 								{/each}
 							</div>
@@ -716,7 +809,7 @@
 											</div>
 											<div class="flex items-center gap-2">
 												<span class="rounded-full px-2 py-1 text-xs font-medium {statusColor('RUNNING')}">RUNNING</span>
-												<button onclick={() => openHistory(selectedDomain, exec.execution?.workflowId ?? '')}
+												<button onclick={() => openHistory(selectedDomain, exec.execution?.workflowId ?? '', exec.execution?.runId ?? '')}
 													class="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20">
 													<History class="inline h-3.5 w-3.5" /> History
 												</button>
@@ -765,7 +858,7 @@
 											</div>
 											<div class="flex items-center gap-2">
 												<span class="rounded-full px-2 py-1 text-xs font-medium {statusColor(exec.closeStatus ?? exec.executionStatus)}">{exec.closeStatus ?? exec.executionStatus ?? '—'}</span>
-												<button onclick={() => openHistory(selectedDomain, exec.execution?.workflowId ?? '')}
+												<button onclick={() => openHistory(selectedDomain, exec.execution?.workflowId ?? '', exec.execution?.runId ?? '')}
 													class="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20">
 													<History class="inline h-3.5 w-3.5" /> History
 												</button>
@@ -799,6 +892,14 @@
 							class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
 						/>
 					</div>
+					<div class="flex-1">
+						<label class="mb-1 block text-xs text-gray-500 dark:text-gray-400">Run ID (optional)</label>
+						<input
+							bind:value={historyRunId}
+							placeholder="run id"
+							class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+					</div>
 					<button
 						onclick={loadHistory}
 						class="flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
@@ -807,23 +908,63 @@
 					</button>
 				</div>
 
+				{#if execDetail}
+					<div class="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-600 sm:grid-cols-2">
+						<div>
+							<p class="text-xs font-semibold text-gray-500 dark:text-gray-400">Execution Status</p>
+							<p class="text-sm">{execDetail.executionInfo?.executionStatus ?? '—'} {execDetail.executionInfo?.closeStatus ? `(${execDetail.executionInfo.closeStatus})` : ''}</p>
+						</div>
+						<div>
+							<p class="text-xs font-semibold text-gray-500 dark:text-gray-400">Open Counts</p>
+							<p class="text-sm font-mono">act:{execDetail.openCounts?.openActivityTasks ?? 0} dec:{execDetail.openCounts?.openDecisionTasks ?? 0} timers:{execDetail.openCounts?.openTimers ?? 0}</p>
+						</div>
+					</div>
+				{/if}
+
 				{#if historyEvents.length === 0}
 					<div class="py-8 text-center text-gray-500 dark:text-gray-400">
 						{historyWorkflowId ? 'No history events found' : 'Enter a Workflow ID to view history'}
 					</div>
 				{:else}
+					<div class="mb-3">
+						<div class="relative">
+							<Search class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+							<input
+								bind:value={historyEventFilter}
+								placeholder="Filter by event type (e.g. ActivityTask)…"
+								class="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+							/>
+						</div>
+					</div>
 					<div class="space-y-1">
-						{#each historyEvents as event}
-							<div class="flex items-start gap-3 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-slate-700/50">
-								<span class="mt-0.5 min-w-8 rounded bg-gray-100 px-1.5 py-0.5 text-center text-xs font-mono text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-									{event.eventId}
-								</span>
-								<div class="flex-1">
-									<span class="text-sm font-medium {eventTypeColor(event.eventType)}">{event.eventType}</span>
-									{#if event.eventTimestamp}
-										<span class="ml-3 text-xs text-gray-400">{fmtTs(event.eventTimestamp)}</span>
+						{#each filteredHistoryEvents as event}
+							{@const payload = eventPayload(event)}
+							<div class="rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50">
+								<button
+									type="button"
+									onclick={() => toggleEvent(event.eventId)}
+									class="flex w-full items-start gap-3 p-2 text-left"
+								>
+									<span class="mt-0.5 min-w-8 rounded bg-gray-100 px-1.5 py-0.5 text-center text-xs font-mono text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+										{event.eventId}
+									</span>
+									<div class="flex-1">
+										<span class="text-sm font-medium {eventTypeColor(event.eventType)}">{event.eventType}</span>
+										{#if event.eventTimestamp}
+											<span class="ml-3 text-xs text-gray-400">{fmtTs(event.eventTimestamp)}</span>
+										{/if}
+									</div>
+									{#if payload}
+										{#if expandedEventId === event.eventId}
+											<ChevronDown class="h-4 w-4 text-gray-400" />
+										{:else}
+											<ChevronRight class="h-4 w-4 text-gray-400" />
+										{/if}
 									{/if}
-								</div>
+								</button>
+								{#if expandedEventId === event.eventId && payload}
+									<pre class="mx-2 mb-2 overflow-auto rounded bg-gray-900 px-3 py-2 text-xs font-mono text-gray-100">{JSON.stringify(payload, null, 2)}</pre>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -1083,6 +1224,39 @@
 			<div class="mt-4 flex justify-end">
 				<button class="rounded px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200" onclick={() => (showTags = false)}>Close</button>
 			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Activity Type Detail Modal -->
+{#if showActivityDetail}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<div class="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl dark:bg-slate-800">
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Activity Type Detail</h2>
+				<button class="text-sm text-gray-400 hover:text-gray-600" onclick={() => (showActivityDetail = false)}>Close</button>
+			</div>
+			{#if loadingActivityDetail}
+				<div class="flex justify-center py-8"><RefreshCw class="h-6 w-6 animate-spin text-gray-400" /></div>
+			{:else if activityDetail}
+				<div class="space-y-3 text-sm">
+					<div>
+						<span class="font-semibold">{activityDetail.typeInfo?.activityType?.name}</span>
+						<span class="ml-1 text-xs text-gray-400">v{activityDetail.typeInfo?.activityType?.version}</span>
+					</div>
+					{#if activityDetail.typeInfo?.description}<p class="text-gray-500 dark:text-gray-400">{activityDetail.typeInfo.description}</p>{/if}
+					<div class="grid grid-cols-2 gap-3">
+						<div><p class="text-xs font-semibold text-gray-500">Default Task Start-to-Close</p><p class="font-mono">{activityDetail.configuration?.defaultTaskStartToCloseTimeout ?? "\u2014"}</p></div>
+						<div><p class="text-xs font-semibold text-gray-500">Schedule-to-Start</p><p class="font-mono">{activityDetail.configuration?.defaultTaskScheduleToStartTimeout ?? "\u2014"}</p></div>
+						<div><p class="text-xs font-semibold text-gray-500">Schedule-to-Close</p><p class="font-mono">{activityDetail.configuration?.defaultTaskScheduleToCloseTimeout ?? "\u2014"}</p></div>
+						<div><p class="text-xs font-semibold text-gray-500">Heartbeat Timeout</p><p class="font-mono">{activityDetail.configuration?.defaultTaskHeartbeatTimeout ?? "\u2014"}</p></div>
+						<div><p class="text-xs font-semibold text-gray-500">Default Task List</p><p class="font-mono">{activityDetail.configuration?.defaultTaskList?.name ?? "\u2014"}</p></div>
+						<div><p class="text-xs font-semibold text-gray-500">Default Priority</p><p class="font-mono">{activityDetail.configuration?.defaultTaskPriority ?? "\u2014"}</p></div>
+					</div>
+				</div>
+			{:else}
+				<p class="py-6 text-center text-sm text-gray-400">No detail available</p>
+			{/if}
 		</div>
 	</div>
 {/if}

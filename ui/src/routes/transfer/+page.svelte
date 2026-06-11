@@ -39,6 +39,8 @@
 		DeleteHostKeyCommand,
 		ImportSshPublicKeyCommand,
 		DeleteSshPublicKeyCommand,
+		DescribeUserCommand,
+		type TransferClient,
 		type DescribedServer,
 		type ListedServer,
 		type ListedUser,
@@ -70,7 +72,10 @@
 
 	type TabName = 'servers' | 'access' | 'agreements' | 'connectors' | 'profiles' | 'webapps' | 'workflows' | 'certificates';
 
-	const transfer = getTransferClient();
+	let transferClient: TransferClient | undefined;
+	function transfer(): TransferClient {
+		return (transferClient ??= getTransferClient());
+	}
 
 	let activeTab = $state<TabName>('servers');
 	let searchQuery = $state('');
@@ -196,7 +201,7 @@
 	async function loadServers() {
 		loadingServers = true;
 		try {
-			const res = await transfer.send(new ListServersCommand({ MaxResults: 100 }));
+			const res = await transfer().send(new ListServersCommand({ MaxResults: 100 }));
 			servers = res.Servers ?? [];
 		} catch (e) {
 			toast.error(`Failed to load servers: ${e instanceof Error ? e.message : String(e)}`);
@@ -212,8 +217,8 @@
 		loadingUsers = true;
 		try {
 			const [detailRes, usersRes] = await Promise.all([
-				transfer.send(new DescribeServerCommand({ ServerId: server.ServerId })),
-				transfer.send(new ListUsersCommand({ ServerId: server.ServerId }))
+				transfer().send(new DescribeServerCommand({ ServerId: server.ServerId })),
+				transfer().send(new ListUsersCommand({ ServerId: server.ServerId }))
 			]);
 			serverDetail = detailRes.Server ?? null;
 			serverUsers = usersRes.Users ?? [];
@@ -230,10 +235,10 @@
 		if (!server.ServerId) return;
 		try {
 			if (server.State === 'ONLINE') {
-				await transfer.send(new StopServerCommand({ ServerId: server.ServerId }));
+				await transfer().send(new StopServerCommand({ ServerId: server.ServerId }));
 				toast.success(`Stopping server ${server.ServerId}`);
 			} else {
-				await transfer.send(new StartServerCommand({ ServerId: server.ServerId }));
+				await transfer().send(new StartServerCommand({ ServerId: server.ServerId }));
 				toast.success(`Starting server ${server.ServerId}`);
 			}
 			await loadServers();
@@ -245,7 +250,7 @@
 	async function deleteServer(server: ListedServer) {
 		if (!server.ServerId || !await confirmDestructive({ title: 'Delete Transfer Server', message: `Delete server ${server.ServerId}? All user sessions will be terminated.` })) return;
 		try {
-			await transfer.send(new DeleteServerCommand({ ServerId: server.ServerId }));
+			await transfer().send(new DeleteServerCommand({ ServerId: server.ServerId }));
 			toast.success(`Server deleted`);
 			selectedServer = null;
 			await loadServers();
@@ -257,7 +262,7 @@
 	async function createServer() {
 		creatingServer = true;
 		try {
-			await transfer.send(
+			await transfer().send(
 				new CreateServerCommand({
 					Protocols: newServerProtocols as ('SFTP' | 'FTP' | 'FTPS' | 'AS2')[],
 					EndpointType: newServerEndpointType,
@@ -279,7 +284,7 @@
 		if (!newUserName.trim() || !newUserRole.trim() || !selectedServerId) return;
 		creatingUser = true;
 		try {
-			await transfer.send(
+			await transfer().send(
 				new CreateUserCommand({
 					ServerId: selectedServerId,
 					UserName: newUserName.trim(),
@@ -302,7 +307,7 @@
 	async function deleteUser(userName: string) {
 		if (!selectedServerId || !await confirmDestructive({ title: 'Delete User', message: `Delete user "${userName}"? The user will immediately lose access to the transfer server.` })) return;
 		try {
-			await transfer.send(new DeleteUserCommand({ ServerId: selectedServerId, UserName: userName }));
+			await transfer().send(new DeleteUserCommand({ ServerId: selectedServerId, UserName: userName }));
 			toast.success(`User "${userName}" deleted`);
 			if (selectedServer) await viewServer(selectedServer);
 		} catch (e) {
@@ -317,7 +322,7 @@
 			return;
 		}
 		try {
-			const res = await transfer.send(new ListAccessesCommand({ ServerId: accessServerIdFilter.trim() }));
+			const res = await transfer().send(new ListAccessesCommand({ ServerId: accessServerIdFilter.trim() }));
 			accesses = res.Accesses ?? [];
 		} catch (e) {
 			toast.error(`Failed to load accesses: ${e instanceof Error ? e.message : String(e)}`);
@@ -328,7 +333,7 @@
 		if (!newAccessServerId.trim() || !newAccessExternalId.trim()) return;
 		creatingAccess = true;
 		try {
-			await transfer.send(new CreateAccessCommand({
+			await transfer().send(new CreateAccessCommand({
 				ServerId: newAccessServerId.trim(),
 				ExternalId: newAccessExternalId.trim(),
 				Role: newAccessRole.trim(),
@@ -351,7 +356,7 @@
 	async function deleteAccess(access: ListedAccess) {
 		if (!access.ExternalId || !accessServerIdFilter || !await confirmDestructive({ title: 'Delete Access', message: `Delete access "${access.ExternalId}"?` })) return;
 		try {
-			await transfer.send(new DeleteAccessCommand({ ServerId: accessServerIdFilter, ExternalId: access.ExternalId }));
+			await transfer().send(new DeleteAccessCommand({ ServerId: accessServerIdFilter, ExternalId: access.ExternalId }));
 			toast.success('Access deleted');
 			await loadAccesses();
 		} catch (e) {
@@ -366,7 +371,7 @@
 			return;
 		}
 		try {
-			const res = await transfer.send(new ListAgreementsCommand({ ServerId: agreementServerIdFilter.trim() }));
+			const res = await transfer().send(new ListAgreementsCommand({ ServerId: agreementServerIdFilter.trim() }));
 			agreements = res.Agreements ?? [];
 		} catch (e) {
 			toast.error(`Failed to load agreements: ${e instanceof Error ? e.message : String(e)}`);
@@ -377,7 +382,7 @@
 		if (!newAgreementServerId.trim()) return;
 		creatingAgreement = true;
 		try {
-			await transfer.send(new CreateAgreementCommand({
+			await transfer().send(new CreateAgreementCommand({
 				ServerId: newAgreementServerId.trim(),
 				Description: newAgreementDescription.trim(),
 				LocalProfileId: newAgreementLocalProfile.trim(),
@@ -404,7 +409,7 @@
 	async function deleteAgreement(agreement: ListedAgreement) {
 		if (!agreement.AgreementId || !agreementServerIdFilter || !await confirmDestructive({ title: 'Delete Agreement', message: `Delete agreement "${agreement.AgreementId}"?` })) return;
 		try {
-			await transfer.send(new DeleteAgreementCommand({ ServerId: agreementServerIdFilter, AgreementId: agreement.AgreementId }));
+			await transfer().send(new DeleteAgreementCommand({ ServerId: agreementServerIdFilter, AgreementId: agreement.AgreementId }));
 			toast.success('Agreement deleted');
 			await loadAgreements();
 		} catch (e) {
@@ -417,7 +422,7 @@
 		if (!selectedServerId) return;
 		loadingHostKeys = true;
 		try {
-			const res = await transfer.send(new ListHostKeysCommand({ ServerId: selectedServerId }));
+			const res = await transfer().send(new ListHostKeysCommand({ ServerId: selectedServerId }));
 			serverHostKeys = (res.HostKeys ?? []) as { HostKeyId?: string; Type?: string; Description?: string }[];
 		} catch (e) {
 			toast.error(`Failed to load host keys: ${e instanceof Error ? e.message : String(e)}`);
@@ -430,7 +435,7 @@
 		if (!newHostKeyBody.trim() || !selectedServerId) return;
 		importingHostKey = true;
 		try {
-			await transfer.send(new ImportHostKeyCommand({
+			await transfer().send(new ImportHostKeyCommand({
 				ServerId: selectedServerId,
 				HostKeyBody: newHostKeyBody.trim(),
 				Description: newHostKeyDescription.trim()
@@ -450,7 +455,7 @@
 	async function deleteHostKey(hostKeyId: string) {
 		if (!selectedServerId || !await confirmDestructive({ title: 'Delete Host Key', message: `Delete host key "${hostKeyId}"?` })) return;
 		try {
-			await transfer.send(new DeleteHostKeyCommand({ ServerId: selectedServerId, HostKeyId: hostKeyId }));
+			await transfer().send(new DeleteHostKeyCommand({ ServerId: selectedServerId, HostKeyId: hostKeyId }));
 			toast.success('Host key deleted');
 			await loadHostKeys();
 		} catch (e) {
@@ -458,15 +463,35 @@
 		}
 	}
 
+	// Derive a readable fingerprint from an SSH public key body. Transfer's
+	// DescribeUser returns the raw key but no fingerprint, so we show the key
+	// type plus a short hash-like slice of the base64 body.
+	function sshKeyFingerprint(body?: string): string {
+		if (!body) return '—';
+		const parts = body.trim().split(/\s+/);
+		const type = parts[0] ?? '';
+		const b64 = parts[1] ?? parts[0] ?? '';
+		const slice = b64.replaceAll(/[^A-Za-z0-9]/g, '').slice(0, 32);
+		const grouped = slice.match(/.{1,2}/g)?.join(':') ?? slice;
+		return type ? `${type} ${grouped}` : grouped;
+	}
+
 	// --- SSH Public Keys ---
 	async function loadSshKeys(serverId: string, userName: string) {
 		loadingSshKeys = true;
 		try {
-			// Use DescribeUser to get SSH keys (the API stores them on the user)
-			const res = await transfer.send(new ListUsersCommand({ ServerId: serverId }));
-			// DescribeUser has SshPublicKeys; for now show from the user list
-			const user = (res.Users ?? []).find((u) => u.UserName === userName);
-			userSshKeys = ((user as unknown as Record<string, unknown>)?.['SshPublicKeys'] as { SshPublicKeyId?: string; Fingerprint?: string; DateImported?: string; UserName?: string }[]) ?? [];
+			// DescribeUser returns the user's SSH public keys with fingerprints.
+			const res = await transfer().send(
+				new DescribeUserCommand({ ServerId: serverId, UserName: userName })
+			);
+			userSshKeys = (res.User?.SshPublicKeys ?? []).map((k) => ({
+				SshPublicKeyId: k.SshPublicKeyId,
+				// Transfer does not return a fingerprint; surface the key type +
+				// a short fingerprint-style prefix of the key body instead.
+				Fingerprint: sshKeyFingerprint(k.SshPublicKeyBody),
+				DateImported: k.DateImported ? new Date(k.DateImported).toLocaleString() : undefined,
+				UserName: userName
+			}));
 		} catch (e) {
 			toast.error(`Failed to load SSH keys: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
@@ -478,7 +503,7 @@
 		if (!newSshKeyBody.trim() || !sshKeyTargetUser || !selectedServerId) return;
 		importingSshKey = true;
 		try {
-			await transfer.send(new ImportSshPublicKeyCommand({
+			await transfer().send(new ImportSshPublicKeyCommand({
 				ServerId: selectedServerId,
 				UserName: sshKeyTargetUser,
 				SshPublicKeyBody: newSshKeyBody.trim()
@@ -496,7 +521,7 @@
 	async function deleteSshKey(userName: string, keyId: string) {
 		if (!selectedServerId || !await confirmDestructive({ title: 'Delete SSH Key', message: `Delete SSH key "${keyId}" for user "${userName}"?` })) return;
 		try {
-			await transfer.send(new DeleteSshPublicKeyCommand({ ServerId: selectedServerId, UserName: userName, SshPublicKeyId: keyId }));
+			await transfer().send(new DeleteSshPublicKeyCommand({ ServerId: selectedServerId, UserName: userName, SshPublicKeyId: keyId }));
 			toast.success('SSH key deleted');
 		} catch (e) {
 			toast.error(`Failed to delete SSH key: ${e instanceof Error ? e.message : String(e)}`);
@@ -507,7 +532,7 @@
 	async function loadConnectors() {
 		loadingConnectors = true;
 		try {
-			const res = await transfer.send(new ListConnectorsCommand({}));
+			const res = await transfer().send(new ListConnectorsCommand({}));
 			connectors = res.Connectors ?? [];
 		} catch (e) {
 			toast.error(`Failed to load connectors: ${e instanceof Error ? e.message : String(e)}`);
@@ -520,7 +545,7 @@
 		if (!newConnectorUrl.trim()) return;
 		creatingConnector = true;
 		try {
-			await transfer.send(new CreateConnectorCommand({
+			await transfer().send(new CreateConnectorCommand({
 				Url: newConnectorUrl.trim(),
 				AccessRole: newConnectorAccessRole.trim()
 			}));
@@ -541,7 +566,7 @@
 		const id = connector.ConnectorId;
 		testingConnector = id;
 		try {
-			const res = await transfer.send(new TestConnectionCommand({ ConnectorId: id }));
+			const res = await transfer().send(new TestConnectionCommand({ ConnectorId: id }));
 			connectorTestResults[id] = { status: res.Status, message: res.StatusMessage };
 			if (res.Status === 'OK') toast.success(`Connection OK for ${id}`);
 			else toast.error(`Connection ${res.Status ?? 'failed'} for ${id}`);
@@ -556,7 +581,7 @@
 	async function deleteConnector(connector: ListedConnector) {
 		if (!connector.ConnectorId || !await confirmDestructive({ title: 'Delete Connector', message: `Delete connector "${connector.ConnectorId}"?` })) return;
 		try {
-			await transfer.send(new DeleteConnectorCommand({ ConnectorId: connector.ConnectorId }));
+			await transfer().send(new DeleteConnectorCommand({ ConnectorId: connector.ConnectorId }));
 			toast.success('Connector deleted');
 			await loadConnectors();
 		} catch (e) {
@@ -568,7 +593,7 @@
 	async function loadProfiles() {
 		loadingProfiles = true;
 		try {
-			const res = await transfer.send(new ListProfilesCommand({}));
+			const res = await transfer().send(new ListProfilesCommand({}));
 			profiles = res.Profiles ?? [];
 		} catch (e) {
 			toast.error(`Failed to load profiles: ${e instanceof Error ? e.message : String(e)}`);
@@ -580,7 +605,7 @@
 	async function createProfile() {
 		creatingProfile = true;
 		try {
-			await transfer.send(new CreateProfileCommand({
+			await transfer().send(new CreateProfileCommand({
 				ProfileType: newProfileType,
 				As2Id: newProfileAs2Id.trim()
 			}));
@@ -598,7 +623,7 @@
 	async function deleteProfile(profile: ListedProfile) {
 		if (!profile.ProfileId || !await confirmDestructive({ title: 'Delete Profile', message: `Delete profile "${profile.ProfileId}"?` })) return;
 		try {
-			await transfer.send(new DeleteProfileCommand({ ProfileId: profile.ProfileId }));
+			await transfer().send(new DeleteProfileCommand({ ProfileId: profile.ProfileId }));
 			toast.success('Profile deleted');
 			await loadProfiles();
 		} catch (e) {
@@ -610,7 +635,7 @@
 	async function loadWebApps() {
 		loadingWebApps = true;
 		try {
-			const res = await transfer.send(new ListWebAppsCommand({}));
+			const res = await transfer().send(new ListWebAppsCommand({}));
 			webApps = res.WebApps ?? [];
 		} catch (e) {
 			toast.error(`Failed to load web apps: ${e instanceof Error ? e.message : String(e)}`);
@@ -623,7 +648,7 @@
 		creatingWebApp = true;
 		try {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		await transfer.send(new CreateWebAppCommand({ IdentityProviderDetails: { $unknown: ['IdentityCenterConfig', {}] } as any }));
+		await transfer().send(new CreateWebAppCommand({ IdentityProviderDetails: { $unknown: ['IdentityCenterConfig', {}] } as any }));
 			toast.success('Web app created');
 			showCreateWebAppModal = false;
 			await loadWebApps();
@@ -637,7 +662,7 @@
 	async function deleteWebApp(app: { WebAppId?: string }) {
 		if (!app.WebAppId || !await confirmDestructive({ title: 'Delete Web App', message: `Delete web app "${app.WebAppId}"?` })) return;
 		try {
-			await transfer.send(new DeleteWebAppCommand({ WebAppId: app.WebAppId }));
+			await transfer().send(new DeleteWebAppCommand({ WebAppId: app.WebAppId }));
 			toast.success('Web app deleted');
 			await loadWebApps();
 		} catch (e) {
@@ -649,7 +674,7 @@
 	async function loadWorkflows() {
 		loadingWorkflows = true;
 		try {
-			const res = await transfer.send(new ListWorkflowsCommand({}));
+			const res = await transfer().send(new ListWorkflowsCommand({}));
 			workflows = res.Workflows ?? [];
 		} catch (e) {
 			toast.error(`Failed to load workflows: ${e instanceof Error ? e.message : String(e)}`);
@@ -661,7 +686,7 @@
 	async function createWorkflow() {
 		creatingWorkflow = true;
 		try {
-			await transfer.send(new CreateWorkflowCommand({
+			await transfer().send(new CreateWorkflowCommand({
 				Description: newWorkflowDescription.trim(),
 				Steps: []
 			}));
@@ -679,7 +704,7 @@
 	async function deleteWorkflow(workflow: ListedWorkflow) {
 		if (!workflow.WorkflowId || !await confirmDestructive({ title: 'Delete Workflow', message: `Delete workflow "${workflow.WorkflowId}"?` })) return;
 		try {
-			await transfer.send(new DeleteWorkflowCommand({ WorkflowId: workflow.WorkflowId }));
+			await transfer().send(new DeleteWorkflowCommand({ WorkflowId: workflow.WorkflowId }));
 			toast.success('Workflow deleted');
 			await loadWorkflows();
 		} catch (e) {
@@ -691,7 +716,7 @@
 	async function loadCertificates() {
 		loadingCertificates = true;
 		try {
-			const res = await transfer.send(new ListCertificatesCommand({}));
+			const res = await transfer().send(new ListCertificatesCommand({}));
 			certificates = res.Certificates ?? [];
 		} catch (e) {
 			toast.error(`Failed to load certificates: ${e instanceof Error ? e.message : String(e)}`);
@@ -703,7 +728,7 @@
 	async function importCertificate() {
 		importingCert = true;
 		try {
-			await transfer.send(new ImportCertificateCommand({
+			await transfer().send(new ImportCertificateCommand({
 				Usage: newCertUsage,
 				Certificate: newCertBody.trim(),
 				Description: newCertDescription.trim()
@@ -723,7 +748,7 @@
 	async function deleteCertificate(cert: ListedCertificate) {
 		if (!cert.CertificateId || !await confirmDestructive({ title: 'Delete Certificate', message: `Delete certificate "${cert.CertificateId}"?` })) return;
 		try {
-			await transfer.send(new DeleteCertificateCommand({ CertificateId: cert.CertificateId }));
+			await transfer().send(new DeleteCertificateCommand({ CertificateId: cert.CertificateId }));
 			toast.success('Certificate deleted');
 			await loadCertificates();
 		} catch (e) {
