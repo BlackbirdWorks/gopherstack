@@ -1297,7 +1297,7 @@ func (rc *ResourceCreator) createEMRCluster(
 		releaseLabel = "emr-6.0.0"
 	}
 
-	cluster, err := rc.backends.EMR.Backend.RunJobFlow(emr.RunJobFlowParams{
+	cluster, err := rc.backends.EMR.Backend.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name:         name,
 		ReleaseLabel: releaseLabel,
 	})
@@ -1315,7 +1315,7 @@ func (rc *ResourceCreator) deleteEMRCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	return rc.backends.EMR.Backend.TerminateJobFlows([]string{id})
+	return rc.backends.EMR.Backend.TerminateJobFlows(context.Background(), []string{id})
 }
 
 // ---- CloudWatch Dashboard ----

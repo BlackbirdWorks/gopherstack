@@ -19,7 +19,7 @@ type describeJobFlowsOutput struct {
 }
 
 func (h *Handler) handleDescribeJobFlows(
-	_ context.Context, in *describeJobFlowsInput,
+	ctx context.Context, in *describeJobFlowsInput,
 ) (*describeJobFlowsOutput, error) {
 	var createdAfter, createdBefore *time.Time
 
@@ -33,7 +33,7 @@ func (h *Handler) handleDescribeJobFlows(
 		createdBefore = &t
 	}
 
-	flows := h.Backend.DescribeJobFlows(in.JobFlowIDs, in.JobFlowStates, createdAfter, createdBefore)
+	flows := h.Backend.DescribeJobFlows(ctx, in.JobFlowIDs, in.JobFlowStates, createdAfter, createdBefore)
 
 	return &describeJobFlowsOutput{JobFlows: flows}, nil
 }
@@ -49,10 +49,10 @@ type describeNotebookExecutionOutput struct {
 }
 
 func (h *Handler) handleDescribeNotebookExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *describeNotebookExecutionInput,
 ) (*describeNotebookExecutionOutput, error) {
-	ne, err := h.Backend.DescribeNotebookExecution(in.NotebookExecutionID)
+	ne, err := h.Backend.DescribeNotebookExecution(ctx, in.NotebookExecutionID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,10 +71,10 @@ type describePersistentAppUIOutput struct {
 }
 
 func (h *Handler) handleDescribePersistentAppUI(
-	_ context.Context,
+	ctx context.Context,
 	in *describePersistentAppUIInput,
 ) (*describePersistentAppUIOutput, error) {
-	ui, err := h.Backend.DescribePersistentAppUI(in.PersistentAppUIId)
+	ui, err := h.Backend.DescribePersistentAppUI(ctx, in.PersistentAppUIId)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,10 @@ type describeReleaseLabelOutput struct {
 }
 
 func (h *Handler) handleDescribeReleaseLabel(
-	_ context.Context,
+	ctx context.Context,
 	in *describeReleaseLabelInput,
 ) (*describeReleaseLabelOutput, error) {
-	rl, err := h.Backend.DescribeReleaseLabel(in.ReleaseLabel)
+	rl, err := h.Backend.DescribeReleaseLabel(ctx, in.ReleaseLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +119,8 @@ type describeStepOutput struct {
 	Step *Step `json:"Step"`
 }
 
-func (h *Handler) handleDescribeStep(_ context.Context, in *describeStepInput) (*describeStepOutput, error) {
-	step, err := h.Backend.DescribeStep(in.ClusterID, in.StepID)
+func (h *Handler) handleDescribeStep(ctx context.Context, in *describeStepInput) (*describeStepOutput, error) {
+	step, err := h.Backend.DescribeStep(ctx, in.ClusterID, in.StepID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +138,8 @@ type describeStudioOutput struct {
 	Studio *Studio `json:"Studio"`
 }
 
-func (h *Handler) handleDescribeStudio(_ context.Context, in *describeStudioInput) (*describeStudioOutput, error) {
-	studio, err := h.Backend.DescribeStudio(in.StudioID)
+func (h *Handler) handleDescribeStudio(ctx context.Context, in *describeStudioInput) (*describeStudioOutput, error) {
+	studio, err := h.Backend.DescribeStudio(ctx, in.StudioID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,10 +162,10 @@ type blockPublicAccessConfigurationMetadata struct {
 }
 
 func (h *Handler) handleGetBlockPublicAccessConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	_ *getBlockPublicAccessConfigurationInput,
 ) (*getBlockPublicAccessConfigurationOutput, error) {
-	cfg, meta := h.Backend.GetBlockPublicAccessConfiguration()
+	cfg, meta := h.Backend.GetBlockPublicAccessConfiguration(ctx)
 
 	return &getBlockPublicAccessConfigurationOutput{
 		BlockPublicAccessConfiguration: cfg,
@@ -189,10 +189,10 @@ type getClusterSessionCredentialsOutput struct {
 }
 
 func (h *Handler) handleGetClusterSessionCredentials(
-	_ context.Context,
+	ctx context.Context,
 	in *getClusterSessionCredentialsInput,
 ) (*getClusterSessionCredentialsOutput, error) {
-	creds, expiry, err := h.Backend.GetClusterSessionCredentials(in.ClusterID, in.ExecutionRoleArn)
+	creds, expiry, err := h.Backend.GetClusterSessionCredentials(ctx, in.ClusterID, in.ExecutionRoleArn)
 	if err != nil {
 		return nil, err
 	}
@@ -214,10 +214,10 @@ type getOnClusterAppUIPresignedURLOutput struct {
 }
 
 func (h *Handler) handleGetOnClusterAppUIPresignedURL(
-	_ context.Context,
+	ctx context.Context,
 	in *getOnClusterAppUIPresignedURLInput,
 ) (*getOnClusterAppUIPresignedURLOutput, error) {
-	url := h.Backend.GetPresignedURL(in.ClusterID, h.Backend.region)
+	url := h.Backend.GetPresignedURL(in.ClusterID, getRegion(ctx, h.Backend.region))
 
 	return &getOnClusterAppUIPresignedURLOutput{URL: url}, nil
 }
@@ -233,10 +233,10 @@ type getPersistentAppUIPresignedURLOutput struct {
 }
 
 func (h *Handler) handleGetPersistentAppUIPresignedURL(
-	_ context.Context,
+	ctx context.Context,
 	in *getPersistentAppUIPresignedURLInput,
 ) (*getPersistentAppUIPresignedURLOutput, error) {
-	url := h.Backend.GetPresignedURL(in.PersistentAppUIId, h.Backend.region)
+	url := h.Backend.GetPresignedURL(in.PersistentAppUIId, getRegion(ctx, h.Backend.region))
 
 	return &getPersistentAppUIPresignedURLOutput{PresignedURL: url}, nil
 }
@@ -255,10 +255,10 @@ type getStudioSessionMappingOutput struct {
 }
 
 func (h *Handler) handleGetStudioSessionMapping(
-	_ context.Context,
+	ctx context.Context,
 	in *getStudioSessionMappingInput,
 ) (*getStudioSessionMappingOutput, error) {
-	mapping, err := h.Backend.GetStudioSessionMapping(in.StudioID, in.IdentityType, in.IdentityID, in.IdentityName)
+	mapping, err := h.Backend.GetStudioSessionMapping(ctx, in.StudioID, in.IdentityType, in.IdentityID, in.IdentityName)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,7 @@ type listInstancesOutput struct {
 	Instances []ClusterInstance `json:"Instances"`
 }
 
-func (h *Handler) handleListInstances(_ context.Context, in *listInstancesInput) (*listInstancesOutput, error) {
+func (h *Handler) handleListInstances(ctx context.Context, in *listInstancesInput) (*listInstancesOutput, error) {
 	params := ListInstancesParams{
 		InstanceGroupID:    in.InstanceGroupID,
 		InstanceFleetID:    in.InstanceFleetID,
@@ -291,7 +291,7 @@ func (h *Handler) handleListInstances(_ context.Context, in *listInstancesInput)
 		Marker:             in.Marker,
 	}
 
-	instances, nextMarker := h.Backend.ListInstances(in.ClusterID, params)
+	instances, nextMarker := h.Backend.ListInstances(ctx, in.ClusterID, params)
 
 	return &listInstancesOutput{Instances: instances, Marker: nextMarker}, nil
 }
@@ -310,10 +310,10 @@ type listNotebookExecutionsOutput struct {
 }
 
 func (h *Handler) handleListNotebookExecutions(
-	_ context.Context,
+	ctx context.Context,
 	in *listNotebookExecutionsInput,
 ) (*listNotebookExecutionsOutput, error) {
-	list, marker := h.Backend.ListNotebookExecutions(ListNotebookExecutionsParams{
+	list, marker := h.Backend.ListNotebookExecutions(ctx, ListNotebookExecutionsParams{
 		EditorID: in.EditorID,
 		Status:   in.Status,
 		Marker:   in.Marker,
@@ -341,10 +341,10 @@ type listReleaseLabelsOutput struct {
 }
 
 func (h *Handler) handleListReleaseLabels(
-	_ context.Context,
+	ctx context.Context,
 	in *listReleaseLabelsInput,
 ) (*listReleaseLabelsOutput, error) {
-	labels, next := h.Backend.ListReleaseLabels(in.Filters.Prefix, in.Filters.Application, in.Marker)
+	labels, next := h.Backend.ListReleaseLabels(ctx, in.Filters.Prefix, in.Filters.Application, in.Marker)
 
 	return &listReleaseLabelsOutput{ReleaseLabels: labels, NextToken: next}, nil
 }
@@ -361,10 +361,10 @@ type listSecurityConfigurationsOutput struct {
 }
 
 func (h *Handler) handleListSecurityConfigurations(
-	_ context.Context,
+	ctx context.Context,
 	in *listSecurityConfigurationsInput,
 ) (*listSecurityConfigurationsOutput, error) {
-	configs, nextMarker := h.Backend.ListSecurityConfigurations(in.Marker)
+	configs, nextMarker := h.Backend.ListSecurityConfigurations(ctx, in.Marker)
 
 	return &listSecurityConfigurationsOutput{
 		SecurityConfigurations: configs,
@@ -384,10 +384,10 @@ type listStudioSessionMappingsOutput struct {
 }
 
 func (h *Handler) handleListStudioSessionMappings(
-	_ context.Context,
+	ctx context.Context,
 	in *listStudioSessionMappingsInput,
 ) (*listStudioSessionMappingsOutput, error) {
-	mappings := h.Backend.ListStudioSessionMappings(in.StudioID, in.IdentityType)
+	mappings := h.Backend.ListStudioSessionMappings(ctx, in.StudioID, in.IdentityType)
 
 	return &listStudioSessionMappingsOutput{SessionMappings: mappings}, nil
 }
@@ -403,8 +403,8 @@ type listStudiosOutput struct {
 	Studios []StudioSummary `json:"Studios"`
 }
 
-func (h *Handler) handleListStudios(_ context.Context, in *listStudiosInput) (*listStudiosOutput, error) {
-	studios, nextMarker := h.Backend.ListStudios(in.Marker)
+func (h *Handler) handleListStudios(ctx context.Context, in *listStudiosInput) (*listStudiosOutput, error) {
+	studios, nextMarker := h.Backend.ListStudios(ctx, in.Marker)
 
 	return &listStudiosOutput{Studios: studios, Marker: nextMarker}, nil
 }
@@ -422,10 +422,10 @@ type listSupportedInstanceTypesOutput struct {
 }
 
 func (h *Handler) handleListSupportedInstanceTypes(
-	_ context.Context,
+	ctx context.Context,
 	in *listSupportedInstanceTypesInput,
 ) (*listSupportedInstanceTypesOutput, error) {
-	types, nextMarker := h.Backend.ListSupportedInstanceTypes(in.ReleaseLabel, in.Marker)
+	types, nextMarker := h.Backend.ListSupportedInstanceTypes(ctx, in.ReleaseLabel, in.Marker)
 
 	return &listSupportedInstanceTypesOutput{
 		SupportedInstanceTypes: types,
@@ -444,8 +444,8 @@ type modifyClusterOutput struct {
 	StepConcurrencyLevel int `json:"StepConcurrencyLevel"`
 }
 
-func (h *Handler) handleModifyCluster(_ context.Context, in *modifyClusterInput) (*modifyClusterOutput, error) {
-	level, err := h.Backend.ModifyCluster(in.ClusterID, in.StepConcurrencyLevel)
+func (h *Handler) handleModifyCluster(ctx context.Context, in *modifyClusterInput) (*modifyClusterOutput, error) {
+	level, err := h.Backend.ModifyCluster(ctx, in.ClusterID, in.StepConcurrencyLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -463,10 +463,10 @@ type modifyInstanceFleetInput struct {
 type modifyInstanceFleetOutput struct{}
 
 func (h *Handler) handleModifyInstanceFleet(
-	_ context.Context,
+	ctx context.Context,
 	in *modifyInstanceFleetInput,
 ) (*modifyInstanceFleetOutput, error) {
-	if err := h.Backend.ModifyInstanceFleet(in.ClusterID, in.InstanceFleet); err != nil {
+	if err := h.Backend.ModifyInstanceFleet(ctx, in.ClusterID, in.InstanceFleet); err != nil {
 		return nil, err
 	}
 
@@ -483,10 +483,10 @@ type modifyInstanceGroupsInput struct {
 type modifyInstanceGroupsOutput struct{}
 
 func (h *Handler) handleModifyInstanceGroups(
-	_ context.Context,
+	ctx context.Context,
 	in *modifyInstanceGroupsInput,
 ) (*modifyInstanceGroupsOutput, error) {
-	if err := h.Backend.ModifyInstanceGroups(in.ClusterID, in.InstanceGroups); err != nil {
+	if err := h.Backend.ModifyInstanceGroups(ctx, in.ClusterID, in.InstanceGroups); err != nil {
 		return nil, err
 	}
 
@@ -509,11 +509,14 @@ type putAutoScalingPolicyOutput struct {
 }
 
 func (h *Handler) handlePutAutoScalingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putAutoScalingPolicyInput,
 ) (*putAutoScalingPolicyOutput, error) {
 	detail, clusterARN, groupID, err := h.Backend.PutAutoScalingPolicy(
-		in.ClusterID, in.InstanceGroupID, in.AutoScalingPolicy,
+		ctx,
+		in.ClusterID,
+		in.InstanceGroupID,
+		in.AutoScalingPolicy,
 	)
 	if err != nil {
 		return nil, err
@@ -537,10 +540,10 @@ type putAutoTerminationPolicyInput struct {
 type putAutoTerminationPolicyOutput struct{}
 
 func (h *Handler) handlePutAutoTerminationPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putAutoTerminationPolicyInput,
 ) (*putAutoTerminationPolicyOutput, error) {
-	if err := h.Backend.PutAutoTerminationPolicy(in.ClusterID, in.AutoTerminationPolicy); err != nil {
+	if err := h.Backend.PutAutoTerminationPolicy(ctx, in.ClusterID, in.AutoTerminationPolicy); err != nil {
 		return nil, err
 	}
 
@@ -556,10 +559,10 @@ type putBlockPublicAccessConfigurationInput struct {
 type putBlockPublicAccessConfigurationOutput struct{}
 
 func (h *Handler) handlePutBlockPublicAccessConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *putBlockPublicAccessConfigurationInput,
 ) (*putBlockPublicAccessConfigurationOutput, error) {
-	if err := h.Backend.PutBlockPublicAccessConfiguration(in.BlockPublicAccessConfiguration); err != nil {
+	if err := h.Backend.PutBlockPublicAccessConfiguration(ctx, in.BlockPublicAccessConfiguration); err != nil {
 		return nil, err
 	}
 
@@ -576,10 +579,10 @@ type putManagedScalingPolicyInput struct {
 type putManagedScalingPolicyOutput struct{}
 
 func (h *Handler) handlePutManagedScalingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putManagedScalingPolicyInput,
 ) (*putManagedScalingPolicyOutput, error) {
-	if err := h.Backend.PutManagedScalingPolicy(in.ClusterID, in.ManagedScalingPolicy); err != nil {
+	if err := h.Backend.PutManagedScalingPolicy(ctx, in.ClusterID, in.ManagedScalingPolicy); err != nil {
 		return nil, err
 	}
 
@@ -596,10 +599,10 @@ type removeAutoScalingPolicyInput struct {
 type removeAutoScalingPolicyOutput struct{}
 
 func (h *Handler) handleRemoveAutoScalingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *removeAutoScalingPolicyInput,
 ) (*removeAutoScalingPolicyOutput, error) {
-	if err := h.Backend.RemoveAutoScalingPolicy(in.ClusterID, in.InstanceGroupID); err != nil {
+	if err := h.Backend.RemoveAutoScalingPolicy(ctx, in.ClusterID, in.InstanceGroupID); err != nil {
 		return nil, err
 	}
 
@@ -615,10 +618,10 @@ type removeAutoTerminationPolicyInput struct {
 type removeAutoTerminationPolicyOutput struct{}
 
 func (h *Handler) handleRemoveAutoTerminationPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *removeAutoTerminationPolicyInput,
 ) (*removeAutoTerminationPolicyOutput, error) {
-	if err := h.Backend.RemoveAutoTerminationPolicy(in.ClusterID); err != nil {
+	if err := h.Backend.RemoveAutoTerminationPolicy(ctx, in.ClusterID); err != nil {
 		return nil, err
 	}
 
@@ -634,10 +637,10 @@ type removeManagedScalingPolicyInput struct {
 type removeManagedScalingPolicyOutput struct{}
 
 func (h *Handler) handleRemoveManagedScalingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *removeManagedScalingPolicyInput,
 ) (*removeManagedScalingPolicyOutput, error) {
-	if err := h.Backend.RemoveManagedScalingPolicy(in.ClusterID); err != nil {
+	if err := h.Backend.RemoveManagedScalingPolicy(ctx, in.ClusterID); err != nil {
 		return nil, err
 	}
 
@@ -654,10 +657,10 @@ type setKeepJobFlowAliveWhenNoStepsInput struct {
 type setKeepJobFlowAliveWhenNoStepsOutput struct{}
 
 func (h *Handler) handleSetKeepJobFlowAliveWhenNoSteps(
-	_ context.Context,
+	ctx context.Context,
 	in *setKeepJobFlowAliveWhenNoStepsInput,
 ) (*setKeepJobFlowAliveWhenNoStepsOutput, error) {
-	if err := h.Backend.SetKeepJobFlowAliveWhenNoSteps(in.JobFlowIDs, in.KeepJobFlowAliveWhenNoSteps); err != nil {
+	if err := h.Backend.SetKeepJobFlowAliveWhenNoSteps(ctx, in.JobFlowIDs, in.KeepJobFlowAliveWhenNoSteps); err != nil {
 		return nil, err
 	}
 
@@ -674,10 +677,10 @@ type setTerminationProtectionInput struct {
 type setTerminationProtectionOutput struct{}
 
 func (h *Handler) handleSetTerminationProtection(
-	_ context.Context,
+	ctx context.Context,
 	in *setTerminationProtectionInput,
 ) (*setTerminationProtectionOutput, error) {
-	if err := h.Backend.SetTerminationProtection(in.JobFlowIDs, in.TerminationProtected); err != nil {
+	if err := h.Backend.SetTerminationProtection(ctx, in.JobFlowIDs, in.TerminationProtected); err != nil {
 		return nil, err
 	}
 
@@ -694,10 +697,10 @@ type setUnhealthyNodeReplacementInput struct {
 type setUnhealthyNodeReplacementOutput struct{}
 
 func (h *Handler) handleSetUnhealthyNodeReplacement(
-	_ context.Context,
+	ctx context.Context,
 	in *setUnhealthyNodeReplacementInput,
 ) (*setUnhealthyNodeReplacementOutput, error) {
-	if err := h.Backend.SetUnhealthyNodeReplacement(in.JobFlowIDs, in.UnhealthyNodeReplacement); err != nil {
+	if err := h.Backend.SetUnhealthyNodeReplacement(ctx, in.JobFlowIDs, in.UnhealthyNodeReplacement); err != nil {
 		return nil, err
 	}
 
@@ -714,10 +717,10 @@ type setVisibleToAllUsersInput struct {
 type setVisibleToAllUsersOutput struct{}
 
 func (h *Handler) handleSetVisibleToAllUsers(
-	_ context.Context,
+	ctx context.Context,
 	in *setVisibleToAllUsersInput,
 ) (*setVisibleToAllUsersOutput, error) {
-	if err := h.Backend.SetVisibleToAllUsers(in.JobFlowIDs, in.VisibleToAllUsers); err != nil {
+	if err := h.Backend.SetVisibleToAllUsers(ctx, in.JobFlowIDs, in.VisibleToAllUsers); err != nil {
 		return nil, err
 	}
 
@@ -741,11 +744,10 @@ type startNotebookExecutionOutput struct {
 }
 
 func (h *Handler) handleStartNotebookExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *startNotebookExecutionInput,
 ) (*startNotebookExecutionOutput, error) {
-	ne, err := h.Backend.StartNotebookExecution(
-		in.EditorID,
+	ne, err := h.Backend.StartNotebookExecution(ctx, in.EditorID,
 		in.NotebookExecutionName,
 		in.NotebookParams,
 		in.ExecutionEngineConfig.ID,
@@ -767,10 +769,10 @@ type stopNotebookExecutionInput struct {
 type stopNotebookExecutionOutput struct{}
 
 func (h *Handler) handleStopNotebookExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *stopNotebookExecutionInput,
 ) (*stopNotebookExecutionOutput, error) {
-	if err := h.Backend.StopNotebookExecution(in.NotebookExecutionID); err != nil {
+	if err := h.Backend.StopNotebookExecution(ctx, in.NotebookExecutionID); err != nil {
 		return nil, err
 	}
 
@@ -789,8 +791,8 @@ type updateStudioInput struct {
 
 type updateStudioOutput struct{}
 
-func (h *Handler) handleUpdateStudio(_ context.Context, in *updateStudioInput) (*updateStudioOutput, error) {
-	if err := h.Backend.UpdateStudio(in.StudioID, in.Name, in.Description, in.DefaultS3Location, ""); err != nil {
+func (h *Handler) handleUpdateStudio(ctx context.Context, in *updateStudioInput) (*updateStudioOutput, error) {
+	if err := h.Backend.UpdateStudio(ctx, in.StudioID, in.Name, in.Description, in.DefaultS3Location, ""); err != nil {
 		return nil, err
 	}
 
@@ -810,11 +812,10 @@ type updateStudioSessionMappingInput struct {
 type updateStudioSessionMappingOutput struct{}
 
 func (h *Handler) handleUpdateStudioSessionMapping(
-	_ context.Context,
+	ctx context.Context,
 	in *updateStudioSessionMappingInput,
 ) (*updateStudioSessionMappingOutput, error) {
-	if err := h.Backend.UpdateStudioSessionMapping(
-		in.StudioID,
+	if err := h.Backend.UpdateStudioSessionMapping(ctx, in.StudioID,
 		in.IdentityType,
 		in.IdentityID,
 		in.IdentityName,

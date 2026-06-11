@@ -1,6 +1,7 @@
 package emr_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -18,7 +19,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "cluster1", ReleaseLabel: "emr-6.0.0"})
+	_, err := b.RunJobFlow(context.Background(), emr.RunJobFlowParams{Name: "cluster1", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 	require.Equal(t, 1, b.ClusterCount())
 
@@ -47,7 +48,10 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, err := h.Backend.RunJobFlow(emr.RunJobFlowParams{Name: "cluster1", ReleaseLabel: "emr-6.0.0"})
+	_, err := h.Backend.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "cluster1", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -121,22 +125,22 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 			State: emr.StateWaiting,
 		},
 	}
-	b.AddClusterInternal(cluster)
+	b.AddClusterInternal(context.Background(), cluster)
 	assert.Equal(t, 1, b.ClusterCount())
 
-	b.AddSecurityConfigInternal(emr.SecurityConfiguration{
+	b.AddSecurityConfigInternal(context.Background(), emr.SecurityConfiguration{
 		Name:           "sc1",
 		SecurityConfig: `{"EncryptionConfiguration":{}}`,
 	})
 	assert.Equal(t, 1, b.SecurityConfigCount())
 
-	b.AddStudioInternal(emr.Studio{
+	b.AddStudioInternal(context.Background(), emr.Studio{
 		StudioID: "es-0000000000001",
 		Name:     "studio1",
 	})
 	assert.Equal(t, 1, b.StudioCount())
 
-	b.AddPersistentAppUIInternal(emr.PersistentAppUI{
+	b.AddPersistentAppUIInternal(context.Background(), emr.PersistentAppUI{
 		ID:                "pau-0000000000001",
 		TargetResourceArn: cluster.ARN,
 	})
@@ -153,7 +157,7 @@ func TestRefinement1_SeedHelpers_DeepCopy(t *testing.T) {
 		Name:           "sc-deep-copy",
 		SecurityConfig: `{"original":true}`,
 	}
-	b.AddSecurityConfigInternal(sc)
+	b.AddSecurityConfigInternal(context.Background(), sc)
 
 	sc.Name = "mutated"
 	assert.Equal(t, 1, b.SecurityConfigCount())
@@ -176,14 +180,14 @@ func TestRefinement1_SortedListClusters(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "clusterA", ReleaseLabel: "emr-6.0.0"})
+	_, err := b.RunJobFlow(context.Background(), emr.RunJobFlowParams{Name: "clusterA", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
-	_, err = b.RunJobFlow(emr.RunJobFlowParams{Name: "clusterB", ReleaseLabel: "emr-6.0.0"})
+	_, err = b.RunJobFlow(context.Background(), emr.RunJobFlowParams{Name: "clusterB", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
-	_, err = b.RunJobFlow(emr.RunJobFlowParams{Name: "clusterC", ReleaseLabel: "emr-6.0.0"})
+	_, err = b.RunJobFlow(context.Background(), emr.RunJobFlowParams{Name: "clusterC", ReleaseLabel: "emr-6.0.0"})
 	require.NoError(t, err)
 
-	clusters, _ := b.ListClusters(emr.ListClustersParams{})
+	clusters, _ := b.ListClusters(context.Background(), emr.ListClustersParams{})
 	require.Len(t, clusters, 3)
 
 	// ListClusters returns most recently created first (creation-time descending).
@@ -198,14 +202,17 @@ func TestRefinement1_SortedListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "tag-cluster", ReleaseLabel: "emr-6.0.0", Tags: []emr.Tag{
-		{Key: "zzz", Value: "last"},
-		{Key: "aaa", Value: "first"},
-		{Key: "mmm", Value: "middle"},
-	}})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "tag-cluster", ReleaseLabel: "emr-6.0.0", Tags: []emr.Tag{
+			{Key: "zzz", Value: "last"},
+			{Key: "aaa", Value: "first"},
+			{Key: "mmm", Value: "middle"},
+		}},
+	)
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(cluster.ID)
+	tags, err := b.ListTagsForResource(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	require.Len(t, tags, 3)
 	assert.Equal(t, "aaa", tags[0].Key)
@@ -219,7 +226,10 @@ func TestRefinement1_CreationDateTime(t *testing.T) {
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
 	before := time.Now().UnixMilli()
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "ts-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "ts-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 	after := time.Now().UnixMilli()
 
@@ -237,7 +247,7 @@ func TestRefinement1_CreatePersistentAppUI_ReturnsCopy(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	ui, err := b.CreatePersistentAppUI("arn:aws:elasticmapreduce:us-east-1:123:cluster/j-1")
+	ui, err := b.CreatePersistentAppUI(context.Background(), "arn:aws:elasticmapreduce:us-east-1:123:cluster/j-1")
 	require.NoError(t, err)
 	require.NotNil(t, ui)
 
@@ -245,7 +255,7 @@ func TestRefinement1_CreatePersistentAppUI_ReturnsCopy(t *testing.T) {
 	originalID := ui.ID
 	ui.ID = "mutated"
 
-	ui2, err := b.CreatePersistentAppUI("arn:aws:elasticmapreduce:us-east-1:123:cluster/j-2")
+	ui2, err := b.CreatePersistentAppUI(context.Background(), "arn:aws:elasticmapreduce:us-east-1:123:cluster/j-2")
 	require.NoError(t, err)
 	assert.NotEqual(t, "mutated", originalID)
 	assert.NotEqual(t, ui.ID, ui2.ID)
@@ -256,10 +266,32 @@ func TestRefinement1_Studio_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateStudio("my-studio", "SSO", "s3://bucket", "sg-1", "arn:role", "vpc-1", "sg-2", nil, nil)
+	_, err := b.CreateStudio(
+		context.Background(),
+		"my-studio",
+		"SSO",
+		"s3://bucket",
+		"sg-1",
+		"arn:role",
+		"vpc-1",
+		"sg-2",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateStudio("my-studio", "SSO", "s3://bucket", "sg-1", "arn:role", "vpc-1", "sg-2", nil, nil)
+	_, err = b.CreateStudio(
+		context.Background(),
+		"my-studio",
+		"SSO",
+		"s3://bucket",
+		"sg-1",
+		"arn:role",
+		"vpc-1",
+		"sg-2",
+		nil,
+		nil,
+	)
 	require.Error(t, err)
 }
 
@@ -288,18 +320,47 @@ func TestRefinement1_StudioSessionMapping_CreationTime(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	studio, err := b.CreateStudio("ct-studio", "SSO", "s3://b", "sg-1", "arn:r", "vpc-1", "sg-2", nil, nil)
+	studio, err := b.CreateStudio(
+		context.Background(),
+		"ct-studio",
+		"SSO",
+		"s3://b",
+		"sg-1",
+		"arn:r",
+		"vpc-1",
+		"sg-2",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	before := time.Now().Truncate(time.Second)
-	err = b.CreateStudioSessionMapping(studio.StudioID, "USER", "user-id", "", "arn:policy")
+	err = b.CreateStudioSessionMapping(context.Background(), studio.StudioID, "USER", "user-id", "", "arn:policy")
 	require.NoError(t, err)
 
 	// Verify through the HTTP layer.
 	h := newTestHandler(t)
-	studioOut, err := h.Backend.CreateStudio("http-studio", "SSO", "s3://b", "sg-1", "arn:r", "vpc-1", "sg-2", nil, nil)
+	studioOut, err := h.Backend.CreateStudio(
+		context.Background(),
+		"http-studio",
+		"SSO",
+		"s3://b",
+		"sg-1",
+		"arn:r",
+		"vpc-1",
+		"sg-2",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
-	err = h.Backend.CreateStudioSessionMapping(studioOut.StudioID, "USER", "user2", "", "arn:policy2")
+	err = h.Backend.CreateStudioSessionMapping(
+		context.Background(),
+		studioOut.StudioID,
+		"USER",
+		"user2",
+		"",
+		"arn:policy2",
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, h.Backend.StudioSessionMappingCount())
@@ -368,17 +429,28 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	src := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := src.RunJobFlow(emr.RunJobFlowParams{
+	cluster, err := src.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name:         "persist-cluster",
 		ReleaseLabel: "emr-6.8.0",
 		Tags:         []emr.Tag{{Key: "env", Value: "dev"}},
 	})
 	require.NoError(t, err)
-	_, err = src.CreateSecurityConfiguration("sc-1", `{"EncryptionConfiguration":{}}`)
+	_, err = src.CreateSecurityConfiguration(context.Background(), "sc-1", `{"EncryptionConfiguration":{}}`)
 	require.NoError(t, err)
-	studio, err := src.CreateStudio("studio-persist", "SSO", "s3://b", "sg-1", "arn:role", "vpc-1", "sg-2", nil, nil)
+	studio, err := src.CreateStudio(
+		context.Background(),
+		"studio-persist",
+		"SSO",
+		"s3://b",
+		"sg-1",
+		"arn:role",
+		"vpc-1",
+		"sg-2",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
-	err = src.CreateStudioSessionMapping(studio.StudioID, "USER", "uid-1", "", "arn:policy")
+	err = src.CreateStudioSessionMapping(context.Background(), studio.StudioID, "USER", "uid-1", "", "arn:policy")
 	require.NoError(t, err)
 
 	snap := src.Snapshot()
@@ -392,12 +464,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, dst.StudioCount())
 	assert.Equal(t, 1, dst.StudioSessionMappingCount())
 
-	c, err := dst.DescribeCluster(cluster.ID)
+	c, err := dst.DescribeCluster(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "persist-cluster", c.Name)
 	assert.Equal(t, "emr-6.8.0", c.ReleaseLabel)
 
-	sc, err := dst.DescribeSecurityConfiguration("sc-1")
+	sc, err := dst.DescribeSecurityConfiguration(context.Background(), "sc-1")
 	require.NoError(t, err)
 	assert.Equal(t, "sc-1", sc.Name)
 }
@@ -420,10 +492,13 @@ func TestRefinement1_NonNilInstanceGroups(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "nogroup-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "nogroup-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	groups, err := b.ListInstanceGroups(cluster.ID)
+	groups, err := b.ListInstanceGroups(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	assert.NotNil(t, groups)
 	assert.Empty(t, groups)
@@ -434,10 +509,13 @@ func TestRefinement1_NonNilInstanceFleets(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "nofleet-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "nofleet-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	fleets, err := b.ListInstanceFleets(cluster.ID)
+	fleets, err := b.ListInstanceFleets(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	assert.NotNil(t, fleets)
 	assert.Empty(t, fleets)
@@ -448,12 +526,15 @@ func TestRefinement1_TerminateJobFlows_StateChangeReason(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "scr-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "scr-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
-	c, err := b.DescribeCluster(cluster.ID)
+	c, err := b.DescribeCluster(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	assert.Equal(t, emr.StateTerminated, c.Status.State)
 	assert.NotEmpty(t, c.Status.StateChangeReason["Code"])
@@ -499,15 +580,18 @@ func TestRefinement1_AddInstanceGroups_UniqueIDs(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "multi-ig", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "multi-ig", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	ids1, _, err := b.AddInstanceGroups(cluster.ID, []emr.InstanceGroupSpec{
+	ids1, _, err := b.AddInstanceGroups(context.Background(), cluster.ID, []emr.InstanceGroupSpec{
 		{Name: "g1", InstanceRole: "TASK", InstanceType: "m5.xlarge", InstanceCount: 2},
 	})
 	require.NoError(t, err)
 
-	ids2, _, err := b.AddInstanceGroups(cluster.ID, []emr.InstanceGroupSpec{
+	ids2, _, err := b.AddInstanceGroups(context.Background(), cluster.ID, []emr.InstanceGroupSpec{
 		{Name: "g2", InstanceRole: "TASK", InstanceType: "m5.xlarge", InstanceCount: 2},
 	})
 	require.NoError(t, err)

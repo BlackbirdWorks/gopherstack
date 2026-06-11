@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 func TestEMRDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EMRHandler.Backend.RunJobFlow(emr.RunJobFlowParams{
+	_, err := stack.EMRHandler.Backend.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name:         "e2e-test-cluster",
 		ReleaseLabel: "emr-6.0.0",
 	})
