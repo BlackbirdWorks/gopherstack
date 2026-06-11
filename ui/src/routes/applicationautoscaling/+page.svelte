@@ -12,6 +12,7 @@
 		DescribeScheduledActionsCommand,
 		PutScheduledActionCommand,
 		DeleteScheduledActionCommand,
+		DescribeScalingActivitiesCommand,
 		ListTagsForResourceCommand,
 		TagResourceCommand,
 		UntagResourceCommand,
@@ -21,6 +22,7 @@
 		type ScalableTarget,
 		type ScalingPolicy,
 		type ScheduledAction,
+		type ScalingActivity,
 		type PredefinedMetricSpecification
 	} from '@aws-sdk/client-application-auto-scaling';
 	import { toast } from 'svelte-sonner';
@@ -46,13 +48,17 @@
 	let loading = $state(false);
 	let targets = $state<ScalableTarget[]>([]);
 	let selectedTarget = $state<ScalableTarget | null>(null);
-	let activeTab = $state<'policies' | 'scheduled' | 'tags' | 'forecast'>('policies');
+	let activeTab = $state<'policies' | 'scheduled' | 'activities' | 'tags' | 'forecast'>('policies');
 	let searchQuery = $state('');
 	let namespaceFilter = $state<string>('');
 
 	// Policies
 	let policies = $state<ScalingPolicy[]>([]);
 	let loadingPolicies = $state(false);
+
+	// Scaling Activities
+	let activities = $state<ScalingActivity[]>([]);
+	let loadingActivities = $state(false);
 
 	// Scheduled Actions
 	let scheduledActions = $state<ScheduledAction[]>([]);
@@ -223,6 +229,7 @@
 		activeTab = 'policies';
 		policies = [];
 		scheduledActions = [];
+		activities = [];
 		tags = {};
 		forecastCapacity = [];
 
@@ -273,6 +280,26 @@
 		}
 	}
 
+	async function loadActivities() {
+		if (!selectedTarget) return;
+		loadingActivities = true;
+		try {
+			const res = await aas.send(
+				new DescribeScalingActivitiesCommand({
+					ServiceNamespace: selectedTarget.ServiceNamespace,
+					ResourceId: selectedTarget.ResourceId,
+					ScalableDimension: selectedTarget.ScalableDimension,
+					IncludeNotScaledActivities: true
+				})
+			);
+			activities = res.ScalingActivities ?? [];
+		} catch (e) {
+			toast.error('Failed to load scaling activities: ' + String(e));
+		} finally {
+			loadingActivities = false;
+		}
+	}
+
 	async function loadTags() {
 		if (!selectedTarget?.ScalableTargetARN) return;
 		loadingTags = true;
@@ -292,6 +319,7 @@
 		activeTab = tab;
 		if (tab === 'policies' && policies.length === 0) await loadPolicies();
 		if (tab === 'scheduled' && scheduledActions.length === 0) await loadScheduledActions();
+		if (tab === 'activities') await loadActivities();
 		if (tab === 'tags') await loadTags();
 	}
 
@@ -724,6 +752,7 @@
 				{/snippet}
 				{@render tabBtn('policies', 'Scaling Policies')}
 				{@render tabBtn('scheduled', 'Scheduled Actions')}
+				{@render tabBtn('activities', 'Activities')}
 				{@render tabBtn('tags', 'Tags')}
 				{@render tabBtn('forecast', 'Forecast')}
 			</div>
@@ -996,6 +1025,50 @@
 								</button>
 							</div>
 						</div>
+					{/if}
+
+				<!-- Activities tab -->
+				{:else if activeTab === 'activities'}
+					<div class="mb-3 flex items-center justify-between">
+						<p class="text-xs text-slate-500 dark:text-slate-400">
+							{activities.length} scaling {activities.length === 1 ? 'activity' : 'activities'}
+						</p>
+						<button
+							onclick={loadActivities}
+							class="flex items-center gap-1 rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300"
+						>
+							<RefreshCw size={12} /> Refresh
+						</button>
+					</div>
+					{#if loadingActivities}
+						<div class="flex justify-center py-8"><RefreshCw class="h-6 w-6 animate-spin text-slate-400" /></div>
+					{:else if activities.length === 0}
+						<div class="flex flex-col items-center justify-center py-12 text-slate-400">
+							<Clock class="mb-2 h-10 w-10 opacity-30" />
+							<p class="text-sm">No scaling activities recorded</p>
+						</div>
+					{:else}
+						<ol class="relative border-l border-slate-200 dark:border-slate-700 ml-3 space-y-5">
+						{#each activities as act}
+							<li class="ml-5">
+								<span class="absolute -left-[7px] mt-1 h-3 w-3 rounded-full {act.StatusCode === 'Successful' ? 'bg-green-500' : act.StatusCode === 'Failed' ? 'bg-red-500' : 'bg-amber-500'}"></span>
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="text-xs font-medium text-slate-900 dark:text-white">{act.Description ?? act.ActivityId}</span>
+									<span class="rounded px-1.5 py-0.5 text-[10px] font-medium {act.StatusCode === 'Successful' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : act.StatusCode === 'Failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}">{act.StatusCode}</span>
+								</div>
+								{#if act.Cause}
+									<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{act.Cause}</p>
+								{/if}
+								{#if act.StatusMessage}
+									<p class="mt-1 text-xs text-slate-400 dark:text-slate-500">{act.StatusMessage}</p>
+								{/if}
+								<p class="mt-1 text-[11px] text-slate-400">
+									{act.StartTime ? new Date(act.StartTime).toLocaleString() : '—'}
+									{#if act.EndTime}→ {new Date(act.EndTime).toLocaleString()}{/if}
+								</p>
+							</li>
+						{/each}
+						</ol>
 					{/if}
 
 				<!-- Tags tab -->

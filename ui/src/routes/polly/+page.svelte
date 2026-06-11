@@ -26,7 +26,14 @@
 
 	let textToSynthesize = $state('Hello from Amazon Polly! This is a text-to-speech demonstration.');
 	let selectedVoiceId = $state<VoiceId>('Joanna');
+	let outputFormat = $state<'mp3' | 'ogg_vorbis' | 'pcm'>('mp3');
 	let synthesizing = $state(false);
+
+	const formatMime: Record<string, string> = {
+		mp3: 'audio/mpeg',
+		ogg_vorbis: 'audio/ogg',
+		pcm: 'audio/wave'
+	};
 
 	const filteredVoices = $derived(voices.filter((v) => (v.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredLexicons = $derived(lexicons.filter((l) => (l.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
@@ -52,6 +59,33 @@
 		}
 	}
 
+	function pcmToWav(pcm: Uint8Array, sampleRate: number): ArrayBuffer {
+		const numChannels = 1;
+		const bitsPerSample = 16;
+		const blockAlign = (numChannels * bitsPerSample) / 8;
+		const byteRate = sampleRate * blockAlign;
+		const buffer = new ArrayBuffer(44 + pcm.length);
+		const view = new DataView(buffer);
+		const writeStr = (offset: number, s: string) => {
+			for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.codePointAt(i) ?? 0);
+		};
+		writeStr(0, 'RIFF');
+		view.setUint32(4, 36 + pcm.length, true);
+		writeStr(8, 'WAVE');
+		writeStr(12, 'fmt ');
+		view.setUint32(16, 16, true);
+		view.setUint16(20, 1, true);
+		view.setUint16(22, numChannels, true);
+		view.setUint32(24, sampleRate, true);
+		view.setUint32(28, byteRate, true);
+		view.setUint16(32, blockAlign, true);
+		view.setUint16(34, bitsPerSample, true);
+		writeStr(36, 'data');
+		view.setUint32(40, pcm.length, true);
+		new Uint8Array(buffer, 44).set(pcm);
+		return buffer;
+	}
+
 	async function synthesizeSpeech() {
 		if (!textToSynthesize.trim()) {
 			toast.error('Please enter text to synthesize');
@@ -62,7 +96,9 @@
 			const resp = await polly.send(new SynthesizeSpeechCommand({
 				Text: textToSynthesize,
 				VoiceId: selectedVoiceId,
-				OutputFormat: 'mp3'
+				OutputFormat: outputFormat,
+				// PCM stream is 16-bit signed little-endian; default sample rate 16000 for pcm.
+				SampleRate: outputFormat === 'pcm' ? '16000' : undefined
 			}));
 			if (resp.AudioStream) {
 				const chunks: Uint8Array[] = [];
@@ -73,11 +109,20 @@
 						if (done) break;
 						if (value) chunks.push(value);
 					}
-					const blob = new Blob(chunks as unknown as BlobPart[], { type: 'audio/mpeg' });
+					let parts = chunks as unknown as BlobPart[];
+					if (outputFormat === 'pcm') {
+						// Wrap raw PCM in a WAV container so the browser can play it.
+						const total = chunks.reduce((n, c) => n + c.length, 0);
+						const pcm = new Uint8Array(total);
+						let off = 0;
+						for (const c of chunks) { pcm.set(c, off); off += c.length; }
+						parts = [pcmToWav(pcm, 16000)];
+					}
+					const blob = new Blob(parts, { type: formatMime[outputFormat] });
 					const url = URL.createObjectURL(blob);
 					const audio = new Audio(url);
 					audio.play();
-					toast.success('Playing synthesized speech');
+					toast.success(`Playing ${outputFormat.toUpperCase()} speech`);
 				}
 			}
 		} catch (e) {
@@ -133,6 +178,14 @@
 				</select>
 			</div>
 			<div>
+				<label for="polly-format" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Output Format</label>
+				<select id="polly-format" bind:value={outputFormat} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm">
+					<option value="mp3">MP3</option>
+					<option value="ogg_vorbis">Ogg Vorbis</option>
+					<option value="pcm">PCM (16-bit, 16 kHz)</option>
+				</select>
+			</div>
+			<div class="sm:col-span-2">
 				<label for="polly-text" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Text</label>
 				<textarea id="polly-text" bind:value={textToSynthesize} rows={2} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
 			</div>

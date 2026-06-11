@@ -430,6 +430,35 @@ Also missing at the platform level:
 > - **ElastiCache** — **parameter-group editor** (`DescribeCacheParameters`/
 >   `ModifyCacheParameterGroup`) and replication-group manual **TestFailover**.
 >
+> **Third pass (branch `parity/mega-v2`)** — non-popular-group per-service
+> features now shipped (all wired to the live AWS JS SDK through the gopherstack
+> endpoint, matching each page's existing tab/list/detail patterns, no
+> placeholders):
+>
+> - **Translate** (ML/AI) — **Run Translation** tab: live `TranslateText` with
+>   source (incl. auto-detect) / target language selectors, result pane, and
+>   detected-source-language display.
+> - **Comprehend** (ML/AI) — **Inference Tester** tab: live `DetectSentiment`
+>   (score bars), `DetectEntities` (typed entity chips), `DetectKeyPhrases`, and
+>   `DetectDominantLanguage` (confidence bars) on sample text with a language
+>   selector.
+> - **Polly** (ML/AI) — **output-format selector** (MP3 / Ogg Vorbis / PCM) on
+>   the synthesize demo; raw PCM is wrapped in a WAV container client-side so it
+>   plays in-browser.
+> - **WorkSpaces** (Messaging/misc) — **start / stop / reboot / rebuild**
+>   lifecycle actions on the workspace detail (previously terminate-only), via
+>   `StartWorkspaces`/`StopWorkspaces`/`RebootWorkspaces`/`RebuildWorkspaces`.
+> - **CloudTrail** (Messaging/misc) — Event-History rows are now **expandable**
+>   to show the full pretty-printed `CloudTrailEvent` JSON.
+> - **Transfer** (Networking/edge) — connector **TestConnection** action with
+>   per-connector status/message reporting.
+> - **Firehose** (Data/analytics) — **batch PutRecords**: a Batch mode in the
+>   Put-Record tab with a one-record-per-line editor, live parsed **preview**
+>   (capped display), `PutRecordBatch` send, and per-record failure reporting.
+> - **ApplicationAutoScaling** (Compute/scaling) — **scaling-activity timeline**
+>   tab (`DescribeScalingActivities`, includes not-scaled activities) with
+>   status-coloured event markers, cause/status messages, and start/end times.
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched
@@ -445,9 +474,22 @@ Also missing at the platform level:
 >   visual builder + DLQ + API-destination rotation; CloudFormation dependency
 >   **graph** + nested-stack drill-down + change-set approval; ElastiCache
 >   performance-metrics graphs + event timeline + user/ACL viewer.
-> - **The entire API/app-integration, Compute, Data/analytics, Storage/database,
->   Networking/edge, Security/identity, ML/AI/media, and Messaging groups** below
->   remain unimplemented and are accurate enhancement candidates.
+> - **Non-popular groups — remaining (largely unimplemented).** The third pass
+>   above shipped one solid feature each for Translate, Comprehend, Polly,
+>   WorkSpaces, CloudTrail, Transfer, Firehose, and ApplicationAutoScaling. The
+>   rest of the API/app-integration, Compute, Data/analytics, Storage/database,
+>   Networking/edge, Security/identity, ML/AI/media, and Messaging groups listed
+>   below remain open and are accurate enhancement candidates. Specifically
+>   still-outstanding within the partially-touched services: Comprehend
+>   training-accuracy/F1 + model-version compare; Polly lexicon XML editor;
+>   Transcribe/Textract upload + transcript/result download; WorkSpaces bundle
+>   selector + connection diagnostics; CloudTrail attribute-filter builder +
+>   delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
+>   Firehose throughput charts + test-delivery; ApplicationAutoScaling
+>   step-scaling threshold editor + policy adjustment history. **MQ is not
+>   wirable** (the `services/mq` backend registers no operations) and
+>   **AppConfig/AppConfigData** likewise expose no backend operations, so their
+>   §F editors cannot be wired to real data yet.
 
 ### Popular services
 

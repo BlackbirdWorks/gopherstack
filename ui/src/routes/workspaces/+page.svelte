@@ -7,6 +7,10 @@
 		DescribeWorkspaceBundlesCommand,
 		TerminateWorkspacesCommand,
 		CreateWorkspacesCommand,
+		StartWorkspacesCommand,
+		StopWorkspacesCommand,
+		RebootWorkspacesCommand,
+		RebuildWorkspacesCommand,
 		type Workspace,
 		type WorkspaceBundle
 	} from '@aws-sdk/client-workspaces';
@@ -35,7 +39,8 @@
 		UserCircle, MousePointer2,
 		Monitor as DesktopGui, Computer, HardDrive as HD,
 		Network as NetIcon,
-		LockKeyhole, UserCog, UserCheck, ShieldAlert
+		LockKeyhole, UserCog, UserCheck, ShieldAlert,
+		Square, RotateCcw, Wrench
 	} from 'lucide-svelte';
 
 	const workspaces = getWorkSpacesClient();
@@ -124,6 +129,64 @@
 			toast.error(`Provisioning failed: ${(err as Error).message}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	let actioning = $state(false);
+
+	async function startWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces.send(new StartWorkspacesCommand({ StartWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Start initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Start failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function stopWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces.send(new StopWorkspacesCommand({ StopWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Stop initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Stop failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function rebootWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces.send(new RebootWorkspacesCommand({ RebootWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Reboot initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Reboot failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function rebuildWorkspace(id: string | undefined) {
+		if (!id || !await confirmDestructive({ title: 'Rebuild WorkSpace', message: 'Rebuild this WorkSpace? The user volume is recreated from the last available snapshot; data not yet backed up is lost.', confirmLabel: 'Rebuild' })) return;
+		actioning = true;
+		try {
+			await workspaces.send(new RebuildWorkspacesCommand({ RebuildWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Rebuild initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Rebuild failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
 		}
 	}
 
@@ -260,7 +323,39 @@
 							</div>
 						</div>
 						<div class="flex gap-2">
-							<button 
+							<button
+								onclick={() => startWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning || selectedWorkspace.State === 'AVAILABLE'}
+								class="p-2.5 bg-slate-900 dark:bg-black text-emerald-500 hover:bg-emerald-500/10 rounded-2xl transition-all border border-emerald-500/20 shadow-xl disabled:opacity-40"
+								title="Start WorkSpace"
+							>
+								<Play class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => stopWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning || selectedWorkspace.State === 'STOPPED'}
+								class="p-2.5 bg-slate-900 dark:bg-black text-amber-500 hover:bg-amber-500/10 rounded-2xl transition-all border border-amber-500/20 shadow-xl disabled:opacity-40"
+								title="Stop WorkSpace"
+							>
+								<Square class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => rebootWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning}
+								class="p-2.5 bg-slate-900 dark:bg-black text-sky-400 hover:bg-sky-500/10 rounded-2xl transition-all border border-sky-500/20 shadow-xl disabled:opacity-40"
+								title="Reboot WorkSpace"
+							>
+								<RotateCcw class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => rebuildWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning}
+								class="p-2.5 bg-slate-900 dark:bg-black text-indigo-400 hover:bg-indigo-500/10 rounded-2xl transition-all border border-indigo-500/20 shadow-xl disabled:opacity-40"
+								title="Rebuild WorkSpace"
+							>
+								<Wrench class="w-4 h-4" />
+							</button>
+							<button
 								onclick={() => terminateWorkspace(selectedWorkspace?.WorkspaceId)}
 								class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
 								title="Explode environment"

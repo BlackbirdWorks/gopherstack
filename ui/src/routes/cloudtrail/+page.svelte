@@ -33,7 +33,9 @@
 		XCircle,
 		Clock,
 		Filter,
-		Database
+		Database,
+		ChevronRight,
+		ChevronDown
 	} from 'lucide-svelte';
 
 	const ct = getCloudTrailClient();
@@ -58,6 +60,16 @@
 	let eventStartTime = $state('');
 	let eventEndTime = $state('');
 	let maxResults = $state(50);
+	let expandedEvent = $state<string | null>(null);
+
+	function prettyEvent(raw: string | undefined): string {
+		if (!raw) return 'No event detail available';
+		try {
+			return JSON.stringify(JSON.parse(raw), null, 2);
+		} catch {
+			return raw;
+		}
+	}
 
 	// Event Data Stores
 	let eventDataStores = $state<EventDataStore[]>([]);
@@ -482,6 +494,7 @@
 					<table class="w-full text-sm">
 						<thead class="bg-muted/50">
 							<tr>
+								<th class="px-2 py-3 text-left font-medium w-8"></th>
 								<th class="px-4 py-3 text-left font-medium">Time</th>
 								<th class="px-4 py-3 text-left font-medium">Event Name</th>
 								<th class="px-4 py-3 text-left font-medium">Source</th>
@@ -491,7 +504,17 @@
 						</thead>
 						<tbody class="divide-y">
 							{#each filteredEvents as event}
-								<tr class="hover:bg-muted/30">
+								<tr
+									class="hover:bg-muted/30 cursor-pointer"
+									onclick={() => (expandedEvent = expandedEvent === event.EventId ? null : (event.EventId ?? null))}
+								>
+									<td class="px-2 py-3 text-muted-foreground">
+										{#if expandedEvent === event.EventId}
+											<ChevronDown class="h-4 w-4" />
+										{:else}
+											<ChevronRight class="h-4 w-4" />
+										{/if}
+									</td>
 									<td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
 										{event.EventTime ? new Date(event.EventTime).toLocaleString() : '—'}
 									</td>
@@ -502,6 +525,13 @@
 										{event.Resources?.[0]?.ResourceName ?? '—'}
 									</td>
 								</tr>
+								{#if expandedEvent === event.EventId}
+									<tr class="bg-muted/20">
+										<td colspan="6" class="px-4 py-3">
+											<pre class="text-xs overflow-x-auto max-h-96 overflow-y-auto rounded-md bg-background border p-3 font-mono">{prettyEvent(event.CloudTrailEvent)}</pre>
+										</td>
+									</tr>
+								{/if}
 							{/each}
 						</tbody>
 					</table>
