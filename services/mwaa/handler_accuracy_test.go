@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -40,7 +41,7 @@ func TestAccuracy_EnvironmentName_ValidNames(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 			require.NoError(t, err)
 		})
 	}
@@ -70,7 +71,7 @@ func TestAccuracy_EnvironmentName_InvalidNames(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 			require.Error(t, err)
 		})
 	}
@@ -132,7 +133,7 @@ func TestAccuracy_EnvironmentName_SpaceRejectedByBackend(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "my env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "my env", newCreateReq())
 	require.Error(t, err)
 }
 
@@ -141,7 +142,7 @@ func TestAccuracy_EnvironmentName_ExactlyMaxLength(t *testing.T) {
 
 	envName := "A" + strings.Repeat("b", 79) // 80 chars, starts with letter
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, envName, newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), envName, newCreateReq())
 	require.NoError(t, err)
 }
 
@@ -149,7 +150,7 @@ func TestAccuracy_EnvironmentName_ExactlyMinLength(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "a", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "a", newCreateReq())
 	require.NoError(t, err)
 }
 
@@ -172,7 +173,7 @@ func TestAccuracy_AirflowVersion_SupportedVersions(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
 			req.AirflowVersion = v
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env-v", req)
+			_, err := b.CreateEnvironment(context.Background(), "env-v", req)
 			require.NoError(t, err)
 		})
 	}
@@ -197,7 +198,7 @@ func TestAccuracy_AirflowVersion_UnsupportedVersions(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
 			req.AirflowVersion = v
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env-inv", req)
+			_, err := b.CreateEnvironment(context.Background(), "env-inv", req)
 			require.Error(t, err)
 		})
 	}
@@ -209,7 +210,7 @@ func TestAccuracy_AirflowVersion_EmptyUsesDefault(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.AirflowVersion = ""
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "env-default", req)
+	env, err := b.CreateEnvironment(context.Background(), "env-default", req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, env.AirflowVersion)
 }
@@ -244,11 +245,11 @@ func TestAccuracy_AirflowVersion_Update_InvalidVersion(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "update-ver-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("update-ver-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "update-ver-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("update-ver-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "update-ver-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowVersion: "99.0.0",
 	})
 	require.Error(t, err)
@@ -258,11 +259,11 @@ func TestAccuracy_AirflowVersion_Update_ValidVersion(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-ok", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "update-ver-ok", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("update-ver-ok") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "update-ver-ok") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("update-ver-ok", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "update-ver-ok", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowVersion: "2.9.2",
 	})
 	require.NoError(t, err)
@@ -272,11 +273,11 @@ func TestAccuracy_AirflowVersion_Update_EmptyVersionAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "update-ver-empty", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "update-ver-empty", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("update-ver-empty") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "update-ver-empty") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("update-ver-empty", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "update-ver-empty", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new-dags/",
 	})
 	require.NoError(t, err)
@@ -324,7 +325,7 @@ func TestAccuracy_MaxWorkers_UpperBound_Create(t *testing.T) {
 			req := newCreateReq()
 			req.MaxWorkers = tt.maxWorkers
 			req.MinWorkers = 1
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "workers-env", req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -352,13 +353,17 @@ func TestAccuracy_MaxWorkers_UpperBound_Update(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-upd-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "workers-upd-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("workers-upd-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "workers-upd-env") // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("workers-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
-				MaxWorkers: tt.maxWorkers,
-			})
+			_, err = b.UpdateEnvironment(
+				context.Background(),
+				"workers-upd-env",
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					MaxWorkers: tt.maxWorkers,
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -375,7 +380,7 @@ func TestAccuracy_MaxWorkers_ZeroUnbounded(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.MaxWorkers = 0 // 0 means use default, no upper bound check
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-zero", req)
+	_, err := b.CreateEnvironment(context.Background(), "workers-zero", req)
 	require.NoError(t, err)
 }
 
@@ -439,13 +444,17 @@ func TestAccuracy_WorkerReplacementStrategy_ValidValues(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "strategy-env-"+tt.name, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "strategy-env-"+tt.name, newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("strategy-env-" + tt.name) // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "strategy-env-"+tt.name) // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("strategy-env-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
-				WorkerReplacementStrategy: tt.strategy,
-			})
+			_, err = b.UpdateEnvironment(
+				context.Background(),
+				"strategy-env-"+tt.name,
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					WorkerReplacementStrategy: tt.strategy,
+				},
+			)
 			require.NoError(t, err)
 		})
 	}
@@ -468,12 +477,16 @@ func TestAccuracy_WorkerReplacementStrategy_InvalidValues(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "strategy-inv-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "strategy-inv-env", newCreateReq())
 			require.NoError(t, err)
 
-			_, err = b.UpdateEnvironment("strategy-inv-env", &mwaa.ExportedUpdateEnvironmentRequest{
-				WorkerReplacementStrategy: strategy,
-			})
+			_, err = b.UpdateEnvironment(
+				context.Background(),
+				"strategy-inv-env",
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					WorkerReplacementStrategy: strategy,
+				},
+			)
 			require.Error(t, err)
 		})
 	}
@@ -515,17 +528,17 @@ func TestAccuracy_WorkerReplacementStrategy_StoredInLastUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lu-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("lu-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "lu-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("lu-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "lu-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WorkerReplacementStrategy: "FORCED",
 	})
 	require.NoError(t, err)
 
 	// Fetch and verify LastUpdate contains the strategy.
-	env, err := b.GetEnvironment("lu-env")
+	env, err := b.GetEnvironment(context.Background(), "lu-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LastUpdate)
 	assert.Equal(t, "FORCED", env.LastUpdate.WorkerReplacementStrategy)
@@ -553,7 +566,7 @@ func TestAccuracy_TagLimit_CreateEnvironment_Exceeds(t *testing.T) {
 
 	req.Tags = tagMap
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "tag-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "tag-env", req)
 	require.Error(t, err)
 }
 
@@ -569,7 +582,7 @@ func TestAccuracy_TagLimit_CreateEnvironment_AtLimit(t *testing.T) {
 	req := newCreateReq()
 	req.Tags = tags
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "tag-at-limit", req)
+	_, err := b.CreateEnvironment(context.Background(), "tag-at-limit", req)
 	require.NoError(t, err)
 }
 
@@ -587,11 +600,11 @@ func TestAccuracy_TagLimit_TagResource_Exceeds(t *testing.T) {
 	req := newCreateReq()
 	req.Tags = initialTags
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "tag-resource-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "tag-resource-env", req)
 	require.NoError(t, err)
 
 	// Adding 3 new tags should exceed the 50-tag limit.
-	err = b.TagResource(env.ARN, map[string]string{"new1": "v", "new2": "v", "new3": "v"})
+	err = b.TagResource(context.Background(), env.ARN, map[string]string{"new1": "v", "new2": "v", "new3": "v"})
 	require.Error(t, err)
 }
 
@@ -609,12 +622,12 @@ func TestAccuracy_TagLimit_TagResource_UpdateExistingTagsOK(t *testing.T) {
 	req := newCreateReq()
 	req.Tags = initialTags
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "tag-update-ok", req)
+	env, err := b.CreateEnvironment(context.Background(), "tag-update-ok", req)
 	require.NoError(t, err)
 
 	// Updating an existing tag (same key) does not increase count — should succeed.
 	firstKey := strings.Repeat("k", 1)
-	err = b.TagResource(env.ARN, map[string]string{firstKey: "updated"})
+	err = b.TagResource(context.Background(), env.ARN, map[string]string{firstKey: "updated"})
 	require.NoError(t, err)
 }
 
@@ -632,11 +645,11 @@ func TestAccuracy_TagLimit_TagResource_AddToFull(t *testing.T) {
 	req := newCreateReq()
 	req.Tags = initialTags
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "tag-full-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "tag-full-env", req)
 	require.NoError(t, err)
 
 	// Adding even one genuinely new tag must fail.
-	err = b.TagResource(env.ARN, map[string]string{"brand-new-key": "v"})
+	err = b.TagResource(context.Background(), env.ARN, map[string]string{"brand-new-key": "v"})
 	require.Error(t, err)
 }
 
@@ -684,13 +697,17 @@ func TestAccuracy_UpdateWebserverAccessMode_ValidValues(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wam-env-"+tt.name, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "wam-env-"+tt.name, newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("wam-env-" + tt.name) // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "wam-env-"+tt.name) // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("wam-env-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
-				WebserverAccessMode: tt.mode,
-			})
+			_, err = b.UpdateEnvironment(
+				context.Background(),
+				"wam-env-"+tt.name,
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					WebserverAccessMode: tt.mode,
+				},
+			)
 			require.NoError(t, err)
 		})
 	}
@@ -700,10 +717,10 @@ func TestAccuracy_UpdateWebserverAccessMode_InvalidValue(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wam-inv-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "wam-inv-env", newCreateReq())
 	require.NoError(t, err)
 
-	_, err = b.UpdateEnvironment("wam-inv-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wam-inv-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WebserverAccessMode: "BOGUS_MODE",
 	})
 	require.Error(t, err)
@@ -745,16 +762,16 @@ func TestAccuracy_UpdateWebserverAccessMode_Persisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wam-persist", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "wam-persist", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wam-persist") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wam-persist") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("wam-persist", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wam-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		WebserverAccessMode: "PRIVATE_ONLY",
 	})
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("wam-persist")
+	env, err := b.GetEnvironment(context.Background(), "wam-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "PRIVATE_ONLY", env.WebserverAccessMode)
 }
@@ -775,11 +792,11 @@ func TestAccuracy_UpdateEnvironmentClass_ValidClasses(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "class-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "class-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("class-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "class-env") // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("class-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "class-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				EnvironmentClass: cls,
 			})
 			require.NoError(t, err)
@@ -799,10 +816,10 @@ func TestAccuracy_UpdateEnvironmentClass_InvalidClass(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "class-inv-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "class-inv-env", newCreateReq())
 			require.NoError(t, err)
 
-			_, err = b.UpdateEnvironment("class-inv-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "class-inv-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				EnvironmentClass: cls,
 			})
 			require.Error(t, err)
@@ -814,11 +831,11 @@ func TestAccuracy_UpdateEnvironmentClass_EmptyAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "class-empty-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "class-empty-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("class-empty-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "class-empty-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("class-empty-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "class-empty-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "",
 	})
 	require.NoError(t, err)
@@ -859,16 +876,16 @@ func TestAccuracy_UpdateEnvironmentClass_Persisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "class-persist", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "class-persist", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("class-persist") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "class-persist") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("class-persist", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "class-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "mw1.large",
 	})
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("class-persist")
+	env, err := b.GetEnvironment(context.Background(), "class-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "mw1.large", env.EnvironmentClass)
 }
@@ -881,11 +898,11 @@ func TestAccuracy_CliToken_JWTShaped(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "jwt-cli-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "jwt-cli-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("jwt-cli-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "jwt-cli-env") // promote CREATING → AVAILABLE
 
-	token, err := b.CreateCliToken("jwt-cli-env")
+	token, err := b.CreateCliToken(context.Background(), "jwt-cli-env")
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -899,11 +916,11 @@ func TestAccuracy_WebLoginToken_JWTShaped(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "jwt-web-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "jwt-web-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("jwt-web-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "jwt-web-env") // promote CREATING → AVAILABLE
 
-	token, err := b.CreateWebLoginToken("jwt-web-env")
+	token, err := b.CreateWebLoginToken(context.Background(), "jwt-web-env")
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -917,14 +934,14 @@ func TestAccuracy_CliToken_DifferentFromWebToken(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "token-diff-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "token-diff-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("token-diff-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "token-diff-env") // promote CREATING → AVAILABLE
 
-	cli, err := b.CreateCliToken("token-diff-env")
+	cli, err := b.CreateCliToken(context.Background(), "token-diff-env")
 	require.NoError(t, err)
 
-	web, err := b.CreateWebLoginToken("token-diff-env")
+	web, err := b.CreateWebLoginToken(context.Background(), "token-diff-env")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, cli, web, "CLI token and web login token must differ")
@@ -934,17 +951,17 @@ func TestAccuracy_Token_DifferentPerEnvironment(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "env-token-a", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "env-token-a", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("env-token-a") // promote CREATING → AVAILABLE
-	_, err = b.CreateEnvironment(testRegion, testAccountID, "env-token-b", newCreateReq())
+	_, _ = b.GetEnvironment(context.Background(), "env-token-a") // promote CREATING → AVAILABLE
+	_, err = b.CreateEnvironment(context.Background(), "env-token-b", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("env-token-b") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "env-token-b") // promote CREATING → AVAILABLE
 
-	tokenA, err := b.CreateCliToken("env-token-a")
+	tokenA, err := b.CreateCliToken(context.Background(), "env-token-a")
 	require.NoError(t, err)
 
-	tokenB, err := b.CreateCliToken("env-token-b")
+	tokenB, err := b.CreateCliToken(context.Background(), "env-token-b")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, tokenA, tokenB, "tokens for different environments must differ")
@@ -1010,31 +1027,31 @@ func TestAccuracy_FullLifecycle_AllValidations(t *testing.T) {
 	req.MaxWorkers = 20
 	req.MinWorkers = 2
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "full-lifecycle-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "full-lifecycle-env", req)
 	require.NoError(t, err)
 	assert.Equal(t, "2.8.1", env.AirflowVersion)
 	assert.Equal(t, "mw1.medium", env.EnvironmentClass)
-	_, _ = b.GetEnvironment("full-lifecycle-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "full-lifecycle-env") // promote CREATING → AVAILABLE
 
 	// Update with valid strategy and access mode.
-	_, err = b.UpdateEnvironment("full-lifecycle-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "full-lifecycle-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WorkerReplacementStrategy: "TERMINATION_WITH_DRAIN",
 		WebserverAccessMode:       "PRIVATE_ONLY",
 		EnvironmentClass:          "mw1.large",
 	})
 	require.NoError(t, err)
 
-	got, err := b.GetEnvironment("full-lifecycle-env")
+	got, err := b.GetEnvironment(context.Background(), "full-lifecycle-env")
 	require.NoError(t, err)
 	assert.Equal(t, "PRIVATE_ONLY", got.WebserverAccessMode)
 	assert.Equal(t, "mw1.large", got.EnvironmentClass)
 
 	// Tokens should be JWT-shaped.
-	cli, err := b.CreateCliToken("full-lifecycle-env")
+	cli, err := b.CreateCliToken(context.Background(), "full-lifecycle-env")
 	require.NoError(t, err)
 	assert.Len(t, strings.Split(cli, "."), 3)
 
-	web, err := b.CreateWebLoginToken("full-lifecycle-env")
+	web, err := b.CreateWebLoginToken(context.Background(), "full-lifecycle-env")
 	require.NoError(t, err)
 	assert.Len(t, strings.Split(web, "."), 3)
 }
@@ -1048,7 +1065,7 @@ func TestAccuracy_MultipleValidationErrors_FirstReturned(t *testing.T) {
 	req.EnvironmentClass = "mw99.huge"
 	req.MaxWorkers = 999
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "multi-err-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "multi-err-env", req)
 	require.Error(t, err)
 }
 
@@ -1061,7 +1078,7 @@ func TestAccuracy_CreateEnvironment_NameValidationBeforeBodyValidation(t *testin
 	req := newCreateReq()
 	req.DagS3Path = "" // required field
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "1invalid-name", req)
+	_, err := b.CreateEnvironment(context.Background(), "1invalid-name", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "environment name")
 }
@@ -1079,11 +1096,11 @@ func TestAccuracy_TagLimit_Create_ExactlyAtLimit_ThenOneMore(t *testing.T) {
 
 	req := newCreateReq()
 	req.Tags = tags50
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "tag-boundary-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "tag-boundary-env", req)
 	require.NoError(t, err)
 
 	// One more new tag — must fail.
-	err = b.TagResource(env.ARN, map[string]string{"brand-new": "v"})
+	err = b.TagResource(context.Background(), env.ARN, map[string]string{"brand-new": "v"})
 	require.Error(t, err)
 }
 
@@ -1095,7 +1112,7 @@ func TestAccuracy_AirflowVersion_V1_SchedulerConstraint(t *testing.T) {
 	req.AirflowVersion = "1.10.12"
 	req.Schedulers = 2 // v1 only supports 1 scheduler
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "v1-schedulers-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "v1-schedulers-env", req)
 	require.Error(t, err)
 }
 
@@ -1107,7 +1124,7 @@ func TestAccuracy_AirflowVersion_V1_SingleSchedulerOK(t *testing.T) {
 	req.AirflowVersion = "1.10.12"
 	req.Schedulers = 1
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "v1-scheduler-ok", req)
+	_, err := b.CreateEnvironment(context.Background(), "v1-scheduler-ok", req)
 	require.NoError(t, err)
 }
 
@@ -1115,12 +1132,12 @@ func TestAccuracy_MaxWorkers_Update_ZeroNoCheck(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "workers-zero-upd", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "workers-zero-upd", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("workers-zero-upd") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "workers-zero-upd") // promote CREATING → AVAILABLE
 
 	// MaxWorkers=0 in update means "don't change" — no validation should fire.
-	_, err = b.UpdateEnvironment("workers-zero-upd", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "workers-zero-upd", &mwaa.ExportedUpdateEnvironmentRequest{
 		MaxWorkers: 0,
 	})
 	require.NoError(t, err)
@@ -1138,7 +1155,7 @@ func TestAccuracy_EnvironmentName_AllSupportedSpecialChars(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, name, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), name, newCreateReq())
 			require.NoError(t, err)
 		})
 	}
@@ -1160,17 +1177,21 @@ func TestAccuracy_UpdateWorkerReplacementStrategy_Persisted(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "persist-strat-"+tt.name, newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "persist-strat-"+tt.name, newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("persist-strat-" + tt.name) // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "persist-strat-"+tt.name) // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("persist-strat-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
-				WorkerReplacementStrategy: tt.strategy,
-			})
+			_, err = b.UpdateEnvironment(
+				context.Background(),
+				"persist-strat-"+tt.name,
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					WorkerReplacementStrategy: tt.strategy,
+				},
+			)
 			require.NoError(t, err)
 
 			// Fetch and check LastUpdate carries the strategy.
-			env, err := b.GetEnvironment("persist-strat-" + tt.name)
+			env, err := b.GetEnvironment(context.Background(), "persist-strat-"+tt.name)
 			require.NoError(t, err)
 			require.NotNil(t, env.LastUpdate)
 			assert.Equal(t, tt.strategy, env.LastUpdate.WorkerReplacementStrategy)

@@ -1,28 +1,32 @@
 package mwaa
 
+import "context"
+
 // StorageBackend is the interface for the MWAA in-memory backend.
+// All per-resource operations take a context.Context carrying the request's
+// AWS region so resources are isolated per region.
 type StorageBackend interface {
 	// Environment CRUD
-	CreateEnvironment(region, accountID, name string, req *createEnvironmentRequest) (*Environment, error)
-	GetEnvironment(name string) (*Environment, error)
-	DeleteEnvironment(name string) (*Environment, error)
-	UpdateEnvironment(name string, req *updateEnvironmentRequest) (*Environment, error)
-	ListEnvironments() ([]string, error)
-	ListEnvironmentsPage(nextToken string, pageSize int) ([]string, string, error)
+	CreateEnvironment(ctx context.Context, name string, req *createEnvironmentRequest) (*Environment, error)
+	GetEnvironment(ctx context.Context, name string) (*Environment, error)
+	DeleteEnvironment(ctx context.Context, name string) (*Environment, error)
+	UpdateEnvironment(ctx context.Context, name string, req *updateEnvironmentRequest) (*Environment, error)
+	ListEnvironments(ctx context.Context) ([]string, error)
+	ListEnvironmentsPage(ctx context.Context, nextToken string, pageSize int) ([]string, string, error)
 
 	// Tag operations
-	TagResource(resourceARN string, tags map[string]string) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	ListTagsForResource(resourceARN string) (map[string]string, error)
+	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
+	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 
 	// REST API / metrics
-	InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error)
-	PublishMetrics(envName string, req *publishMetricsRequest) error
-	GetMetrics(envName string) ([]MetricDatum, error)
+	InvokeRestAPI(ctx context.Context, envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error)
+	PublishMetrics(ctx context.Context, envName string, req *publishMetricsRequest) error
+	GetMetrics(ctx context.Context, envName string) ([]MetricDatum, error)
 
 	// Token operations
-	CreateCliToken(envName string) (string, error)
-	CreateWebLoginToken(envName string) (string, error)
+	CreateCliToken(ctx context.Context, envName string) (string, error)
+	CreateWebLoginToken(ctx context.Context, envName string) (string, error)
 
 	// Lifecycle
 	Reset()

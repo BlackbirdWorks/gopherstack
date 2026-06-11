@@ -1,6 +1,7 @@
 package mwaa
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,6 +15,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 const (
 	defaultAirflowVersion      = "2.10.3"
@@ -239,9 +252,11 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	environments map[string]*Environment
-	arnIndex     map[string]string
-	metrics      map[string][]MetricDatum
+	// All resource maps are nested by region (outer key = region) so that
+	// same-named resources in different regions are fully isolated.
+	environments map[string]map[string]*Environment  // region → name → environment
+	arnIndex     map[string]map[string]string        // region → ARN → name
+	metrics      map[string]map[string][]MetricDatum // region → env name → metrics
 	mu           *lockmetrics.RWMutex
 	region       string
 	accountID    string
@@ -252,9 +267,9 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		region:       region,
 		accountID:    accountID,
-		environments: make(map[string]*Environment),
-		arnIndex:     make(map[string]string),
-		metrics:      make(map[string][]MetricDatum),
+		environments: make(map[string]map[string]*Environment),
+		arnIndex:     make(map[string]map[string]string),
+		metrics:      make(map[string]map[string][]MetricDatum),
 		mu:           lockmetrics.New("mwaa"),
 	}
 }
@@ -265,22 +280,58 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the configured account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// environmentsStore returns the environment map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) environmentsStore(region string) map[string]*Environment {
+	if b.environments[region] == nil {
+		b.environments[region] = make(map[string]*Environment)
+	}
+
+	return b.environments[region]
+}
+
+// arnIndexStore returns the ARN index for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
+	if b.arnIndex[region] == nil {
+		b.arnIndex[region] = make(map[string]string)
+	}
+
+	return b.arnIndex[region]
+}
+
+// metricsStore returns the metrics map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) metricsStore(region string) map[string][]MetricDatum {
+	if b.metrics[region] == nil {
+		b.metrics[region] = make(map[string][]MetricDatum)
+	}
+
+	return b.metrics[region]
+}
+
 // Reset closes the current mutex and reinitialises all maps.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Close()
 	b.mu = lockmetrics.New("mwaa")
-	b.environments = make(map[string]*Environment)
-	b.arnIndex = make(map[string]string)
-	b.metrics = make(map[string][]MetricDatum)
+	b.environments = make(map[string]map[string]*Environment)
+	b.arnIndex = make(map[string]map[string]string)
+	b.metrics = make(map[string]map[string][]MetricDatum)
 }
 
 // AddEnvironmentInternal creates an environment with minimal defaults, bypassing
-// validation, intended for use in tests only.
+// validation, intended for use in tests only. It uses the backend's default region.
 func (b *InMemoryBackend) AddEnvironmentInternal(name string) *Environment {
+	return b.AddEnvironmentInternalRegion(b.region, name)
+}
+
+// AddEnvironmentInternalRegion creates an environment with minimal defaults in the
+// given region, bypassing validation, intended for use in tests only.
+func (b *InMemoryBackend) AddEnvironmentInternalRegion(region, name string) *Environment {
 	b.mu.Lock("AddEnvironmentInternal")
 	defer b.mu.Unlock()
 
-	envARN := arn.Build("airflow", b.region, b.accountID, "environment/"+name)
+	envARN := arn.Build("airflow", region, b.accountID, "environment/"+name)
 	env := &Environment{
 		Name:      name,
 		ARN:       envARN,
@@ -289,8 +340,8 @@ func (b *InMemoryBackend) AddEnvironmentInternal(name string) *Environment {
 		CreatedAt: epochSecondsNow(),
 	}
 
-	b.environments[name] = env
-	b.arnIndex[envARN] = name
+	b.environmentsStore(region)[name] = env
+	b.arnIndexStore(region)[envARN] = name
 
 	return env
 }
@@ -540,9 +591,10 @@ func validateSchedulers(airflowVersion string, count int32) error {
 	return nil
 }
 
-// CreateEnvironment creates a new MWAA environment.
+// CreateEnvironment creates a new MWAA environment in the region resolved from ctx.
 func (b *InMemoryBackend) CreateEnvironment(
-	region, accountID, name string,
+	ctx context.Context,
+	name string,
 	req *createEnvironmentRequest,
 ) (*Environment, error) {
 	if err := validateEnvironmentName(name); err != nil {
@@ -553,10 +605,13 @@ func (b *InMemoryBackend) CreateEnvironment(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
 
-	if _, exists := b.environments[name]; exists {
+	environments := b.environmentsStore(region)
+	if _, exists := environments[name]; exists {
 		return nil, ErrEnvironmentAlreadyExists
 	}
 
@@ -568,10 +623,10 @@ func (b *InMemoryBackend) CreateEnvironment(
 		)
 	}
 
-	env := buildEnvironment(region, accountID, name, req, defaults)
+	env := buildEnvironment(region, b.accountID, name, req, defaults)
 
-	b.environments[name] = env
-	b.arnIndex[env.ARN] = name
+	environments[name] = env
+	b.arnIndexStore(region)[env.ARN] = name
 
 	return env, nil
 }
@@ -705,13 +760,15 @@ func buildEnvironment(
 }
 
 // GetEnvironment retrieves a deep copy of an MWAA environment by name.
-func (b *InMemoryBackend) GetEnvironment(name string) (*Environment, error) {
+func (b *InMemoryBackend) GetEnvironment(ctx context.Context, name string) (*Environment, error) {
+	region := getRegion(ctx, b.region)
+
 	// Full write lock: GetEnvironment may promote a transient lifecycle status
 	// (UPDATING → AVAILABLE) on the stored environment via promoteTransientStatus.
 	b.mu.Lock("GetEnvironment")
 	defer b.mu.Unlock()
 
-	env, ok := b.environments[name]
+	env, ok := b.environmentsStore(region)[name]
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
@@ -737,32 +794,41 @@ func promoteTransientStatus(env *Environment) {
 }
 
 // DeleteEnvironment deletes an MWAA environment by name and cascades to metrics.
-func (b *InMemoryBackend) DeleteEnvironment(name string) (*Environment, error) {
+func (b *InMemoryBackend) DeleteEnvironment(ctx context.Context, name string) (*Environment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteEnvironment")
 	defer b.mu.Unlock()
 
-	env, ok := b.environments[name]
+	environments := b.environmentsStore(region)
+	env, ok := environments[name]
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
 
-	delete(b.environments, name)
-	delete(b.arnIndex, env.ARN)
-	delete(b.metrics, name)
+	delete(environments, name)
+	delete(b.arnIndexStore(region), env.ARN)
+	delete(b.metricsStore(region), name)
 
 	return env, nil
 }
 
 // UpdateEnvironment updates an existing MWAA environment.
-func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentRequest) (*Environment, error) {
+func (b *InMemoryBackend) UpdateEnvironment(
+	ctx context.Context,
+	name string,
+	req *updateEnvironmentRequest,
+) (*Environment, error) {
 	if err := validateUpdateRequest(req); err != nil {
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateEnvironment")
 	defer b.mu.Unlock()
 
-	env, ok := b.environments[name]
+	env, ok := b.environmentsStore(region)[name]
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
@@ -981,7 +1047,11 @@ func applyUpdateS3Paths(env *Environment, req *updateEnvironmentRequest) {
 // pageSize is clamped to [1, listEnvMaxPageSize]; 0 falls back to listEnvDefaultPageSize.
 // nextToken is the name of the first environment to include in this page (exclusive
 // start cursor of the previous page); empty starts at the beginning.
-func (b *InMemoryBackend) ListEnvironmentsPage(nextToken string, pageSize int) ([]string, string, error) {
+func (b *InMemoryBackend) ListEnvironmentsPage(
+	ctx context.Context,
+	nextToken string,
+	pageSize int,
+) ([]string, string, error) {
 	if pageSize <= 0 {
 		pageSize = listEnvDefaultPageSize
 	}
@@ -990,11 +1060,14 @@ func (b *InMemoryBackend) ListEnvironmentsPage(nextToken string, pageSize int) (
 		pageSize = listEnvMaxPageSize
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListEnvironmentsPage")
 	defer b.mu.RUnlock()
 
-	all := make([]string, 0, len(b.environments))
-	for name := range b.environments {
+	environments := b.environmentsStore(region)
+	all := make([]string, 0, len(environments))
+	for name := range environments {
 		all = append(all, name)
 	}
 
@@ -1025,18 +1098,20 @@ func (b *InMemoryBackend) ListEnvironmentsPage(nextToken string, pageSize int) (
 }
 
 // ListEnvironments returns a sorted list of environment names.
-func (b *InMemoryBackend) ListEnvironments() ([]string, error) {
-	names, _, err := b.ListEnvironmentsPage("", listEnvMaxPageSize)
+func (b *InMemoryBackend) ListEnvironments(ctx context.Context) ([]string, error) {
+	names, _, err := b.ListEnvironmentsPage(ctx, "", listEnvMaxPageSize)
 
 	return names, err
 }
 
 // TagResource adds or updates tags on a resource identified by its ARN.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	env := b.findByARN(resourceARN)
+	env := b.findByARN(region, resourceARN)
 	if env == nil {
 		return ErrEnvironmentNotFound
 	}
@@ -1062,11 +1137,13 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 }
 
 // UntagResource removes tags from a resource identified by its ARN.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	env := b.findByARN(resourceARN)
+	env := b.findByARN(region, resourceARN)
 	if env == nil {
 		return ErrEnvironmentNotFound
 	}
@@ -1079,11 +1156,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 }
 
 // ListTagsForResource returns all tags for a resource identified by its ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	env := b.findByARN(resourceARN)
+	env := b.findByARN(region, resourceARN)
 	if env == nil {
 		return nil, ErrEnvironmentNotFound
 	}
@@ -1094,22 +1173,29 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
-// findByARN looks up an environment by its ARN using the ARN index. Must be called with lock held.
-func (b *InMemoryBackend) findByARN(resourceARN string) *Environment {
-	name, ok := b.arnIndex[resourceARN]
+// findByARN looks up an environment in the given region by its ARN using the
+// region's ARN index. Must be called with lock held.
+func (b *InMemoryBackend) findByARN(region, resourceARN string) *Environment {
+	name, ok := b.arnIndexStore(region)[resourceARN]
 	if !ok {
 		return nil
 	}
 
-	return b.environments[name]
+	return b.environmentsStore(region)[name]
 }
 
 // InvokeRestAPI simulates calling the Apache Airflow REST API on the specified environment's webserver.
-func (b *InMemoryBackend) InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error) {
+func (b *InMemoryBackend) InvokeRestAPI(
+	ctx context.Context,
+	envName string,
+	req *invokeRestAPIRequest,
+) (*InvokeRestAPIResponse, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("InvokeRestAPI")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.environments[envName]; !ok {
+	if _, ok := b.environmentsStore(region)[envName]; !ok {
 		return nil, ErrEnvironmentNotFound
 	}
 
@@ -1129,38 +1215,43 @@ func (b *InMemoryBackend) InvokeRestAPI(envName string, req *invokeRestAPIReques
 
 // PublishMetrics stores internal environment metrics for the specified environment.
 // The total number of metrics per environment is capped at maxMetricsPerEnv.
-func (b *InMemoryBackend) PublishMetrics(envName string, req *publishMetricsRequest) error {
+func (b *InMemoryBackend) PublishMetrics(ctx context.Context, envName string, req *publishMetricsRequest) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PublishMetrics")
 	defer b.mu.Unlock()
 
-	if _, ok := b.environments[envName]; !ok {
+	if _, ok := b.environmentsStore(region)[envName]; !ok {
 		return ErrEnvironmentNotFound
 	}
 
-	b.metrics[envName] = append(b.metrics[envName], req.MetricData...)
+	metrics := b.metricsStore(region)
+	metrics[envName] = append(metrics[envName], req.MetricData...)
 
-	if data := b.metrics[envName]; len(data) > maxMetricsPerEnv {
+	if data := metrics[envName]; len(data) > maxMetricsPerEnv {
 		// Copy the surviving tail into a right-sized slice so the trimmed-off
 		// prefix is released for GC instead of being pinned by an oversized
 		// backing array.
 		trimmed := make([]MetricDatum, maxMetricsPerEnv)
 		copy(trimmed, data[len(data)-maxMetricsPerEnv:])
-		b.metrics[envName] = trimmed
+		metrics[envName] = trimmed
 	}
 
 	return nil
 }
 
 // GetMetrics returns the stored metrics for the specified environment.
-func (b *InMemoryBackend) GetMetrics(envName string) ([]MetricDatum, error) {
+func (b *InMemoryBackend) GetMetrics(ctx context.Context, envName string) ([]MetricDatum, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetMetrics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.environments[envName]; !ok {
+	if _, ok := b.environmentsStore(region)[envName]; !ok {
 		return nil, ErrEnvironmentNotFound
 	}
 
-	data := b.metrics[envName]
+	data := b.metricsStore(region)[envName]
 	result := make([]MetricDatum, len(data))
 	copy(result, data)
 
@@ -1170,11 +1261,13 @@ func (b *InMemoryBackend) GetMetrics(envName string) ([]MetricDatum, error) {
 // CreateCliToken validates that the environment exists and is AVAILABLE, then
 // returns a JWT-shaped CLI token. AWS returns ResourceNotFoundException when
 // the environment is in any non-AVAILABLE state.
-func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
+func (b *InMemoryBackend) CreateCliToken(ctx context.Context, envName string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("CreateCliToken")
 	defer b.mu.RUnlock()
 
-	env, ok := b.environments[envName]
+	env, ok := b.environmentsStore(region)[envName]
 	if !ok {
 		return "", ErrEnvironmentNotFound
 	}
@@ -1189,11 +1282,13 @@ func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
 // CreateWebLoginToken validates that the environment exists and is AVAILABLE,
 // then returns a JWT-shaped web login token. AWS returns ResourceNotFoundException
 // when the environment is in any non-AVAILABLE state.
-func (b *InMemoryBackend) CreateWebLoginToken(envName string) (string, error) {
+func (b *InMemoryBackend) CreateWebLoginToken(ctx context.Context, envName string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("CreateWebLoginToken")
 	defer b.mu.RUnlock()
 
-	env, ok := b.environments[envName]
+	env, ok := b.environmentsStore(region)[envName]
 	if !ok {
 		return "", ErrEnvironmentNotFound
 	}
