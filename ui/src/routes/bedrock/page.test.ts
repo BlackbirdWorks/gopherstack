@@ -6,6 +6,7 @@ const mockSend = vi.fn();
 
 vi.mock("$lib/aws-client", () => ({
   getBedrockClient: () => ({ send: mockSend }),
+  getBedrockRuntimeClient: () => ({ send: mockSend }),
 }));
 
 vi.mock("svelte-sonner", () => ({

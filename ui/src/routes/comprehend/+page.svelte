@@ -16,12 +16,16 @@
 		type SentimentScore,
 		type Entity,
 		type KeyPhrase,
-		type LanguageCode
+		type LanguageCode,
+		type ComprehendClient
 	} from '@aws-sdk/client-comprehend';
 	import { toast } from 'svelte-sonner';
-	import { MessageSquare, RefreshCw, Search, FileText, Tag, Activity, Play } from 'lucide-svelte';
+	import { MessageSquare, RefreshCw, Search, FileText, Tag, Activity, Play, ChevronDown, ChevronRight, GitCompare } from 'lucide-svelte';
 
-	const comp = getComprehendClient();
+	let comp: ComprehendClient | undefined;
+	function client(): ComprehendClient {
+		return (comp ??= getComprehendClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'classifiers' | 'recognizers' | 'topics' | 'tester'>('classifiers');
@@ -29,6 +33,36 @@
 	let classifiers = $state<DocumentClassifierProperties[]>([]);
 	let recognizers = $state<EntityRecognizerProperties[]>([]);
 	let topicsJobs = $state<TopicsDetectionJobProperties[]>([]);
+
+	// Training-metrics expansion + model-version comparison.
+	let expandedClassifier = $state<string | null>(null);
+	let expandedRecognizer = $state<string | null>(null);
+	let compareSelection = $state<string[]>([]);
+	let showCompare = $state(false);
+
+	function classifierMetrics(c: DocumentClassifierProperties) {
+		const m = c.ClassifierMetadata?.EvaluationMetrics;
+		return [
+			['Accuracy', m?.Accuracy],
+			['Precision', m?.Precision],
+			['Recall', m?.Recall],
+			['F1 Score', m?.F1Score],
+			['Micro F1', m?.MicroF1Score],
+			['Hamming Loss', m?.HammingLoss]
+		] as [string, number | undefined][];
+	}
+
+	function recognizerF1(r: EntityRecognizerProperties): number | undefined {
+		return r.RecognizerMetadata?.EvaluationMetrics?.F1Score;
+	}
+
+	function toggleCompare(arn: string) {
+		compareSelection = compareSelection.includes(arn)
+			? compareSelection.filter((a) => a !== arn)
+			: [...compareSelection, arn];
+	}
+
+	const compareRows = $derived(classifiers.filter((c) => compareSelection.includes(c.DocumentClassifierArn ?? '')));
 
 	// Inference tester
 	let testText = $state('');
@@ -57,16 +91,16 @@
 		try {
 			const lang = testLang as LanguageCode;
 			if (testOp === 'sentiment') {
-				const r = await comp.send(new DetectSentimentCommand({ Text: testText, LanguageCode: lang }));
+				const r = await client().send(new DetectSentimentCommand({ Text: testText, LanguageCode: lang }));
 				sentimentResult = { sentiment: r.Sentiment, score: r.SentimentScore };
 			} else if (testOp === 'entities') {
-				const r = await comp.send(new DetectEntitiesCommand({ Text: testText, LanguageCode: lang }));
+				const r = await client().send(new DetectEntitiesCommand({ Text: testText, LanguageCode: lang }));
 				entitiesResult = r.Entities ?? [];
 			} else if (testOp === 'keyphrases') {
-				const r = await comp.send(new DetectKeyPhrasesCommand({ Text: testText, LanguageCode: lang }));
+				const r = await client().send(new DetectKeyPhrasesCommand({ Text: testText, LanguageCode: lang }));
 				keyPhrasesResult = r.KeyPhrases ?? [];
 			} else {
-				const r = await comp.send(new DetectDominantLanguageCommand({ Text: testText }));
+				const r = await client().send(new DetectDominantLanguageCommand({ Text: testText }));
 				languageResult = r.Languages ?? [];
 			}
 		} catch (e) {
@@ -88,9 +122,9 @@
 		loading = true;
 		try {
 			const [classResp, recResp, topResp] = await Promise.all([
-				comp.send(new ListDocumentClassifiersCommand({})),
-				comp.send(new ListEntityRecognizersCommand({})),
-				comp.send(new ListTopicsDetectionJobsCommand({}))
+				client().send(new ListDocumentClassifiersCommand({})),
+				client().send(new ListEntityRecognizersCommand({})),
+				client().send(new ListTopicsDetectionJobsCommand({}))
 			]);
 			classifiers = classResp.DocumentClassifierPropertiesList ?? [];
 			recognizers = recResp.EntityRecognizerPropertiesList ?? [];
@@ -234,14 +268,84 @@
 				{#if filteredClassifiers.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No document classifiers found</div>
 				{:else}
+					{#if compareSelection.length >= 2}
+						<div class="mb-3 flex items-center justify-between">
+							<p class="text-sm text-gray-600 dark:text-gray-300">{compareSelection.length} versions selected</p>
+							<button onclick={() => (showCompare = true)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-sm hover:bg-orange-700">
+								<GitCompare class="w-4 h-4" /> Compare metrics
+							</button>
+						</div>
+					{/if}
+					{#if showCompare && compareRows.length >= 2}
+						<div class="mb-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+							<table class="w-full text-sm">
+								<thead class="bg-gray-50 dark:bg-slate-700/50">
+									<tr>
+										<th class="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-200">Metric</th>
+										{#each compareRows as c}
+											<th class="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-200 truncate max-w-[12rem]" title={c.DocumentClassifierArn}>{c.VersionName || (c.DocumentClassifierArn ?? '').split('/').pop()}</th>
+										{/each}
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+									{#each classifierMetrics(compareRows[0]) as [label]}
+										<tr>
+											<td class="px-3 py-2 text-gray-500 dark:text-gray-400">{label}</td>
+											{#each compareRows as c}
+												{@const v = (classifierMetrics(c).find(([l]) => l === label) ?? [])[1]}
+												<td class="px-3 py-2 font-mono text-gray-900 dark:text-white">{label === 'Hamming Loss' ? (v == null ? '-' : (v as number).toFixed(4)) : pct(v as number | undefined)}</td>
+											{/each}
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+							<div class="p-2 text-right"><button onclick={() => (showCompare = false)} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Close comparison</button></div>
+						</div>
+					{/if}
 					<div class="space-y-2">
 						{#each filteredClassifiers as clf}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3">
-									<FileText class="w-5 h-5 text-orange-500" />
-									<p class="text-sm font-medium text-gray-900 dark:text-white truncate max-w-sm">{clf.DocumentClassifierArn}</p>
+							{@const arn = clf.DocumentClassifierArn ?? ''}
+							<div class="rounded-lg bg-gray-50 dark:bg-slate-700/50">
+								<div class="flex items-center justify-between p-3">
+									<button onclick={() => (expandedClassifier = expandedClassifier === arn ? null : arn)} class="flex items-center gap-3 min-w-0 text-left">
+										{#if expandedClassifier === arn}<ChevronDown class="w-4 h-4 text-gray-400 flex-shrink-0" />{:else}<ChevronRight class="w-4 h-4 text-gray-400 flex-shrink-0" />{/if}
+										<FileText class="w-5 h-5 text-orange-500 flex-shrink-0" />
+										<div class="min-w-0">
+											<p class="text-sm font-medium text-gray-900 dark:text-white truncate max-w-sm">{arn}</p>
+											{#if clf.VersionName}<p class="text-xs text-gray-500 dark:text-gray-400">{clf.VersionName} · F1 {pct(clf.ClassifierMetadata?.EvaluationMetrics?.F1Score)}</p>{/if}
+										</div>
+									</button>
+									<div class="flex items-center gap-3 flex-shrink-0">
+										<label class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+											<input type="checkbox" checked={compareSelection.includes(arn)} onchange={() => toggleCompare(arn)} class="rounded" /> Compare
+										</label>
+										<span class="text-xs px-2 py-1 rounded-full {clf.Status === 'TRAINED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{clf.Status}</span>
+									</div>
 								</div>
-								<span class="text-xs px-2 py-1 rounded-full {clf.Status === 'TRAINED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{clf.Status}</span>
+								{#if expandedClassifier === arn}
+									<div class="px-3 pb-3 border-t border-slate-200 dark:border-slate-600 pt-3">
+										{#if clf.ClassifierMetadata?.EvaluationMetrics}
+											<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+												{#each classifierMetrics(clf) as [label, val]}
+													<div>
+														<p class="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+														<div class="flex items-center gap-2">
+															{#if label !== 'Hamming Loss'}
+																<div class="flex-1 h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden"><div class="h-full bg-orange-500" style="width: {(Number(val) || 0) * 100}%"></div></div>
+															{/if}
+															<span class="text-xs font-mono text-gray-900 dark:text-white">{label === 'Hamming Loss' ? (val == null ? '-' : val.toFixed(4)) : pct(val)}</span>
+														</div>
+													</div>
+												{/each}
+											</div>
+											{#if clf.ClassifierMetadata?.NumberOfTrainedDocuments != null}
+												<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Trained on {clf.ClassifierMetadata.NumberOfTrainedDocuments} documents · {clf.ClassifierMetadata.NumberOfLabels ?? 0} labels</p>
+											{/if}
+										{:else}
+											<p class="text-sm text-gray-500 dark:text-gray-400">No evaluation metrics available (training not complete).</p>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -252,12 +356,41 @@
 				{:else}
 					<div class="space-y-2">
 						{#each filteredRecognizers as rec}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3">
-									<Tag class="w-5 h-5 text-blue-500" />
-									<p class="text-sm font-medium text-gray-900 dark:text-white truncate max-w-sm">{rec.EntityRecognizerArn}</p>
+							{@const rarn = rec.EntityRecognizerArn ?? ''}
+							<div class="rounded-lg bg-gray-50 dark:bg-slate-700/50">
+								<div class="flex items-center justify-between p-3">
+									<button onclick={() => (expandedRecognizer = expandedRecognizer === rarn ? null : rarn)} class="flex items-center gap-3 min-w-0 text-left">
+										{#if expandedRecognizer === rarn}<ChevronDown class="w-4 h-4 text-gray-400 flex-shrink-0" />{:else}<ChevronRight class="w-4 h-4 text-gray-400 flex-shrink-0" />{/if}
+										<Tag class="w-5 h-5 text-blue-500 flex-shrink-0" />
+										<div class="min-w-0">
+											<p class="text-sm font-medium text-gray-900 dark:text-white truncate max-w-sm">{rarn}</p>
+											{#if rec.VersionName}<p class="text-xs text-gray-500 dark:text-gray-400">{rec.VersionName} · F1 {pct(recognizerF1(rec))}</p>{/if}
+										</div>
+									</button>
+									<span class="text-xs px-2 py-1 rounded-full flex-shrink-0 {rec.Status === 'TRAINED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{rec.Status}</span>
 								</div>
-								<span class="text-xs px-2 py-1 rounded-full {rec.Status === 'TRAINED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{rec.Status}</span>
+								{#if expandedRecognizer === rarn}
+									<div class="px-3 pb-3 border-t border-slate-200 dark:border-slate-600 pt-3">
+										{#if rec.RecognizerMetadata?.EvaluationMetrics}
+											<div class="grid grid-cols-3 gap-3">
+												{#each [['Precision', rec.RecognizerMetadata.EvaluationMetrics.Precision], ['Recall', rec.RecognizerMetadata.EvaluationMetrics.Recall], ['F1 Score', rec.RecognizerMetadata.EvaluationMetrics.F1Score]] as [label, val]}
+													<div>
+														<p class="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+														<div class="flex items-center gap-2">
+															<div class="flex-1 h-1.5 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden"><div class="h-full bg-blue-500" style="width: {(Number(val) || 0) * 100}%"></div></div>
+															<span class="text-xs font-mono text-gray-900 dark:text-white">{pct(val as number | undefined)}</span>
+														</div>
+													</div>
+												{/each}
+											</div>
+											{#if rec.RecognizerMetadata?.NumberOfTrainedDocuments != null}
+												<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Trained on {rec.RecognizerMetadata.NumberOfTrainedDocuments} documents</p>
+											{/if}
+										{:else}
+											<p class="text-sm text-gray-500 dark:text-gray-400">No evaluation metrics available (training not complete).</p>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
