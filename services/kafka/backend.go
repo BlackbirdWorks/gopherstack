@@ -2,6 +2,7 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,6 +15,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// MSK resources are isolated per region: every backend operation resolves the
+// caller's region from the request context (for create/list operations) or from
+// the resource ARN (for operations that target an existing ARN) and operates only
+// on that region's nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
@@ -21,6 +50,13 @@ var (
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+)
+
+const (
+	// kafkaVersion360 is the MSK Kafka 3.6.0 version identifier.
+	kafkaVersion360 = "3.6.0"
+	// kafkaVersion351 is the MSK Kafka 3.5.1 version identifier.
+	kafkaVersion351 = "3.5.1"
 )
 
 const (
@@ -334,15 +370,21 @@ type Configuration struct {
 }
 
 // InMemoryBackend stores MSK state in memory.
+//
+// All resource maps are nested by region (outer key = region) so that same-named
+// resources in different regions are fully isolated. Operations that take an
+// existing resource ARN resolve their region from the ARN itself; create and
+// list operations resolve it from the request context (falling back to the
+// backend's default region).
 type InMemoryBackend struct {
-	clusters          map[string]*Cluster          // key: clusterArn
-	configurations    map[string]*Configuration    // key: configArn
-	scramSecrets      map[string][]string          // key: clusterArn → []secretArn
-	replicators       map[string]*Replicator       // key: replicatorArn
-	topics            map[string]*Topic            // key: clusterArn + "|" + topicName
-	vpcConnections    map[string]*VpcConnection    // key: vpcConnectionArn
-	clusterPolicies   map[string]string            // key: clusterArn → policy document
-	clusterOperations map[string]*ClusterOperation // key: clusterOperationArn
+	clusters          map[string]map[string]*Cluster          // region → clusterArn → cluster
+	configurations    map[string]map[string]*Configuration    // region → configArn → configuration
+	scramSecrets      map[string]map[string][]string          // region → clusterArn → []secretArn
+	replicators       map[string]map[string]*Replicator       // region → replicatorArn → replicator
+	topics            map[string]map[string]*Topic            // region → clusterArn|topicName → topic
+	vpcConnections    map[string]map[string]*VpcConnection    // region → vpcConnectionArn → connection
+	clusterPolicies   map[string]map[string]string            // region → clusterArn → policy document
+	clusterOperations map[string]map[string]*ClusterOperation // region → clusterOperationArn → operation
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -351,14 +393,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MSK backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:          make(map[string]*Cluster),
-		configurations:    make(map[string]*Configuration),
-		scramSecrets:      make(map[string][]string),
-		replicators:       make(map[string]*Replicator),
-		topics:            make(map[string]*Topic),
-		vpcConnections:    make(map[string]*VpcConnection),
-		clusterPolicies:   make(map[string]string),
-		clusterOperations: make(map[string]*ClusterOperation),
+		clusters:          make(map[string]map[string]*Cluster),
+		configurations:    make(map[string]map[string]*Configuration),
+		scramSecrets:      make(map[string]map[string][]string),
+		replicators:       make(map[string]map[string]*Replicator),
+		topics:            make(map[string]map[string]*Topic),
+		vpcConnections:    make(map[string]map[string]*VpcConnection),
+		clusterPolicies:   make(map[string]map[string]string),
+		clusterOperations: make(map[string]map[string]*ClusterOperation),
 		mu:                lockmetrics.New("kafka"),
 		accountID:         accountID,
 		region:            region,
@@ -371,66 +413,140 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// --- Per-region store accessors (callers must hold b.mu) ---
+
+// clustersStore returns the cluster map for region, lazily creating it.
+func (b *InMemoryBackend) clustersStore(region string) map[string]*Cluster {
+	if b.clusters[region] == nil {
+		b.clusters[region] = make(map[string]*Cluster)
+	}
+
+	return b.clusters[region]
+}
+
+// configurationsStore returns the configuration map for region, lazily creating it.
+func (b *InMemoryBackend) configurationsStore(region string) map[string]*Configuration {
+	if b.configurations[region] == nil {
+		b.configurations[region] = make(map[string]*Configuration)
+	}
+
+	return b.configurations[region]
+}
+
+// scramSecretsStore returns the SCRAM secret map for region, lazily creating it.
+func (b *InMemoryBackend) scramSecretsStore(region string) map[string][]string {
+	if b.scramSecrets[region] == nil {
+		b.scramSecrets[region] = make(map[string][]string)
+	}
+
+	return b.scramSecrets[region]
+}
+
+// replicatorsStore returns the replicator map for region, lazily creating it.
+func (b *InMemoryBackend) replicatorsStore(region string) map[string]*Replicator {
+	if b.replicators[region] == nil {
+		b.replicators[region] = make(map[string]*Replicator)
+	}
+
+	return b.replicators[region]
+}
+
+// topicsStore returns the topic map for region, lazily creating it.
+func (b *InMemoryBackend) topicsStore(region string) map[string]*Topic {
+	if b.topics[region] == nil {
+		b.topics[region] = make(map[string]*Topic)
+	}
+
+	return b.topics[region]
+}
+
+// vpcConnectionsStore returns the VPC connection map for region, lazily creating it.
+func (b *InMemoryBackend) vpcConnectionsStore(region string) map[string]*VpcConnection {
+	if b.vpcConnections[region] == nil {
+		b.vpcConnections[region] = make(map[string]*VpcConnection)
+	}
+
+	return b.vpcConnections[region]
+}
+
+// clusterPoliciesStore returns the cluster policy map for region, lazily creating it.
+func (b *InMemoryBackend) clusterPoliciesStore(region string) map[string]string {
+	if b.clusterPolicies[region] == nil {
+		b.clusterPolicies[region] = make(map[string]string)
+	}
+
+	return b.clusterPolicies[region]
+}
+
+// clusterOperationsStore returns the cluster operation map for region, lazily creating it.
+func (b *InMemoryBackend) clusterOperationsStore(region string) map[string]*ClusterOperation {
+	if b.clusterOperations[region] == nil {
+		b.clusterOperations[region] = make(map[string]*ClusterOperation)
+	}
+
+	return b.clusterOperations[region]
+}
+
 // Reset clears all state, returning the backend to a clean empty state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]*Cluster)
-	b.configurations = make(map[string]*Configuration)
-	b.scramSecrets = make(map[string][]string)
-	b.replicators = make(map[string]*Replicator)
-	b.topics = make(map[string]*Topic)
-	b.vpcConnections = make(map[string]*VpcConnection)
-	b.clusterPolicies = make(map[string]string)
-	b.clusterOperations = make(map[string]*ClusterOperation)
+	b.clusters = make(map[string]map[string]*Cluster)
+	b.configurations = make(map[string]map[string]*Configuration)
+	b.scramSecrets = make(map[string]map[string][]string)
+	b.replicators = make(map[string]map[string]*Replicator)
+	b.topics = make(map[string]map[string]*Topic)
+	b.vpcConnections = make(map[string]map[string]*VpcConnection)
+	b.clusterPolicies = make(map[string]map[string]string)
+	b.clusterOperations = make(map[string]map[string]*ClusterOperation)
 }
 
-// clusterARN builds an ARN for an MSK cluster.
-func (b *InMemoryBackend) clusterARN(name string) string {
+// clusterARN builds an ARN for an MSK cluster in region.
+func (b *InMemoryBackend) clusterARN(region, name string) string {
 	return arn.Build(
 		"kafka",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("cluster/%s/%s", name, uuid.New().String()),
 	)
 }
 
-// configurationARN builds an ARN for an MSK configuration.
-func (b *InMemoryBackend) configurationARN(name string) string {
+// configurationARN builds an ARN for an MSK configuration in region.
+func (b *InMemoryBackend) configurationARN(region, name string) string {
 	return arn.Build(
 		"kafka",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("configuration/%s/%s", name, uuid.New().String()),
 	)
 }
 
-// replicatorARN builds an ARN for an MSK replicator.
-func (b *InMemoryBackend) replicatorARN(name string) string {
+// replicatorARN builds an ARN for an MSK replicator in region.
+func (b *InMemoryBackend) replicatorARN(region, name string) string {
 	return arn.Build(
 		"kafka",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("replicator/%s/%s", name, uuid.New().String()),
 	)
 }
 
-// vpcConnectionARN builds an ARN for an MSK VPC connection.
-func (b *InMemoryBackend) vpcConnectionARN(clusterArn, vpcID string) string {
+// vpcConnectionARN builds an ARN for an MSK VPC connection in region.
+func (b *InMemoryBackend) vpcConnectionARN(region, clusterArn, vpcID string) string {
 	return arn.Build(
 		"kafka",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("vpc-connection/%s/%s/%s", clusterArn, vpcID, uuid.New().String()),
 	)
 }
 
-// clusterOperationARN builds an ARN for an MSK cluster operation.
-func (b *InMemoryBackend) clusterOperationARN(clusterArn string) string {
+// clusterOperationARN builds an ARN for an MSK cluster operation in region.
+func (b *InMemoryBackend) clusterOperationARN(region, clusterArn string) string {
 	return arn.Build(
 		"kafka",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("cluster-operation/%s/%s", clusterArn, uuid.New().String()),
 	)
@@ -445,6 +561,7 @@ func topicKey(clusterArn, topicName string) string {
 
 // CreateCluster creates a new MSK cluster.
 func (b *InMemoryBackend) CreateCluster(
+	ctx context.Context,
 	name, kafkaVersion string,
 	numBrokers int32,
 	brokerInfo BrokerNodeGroupInfo,
@@ -455,16 +572,19 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
+	clusters := b.clustersStore(region)
+	for _, c := range clusters {
 		if c.ClusterName == name {
 			return nil, ErrAlreadyExists
 		}
 	}
 
-	clusterArn := b.clusterARN(name)
+	clusterArn := b.clusterARN(region, name)
 	safeInfo := BrokerNodeGroupInfo{
 		BrokerAZDistribution: brokerInfo.BrokerAZDistribution,
 		InstanceType:         brokerInfo.InstanceType,
@@ -492,13 +612,14 @@ func (b *InMemoryBackend) CreateCluster(
 		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
 	}
-	b.clusters[clusterArn] = cluster
+	clusters[clusterArn] = cluster
 
 	return cloneCluster(cluster), nil
 }
 
 // CreateServerlessCluster creates a new MSK Serverless cluster.
 func (b *InMemoryBackend) CreateServerlessCluster(
+	ctx context.Context,
 	name string,
 	serverless *ServerlessClusterInfo,
 	tags map[string]string,
@@ -507,16 +628,19 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateServerlessCluster")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
+	clusters := b.clustersStore(region)
+	for _, c := range clusters {
 		if c.ClusterName == name {
 			return nil, ErrAlreadyExists
 		}
 	}
 
-	clusterArn := b.clusterARN(name)
+	clusterArn := b.clusterARN(region, name)
 	cluster := &Cluster{
 		ClusterArn:     clusterArn,
 		ClusterName:    name,
@@ -526,17 +650,19 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 		Tags:           nonNilTagsCopy(tags),
 		Serverless:     cloneServerless(serverless),
 	}
-	b.clusters[clusterArn] = cluster
+	clusters[clusterArn] = cluster
 
 	return cloneCluster(cluster), nil
 }
 
 // DescribeCluster retrieves a cluster by ARN.
-func (b *InMemoryBackend) DescribeCluster(clusterArn string) (*Cluster, error) {
+func (b *InMemoryBackend) DescribeCluster(ctx context.Context, clusterArn string) (*Cluster, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeCluster")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -544,13 +670,16 @@ func (b *InMemoryBackend) DescribeCluster(clusterArn string) (*Cluster, error) {
 	return cloneCluster(c), nil
 }
 
-// ListClusters returns all MSK clusters sorted by name.
-func (b *InMemoryBackend) ListClusters() []*Cluster {
+// ListClusters returns all MSK clusters in the request's region sorted by name.
+func (b *InMemoryBackend) ListClusters(ctx context.Context) []*Cluster {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	out := make([]*Cluster, 0, len(b.clusters))
-	for _, c := range b.clusters {
+	clusters := b.clustersStore(region)
+	out := make([]*Cluster, 0, len(clusters))
+	for _, c := range clusters {
 		out = append(out, cloneCluster(c))
 	}
 
@@ -569,23 +698,27 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 }
 
 // DeleteCluster deletes a cluster by ARN, cascading to its SCRAM secrets, topics and cluster policy.
-func (b *InMemoryBackend) DeleteCluster(clusterArn string) error {
+func (b *InMemoryBackend) DeleteCluster(ctx context.Context, clusterArn string) error {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	clusters := b.clustersStore(region)
+	if _, ok := clusters[clusterArn]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.clusters, clusterArn)
-	delete(b.scramSecrets, clusterArn)
-	delete(b.clusterPolicies, clusterArn)
+	delete(clusters, clusterArn)
+	delete(b.scramSecretsStore(region), clusterArn)
+	delete(b.clusterPoliciesStore(region), clusterArn)
 
 	// Remove all topics belonging to this cluster.
+	topics := b.topicsStore(region)
 	prefix := clusterArn + topicKeySeparator
-	for k := range b.topics {
+	for k := range topics {
 		if strings.HasPrefix(k, prefix) {
-			delete(b.topics, k)
+			delete(topics, k)
 		}
 	}
 
@@ -596,6 +729,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterArn string) error {
 
 // CreateConfiguration creates a new MSK configuration.
 func (b *InMemoryBackend) CreateConfiguration(
+	ctx context.Context,
 	name, description string,
 	kafkaVersions []string,
 	serverProperties string,
@@ -604,16 +738,19 @@ func (b *InMemoryBackend) CreateConfiguration(
 		return nil, fmt.Errorf("name is required: %w", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 
-	for _, c := range b.configurations {
+	configurations := b.configurationsStore(region)
+	for _, c := range configurations {
 		if c.Name == name {
 			return nil, ErrAlreadyExists
 		}
 	}
 
-	configArn := b.configurationARN(name)
+	configArn := b.configurationARN(region, name)
 	kvs := make([]string, len(kafkaVersions))
 	copy(kvs, kafkaVersions)
 	config := &Configuration{
@@ -624,17 +761,19 @@ func (b *InMemoryBackend) CreateConfiguration(
 		ServerProperties: serverProperties,
 		Tags:             make(map[string]string),
 	}
-	b.configurations[configArn] = config
+	configurations[configArn] = config
 
 	return cloneConfiguration(config), nil
 }
 
 // DescribeConfiguration retrieves a configuration by ARN.
-func (b *InMemoryBackend) DescribeConfiguration(configArn string) (*Configuration, error) {
+func (b *InMemoryBackend) DescribeConfiguration(ctx context.Context, configArn string) (*Configuration, error) {
+	region := regionFromARN(configArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeConfiguration")
 	defer b.mu.RUnlock()
 
-	c, ok := b.configurations[configArn]
+	c, ok := b.configurationsStore(region)[configArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -642,13 +781,16 @@ func (b *InMemoryBackend) DescribeConfiguration(configArn string) (*Configuratio
 	return cloneConfiguration(c), nil
 }
 
-// ListConfigurations returns all MSK configurations sorted by name.
-func (b *InMemoryBackend) ListConfigurations() []*Configuration {
+// ListConfigurations returns all MSK configurations in the request's region sorted by name.
+func (b *InMemoryBackend) ListConfigurations(ctx context.Context) []*Configuration {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListConfigurations")
 	defer b.mu.RUnlock()
 
-	out := make([]*Configuration, 0, len(b.configurations))
-	for _, c := range b.configurations {
+	configurations := b.configurationsStore(region)
+	out := make([]*Configuration, 0, len(configurations))
+	for _, c := range configurations {
 		out = append(out, cloneConfiguration(c))
 	}
 
@@ -667,15 +809,18 @@ func (b *InMemoryBackend) ListConfigurations() []*Configuration {
 }
 
 // DeleteConfiguration deletes a configuration by ARN.
-func (b *InMemoryBackend) DeleteConfiguration(configArn string) error {
+func (b *InMemoryBackend) DeleteConfiguration(ctx context.Context, configArn string) error {
+	region := regionFromARN(configArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configurations[configArn]; !ok {
+	configurations := b.configurationsStore(region)
+	if _, ok := configurations[configArn]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.configurations, configArn)
+	delete(configurations, configArn)
 
 	return nil
 }
@@ -683,29 +828,31 @@ func (b *InMemoryBackend) DeleteConfiguration(configArn string) error {
 // --- Tag operations ---
 
 // TagResource adds tags to a cluster, configuration, replicator, or VPC connection by ARN.
-func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, tags map[string]string) error {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if c, ok := b.clusters[resourceArn]; ok {
+	if c, ok := b.clustersStore(region)[resourceArn]; ok {
 		maps.Copy(c.Tags, tags)
 
 		return nil
 	}
 
-	if c, ok := b.configurations[resourceArn]; ok {
+	if c, ok := b.configurationsStore(region)[resourceArn]; ok {
 		maps.Copy(c.Tags, tags)
 
 		return nil
 	}
 
-	if r, ok := b.replicators[resourceArn]; ok {
+	if r, ok := b.replicatorsStore(region)[resourceArn]; ok {
 		maps.Copy(r.Tags, tags)
 
 		return nil
 	}
 
-	if v, ok := b.vpcConnections[resourceArn]; ok {
+	if v, ok := b.vpcConnectionsStore(region)[resourceArn]; ok {
 		maps.Copy(v.Tags, tags)
 
 		return nil
@@ -715,11 +862,13 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 }
 
 // UntagResource removes tags from a cluster, configuration, replicator, or VPC connection by ARN.
-func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if c, ok := b.clusters[resourceArn]; ok {
+	if c, ok := b.clustersStore(region)[resourceArn]; ok {
 		for _, k := range tagKeys {
 			delete(c.Tags, k)
 		}
@@ -727,7 +876,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		return nil
 	}
 
-	if c, ok := b.configurations[resourceArn]; ok {
+	if c, ok := b.configurationsStore(region)[resourceArn]; ok {
 		for _, k := range tagKeys {
 			delete(c.Tags, k)
 		}
@@ -735,7 +884,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		return nil
 	}
 
-	if r, ok := b.replicators[resourceArn]; ok {
+	if r, ok := b.replicatorsStore(region)[resourceArn]; ok {
 		for _, k := range tagKeys {
 			delete(r.Tags, k)
 		}
@@ -743,7 +892,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 		return nil
 	}
 
-	if v, ok := b.vpcConnections[resourceArn]; ok {
+	if v, ok := b.vpcConnectionsStore(region)[resourceArn]; ok {
 		for _, k := range tagKeys {
 			delete(v.Tags, k)
 		}
@@ -755,23 +904,25 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 }
 
 // GetTags retrieves tags for a cluster, configuration, replicator, or VPC connection by ARN.
-func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error) {
+func (b *InMemoryBackend) GetTags(ctx context.Context, resourceArn string) (map[string]string, error) {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
 
-	if c, ok := b.clusters[resourceArn]; ok {
+	if c, ok := b.clustersStore(region)[resourceArn]; ok {
 		return maps.Clone(c.Tags), nil
 	}
 
-	if c, ok := b.configurations[resourceArn]; ok {
+	if c, ok := b.configurationsStore(region)[resourceArn]; ok {
 		return maps.Clone(c.Tags), nil
 	}
 
-	if r, ok := b.replicators[resourceArn]; ok {
+	if r, ok := b.replicatorsStore(region)[resourceArn]; ok {
 		return maps.Clone(r.Tags), nil
 	}
 
-	if v, ok := b.vpcConnections[resourceArn]; ok {
+	if v, ok := b.vpcConnectionsStore(region)[resourceArn]; ok {
 		return maps.Clone(v.Tags), nil
 	}
 
@@ -783,17 +934,21 @@ func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error)
 // BatchAssociateScramSecret associates a list of SCRAM secrets with a cluster.
 // It returns any errors that occurred for individual secrets.
 func (b *InMemoryBackend) BatchAssociateScramSecret(
+	ctx context.Context,
 	clusterArn string,
 	secretArnList []string,
 ) ([]ScramSecretError, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("BatchAssociateScramSecret")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	existing := b.scramSecrets[clusterArn]
+	scramSecrets := b.scramSecretsStore(region)
+	existing := scramSecrets[clusterArn]
 	existingSet := make(map[string]struct{}, len(existing))
 
 	for _, s := range existing {
@@ -807,7 +962,7 @@ func (b *InMemoryBackend) BatchAssociateScramSecret(
 		}
 	}
 
-	b.scramSecrets[clusterArn] = existing
+	scramSecrets[clusterArn] = existing
 
 	return []ScramSecretError{}, nil
 }
@@ -815,13 +970,16 @@ func (b *InMemoryBackend) BatchAssociateScramSecret(
 // BatchDisassociateScramSecret disassociates a list of SCRAM secrets from a cluster.
 // It returns any errors that occurred for individual secrets.
 func (b *InMemoryBackend) BatchDisassociateScramSecret(
+	ctx context.Context,
 	clusterArn string,
 	secretArnList []string,
 ) ([]ScramSecretError, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("BatchDisassociateScramSecret")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
@@ -831,7 +989,8 @@ func (b *InMemoryBackend) BatchDisassociateScramSecret(
 		removeSet[s] = struct{}{}
 	}
 
-	existing := b.scramSecrets[clusterArn]
+	scramSecrets := b.scramSecretsStore(region)
+	existing := scramSecrets[clusterArn]
 	kept := make([]string, 0, len(existing))
 
 	for _, s := range existing {
@@ -840,7 +999,7 @@ func (b *InMemoryBackend) BatchDisassociateScramSecret(
 		}
 	}
 
-	b.scramSecrets[clusterArn] = kept
+	scramSecrets[clusterArn] = kept
 
 	return []ScramSecretError{}, nil
 }
@@ -849,6 +1008,7 @@ func (b *InMemoryBackend) BatchDisassociateScramSecret(
 
 // CreateReplicator creates a new MSK replicator.
 func (b *InMemoryBackend) CreateReplicator(
+	ctx context.Context,
 	name, description, serviceExecutionRoleArn string,
 	tags map[string]string,
 ) (*Replicator, error) {
@@ -856,16 +1016,19 @@ func (b *InMemoryBackend) CreateReplicator(
 		return nil, fmt.Errorf("replicatorName is required: %w", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateReplicator")
 	defer b.mu.Unlock()
 
-	for _, r := range b.replicators {
+	replicators := b.replicatorsStore(region)
+	for _, r := range replicators {
 		if r.ReplicatorName == name {
 			return nil, ErrAlreadyExists
 		}
 	}
 
-	replicatorArn := b.replicatorARN(name)
+	replicatorArn := b.replicatorARN(region, name)
 	replicator := &Replicator{
 		ReplicatorArn:           replicatorArn,
 		ReplicatorName:          name,
@@ -874,21 +1037,24 @@ func (b *InMemoryBackend) CreateReplicator(
 		ReplicatorState:         ReplicatorStateRunning,
 		Tags:                    nonNilTagsCopy(tags),
 	}
-	b.replicators[replicatorArn] = replicator
+	replicators[replicatorArn] = replicator
 
 	return cloneReplicator(replicator), nil
 }
 
 // DeleteReplicator deletes a replicator by ARN.
-func (b *InMemoryBackend) DeleteReplicator(replicatorArn string) error {
+func (b *InMemoryBackend) DeleteReplicator(ctx context.Context, replicatorArn string) error {
+	region := regionFromARN(replicatorArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteReplicator")
 	defer b.mu.Unlock()
 
-	if _, ok := b.replicators[replicatorArn]; !ok {
+	replicators := b.replicatorsStore(region)
+	if _, ok := replicators[replicatorArn]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.replicators, replicatorArn)
+	delete(replicators, replicatorArn)
 
 	return nil
 }
@@ -897,6 +1063,7 @@ func (b *InMemoryBackend) DeleteReplicator(replicatorArn string) error {
 
 // CreateTopic creates a topic on an MSK cluster.
 func (b *InMemoryBackend) CreateTopic(
+	ctx context.Context,
 	clusterArn, topicName string,
 	replicationFactor, numPartitions int32,
 	configEntries map[string]string,
@@ -905,15 +1072,18 @@ func (b *InMemoryBackend) CreateTopic(
 		return nil, fmt.Errorf("topicName is required: %w", ErrValidation)
 	}
 
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("CreateTopic")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
+	topics := b.topicsStore(region)
 	key := topicKey(clusterArn, topicName)
-	if _, ok := b.topics[key]; ok {
+	if _, ok := topics[key]; ok {
 		return nil, ErrAlreadyExists
 	}
 
@@ -924,26 +1094,29 @@ func (b *InMemoryBackend) CreateTopic(
 		NumPartitions:     numPartitions,
 		ConfigEntries:     nonNilMapCopy(configEntries),
 	}
-	b.topics[key] = topic
+	topics[key] = topic
 
 	return cloneTopic(topic), nil
 }
 
 // DeleteTopic deletes a topic from an MSK cluster.
-func (b *InMemoryBackend) DeleteTopic(clusterArn, topicName string) error {
+func (b *InMemoryBackend) DeleteTopic(ctx context.Context, clusterArn, topicName string) error {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteTopic")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return ErrNotFound
 	}
 
+	topics := b.topicsStore(region)
 	key := topicKey(clusterArn, topicName)
-	if _, ok := b.topics[key]; !ok {
+	if _, ok := topics[key]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.topics, key)
+	delete(topics, key)
 
 	return nil
 }
@@ -952,17 +1125,20 @@ func (b *InMemoryBackend) DeleteTopic(clusterArn, topicName string) error {
 
 // CreateVpcConnection creates a new VPC connection to an MSK cluster.
 func (b *InMemoryBackend) CreateVpcConnection(
+	ctx context.Context,
 	targetClusterArn, vpcID, authentication string,
 	tags map[string]string,
 ) (*VpcConnection, error) {
+	region := regionFromARN(targetClusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("CreateVpcConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[targetClusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[targetClusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	vpcConnectionArn := b.vpcConnectionARN(targetClusterArn, vpcID)
+	vpcConnectionArn := b.vpcConnectionARN(region, targetClusterArn, vpcID)
 	conn := &VpcConnection{
 		VpcConnectionArn: vpcConnectionArn,
 		TargetClusterArn: targetClusterArn,
@@ -971,21 +1147,24 @@ func (b *InMemoryBackend) CreateVpcConnection(
 		State:            VpcConnectionStateAvailable,
 		Tags:             nonNilTagsCopy(tags),
 	}
-	b.vpcConnections[vpcConnectionArn] = conn
+	b.vpcConnectionsStore(region)[vpcConnectionArn] = conn
 
 	return cloneVpcConnection(conn), nil
 }
 
 // DeleteVpcConnection deletes a VPC connection by ARN.
-func (b *InMemoryBackend) DeleteVpcConnection(vpcConnectionArn string) error {
+func (b *InMemoryBackend) DeleteVpcConnection(ctx context.Context, vpcConnectionArn string) error {
+	region := regionFromARN(vpcConnectionArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteVpcConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcConnections[vpcConnectionArn]; !ok {
+	conns := b.vpcConnectionsStore(region)
+	if _, ok := conns[vpcConnectionArn]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.vpcConnections, vpcConnectionArn)
+	delete(conns, vpcConnectionArn)
 
 	return nil
 }
@@ -993,11 +1172,13 @@ func (b *InMemoryBackend) DeleteVpcConnection(vpcConnectionArn string) error {
 // --- Replicator describe/list/update operations ---
 
 // DescribeReplicator retrieves a replicator by ARN.
-func (b *InMemoryBackend) DescribeReplicator(replicatorArn string) (*Replicator, error) {
+func (b *InMemoryBackend) DescribeReplicator(ctx context.Context, replicatorArn string) (*Replicator, error) {
+	region := regionFromARN(replicatorArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeReplicator")
 	defer b.mu.RUnlock()
 
-	r, ok := b.replicators[replicatorArn]
+	r, ok := b.replicatorsStore(region)[replicatorArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1005,13 +1186,16 @@ func (b *InMemoryBackend) DescribeReplicator(replicatorArn string) (*Replicator,
 	return cloneReplicator(r), nil
 }
 
-// ListReplicators returns all replicators sorted by name.
-func (b *InMemoryBackend) ListReplicators() []*Replicator {
+// ListReplicators returns all replicators in the request's region sorted by name.
+func (b *InMemoryBackend) ListReplicators(ctx context.Context) []*Replicator {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListReplicators")
 	defer b.mu.RUnlock()
 
-	out := make([]*Replicator, 0, len(b.replicators))
-	for _, r := range b.replicators {
+	replicators := b.replicatorsStore(region)
+	out := make([]*Replicator, 0, len(replicators))
+	for _, r := range replicators {
 		out = append(out, cloneReplicator(r))
 	}
 
@@ -1031,12 +1215,15 @@ func (b *InMemoryBackend) ListReplicators() []*Replicator {
 
 // UpdateReplicationInfo updates the replicator description.
 func (b *InMemoryBackend) UpdateReplicationInfo(
+	ctx context.Context,
 	replicatorArn, description string,
 ) (*Replicator, error) {
+	region := regionFromARN(replicatorArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateReplicationInfo")
 	defer b.mu.Unlock()
 
-	r, ok := b.replicators[replicatorArn]
+	r, ok := b.replicatorsStore(region)[replicatorArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1049,12 +1236,14 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 // --- Topic describe/list/update operations ---
 
 // DescribeTopic retrieves a topic by cluster ARN and topic name.
-func (b *InMemoryBackend) DescribeTopic(clusterArn, topicName string) (*Topic, error) {
+func (b *InMemoryBackend) DescribeTopic(ctx context.Context, clusterArn, topicName string) (*Topic, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeTopic")
 	defer b.mu.RUnlock()
 
 	key := topicKey(clusterArn, topicName)
-	t, ok := b.topics[key]
+	t, ok := b.topicsStore(region)[key]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1063,23 +1252,26 @@ func (b *InMemoryBackend) DescribeTopic(clusterArn, topicName string) (*Topic, e
 }
 
 // DescribeTopicPartitions retrieves a topic's partition count.
-func (b *InMemoryBackend) DescribeTopicPartitions(clusterArn, topicName string) (*Topic, error) {
-	return b.DescribeTopic(clusterArn, topicName)
+func (b *InMemoryBackend) DescribeTopicPartitions(ctx context.Context, clusterArn, topicName string) (*Topic, error) {
+	return b.DescribeTopic(ctx, clusterArn, topicName)
 }
 
 // ListTopics returns all topics for a cluster sorted by topic name.
-func (b *InMemoryBackend) ListTopics(clusterArn string) ([]*Topic, error) {
+func (b *InMemoryBackend) ListTopics(ctx context.Context, clusterArn string) ([]*Topic, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListTopics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
+	topics := b.topicsStore(region)
 	prefix := clusterArn + topicKeySeparator
-	out := make([]*Topic, 0, len(b.topics))
+	out := make([]*Topic, 0, len(topics))
 
-	for k, t := range b.topics {
+	for k, t := range topics {
 		if strings.HasPrefix(k, prefix) {
 			out = append(out, cloneTopic(t))
 		}
@@ -1101,15 +1293,18 @@ func (b *InMemoryBackend) ListTopics(clusterArn string) ([]*Topic, error) {
 
 // UpdateTopic updates a topic's config entries and/or partition count.
 func (b *InMemoryBackend) UpdateTopic(
+	ctx context.Context,
 	clusterArn, topicName string,
 	numPartitions int32,
 	configEntries map[string]string,
 ) (*Topic, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateTopic")
 	defer b.mu.Unlock()
 
 	key := topicKey(clusterArn, topicName)
-	t, ok := b.topics[key]
+	t, ok := b.topicsStore(region)[key]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1128,11 +1323,13 @@ func (b *InMemoryBackend) UpdateTopic(
 // --- VPC connection describe/list/reject operations ---
 
 // DescribeVpcConnection retrieves a VPC connection by ARN.
-func (b *InMemoryBackend) DescribeVpcConnection(vpcConnectionArn string) (*VpcConnection, error) {
+func (b *InMemoryBackend) DescribeVpcConnection(ctx context.Context, vpcConnectionArn string) (*VpcConnection, error) {
+	region := regionFromARN(vpcConnectionArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeVpcConnection")
 	defer b.mu.RUnlock()
 
-	v, ok := b.vpcConnections[vpcConnectionArn]
+	v, ok := b.vpcConnectionsStore(region)[vpcConnectionArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1140,13 +1337,16 @@ func (b *InMemoryBackend) DescribeVpcConnection(vpcConnectionArn string) (*VpcCo
 	return cloneVpcConnection(v), nil
 }
 
-// ListVpcConnections returns all VPC connections sorted by ARN.
-func (b *InMemoryBackend) ListVpcConnections() []*VpcConnection {
+// ListVpcConnections returns all VPC connections in the request's region sorted by ARN.
+func (b *InMemoryBackend) ListVpcConnections(ctx context.Context) []*VpcConnection {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListVpcConnections")
 	defer b.mu.RUnlock()
 
-	out := make([]*VpcConnection, 0, len(b.vpcConnections))
-	for _, v := range b.vpcConnections {
+	conns := b.vpcConnectionsStore(region)
+	out := make([]*VpcConnection, 0, len(conns))
+	for _, v := range conns {
 		out = append(out, cloneVpcConnection(v))
 	}
 
@@ -1164,55 +1364,71 @@ func (b *InMemoryBackend) ListVpcConnections() []*VpcConnection {
 	return out
 }
 
-// ListClientVpcConnections returns all VPC connections for a given cluster.
-func (b *InMemoryBackend) ListClientVpcConnections(clusterArn string) ([]*VpcConnection, error) {
-	b.mu.RLock("ListClientVpcConnections")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.clusters[clusterArn]; !ok {
+// collectClusterChildrenLocked verifies the cluster exists in region, then returns
+// the clones of all items in store that belong to clusterArn (per belongsTo),
+// sorted ascending by sortKey. Callers must hold b.mu (read lock).
+func collectClusterChildrenLocked[T any](
+	clusters map[string]*Cluster,
+	store map[string]*T,
+	clusterArn string,
+	belongsTo func(*T) bool,
+	clone func(*T) *T,
+	sortKey func(*T) string,
+) ([]*T, error) {
+	if _, ok := clusters[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	out := make([]*VpcConnection, 0, len(b.vpcConnections))
+	out := make([]*T, 0, len(store))
 
-	for _, v := range b.vpcConnections {
-		if v.TargetClusterArn == clusterArn {
-			out = append(out, cloneVpcConnection(v))
+	for _, item := range store {
+		if belongsTo(item) {
+			out = append(out, clone(item))
 		}
 	}
 
-	slices.SortFunc(out, func(a, b *VpcConnection) int {
-		if a.VpcConnectionArn < b.VpcConnectionArn {
-			return -1
-		}
-		if a.VpcConnectionArn > b.VpcConnectionArn {
-			return 1
-		}
-
-		return 0
-	})
+	slices.SortFunc(out, func(a, b *T) int { return strings.Compare(sortKey(a), sortKey(b)) })
 
 	return out, nil
 }
 
+// ListClientVpcConnections returns all VPC connections for a given cluster.
+func (b *InMemoryBackend) ListClientVpcConnections(ctx context.Context, clusterArn string) ([]*VpcConnection, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
+	b.mu.RLock("ListClientVpcConnections")
+	defer b.mu.RUnlock()
+
+	return collectClusterChildrenLocked(
+		b.clustersStore(region),
+		b.vpcConnectionsStore(region),
+		clusterArn,
+		func(v *VpcConnection) bool { return v.TargetClusterArn == clusterArn },
+		cloneVpcConnection,
+		func(v *VpcConnection) string { return v.VpcConnectionArn },
+	)
+}
+
 // RejectClientVpcConnection rejects (deletes) a VPC connection.
-func (b *InMemoryBackend) RejectClientVpcConnection(vpcConnectionArn string) error {
-	return b.DeleteVpcConnection(vpcConnectionArn)
+func (b *InMemoryBackend) RejectClientVpcConnection(ctx context.Context, vpcConnectionArn string) error {
+	return b.DeleteVpcConnection(ctx, vpcConnectionArn)
 }
 
 // --- Cluster policy get/put operations ---
 
 // GetClusterPolicy retrieves the policy document for a cluster.
 // Returns ErrNotFound when the cluster exists but has no policy set — matching AWS behavior.
-func (b *InMemoryBackend) GetClusterPolicy(clusterArn string) (string, error) {
+func (b *InMemoryBackend) GetClusterPolicy(ctx context.Context, clusterArn string) (string, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("GetClusterPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return "", ErrNotFound
 	}
 
-	policy, ok := b.clusterPolicies[clusterArn]
+	policy, ok := b.clusterPoliciesStore(region)[clusterArn]
 	if !ok {
 		return "", fmt.Errorf("no resource-based policy found for cluster %q: %w", clusterArn, ErrNotFound)
 	}
@@ -1221,15 +1437,17 @@ func (b *InMemoryBackend) GetClusterPolicy(clusterArn string) (string, error) {
 }
 
 // PutClusterPolicy sets the policy document for a cluster.
-func (b *InMemoryBackend) PutClusterPolicy(clusterArn, policy string) error {
+func (b *InMemoryBackend) PutClusterPolicy(ctx context.Context, clusterArn, policy string) error {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("PutClusterPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return ErrNotFound
 	}
 
-	b.clusterPolicies[clusterArn] = policy
+	b.clusterPoliciesStore(region)[clusterArn] = policy
 
 	return nil
 }
@@ -1237,46 +1455,33 @@ func (b *InMemoryBackend) PutClusterPolicy(clusterArn, policy string) error {
 // --- Cluster operation list operations ---
 
 // ListClusterOperations returns all cluster operations for a cluster.
-func (b *InMemoryBackend) ListClusterOperations(clusterArn string) ([]*ClusterOperation, error) {
+func (b *InMemoryBackend) ListClusterOperations(ctx context.Context, clusterArn string) ([]*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListClusterOperations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
-		return nil, ErrNotFound
-	}
-
-	out := make([]*ClusterOperation, 0, len(b.clusterOperations))
-
-	for _, op := range b.clusterOperations {
-		if op.ClusterArn == clusterArn {
-			out = append(out, cloneClusterOperation(op))
-		}
-	}
-
-	slices.SortFunc(out, func(a, b *ClusterOperation) int {
-		if a.ClusterOperationArn < b.ClusterOperationArn {
-			return -1
-		}
-		if a.ClusterOperationArn > b.ClusterOperationArn {
-			return 1
-		}
-
-		return 0
-	})
-
-	return out, nil
+	return collectClusterChildrenLocked(
+		b.clustersStore(region),
+		b.clusterOperationsStore(region),
+		clusterArn,
+		func(op *ClusterOperation) bool { return op.ClusterArn == clusterArn },
+		cloneClusterOperation,
+		func(op *ClusterOperation) string { return op.ClusterOperationArn },
+	)
 }
 
 // DescribeClusterOperationV2 retrieves a cluster operation (V2) by ARN.
 func (b *InMemoryBackend) DescribeClusterOperationV2(
+	ctx context.Context,
 	clusterOperationArn string,
 ) (*ClusterOperation, error) {
-	return b.DescribeClusterOperation(clusterOperationArn)
+	return b.DescribeClusterOperation(ctx, clusterOperationArn)
 }
 
 // ListClusterOperationsV2 returns all cluster operations for a cluster (V2).
-func (b *InMemoryBackend) ListClusterOperationsV2(clusterArn string) ([]*ClusterOperation, error) {
-	return b.ListClusterOperations(clusterArn)
+func (b *InMemoryBackend) ListClusterOperationsV2(ctx context.Context, clusterArn string) ([]*ClusterOperation, error) {
+	return b.ListClusterOperations(ctx, clusterArn)
 }
 
 // --- Configuration revision operations ---
@@ -1292,13 +1497,16 @@ type ConfigurationRevision struct {
 // DescribeConfigurationRevision retrieves a configuration revision.
 // In this stub, revision 1 always refers to the current configuration state.
 func (b *InMemoryBackend) DescribeConfigurationRevision(
+	ctx context.Context,
 	configArn string,
 	revision int64,
 ) (*ConfigurationRevision, error) {
+	region := regionFromARN(configArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeConfigurationRevision")
 	defer b.mu.RUnlock()
 
-	c, ok := b.configurations[configArn]
+	c, ok := b.configurationsStore(region)[configArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1313,12 +1521,15 @@ func (b *InMemoryBackend) DescribeConfigurationRevision(
 
 // UpdateConfiguration updates a configuration's server properties and description.
 func (b *InMemoryBackend) UpdateConfiguration(
+	ctx context.Context,
 	configArn, description, serverProperties string,
 ) (*Configuration, error) {
+	region := regionFromARN(configArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateConfiguration")
 	defer b.mu.Unlock()
 
-	c, ok := b.configurations[configArn]
+	c, ok := b.configurationsStore(region)[configArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1337,12 +1548,15 @@ func (b *InMemoryBackend) UpdateConfiguration(
 // ListConfigurationRevisions lists revisions for a configuration.
 // In this stub, every configuration has a single revision (revision 1).
 func (b *InMemoryBackend) ListConfigurationRevisions(
+	ctx context.Context,
 	configArn string,
 ) ([]*ConfigurationRevision, error) {
+	region := regionFromARN(configArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListConfigurationRevisions")
 	defer b.mu.RUnlock()
 
-	c, ok := b.configurations[configArn]
+	c, ok := b.configurationsStore(region)[configArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1361,13 +1575,16 @@ func (b *InMemoryBackend) ListConfigurationRevisions(
 
 // UpdateBrokerCount updates the number of broker nodes in a cluster.
 func (b *InMemoryBackend) UpdateBrokerCount(
+	ctx context.Context,
 	clusterArn string,
 	numBrokers int32,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateBrokerCount")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1375,20 +1592,23 @@ func (b *InMemoryBackend) UpdateBrokerCount(
 	source := &MutableClusterInfo{NumberOfBrokerNodes: c.NumberOfBrokerNodes}
 	c.NumberOfBrokerNodes = numBrokers
 	target := &MutableClusterInfo{NumberOfBrokerNodes: numBrokers}
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_COUNT", source, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_BROKER_COUNT", source, target)
 
 	return op, nil
 }
 
 // UpdateBrokerStorage updates the EBS storage size for broker nodes.
 func (b *InMemoryBackend) UpdateBrokerStorage(
+	ctx context.Context,
 	clusterArn string,
 	volumeSize int32,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateBrokerStorage")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1403,38 +1623,44 @@ func (b *InMemoryBackend) UpdateBrokerStorage(
 
 	c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.VolumeSize = volumeSize
 	target := &MutableClusterInfo{BrokerEBSVolumeInfo: []BrokerEBSVolumeInfo{{VolumeSizeGB: volumeSize}}}
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_STORAGE", nil, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_BROKER_STORAGE", nil, target)
 
 	return op, nil
 }
 
 // UpdateBrokerType updates the instance type for broker nodes.
 func (b *InMemoryBackend) UpdateBrokerType(
+	ctx context.Context,
 	clusterArn, instanceType string,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateBrokerType")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
 
 	c.BrokerNodeGroupInfo.InstanceType = instanceType
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_TYPE", nil, nil)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_BROKER_TYPE", nil, nil)
 
 	return op, nil
 }
 
 // UpdateClusterConfiguration updates the configuration for a cluster.
 func (b *InMemoryBackend) UpdateClusterConfiguration(
+	ctx context.Context,
 	clusterArn, configArn string,
 	revision int64,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateClusterConfiguration")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1443,25 +1669,28 @@ func (b *InMemoryBackend) UpdateClusterConfiguration(
 		Arn:      configArn,
 		Revision: revision,
 	}
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_CONFIGURATION", nil, nil)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_CONFIGURATION", nil, nil)
 
 	return op, nil
 }
 
 // UpdateClusterKafkaVersion updates the Kafka version for a cluster.
 func (b *InMemoryBackend) UpdateClusterKafkaVersion(
+	ctx context.Context,
 	clusterArn, targetKafkaVersion string,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateClusterKafkaVersion")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
 
 	c.KafkaVersion = targetKafkaVersion
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION", nil, nil)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION", nil, nil)
 
 	return op, nil
 }
@@ -1495,12 +1724,15 @@ type UpdateStorageSettings struct {
 // the new ConnectivityInfo onto the broker node group and recording an operation
 // whose source/target reflect the before/after state.
 func (b *InMemoryBackend) UpdateConnectivity(
+	ctx context.Context,
 	clusterArn string, settings UpdateConnectivitySettings,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateConnectivity")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1514,7 +1746,7 @@ func (b *InMemoryBackend) UpdateConnectivity(
 		c.BrokerNodeGroupInfo.ConnectivityInfo = cloneConnectivityInfo(settings.ConnectivityInfo)
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CONNECTIVITY", source, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CONNECTIVITY", source, target)
 
 	return op, nil
 }
@@ -1522,12 +1754,15 @@ func (b *InMemoryBackend) UpdateConnectivity(
 // UpdateMonitoring updates monitoring/logging settings for a cluster, persisting the
 // new EnhancedMonitoring/OpenMonitoring/LoggingInfo and recording an operation.
 func (b *InMemoryBackend) UpdateMonitoring(
+	ctx context.Context,
 	clusterArn string, settings UpdateMonitoringSettings,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateMonitoring")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1553,7 +1788,7 @@ func (b *InMemoryBackend) UpdateMonitoring(
 		c.LoggingInfo = cloneLoggingInfo(settings.LoggingInfo)
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_MONITORING", source, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_MONITORING", source, target)
 
 	return op, nil
 }
@@ -1561,15 +1796,17 @@ func (b *InMemoryBackend) UpdateMonitoring(
 // UpdateRebalancing records a rebalancing operation for a cluster. AWS MSK exposes
 // no per-field rebalancing configuration to persist (it is an action, not a setting),
 // so this validates the cluster and records the operation.
-func (b *InMemoryBackend) UpdateRebalancing(clusterArn string) (*ClusterOperation, error) {
+func (b *InMemoryBackend) UpdateRebalancing(ctx context.Context, clusterArn string) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateRebalancing")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_REBALANCING", nil, nil)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_REBALANCING", nil, nil)
 
 	return op, nil
 }
@@ -1577,12 +1814,15 @@ func (b *InMemoryBackend) UpdateRebalancing(clusterArn string) (*ClusterOperatio
 // UpdateSecurity updates authentication/encryption settings for a cluster, persisting
 // the new ClientAuthentication/EncryptionInfo and recording an operation.
 func (b *InMemoryBackend) UpdateSecurity(
+	ctx context.Context,
 	clusterArn string, settings UpdateSecuritySettings,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateSecurity")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1603,7 +1843,7 @@ func (b *InMemoryBackend) UpdateSecurity(
 		c.EncryptionInfo = cloneEncryptionInfo(settings.EncryptionInfo)
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_SECURITY", source, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_SECURITY", source, target)
 
 	return op, nil
 }
@@ -1611,12 +1851,15 @@ func (b *InMemoryBackend) UpdateSecurity(
 // UpdateStorage updates broker storage settings for a cluster, persisting the new
 // StorageMode and EBS volume size/throughput and recording an operation.
 func (b *InMemoryBackend) UpdateStorage(
+	ctx context.Context,
 	clusterArn string, settings UpdateStorageSettings,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("UpdateStorage")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1644,7 +1887,7 @@ func (b *InMemoryBackend) UpdateStorage(
 		applyStorageUpdateLocked(c, settings)
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "UPDATE_STORAGE", source, target)
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_STORAGE", source, target)
 
 	return op, nil
 }
@@ -1678,15 +1921,17 @@ func cloneProvisionedThroughput(pt *ProvisionedThroughput) *ProvisionedThroughpu
 }
 
 // RebootBroker initiates a broker reboot operation.
-func (b *InMemoryBackend) RebootBroker(clusterArn string, _ []string) (*ClusterOperation, error) {
+func (b *InMemoryBackend) RebootBroker(ctx context.Context, clusterArn string, _ []string) (*ClusterOperation, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("RebootBroker")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(clusterArn, "REBOOT_BROKER", nil, nil)
+	op := b.newClusterOperationLocked(region, clusterArn, "REBOOT_BROKER", nil, nil)
 
 	return op, nil
 }
@@ -1694,15 +1939,17 @@ func (b *InMemoryBackend) RebootBroker(clusterArn string, _ []string) (*ClusterO
 // --- SCRAM secret list operations ---
 
 // ListScramSecrets returns all SCRAM secrets for a cluster.
-func (b *InMemoryBackend) ListScramSecrets(clusterArn string) ([]string, error) {
+func (b *InMemoryBackend) ListScramSecrets(ctx context.Context, clusterArn string) ([]string, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListScramSecrets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return nil, ErrNotFound
 	}
 
-	secrets := b.scramSecrets[clusterArn]
+	secrets := b.scramSecretsStore(region)[clusterArn]
 	out := make([]string, len(secrets))
 	copy(out, secrets)
 
@@ -1712,11 +1959,13 @@ func (b *InMemoryBackend) ListScramSecrets(clusterArn string) ([]string, error) 
 // --- Misc read ops ---
 
 // ListNodes returns broker node stubs for a cluster.
-func (b *InMemoryBackend) ListNodes(clusterArn string) ([]*BrokerNode, error) {
+func (b *InMemoryBackend) ListNodes(ctx context.Context, clusterArn string) ([]*BrokerNode, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1734,12 +1983,13 @@ func (b *InMemoryBackend) ListNodes(clusterArn string) ([]*BrokerNode, error) {
 }
 
 // ListKafkaVersions returns supported Kafka versions, matching current MSK availability.
-func (b *InMemoryBackend) ListKafkaVersions() []*MSKVersion {
+// Kafka versions are global (not region-scoped), so ctx is unused.
+func (b *InMemoryBackend) ListKafkaVersions(_ context.Context) []*MSKVersion {
 	return []*MSKVersion{
 		{Version: "3.8.0.kraft", Status: ClusterStateActive},
 		{Version: "3.7.x.kraft", Status: ClusterStateActive},
-		{Version: "3.6.0", Status: ClusterStateActive},
-		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: kafkaVersion360, Status: ClusterStateActive},
+		{Version: kafkaVersion351, Status: ClusterStateActive},
 		{Version: "3.4.0", Status: ClusterStateActive},
 		{Version: "3.3.2", Status: ClusterStateActive},
 		{Version: "3.3.1", Status: ClusterStateActive},
@@ -1752,11 +2002,13 @@ func (b *InMemoryBackend) ListKafkaVersions() []*MSKVersion {
 
 // GetCompatibleKafkaVersions returns Kafka versions compatible with the cluster's current version.
 // KRaft clusters can only target KRaft versions. ZooKeeper clusters can target ZooKeeper versions up to 3.x.
-func (b *InMemoryBackend) GetCompatibleKafkaVersions(clusterArn string) ([]*MSKVersion, error) {
+func (b *InMemoryBackend) GetCompatibleKafkaVersions(ctx context.Context, clusterArn string) ([]*MSKVersion, error) {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("GetCompatibleKafkaVersions")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterArn]
+	c, ok := b.clustersStore(region)[clusterArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1774,8 +2026,8 @@ func (b *InMemoryBackend) GetCompatibleKafkaVersions(clusterArn string) ([]*MSKV
 	// ZooKeeper-based: return non-KRaft active versions higher than current.
 	// For simplicity, return a curated list of ZooKeeper-compatible upgrades.
 	return []*MSKVersion{
-		{Version: "3.6.0", Status: ClusterStateActive},
-		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: kafkaVersion360, Status: ClusterStateActive},
+		{Version: kafkaVersion351, Status: ClusterStateActive},
 		{Version: "3.4.0", Status: ClusterStateActive},
 		{Version: "3.3.2", Status: ClusterStateActive},
 		{Version: "2.8.2.tiered", Status: ClusterStateActive},
@@ -1797,9 +2049,9 @@ type MSKVersion struct {
 // newClusterOperationLocked creates and stores a cluster operation.
 // MUST be called with b.mu write lock held.
 func (b *InMemoryBackend) newClusterOperationLocked(
-	clusterArn, operationType string, source, target *MutableClusterInfo,
+	region, clusterArn, operationType string, source, target *MutableClusterInfo,
 ) *ClusterOperation {
-	clusterOperationArn := b.clusterOperationARN(clusterArn)
+	clusterOperationArn := b.clusterOperationARN(region, clusterArn)
 	op := &ClusterOperation{
 		ClusterOperationArn: clusterOperationArn,
 		ClusterArn:          clusterArn,
@@ -1808,7 +2060,7 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 		SourceClusterInfo:   source,
 		TargetClusterInfo:   target,
 	}
-	b.clusterOperations[clusterOperationArn] = op
+	b.clusterOperationsStore(region)[clusterOperationArn] = op
 
 	return cloneClusterOperation(op)
 }
@@ -1816,15 +2068,17 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 // --- Cluster policy operations ---
 
 // DeleteClusterPolicy deletes the policy attached to an MSK cluster.
-func (b *InMemoryBackend) DeleteClusterPolicy(clusterArn string) error {
+func (b *InMemoryBackend) DeleteClusterPolicy(ctx context.Context, clusterArn string) error {
+	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
+
 	b.mu.Lock("DeleteClusterPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterArn]; !ok {
+	if _, ok := b.clustersStore(region)[clusterArn]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.clusterPolicies, clusterArn)
+	delete(b.clusterPoliciesStore(region), clusterArn)
 
 	return nil
 }
@@ -1833,12 +2087,15 @@ func (b *InMemoryBackend) DeleteClusterPolicy(clusterArn string) error {
 
 // DescribeClusterOperation retrieves a cluster operation by ARN.
 func (b *InMemoryBackend) DescribeClusterOperation(
+	ctx context.Context,
 	clusterOperationArn string,
 ) (*ClusterOperation, error) {
+	region := regionFromARN(clusterOperationArn, getRegion(ctx, b.region))
+
 	b.mu.RLock("DescribeClusterOperation")
 	defer b.mu.RUnlock()
 
-	op, ok := b.clusterOperations[clusterOperationArn]
+	op, ok := b.clusterOperationsStore(region)[clusterOperationArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1853,14 +2110,15 @@ func (b *InMemoryBackend) AddClusterOperationInternal(
 	b.mu.Lock("AddClusterOperationInternal")
 	defer b.mu.Unlock()
 
-	clusterOperationArn := b.clusterOperationARN(clusterArn)
+	region := regionFromARN(clusterArn, b.region)
+	clusterOperationArn := b.clusterOperationARN(region, clusterArn)
 	op := &ClusterOperation{
 		ClusterOperationArn: clusterOperationArn,
 		ClusterArn:          clusterArn,
 		OperationType:       operationType,
 		OperationState:      ClusterOperationStateUpdateComplete,
 	}
-	b.clusterOperations[clusterOperationArn] = op
+	b.clusterOperationsStore(region)[clusterOperationArn] = op
 
 	return cloneClusterOperation(op)
 }
@@ -1870,7 +2128,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 	b.mu.Lock("AddClusterInternal")
 	defer b.mu.Unlock()
 
-	clusterArn := b.clusterARN(name)
+	clusterArn := b.clusterARN(b.region, name)
 	cluster := &Cluster{
 		ClusterArn:          clusterArn,
 		ClusterName:         name,
@@ -1881,7 +2139,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 		CurrentVersion:      DefaultClusterVersion,
 		Tags:                make(map[string]string),
 	}
-	b.clusters[clusterArn] = cluster
+	b.clustersStore(b.region)[clusterArn] = cluster
 
 	return cloneCluster(cluster)
 }
@@ -1890,14 +2148,14 @@ func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {
 	b.mu.Lock("AddConfigurationInternal")
 	defer b.mu.Unlock()
 
-	configArn := b.configurationARN(name)
+	configArn := b.configurationARN(b.region, name)
 	config := &Configuration{
 		Arn:           configArn,
 		Name:          name,
 		KafkaVersions: []string{"2.8.0"},
 		Tags:          make(map[string]string),
 	}
-	b.configurations[configArn] = config
+	b.configurationsStore(b.region)[configArn] = config
 
 	return cloneConfiguration(config)
 }
@@ -1907,14 +2165,14 @@ func (b *InMemoryBackend) AddReplicatorInternal(name string) *Replicator {
 	b.mu.Lock("AddReplicatorInternal")
 	defer b.mu.Unlock()
 
-	replicatorArn := b.replicatorARN(name)
+	replicatorArn := b.replicatorARN(b.region, name)
 	replicator := &Replicator{
 		ReplicatorArn:   replicatorArn,
 		ReplicatorName:  name,
 		ReplicatorState: ReplicatorStateRunning,
 		Tags:            make(map[string]string),
 	}
-	b.replicators[replicatorArn] = replicator
+	b.replicatorsStore(b.region)[replicatorArn] = replicator
 
 	return cloneReplicator(replicator)
 }
@@ -1924,6 +2182,7 @@ func (b *InMemoryBackend) AddTopicInternal(clusterArn, topicName string) *Topic 
 	b.mu.Lock("AddTopicInternal")
 	defer b.mu.Unlock()
 
+	region := regionFromARN(clusterArn, b.region)
 	topic := &Topic{
 		TopicName:         topicName,
 		ClusterArn:        clusterArn,
@@ -1931,7 +2190,7 @@ func (b *InMemoryBackend) AddTopicInternal(clusterArn, topicName string) *Topic 
 		NumPartitions:     defaultPartitionCount,
 		ConfigEntries:     make(map[string]string),
 	}
-	b.topics[topicKey(clusterArn, topicName)] = topic
+	b.topicsStore(region)[topicKey(clusterArn, topicName)] = topic
 
 	return cloneTopic(topic)
 }
@@ -1941,7 +2200,8 @@ func (b *InMemoryBackend) AddVpcConnectionInternal(clusterArn, vpcID string) *Vp
 	b.mu.Lock("AddVpcConnectionInternal")
 	defer b.mu.Unlock()
 
-	vpcConnectionArn := b.vpcConnectionARN(clusterArn, vpcID)
+	region := regionFromARN(clusterArn, b.region)
+	vpcConnectionArn := b.vpcConnectionARN(region, clusterArn, vpcID)
 	conn := &VpcConnection{
 		VpcConnectionArn: vpcConnectionArn,
 		TargetClusterArn: clusterArn,
@@ -1949,7 +2209,7 @@ func (b *InMemoryBackend) AddVpcConnectionInternal(clusterArn, vpcID string) *Vp
 		State:            VpcConnectionStateAvailable,
 		Tags:             make(map[string]string),
 	}
-	b.vpcConnections[vpcConnectionArn] = conn
+	b.vpcConnectionsStore(region)[vpcConnectionArn] = conn
 
 	return cloneVpcConnection(conn)
 }

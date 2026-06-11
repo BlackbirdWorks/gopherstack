@@ -1,6 +1,7 @@
 package kafka_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -181,7 +182,7 @@ func TestRefinement1_SortedListClusters(t *testing.T) {
 	b.AddClusterInternal("aaa-cluster", "2.8.0")
 	b.AddClusterInternal("mmm-cluster", "2.8.0")
 
-	clusters := b.ListClusters()
+	clusters := b.ListClusters(context.Background())
 	require.Len(t, clusters, 3)
 	assert.Equal(t, "aaa-cluster", clusters[0].ClusterName)
 	assert.Equal(t, "mmm-cluster", clusters[1].ClusterName)
@@ -196,7 +197,7 @@ func TestRefinement1_SortedListConfigurations(t *testing.T) {
 	b.AddConfigurationInternal("aaa-cfg")
 	b.AddConfigurationInternal("mmm-cfg")
 
-	cfgs := b.ListConfigurations()
+	cfgs := b.ListConfigurations(context.Background())
 	require.Len(t, cfgs, 3)
 	assert.Equal(t, "aaa-cfg", cfgs[0].Name)
 	assert.Equal(t, "mmm-cfg", cfgs[1].Name)
@@ -240,7 +241,7 @@ func TestRefinement1_DeleteCluster_CascadesTopicsAndScram(t *testing.T) {
 	b.AddTopicInternal(cl.ClusterArn, "t1")
 	b.AddTopicInternal(cl.ClusterArn, "t2")
 
-	_, err := b.BatchAssociateScramSecret(
+	_, err := b.BatchAssociateScramSecret(context.Background(),
 		cl.ClusterArn,
 		[]string{"arn:aws:secretsmanager:us-east-1:000000000000:secret:s1"},
 	)
@@ -249,7 +250,7 @@ func TestRefinement1_DeleteCluster_CascadesTopicsAndScram(t *testing.T) {
 	require.Equal(t, 2, kafka.TopicCount(b))
 	require.Equal(t, 1, kafka.ScramSecretCount(b))
 
-	err = b.DeleteCluster(cl.ClusterArn)
+	err = b.DeleteCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, kafka.TopicCount(b))
@@ -262,10 +263,10 @@ func TestRefinement1_TagResource_Replicator(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	rep := b.AddReplicatorInternal("rep1")
 
-	err := b.TagResource(rep.ReplicatorArn, map[string]string{"env": "prod"})
+	err := b.TagResource(context.Background(), rep.ReplicatorArn, map[string]string{"env": "prod"})
 	require.NoError(t, err)
 
-	tags, err := b.GetTags(rep.ReplicatorArn)
+	tags, err := b.GetTags(context.Background(), rep.ReplicatorArn)
 	require.NoError(t, err)
 	assert.Equal(t, "prod", tags["env"])
 }
@@ -277,10 +278,10 @@ func TestRefinement1_TagResource_VpcConnection(t *testing.T) {
 	cl := b.AddClusterInternal("c1", "2.8.0")
 	vpc := b.AddVpcConnectionInternal(cl.ClusterArn, "vpc-1")
 
-	err := b.TagResource(vpc.VpcConnectionArn, map[string]string{"team": "infra"})
+	err := b.TagResource(context.Background(), vpc.VpcConnectionArn, map[string]string{"team": "infra"})
 	require.NoError(t, err)
 
-	tags, err := b.GetTags(vpc.VpcConnectionArn)
+	tags, err := b.GetTags(context.Background(), vpc.VpcConnectionArn)
 	require.NoError(t, err)
 	assert.Equal(t, "infra", tags["team"])
 }
@@ -293,7 +294,7 @@ func TestRefinement1_DeepCopy_ClusterDoesNotAlias(t *testing.T) {
 
 	// Mutating the returned clone must not affect the stored cluster.
 	cl.ClusterName = "mutated"
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, "c1", described.ClusterName)
 }
@@ -305,7 +306,7 @@ func TestRefinement1_DeepCopy_ConfigurationDoesNotAlias(t *testing.T) {
 	cfg := b.AddConfigurationInternal("cfg1")
 
 	cfg.Name = "mutated"
-	described, err := b.DescribeConfiguration(cfg.Arn)
+	described, err := b.DescribeConfiguration(context.Background(), cfg.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "cfg1", described.Name)
 }
@@ -354,7 +355,7 @@ func TestRefinement1_CreateCluster_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateCluster("", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+	_, err := b.CreateCluster(context.Background(), "", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -364,7 +365,7 @@ func TestRefinement1_CreateConfiguration_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateConfiguration("", "", nil, "")
+	_, err := b.CreateConfiguration(context.Background(), "", "", nil, "")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -374,7 +375,7 @@ func TestRefinement1_CreateReplicator_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateReplicator("", "", "", nil)
+	_, err := b.CreateReplicator(context.Background(), "", "", "", nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -385,7 +386,7 @@ func TestRefinement1_CreateTopic_RequiresName(t *testing.T) {
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("c1", "2.8.0")
-	_, err := b.CreateTopic(cl.ClusterArn, "", 3, 1, nil)
+	_, err := b.CreateTopic(context.Background(), cl.ClusterArn, "", 3, 1, nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -440,11 +441,11 @@ func TestRefinement1_ScramSecretCount(t *testing.T) {
 		"arn:aws:secretsmanager:us-east-1:000000000000:secret:s1",
 		"arn:aws:secretsmanager:us-east-1:000000000000:secret:s2",
 	}
-	_, err := b.BatchAssociateScramSecret(cl.ClusterArn, secrets)
+	_, err := b.BatchAssociateScramSecret(context.Background(), cl.ClusterArn, secrets)
 	require.NoError(t, err)
 	assert.Equal(t, 2, kafka.ScramSecretCount(b))
 
-	_, err = b.BatchDisassociateScramSecret(cl.ClusterArn, secrets[:1])
+	_, err = b.BatchDisassociateScramSecret(context.Background(), cl.ClusterArn, secrets[:1])
 	require.NoError(t, err)
 	assert.Equal(t, 1, kafka.ScramSecretCount(b))
 }
@@ -526,7 +527,15 @@ func TestRefinement1_ErrAlreadyExistsMapping(t *testing.T) {
 			name: "duplicate_cluster",
 			fn: func(b *kafka.InMemoryBackend) error {
 				b.AddClusterInternal("dup", "2.8.0")
-				_, err := b.CreateCluster("dup", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				_, err := b.CreateCluster(
+					context.Background(),
+					"dup",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return err
 			},
@@ -535,7 +544,7 @@ func TestRefinement1_ErrAlreadyExistsMapping(t *testing.T) {
 			name: "duplicate_configuration",
 			fn: func(b *kafka.InMemoryBackend) error {
 				b.AddConfigurationInternal("dup-cfg")
-				_, err := b.CreateConfiguration("dup-cfg", "", nil, "")
+				_, err := b.CreateConfiguration(context.Background(), "dup-cfg", "", nil, "")
 
 				return err
 			},
@@ -544,7 +553,7 @@ func TestRefinement1_ErrAlreadyExistsMapping(t *testing.T) {
 			name: "duplicate_replicator",
 			fn: func(b *kafka.InMemoryBackend) error {
 				b.AddReplicatorInternal("dup-rep")
-				_, err := b.CreateReplicator("dup-rep", "", "", nil)
+				_, err := b.CreateReplicator(context.Background(), "dup-rep", "", "", nil)
 
 				return err
 			},

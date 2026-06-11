@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -270,7 +271,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for MSK requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		ctx := h.contextWithRegion(c)
 		log := logger.Load(ctx)
 
 		method := c.Request().Method
@@ -295,8 +296,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "kafka request", "op", op, "resource", resource)
 
-		return h.dispatch(c, op, resource, body)
+		return h.dispatch(ctx, c, op, resource, body)
 	}
+}
+
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+// The SigV4 credential-scope region in the Authorization header (extracted by
+// httputils.ExtractRegionFromRequest) takes precedence over the backend default.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
 }
 
 // effectivePath returns the raw (percent-encoded) path if available, otherwise the decoded path.
@@ -755,16 +766,16 @@ func parseVpcConnectionResource(method, remainder string) (string, string) {
 }
 
 // dispatch routes a parsed operation to the appropriate handler.
-func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
-	if ok, err := h.dispatchCoreOps(c, op, resource, body); ok {
+func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, resource string, body []byte) error {
+	if ok, err := h.dispatchCoreOps(ctx, c, op, resource, body); ok {
 		return err
 	}
 
-	if ok, err := h.dispatchNewOps(c, op, resource, body); ok {
+	if ok, err := h.dispatchNewOps(ctx, c, op, resource, body); ok {
 		return err
 	}
 
-	if ok, err := h.dispatchUpdateOps(c, op, resource, body); ok {
+	if ok, err := h.dispatchUpdateOps(ctx, c, op, resource, body); ok {
 		return err
 	}
 
@@ -773,55 +784,58 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 
 // dispatchCoreOps handles cluster, configuration, and tag operations.
 // Returns (true, err) if the operation was handled, (false, nil) otherwise.
-func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	if ok, err := h.dispatchClusterOps(c, op, resource, body); ok {
+func (h *Handler) dispatchCoreOps(ctx context.Context,
+	c *echo.Context, op, resource string, body []byte) (bool, error) {
+	if ok, err := h.dispatchClusterOps(ctx, c, op, resource, body); ok {
 		return true, err
 	}
 
-	return h.dispatchConfigTagOps(c, op, resource, body)
+	return h.dispatchConfigTagOps(ctx, c, op, resource, body)
 }
 
 // dispatchClusterOps handles cluster CRUD and bootstrap operations.
-func (h *Handler) dispatchClusterOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+func (h *Handler) dispatchClusterOps(ctx context.Context,
+	c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
 	case opCreateCluster:
-		return true, h.handleCreateCluster(c, body)
+		return true, h.handleCreateCluster(ctx, c, body)
 	case opCreateClusterV2:
-		return true, h.handleCreateClusterV2(c, body)
+		return true, h.handleCreateClusterV2(ctx, c, body)
 	case opListClusters:
-		return true, h.handleListClusters(c)
+		return true, h.handleListClusters(ctx, c)
 	case opListClustersV2:
-		return true, h.handleListClustersV2(c)
+		return true, h.handleListClustersV2(ctx, c)
 	case opDescribeCluster:
-		return true, h.handleDescribeCluster(c, resource)
+		return true, h.handleDescribeCluster(ctx, c, resource)
 	case opDescribeClusterV2:
-		return true, h.handleDescribeClusterV2(c, resource)
+		return true, h.handleDescribeClusterV2(ctx, c, resource)
 	case opDeleteCluster:
-		return true, h.handleDeleteCluster(c, resource)
+		return true, h.handleDeleteCluster(ctx, c, resource)
 	case opGetBootstrapBrokers:
-		return true, h.handleGetBootstrapBrokers(c, resource)
+		return true, h.handleGetBootstrapBrokers(ctx, c, resource)
 	}
 
 	return false, nil
 }
 
 // dispatchConfigTagOps handles configuration and tag operations.
-func (h *Handler) dispatchConfigTagOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+func (h *Handler) dispatchConfigTagOps(ctx context.Context,
+	c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
 	case opCreateConfiguration:
-		return true, h.handleCreateConfiguration(c, body)
+		return true, h.handleCreateConfiguration(ctx, c, body)
 	case opListConfigurations:
-		return true, h.handleListConfigurations(c)
+		return true, h.handleListConfigurations(ctx, c)
 	case opDescribeConfiguration:
-		return true, h.handleDescribeConfiguration(c, resource)
+		return true, h.handleDescribeConfiguration(ctx, c, resource)
 	case opDeleteConfiguration:
-		return true, h.handleDeleteConfiguration(c, resource)
+		return true, h.handleDeleteConfiguration(ctx, c, resource)
 	case opListTagsForResource:
-		return true, h.handleListTagsForResource(c, resource)
+		return true, h.handleListTagsForResource(ctx, c, resource)
 	case opTagResource:
-		return true, h.handleTagResource(c, resource, body)
+		return true, h.handleTagResource(ctx, c, resource, body)
 	case opUntagResource:
-		return true, h.handleUntagResource(c, resource, c.Request().URL)
+		return true, h.handleUntagResource(ctx, c, resource, c.Request().URL)
 	}
 
 	return false, nil
@@ -829,42 +843,44 @@ func (h *Handler) dispatchConfigTagOps(c *echo.Context, op, resource string, bod
 
 // dispatchNewOps handles SCRAM secrets, replicator, topic, VPC connection, and cluster policy operations.
 // Returns (true, err) if the operation was handled, (false, nil) otherwise.
-func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
-	if ok, err := h.dispatchScramAndReplicatorOps(c, op, resource, body); ok {
+func (h *Handler) dispatchNewOps(ctx context.Context,
+	c *echo.Context, op, resource string, body []byte) (bool, error) {
+	if ok, err := h.dispatchScramAndReplicatorOps(ctx, c, op, resource, body); ok {
 		return ok, err
 	}
 
-	if ok, err := h.dispatchTopicAndVpcOps(c, op, resource, body); ok {
+	if ok, err := h.dispatchTopicAndVpcOps(ctx, c, op, resource, body); ok {
 		return ok, err
 	}
 
-	return h.dispatchPolicyAndMiscOps(c, op, resource, body)
+	return h.dispatchPolicyAndMiscOps(ctx, c, op, resource, body)
 }
 
 // dispatchScramAndReplicatorOps handles SCRAM and replicator ops.
 // Returns (true, err) if handled.
 func (h *Handler) dispatchScramAndReplicatorOps(
+	ctx context.Context,
 	c *echo.Context,
 	op, resource string,
 	body []byte,
 ) (bool, error) {
 	switch op {
 	case opBatchAssociateScramSecret:
-		return true, h.handleBatchAssociateScramSecret(c, resource, body)
+		return true, h.handleBatchAssociateScramSecret(ctx, c, resource, body)
 	case opBatchDisassociateScramSecret:
-		return true, h.handleBatchDisassociateScramSecret(c, resource, body)
+		return true, h.handleBatchDisassociateScramSecret(ctx, c, resource, body)
 	case opListScramSecrets:
-		return true, h.handleListScramSecrets(c, resource)
+		return true, h.handleListScramSecrets(ctx, c, resource)
 	case opCreateReplicator:
-		return true, h.handleCreateReplicator(c, body)
+		return true, h.handleCreateReplicator(ctx, c, body)
 	case opDeleteReplicator:
-		return true, h.handleDeleteReplicator(c, resource)
+		return true, h.handleDeleteReplicator(ctx, c, resource)
 	case opDescribeReplicator:
-		return true, h.handleDescribeReplicator(c, resource)
+		return true, h.handleDescribeReplicator(ctx, c, resource)
 	case opListReplicators:
-		return true, h.handleListReplicators(c)
+		return true, h.handleListReplicators(ctx, c)
 	case opUpdateReplicationInfo:
-		return true, h.handleUpdateReplicationInfo(c, resource, body)
+		return true, h.handleUpdateReplicationInfo(ctx, c, resource, body)
 	}
 
 	return false, nil
@@ -873,35 +889,36 @@ func (h *Handler) dispatchScramAndReplicatorOps(
 // dispatchTopicAndVpcOps handles topic and VPC connection ops.
 // Returns (true, err) if handled.
 func (h *Handler) dispatchTopicAndVpcOps(
+	ctx context.Context,
 	c *echo.Context,
 	op, resource string,
 	body []byte,
 ) (bool, error) {
 	switch op {
 	case opCreateTopic:
-		return true, h.handleCreateTopic(c, resource, body)
+		return true, h.handleCreateTopic(ctx, c, resource, body)
 	case opDeleteTopic:
-		return true, h.handleDeleteTopic(c, resource)
+		return true, h.handleDeleteTopic(ctx, c, resource)
 	case opDescribeTopic:
-		return true, h.handleDescribeTopic(c, resource)
+		return true, h.handleDescribeTopic(ctx, c, resource)
 	case opDescribeTopicPartitions:
-		return true, h.handleDescribeTopicPartitions(c, resource)
+		return true, h.handleDescribeTopicPartitions(ctx, c, resource)
 	case opListTopics:
-		return true, h.handleListTopics(c, resource)
+		return true, h.handleListTopics(ctx, c, resource)
 	case opUpdateTopic:
-		return true, h.handleUpdateTopic(c, resource, body)
+		return true, h.handleUpdateTopic(ctx, c, resource, body)
 	case opCreateVpcConnection:
-		return true, h.handleCreateVpcConnection(c, body)
+		return true, h.handleCreateVpcConnection(ctx, c, body)
 	case opDeleteVpcConnection:
-		return true, h.handleDeleteVpcConnection(c, resource)
+		return true, h.handleDeleteVpcConnection(ctx, c, resource)
 	case opDescribeVpcConnection:
-		return true, h.handleDescribeVpcConnection(c, resource)
+		return true, h.handleDescribeVpcConnection(ctx, c, resource)
 	case opListVpcConnections:
-		return true, h.handleListVpcConnections(c)
+		return true, h.handleListVpcConnections(ctx, c)
 	case opListClientVpcConnections:
-		return true, h.handleListClientVpcConnections(c, resource)
+		return true, h.handleListClientVpcConnections(ctx, c, resource)
 	case opRejectClientVpcConnection:
-		return true, h.handleRejectClientVpcConnection(c, resource)
+		return true, h.handleRejectClientVpcConnection(ctx, c, resource)
 	}
 
 	return false, nil
@@ -910,39 +927,40 @@ func (h *Handler) dispatchTopicAndVpcOps(
 // dispatchPolicyAndMiscOps handles cluster policy, operations, configuration revision,
 // and node/version ops. Returns (true, err) if handled.
 func (h *Handler) dispatchPolicyAndMiscOps(
+	ctx context.Context,
 	c *echo.Context,
 	op, resource string,
 	body []byte,
 ) (bool, error) {
 	switch op {
 	case opDeleteClusterPolicy:
-		return true, h.handleDeleteClusterPolicy(c, resource)
+		return true, h.handleDeleteClusterPolicy(ctx, c, resource)
 	case opGetClusterPolicy:
-		return true, h.handleGetClusterPolicy(c, resource)
+		return true, h.handleGetClusterPolicy(ctx, c, resource)
 	case opPutClusterPolicy:
-		return true, h.handlePutClusterPolicy(c, resource, body)
+		return true, h.handlePutClusterPolicy(ctx, c, resource, body)
 	case opDescribeClusterOperation:
-		return true, h.handleDescribeClusterOperation(c, resource)
+		return true, h.handleDescribeClusterOperation(ctx, c, resource)
 	case opDescribeClusterOperationV2:
-		return true, h.handleDescribeClusterOperationV2(c, resource)
+		return true, h.handleDescribeClusterOperationV2(ctx, c, resource)
 	case opListClusterOperations:
-		return true, h.handleListClusterOperations(c, resource)
+		return true, h.handleListClusterOperations(ctx, c, resource)
 	case opListClusterOperationsV2:
-		return true, h.handleListClusterOperationsV2(c, resource)
+		return true, h.handleListClusterOperationsV2(ctx, c, resource)
 	case opDescribeConfigurationRevision:
-		return true, h.handleDescribeConfigurationRevision(c, resource)
+		return true, h.handleDescribeConfigurationRevision(ctx, c, resource)
 	case opListConfigurationRevisions:
-		return true, h.handleListConfigurationRevisions(c, resource)
+		return true, h.handleListConfigurationRevisions(ctx, c, resource)
 	case opUpdateConfiguration:
-		return true, h.handleUpdateConfiguration(c, resource, body)
+		return true, h.handleUpdateConfiguration(ctx, c, resource, body)
 	case opListKafkaVersions:
-		return true, h.handleListKafkaVersions(c)
+		return true, h.handleListKafkaVersions(ctx, c)
 	case opGetCompatibleKafkaVersions:
-		return true, h.handleGetCompatibleKafkaVersions(c, resource)
+		return true, h.handleGetCompatibleKafkaVersions(ctx, c, resource)
 	case opListNodes:
-		return true, h.handleListNodes(c, resource)
+		return true, h.handleListNodes(ctx, c, resource)
 	case opRebootBroker:
-		return true, h.handleRebootBroker(c, resource, body)
+		return true, h.handleRebootBroker(ctx, c, resource, body)
 	}
 
 	return false, nil
@@ -951,31 +969,32 @@ func (h *Handler) dispatchPolicyAndMiscOps(
 // dispatchUpdateOps handles cluster and broker update operations.
 // Returns (true, err) if the operation was handled, (false, nil) otherwise.
 func (h *Handler) dispatchUpdateOps(
+	ctx context.Context,
 	c *echo.Context,
 	op, resource string,
 	body []byte,
 ) (bool, error) {
 	switch op {
 	case opUpdateBrokerCount:
-		return true, h.handleUpdateBrokerCount(c, resource, body)
+		return true, h.handleUpdateBrokerCount(ctx, c, resource, body)
 	case opUpdateBrokerStorage:
-		return true, h.handleUpdateBrokerStorage(c, resource, body)
+		return true, h.handleUpdateBrokerStorage(ctx, c, resource, body)
 	case opUpdateBrokerType:
-		return true, h.handleUpdateBrokerType(c, resource, body)
+		return true, h.handleUpdateBrokerType(ctx, c, resource, body)
 	case opUpdateClusterConfiguration:
-		return true, h.handleUpdateClusterConfiguration(c, resource, body)
+		return true, h.handleUpdateClusterConfiguration(ctx, c, resource, body)
 	case opUpdateClusterKafkaVersion:
-		return true, h.handleUpdateClusterKafkaVersion(c, resource, body)
+		return true, h.handleUpdateClusterKafkaVersion(ctx, c, resource, body)
 	case opUpdateConnectivity:
-		return true, h.handleUpdateConnectivity(c, resource, body)
+		return true, h.handleUpdateConnectivity(ctx, c, resource, body)
 	case opUpdateMonitoring:
-		return true, h.handleUpdateMonitoring(c, resource, body)
+		return true, h.handleUpdateMonitoring(ctx, c, resource, body)
 	case opUpdateRebalancing:
-		return true, h.handleUpdateRebalancing(c, resource, body)
+		return true, h.handleUpdateRebalancing(ctx, c, resource, body)
 	case opUpdateSecurity:
-		return true, h.handleUpdateSecurity(c, resource, body)
+		return true, h.handleUpdateSecurity(ctx, c, resource, body)
 	case opUpdateStorage:
-		return true, h.handleUpdateStorage(c, resource, body)
+		return true, h.handleUpdateStorage(ctx, c, resource, body)
 	}
 
 	return false, nil
@@ -1163,7 +1182,7 @@ type kafkaErrorResponse struct {
 // Cluster handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createClusterInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1174,7 +1193,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		)
 	}
 
-	cluster, err := h.Backend.CreateCluster(
+	cluster, err := h.Backend.CreateCluster(ctx,
 		in.ClusterName,
 		in.KafkaVersion,
 		in.NumberOfBrokerNodes,
@@ -1193,7 +1212,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createClusterV2Input
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1225,7 +1244,7 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 			serverlessInfo.VpcConfigs = append(serverlessInfo.VpcConfigs, ServerlessVpcConfig(vc))
 		}
 
-		cluster, err := h.Backend.CreateServerlessCluster(in.ClusterName, serverlessInfo, in.Tags)
+		cluster, err := h.Backend.CreateServerlessCluster(ctx, in.ClusterName, serverlessInfo, in.Tags)
 		if err != nil {
 			return h.writeBackendError(c, err)
 		}
@@ -1252,7 +1271,7 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 		clientAuth = in.Provisioned.ClientAuthentication
 	}
 
-	cluster, err := h.Backend.CreateCluster(
+	cluster, err := h.Backend.CreateCluster(ctx,
 		in.ClusterName,
 		kafkaVersion,
 		numBrokers,
@@ -1271,8 +1290,8 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleListClusters(c *echo.Context) error {
-	clusters := h.Backend.ListClusters()
+func (h *Handler) handleListClusters(ctx context.Context, c *echo.Context) error {
+	clusters := h.Backend.ListClusters(ctx)
 	out := make([]*clusterInfoV1, 0, len(clusters))
 
 	for _, cl := range clusters {
@@ -1282,8 +1301,8 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: out})
 }
 
-func (h *Handler) handleListClustersV2(c *echo.Context) error {
-	clusters := h.Backend.ListClusters()
+func (h *Handler) handleListClustersV2(ctx context.Context, c *echo.Context) error {
+	clusters := h.Backend.ListClusters(ctx)
 	out := make([]*clusterInfoV2, 0, len(clusters))
 
 	for _, cl := range clusters {
@@ -1293,8 +1312,8 @@ func (h *Handler) handleListClustersV2(c *echo.Context) error {
 	return c.JSON(http.StatusOK, listClustersV2Output{ClusterInfoList: out})
 }
 
-func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) error {
-	cluster, err := h.Backend.DescribeCluster(clusterArn)
+func (h *Handler) handleDescribeCluster(ctx context.Context, c *echo.Context, clusterArn string) error {
+	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1302,8 +1321,8 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) erro
 	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: toClusterInfoV1(cluster)})
 }
 
-func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) error {
-	cluster, err := h.Backend.DescribeCluster(clusterArn)
+func (h *Handler) handleDescribeClusterV2(ctx context.Context, c *echo.Context, clusterArn string) error {
+	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1311,16 +1330,16 @@ func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) er
 	return c.JSON(http.StatusOK, describeClusterV2Output{ClusterInfo: toClusterInfoV2(cluster)})
 }
 
-func (h *Handler) handleDeleteCluster(c *echo.Context, clusterArn string) error {
-	if err := h.Backend.DeleteCluster(clusterArn); err != nil {
+func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, clusterArn string) error {
+	if err := h.Backend.DeleteCluster(ctx, clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) error {
-	cluster, err := h.Backend.DescribeCluster(clusterArn)
+func (h *Handler) handleGetBootstrapBrokers(ctx context.Context, c *echo.Context, clusterArn string) error {
+	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1535,7 +1554,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 // Configuration handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1546,7 +1565,7 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 		)
 	}
 
-	config, err := h.Backend.CreateConfiguration(
+	config, err := h.Backend.CreateConfiguration(ctx,
 		in.Name,
 		in.Description,
 		in.KafkaVersions,
@@ -1562,14 +1581,14 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 	})
 }
 
-func (h *Handler) handleListConfigurations(c *echo.Context) error {
-	configs := h.Backend.ListConfigurations()
+func (h *Handler) handleListConfigurations(ctx context.Context, c *echo.Context) error {
+	configs := h.Backend.ListConfigurations(ctx)
 
 	return c.JSON(http.StatusOK, listConfigurationsOutput{Configurations: configs})
 }
 
-func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string) error {
-	config, err := h.Backend.DescribeConfiguration(configArn)
+func (h *Handler) handleDescribeConfiguration(ctx context.Context, c *echo.Context, configArn string) error {
+	config, err := h.Backend.DescribeConfiguration(ctx, configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1587,8 +1606,8 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 	})
 }
 
-func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) error {
-	if err := h.Backend.DeleteConfiguration(configArn); err != nil {
+func (h *Handler) handleDeleteConfiguration(ctx context.Context, c *echo.Context, configArn string) error {
+	if err := h.Backend.DeleteConfiguration(ctx, configArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1599,8 +1618,8 @@ func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) e
 // Tag handlers
 // ----------------------------------------
 
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
-	tags, err := h.Backend.GetTags(resourceArn)
+func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context, resourceArn string) error {
+	tags, err := h.Backend.GetTags(ctx, resourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1608,7 +1627,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string)
 	return c.JSON(http.StatusOK, listTagsOutput{Tags: tags})
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []byte) error {
+func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, resourceArn string, body []byte) error {
 	var in tagResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1619,17 +1638,17 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []
 		)
 	}
 
-	if err := h.Backend.TagResource(resourceArn, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, resourceArn, in.Tags); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, u *url.URL) error {
+func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, resourceArn string, u *url.URL) error {
 	tagKeys := u.Query()["tagKeys"]
 
-	if err := h.Backend.UntagResource(resourceArn, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, resourceArn, tagKeys); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1653,6 +1672,7 @@ type batchScramSecretOutput struct {
 // ----------------------------------------
 
 func (h *Handler) handleBatchAssociateScramSecret(
+	ctx context.Context,
 	c *echo.Context,
 	clusterArn string,
 	body []byte,
@@ -1667,7 +1687,7 @@ func (h *Handler) handleBatchAssociateScramSecret(
 		)
 	}
 
-	errs, err := h.Backend.BatchAssociateScramSecret(clusterArn, in.SecretArnList)
+	errs, err := h.Backend.BatchAssociateScramSecret(ctx, clusterArn, in.SecretArnList)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1676,6 +1696,7 @@ func (h *Handler) handleBatchAssociateScramSecret(
 }
 
 func (h *Handler) handleBatchDisassociateScramSecret(
+	ctx context.Context,
 	c *echo.Context,
 	clusterArn string,
 	body []byte,
@@ -1690,7 +1711,7 @@ func (h *Handler) handleBatchDisassociateScramSecret(
 		)
 	}
 
-	errs, err := h.Backend.BatchDisassociateScramSecret(clusterArn, in.SecretArnList)
+	errs, err := h.Backend.BatchDisassociateScramSecret(ctx, clusterArn, in.SecretArnList)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1719,7 +1740,7 @@ type createReplicatorOutput struct {
 // Replicator handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateReplicator(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateReplicator(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createReplicatorInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1730,7 +1751,7 @@ func (h *Handler) handleCreateReplicator(c *echo.Context, body []byte) error {
 		)
 	}
 
-	replicator, err := h.Backend.CreateReplicator(
+	replicator, err := h.Backend.CreateReplicator(ctx,
 		in.ReplicatorName,
 		in.Description,
 		in.ServiceExecutionRoleArn,
@@ -1747,8 +1768,8 @@ func (h *Handler) handleCreateReplicator(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDeleteReplicator(c *echo.Context, replicatorArn string) error {
-	if err := h.Backend.DeleteReplicator(replicatorArn); err != nil {
+func (h *Handler) handleDeleteReplicator(ctx context.Context, c *echo.Context, replicatorArn string) error {
+	if err := h.Backend.DeleteReplicator(ctx, replicatorArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1777,7 +1798,7 @@ type createTopicOutput struct {
 // Topic handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateTopic(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleCreateTopic(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in createTopicInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1788,7 +1809,7 @@ func (h *Handler) handleCreateTopic(c *echo.Context, clusterArn string, body []b
 		)
 	}
 
-	topic, err := h.Backend.CreateTopic(
+	topic, err := h.Backend.CreateTopic(ctx,
 		clusterArn,
 		in.TopicName,
 		in.ReplicationFactor,
@@ -1807,7 +1828,7 @@ func (h *Handler) handleCreateTopic(c *echo.Context, clusterArn string, body []b
 	})
 }
 
-func (h *Handler) handleDeleteTopic(c *echo.Context, resource string) error {
+func (h *Handler) handleDeleteTopic(ctx context.Context, c *echo.Context, resource string) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -1820,7 +1841,7 @@ func (h *Handler) handleDeleteTopic(c *echo.Context, resource string) error {
 
 	clusterArn, topicName := parts[0], parts[1]
 
-	if err := h.Backend.DeleteTopic(clusterArn, topicName); err != nil {
+	if err := h.Backend.DeleteTopic(ctx, clusterArn, topicName); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1849,7 +1870,7 @@ type createVpcConnectionOutput struct {
 // VPC connection handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateVpcConnection(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateVpcConnection(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createVpcConnectionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1860,7 +1881,7 @@ func (h *Handler) handleCreateVpcConnection(c *echo.Context, body []byte) error 
 		)
 	}
 
-	conn, err := h.Backend.CreateVpcConnection(
+	conn, err := h.Backend.CreateVpcConnection(ctx,
 		in.TargetClusterArn,
 		in.VpcID,
 		in.Authentication,
@@ -1878,8 +1899,8 @@ func (h *Handler) handleCreateVpcConnection(c *echo.Context, body []byte) error 
 	})
 }
 
-func (h *Handler) handleDeleteVpcConnection(c *echo.Context, vpcConnectionArn string) error {
-	if err := h.Backend.DeleteVpcConnection(vpcConnectionArn); err != nil {
+func (h *Handler) handleDeleteVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
+	if err := h.Backend.DeleteVpcConnection(ctx, vpcConnectionArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1890,8 +1911,8 @@ func (h *Handler) handleDeleteVpcConnection(c *echo.Context, vpcConnectionArn st
 // Cluster policy handlers
 // ----------------------------------------
 
-func (h *Handler) handleDeleteClusterPolicy(c *echo.Context, clusterArn string) error {
-	if err := h.Backend.DeleteClusterPolicy(clusterArn); err != nil {
+func (h *Handler) handleDeleteClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string) error {
+	if err := h.Backend.DeleteClusterPolicy(ctx, clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -1911,10 +1932,11 @@ type describeClusterOperationOutput struct {
 // ----------------------------------------
 
 func (h *Handler) handleDescribeClusterOperation(
+	ctx context.Context,
 	c *echo.Context,
 	clusterOperationArn string,
 ) error {
-	op, err := h.Backend.DescribeClusterOperation(clusterOperationArn)
+	op, err := h.Backend.DescribeClusterOperation(ctx, clusterOperationArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1930,8 +1952,8 @@ type listScramSecretsOutput struct {
 	SecretArnList []string `json:"secretArnList"`
 }
 
-func (h *Handler) handleListScramSecrets(c *echo.Context, clusterArn string) error {
-	secrets, err := h.Backend.ListScramSecrets(clusterArn)
+func (h *Handler) handleListScramSecrets(ctx context.Context, c *echo.Context, clusterArn string) error {
+	secrets, err := h.Backend.ListScramSecrets(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1956,8 +1978,8 @@ type updateReplicationInfoOutput struct {
 	ReplicatorState string `json:"replicatorState"`
 }
 
-func (h *Handler) handleDescribeReplicator(c *echo.Context, replicatorArn string) error {
-	r, err := h.Backend.DescribeReplicator(replicatorArn)
+func (h *Handler) handleDescribeReplicator(ctx context.Context, c *echo.Context, replicatorArn string) error {
+	r, err := h.Backend.DescribeReplicator(ctx, replicatorArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1965,13 +1987,14 @@ func (h *Handler) handleDescribeReplicator(c *echo.Context, replicatorArn string
 	return c.JSON(http.StatusOK, r)
 }
 
-func (h *Handler) handleListReplicators(c *echo.Context) error {
-	replicators := h.Backend.ListReplicators()
+func (h *Handler) handleListReplicators(ctx context.Context, c *echo.Context) error {
+	replicators := h.Backend.ListReplicators(ctx)
 
 	return c.JSON(http.StatusOK, listReplicatorsOutput{Replicators: replicators})
 }
 
 func (h *Handler) handleUpdateReplicationInfo(
+	ctx context.Context,
 	c *echo.Context,
 	replicatorArn string,
 	body []byte,
@@ -1986,7 +2009,7 @@ func (h *Handler) handleUpdateReplicationInfo(
 		)
 	}
 
-	r, err := h.Backend.UpdateReplicationInfo(replicatorArn, in.Description)
+	r, err := h.Backend.UpdateReplicationInfo(ctx, replicatorArn, in.Description)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2010,7 +2033,7 @@ type updateTopicInput struct {
 	NumPartitions int32             `json:"numPartitions"`
 }
 
-func (h *Handler) handleDescribeTopic(c *echo.Context, resource string) error {
+func (h *Handler) handleDescribeTopic(ctx context.Context, c *echo.Context, resource string) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -2021,7 +2044,7 @@ func (h *Handler) handleDescribeTopic(c *echo.Context, resource string) error {
 		)
 	}
 
-	topic, err := h.Backend.DescribeTopic(parts[0], parts[1])
+	topic, err := h.Backend.DescribeTopic(ctx, parts[0], parts[1])
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2029,7 +2052,7 @@ func (h *Handler) handleDescribeTopic(c *echo.Context, resource string) error {
 	return c.JSON(http.StatusOK, topic)
 }
 
-func (h *Handler) handleDescribeTopicPartitions(c *echo.Context, resource string) error {
+func (h *Handler) handleDescribeTopicPartitions(ctx context.Context, c *echo.Context, resource string) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -2040,7 +2063,7 @@ func (h *Handler) handleDescribeTopicPartitions(c *echo.Context, resource string
 		)
 	}
 
-	topic, err := h.Backend.DescribeTopicPartitions(parts[0], parts[1])
+	topic, err := h.Backend.DescribeTopicPartitions(ctx, parts[0], parts[1])
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2048,8 +2071,8 @@ func (h *Handler) handleDescribeTopicPartitions(c *echo.Context, resource string
 	return c.JSON(http.StatusOK, topic)
 }
 
-func (h *Handler) handleListTopics(c *echo.Context, clusterArn string) error {
-	topics, err := h.Backend.ListTopics(clusterArn)
+func (h *Handler) handleListTopics(ctx context.Context, c *echo.Context, clusterArn string) error {
+	topics, err := h.Backend.ListTopics(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2057,7 +2080,7 @@ func (h *Handler) handleListTopics(c *echo.Context, clusterArn string) error {
 	return c.JSON(http.StatusOK, listTopicsOutput{Topics: topics})
 }
 
-func (h *Handler) handleUpdateTopic(c *echo.Context, resource string, body []byte) error {
+func (h *Handler) handleUpdateTopic(ctx context.Context, c *echo.Context, resource string, body []byte) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -2078,7 +2101,7 @@ func (h *Handler) handleUpdateTopic(c *echo.Context, resource string, body []byt
 		)
 	}
 
-	topic, err := h.Backend.UpdateTopic(parts[0], parts[1], in.NumPartitions, in.ConfigEntries)
+	topic, err := h.Backend.UpdateTopic(ctx, parts[0], parts[1], in.NumPartitions, in.ConfigEntries)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2094,8 +2117,8 @@ type listVpcConnectionsOutput struct {
 	VpcConnections []*VpcConnection `json:"vpcConnections"`
 }
 
-func (h *Handler) handleDescribeVpcConnection(c *echo.Context, vpcConnectionArn string) error {
-	v, err := h.Backend.DescribeVpcConnection(vpcConnectionArn)
+func (h *Handler) handleDescribeVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
+	v, err := h.Backend.DescribeVpcConnection(ctx, vpcConnectionArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2103,14 +2126,14 @@ func (h *Handler) handleDescribeVpcConnection(c *echo.Context, vpcConnectionArn 
 	return c.JSON(http.StatusOK, v)
 }
 
-func (h *Handler) handleListVpcConnections(c *echo.Context) error {
-	conns := h.Backend.ListVpcConnections()
+func (h *Handler) handleListVpcConnections(ctx context.Context, c *echo.Context) error {
+	conns := h.Backend.ListVpcConnections(ctx)
 
 	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns})
 }
 
-func (h *Handler) handleListClientVpcConnections(c *echo.Context, clusterArn string) error {
-	conns, err := h.Backend.ListClientVpcConnections(clusterArn)
+func (h *Handler) handleListClientVpcConnections(ctx context.Context, c *echo.Context, clusterArn string) error {
+	conns, err := h.Backend.ListClientVpcConnections(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2118,8 +2141,8 @@ func (h *Handler) handleListClientVpcConnections(c *echo.Context, clusterArn str
 	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns})
 }
 
-func (h *Handler) handleRejectClientVpcConnection(c *echo.Context, vpcConnectionArn string) error {
-	if err := h.Backend.RejectClientVpcConnection(vpcConnectionArn); err != nil {
+func (h *Handler) handleRejectClientVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
+	if err := h.Backend.RejectClientVpcConnection(ctx, vpcConnectionArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -2138,8 +2161,8 @@ type putClusterPolicyInput struct {
 	Policy string `json:"policy"`
 }
 
-func (h *Handler) handleGetClusterPolicy(c *echo.Context, clusterArn string) error {
-	policy, err := h.Backend.GetClusterPolicy(clusterArn)
+func (h *Handler) handleGetClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string) error {
+	policy, err := h.Backend.GetClusterPolicy(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2147,7 +2170,7 @@ func (h *Handler) handleGetClusterPolicy(c *echo.Context, clusterArn string) err
 	return c.JSON(http.StatusOK, getClusterPolicyOutput{Policy: policy})
 }
 
-func (h *Handler) handlePutClusterPolicy(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handlePutClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in putClusterPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2158,7 +2181,7 @@ func (h *Handler) handlePutClusterPolicy(c *echo.Context, clusterArn string, bod
 		)
 	}
 
-	if err := h.Backend.PutClusterPolicy(clusterArn, in.Policy); err != nil {
+	if err := h.Backend.PutClusterPolicy(ctx, clusterArn, in.Policy); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -2182,10 +2205,11 @@ type listClusterOperationsV2Output struct {
 }
 
 func (h *Handler) handleDescribeClusterOperationV2(
+	ctx context.Context,
 	c *echo.Context,
 	clusterOperationArn string,
 ) error {
-	op, err := h.Backend.DescribeClusterOperationV2(clusterOperationArn)
+	op, err := h.Backend.DescribeClusterOperationV2(ctx, clusterOperationArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2193,8 +2217,8 @@ func (h *Handler) handleDescribeClusterOperationV2(
 	return c.JSON(http.StatusOK, describeClusterOperationV2Output{ClusterOperationInfo: op})
 }
 
-func (h *Handler) handleListClusterOperations(c *echo.Context, clusterArn string) error {
-	ops, err := h.Backend.ListClusterOperations(clusterArn)
+func (h *Handler) handleListClusterOperations(ctx context.Context, c *echo.Context, clusterArn string) error {
+	ops, err := h.Backend.ListClusterOperations(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2202,8 +2226,8 @@ func (h *Handler) handleListClusterOperations(c *echo.Context, clusterArn string
 	return c.JSON(http.StatusOK, listClusterOperationsOutput{ClusterOperationInfoList: ops})
 }
 
-func (h *Handler) handleListClusterOperationsV2(c *echo.Context, clusterArn string) error {
-	ops, err := h.Backend.ListClusterOperationsV2(clusterArn)
+func (h *Handler) handleListClusterOperationsV2(ctx context.Context, c *echo.Context, clusterArn string) error {
+	ops, err := h.Backend.ListClusterOperationsV2(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2224,7 +2248,7 @@ type updateConfigurationInput struct {
 	ServerProperties string `json:"serverProperties,omitempty"`
 }
 
-func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, resource string) error {
+func (h *Handler) handleDescribeConfigurationRevision(ctx context.Context, c *echo.Context, resource string) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid resource")
@@ -2238,7 +2262,7 @@ func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, resource 
 		revision = 1
 	}
 
-	rev, err := h.Backend.DescribeConfigurationRevision(configArn, revision)
+	rev, err := h.Backend.DescribeConfigurationRevision(ctx, configArn, revision)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2246,8 +2270,8 @@ func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, resource 
 	return c.JSON(http.StatusOK, rev)
 }
 
-func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configArn string) error {
-	revisions, err := h.Backend.ListConfigurationRevisions(configArn)
+func (h *Handler) handleListConfigurationRevisions(ctx context.Context, c *echo.Context, configArn string) error {
+	revisions, err := h.Backend.ListConfigurationRevisions(ctx, configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2255,7 +2279,7 @@ func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configArn st
 	return c.JSON(http.StatusOK, listConfigurationRevisionsOutput{Revisions: revisions})
 }
 
-func (h *Handler) handleUpdateConfiguration(c *echo.Context, configArn string, body []byte) error {
+func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context, configArn string, body []byte) error {
 	var in updateConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2266,7 +2290,7 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context, configArn string, b
 		)
 	}
 
-	config, err := h.Backend.UpdateConfiguration(configArn, in.Description, in.ServerProperties)
+	config, err := h.Backend.UpdateConfiguration(ctx, configArn, in.Description, in.ServerProperties)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2290,14 +2314,14 @@ type listNodesOutput struct {
 	NodeInfoList []*BrokerNode `json:"nodeInfoList"`
 }
 
-func (h *Handler) handleListKafkaVersions(c *echo.Context) error {
-	versions := h.Backend.ListKafkaVersions()
+func (h *Handler) handleListKafkaVersions(ctx context.Context, c *echo.Context) error {
+	versions := h.Backend.ListKafkaVersions(ctx)
 
 	return c.JSON(http.StatusOK, listKafkaVersionsOutput{KafkaVersions: versions})
 }
 
-func (h *Handler) handleGetCompatibleKafkaVersions(c *echo.Context, clusterArn string) error {
-	versions, err := h.Backend.GetCompatibleKafkaVersions(clusterArn)
+func (h *Handler) handleGetCompatibleKafkaVersions(ctx context.Context, c *echo.Context, clusterArn string) error {
+	versions, err := h.Backend.GetCompatibleKafkaVersions(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2305,8 +2329,8 @@ func (h *Handler) handleGetCompatibleKafkaVersions(c *echo.Context, clusterArn s
 	return c.JSON(http.StatusOK, compatibleKafkaVersionsOutput{CompatibleKafkaVersions: versions})
 }
 
-func (h *Handler) handleListNodes(c *echo.Context, clusterArn string) error {
-	nodes, err := h.Backend.ListNodes(clusterArn)
+func (h *Handler) handleListNodes(ctx context.Context, c *echo.Context, clusterArn string) error {
+	nodes, err := h.Backend.ListNodes(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2326,7 +2350,7 @@ type clusterOperationOutput struct {
 	ClusterOperationArn string `json:"clusterOperationArn"`
 }
 
-func (h *Handler) handleRebootBroker(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleRebootBroker(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in rebootBrokerInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2337,7 +2361,7 @@ func (h *Handler) handleRebootBroker(c *echo.Context, clusterArn string, body []
 		)
 	}
 
-	op, err := h.Backend.RebootBroker(clusterArn, in.BrokerIDs)
+	op, err := h.Backend.RebootBroker(ctx, clusterArn, in.BrokerIDs)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2382,7 +2406,7 @@ type updateClusterKafkaVersionInput struct {
 	TargetKafkaVersion string `json:"targetKafkaVersion"`
 }
 
-func (h *Handler) handleUpdateBrokerCount(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateBrokerCount(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateBrokerCountInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2393,7 +2417,7 @@ func (h *Handler) handleUpdateBrokerCount(c *echo.Context, clusterArn string, bo
 		)
 	}
 
-	op, err := h.Backend.UpdateBrokerCount(clusterArn, in.TargetNumberOfBrokerNodes)
+	op, err := h.Backend.UpdateBrokerCount(ctx, clusterArn, in.TargetNumberOfBrokerNodes)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2404,7 +2428,12 @@ func (h *Handler) handleUpdateBrokerCount(c *echo.Context, clusterArn string, bo
 	)
 }
 
-func (h *Handler) handleUpdateBrokerStorage(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateBrokerStorage(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateBrokerStorageInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2420,7 +2449,7 @@ func (h *Handler) handleUpdateBrokerStorage(c *echo.Context, clusterArn string, 
 		volumeSize = in.TargetBrokerEBSVolumeInfo[0].VolumeSizeGB
 	}
 
-	op, err := h.Backend.UpdateBrokerStorage(clusterArn, volumeSize)
+	op, err := h.Backend.UpdateBrokerStorage(ctx, clusterArn, volumeSize)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2431,7 +2460,7 @@ func (h *Handler) handleUpdateBrokerStorage(c *echo.Context, clusterArn string, 
 	)
 }
 
-func (h *Handler) handleUpdateBrokerType(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateBrokerType(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateBrokerTypeInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2442,7 +2471,7 @@ func (h *Handler) handleUpdateBrokerType(c *echo.Context, clusterArn string, bod
 		)
 	}
 
-	op, err := h.Backend.UpdateBrokerType(clusterArn, in.TargetInstanceType)
+	op, err := h.Backend.UpdateBrokerType(ctx, clusterArn, in.TargetInstanceType)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2454,6 +2483,7 @@ func (h *Handler) handleUpdateBrokerType(c *echo.Context, clusterArn string, bod
 }
 
 func (h *Handler) handleUpdateClusterConfiguration(
+	ctx context.Context,
 	c *echo.Context,
 	clusterArn string,
 	body []byte,
@@ -2468,7 +2498,7 @@ func (h *Handler) handleUpdateClusterConfiguration(
 		)
 	}
 
-	op, err := h.Backend.UpdateClusterConfiguration(
+	op, err := h.Backend.UpdateClusterConfiguration(ctx,
 		clusterArn,
 		in.ConfigurationInfo.Arn,
 		in.ConfigurationInfo.Revision,
@@ -2484,6 +2514,7 @@ func (h *Handler) handleUpdateClusterConfiguration(
 }
 
 func (h *Handler) handleUpdateClusterKafkaVersion(
+	ctx context.Context,
 	c *echo.Context,
 	clusterArn string,
 	body []byte,
@@ -2498,7 +2529,7 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 		)
 	}
 
-	op, err := h.Backend.UpdateClusterKafkaVersion(clusterArn, in.TargetKafkaVersion)
+	op, err := h.Backend.UpdateClusterKafkaVersion(ctx, clusterArn, in.TargetKafkaVersion)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2515,13 +2546,13 @@ type updateConnectivityInput struct {
 	CurrentVersion   string            `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateConnectivity(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateConnectivity(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateConnectivityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
-	op, err := h.Backend.UpdateConnectivity(clusterArn, UpdateConnectivitySettings{
+	op, err := h.Backend.UpdateConnectivity(ctx, clusterArn, UpdateConnectivitySettings{
 		ConnectivityInfo: in.ConnectivityInfo,
 	})
 	if err != nil {
@@ -2542,13 +2573,13 @@ type updateMonitoringInput struct {
 	CurrentVersion     string          `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateMonitoring(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateMonitoring(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateMonitoringInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
-	op, err := h.Backend.UpdateMonitoring(clusterArn, UpdateMonitoringSettings{
+	op, err := h.Backend.UpdateMonitoring(ctx, clusterArn, UpdateMonitoringSettings{
 		EnhancedMonitoring: in.EnhancedMonitoring,
 		OpenMonitoring:     in.OpenMonitoring,
 		LoggingInfo:        in.LoggingInfo,
@@ -2563,8 +2594,8 @@ func (h *Handler) handleUpdateMonitoring(c *echo.Context, clusterArn string, bod
 	)
 }
 
-func (h *Handler) handleUpdateRebalancing(c *echo.Context, clusterArn string, _ []byte) error {
-	op, err := h.Backend.UpdateRebalancing(clusterArn)
+func (h *Handler) handleUpdateRebalancing(ctx context.Context, c *echo.Context, clusterArn string, _ []byte) error {
+	op, err := h.Backend.UpdateRebalancing(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2582,13 +2613,13 @@ type updateSecurityInput struct {
 	CurrentVersion       string                `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateSecurity(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateSecurity(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateSecurityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
-	op, err := h.Backend.UpdateSecurity(clusterArn, UpdateSecuritySettings{
+	op, err := h.Backend.UpdateSecurity(ctx, clusterArn, UpdateSecuritySettings{
 		ClientAuthentication: in.ClientAuthentication,
 		EncryptionInfo:       in.EncryptionInfo,
 	})
@@ -2610,13 +2641,13 @@ type updateStorageInput struct {
 	VolumeSizeGB          int32                  `json:"volumeSizeGB"`
 }
 
-func (h *Handler) handleUpdateStorage(c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateStorage(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
 	var in updateStorageInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
-	op, err := h.Backend.UpdateStorage(clusterArn, UpdateStorageSettings{
+	op, err := h.Backend.UpdateStorage(ctx, clusterArn, UpdateStorageSettings{
 		StorageMode:           in.StorageMode,
 		VolumeSizeGB:          in.VolumeSizeGB,
 		ProvisionedThroughput: in.ProvisionedThroughput,
