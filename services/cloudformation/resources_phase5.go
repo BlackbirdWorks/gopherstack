@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"context"
-<<<<<<< HEAD
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,33 +10,21 @@ import (
 	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
-	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
-	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
-	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
-)
-
-const defaultGlueDB = "default"
-
-var errGluePartition = errors.New("glue partition create failed")
-
-// createPhase5Resource handles ApplicationAutoScaling, SecretsManager supplemental,
-// SSM supplemental, DynamoDB GlobalTable, Glue supplemental, and AppSync supplemental resources.
-=======
-	"encoding/json"
-	"fmt"
-	"strings"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 const (
+	defaultGlueDB = "default"
+
 	resTypeLogsLogStream         = "AWS::Logs::LogStream"
 	resTypeLogsMetricFilter      = "AWS::Logs::MetricFilter"
 	resTypeLogsSubscriptionFltr  = "AWS::Logs::SubscriptionFilter"
@@ -47,90 +35,16 @@ const (
 	resTypeKMSAlias              = "AWS::KMS::Alias"
 )
 
-// createPhase5Resource handles phase-5 resource types added for §K CloudFormation
-// resource-type coverage. It returns handled=false when resourceType is not a phase-5 type
-// so the caller can fall through to the remaining dispatch chain.
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
+var errGluePartition = errors.New("glue partition create failed")
+
+// createPhase5Resource handles phase-5 resource types. It returns handled=false when
+// resourceType is not a phase-5 type so the caller can fall through to the remaining
+// dispatch chain.
 func (rc *ResourceCreator) createPhase5Resource(
 	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
-<<<<<<< HEAD
-) (string, error) {
-	if id, ok, err := rc.createAppAutoScalingResource(logicalID, resourceType, props, params, physicalIDs); ok {
-		return id, err
-	}
-
-	if id, ok := rc.createSecretsManagerSupplementalResource(
-		logicalID, resourceType, props, params, physicalIDs,
-	); ok {
-		return id, nil
-	}
-
-	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
-		return id, err
-	}
-
-	if id, ok, err := rc.createDynamoDBSupplementalResource(
-		ctx, logicalID, resourceType, props, params, physicalIDs,
-	); ok {
-		return id, err
-	}
-
-	if id, ok, err := rc.createGlueSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
-		return id, err
-	}
-
-	if id, ok, err := rc.createAppSyncSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
-		return id, err
-	}
-
-	return logicalID + "-stub", nil
-}
-
-// deletePhase5Resource handles deletion of phase-5 resource types.
-func (rc *ResourceCreator) deletePhase5Resource(ctx context.Context, physicalID, resourceType string) error {
-	switch resourceType {
-	case "AWS::ApplicationAutoScaling::ScalableTarget":
-		return rc.deleteAppAutoScalingScalableTarget(physicalID)
-	case "AWS::ApplicationAutoScaling::ScalingPolicy":
-		return rc.deleteAppAutoScalingScalingPolicy(physicalID)
-	case "AWS::SecretsManager::RotationSchedule",
-		"AWS::SecretsManager::SecretTargetAttachment",
-		"AWS::DynamoDB::GlobalTable",
-		"AWS::Glue::Partition":
-		// config-only or logical resources; nothing to delete
-		return nil
-	case "AWS::SSM::MaintenanceWindow":
-		return rc.deleteSSMMaintenanceWindow(ctx, physicalID)
-	case "AWS::SSM::Association":
-		return rc.deleteSSMAssociation(ctx, physicalID)
-	case "AWS::Glue::Crawler":
-		return rc.deleteGlueCrawler(physicalID)
-	case "AWS::Glue::Table":
-		return rc.deleteGlueTable(physicalID)
-	case "AWS::Glue::Trigger":
-		return rc.deleteGlueTrigger(physicalID)
-	case "AWS::Glue::Connection":
-		return rc.deleteGlueConnection(physicalID)
-	case "AWS::AppSync::DataSource":
-		return rc.deleteAppSyncDataSource(physicalID)
-	case "AWS::AppSync::Resolver":
-		return rc.deleteAppSyncResolver(physicalID)
-	case "AWS::AppSync::FunctionConfiguration":
-		return rc.deleteAppSyncFunction(physicalID)
-	case "AWS::AppSync::ApiKey":
-		return rc.deleteAppSyncAPIKey(physicalID)
-	default:
-		return nil
-	}
-}
-
-// ---- ApplicationAutoScaling ----
-
-func (rc *ResourceCreator) createAppAutoScalingResource(
-=======
 ) (string, bool, error) {
 	if physID, handled, err := rc.createPhase5LogsResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
@@ -142,6 +56,34 @@ func (rc *ResourceCreator) createAppAutoScalingResource(
 		logicalID, resourceType, props, params, physicalIDs,
 	); handled {
 		return physID, true, err
+	}
+
+	if id, ok, err := rc.createAppAutoScalingResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok := rc.createSecretsManagerSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, nil
+	}
+
+	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createDynamoDBSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createGlueSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createAppSyncSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
 	}
 
 	return rc.createPhase5PlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
@@ -160,6 +102,60 @@ func (rc *ResourceCreator) deletePhase5Resource(
 		return true, err
 	}
 
+	// AppAutoScaling
+	switch resourceType {
+	case "AWS::ApplicationAutoScaling::ScalableTarget":
+		return true, rc.deleteAppAutoScalingScalableTarget(physicalID)
+	case "AWS::ApplicationAutoScaling::ScalingPolicy":
+		return true, rc.deleteAppAutoScalingScalingPolicy(physicalID)
+	}
+
+	// SecretsManager supplemental (config-only; nothing to delete)
+	switch resourceType {
+	case "AWS::SecretsManager::RotationSchedule",
+		"AWS::SecretsManager::SecretTargetAttachment":
+		return true, nil
+	}
+
+	// SSM supplemental
+	switch resourceType {
+	case "AWS::SSM::MaintenanceWindow":
+		return true, rc.deleteSSMMaintenanceWindow(ctx, physicalID)
+	case "AWS::SSM::Association":
+		return true, rc.deleteSSMAssociation(ctx, physicalID)
+	}
+
+	// DynamoDB GlobalTable (config-only)
+	if resourceType == "AWS::DynamoDB::GlobalTable" {
+		return true, nil
+	}
+
+	// Glue supplemental
+	switch resourceType {
+	case "AWS::Glue::Crawler":
+		return true, rc.deleteGlueCrawler(physicalID)
+	case "AWS::Glue::Table":
+		return true, rc.deleteGlueTable(physicalID)
+	case "AWS::Glue::Trigger":
+		return true, rc.deleteGlueTrigger(physicalID)
+	case "AWS::Glue::Connection":
+		return true, rc.deleteGlueConnection(physicalID)
+	case "AWS::Glue::Partition":
+		return true, nil
+	}
+
+	// AppSync supplemental
+	switch resourceType {
+	case "AWS::AppSync::DataSource":
+		return true, rc.deleteAppSyncDataSource(physicalID)
+	case "AWS::AppSync::Resolver":
+		return true, rc.deleteAppSyncResolver(physicalID)
+	case "AWS::AppSync::FunctionConfiguration":
+		return true, rc.deleteAppSyncFunction(physicalID)
+	case "AWS::AppSync::ApiKey":
+		return true, rc.deleteAppSyncAPIKey(physicalID)
+	}
+
 	return rc.deletePhase5PlatformResource(ctx, resourceType, physicalID)
 }
 
@@ -167,23 +163,11 @@ func (rc *ResourceCreator) deletePhase5Resource(
 
 func (rc *ResourceCreator) createPhase5LogsResource(
 	ctx context.Context,
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-<<<<<<< HEAD
-	case "AWS::ApplicationAutoScaling::ScalableTarget":
-		id, err := rc.createAppAutoScalingScalableTarget(logicalID, props, params, physicalIDs)
-
-		return id, true, err
-	case "AWS::ApplicationAutoScaling::ScalingPolicy":
-		id, err := rc.createAppAutoScalingScalingPolicy(logicalID, props, params, physicalIDs)
-
-		return id, true, err
-	default:
-=======
 	case resTypeLogsLogStream:
 		id, err := rc.createLogsLogStream(ctx, logicalID, props, params, physicalIDs)
 
@@ -206,14 +190,10 @@ func (rc *ResourceCreator) createPhase5LogsResource(
 		return id, true, err
 	default:
 
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		return "", false, nil
 	}
 }
 
-<<<<<<< HEAD
-func (rc *ResourceCreator) createAppAutoScalingScalableTarget(
-=======
 func (rc *ResourceCreator) deletePhase5LogsResource(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -245,76 +225,10 @@ const logsPhysIDSep = "|"
 
 func (rc *ResourceCreator) createLogsLogStream(
 	ctx context.Context,
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-<<<<<<< HEAD
-	if rc.backends.AppAutoScaling == nil {
-		return logicalID + "-stub", nil
-	}
-
-	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
-	resourceID := strProp(props, "ResourceId", params, physicalIDs)
-	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
-
-	if serviceNamespace == "" {
-		serviceNamespace = "ecs"
-	}
-	if resourceID == "" {
-		resourceID = "service/" + logicalID + "/default"
-	}
-	if scalableDimension == "" {
-		scalableDimension = "ecs:service:DesiredCount"
-	}
-
-	var minCap, maxCap int32 = 1, 10
-	if v, ok := props["MinCapacity"].(float64); ok {
-		minCap = int32(v)
-	}
-	if v, ok := props["MaxCapacity"].(float64); ok {
-		maxCap = int32(v)
-	}
-
-	roleARN := strProp(props, "RoleARN", params, physicalIDs)
-
-	target, err := rc.backends.AppAutoScaling.Backend.RegisterScalableTarget(
-		serviceNamespace, resourceID, scalableDimension, minCap, maxCap, nil, roleARN, nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("register scalable target %s: %w", resourceID, err)
-	}
-
-	return target.ARN, nil
-}
-
-func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arn string) error {
-	if rc.backends.AppAutoScaling == nil {
-		return nil
-	}
-
-	// Physical ID is the ARN; parse serviceNamespace/resourceID/scalableDimension from it.
-	// Format: arn:aws:application-autoscaling:<region>:<account>:scalable-target/<uuid>
-	// We stored it by ARN index — use DeregisterScalableTarget with ARN lookup.
-	// The backend's DeregisterScalableTarget takes (serviceNamespace, resourceID, scalableDimension).
-	// We store the ARN as physical ID; find via DescribeScalableTargets with empty filter.
-	targets := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
-		appautoscalingbackend.DescribeScalableTargetsFilter{},
-	)
-	for _, t := range targets {
-		if t.ARN == arn {
-			return rc.backends.AppAutoScaling.Backend.DeregisterScalableTarget(
-				t.ServiceNamespace, t.ResourceID, t.ScalableDimension,
-			)
-		}
-	}
-
-	return nil
-}
-
-func (rc *ResourceCreator) createAppAutoScalingScalingPolicy(
-=======
 	if rc.backends.CloudWatchLogs == nil {
 		return logicalID + "-stub", nil
 	}
@@ -347,14 +261,10 @@ func (rc *ResourceCreator) deleteLogsLogStream(ctx context.Context, physicalID s
 
 func (rc *ResourceCreator) createLogsMetricFilter(
 	ctx context.Context,
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-<<<<<<< HEAD
-	if rc.backends.AppAutoScaling == nil {
-=======
 	if rc.backends.CloudWatchLogs == nil {
 		return logicalID + "-stub", nil
 	}
@@ -473,7 +383,6 @@ func (rc *ResourceCreator) createLogsResourcePolicy(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	if rc.backends.CloudWatchLogs == nil {
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		return logicalID + "-stub", nil
 	}
 
@@ -482,46 +391,6 @@ func (rc *ResourceCreator) createLogsResourcePolicy(
 		policyName = logicalID
 	}
 
-<<<<<<< HEAD
-	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
-	resourceID := strProp(props, "ResourceId", params, physicalIDs)
-	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
-	policyType := strProp(props, "PolicyType", params, physicalIDs)
-
-	if serviceNamespace == "" {
-		serviceNamespace = "ecs"
-	}
-	if resourceID == "" {
-		resourceID = "service/" + logicalID + "/default"
-	}
-	if scalableDimension == "" {
-		scalableDimension = "ecs:service:DesiredCount"
-	}
-
-	policy, err := rc.backends.AppAutoScaling.Backend.PutScalingPolicy(
-		serviceNamespace, resourceID, scalableDimension, policyName, policyType, nil, nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("put scaling policy %s: %w", policyName, err)
-	}
-
-	return policy.ARN, nil
-}
-
-func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) error {
-	if rc.backends.AppAutoScaling == nil {
-		return nil
-	}
-
-	policies := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
-		appautoscalingbackend.DescribeScalingPoliciesFilter{},
-	)
-	for _, p := range policies {
-		if p.ARN == policyARN {
-			return rc.backends.AppAutoScaling.Backend.DeleteScalingPolicy(
-				p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName,
-			)
-=======
 	policyDoc := strProp(props, "PolicyDocument", params, physicalIDs)
 
 	mem, ok := rc.backends.CloudWatchLogs.Backend.(*cwlogsbackend.InMemoryBackend)
@@ -1069,71 +938,12 @@ func defaultConnectionAuthParameters(authType string) *ebbackend.ConnectionAuthP
 				APIKeyName:  "x-api-key",
 				APIKeyValue: "cfn-managed",
 			},
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		}
 	}
 
 	return nil
 }
 
-<<<<<<< HEAD
-// ---- SecretsManager supplemental ----
-
-func (rc *ResourceCreator) createSecretsManagerSupplementalResource(
-	logicalID, resourceType string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, bool) {
-	switch resourceType {
-	case "AWS::SecretsManager::RotationSchedule":
-		id := rc.createSecretsManagerRotationSchedule(logicalID, props, params, physicalIDs)
-
-		return id, true
-	case "AWS::SecretsManager::SecretTargetAttachment":
-		id := rc.createSecretsManagerSecretTargetAttachment(logicalID, props, params, physicalIDs)
-
-		return id, true
-	default:
-		return "", false
-	}
-}
-
-func (rc *ResourceCreator) createSecretsManagerRotationSchedule(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) string {
-	secretID := strProp(props, "SecretId", params, physicalIDs)
-	if secretID == "" {
-		secretID = logicalID
-	}
-
-	// Physical ID is the secret ID — the rotation is configured on the secret itself.
-	return secretID + "-rotation"
-}
-
-func (rc *ResourceCreator) createSecretsManagerSecretTargetAttachment(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) string {
-	secretID := strProp(props, "SecretId", params, physicalIDs)
-	targetID := strProp(props, "TargetId", params, physicalIDs)
-	targetType := strProp(props, "TargetType", params, physicalIDs)
-
-	// Physical ID encodes the attachment; no real backend operation needed.
-	id := secretID + ":attachment:" + targetType + ":" + targetID
-	if id == ":attachment::" {
-		id = logicalID + "-attachment"
-	}
-
-	return id
-}
-
-// ---- SSM supplemental ----
-
-func (rc *ResourceCreator) createSSMSupplementalResource(
-=======
 func (rc *ResourceCreator) deleteEventsConnection(ctx context.Context, name string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
@@ -1210,24 +1020,12 @@ func (rc *ResourceCreator) deleteStepFunctionsActivity(activityArn string) error
 }
 
 func (rc *ResourceCreator) createPhase5ManagedResource(
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-<<<<<<< HEAD
-	case "AWS::SSM::MaintenanceWindow":
-		id, err := rc.createSSMMaintenanceWindow(ctx, logicalID, props, params, physicalIDs)
-
-		return id, true, err
-	case "AWS::SSM::Association":
-		id := rc.createSSMAssociation(ctx, logicalID, props, params, physicalIDs)
-
-		return id, true, nil
-	default:
-=======
 	case resTypeKMSAlias:
 		id, err := rc.createKMSAlias(logicalID, props, params, physicalIDs)
 
@@ -1258,14 +1056,10 @@ func (rc *ResourceCreator) createPhase5ManagedResource(
 		return id, true, err
 	default:
 
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		return "", false, nil
 	}
 }
 
-<<<<<<< HEAD
-func (rc *ResourceCreator) createSSMMaintenanceWindow(
-=======
 func (rc *ResourceCreator) deletePhase5ManagedResource(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -1336,7 +1130,6 @@ func (rc *ResourceCreator) deleteKMSAlias(aliasName string) error {
 }
 
 func (rc *ResourceCreator) createSSMDocument(
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	ctx context.Context,
 	logicalID string,
 	props map[string]any,
@@ -1346,20 +1139,531 @@ func (rc *ResourceCreator) createSSMDocument(
 		return logicalID + "-stub", nil
 	}
 
-<<<<<<< HEAD
-	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
-	if !ok {
-		return logicalID + "-stub", nil
-	}
-
-=======
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	name := strProp(props, "Name", params, physicalIDs)
 	if name == "" {
 		name = logicalID
 	}
 
-<<<<<<< HEAD
+	content := documentContent(props, params, physicalIDs)
+	docType := strProp(props, "DocumentType", params, physicalIDs)
+	if docType == "" {
+		docType = "Command"
+	}
+
+	docFormat := strProp(props, "DocumentFormat", params, physicalIDs)
+
+	out, err := rc.backends.SSM.Backend.CreateDocument(ctx, &ssmbackend.CreateDocumentInput{
+		Name:           name,
+		Content:        content,
+		DocumentType:   docType,
+		DocumentFormat: docFormat,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create SSM document %s: %w", name, err)
+	}
+
+	return out.DocumentDescription.Name, nil
+}
+
+func documentContent(props map[string]any, params, physicalIDs map[string]string) string {
+	switch c := props["Content"].(type) {
+	case string:
+		return c
+	case map[string]any:
+		if b, err := marshalJSON(c); err == nil {
+			return string(b)
+		}
+	}
+
+	return strProp(props, "Content", params, physicalIDs)
+}
+
+func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) error {
+	if rc.backends.SSM == nil {
+		return nil
+	}
+
+	_, err := rc.backends.SSM.Backend.DeleteDocument(ctx, &ssmbackend.DeleteDocumentInput{Name: name})
+
+	return err
+}
+
+func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.SecretsManager == nil {
+		return logicalID + "-stub", nil
+	}
+
+	secretID := strProp(props, "SecretId", params, physicalIDs)
+	policy := strProp(props, "ResourcePolicy", params, physicalIDs)
+
+	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(&secretsmanagerbackend.PutResourcePolicyInput{
+		SecretID:       secretID,
+		ResourcePolicy: policy,
+	}); err != nil {
+		return "", fmt.Errorf("create Secrets Manager resource policy for %s: %w", secretID, err)
+	}
+
+	return secretID, nil
+}
+
+func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) error {
+	if rc.backends.SecretsManager == nil {
+		return nil
+	}
+
+	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(&secretsmanagerbackend.DeleteResourcePolicyInput{
+		SecretID: secretID,
+	})
+
+	return err
+}
+
+func (rc *ResourceCreator) createCloudFrontFunction(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CloudFront == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	code := strProp(props, "FunctionCode", params, physicalIDs)
+	if code == "" {
+		code = "function handler(event) { return event.request; }"
+	}
+
+	runtime := functionRuntime(props, params, physicalIDs)
+
+	fn, err := rc.backends.CloudFront.Backend.CreateFunction(name, "", runtime, code)
+	if err != nil {
+		return "", fmt.Errorf("create CloudFront function %s: %w", name, err)
+	}
+
+	return fn.Name, nil
+}
+
+func functionRuntime(props map[string]any, params, physicalIDs map[string]string) string {
+	if cfg, ok := props["FunctionConfig"].(map[string]any); ok {
+		if rt := resolve(cfg["Runtime"], params, physicalIDs); rt != "" {
+			return rt
+		}
+	}
+	if rt := strProp(props, "Runtime", params, physicalIDs); rt != "" {
+		return rt
+	}
+
+	return "cloudfront-js-2.0"
+}
+
+func (rc *ResourceCreator) deleteCloudFrontFunction(name string) error {
+	if rc.backends.CloudFront == nil {
+		return nil
+	}
+
+	return rc.backends.CloudFront.Backend.DeleteFunction(name)
+}
+
+func (rc *ResourceCreator) createCloudFrontCachePolicy(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CloudFront == nil {
+		return logicalID + "-stub", nil
+	}
+
+	cfg := cachePolicyConfig(logicalID, props, params, physicalIDs)
+
+	policy, err := rc.backends.CloudFront.Backend.CreateCachePolicy(
+		cfg.name, "", cfg.defaultTTL, cfg.maxTTL, cfg.minTTL,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create CloudFront cache policy %s: %w", cfg.name, err)
+	}
+
+	return policy.ID, nil
+}
+
+type cachePolicySettings struct {
+	name                       string
+	defaultTTL, maxTTL, minTTL int64
+}
+
+func cachePolicyConfig(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) cachePolicySettings {
+	const (
+		fallbackDefaultTTL = 86400
+		fallbackMaxTTL     = 31536000
+	)
+	settings := cachePolicySettings{name: logicalID, defaultTTL: fallbackDefaultTTL, maxTTL: fallbackMaxTTL}
+
+	cfg, ok := props["CachePolicyConfig"].(map[string]any)
+	if !ok {
+		return settings
+	}
+	if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
+		settings.name = n
+	}
+	if v := int64Val(cfg["DefaultTTL"]); v != 0 {
+		settings.defaultTTL = v
+	}
+	if v := int64Val(cfg["MaxTTL"]); v != 0 {
+		settings.maxTTL = v
+	}
+	settings.minTTL = int64Val(cfg["MinTTL"])
+
+	return settings
+}
+
+func (rc *ResourceCreator) deleteCloudFrontCachePolicy(id string) error {
+	if rc.backends.CloudFront == nil {
+		return nil
+	}
+
+	return rc.backends.CloudFront.Backend.DeleteCachePolicy(id)
+}
+
+func (rc *ResourceCreator) createCloudFrontOriginAccessControl(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CloudFront == nil {
+		return logicalID + "-stub", nil
+	}
+
+	cfg := oacConfig(logicalID, props, params, physicalIDs)
+
+	oac, err := rc.backends.CloudFront.Backend.CreateOriginAccessControl(
+		cfg.name, "", cfg.originType, cfg.signingBehavior, cfg.signingProtocol,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create CloudFront origin access control %s: %w", cfg.name, err)
+	}
+
+	return oac.ID, nil
+}
+
+type oacSettings struct {
+	name            string
+	originType      string
+	signingBehavior string
+	signingProtocol string
+}
+
+func oacConfig(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) oacSettings {
+	settings := oacSettings{name: logicalID, originType: "s3", signingBehavior: "always", signingProtocol: "sigv4"}
+
+	cfg, ok := props["OriginAccessControlConfig"].(map[string]any)
+	if !ok {
+		return settings
+	}
+	if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
+		settings.name = n
+	}
+	if v := resolve(cfg["OriginAccessControlOriginType"], params, physicalIDs); v != "" {
+		settings.originType = v
+	}
+	if v := resolve(cfg["SigningBehavior"], params, physicalIDs); v != "" {
+		settings.signingBehavior = v
+	}
+	if v := resolve(cfg["SigningProtocol"], params, physicalIDs); v != "" {
+		settings.signingProtocol = v
+	}
+
+	return settings
+}
+
+func (rc *ResourceCreator) deleteCloudFrontOriginAccessControl(id string) error {
+	if rc.backends.CloudFront == nil {
+		return nil
+	}
+
+	return rc.backends.CloudFront.Backend.DeleteOriginAccessControl(id)
+}
+
+func (rc *ResourceCreator) createCloudFrontResponseHeadersPolicy(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CloudFront == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := logicalID
+	if cfg, ok := props["ResponseHeadersPolicyConfig"].(map[string]any); ok {
+		if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
+			name = n
+		}
+	}
+
+	policy, err := rc.backends.CloudFront.Backend.CreateResponseHeadersPolicy(name, "")
+	if err != nil {
+		return "", fmt.Errorf("create CloudFront response headers policy %s: %w", name, err)
+	}
+
+	return policy.ID, nil
+}
+
+func (rc *ResourceCreator) deleteCloudFrontResponseHeadersPolicy(id string) error {
+	if rc.backends.CloudFront == nil {
+		return nil
+	}
+
+	return rc.backends.CloudFront.Backend.DeleteResponseHeadersPolicy(id)
+}
+
+// ---- ApplicationAutoScaling ----
+
+func (rc *ResourceCreator) createAppAutoScalingResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::ApplicationAutoScaling::ScalableTarget":
+		id, err := rc.createAppAutoScalingScalableTarget(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::ApplicationAutoScaling::ScalingPolicy":
+		id, err := rc.createAppAutoScalingScalingPolicy(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+func (rc *ResourceCreator) createAppAutoScalingScalableTarget(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppAutoScaling == nil {
+		return logicalID + "-stub", nil
+	}
+
+	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
+	resourceID := strProp(props, "ResourceId", params, physicalIDs)
+	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
+
+	if serviceNamespace == "" {
+		serviceNamespace = "ecs"
+	}
+	if resourceID == "" {
+		resourceID = "service/" + logicalID + "/default"
+	}
+	if scalableDimension == "" {
+		scalableDimension = "ecs:service:DesiredCount"
+	}
+
+	var minCap, maxCap int32 = 1, 10
+	if v, ok := props["MinCapacity"].(float64); ok {
+		minCap = int32(v)
+	}
+	if v, ok := props["MaxCapacity"].(float64); ok {
+		maxCap = int32(v)
+	}
+
+	roleARN := strProp(props, "RoleARN", params, physicalIDs)
+
+	target, err := rc.backends.AppAutoScaling.Backend.RegisterScalableTarget(
+		serviceNamespace, resourceID, scalableDimension, minCap, maxCap, nil, roleARN, nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("register scalable target %s: %w", resourceID, err)
+	}
+
+	return target.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arnStr string) error {
+	if rc.backends.AppAutoScaling == nil {
+		return nil
+	}
+
+	targets := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
+		appautoscalingbackend.DescribeScalableTargetsFilter{},
+	)
+	for _, t := range targets {
+		if t.ARN == arnStr {
+			return rc.backends.AppAutoScaling.Backend.DeregisterScalableTarget(
+				t.ServiceNamespace, t.ResourceID, t.ScalableDimension,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (rc *ResourceCreator) createAppAutoScalingScalingPolicy(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppAutoScaling == nil {
+		return logicalID + "-stub", nil
+	}
+
+	policyName := strProp(props, "PolicyName", params, physicalIDs)
+	if policyName == "" {
+		policyName = logicalID
+	}
+
+	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
+	resourceID := strProp(props, "ResourceId", params, physicalIDs)
+	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
+	policyType := strProp(props, "PolicyType", params, physicalIDs)
+
+	if serviceNamespace == "" {
+		serviceNamespace = "ecs"
+	}
+	if resourceID == "" {
+		resourceID = "service/" + logicalID + "/default"
+	}
+	if scalableDimension == "" {
+		scalableDimension = "ecs:service:DesiredCount"
+	}
+
+	policy, err := rc.backends.AppAutoScaling.Backend.PutScalingPolicy(
+		serviceNamespace, resourceID, scalableDimension, policyName, policyType, nil, nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("put scaling policy %s: %w", policyName, err)
+	}
+
+	return policy.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) error {
+	if rc.backends.AppAutoScaling == nil {
+		return nil
+	}
+
+	policies := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+		appautoscalingbackend.DescribeScalingPoliciesFilter{},
+	)
+	for _, p := range policies {
+		if p.ARN == policyARN {
+			return rc.backends.AppAutoScaling.Backend.DeleteScalingPolicy(
+				p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName,
+			)
+		}
+	}
+
+	return nil
+}
+
+// ---- SecretsManager supplemental ----
+
+func (rc *ResourceCreator) createSecretsManagerSupplementalResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool) {
+	switch resourceType {
+	case "AWS::SecretsManager::RotationSchedule":
+		id := rc.createSecretsManagerRotationSchedule(logicalID, props, params, physicalIDs)
+
+		return id, true
+	case "AWS::SecretsManager::SecretTargetAttachment":
+		id := rc.createSecretsManagerSecretTargetAttachment(logicalID, props, params, physicalIDs)
+
+		return id, true
+	default:
+		return "", false
+	}
+}
+
+func (rc *ResourceCreator) createSecretsManagerRotationSchedule(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) string {
+	secretID := strProp(props, "SecretId", params, physicalIDs)
+	if secretID == "" {
+		secretID = logicalID
+	}
+
+	return secretID + "-rotation"
+}
+
+func (rc *ResourceCreator) createSecretsManagerSecretTargetAttachment(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) string {
+	secretID := strProp(props, "SecretId", params, physicalIDs)
+	targetID := strProp(props, "TargetId", params, physicalIDs)
+	targetType := strProp(props, "TargetType", params, physicalIDs)
+
+	id := secretID + ":attachment:" + targetType + ":" + targetID
+	if id == ":attachment::" {
+		id = logicalID + "-attachment"
+	}
+
+	return id
+}
+
+// ---- SSM supplemental ----
+
+func (rc *ResourceCreator) createSSMSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::SSM::MaintenanceWindow":
+		id, err := rc.createSSMMaintenanceWindow(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::SSM::Association":
+		id := rc.createSSMAssociation(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, nil
+	default:
+		return "", false, nil
+	}
+}
+
+func (rc *ResourceCreator) createSSMMaintenanceWindow(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.SSM == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
 	schedule := strProp(props, "Schedule", params, physicalIDs)
 	if schedule == "" {
 		schedule = "cron(0 2 ? * SUN *)"
@@ -1431,8 +1735,6 @@ func (rc *ResourceCreator) createSSMAssociation(
 
 	assocName := strProp(props, "AssociationName", params, physicalIDs)
 
-	// SSM Association requires a document; if it doesn't exist, CreateAssociation errors.
-	// Treat errors as a stub to avoid propagating document-not-found failures.
 	out, _ := imb.CreateAssociation(ctx, &ssmbackend.CreateAssociationInput{
 		Name:            name,
 		AssociationName: assocName,
@@ -1494,7 +1796,6 @@ func (rc *ResourceCreator) createDynamoDBGlobalTable(
 		tableName = logicalID
 	}
 
-	// Build replication group from Replicas prop.
 	var replicas []ddbtypes.Replica
 	if replicaList, hasReplicas := props["Replicas"].([]any); hasReplicas {
 		for _, r := range replicaList {
@@ -1824,7 +2125,7 @@ func (rc *ResourceCreator) createAppSyncDataSource(
 	return ds.DataSourceARN, nil
 }
 
-func (rc *ResourceCreator) deleteAppSyncDataSource(arn string) error {
+func (rc *ResourceCreator) deleteAppSyncDataSource(arnStr string) error {
 	if rc.backends.AppSync == nil {
 		return nil
 	}
@@ -1834,8 +2135,7 @@ func (rc *ResourceCreator) deleteAppSyncDataSource(arn string) error {
 		return nil
 	}
 
-	// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/datasources/<name>
-	apiID, name := parseAppSyncARNParts(arn, "datasources")
+	apiID, name := parseAppSyncARNParts(arnStr, "datasources")
 	if apiID == "" || name == "" {
 		return nil
 	}
@@ -1888,7 +2188,7 @@ func (rc *ResourceCreator) createAppSyncResolver(
 	return r.ResolverARN, nil
 }
 
-func (rc *ResourceCreator) deleteAppSyncResolver(arn string) error {
+func (rc *ResourceCreator) deleteAppSyncResolver(arnStr string) error {
 	if rc.backends.AppSync == nil {
 		return nil
 	}
@@ -1898,8 +2198,7 @@ func (rc *ResourceCreator) deleteAppSyncResolver(arn string) error {
 		return nil
 	}
 
-	// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/types/<typeName>/resolvers/<fieldName>
-	_, afterAPIs, hasAPIs := strings.Cut(arn, "apis/")
+	_, afterAPIs, hasAPIs := strings.Cut(arnStr, "apis/")
 	if !hasAPIs {
 		return nil
 	}
@@ -1953,7 +2252,7 @@ func (rc *ResourceCreator) createAppSyncFunction(
 	return f.FunctionARN, nil
 }
 
-func (rc *ResourceCreator) deleteAppSyncFunction(arn string) error {
+func (rc *ResourceCreator) deleteAppSyncFunction(arnStr string) error {
 	if rc.backends.AppSync == nil {
 		return nil
 	}
@@ -1963,7 +2262,7 @@ func (rc *ResourceCreator) deleteAppSyncFunction(arn string) error {
 		return nil
 	}
 
-	apiID, funcID := parseAppSyncARNParts(arn, "functions")
+	apiID, funcID := parseAppSyncARNParts(arnStr, "functions")
 	if apiID == "" || funcID == "" {
 		return nil
 	}
@@ -1972,58 +2271,10 @@ func (rc *ResourceCreator) deleteAppSyncFunction(arn string) error {
 }
 
 func (rc *ResourceCreator) createAppSyncAPIKey(
-=======
-	content := documentContent(props, params, physicalIDs)
-	docType := strProp(props, "DocumentType", params, physicalIDs)
-	if docType == "" {
-		docType = "Command"
-	}
-
-	docFormat := strProp(props, "DocumentFormat", params, physicalIDs)
-
-	out, err := rc.backends.SSM.Backend.CreateDocument(ctx, &ssmbackend.CreateDocumentInput{
-		Name:           name,
-		Content:        content,
-		DocumentType:   docType,
-		DocumentFormat: docFormat,
-	})
-	if err != nil {
-		return "", fmt.Errorf("create SSM document %s: %w", name, err)
-	}
-
-	return out.DocumentDescription.Name, nil
-}
-
-func documentContent(props map[string]any, params, physicalIDs map[string]string) string {
-	switch c := props["Content"].(type) {
-	case string:
-		return c
-	case map[string]any:
-		if b, err := marshalJSON(c); err == nil {
-			return string(b)
-		}
-	}
-
-	return strProp(props, "Content", params, physicalIDs)
-}
-
-func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) error {
-	if rc.backends.SSM == nil {
-		return nil
-	}
-
-	_, err := rc.backends.SSM.Backend.DeleteDocument(ctx, &ssmbackend.DeleteDocumentInput{Name: name})
-
-	return err
-}
-
-func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-<<<<<<< HEAD
 	if rc.backends.AppSync == nil {
 		return logicalID + "-stub", nil
 	}
@@ -2050,242 +2301,33 @@ func (rc *ResourceCreator) deleteAppSyncAPIKey(physicalID string) error {
 	}
 
 	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
-=======
-	if rc.backends.SecretsManager == nil {
-		return logicalID + "-stub", nil
-	}
-
-	secretID := strProp(props, "SecretId", params, physicalIDs)
-	policy := strProp(props, "ResourcePolicy", params, physicalIDs)
-
-	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(&secretsmanagerbackend.PutResourcePolicyInput{
-		SecretID:       secretID,
-		ResourcePolicy: policy,
-	}); err != nil {
-		return "", fmt.Errorf("create Secrets Manager resource policy for %s: %w", secretID, err)
-	}
-
-	return secretID, nil
-}
-
-func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) error {
-	if rc.backends.SecretsManager == nil {
-		return nil
-	}
-
-	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(&secretsmanagerbackend.DeleteResourcePolicyInput{
-		SecretID: secretID,
-	})
-
-	return err
-}
-
-func (rc *ResourceCreator) createCloudFrontFunction(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.CloudFront == nil {
-		return logicalID + "-stub", nil
-	}
-
-	name := strProp(props, "Name", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
-
-	code := strProp(props, "FunctionCode", params, physicalIDs)
-	if code == "" {
-		code = "function handler(event) { return event.request; }"
-	}
-
-	runtime := functionRuntime(props, params, physicalIDs)
-
-	fn, err := rc.backends.CloudFront.Backend.CreateFunction(name, "", runtime, code)
-	if err != nil {
-		return "", fmt.Errorf("create CloudFront function %s: %w", name, err)
-	}
-
-	return fn.Name, nil
-}
-
-func functionRuntime(props map[string]any, params, physicalIDs map[string]string) string {
-	if cfg, ok := props["FunctionConfig"].(map[string]any); ok {
-		if rt := resolve(cfg["Runtime"], params, physicalIDs); rt != "" {
-			return rt
-		}
-	}
-	if rt := strProp(props, "Runtime", params, physicalIDs); rt != "" {
-		return rt
-	}
-
-	return "cloudfront-js-2.0"
-}
-
-func (rc *ResourceCreator) deleteCloudFrontFunction(name string) error {
-	if rc.backends.CloudFront == nil {
-		return nil
-	}
-
-	return rc.backends.CloudFront.Backend.DeleteFunction(name)
-}
-
-func (rc *ResourceCreator) createCloudFrontCachePolicy(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.CloudFront == nil {
-		return logicalID + "-stub", nil
-	}
-
-	cfg := cachePolicyConfig(logicalID, props, params, physicalIDs)
-
-	policy, err := rc.backends.CloudFront.Backend.CreateCachePolicy(
-		cfg.name, "", cfg.defaultTTL, cfg.maxTTL, cfg.minTTL,
-	)
-	if err != nil {
-		return "", fmt.Errorf("create CloudFront cache policy %s: %w", cfg.name, err)
-	}
-
-	return policy.ID, nil
-}
-
-type cachePolicySettings struct {
-	name                       string
-	defaultTTL, maxTTL, minTTL int64
-}
-
-func cachePolicyConfig(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) cachePolicySettings {
-	const (
-		fallbackDefaultTTL = 86400
-		fallbackMaxTTL     = 31536000
-	)
-	settings := cachePolicySettings{name: logicalID, defaultTTL: fallbackDefaultTTL, maxTTL: fallbackMaxTTL}
-
-	cfg, ok := props["CachePolicyConfig"].(map[string]any)
 	if !ok {
-		return settings
-	}
-	if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
-		settings.name = n
-	}
-	if v := int64Val(cfg["DefaultTTL"]); v != 0 {
-		settings.defaultTTL = v
-	}
-	if v := int64Val(cfg["MaxTTL"]); v != 0 {
-		settings.maxTTL = v
-	}
-	settings.minTTL = int64Val(cfg["MinTTL"])
-
-	return settings
-}
-
-func (rc *ResourceCreator) deleteCloudFrontCachePolicy(id string) error {
-	if rc.backends.CloudFront == nil {
 		return nil
 	}
 
-	return rc.backends.CloudFront.Backend.DeleteCachePolicy(id)
-}
-
-func (rc *ResourceCreator) createCloudFrontOriginAccessControl(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.CloudFront == nil {
-		return logicalID + "-stub", nil
-	}
-
-	cfg := oacConfig(logicalID, props, params, physicalIDs)
-
-	oac, err := rc.backends.CloudFront.Backend.CreateOriginAccessControl(
-		cfg.name, "", cfg.originType, cfg.signingBehavior, cfg.signingProtocol,
-	)
-	if err != nil {
-		return "", fmt.Errorf("create CloudFront origin access control %s: %w", cfg.name, err)
-	}
-
-	return oac.ID, nil
-}
-
-type oacSettings struct {
-	name            string
-	originType      string
-	signingBehavior string
-	signingProtocol string
-}
-
-func oacConfig(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) oacSettings {
-	settings := oacSettings{name: logicalID, originType: "s3", signingBehavior: "always", signingProtocol: "sigv4"}
-
-	cfg, ok := props["OriginAccessControlConfig"].(map[string]any)
-	if !ok {
-		return settings
-	}
-	if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
-		settings.name = n
-	}
-	if v := resolve(cfg["OriginAccessControlOriginType"], params, physicalIDs); v != "" {
-		settings.originType = v
-	}
-	if v := resolve(cfg["SigningBehavior"], params, physicalIDs); v != "" {
-		settings.signingBehavior = v
-	}
-	if v := resolve(cfg["SigningProtocol"], params, physicalIDs); v != "" {
-		settings.signingProtocol = v
-	}
-
-	return settings
-}
-
-func (rc *ResourceCreator) deleteCloudFrontOriginAccessControl(id string) error {
-	if rc.backends.CloudFront == nil {
+	const parts = 2
+	split := strings.SplitN(physicalID, "/", parts)
+	if len(split) < parts {
 		return nil
 	}
 
-	return rc.backends.CloudFront.Backend.DeleteOriginAccessControl(id)
+	return imb.DeleteAPIKey(split[0], split[1])
 }
 
-func (rc *ResourceCreator) createCloudFrontResponseHeadersPolicy(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.CloudFront == nil {
-		return logicalID + "-stub", nil
+// parseAppSyncARNParts extracts apiID and resource name from an AppSync ARN.
+// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/<resourceType>/<name>.
+func parseAppSyncARNParts(arnStr, resourceType string) (string, string) {
+	_, afterAPIs, hasAPIs := strings.Cut(arnStr, "apis/")
+	if !hasAPIs {
+		return "", ""
 	}
 
-	name := logicalID
-	if cfg, ok := props["ResponseHeadersPolicyConfig"].(map[string]any); ok {
-		if n := resolve(cfg["Name"], params, physicalIDs); n != "" {
-			name = n
-		}
+	apiID, name, found := strings.Cut(afterAPIs, "/"+resourceType+"/")
+	if !found {
+		return "", ""
 	}
 
-	policy, err := rc.backends.CloudFront.Backend.CreateResponseHeadersPolicy(name, "")
-	if err != nil {
-		return "", fmt.Errorf("create CloudFront response headers policy %s: %w", name, err)
-	}
-
-	return policy.ID, nil
-}
-
-func (rc *ResourceCreator) deleteCloudFrontResponseHeadersPolicy(id string) error {
-	if rc.backends.CloudFront == nil {
-		return nil
-	}
-
-	return rc.backends.CloudFront.Backend.DeleteResponseHeadersPolicy(id)
+	return apiID, name
 }
 
 // ---- phase-5 property helpers ----
@@ -2318,36 +2360,10 @@ func int64Val(v any) int64 {
 // strSliceProp resolves a property that is expected to be a list of strings (or refs).
 func strSliceProp(v any, params, physicalIDs map[string]string) []string {
 	list, ok := v.([]any)
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	if !ok {
 		return nil
 	}
 
-<<<<<<< HEAD
-	const parts = 2
-	split := strings.SplitN(physicalID, "/", parts)
-	if len(split) < parts {
-		return nil
-	}
-
-	return imb.DeleteAPIKey(split[0], split[1])
-}
-
-// parseAppSyncARNParts extracts apiID and resource name from an AppSync ARN.
-// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/<resourceType>/<name>.
-func parseAppSyncARNParts(arn, resourceType string) (string, string) {
-	_, afterAPIs, hasAPIs := strings.Cut(arn, "apis/")
-	if !hasAPIs {
-		return "", ""
-	}
-
-	apiID, name, found := strings.Cut(afterAPIs, "/"+resourceType+"/")
-	if !found {
-		return "", ""
-	}
-
-	return apiID, name
-=======
 	out := make([]string, 0, len(list))
 	for _, item := range list {
 		if s := resolve(item, params, physicalIDs); s != "" {
@@ -2407,5 +2423,4 @@ func arnResourceTail(s string) string {
 	}
 
 	return parts[len(parts)-1]
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 }

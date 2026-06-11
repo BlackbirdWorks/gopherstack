@@ -1,18 +1,18 @@
 package cloudformation_test
 
 import (
-<<<<<<< HEAD
 	"maps"
-=======
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-<<<<<<< HEAD
+	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
 
 // newPhase5ServiceBackends creates a ServiceBackends with all phase-5 backends populated.
@@ -25,19 +25,8 @@ func newPhase5ServiceBackends() *cloudformation.ServiceBackends {
 	return b
 }
 
-// TestResourceCreator_Phase5Types_NilBackends ensures all phase-5 resource types return a stub
-// physical ID when the corresponding backend is nil.
-=======
-	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
-	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
-	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
-)
-
 // TestResourceCreator_Phase5Types_NilBackends ensures every phase-5 resource type returns
 // a stub physical ID (no panic, no error) when the backing service is nil.
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 	t.Parallel()
 
@@ -47,7 +36,52 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 		logicalID    string
 		resourceType string
 	}{
-<<<<<<< HEAD
+		// Branch resource types (§K pass-1)
+		{name: "logs_log_stream", logicalID: "Stream", resourceType: "AWS::Logs::LogStream",
+			props: map[string]any{"LogGroupName": "/g", "LogStreamName": "s"}},
+		{name: "logs_metric_filter", logicalID: "MF", resourceType: "AWS::Logs::MetricFilter",
+			props: map[string]any{"LogGroupName": "/g", "FilterName": "mf"}},
+		{name: "logs_subscription_filter", logicalID: "SF", resourceType: "AWS::Logs::SubscriptionFilter",
+			props: map[string]any{"LogGroupName": "/g", "DestinationArn": "arn:aws:lambda:::f"}},
+		{name: "logs_resource_policy", logicalID: "RP", resourceType: "AWS::Logs::ResourcePolicy",
+			props: map[string]any{"PolicyName": "p", "PolicyDocument": "{}"}},
+		{name: "logs_query_definition", logicalID: "QD", resourceType: "AWS::Logs::QueryDefinition",
+			props: map[string]any{"Name": "q", "QueryString": "fields @message"}},
+		{name: "ec2_volume", logicalID: "Vol", resourceType: "AWS::EC2::Volume",
+			props: map[string]any{"AvailabilityZone": "us-east-1a", "Size": float64(10)}},
+		{name: "ec2_volume_attachment", logicalID: "VA", resourceType: "AWS::EC2::VolumeAttachment",
+			props: map[string]any{"VolumeId": "vol-1", "InstanceId": "i-1"}},
+		{name: "ec2_network_interface", logicalID: "ENI", resourceType: "AWS::EC2::NetworkInterface",
+			props: map[string]any{"SubnetId": "subnet-1"}},
+		{name: "apigwv2_integration", logicalID: "Int", resourceType: "AWS::ApiGatewayV2::Integration",
+			props: map[string]any{"ApiId": "api-1", "IntegrationType": "AWS_PROXY"}},
+		{name: "apigwv2_route", logicalID: "Route", resourceType: "AWS::ApiGatewayV2::Route",
+			props: map[string]any{"ApiId": "api-1", "RouteKey": "GET /"}},
+		{name: "apigwv2_authorizer", logicalID: "Auth", resourceType: "AWS::ApiGatewayV2::Authorizer",
+			props: map[string]any{"ApiId": "api-1", "Name": "a", "AuthorizerType": "REQUEST"}},
+		{name: "kms_alias", logicalID: "Alias", resourceType: "AWS::KMS::Alias",
+			props: map[string]any{"AliasName": "alias/k", "TargetKeyId": "key-1"}},
+		{name: "sns_topic_policy", logicalID: "TP", resourceType: "AWS::SNS::TopicPolicy",
+			props: map[string]any{"Topics": []any{"arn:aws:sns:::t"}, "PolicyDocument": "{}"}},
+		{name: "events_connection", logicalID: "Conn", resourceType: "AWS::Events::Connection",
+			props: map[string]any{"Name": "c", "AuthorizationType": "API_KEY"}},
+		{name: "events_archive", logicalID: "Arch", resourceType: "AWS::Events::Archive",
+			props: map[string]any{"ArchiveName": "a", "SourceArn": "arn:aws:events:::event-bus/default"}},
+		{name: "sfn_activity", logicalID: "Act", resourceType: "AWS::StepFunctions::Activity",
+			props: map[string]any{"Name": "act"}},
+		{name: "ssm_document", logicalID: "Doc", resourceType: "AWS::SSM::Document",
+			props: map[string]any{"Name": "d", "Content": "{}", "DocumentType": "Command"}},
+		{name: "secrets_resource_policy", logicalID: "SRP", resourceType: "AWS::SecretsManager::ResourcePolicy",
+			props: map[string]any{"SecretId": "s", "ResourcePolicy": "{}"}},
+		{name: "cloudfront_function", logicalID: "Fn", resourceType: "AWS::CloudFront::Function",
+			props: map[string]any{"Name": "fn"}},
+		{name: "cloudfront_cache_policy", logicalID: "CP", resourceType: "AWS::CloudFront::CachePolicy",
+			props: map[string]any{"CachePolicyConfig": map[string]any{"Name": "cp"}}},
+		{name: "cloudfront_oac", logicalID: "OAC", resourceType: "AWS::CloudFront::OriginAccessControl",
+			props: map[string]any{"OriginAccessControlConfig": map[string]any{"Name": "oac"}}},
+		{name: "cloudfront_rhp", logicalID: "RHP", resourceType: "AWS::CloudFront::ResponseHeadersPolicy",
+			props: map[string]any{"ResponseHeadersPolicyConfig": map[string]any{"Name": "rhp"}}},
+		// HEAD resource types (ApplicationAutoScaling, SecretsManager supplemental, SSM, DynamoDB GlobalTable, Glue, AppSync)
 		{
 			name:         "app_autoscaling_scalable_target",
 			logicalID:    "MyScalableTarget",
@@ -187,84 +221,26 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			resourceType: "AWS::AppSync::ApiKey",
 			props:        map[string]any{"ApiId": "api-stub"},
 		},
-=======
-		{name: "logs_log_stream", logicalID: "Stream", resourceType: "AWS::Logs::LogStream",
-			props: map[string]any{"LogGroupName": "/g", "LogStreamName": "s"}},
-		{name: "logs_metric_filter", logicalID: "MF", resourceType: "AWS::Logs::MetricFilter",
-			props: map[string]any{"LogGroupName": "/g", "FilterName": "mf"}},
-		{name: "logs_subscription_filter", logicalID: "SF", resourceType: "AWS::Logs::SubscriptionFilter",
-			props: map[string]any{"LogGroupName": "/g", "DestinationArn": "arn:aws:lambda:::f"}},
-		{name: "logs_resource_policy", logicalID: "RP", resourceType: "AWS::Logs::ResourcePolicy",
-			props: map[string]any{"PolicyName": "p", "PolicyDocument": "{}"}},
-		{name: "logs_query_definition", logicalID: "QD", resourceType: "AWS::Logs::QueryDefinition",
-			props: map[string]any{"Name": "q", "QueryString": "fields @message"}},
-		{name: "ec2_volume", logicalID: "Vol", resourceType: "AWS::EC2::Volume",
-			props: map[string]any{"AvailabilityZone": "us-east-1a", "Size": float64(10)}},
-		{name: "ec2_volume_attachment", logicalID: "VA", resourceType: "AWS::EC2::VolumeAttachment",
-			props: map[string]any{"VolumeId": "vol-1", "InstanceId": "i-1"}},
-		{name: "ec2_network_interface", logicalID: "ENI", resourceType: "AWS::EC2::NetworkInterface",
-			props: map[string]any{"SubnetId": "subnet-1"}},
-		{name: "apigwv2_integration", logicalID: "Int", resourceType: "AWS::ApiGatewayV2::Integration",
-			props: map[string]any{"ApiId": "api-1", "IntegrationType": "AWS_PROXY"}},
-		{name: "apigwv2_route", logicalID: "Route", resourceType: "AWS::ApiGatewayV2::Route",
-			props: map[string]any{"ApiId": "api-1", "RouteKey": "GET /"}},
-		{name: "apigwv2_authorizer", logicalID: "Auth", resourceType: "AWS::ApiGatewayV2::Authorizer",
-			props: map[string]any{"ApiId": "api-1", "Name": "a", "AuthorizerType": "REQUEST"}},
-		{name: "kms_alias", logicalID: "Alias", resourceType: "AWS::KMS::Alias",
-			props: map[string]any{"AliasName": "alias/k", "TargetKeyId": "key-1"}},
-		{name: "sns_topic_policy", logicalID: "TP", resourceType: "AWS::SNS::TopicPolicy",
-			props: map[string]any{"Topics": []any{"arn:aws:sns:::t"}, "PolicyDocument": "{}"}},
-		{name: "events_connection", logicalID: "Conn", resourceType: "AWS::Events::Connection",
-			props: map[string]any{"Name": "c", "AuthorizationType": "API_KEY"}},
-		{name: "events_archive", logicalID: "Arch", resourceType: "AWS::Events::Archive",
-			props: map[string]any{"ArchiveName": "a", "SourceArn": "arn:aws:events:::event-bus/default"}},
-		{name: "sfn_activity", logicalID: "Act", resourceType: "AWS::StepFunctions::Activity",
-			props: map[string]any{"Name": "act"}},
-		{name: "ssm_document", logicalID: "Doc", resourceType: "AWS::SSM::Document",
-			props: map[string]any{"Name": "d", "Content": "{}", "DocumentType": "Command"}},
-		{name: "secrets_resource_policy", logicalID: "SRP", resourceType: "AWS::SecretsManager::ResourcePolicy",
-			props: map[string]any{"SecretId": "s", "ResourcePolicy": "{}"}},
-		{name: "cloudfront_function", logicalID: "Fn", resourceType: "AWS::CloudFront::Function",
-			props: map[string]any{"Name": "fn"}},
-		{name: "cloudfront_cache_policy", logicalID: "CP", resourceType: "AWS::CloudFront::CachePolicy",
-			props: map[string]any{"CachePolicyConfig": map[string]any{"Name": "cp"}}},
-		{name: "cloudfront_oac", logicalID: "OAC", resourceType: "AWS::CloudFront::OriginAccessControl",
-			props: map[string]any{"OriginAccessControlConfig": map[string]any{"Name": "oac"}}},
-		{name: "cloudfront_rhp", logicalID: "RHP", resourceType: "AWS::CloudFront::ResponseHeadersPolicy",
-			props: map[string]any{"ResponseHeadersPolicyConfig": map[string]any{"Name": "rhp"}}},
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-<<<<<<< HEAD
-			// nil backends → stub path
-			backends := &cloudformation.ServiceBackends{}
-			rc := cloudformation.NewResourceCreator(backends)
-=======
 			rc := cloudformation.NewResourceCreator(&cloudformation.ServiceBackends{
 				AccountID: "000000000000",
 				Region:    "us-east-1",
 			})
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-<<<<<<< HEAD
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
-			require.NoError(t, err)
-=======
 			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props))
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		})
 	}
 }
 
-<<<<<<< HEAD
 // TestResourceCreator_Phase5Types_RealBackends validates create and delete with real in-memory backends.
 func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 	t.Parallel()
@@ -357,7 +333,26 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 					"ConnectionType": "JDBC",
 				},
 			},
-=======
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newPhase5ServiceBackends()
+			rc := cloudformation.NewResourceCreator(backends)
+
+			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
+			require.NoError(t, err)
+			assert.NotEmpty(t, physID)
+
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestResourceCreator_Phase5_LogsResources verifies that Logs child resources are created in
 // the real CloudWatch Logs backend and removed on delete.
 func TestResourceCreator_Phase5_LogsResources(t *testing.T) {
@@ -599,7 +594,6 @@ func TestResourceCreator_Phase5_GetAtt(t *testing.T) {
 		{
 			name: "kms_alias_arn", resType: "AWS::KMS::Alias", physID: "alias/x", attrName: "Arn",
 			want: "arn:aws:kms:us-east-1:000000000000:alias/x",
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		},
 	}
 
@@ -607,16 +601,8 @@ func TestResourceCreator_Phase5_GetAtt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-<<<<<<< HEAD
-			backends := newPhase5ServiceBackends()
-			rc := cloudformation.NewResourceCreator(backends)
-
-			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
-			require.NoError(t, err)
-			assert.NotEmpty(t, physID)
-
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
-			require.NoError(t, err)
+			got := cloudformation.GetResourceAttribute(tt.resType, tt.physID, tt.attrName, account, region)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -906,10 +892,6 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 
 			err = rc2.Delete(t.Context(), tt.resourceType, physID, nil)
 			require.NoError(t, err)
-=======
-			got := cloudformation.GetResourceAttribute(tt.resType, tt.physID, tt.attrName, account, region)
-			assert.Equal(t, tt.want, got)
->>>>>>> ef905acf (feat(cloudformation): §K pass-1 — 22 new CFN resource types)
 		})
 	}
 }
