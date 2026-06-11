@@ -4,6 +4,7 @@ package elb_test
 // AWS-accuracy audit fixes (issues #8, #11, #12, #13, #19-#26, #28-#30).
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
@@ -907,7 +908,7 @@ func TestAudit2_Snapshot_SchemaVersion(t *testing.T) {
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	lbs, err := b2.DescribeLoadBalancers([]string{"snap-lb"})
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"snap-lb"})
 	require.NoError(t, err)
 	assert.Len(t, lbs, 1)
 }

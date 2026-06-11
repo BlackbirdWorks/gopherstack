@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 func TestELBDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ELBHandler.Backend.CreateLoadBalancer(elbbackend.CreateLoadBalancerInput{
+	_, err := stack.ELBHandler.Backend.CreateLoadBalancer(context.Background(), elbbackend.CreateLoadBalancerInput{
 		LoadBalancerName:  "e2e-test-lb",
 		Scheme:            "internet-facing",
 		AvailabilityZones: []string{"us-east-1a"},
