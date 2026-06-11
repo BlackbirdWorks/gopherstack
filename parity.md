@@ -576,6 +576,55 @@ Also missing at the platform level:
 >   video/audio codec selectors building real `Settings.Inputs` + `OutputGroups`,
 >   or apply an existing **preset** by name (overrides inline codec choices).
 >
+> **Seventh pass (branch `parity/mega-v2`)** — Data/analytics + Storage/database +
+> Networking/edge service group (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders; clients lazily constructed in handlers):
+>
+> - **FSx** (Storage/database) — **create file system** modal (Lustre / Windows /
+>   ONTAP / OpenZFS with per-type config + subnet + capacity via
+>   `CreateFileSystem`), per-file-system **detail drill-down** (lifecycle, storage,
+>   VPC, DNS, ARN), **create backup** (`CreateBackup`) and **delete backup**
+>   (`DeleteBackup`) plus **delete file system** (`DeleteFileSystem`). (Was
+>   read-only/list-only before.)
+> - **Glue** (Data/analytics) — crawler **schedule editor** (`UpdateCrawlerSchedule`
+>   with a cron expression modal) and **pause/resume schedule**
+>   (`StopCrawlerSchedule`/`StartCrawlerSchedule`) inline on each crawler row.
+> - **Athena** (Data/analytics) — **Saved Queries** (named-query) tab:
+>   `ListNamedQueries` + `BatchGetNamedQuery` listing, **Save Query** from the
+>   editor (`CreateNamedQuery`), **load into editor**, and **delete**
+>   (`DeleteNamedQuery`). (Result export + data-scanned cost already existed.)
+> - **OpenSearch** (Networking/edge) — domain **access-policy JSON editor** in the
+>   Config tab (loads `AccessPolicies`, validates JSON, Format-JSON button, saves
+>   via `UpdateDomainConfig`).
+> - **Neptune** (Storage/database) — cluster **failover** action
+>   (`FailoverDBCluster`, promotes a reader; shown only for multi-member available
+>   clusters).
+> - **DocDB** (Storage/database) — parameter-group **value editor**: expand a group
+>   to `DescribeDBClusterParameters`, edit modifiable values inline, and save
+>   changed parameters via `ModifyDBClusterParameterGroup` (apply-method
+>   pending-reboot). (Also converted the page's client to lazy construction.)
+> - **CloudFront** (Networking/edge) — **default cache-behavior editor**: edit
+>   viewer-protocol policy, allowed methods, compress, and Min/Default TTL, saved
+>   through `UpdateDistribution` (GetDistribution ETag round-tripped via `IfMatch`).
+> - **ELBv2** (Networking/edge) — listener-rule **priority reorder** (up/down arrows
+>   swap adjacent priorities via `SetRulePriorities`), target-group **stickiness
+>   editor** (`DescribeTargetGroupAttributes`/`ModifyTargetGroupAttributes`,
+>   lb_cookie) and **target registration/deregistration**
+>   (`RegisterTargets`/`DeregisterTargets`, IP or instance) in the target-health
+>   panel.
+> - **Kinesis** (Data/analytics) — **Monitoring** tab: CloudWatch
+>   `GetMetricStatistics` SVG time-series (IncomingRecords / IncomingBytes /
+>   GetRecords.IteratorAgeMilliseconds / WriteProvisionedThroughputExceeded) with
+>   metric + time-range selectors and per-point tooltips.
+> - **Route53** (Networking/edge) — record-create **alias-target picker**
+>   (CloudFront / ALB / S3 / custom, with well-known hosted-zone presets +
+>   evaluate-target-health) replacing free-text for A/AAAA/CNAME, plus per-type
+>   **validation hints** for the values field.
+> - **EMR** (Data/analytics) — **already complete on inspection**: autoscaling +
+>   managed-scaling policy editor, bootstrap-action list, steps, notebooks, and
+>   studios are all present and SDK-wired; no further work needed.
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched
