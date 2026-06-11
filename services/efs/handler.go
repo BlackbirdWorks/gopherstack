@@ -1,6 +1,7 @@
 package efs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -438,6 +440,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 func (h *Handler) dispatch(c *echo.Context, route efsRoute, body []byte) error {
 	if ok, err := h.dispatchFileSystemOps(c, route, body); ok {
 		return err
@@ -451,10 +461,17 @@ func (h *Handler) dispatch(c *echo.Context, route efsRoute, body []byte) error {
 		return err
 	}
 
-	return c.JSON(http.StatusNotFound, errResp("UnsupportedOperation", "unknown operation: "+route.operation))
+	return c.JSON(
+		http.StatusNotFound,
+		errResp("UnsupportedOperation", "unknown operation: "+route.operation),
+	)
 }
 
-func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchFileSystemOps(
+	c *echo.Context,
+	route efsRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opCreateFileSystem:
 		return true, h.handleCreateFileSystem(c, body)
@@ -489,7 +506,11 @@ func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []
 	return false, nil
 }
 
-func (h *Handler) dispatchMountTargetAndAccessPointOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchMountTargetAndAccessPointOps(
+	c *echo.Context,
+	route efsRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opCreateMountTarget:
 		return true, h.handleCreateMountTarget(c, body)
@@ -512,7 +533,11 @@ func (h *Handler) dispatchMountTargetAndAccessPointOps(c *echo.Context, route ef
 	return false, nil
 }
 
-func (h *Handler) dispatchTagAndMiscOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchTagAndMiscOps(
+	c *echo.Context,
+	route efsRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opTagResource:
 		return true, h.handleTagResource(c, route.resource, body)
@@ -647,7 +672,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		Tags:                     tagsFromEntries(in.Tags),
 	}
 
-	fs, err := h.Backend.CreateFileSystem(req)
+	fs, err := h.Backend.CreateFileSystem(h.contextWithRegion(c), req)
 	if err != nil {
 		if errors.Is(err, ErrCreationTokenExists) {
 			// Identical token with identical args: return existing fs with 200 OK.
@@ -681,7 +706,9 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 	marker := c.Request().URL.Query().Get("Marker")
 	maxItems := queryInt(c, "MaxItems", defaultMaxItems)
 
-	fsList, nextMarker, err := h.Backend.DescribeFileSystems(fileSystemID, creationToken, marker, maxItems)
+	fsList, nextMarker, err := h.Backend.DescribeFileSystems(
+		h.contextWithRegion(c), fileSystemID, creationToken, marker, maxItems,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -702,7 +729,7 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 }
 
 func (h *Handler) handleDeleteFileSystem(c *echo.Context, fileSystemID string) error {
-	if err := h.Backend.DeleteFileSystem(fileSystemID); err != nil {
+	if err := h.Backend.DeleteFileSystem(h.contextWithRegion(c), fileSystemID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -772,7 +799,7 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 
 	req := CreateMountTargetRequest(in)
 
-	mt, err := h.Backend.CreateMountTarget(req)
+	mt, err := h.Backend.CreateMountTarget(h.contextWithRegion(c), req)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -786,7 +813,7 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 func describeListResponse[T any](
 	c *echo.Context,
 	h *Handler,
-	listFn func(fsID, itemID, marker string, maxItems int) ([]*T, string, error),
+	listFn func(ctx context.Context, fsID, itemID, marker string, maxItems int) ([]*T, string, error),
 	toResp func(*T) map[string]any,
 	itemID, idQueryKey, markerKey, maxKey, respListKey, nextKey string,
 ) error {
@@ -798,7 +825,7 @@ func describeListResponse[T any](
 	marker := c.Request().URL.Query().Get(markerKey)
 	maxItems := queryInt(c, maxKey, defaultMaxItems)
 
-	results, nextMarker, err := listFn(fsID, itemID, marker, maxItems)
+	results, nextMarker, err := listFn(h.contextWithRegion(c), fsID, itemID, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -827,7 +854,7 @@ func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID stri
 }
 
 func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string) error {
-	if err := h.Backend.DeleteMountTarget(mountTargetID); err != nil {
+	if err := h.Backend.DeleteMountTarget(h.contextWithRegion(c), mountTargetID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -882,7 +909,7 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 		RootDirectory: in.RootDirectory,
 	}
 
-	ap, err := h.Backend.CreateAccessPoint(req)
+	ap, err := h.Backend.CreateAccessPoint(h.contextWithRegion(c), req)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -899,7 +926,7 @@ func (h *Handler) handleDescribeAccessPoints(c *echo.Context, accessPointID stri
 }
 
 func (h *Handler) handleDeleteAccessPoint(c *echo.Context, accessPointID string) error {
-	if err := h.Backend.DeleteAccessPoint(accessPointID); err != nil {
+	if err := h.Backend.DeleteAccessPoint(h.contextWithRegion(c), accessPointID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -944,7 +971,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceID string, body []b
 	}
 
 	kv := tagsFromEntries(in.Tags)
-	if err := h.Backend.TagResource(resourceID, kv); err != nil {
+	if err := h.Backend.TagResource(h.contextWithRegion(c), resourceID, kv); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -952,7 +979,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceID string, body []b
 }
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceID string) error {
-	t, err := h.Backend.ListTagsForResource(resourceID)
+	t, err := h.Backend.ListTagsForResource(h.contextWithRegion(c), resourceID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -969,7 +996,7 @@ type putLifecycleConfigBody struct {
 }
 
 func (h *Handler) handleDescribeLifecycleConfiguration(c *echo.Context, fileSystemID string) error {
-	policies, err := h.Backend.DescribeLifecycleConfiguration(fileSystemID)
+	policies, err := h.Backend.DescribeLifecycleConfiguration(h.contextWithRegion(c), fileSystemID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -979,13 +1006,21 @@ func (h *Handler) handleDescribeLifecycleConfiguration(c *echo.Context, fileSyst
 	})
 }
 
-func (h *Handler) handlePutLifecycleConfiguration(c *echo.Context, fileSystemID string, body []byte) error {
+func (h *Handler) handlePutLifecycleConfiguration(
+	c *echo.Context,
+	fileSystemID string,
+	body []byte,
+) error {
 	var in putLifecycleConfigBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	stored, err := h.Backend.PutLifecycleConfiguration(fileSystemID, in.LifecyclePolicies)
+	stored, err := h.Backend.PutLifecycleConfiguration(
+		h.contextWithRegion(c),
+		fileSystemID,
+		in.LifecyclePolicies,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1001,7 +1036,11 @@ type createReplicationConfigBody struct {
 	Destinations []ReplicationDestination `json:"Destinations"`
 }
 
-func (h *Handler) handleCreateReplicationConfiguration(c *echo.Context, fileSystemID string, body []byte) error {
+func (h *Handler) handleCreateReplicationConfiguration(
+	c *echo.Context,
+	fileSystemID string,
+	body []byte,
+) error {
 	var in createReplicationConfigBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
@@ -1011,7 +1050,11 @@ func (h *Handler) handleCreateReplicationConfiguration(c *echo.Context, fileSyst
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "FileSystemId is required"))
 	}
 
-	rc, err := h.Backend.CreateReplicationConfiguration(fileSystemID, in.Destinations)
+	rc, err := h.Backend.CreateReplicationConfiguration(
+		h.contextWithRegion(c),
+		fileSystemID,
+		in.Destinations,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1020,7 +1063,7 @@ func (h *Handler) handleCreateReplicationConfiguration(c *echo.Context, fileSyst
 }
 
 func (h *Handler) handleDeleteReplicationConfiguration(c *echo.Context, fileSystemID string) error {
-	if err := h.Backend.DeleteReplicationConfiguration(fileSystemID); err != nil {
+	if err := h.Backend.DeleteReplicationConfiguration(h.contextWithRegion(c), fileSystemID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1030,7 +1073,7 @@ func (h *Handler) handleDeleteReplicationConfiguration(c *echo.Context, fileSyst
 func (h *Handler) handleDescribeReplicationConfigurations(c *echo.Context) error {
 	fsID := c.Request().URL.Query().Get(keyFileSystemID)
 
-	rcs, err := h.Backend.DescribeReplicationConfigurations(fsID)
+	rcs, err := h.Backend.DescribeReplicationConfigurations(h.contextWithRegion(c), fsID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1069,7 +1112,7 @@ func (h *Handler) handleCreateTags(c *echo.Context, fileSystemID string, body []
 	}
 
 	kv := tagsFromEntries(in.Tags)
-	if err := h.Backend.CreateTags(fileSystemID, kv); err != nil {
+	if err := h.Backend.CreateTags(h.contextWithRegion(c), fileSystemID, kv); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1086,7 +1129,7 @@ func (h *Handler) handleDeleteTags(c *echo.Context, fileSystemID string, body []
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	if err := h.Backend.DeleteTags(fileSystemID, in.TagKeys); err != nil {
+	if err := h.Backend.DeleteTags(h.contextWithRegion(c), fileSystemID, in.TagKeys); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1096,7 +1139,7 @@ func (h *Handler) handleDeleteTags(c *echo.Context, fileSystemID string, body []
 // --- FileSystem Policy handlers ---
 
 func (h *Handler) handleDescribeFileSystemPolicy(c *echo.Context, fileSystemID string) error {
-	policy, err := h.Backend.DescribeFileSystemPolicy(fileSystemID)
+	policy, err := h.Backend.DescribeFileSystemPolicy(h.contextWithRegion(c), fileSystemID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1108,7 +1151,7 @@ func (h *Handler) handleDescribeFileSystemPolicy(c *echo.Context, fileSystemID s
 }
 
 func (h *Handler) handleDeleteFileSystemPolicy(c *echo.Context, fileSystemID string) error {
-	if err := h.Backend.DeleteFileSystemPolicy(fileSystemID); err != nil {
+	if err := h.Backend.DeleteFileSystemPolicy(h.contextWithRegion(c), fileSystemID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1131,7 +1174,7 @@ func (h *Handler) handleDescribeAccountPreferences(c *echo.Context) error {
 // --- Backup Policy handler ---
 
 func (h *Handler) handleDescribeBackupPolicy(c *echo.Context, fileSystemID string) error {
-	status, err := h.Backend.DescribeBackupPolicy(fileSystemID)
+	status, err := h.Backend.DescribeBackupPolicy(h.contextWithRegion(c), fileSystemID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1145,8 +1188,14 @@ func (h *Handler) handleDescribeBackupPolicy(c *echo.Context, fileSystemID strin
 
 // --- Mount Target Security Groups handler ---
 
-func (h *Handler) handleDescribeMountTargetSecurityGroups(c *echo.Context, mountTargetID string) error {
-	groups, err := h.Backend.DescribeMountTargetSecurityGroups(mountTargetID)
+func (h *Handler) handleDescribeMountTargetSecurityGroups(
+	c *echo.Context,
+	mountTargetID string,
+) error {
+	groups, err := h.Backend.DescribeMountTargetSecurityGroups(
+		h.contextWithRegion(c),
+		mountTargetID,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1170,7 +1219,7 @@ func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, bo
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	if err := h.Backend.PutBackupPolicy(fileSystemID, in.BackupPolicy.Status); err != nil {
+	if err := h.Backend.PutBackupPolicy(h.contextWithRegion(c), fileSystemID, in.BackupPolicy.Status); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1188,13 +1237,17 @@ type putFileSystemPolicyBody struct {
 	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck"`
 }
 
-func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string, body []byte) error {
+func (h *Handler) handlePutFileSystemPolicy(
+	c *echo.Context,
+	fileSystemID string,
+	body []byte,
+) error {
 	var in putFileSystemPolicyBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	if err := h.Backend.PutFileSystemPolicy(fileSystemID, in.Policy); err != nil {
+	if err := h.Backend.PutFileSystemPolicy(h.contextWithRegion(c), fileSystemID, in.Policy); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1208,7 +1261,7 @@ func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string
 
 func (h *Handler) handleUntagResource(c *echo.Context, resourceID string) error {
 	tagKeys := c.Request().URL.Query()["tagKeys"]
-	if err := h.Backend.UntagResource(resourceID, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(h.contextWithRegion(c), resourceID, tagKeys); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1221,13 +1274,18 @@ type modifyMountTargetSGBody struct {
 	SecurityGroups []string `json:"SecurityGroups"`
 }
 
-func (h *Handler) handleModifyMountTargetSecurityGroups(c *echo.Context, mountTargetID string, body []byte) error {
+func (h *Handler) handleModifyMountTargetSecurityGroups(
+	c *echo.Context,
+	mountTargetID string,
+	body []byte,
+) error {
 	var in modifyMountTargetSGBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	if err := h.Backend.ModifyMountTargetSecurityGroups(mountTargetID, in.SecurityGroups); err != nil {
+	ctx := h.contextWithRegion(c)
+	if err := h.Backend.ModifyMountTargetSecurityGroups(ctx, mountTargetID, in.SecurityGroups); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1267,13 +1325,19 @@ type updateFileSystemProtectionBody struct {
 	ReplicationOverwriteProtection string `json:"ReplicationOverwriteProtection"`
 }
 
-func (h *Handler) handleUpdateFileSystemProtection(c *echo.Context, fileSystemID string, body []byte) error {
+func (h *Handler) handleUpdateFileSystemProtection(
+	c *echo.Context,
+	fileSystemID string,
+	body []byte,
+) error {
 	var in updateFileSystemProtectionBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	if err := h.Backend.UpdateFileSystemProtection(fileSystemID, in.ReplicationOverwriteProtection); err != nil {
+	if err := h.Backend.UpdateFileSystemProtection(
+		h.contextWithRegion(c), fileSystemID, in.ReplicationOverwriteProtection,
+	); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1297,7 +1361,7 @@ func (h *Handler) handleUpdateFileSystem(c *echo.Context, fileSystemID string, b
 
 	req := UpdateFileSystemRequest(in)
 
-	fs, err := h.Backend.UpdateFileSystem(fileSystemID, req)
+	fs, err := h.Backend.UpdateFileSystem(h.contextWithRegion(c), fileSystemID, req)
 	if err != nil {
 		return h.handleError(c, err)
 	}

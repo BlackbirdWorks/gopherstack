@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -145,7 +146,7 @@ func (rc *ResourceCreator) createEFSFileSystem(
 
 	token := logicalID + "-token"
 
-	fs, err := rc.backends.EFS.Backend.CreateFileSystem(efsbackend.CreateFileSystemRequest{
+	fs, err := rc.backends.EFS.Backend.CreateFileSystem(context.Background(), efsbackend.CreateFileSystemRequest{
 		CreationToken:   token,
 		PerformanceMode: performanceMode,
 		ThroughputMode:  throughputMode,
@@ -163,7 +164,7 @@ func (rc *ResourceCreator) deleteEFSFileSystem(id string) error {
 		return nil
 	}
 
-	return rc.backends.EFS.Backend.DeleteFileSystem(id)
+	return rc.backends.EFS.Backend.DeleteFileSystem(context.Background(), id)
 }
 
 func (rc *ResourceCreator) createEFSMountTarget(
@@ -178,7 +179,7 @@ func (rc *ResourceCreator) createEFSMountTarget(
 	fileSystemID := strProp(props, "FileSystemId", params, physicalIDs)
 	subnetID := strProp(props, "SubnetId", params, physicalIDs)
 
-	mt, err := rc.backends.EFS.Backend.CreateMountTarget(efsbackend.CreateMountTargetRequest{
+	mt, err := rc.backends.EFS.Backend.CreateMountTarget(context.Background(), efsbackend.CreateMountTargetRequest{
 		FileSystemID: fileSystemID,
 		SubnetID:     subnetID,
 	})
@@ -194,7 +195,7 @@ func (rc *ResourceCreator) deleteEFSMountTarget(id string) error {
 		return nil
 	}
 
-	return rc.backends.EFS.Backend.DeleteMountTarget(id)
+	return rc.backends.EFS.Backend.DeleteMountTarget(context.Background(), id)
 }
 
 // ---- Batch ----

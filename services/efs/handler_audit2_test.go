@@ -1,6 +1,7 @@
 package efs_test
 
 import (
+	"context"
 	"maps"
 	"net/http"
 	"strings"
@@ -48,9 +49,15 @@ func TestAudit2_CreationTokenMaxLength(t *testing.T) {
 			t.Parallel()
 
 			h := newRefinementHandler()
-			rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
-				"CreationToken": tt.token,
-			})
+			rec := doRESTRefinement(
+				t,
+				h,
+				http.MethodPost,
+				"/2015-02-01/file-systems",
+				map[string]any{
+					"CreationToken": tt.token,
+				},
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusBadRequest {
@@ -118,7 +125,7 @@ func TestAudit2_DescribeFileSystems_NotFound_Backend(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			_, _, err := b.DescribeFileSystems(tt.id, "", "", 0)
+			_, _, err := b.DescribeFileSystems(context.Background(), tt.id, "", "", 0)
 			require.ErrorIs(t, err, efs.ErrNotFound)
 		})
 	}
@@ -172,10 +179,13 @@ func TestAudit2_CreateTags_Validates(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(efs.CreateFileSystemRequest{CreationToken: "tags-" + tt.name})
+			fs, err := b.CreateFileSystem(
+				context.Background(),
+				efs.CreateFileSystemRequest{CreationToken: "tags-" + tt.name},
+			)
 			require.NoError(t, err)
 
-			err = b.CreateTags(fs.FileSystemID, tt.tags)
+			err = b.CreateTags(context.Background(), fs.FileSystemID, tt.tags)
 			if tt.wantErr {
 				require.ErrorIs(t, err, tt.wantErrIs)
 			} else {

@@ -1,6 +1,7 @@
 package efs_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -52,9 +53,15 @@ func TestBatch2_DescribeFileSystems_CreationTokenFilter(t *testing.T) {
 
 			h := newRefinementHandler()
 			for _, tok := range tt.setupTokens {
-				rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
-					"CreationToken": tok,
-				})
+				rec := doRESTRefinement(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-02-01/file-systems",
+					map[string]any{
+						"CreationToken": tok,
+					},
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 			}
 
@@ -109,11 +116,14 @@ func TestBatch2_DescribeFileSystems_CreationTokenFilter_Backend(t *testing.T) {
 
 			b := newRefinementBackend()
 			for _, tok := range tt.setupTokens {
-				_, err := b.CreateFileSystem(efs.CreateFileSystemRequest{CreationToken: tok})
+				_, err := b.CreateFileSystem(
+					context.Background(),
+					efs.CreateFileSystemRequest{CreationToken: tok},
+				)
 				require.NoError(t, err)
 			}
 
-			list, _, err := b.DescribeFileSystems("", tt.token, "", 0)
+			list, _, err := b.DescribeFileSystems(context.Background(), "", tt.token, "", 0)
 			require.NoError(t, err)
 			assert.Len(t, list, tt.wantCount)
 
@@ -178,10 +188,13 @@ func TestBatch2_DescribeFileSystemPolicy_PolicyNotFound_Backend(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(efs.CreateFileSystemRequest{CreationToken: "policy-backend-" + tt.name})
+			fs, err := b.CreateFileSystem(
+				context.Background(),
+				efs.CreateFileSystemRequest{CreationToken: "policy-backend-" + tt.name},
+			)
 			require.NoError(t, err)
 
-			_, err = b.DescribeFileSystemPolicy(fs.FileSystemID)
+			_, err = b.DescribeFileSystemPolicy(context.Background(), fs.FileSystemID)
 			require.ErrorIs(t, err, efs.ErrPolicyNotFound)
 			require.NotErrorIs(t, err, efs.ErrNotFound)
 		})
