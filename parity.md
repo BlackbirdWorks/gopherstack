@@ -367,6 +367,40 @@ Also missing at the platform level:
 
 ## F. Missing per-service UI features (popular services first)
 
+> **Implementation status (branch `parity/mega-v2`).** A first pass on the
+> Popular-services group has shipped the following per-service UI features
+> (all wired to the live AWS JS SDK, no placeholders):
+>
+> - **SQS** — batch send (`SendMessageBatch`) modal with up to 10 entries +
+>   per-entry failure reporting; client-side message filter by body / message
+>   attribute. (DLQ redrive was already present as the Move-Tasks tab.)
+> - **SNS** — structured message-attribute editor (Name / DataType / Value
+>   fields) with a JSON mode that validates and round-trips between the two.
+> - **KMS** — ciphertext base64⇄hex display toggle across encrypt / decrypt /
+>   re-encrypt; key-policy "Format JSON" button + inline JSON validation that
+>   disables Save on parse errors. (Grants tab was already present.)
+> - **Secrets Manager** — structured key-value editor for the secret value
+>   (auto-detects flat-JSON secrets) with a Plaintext fallback mode.
+> - **SSM** — `/`-path folder **tree** navigation (Flat/Tree toggle) with
+>   collapsible folders, in addition to the flat parameter list.
+> - **Lambda** — Event-Source-Mapping (**Triggers**) panel: list, create
+>   (SQS/DynamoDB/Kinesis), enable/disable, delete.
+> - **Athena** — query-result **export** to CSV and JSON.
+> - **CloudWatch Logs** — Insights query **CSV export**.
+>
+> **§F remaining** (everything below this note is still outstanding) — the
+> remaining Popular-services items (S3 inline preview / analytics / website URL
+> / batch ops; DynamoDB query-by-index / PITR / auto-scaling / global-tables;
+> EC2 SG-rule editor / subnet & EIP management / drill-down; Lambda
+> code-update / versions-aliases / concurrency; IAM inline-policy / group
+> membership / login-profile / MFA; SNS topic-metrics graphs; CloudWatch metric
+> charts / dashboard widget editor; Step Functions execution graph / redrive /
+> validator; RDS parameter-group editor / snapshot restore / metrics; ECS / ECR
+> / EKS / EventBridge / CloudFormation / ElastiCache items) **and the entire
+> API/app-integration, Compute, Data/analytics, Storage/database,
+> Networking/edge, Security/identity, ML/AI/media, and Messaging groups** below
+> have not yet been implemented. They remain accurate enhancement candidates.
+
 ### Popular services
 
 - **S3** (`ui/src/routes/s3/+page.svelte`) — inline object **preview/viewer** (text/JSON/image)

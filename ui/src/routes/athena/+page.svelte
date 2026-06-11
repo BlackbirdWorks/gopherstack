@@ -301,6 +301,33 @@
 		(queryResults?.Rows ?? []).slice(1).map((r) => (r.Data ?? []).map((d) => d.VarCharValue ?? ''))
 	);
 
+	function triggerDownload(content: string, filename: string, mime: string) {
+		const blob = new Blob([content], { type: mime });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	function csvEscape(v: string): string {
+		return /[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+	}
+
+	function exportResultsCsv() {
+		const header = columnHeaders.map((c) => csvEscape(c)).join(',');
+		const body = resultRows.map((row) => row.map((v) => csvEscape(v)).join(',')).join('\n');
+		triggerDownload([header, body].filter(Boolean).join('\n'), 'athena-results.csv', 'text/csv');
+	}
+
+	function exportResultsJson() {
+		const objects = resultRows.map((row) =>
+			Object.fromEntries(columnHeaders.map((col, i) => [col, row[i] ?? '']))
+		);
+		triggerDownload(JSON.stringify(objects, null, 2), 'athena-results.json', 'application/json');
+	}
+
 	onMount(loadWorkgroups);
 
 	onDestroy(() => {
@@ -398,7 +425,13 @@
 		<!-- Results -->
 		{#if queryResults && (queryResults.Rows ?? []).length > 0}
 			<div>
-				<div class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Results ({resultRows.length} rows)</div>
+				<div class="flex items-center justify-between mb-2">
+					<div class="text-sm font-semibold text-gray-700 dark:text-gray-300">Results ({resultRows.length} rows)</div>
+					<div class="flex items-center gap-2">
+						<button onclick={exportResultsCsv} class="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Export CSV</button>
+						<button onclick={exportResultsJson} class="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Export JSON</button>
+					</div>
+				</div>
 				<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
 					<table class="w-full text-sm">
 						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
