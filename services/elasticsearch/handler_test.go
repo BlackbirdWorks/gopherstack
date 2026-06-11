@@ -2,6 +2,7 @@ package elasticsearch_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -602,11 +603,13 @@ func TestElasticsearchBackend_DNSRegistrar(t *testing.T) {
 			b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 			b.SetDNSRegistrar(registrar)
 
-			domain, err := b.CreateDomain(tt.domainName, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+			domain, err := b.CreateDomain(
+				context.Background(), tt.domainName, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+			)
 			require.NoError(t, err)
 
 			if tt.deleteAfter {
-				_, err = b.DeleteDomain(tt.domainName)
+				_, err = b.DeleteDomain(context.Background(), tt.domainName)
 				require.NoError(t, err)
 			}
 
@@ -1067,7 +1070,7 @@ func TestElasticsearchHandler_AcceptInboundCrossClusterSearchConnection(t *testi
 			h := elasticsearch.NewHandler(b)
 
 			if tt.seed != nil {
-				b.AddInboundConnectionInternal(*tt.seed)
+				b.AddInboundConnectionInternal(context.Background(), *tt.seed)
 			}
 
 			resp := doRequest(t, h, http.MethodPut,

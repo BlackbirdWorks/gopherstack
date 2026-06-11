@@ -1,6 +1,7 @@
 package elasticsearch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,6 +118,14 @@ func (h *Handler) buildOps() map[string]http.HandlerFunc {
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Elasticsearch" }
+
+// reqContext returns the request context with the SigV4-derived AWS region
+// attached so backend operations route to the correct per-region store.
+func (h *Handler) reqContext(r *http.Request) context.Context {
+	region := httputils.ExtractRegionFromRequest(r, h.Backend.Region())
+
+	return context.WithValue(r.Context(), regionContextKey{}, region)
+}
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
@@ -901,7 +910,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		ebsOpts.VolumeType = req.EBSOptions.VolumeType
 	}
 
-	domain, err := h.Backend.CreateDomain(req.DomainName, req.ElasticsearchVersion, cfg, ebsOpts)
+	domain, err := h.Backend.CreateDomain(h.reqContext(r), req.DomainName, req.ElasticsearchVersion, cfg, ebsOpts)
 	if err != nil {
 		h.handleDomainError(r, w, err)
 
@@ -928,7 +937,7 @@ func (h *Handler) handleDomainError(r *http.Request, w http.ResponseWriter, err 
 }
 
 func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, name string) {
-	domain, err := h.Backend.DescribeDomain(name)
+	domain, err := h.Backend.DescribeDomain(h.reqContext(r), name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -945,7 +954,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, n
 }
 
 func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, name string) {
-	domain, err := h.Backend.DeleteDomain(name)
+	domain, err := h.Backend.DeleteDomain(h.reqContext(r), name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -962,11 +971,12 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 }
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
-	names := h.Backend.ListDomainNames()
+	ctx := h.reqContext(r)
+	names := h.Backend.ListDomainNames(ctx)
 	entries := make([]domainNameEntry, 0, len(names))
 
 	for _, name := range names {
-		d, err := h.Backend.DescribeDomain(name)
+		d, err := h.Backend.DescribeDomain(ctx, name)
 		if err != nil {
 			continue
 		}
@@ -1008,9 +1018,10 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 	}
 
 	list := make([]domainStatusJSON, 0, len(req.DomainNames))
+	ctx := h.reqContext(r)
 
 	for _, name := range req.DomainNames {
-		d, descErr := h.Backend.DescribeDomain(name)
+		d, descErr := h.Backend.DescribeDomain(ctx, name)
 		if descErr != nil {
 			continue
 		}
@@ -1053,7 +1064,7 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	domain, err := h.Backend.UpdateDomainConfig(name, upd)
+	domain, err := h.Backend.UpdateDomainConfig(h.reqContext(r), name, upd)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -1153,7 +1164,7 @@ type describeDomainConfigOutput struct {
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 	domainARN := r.URL.Query().Get("arn")
 
-	tags, err := h.Backend.ListTags(domainARN)
+	tags, err := h.Backend.ListTags(h.reqContext(r), domainARN)
 	if err != nil {
 		h.writeJSON(r, w, &listTagsOutput{TagList: []svcTags.KV{}})
 
@@ -1213,7 +1224,8 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		tagMap[t.Key] = t.Value
 	}
 
-	existing, _ := h.Backend.ListTags(req.ARN)
+	ctx := h.reqContext(r)
+	existing, _ := h.Backend.ListTags(ctx, req.ARN)
 	maps.Copy(existing, tagMap)
 
 	if len(existing) > maxTagsPerResource {
@@ -1223,7 +1235,7 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.Backend.AddTags(req.ARN, tagMap)
+	_ = h.Backend.AddTags(ctx, req.ARN, tagMap)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1247,12 +1259,12 @@ func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.Backend.RemoveTags(req.ARN, req.TagKeys)
+	_ = h.Backend.RemoveTags(h.reqContext(r), req.ARN, req.TagKeys)
 	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
-	d, err := h.Backend.DescribeDomain(name)
+	d, err := h.Backend.DescribeDomain(h.reqContext(r), name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException",
@@ -1322,7 +1334,7 @@ func (h *Handler) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg, createErr := h.Backend.CreatePackage(req.PackageName, req.PackageType, req.PackageDescription)
+	pkg, createErr := h.Backend.CreatePackage(h.reqContext(r), req.PackageName, req.PackageType, req.PackageDescription)
 	if createErr != nil {
 		if errors.Is(createErr, ErrDomainAlreadyExists) {
 			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", createErr.Error())
@@ -1381,7 +1393,7 @@ func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request)
 
 	packageID, domainName := parts[0], parts[1]
 
-	if assocErr := h.Backend.AssociatePackage(packageID, domainName); assocErr != nil {
+	if assocErr := h.Backend.AssociatePackage(h.reqContext(r), packageID, domainName); assocErr != nil {
 		switch {
 		case errors.Is(assocErr, ErrDomainNotFound) || errors.Is(assocErr, ErrPackageNotFound):
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", assocErr.Error())
@@ -1430,7 +1442,7 @@ func (h *Handler) handleAcceptInboundCrossClusterSearchConnection(w http.Respons
 	rest := strings.TrimPrefix(r.URL.Path, elasticsearchCCSInbound+"/")
 	connectionID, _ := strings.CutSuffix(rest, "/accept")
 
-	conn, err := h.Backend.AcceptInboundCrossClusterSearchConnection(connectionID)
+	conn, err := h.Backend.AcceptInboundCrossClusterSearchConnection(h.reqContext(r), connectionID)
 	if err != nil {
 		if errors.Is(err, ErrConnectionNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -1515,6 +1527,7 @@ func (h *Handler) handleCreateOutboundCrossClusterSearchConnection(w http.Respon
 	}
 
 	conn, createErr := h.Backend.CreateOutboundCrossClusterSearchConnection(
+		h.reqContext(r),
 		localDomain,
 		remoteDomain,
 		req.ConnectionAlias,
@@ -1584,7 +1597,7 @@ func (h *Handler) handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	endpoint, createErr := h.Backend.CreateVpcEndpoint(req.DomainArn, req.VpcOptions)
+	endpoint, createErr := h.Backend.CreateVpcEndpoint(h.reqContext(r), req.DomainArn, req.VpcOptions)
 	if createErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 
@@ -1636,7 +1649,7 @@ func (h *Handler) handleAuthorizeVpcEndpointAccess(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if authErr := h.Backend.AuthorizeVpcEndpointAccess(domainName, req.Account); authErr != nil {
+	if authErr := h.Backend.AuthorizeVpcEndpointAccess(h.reqContext(r), domainName, req.Account); authErr != nil {
 		if errors.Is(authErr, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", authErr.Error())
 		} else {
@@ -1660,7 +1673,7 @@ type cancelDomainConfigChangeOutput struct {
 }
 
 func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.Request, domainName string) {
-	d, err := h.Backend.CancelDomainConfigChange(domainName)
+	d, err := h.Backend.CancelDomainConfigChange(h.reqContext(r), domainName)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -1734,7 +1747,7 @@ func (h *Handler) handleCancelElasticsearchServiceSoftwareUpdate(w http.Response
 		return
 	}
 
-	_, cancelErr := h.Backend.CancelElasticsearchServiceSoftwareUpdate(req.DomainName)
+	_, cancelErr := h.Backend.CancelElasticsearchServiceSoftwareUpdate(h.reqContext(r), req.DomainName)
 	if cancelErr != nil {
 		if errors.Is(cancelErr, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", cancelErr.Error())
@@ -1766,7 +1779,7 @@ func (h *Handler) handleStartElasticsearchServiceSoftwareUpdate(w http.ResponseW
 		return
 	}
 
-	if _, err := h.Backend.StartElasticsearchServiceSoftwareUpdate(req.DomainName); err != nil {
+	if _, err := h.Backend.StartElasticsearchServiceSoftwareUpdate(h.reqContext(r), req.DomainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -1779,7 +1792,7 @@ func (h *Handler) handleStartElasticsearchServiceSoftwareUpdate(w http.ResponseW
 }
 
 func (h *Handler) handleDescribeInboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
-	connections := h.Backend.DescribeInboundCrossClusterSearchConnections()
+	connections := h.Backend.DescribeInboundCrossClusterSearchConnections(h.reqContext(r))
 	result := make([]inboundConnectionJSON, 0, len(connections))
 	for _, connection := range connections {
 		result = append(result, toInboundConnectionJSON(connection))
@@ -1789,7 +1802,7 @@ func (h *Handler) handleDescribeInboundCrossClusterSearchConnections(w http.Resp
 }
 
 func (h *Handler) handleDescribeOutboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
-	connections := h.Backend.DescribeOutboundCrossClusterSearchConnections()
+	connections := h.Backend.DescribeOutboundCrossClusterSearchConnections(h.reqContext(r))
 	result := make([]outboundConnectionJSON, 0, len(connections))
 	for _, connection := range connections {
 		result = append(result, toOutboundConnectionJSON(connection))
@@ -1806,7 +1819,7 @@ func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	packages := h.Backend.DescribePackages(req.PackageIDs)
+	packages := h.Backend.DescribePackages(h.reqContext(r), req.PackageIDs)
 	result := make([]packageJSON, 0, len(packages))
 	for _, pkg := range packages {
 		result = append(result, toPackageJSON(pkg))
@@ -1824,7 +1837,7 @@ func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg, err := h.Backend.UpdatePackage(req.PackageID, req.PackageDescription)
+	pkg, err := h.Backend.UpdatePackage(h.reqContext(r), req.PackageID, req.PackageDescription)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -1843,7 +1856,7 @@ func (h *Handler) handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.writeJSON(r, w, map[string]any{
-		"VpcEndpoints":      toVpcEndpointsJSON(h.Backend.DescribeVpcEndpoints(req.VpcEndpointIDs)),
+		"VpcEndpoints":      toVpcEndpointsJSON(h.Backend.DescribeVpcEndpoints(h.reqContext(r), req.VpcEndpointIDs)),
 		"VpcEndpointErrors": []any{},
 	})
 }
@@ -1857,7 +1870,7 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	endpoint, err := h.Backend.UpdateVpcEndpoint(req.VpcEndpointID, req.VpcOptions)
+	endpoint, err := h.Backend.UpdateVpcEndpoint(h.reqContext(r), req.VpcEndpointID, req.VpcOptions)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -1869,7 +1882,7 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpoints()),
+		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))),
 	})
 }
 
@@ -1897,7 +1910,7 @@ func (h *Handler) handleListElasticsearchVersions(w http.ResponseWriter, r *http
 
 func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, elasticsearchCCSInbound+"/")
-	connection, err := h.Backend.DeleteInboundCrossClusterSearchConnection(id)
+	connection, err := h.Backend.DeleteInboundCrossClusterSearchConnection(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -1909,7 +1922,7 @@ func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.Respons
 
 func (h *Handler) handleDeleteOutboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, elasticsearchCCSOutbound+"/")
-	connection, err := h.Backend.DeleteOutboundCrossClusterSearchConnection(id)
+	connection, err := h.Backend.DeleteOutboundCrossClusterSearchConnection(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -1921,7 +1934,7 @@ func (h *Handler) handleDeleteOutboundCrossClusterSearchConnection(w http.Respon
 
 func (h *Handler) handleDeleteVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, elasticsearchVpcEndpoints+"/")
-	endpoint, err := h.Backend.DeleteVpcEndpoint(id)
+	endpoint, err := h.Backend.DeleteVpcEndpoint(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -1952,7 +1965,7 @@ func (h *Handler) handleDescribeReservedElasticsearchInstanceOfferings(w http.Re
 }
 
 func (h *Handler) handleDescribeReservedElasticsearchInstances(w http.ResponseWriter, r *http.Request) {
-	instances := h.Backend.DescribeReservedElasticsearchInstances()
+	instances := h.Backend.DescribeReservedElasticsearchInstances(h.reqContext(r))
 	result := make([]map[string]any, 0, len(instances))
 	for _, instance := range instances {
 		result = append(result, map[string]any{
@@ -1979,7 +1992,7 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.Backend.DissociatePackage(parts[0], parts[1]); err != nil {
+	if err := h.Backend.DissociatePackage(h.reqContext(r), parts[0], parts[1]); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -1994,7 +2007,7 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleGetPackageVersionHistory(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r.URL.Path, elasticsearchPackages+"/", "/history")
-	packages, err := h.Backend.GetPackageVersionHistory(id)
+	packages, err := h.Backend.GetPackageVersionHistory(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -2020,6 +2033,7 @@ func (h *Handler) handlePurchaseReservedElasticsearchInstanceOffering(w http.Res
 	}
 
 	instance, err := h.Backend.PurchaseReservedElasticsearchInstanceOffering(
+		h.reqContext(r),
 		req.OfferingID,
 		req.ReservationName,
 		req.InstanceCount,
@@ -2038,7 +2052,7 @@ func (h *Handler) handlePurchaseReservedElasticsearchInstanceOffering(w http.Res
 
 func (h *Handler) handleRejectInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r.URL.Path, elasticsearchCCSInbound+"/", "/reject")
-	connection, err := h.Backend.RejectInboundCrossClusterSearchConnection(id)
+	connection, err := h.Backend.RejectInboundCrossClusterSearchConnection(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -2058,13 +2072,14 @@ func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *htt
 		return
 	}
 
+	ctx := h.reqContext(r)
 	if !req.PerformCheckOnly {
-		if _, err := h.Backend.UpgradeElasticsearchDomain(req.DomainName, req.TargetVersion); err != nil {
+		if _, err := h.Backend.UpgradeElasticsearchDomain(ctx, req.DomainName, req.TargetVersion); err != nil {
 			h.writeOperationError(r, w, err)
 
 			return
 		}
-	} else if _, err := h.Backend.DescribeDomain(req.DomainName); err != nil {
+	} else if _, err := h.Backend.DescribeDomain(ctx, req.DomainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -2075,7 +2090,7 @@ func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *htt
 
 func (h *Handler) handleDeletePackage(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, elasticsearchPackages+"/")
-	pkg, err := h.Backend.DeletePackage(id)
+	pkg, err := h.Backend.DeletePackage(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -2086,7 +2101,7 @@ func (h *Handler) handleDeletePackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.Request, domainName string) {
-	if err := h.Backend.DescribeDomainAutoTunes(domainName); err != nil {
+	if err := h.Backend.DescribeDomainAutoTunes(h.reqContext(r), domainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -2096,7 +2111,7 @@ func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, domainName string) {
-	if err := h.Backend.DescribeDomainChangeProgress(domainName); err != nil {
+	if err := h.Backend.DescribeDomainChangeProgress(h.reqContext(r), domainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -2116,7 +2131,7 @@ func (h *Handler) handleDescribeElasticsearchInstanceTypeLimits(w http.ResponseW
 
 func (h *Handler) handleGetUpgradeHistory(w http.ResponseWriter, r *http.Request) {
 	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/history")
-	if err := h.Backend.GetUpgradeHistory(domainName); err != nil {
+	if err := h.Backend.GetUpgradeHistory(h.reqContext(r), domainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -2127,7 +2142,7 @@ func (h *Handler) handleGetUpgradeHistory(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleGetUpgradeStatus(w http.ResponseWriter, r *http.Request) {
 	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/status")
-	if err := h.Backend.GetUpgradeStatus(domainName); err != nil {
+	if err := h.Backend.GetUpgradeStatus(h.reqContext(r), domainName); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
@@ -2138,7 +2153,7 @@ func (h *Handler) handleGetUpgradeStatus(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r.URL.Path, elasticsearchPackages+"/", "/domains")
-	domains, err := h.Backend.ListDomainsForPackage(id)
+	domains, err := h.Backend.ListDomainsForPackage(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -2164,7 +2179,7 @@ func (h *Handler) handleListElasticsearchInstanceTypes(w http.ResponseWriter, r 
 
 func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Request) {
 	domainName := pathID(r.URL.Path, elasticsearchDomainPackages+"/", "/packages")
-	packages := h.Backend.ListPackagesForDomain(domainName)
+	packages := h.Backend.ListPackagesForDomain(h.reqContext(r), domainName)
 	result := make([]domainPackageJSON, 0, len(packages))
 	for _, pkg := range packages {
 		result = append(result, domainPackageJSON{
@@ -2180,7 +2195,7 @@ func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {
-	accounts, err := h.Backend.ListVpcEndpointAccess(domainName)
+	accounts, err := h.Backend.ListVpcEndpointAccess(h.reqContext(r), domainName)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -2197,7 +2212,7 @@ func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, domainName string) {
 	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpointsForDomain(domainName)),
+		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName)),
 	})
 }
 
@@ -2207,7 +2222,7 @@ func (h *Handler) handleRevokeVpcEndpointAccess(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := h.Backend.RevokeVpcEndpointAccess(domainName, req.Account); err != nil {
+	if err := h.Backend.RevokeVpcEndpointAccess(h.reqContext(r), domainName, req.Account); err != nil {
 		h.writeOperationError(r, w, err)
 
 		return

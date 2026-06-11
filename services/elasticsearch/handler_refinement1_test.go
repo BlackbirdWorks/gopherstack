@@ -1,6 +1,7 @@
 package elasticsearch_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -17,7 +18,7 @@ func TestRefinement1_ErrValidationSentinel(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateDomain("", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(context.Background(), "", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -51,11 +52,13 @@ func TestRefinement1_SortedListDomainNames(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	for _, name := range []string{"zoo-domain", "apple-dom", "mid-domain"} {
-		_, err := b.CreateDomain(name, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+		_, err := b.CreateDomain(
+			context.Background(), name, "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+		)
 		require.NoError(t, err)
 	}
 
-	names := b.ListDomainNames()
+	names := b.ListDomainNames(context.Background())
 	require.Len(t, names, 3)
 	assert.Equal(t, "apple-dom", names[0])
 	assert.Equal(t, "mid-domain", names[1])
@@ -109,7 +112,7 @@ func TestRefinement1_DomainNameValidationTooShort(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("ab", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(context.Background(), "ab", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -120,6 +123,7 @@ func TestRefinement1_DomainNameValidationTooLong(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDomain(
+		context.Background(),
 		"abcdefghijklmnopqrstuvwxyzabc",
 		"",
 		elasticsearch.ClusterConfig{},
@@ -134,7 +138,9 @@ func TestRefinement1_DomainNameValidationInvalidChars(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("my_domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "my_domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -144,7 +150,9 @@ func TestRefinement1_DomainNameMustStartWithLetter(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("1bad-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "1bad-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -155,7 +163,9 @@ func TestRefinement1_VpcEndpointStatusActive(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ep, err := b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/test", map[string]string{"VpcId": "vpc-1"})
+	ep, err := b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", map[string]string{"VpcId": "vpc-1"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", ep.Status)
 }
@@ -167,7 +177,7 @@ func TestRefinement1_VpcOptionsDeepCopy(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	opts := map[string]string{"VpcId": "vpc-1"}
 
-	ep, err := b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/test", opts)
+	ep, err := b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", opts)
 	require.NoError(t, err)
 
 	// Mutating the original opts must not affect the returned endpoint.
@@ -180,7 +190,7 @@ func TestRefinement1_AddDomainInternal(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	b.AddDomainInternal(elasticsearch.Domain{
+	b.AddDomainInternal(context.Background(), elasticsearch.Domain{
 		Name:                 "seed-domain",
 		ARN:                  "arn:aws:es:us-east-1:123456789012:domain/seed-domain",
 		ElasticsearchVersion: "7.10",
@@ -189,7 +199,7 @@ func TestRefinement1_AddDomainInternal(t *testing.T) {
 
 	assert.Equal(t, 1, b.DomainCount())
 
-	d, err := b.DescribeDomain("seed-domain")
+	d, err := b.DescribeDomain(context.Background(), "seed-domain")
 	require.NoError(t, err)
 	assert.Equal(t, "seed-domain", d.Name)
 	assert.Equal(t, "7.10", d.ElasticsearchVersion)
@@ -208,15 +218,17 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.OutboundConnectionCount())
 	assert.Equal(t, 0, b.VpcEndpointCount())
 
-	_, err := b.CreateDomain("cnt-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "cnt-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.DomainCount())
 
-	_, err = b.CreatePackage("my-pkg", "TXT-DICTIONARY", "desc")
+	_, err = b.CreatePackage(context.Background(), "my-pkg", "TXT-DICTIONARY", "desc")
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.PackageCount())
 
-	_, err = b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/cnt-domain", nil)
+	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/cnt-domain", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.VpcEndpointCount())
 
@@ -224,10 +236,11 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 		ConnectionID:     "conn-001",
 		ConnectionStatus: "PENDING_ACCEPTANCE",
 	}
-	b.AddInboundConnectionInternal(conn)
+	b.AddInboundConnectionInternal(context.Background(), conn)
 	assert.Equal(t, 1, b.InboundConnectionCount())
 
 	_, err = b.CreateOutboundCrossClusterSearchConnection(
+		context.Background(),
 		elasticsearch.CrossClusterDomainInfo{DomainName: "local"},
 		elasticsearch.CrossClusterDomainInfo{DomainName: "remote"},
 		"my-alias",
@@ -242,16 +255,18 @@ func TestRefinement1_ResetClearsAllMaps(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateDomain("reset-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "reset-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreatePackage("pkg1", "TXT-DICTIONARY", "")
+	_, err = b.CreatePackage(context.Background(), "pkg1", "TXT-DICTIONARY", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/reset-dom", nil)
+	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/reset-dom", nil)
 	require.NoError(t, err)
 
-	b.AddInboundConnectionInternal(elasticsearch.InboundConnection{ConnectionID: "c1"})
+	b.AddInboundConnectionInternal(context.Background(), elasticsearch.InboundConnection{ConnectionID: "c1"})
 
 	h := elasticsearch.NewHandler(b)
 	h.Reset()
@@ -268,13 +283,15 @@ func TestRefinement1_PersistenceCoversAllMaps(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreatePackage("dict-pkg", "TXT-DICTIONARY", "my dictionary")
+	_, err := b.CreatePackage(context.Background(), "dict-pkg", "TXT-DICTIONARY", "my dictionary")
 	require.NoError(t, err)
 
-	_, err = b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/my-dom", map[string]string{"VpcId": "vpc-1"})
+	_, err = b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/my-dom", map[string]string{"VpcId": "vpc-1"},
+	)
 	require.NoError(t, err)
 
-	b.AddInboundConnectionInternal(elasticsearch.InboundConnection{
+	b.AddInboundConnectionInternal(context.Background(), elasticsearch.InboundConnection{
 		ConnectionID: "conn-snap", ConnectionStatus: "PENDING_ACCEPTANCE",
 	})
 
@@ -306,7 +323,9 @@ func TestRefinement1_HandlerResetDelegatesToBackend(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("del-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "del-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.DomainCount())
 
@@ -355,7 +374,7 @@ func TestRefinement1_PackageValidation(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreatePackage("", "TXT-DICTIONARY", "")
+	_, err := b.CreatePackage(context.Background(), "", "TXT-DICTIONARY", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -366,6 +385,7 @@ func TestRefinement1_OutboundConnectionValidation(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateOutboundCrossClusterSearchConnection(
+		context.Background(),
 		elasticsearch.CrossClusterDomainInfo{},
 		elasticsearch.CrossClusterDomainInfo{},
 		"",
@@ -379,7 +399,7 @@ func TestRefinement1_VpcEndpointValidation(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateVpcEndpoint("", nil)
+	_, err := b.CreateVpcEndpoint(context.Background(), "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -389,10 +409,12 @@ func TestRefinement1_AuthorizeVpcEndpointAccessValidation(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("vpc-auth-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "vpc-auth-dom", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
 
-	err = b.AuthorizeVpcEndpointAccess("vpc-auth-dom", "")
+	err = b.AuthorizeVpcEndpointAccess(context.Background(), "vpc-auth-dom", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
@@ -402,13 +424,15 @@ func TestRefinement1_DescribeDomainDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateDomain("copy-domain", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := b.CreateDomain(
+		context.Background(), "copy-domain", "7.10", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
 
-	d1, err := b.DescribeDomain("copy-domain")
+	d1, err := b.DescribeDomain(context.Background(), "copy-domain")
 	require.NoError(t, err)
 
-	d2, err := b.DescribeDomain("copy-domain")
+	d2, err := b.DescribeDomain(context.Background(), "copy-domain")
 	require.NoError(t, err)
 
 	// Both copies are independent; modifying one doesn't affect the other or the stored domain.
@@ -434,9 +458,9 @@ func TestRefinement1_PersistenceNextIDPreserved(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	_, err := b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
 	require.NoError(t, err)
-	_, err = b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -446,7 +470,7 @@ func TestRefinement1_PersistenceNextIDPreserved(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// After restore, a new endpoint should get id 3, not 1.
-	ep, err := b2.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	ep, err := b2.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "vpc-endpoint-0000000003", ep.ID)
 }
