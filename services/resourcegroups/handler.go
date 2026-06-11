@@ -275,9 +275,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+
 		// Dynamic REST paths: GET|PUT|PATCH /resources/{Arn}/tags
 		if isResourceTagsPath(c.Request().URL.Path) {
-			return h.handleResourceTags(c)
+			return h.handleResourceTags(ctx, c)
 		}
 
 		// Static REST API paths: POST /groups, /get-group, /delete-group, etc.
@@ -287,23 +292,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				return c.NoContent(http.StatusMethodNotAllowed)
 			}
 
-			return h.handleREST(c, op)
+			return h.handleREST(ctx, c, op)
 		}
 
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"ResourceGroups", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(innerCtx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(innerCtx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
 }
 
 // handleREST handles Resource Groups REST API calls routed by path.
-func (h *Handler) handleREST(c *echo.Context, action string) error {
-	ctx := c.Request().Context()
-
+func (h *Handler) handleREST(ctx context.Context, c *echo.Context, action string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
@@ -373,8 +378,8 @@ type createGroupOutput struct {
 	GroupConfiguration *groupConfigurationBody `json:"GroupConfiguration,omitempty"`
 }
 
-func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
-	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags, in.Configuration)
+func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
+	g, err := h.Backend.CreateGroup(ctx, in.Name, in.Description, in.ResourceQuery, in.Tags, in.Configuration)
 	if err != nil {
 		return nil, err
 	}
@@ -393,8 +398,8 @@ func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInpu
 
 type deleteGroupOutput struct{}
 
-func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
-	if err := h.Backend.DeleteGroup(in.resolvedName()); err != nil {
+func (h *Handler) handleDeleteGroup(ctx context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
+	if err := h.Backend.DeleteGroup(ctx, in.resolvedName()); err != nil {
 		return nil, err
 	}
 
@@ -425,8 +430,8 @@ type listGroupsOutput struct {
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
 }
 
-func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
-	groups := h.Backend.ListGroups(in.Filters)
+func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
+	groups := h.Backend.ListGroups(ctx, in.Filters)
 	identifiers := make([]listGroupIdentifierOutput, 0, len(groups))
 	groupsList := make([]listGroupsGroupOutput, 0, len(groups))
 
@@ -463,8 +468,8 @@ type getGroupOutput struct {
 	Group *getGroupBody `json:"Group"`
 }
 
-func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGroupOutput, error) {
-	g, err := h.Backend.GetGroup(in.resolvedName())
+func (h *Handler) handleGetGroup(ctx context.Context, in *groupNameInput) (*getGroupOutput, error) {
+	g, err := h.Backend.GetGroup(ctx, in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
@@ -489,8 +494,8 @@ type groupQueryOutput struct {
 	GroupName     string         `json:"GroupName"`
 }
 
-func (h *Handler) handleGetGroupQuery(_ context.Context, in *groupNameInput) (*getGroupQueryOutput, error) {
-	g, err := h.Backend.GetGroup(in.resolvedName())
+func (h *Handler) handleGetGroupQuery(ctx context.Context, in *groupNameInput) (*getGroupQueryOutput, error) {
+	g, err := h.Backend.GetGroup(ctx, in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
@@ -511,15 +516,15 @@ type groupConfigurationOutput struct {
 }
 
 func (h *Handler) handleGetGroupConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *groupNameInput,
 ) (*getGroupConfigurationOutput, error) {
-	g, err := h.Backend.GetGroup(in.resolvedName())
+	g, err := h.Backend.GetGroup(ctx, in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
 
-	items, err := h.Backend.GetGroupConfigurationItems(g.Name)
+	items, err := h.Backend.GetGroupConfigurationItems(ctx, g.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -561,13 +566,13 @@ type updateGroupOutput struct {
 	Group *getGroupBody `json:"Group"`
 }
 
-func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
+func (h *Handler) handleUpdateGroup(ctx context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
 	name := in.resolvedName()
 	if name == "" {
 		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
 	}
 
-	g, err := h.Backend.UpdateGroup(name, in.Description, in.DisplayName, in.Criticality)
+	g, err := h.Backend.UpdateGroup(ctx, name, in.Description, in.DisplayName, in.Criticality)
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +606,7 @@ type updateGroupQueryOutput struct {
 }
 
 func (h *Handler) handleUpdateGroupQuery(
-	_ context.Context,
+	ctx context.Context,
 	in *updateGroupQueryInput,
 ) (*updateGroupQueryOutput, error) {
 	name := in.resolvedName()
@@ -609,7 +614,7 @@ func (h *Handler) handleUpdateGroupQuery(
 		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
 	}
 
-	g, err := h.Backend.UpdateGroupQuery(name, in.ResourceQuery)
+	g, err := h.Backend.UpdateGroupQuery(ctx, name, in.ResourceQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -621,9 +626,7 @@ func (h *Handler) handleUpdateGroupQuery(
 }
 
 // handleTagRequest handles PUT /resources/{Arn}/tags (Tag operation).
-func (h *Handler) handleTagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
-	ctx := c.Request().Context()
-
+func (h *Handler) handleTagRequest(ctx context.Context, c *echo.Context, log *slog.Logger, resourceARN string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
@@ -637,7 +640,7 @@ func (h *Handler) handleTagRequest(c *echo.Context, log *slog.Logger, resourceAR
 		return h.handleError(ctx, c, "Tag", errInvalidRequest)
 	}
 
-	tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
+	tagMap, err := h.Backend.AddTagsByARN(ctx, resourceARN, in.Tags)
 	if err != nil {
 		return h.handleError(ctx, c, "Tag", err)
 	}
@@ -650,15 +653,13 @@ func (h *Handler) handleTagRequest(c *echo.Context, log *slog.Logger, resourceAR
 
 // handleUntagRequest handles DELETE /resources/{Arn}/tags (Untag operation).
 // Keys may come from query params or request body.
-func (h *Handler) handleUntagRequest(c *echo.Context, log *slog.Logger, resourceARN string) error {
-	ctx := c.Request().Context()
-
-	keys, err := h.extractUntagKeys(c, log)
+func (h *Handler) handleUntagRequest(ctx context.Context, c *echo.Context, log *slog.Logger, resourceARN string) error {
+	keys, err := h.extractUntagKeys(ctx, c, log)
 	if err != nil {
 		return err
 	}
 
-	if err = h.Backend.RemoveTagsByARN(resourceARN, keys); err != nil {
+	if err = h.Backend.RemoveTagsByARN(ctx, resourceARN, keys); err != nil {
 		return h.handleError(ctx, c, "Untag", err)
 	}
 
@@ -669,9 +670,7 @@ func (h *Handler) handleUntagRequest(c *echo.Context, log *slog.Logger, resource
 }
 
 // extractUntagKeys parses tag keys from query params or body for the Untag operation.
-func (h *Handler) extractUntagKeys(c *echo.Context, log *slog.Logger) ([]string, error) {
-	ctx := c.Request().Context()
-
+func (h *Handler) extractUntagKeys(ctx context.Context, c *echo.Context, log *slog.Logger) ([]string, error) {
 	keysParam := c.Request().URL.Query().Get("keys")
 	if keysParam != "" {
 		return strings.Split(keysParam, ","), nil
@@ -698,14 +697,13 @@ func (h *Handler) extractUntagKeys(c *echo.Context, log *slog.Logger) ([]string,
 
 // handleResourceTags routes GET/PUT/DELETE/PATCH /resources/{Arn}/tags to the
 // GetTags, Tag, and Untag operations respectively.
-func (h *Handler) handleResourceTags(c *echo.Context) error {
-	ctx := c.Request().Context()
+func (h *Handler) handleResourceTags(ctx context.Context, c *echo.Context) error {
 	resourceARN := arnFromResourceTagsPath(c.Request().URL.Path)
 	log := logger.Load(ctx)
 
 	switch c.Request().Method {
 	case http.MethodGet:
-		tagMap, err := h.Backend.GetTagsByARN(resourceARN)
+		tagMap, err := h.Backend.GetTagsByARN(ctx, resourceARN)
 		if err != nil {
 			return h.handleError(ctx, c, "GetTags", err)
 		}
@@ -716,10 +714,10 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		})
 
 	case http.MethodPut:
-		return h.handleTagRequest(c, log, resourceARN)
+		return h.handleTagRequest(ctx, c, log, resourceARN)
 
 	case http.MethodDelete:
-		return h.handleUntagRequest(c, log, resourceARN)
+		return h.handleUntagRequest(ctx, c, log, resourceARN)
 
 	case http.MethodPatch:
 		// PATCH kept as compat alias for existing tests; AWS uses DELETE.
@@ -736,7 +734,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 			return h.handleError(ctx, c, "Untag", errInvalidRequest)
 		}
 
-		if err = h.Backend.RemoveTagsByARN(resourceARN, in.Keys); err != nil {
+		if err = h.Backend.RemoveTagsByARN(ctx, resourceARN, in.Keys); err != nil {
 			return h.handleError(ctx, c, "Untag", err)
 		}
 
@@ -786,10 +784,10 @@ func (g *putGroupConfigurationInput) resolvedName() string {
 type putGroupConfigurationOutput struct{}
 
 func (h *Handler) handlePutGroupConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *putGroupConfigurationInput,
 ) (*putGroupConfigurationOutput, error) {
-	if err := h.Backend.PutGroupConfiguration(in.resolvedName(), in.Configuration); err != nil {
+	if err := h.Backend.PutGroupConfiguration(ctx, in.resolvedName(), in.Configuration); err != nil {
 		return nil, err
 	}
 
@@ -808,12 +806,12 @@ type groupResourcesOutput struct {
 	Succeeded []string            `json:"Succeeded"`
 }
 
-func (h *Handler) handleGroupResources(_ context.Context, in *groupResourcesInput) (*groupResourcesOutput, error) {
+func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesInput) (*groupResourcesOutput, error) {
 	if in.Group == "" {
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	succeeded, err := h.Backend.GroupResources(in.Group, in.ResourceArns)
+	succeeded, err := h.Backend.GroupResources(ctx, in.Group, in.ResourceArns)
 	if err != nil {
 		return nil, err
 	}
@@ -848,10 +846,10 @@ type listGroupResourcesOutput struct {
 }
 
 func (h *Handler) handleListGroupResources(
-	_ context.Context,
+	ctx context.Context,
 	in *listGroupResourcesInput,
 ) (*listGroupResourcesOutput, error) {
-	identifiers, err := h.Backend.ListGroupResources(in.resolvedName())
+	identifiers, err := h.Backend.ListGroupResources(ctx, in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
@@ -876,14 +874,14 @@ type listGroupingStatusesOutput struct {
 }
 
 func (h *Handler) handleListGroupingStatuses(
-	_ context.Context,
+	ctx context.Context,
 	in *listGroupingStatusesInput,
 ) (*listGroupingStatusesOutput, error) {
 	if in.Group == "" {
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	statuses, err := h.Backend.ListGroupingStatuses(in.Group)
+	statuses, err := h.Backend.ListGroupingStatuses(ctx, in.Group)
 	if err != nil {
 		return nil, err
 	}
@@ -903,8 +901,8 @@ type searchResourcesOutput struct {
 	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
 }
 
-func (h *Handler) handleSearchResources(_ context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
-	identifiers, err := h.Backend.SearchResources(in.ResourceQuery)
+func (h *Handler) handleSearchResources(ctx context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
+	identifiers, err := h.Backend.SearchResources(ctx, in.ResourceQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -932,7 +930,7 @@ type startTagSyncTaskOutput struct {
 }
 
 func (h *Handler) handleStartTagSyncTask(
-	_ context.Context,
+	ctx context.Context,
 	in *startTagSyncTaskInput,
 ) (*startTagSyncTaskOutput, error) {
 	if in.Group == "" {
@@ -943,7 +941,7 @@ func (h *Handler) handleStartTagSyncTask(
 		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
 	}
 
-	task, err := h.Backend.StartTagSyncTask(in.Group, in.RoleArn, in.TagKey, in.TagValue, in.ResourceQuery)
+	task, err := h.Backend.StartTagSyncTask(ctx, in.Group, in.RoleArn, in.TagKey, in.TagValue, in.ResourceQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -967,14 +965,14 @@ type cancelTagSyncTaskInput struct {
 type cancelTagSyncTaskOutput struct{}
 
 func (h *Handler) handleCancelTagSyncTask(
-	_ context.Context,
+	ctx context.Context,
 	in *cancelTagSyncTaskInput,
 ) (*cancelTagSyncTaskOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", ErrValidation)
 	}
 
-	if err := h.Backend.CancelTagSyncTask(in.TaskArn); err != nil {
+	if err := h.Backend.CancelTagSyncTask(ctx, in.TaskArn); err != nil {
 		return nil, err
 	}
 
@@ -999,12 +997,12 @@ type getTagSyncTaskOutput struct {
 	Status        string         `json:"Status"`
 }
 
-func (h *Handler) handleGetTagSyncTask(_ context.Context, in *getTagSyncTaskInput) (*getTagSyncTaskOutput, error) {
+func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskInput) (*getTagSyncTaskOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", ErrValidation)
 	}
 
-	task, err := h.Backend.GetTagSyncTask(in.TaskArn)
+	task, err := h.Backend.GetTagSyncTask(ctx, in.TaskArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1035,10 +1033,10 @@ type listTagSyncTasksOutput struct {
 }
 
 func (h *Handler) handleListTagSyncTasks(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagSyncTasksInput,
 ) (*listTagSyncTasksOutput, error) {
-	tasks, err := h.Backend.ListTagSyncTasks(in.Filters)
+	tasks, err := h.Backend.ListTagSyncTasks(ctx, in.Filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,14 +1057,14 @@ type ungroupResourcesOutput struct {
 }
 
 func (h *Handler) handleUngroupResources(
-	_ context.Context,
+	ctx context.Context,
 	in *ungroupResourcesInput,
 ) (*ungroupResourcesOutput, error) {
 	if in.Group == "" {
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	result, err := h.Backend.UngroupResources(in.Group, in.ResourceArns)
+	result, err := h.Backend.UngroupResources(ctx, in.Group, in.ResourceArns)
 	if err != nil {
 		return nil, err
 	}
