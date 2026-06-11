@@ -457,25 +457,45 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"filters": result})
 }
 
-// handleListFindings handles POST /findings/list.
-func (h *Handler) handleListFindings(c *echo.Context) error {
+// filterListRequest is the shared shape of the filterCriteria/maxResults/
+// nextToken list requests used by ListFindings and ListCoverage.
+type filterListRequest struct {
+	FilterCriteria map[string]any `json:"filterCriteria"`
+	NextToken      string         `json:"nextToken"`
+	MaxResults     int32          `json:"maxResults"`
+}
+
+// decodeFilterListRequest reads and decodes a filterListRequest. On a malformed
+// body it returns ok=false after writing the appropriate error response.
+func decodeFilterListRequest(c *echo.Context) (filterListRequest, bool) {
+	var req filterListRequest
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
-	}
+		_ = c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int32  `json:"maxResults"`
+		return req, false
 	}
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			_ = c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+
+			return req, false
 		}
 	}
 
-	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken)
+	return req, true
+}
+
+// handleListFindings handles POST /findings/list.
+func (h *Handler) handleListFindings(c *echo.Context) error {
+	req, ok := decodeFilterListRequest(c)
+	if !ok {
+		return nil
+	}
+
+	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken, req.FilterCriteria)
 	if findErr != nil {
 		return h.mapError(c, findErr)
 	}

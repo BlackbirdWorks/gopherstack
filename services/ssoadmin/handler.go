@@ -31,7 +31,94 @@ const (
 const (
 	targetPrefix    = "SWBExternalService."
 	ssoAdminService = "sso"
+
+	// maxPageSize is the upper bound AWS SSO Admin list ops apply to MaxResults.
+	maxPageSize = 100
 )
+
+// paginateStrings applies MaxResults + NextToken pagination to an
+// already-sorted string slice. It returns the page plus the NextToken for the
+// following page, which is the value of the first item not returned (a stable
+// cursor because the slice is sorted and values are unique). The token is nil
+// (untyped) on the last page so the JSON response omits/zeroes it as AWS does.
+func paginateStrings(items []string, maxResults int, nextToken string) ([]string, any) {
+	start := 0
+
+	if nextToken != "" {
+		start = len(items)
+
+		for i, v := range items {
+			if v >= nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	if start > len(items) {
+		start = len(items)
+	}
+
+	limit := maxResults
+	if limit <= 0 || limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	end := min(start+limit, len(items))
+
+	page := items[start:end]
+
+	var next any
+	if end < len(items) {
+		next = items[end]
+	}
+
+	return page, next
+}
+
+// paginateBy sorts items by keyFn, then applies MaxResults + NextToken
+// pagination using the key as the cursor. It returns the page plus the
+// NextToken (nil on the last page). Used for object-shaped list responses.
+func paginateBy[T any](items []T, maxResults int, nextToken string, keyFn func(T) string) ([]T, any) {
+	sort.Slice(items, func(i, j int) bool {
+		return keyFn(items[i]) < keyFn(items[j])
+	})
+
+	start := 0
+
+	if nextToken != "" {
+		start = len(items)
+
+		for i := range items {
+			if keyFn(items[i]) >= nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	if start > len(items) {
+		start = len(items)
+	}
+
+	limit := maxResults
+	if limit <= 0 || limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	end := min(start+limit, len(items))
+
+	page := items[start:end]
+
+	var next any
+	if end < len(items) {
+		next = keyFn(items[end])
+	}
+
+	return page, next
+}
 
 // Handler is the Echo HTTP handler for the SSO Admin service.
 type Handler struct {
@@ -367,7 +454,16 @@ type tagView struct {
 
 // --- handlers ---
 
-func (h *Handler) handleListInstances(c *echo.Context, _ []byte) error {
+func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
+	}
+	// Body is optional for ListInstances; ignore unmarshal errors on empty/garbage.
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
 	instances := h.Backend.ListInstances()
 	sort.Slice(instances, func(i, j int) bool {
 		return instances[i].InstanceArn < instances[j].InstanceArn
@@ -385,9 +481,13 @@ func (h *Handler) handleListInstances(c *echo.Context, _ []byte) error {
 		})
 	}
 
+	page, next := paginateBy(views, req.MaxResults, req.NextToken, func(v instanceView) string {
+		return v.InstanceArn
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Instances":  views,
-		keyNextToken: nil,
+		"Instances":  page,
+		keyNextToken: next,
 	})
 }
 
@@ -543,6 +643,8 @@ func (h *Handler) handleDescribePermissionSet(c *echo.Context, body []byte) erro
 func (h *Handler) handleListPermissionSets(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		NextToken   string `json:"NextToken"`
+		MaxResults  int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -558,9 +660,11 @@ func (h *Handler) handleListPermissionSets(c *echo.Context, body []byte) error {
 		arns = append(arns, ps.PermissionSetArn)
 	}
 
+	page, next := paginateStrings(arns, req.MaxResults, req.NextToken)
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSets": arns,
-		keyNextToken:     nil,
+		"PermissionSets": page,
+		keyNextToken:     next,
 	})
 }
 
@@ -748,6 +852,8 @@ func (h *Handler) handleListAccountAssignments(c *echo.Context, body []byte) err
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 		AccountID        string `json:"AccountId"`
+		NextToken        string `json:"NextToken"`
+		MaxResults       int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -765,9 +871,13 @@ func (h *Handler) handleListAccountAssignments(c *echo.Context, body []byte) err
 		})
 	}
 
+	page, next := paginateBy(views, req.MaxResults, req.NextToken, func(v assignmentView) string {
+		return v.AccountID + "|" + v.PermissionSetArn + "|" + v.PrincipalType + "|" + v.PrincipalID
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignments": views,
-		keyNextToken:         nil,
+		"AccountAssignments": page,
+		keyNextToken:         next,
 	})
 }
 
@@ -1638,6 +1748,8 @@ func (h *Handler) handleListApplicationProviders(c *echo.Context, _ []byte) erro
 func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		NextToken   string `json:"NextToken"`
+		MaxResults  int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1657,9 +1769,13 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 		})
 	}
 
+	page, next := paginateBy(out, req.MaxResults, req.NextToken, func(v applicationView) string {
+		return v.ApplicationArn
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Applications": out,
-		keyNextToken:   nil,
+		"Applications": page,
+		keyNextToken:   next,
 	})
 }
 

@@ -249,6 +249,7 @@ func (h *Handler) handleDeregisterScalableTarget(
 type describeScalableTargetsInput struct {
 	ServiceNamespace  string   `json:"ServiceNamespace"`
 	ScalableDimension string   `json:"ScalableDimension,omitempty"`
+	NextToken         string   `json:"NextToken,omitempty"`
 	ResourceIDs       []string `json:"ResourceIds,omitempty"`
 	MaxResults        int32    `json:"MaxResults,omitempty"`
 }
@@ -274,6 +275,7 @@ type scalableTargetSummary struct {
 }
 
 type describeScalableTargetsOutput struct {
+	NextToken       string                  `json:"NextToken,omitempty"`
 	ScalableTargets []scalableTargetSummary `json:"ScalableTargets"`
 }
 
@@ -281,11 +283,12 @@ func (h *Handler) handleDescribeScalableTargets(
 	_ context.Context,
 	in *describeScalableTargetsInput,
 ) (*describeScalableTargetsOutput, error) {
-	targets := h.Backend.DescribeScalableTargets(DescribeScalableTargetsFilter{
+	targets, nextToken := h.Backend.DescribeScalableTargets(DescribeScalableTargetsFilter{
 		ServiceNamespace:  in.ServiceNamespace,
 		ResourceIDs:       in.ResourceIDs,
 		ScalableDimension: in.ScalableDimension,
 		MaxResults:        in.MaxResults,
+		NextToken:         in.NextToken,
 	})
 	items := make([]scalableTargetSummary, 0, len(targets))
 	for _, t := range targets {
@@ -312,7 +315,7 @@ func (h *Handler) handleDescribeScalableTargets(
 		items = append(items, item)
 	}
 
-	return &describeScalableTargetsOutput{ScalableTargets: items}, nil
+	return &describeScalableTargetsOutput{ScalableTargets: items, NextToken: nextToken}, nil
 }
 
 type putScalingPolicyInput struct {
@@ -375,6 +378,7 @@ type describeScalingPoliciesInput struct {
 	ServiceNamespace  string   `json:"ServiceNamespace"`
 	ResourceID        string   `json:"ResourceId,omitempty"`
 	ScalableDimension string   `json:"ScalableDimension,omitempty"`
+	NextToken         string   `json:"NextToken,omitempty"`
 	PolicyNames       []string `json:"PolicyNames,omitempty"`
 	PolicyARNs        []string `json:"PolicyARNs,omitempty"`
 	MaxResults        int32    `json:"MaxResults,omitempty"`
@@ -401,6 +405,7 @@ type alarmSummary struct {
 }
 
 type describeScalingPoliciesOutput struct {
+	NextToken       string                 `json:"NextToken,omitempty"`
 	ScalingPolicies []scalingPolicySummary `json:"ScalingPolicies"`
 }
 
@@ -408,13 +413,14 @@ func (h *Handler) handleDescribeScalingPolicies(
 	_ context.Context,
 	in *describeScalingPoliciesInput,
 ) (*describeScalingPoliciesOutput, error) {
-	policies := h.Backend.DescribeScalingPolicies(DescribeScalingPoliciesFilter{
+	policies, nextToken := h.Backend.DescribeScalingPolicies(DescribeScalingPoliciesFilter{
 		ServiceNamespace:  in.ServiceNamespace,
 		ResourceID:        in.ResourceID,
 		ScalableDimension: in.ScalableDimension,
 		PolicyNames:       in.PolicyNames,
 		PolicyARNs:        in.PolicyARNs,
 		MaxResults:        in.MaxResults,
+		NextToken:         in.NextToken,
 	})
 	items := make([]scalingPolicySummary, 0, len(policies))
 	for _, p := range policies {
@@ -432,7 +438,7 @@ func (h *Handler) handleDescribeScalingPolicies(
 		})
 	}
 
-	return &describeScalingPoliciesOutput{ScalingPolicies: items}, nil
+	return &describeScalingPoliciesOutput{ScalingPolicies: items, NextToken: nextToken}, nil
 }
 
 type describeScalingActivitiesInput struct {
@@ -563,6 +569,7 @@ type describeScheduledActionsInput struct {
 	ServiceNamespace     string   `json:"ServiceNamespace"`
 	ResourceID           string   `json:"ResourceId,omitempty"`
 	ScalableDimension    string   `json:"ScalableDimension,omitempty"`
+	NextToken            string   `json:"NextToken,omitempty"`
 	ScheduledActionNames []string `json:"ScheduledActionNames,omitempty"`
 	MaxResults           int32    `json:"MaxResults,omitempty"`
 }
@@ -588,6 +595,7 @@ type scheduledActionSummary struct {
 }
 
 type describeScheduledActionsOutput struct {
+	NextToken        string                   `json:"NextToken,omitempty"`
 	ScheduledActions []scheduledActionSummary `json:"ScheduledActions"`
 }
 
@@ -595,12 +603,13 @@ func (h *Handler) handleDescribeScheduledActions(
 	_ context.Context,
 	in *describeScheduledActionsInput,
 ) (*describeScheduledActionsOutput, error) {
-	actions := h.Backend.DescribeScheduledActions(DescribeScheduledActionsFilter{
+	actions, nextToken := h.Backend.DescribeScheduledActions(DescribeScheduledActionsFilter{
 		ServiceNamespace:     in.ServiceNamespace,
 		ResourceID:           in.ResourceID,
 		ScalableDimension:    in.ScalableDimension,
 		ScheduledActionNames: in.ScheduledActionNames,
 		MaxResults:           in.MaxResults,
+		NextToken:            in.NextToken,
 	})
 	items := make([]scheduledActionSummary, 0, len(actions))
 	for _, a := range actions {
@@ -633,7 +642,7 @@ func (h *Handler) handleDescribeScheduledActions(
 		items = append(items, item)
 	}
 
-	return &describeScheduledActionsOutput{ScheduledActions: items}, nil
+	return &describeScheduledActionsOutput{ScheduledActions: items, NextToken: nextToken}, nil
 }
 
 type listTagsForResourceInput struct {
