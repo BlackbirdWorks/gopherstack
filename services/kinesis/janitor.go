@@ -78,11 +78,13 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 
 	j.Backend.mu.Lock("KinesisJanitor")
 
-	for _, stream := range j.Backend.streams {
-		cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
+	for _, regionStreams := range j.Backend.streams {
+		for _, stream := range regionStreams {
+			cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
 
-		for _, shard := range stream.Shards {
-			totalTrimmed += shard.Records.trimBefore(cutoff)
+			for _, shard := range stream.Shards {
+				totalTrimmed += shard.Records.trimBefore(cutoff)
+			}
 		}
 	}
 

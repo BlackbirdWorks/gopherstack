@@ -154,11 +154,15 @@ type StreamInfo struct {
 }
 
 // ShardIterator holds the position within a shard for GetRecords.
+// Region is encoded into the iterator token so that GetRecords resolves the
+// record store of the same region the iterator was issued in, keeping
+// same-named streams in different regions isolated on the record hot path.
 type ShardIterator struct {
 	CreatedAt      time.Time `json:"CreatedAt"`
 	StreamName     string    `json:"StreamName"`
 	ShardID        string    `json:"ShardID"`
 	SequenceNumber string    `json:"SequenceNumber"`
+	Region         string    `json:"Region"`
 	Position       int       `json:"Position"`
 }
 

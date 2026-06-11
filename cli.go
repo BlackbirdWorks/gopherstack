@@ -3206,6 +3206,7 @@ type kinesisReaderAdapter struct {
 
 func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
 	out, err := a.backend.DescribeStream(
+		context.Background(),
 		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
 	)
 	if err != nil {
@@ -3223,7 +3224,7 @@ func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) 
 func (a *kinesisReaderAdapter) GetShardIterator(
 	streamName, shardID, iteratorType, startingSeqNum string,
 ) (string, error) {
-	out, err := a.backend.GetShardIterator(&kinesisbackend.GetShardIteratorInput{
+	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                shardID,
 		ShardIteratorType:      iteratorType,
@@ -3240,7 +3241,7 @@ func (a *kinesisReaderAdapter) GetRecords(
 	iteratorToken string,
 	limit int,
 ) ([]lambdabackend.KinesisRecord, string, error) {
-	out, err := a.backend.GetRecords(&kinesisbackend.GetRecordsInput{
+	out, err := a.backend.GetRecords(context.Background(), &kinesisbackend.GetRecordsInput{
 		ShardIterator: iteratorToken,
 		Limit:         limit,
 	})
@@ -3712,7 +3713,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		}
 		// resource is "stream/<name>"
 		streamName := strings.TrimPrefix(resource, "stream/")
-		_, err := d.kinesis.PutRecord(&kinesisbackend.PutRecordInput{
+		_, err := d.kinesis.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "cwlogs",
 			Data:         payload,

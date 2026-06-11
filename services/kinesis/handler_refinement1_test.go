@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -483,13 +484,13 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 	b1 := kinesis.NewInMemoryBackend()
 
-	require.NoError(t, b1.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b1.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "persist-stream",
 		ShardCount: 2,
 		Region:     "us-east-1",
 		AccountID:  "123456789012",
 	}))
-	require.NoError(t, b1.PutResourcePolicy(&kinesis.PutResourcePolicyInput{
+	require.NoError(t, b1.PutResourcePolicy(context.Background(), &kinesis.PutResourcePolicyInput{
 		ResourceARN: "arn:aws:kinesis:us-east-1:123:stream/other",
 		Policy:      `{"Version":"2012-10-17"}`,
 	}))

@@ -97,7 +97,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 
 			// Create the stream if needed.
 			if tt.stream != "" {
-				err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+				err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 					StreamName: tt.stream,
 					ShardCount: 1,
 				})
@@ -114,7 +114,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 
 			// Verify throughput exception is active on the stream.
 			if tt.stream != "" && len(tt.targets) > 0 {
-				_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+				_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 					StreamName:   tt.stream,
 					PartitionKey: "key",
 					Data:         []byte("data"),
@@ -125,7 +125,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 				if tt.duration > 0 {
 					time.Sleep(tt.duration + 50*time.Millisecond)
 
-					_, putAfter := h.Backend.PutRecord(&kinesis.PutRecordInput{
+					_, putAfter := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 						StreamName:   tt.stream,
 						PartitionKey: "key",
 						Data:         []byte("data"),
@@ -145,7 +145,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.
 	const streamName = "zero-pct-stream"
 	const sampleSize = 50
 
-	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+	err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: streamName,
 		ShardCount: 1,
 	})
@@ -161,7 +161,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.
 
 	// With 0% probability, all PutRecord calls should succeed.
 	for range sampleSize {
-		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "key",
 			Data:         []byte("data"),
@@ -217,7 +217,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 
 	const streamName = "ctx-cancel-stream"
 
-	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+	err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: streamName,
 		ShardCount: 1,
 	})
@@ -233,7 +233,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+	_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   streamName,
 		PartitionKey: "key",
 		Data:         []byte("data"),
@@ -245,7 +245,7 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 
 	// Fault should clear promptly.
 	require.Eventually(t, func() bool {
-		_, putAfterErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putAfterErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "key",
 			Data:         []byte("data"),
@@ -262,7 +262,7 @@ func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 
 	const streamName = "zero-pct-stream"
 
-	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+	err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: streamName,
 		ShardCount: 1,
 	})
@@ -281,7 +281,7 @@ func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
 
 	// With 0% probability, PutRecord should never be throttled.
 	for range 10 {
-		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "key",
 			Data:         []byte("data"),
@@ -297,7 +297,7 @@ func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
 
 	const streamName = "partial-pct-stream"
 
-	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+	err := h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: streamName,
 		ShardCount: 1,
 	})
@@ -320,7 +320,7 @@ func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
 	total := 50
 
 	for range total {
-		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "key",
 			Data:         []byte("data"),
@@ -356,7 +356,7 @@ func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
 
 	const streamName = "lazy-evict-kinesis-stream"
 
-	err := backend.CreateStream(&kinesis.CreateStreamInput{
+	err := backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: streamName,
 		ShardCount: 1,
 	})
@@ -366,7 +366,7 @@ func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
 	backend.InjectExpiredThroughputFaultForTest(streamName)
 
 	// PutRecord should succeed because the fault is expired — lazy eviction fires inside.
-	_, putErr := backend.PutRecord(&kinesis.PutRecordInput{
+	_, putErr := backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   streamName,
 		PartitionKey: "key",
 		Data:         []byte("data"),
@@ -374,7 +374,7 @@ func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
 	require.NoError(t, putErr, "expired fault should not throttle requests")
 
 	// After lazy eviction, a second PutRecord should also succeed.
-	_, putErr2 := backend.PutRecord(&kinesis.PutRecordInput{
+	_, putErr2 := backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   streamName,
 		PartitionKey: "key2",
 		Data:         []byte("data2"),
@@ -407,7 +407,7 @@ func TestKinesis_FIS_MultiStream_CtxCancel_ClearsAll(t *testing.T) {
 	)
 
 	for _, name := range []string{streamA, streamB, streamC} {
-		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: name,
 			ShardCount: 1,
 		}))
@@ -426,7 +426,7 @@ func TestKinesis_FIS_MultiStream_CtxCancel_ClearsAll(t *testing.T) {
 
 	// Verify all three streams are throttled.
 	for _, name := range []string{streamA, streamB, streamC} {
-		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName: name, PartitionKey: "k", Data: []byte("d"),
 		})
 		require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded, "stream %s should be throttled", name)
@@ -439,7 +439,7 @@ func TestKinesis_FIS_MultiStream_CtxCancel_ClearsAll(t *testing.T) {
 	for _, name := range []string{streamA, streamB, streamC} {
 		streamName := name
 		require.Eventually(t, func() bool {
-			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
 
@@ -459,7 +459,7 @@ func TestKinesis_FIS_MultipleActions_AllClearedOnCtxCancel(t *testing.T) {
 	)
 
 	for _, name := range []string{streamX, streamY} {
-		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: name,
 			ShardCount: 1,
 		}))
@@ -486,7 +486,7 @@ func TestKinesis_FIS_MultipleActions_AllClearedOnCtxCancel(t *testing.T) {
 
 	// Both streams should be throttled.
 	for _, name := range []string{streamX, streamY} {
-		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName: name, PartitionKey: "k", Data: []byte("d"),
 		})
 		require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded, "stream %s should be throttled", name)
@@ -498,7 +498,7 @@ func TestKinesis_FIS_MultipleActions_AllClearedOnCtxCancel(t *testing.T) {
 	for _, name := range []string{streamX, streamY} {
 		streamName := name
 		require.Eventually(t, func() bool {
-			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
 
@@ -518,7 +518,7 @@ func TestKinesis_FIS_TimedFault_MultiStream_CtxCancelOverridesTimer(t *testing.T
 	)
 
 	for _, name := range []string{streamP, streamQ} {
-		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, h.Backend.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: name,
 			ShardCount: 1,
 		}))
@@ -542,7 +542,7 @@ func TestKinesis_FIS_TimedFault_MultiStream_CtxCancelOverridesTimer(t *testing.T
 	for _, name := range []string{streamP, streamQ} {
 		streamName := name
 		require.Eventually(t, func() bool {
-			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			_, putErr := h.Backend.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
 

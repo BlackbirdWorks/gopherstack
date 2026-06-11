@@ -5,11 +5,14 @@ import (
 	"log/slog"
 )
 
+// backendSnapshot is the persisted form of the backend. Streams and
+// ResourcePolicies are nested by region (outer key = region) to match the
+// region-isolated in-memory layout.
 type backendSnapshot struct {
-	Streams          map[string]*Stream `json:"streams"`
-	ResourcePolicies map[string]string  `json:"resourcePolicies,omitempty"`
-	AccountID        string             `json:"accountID"`
-	Region           string             `json:"region"`
+	Streams          map[string]map[string]*Stream `json:"streams"`
+	ResourcePolicies map[string]map[string]string  `json:"resourcePolicies,omitempty"`
+	AccountID        string                        `json:"accountID"`
+	Region           string                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -49,19 +52,26 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Streams == nil {
-		snap.Streams = make(map[string]*Stream)
+		snap.Streams = make(map[string]map[string]*Stream)
 	}
 
 	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]string)
+		snap.ResourcePolicies = make(map[string]map[string]string)
 	}
-	for name, stream := range snap.Streams {
-		if stream == nil {
-			delete(snap.Streams, name)
 
-			continue
+	for region, regionStreams := range snap.Streams {
+		for name, stream := range regionStreams {
+			if stream == nil {
+				delete(regionStreams, name)
+
+				continue
+			}
+			initializeStreamRuntime(stream, name)
 		}
-		initializeStreamRuntime(stream, name)
+
+		if len(regionStreams) == 0 {
+			delete(snap.Streams, region)
+		}
 	}
 
 	b.streams = snap.Streams

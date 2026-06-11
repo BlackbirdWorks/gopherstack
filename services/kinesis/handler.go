@@ -58,12 +58,20 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 		}
 		// Wire the cleanup callback so that when a stream is purged from the backend
 		// the handler-level tag registry for that stream is also closed and removed.
+		// Tags are keyed by "region/streamName", so a purge of a given stream name
+		// clears that stream's tag registry across every region it appears in.
 		mem.OnStreamPurged = func(streamName string) {
+			suffix := "/" + streamName
 			h.tagsMu.Lock("OnStreamPurged")
-			if t := h.tags[streamName]; t != nil {
-				t.Close()
+			for key, t := range h.tags {
+				if !strings.HasSuffix(key, suffix) {
+					continue
+				}
+				if t != nil {
+					t.Close()
+				}
+				delete(h.tags, key)
 			}
-			delete(h.tags, streamName)
 			h.tagsMu.Unlock()
 		}
 		h.janitor = j
@@ -81,27 +89,52 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock("setTags")
-	defer h.tagsMu.Unlock()
-	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = svcTags.New("kinesis." + resourceID + ".tags")
+// defaultRegion returns the region the handler should fall back to when a
+// request carries no SigV4 region. It prefers the explicitly configured
+// DefaultRegion and otherwise mirrors the backend's region so that the
+// handler-level tag store and the backend's stream store agree on the region.
+func (h *Handler) defaultRegion() string {
+	if h.DefaultRegion != "" {
+		return h.DefaultRegion
 	}
-	h.tags[resourceID].Merge(kv)
+
+	if br, ok := h.Backend.(interface{ Region() string }); ok {
+		return br.Region()
+	}
+
+	return h.DefaultRegion
 }
 
-func (h *Handler) removeTags(resourceID string, keys []string) {
+// tagKey builds the region-scoped key under which a stream's handler-level tags
+// are stored, keeping tags for same-named streams in different regions isolated.
+func tagKey(region, streamName string) string {
+	return region + "/" + streamName
+}
+
+func (h *Handler) setTags(region, resourceID string, kv map[string]string) {
+	key := tagKey(region, resourceID)
+	h.tagsMu.Lock("setTags")
+	defer h.tagsMu.Unlock()
+	if h.tags[key] == nil {
+		h.tags[key] = svcTags.New("kinesis." + key + ".tags")
+	}
+	h.tags[key].Merge(kv)
+}
+
+func (h *Handler) removeTags(region, resourceID string, keys []string) {
+	key := tagKey(region, resourceID)
 	h.tagsMu.RLock("removeTags")
-	t := h.tags[resourceID]
+	t := h.tags[key]
 	h.tagsMu.RUnlock()
 	if t != nil {
 		t.DeleteKeys(keys)
 	}
 }
 
-func (h *Handler) getTags(resourceID string) map[string]string {
+func (h *Handler) getTags(region, resourceID string) map[string]string {
+	key := tagKey(region, resourceID)
 	h.tagsMu.RLock("getTags")
-	t := h.tags[resourceID]
+	t := h.tags[key]
 	h.tagsMu.RUnlock()
 	if t == nil {
 		return map[string]string{}
@@ -167,7 +200,7 @@ func (h *Handler) ChaosServiceName() string { return "kinesis" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this Kinesis instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+func (h *Handler) ChaosRegions() []string { return []string{h.defaultRegion()} }
 
 // kinesisTargetPrefix is the X-Amz-Target prefix used by the AWS Kinesis SDK.
 const kinesisTargetPrefix = "Kinesis_20131202."
@@ -283,11 +316,17 @@ func (h *Handler) buildOps() map[string]kinesisDispatchFn {
 }
 
 // kinesisRoute dispatches a Kinesis action to the appropriate handler method.
+// It resolves the per-request AWS region from the SigV4 credential scope and
+// attaches it to the context so the backend routes the operation to the right
+// region's resources.
 func (h *Handler) kinesisRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, ErrUnknownAction
 	}
+
+	region := httputils.ExtractRegionFromRequest(r, h.defaultRegion())
+	ctx = contextWithRegion(ctx, region)
 
 	result, err := fn(ctx, r, body)
 	if err != nil {
@@ -510,7 +549,7 @@ type jsonRetentionPeriodReq struct {
 
 func (h *Handler) handleCreateStream(
 	ctx context.Context,
-	r *http.Request,
+	_ *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonCreateStreamReq
@@ -518,7 +557,7 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrInvalidArgument
 	}
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := getRegion(ctx, h.defaultRegion())
 
 	var streamMode string
 	if req.StreamModeDetails != nil {
@@ -532,7 +571,7 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrInvalidArgument
 	}
 
-	err := h.Backend.CreateStream(&CreateStreamInput{
+	err := h.Backend.CreateStream(ctx, &CreateStreamInput{
 		StreamName: req.StreamName,
 		ShardCount: shardCount,
 		Region:     region,
@@ -548,14 +587,14 @@ func (h *Handler) handleCreateStream(
 	}
 
 	if len(req.Tags) > 0 {
-		h.setTags(req.StreamName, req.Tags)
+		h.setTags(region, req.StreamName, req.Tags)
 	}
 
 	return struct{}{}, nil
 }
 
 func (h *Handler) handleDeleteStream(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -569,17 +608,26 @@ func (h *Handler) handleDeleteStream(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	if err := h.Backend.DeleteStream(&DeleteStreamInput{StreamName: streamName}); err != nil {
+	// When the request addresses the stream by ARN, route to the ARN's region;
+	// otherwise use the region carried on ctx.
+	region := getRegion(ctx, h.defaultRegion())
+	if req.StreamARN != "" {
+		region = regionFromARNOrCtx(ctx, req.StreamARN, h.defaultRegion())
+	}
+	regionCtx := contextWithRegion(ctx, region)
+
+	if err := h.Backend.DeleteStream(regionCtx, &DeleteStreamInput{StreamName: streamName}); err != nil {
 		return nil, err
 	}
 
 	// Clean up handler-level tags to prevent resource/metric leaks.
+	key := tagKey(region, streamName)
 	h.tagsMu.Lock("handleDeleteStream")
-	if t := h.tags[streamName]; t != nil {
+	if t := h.tags[key]; t != nil {
 		t.Close()
 	}
 
-	delete(h.tags, streamName)
+	delete(h.tags, key)
 	h.tagsMu.Unlock()
 
 	return struct{}{}, nil
@@ -596,7 +644,7 @@ func enhancedMonitoringEntries(metrics []string) []jsonEnhancedMonitoringEntry {
 }
 
 func (h *Handler) handleDescribeStream(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -610,7 +658,7 @@ func (h *Handler) handleDescribeStream(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: streamName})
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +698,7 @@ func (h *Handler) handleDescribeStream(
 }
 
 func (h *Handler) handleDescribeStreamSummary(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -664,7 +712,7 @@ func (h *Handler) handleDescribeStreamSummary(
 		summaryStreamName = streamNameFromARN(req.StreamARN)
 	}
 
-	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: summaryStreamName})
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: summaryStreamName})
 	if err != nil {
 		return nil, err
 	}
@@ -677,7 +725,7 @@ func (h *Handler) handleDescribeStreamSummary(
 	}
 
 	// Fetch the live consumer count.
-	consumerList, _ := h.Backend.ListStreamConsumers(&ListStreamConsumersInput{StreamARN: out.StreamARN})
+	consumerList, _ := h.Backend.ListStreamConsumers(ctx, &ListStreamConsumersInput{StreamARN: out.StreamARN})
 	consumerCount := 0
 	if consumerList != nil {
 		consumerCount = len(consumerList.Consumers)
@@ -701,14 +749,14 @@ func (h *Handler) handleDescribeStreamSummary(
 }
 
 func (h *Handler) handleListStreams(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonListStreamsReq
 	_ = json.Unmarshal(body, &req)
 
-	out, err := h.Backend.ListStreams(&ListStreamsInput{
+	out, err := h.Backend.ListStreams(ctx, &ListStreamsInput{
 		Limit:                    req.Limit,
 		NextToken:                req.NextToken,
 		ExclusiveStartStreamName: req.ExclusiveStartStreamName,
@@ -730,7 +778,7 @@ func (h *Handler) handleListStreams(
 }
 
 func (h *Handler) handlePutRecord(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -744,7 +792,7 @@ func (h *Handler) handlePutRecord(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	out, err := h.Backend.PutRecord(&PutRecordInput{
+	out, err := h.Backend.PutRecord(ctx, &PutRecordInput{
 		StreamName:      streamName,
 		PartitionKey:    req.PartitionKey,
 		ExplicitHashKey: req.ExplicitHashKey,
@@ -762,7 +810,7 @@ func (h *Handler) handlePutRecord(
 }
 
 func (h *Handler) handlePutRecords(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -786,7 +834,7 @@ func (h *Handler) handlePutRecords(
 		entries[i] = PutRecordsEntry(r)
 	}
 
-	out, err := h.Backend.PutRecords(&PutRecordsInput{
+	out, err := h.Backend.PutRecords(ctx, &PutRecordsInput{
 		StreamName: streamName,
 		Records:    entries,
 	})
@@ -806,7 +854,7 @@ func (h *Handler) handlePutRecords(
 }
 
 func (h *Handler) handleGetShardIterator(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -820,7 +868,7 @@ func (h *Handler) handleGetShardIterator(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	out, err := h.Backend.GetShardIterator(&GetShardIteratorInput{
+	out, err := h.Backend.GetShardIterator(ctx, &GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
@@ -837,7 +885,7 @@ func (h *Handler) handleGetShardIterator(
 }
 
 func (h *Handler) handleGetRecords(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -846,7 +894,7 @@ func (h *Handler) handleGetRecords(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.GetRecords(&GetRecordsInput{
+	out, err := h.Backend.GetRecords(ctx, &GetRecordsInput{
 		ShardIterator: req.ShardIterator,
 		Limit:         req.Limit,
 	})
@@ -877,7 +925,7 @@ func (h *Handler) handleGetRecords(
 }
 
 func (h *Handler) handleListShards(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -918,7 +966,7 @@ func (h *Handler) handleListShards(
 			shardFilterStr = shardFilterType
 		}
 	}
-	out, err := h.Backend.ListShards(&ListShardsInput{
+	out, err := h.Backend.ListShards(ctx, &ListShardsInput{
 		StreamName:            streamName,
 		NextToken:             backendNextToken,
 		MaxResults:            req.MaxResults,
@@ -1044,7 +1092,7 @@ type handleAddTagsToStreamInput struct {
 }
 
 func (h *Handler) handleAddTagsToStream(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1053,7 +1101,7 @@ func (h *Handler) handleAddTagsToStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
 		return nil, err
 	}
 
@@ -1066,14 +1114,15 @@ func (h *Handler) handleAddTagsToStream(
 		return nil, err
 	}
 
-	existing := h.getTags(req.StreamName)
+	region := getRegion(ctx, h.defaultRegion())
+	existing := h.getTags(region, req.StreamName)
 	merged := make(map[string]string, len(existing))
 	maps.Copy(merged, existing)
 	maps.Copy(merged, kv)
 	if len(merged) > maxTagsPerStream {
 		return nil, ErrTagLimitExceeded
 	}
-	h.setTags(req.StreamName, kv)
+	h.setTags(region, req.StreamName, kv)
 
 	return struct{}{}, nil
 }
@@ -1084,7 +1133,7 @@ type handleRemoveTagsFromStreamInput struct {
 }
 
 func (h *Handler) handleRemoveTagsFromStream(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1093,11 +1142,11 @@ func (h *Handler) handleRemoveTagsFromStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
 		return nil, err
 	}
 
-	h.removeTags(req.StreamName, req.TagKeys)
+	h.removeTags(getRegion(ctx, h.defaultRegion()), req.StreamName, req.TagKeys)
 
 	return struct{}{}, nil
 }
@@ -1109,7 +1158,7 @@ type listTagsForStreamReq struct {
 }
 
 func (h *Handler) handleListTagsForStream(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1118,11 +1167,11 @@ func (h *Handler) handleListTagsForStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
 		return nil, err
 	}
 
-	tagsMap := h.getTags(req.StreamName)
+	tagsMap := h.getTags(getRegion(ctx, h.defaultRegion()), req.StreamName)
 
 	keys := make([]string, 0, len(tagsMap))
 	for k := range tagsMap {
@@ -1160,7 +1209,7 @@ func (h *Handler) handleListTagsForStream(
 }
 
 func (h *Handler) handleIncreaseStreamRetentionPeriod(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1169,7 +1218,7 @@ func (h *Handler) handleIncreaseStreamRetentionPeriod(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.IncreaseStreamRetentionPeriod(&IncreaseStreamRetentionPeriodInput{
+	if err := h.Backend.IncreaseStreamRetentionPeriod(ctx, &IncreaseStreamRetentionPeriodInput{
 		StreamName:           req.StreamName,
 		RetentionPeriodHours: req.RetentionPeriodHours,
 	}); err != nil {
@@ -1180,7 +1229,7 @@ func (h *Handler) handleIncreaseStreamRetentionPeriod(
 }
 
 func (h *Handler) handleDecreaseStreamRetentionPeriod(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1189,7 +1238,7 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.DecreaseStreamRetentionPeriod(&DecreaseStreamRetentionPeriodInput{
+	if err := h.Backend.DecreaseStreamRetentionPeriod(ctx, &DecreaseStreamRetentionPeriodInput{
 		StreamName:           req.StreamName,
 		RetentionPeriodHours: req.RetentionPeriodHours,
 	}); err != nil {
@@ -1200,12 +1249,12 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 }
 
 func (h *Handler) handleDescribeLimits(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	_ []byte,
 ) (any, error) {
 	return &describeLimitsOutput{
-		OpenShardCount: h.Backend.CountOpenShards(),
+		OpenShardCount: h.Backend.CountOpenShards(ctx),
 		ShardLimit:     kinesisDefaultShardLimit,
 	}, nil
 }
@@ -1259,11 +1308,11 @@ type jsonListTagsForResourceResp struct {
 // --- Handler methods for new operations ---
 
 func (h *Handler) handleDescribeAccountSettings(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	_ []byte,
 ) (any, error) {
-	out, err := h.Backend.DescribeAccountSettings()
+	out, err := h.Backend.DescribeAccountSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1276,7 +1325,7 @@ func (h *Handler) handleDescribeAccountSettings(
 }
 
 func (h *Handler) handleMergeShards(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1285,7 +1334,7 @@ func (h *Handler) handleMergeShards(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.MergeShards(&MergeShardsInput{
+	if err := h.Backend.MergeShards(ctx, &MergeShardsInput{
 		StreamName:           req.StreamName,
 		StreamARN:            req.StreamARN,
 		ShardToMerge:         req.ShardToMerge,
@@ -1298,7 +1347,7 @@ func (h *Handler) handleMergeShards(
 }
 
 func (h *Handler) handleSplitShard(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1307,7 +1356,7 @@ func (h *Handler) handleSplitShard(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.SplitShard(&SplitShardInput{
+	if err := h.Backend.SplitShard(ctx, &SplitShardInput{
 		StreamName:         req.StreamName,
 		StreamARN:          req.StreamARN,
 		ShardToSplit:       req.ShardToSplit,
@@ -1320,7 +1369,7 @@ func (h *Handler) handleSplitShard(
 }
 
 func (h *Handler) handleStartStreamEncryption(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1329,7 +1378,7 @@ func (h *Handler) handleStartStreamEncryption(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.StartStreamEncryption(&StartStreamEncryptionInput{
+	if err := h.Backend.StartStreamEncryption(ctx, &StartStreamEncryptionInput{
 		StreamName:     req.StreamName,
 		StreamARN:      req.StreamARN,
 		EncryptionType: req.EncryptionType,
@@ -1342,7 +1391,7 @@ func (h *Handler) handleStartStreamEncryption(
 }
 
 func (h *Handler) handleStopStreamEncryption(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1351,7 +1400,7 @@ func (h *Handler) handleStopStreamEncryption(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.StopStreamEncryption(&StopStreamEncryptionInput{
+	if err := h.Backend.StopStreamEncryption(ctx, &StopStreamEncryptionInput{
 		StreamName:     req.StreamName,
 		StreamARN:      req.StreamARN,
 		EncryptionType: req.EncryptionType,
@@ -1364,7 +1413,7 @@ func (h *Handler) handleStopStreamEncryption(
 }
 
 func (h *Handler) handlePutResourcePolicy(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1373,7 +1422,7 @@ func (h *Handler) handlePutResourcePolicy(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.PutResourcePolicy(&PutResourcePolicyInput{
+	if err := h.Backend.PutResourcePolicy(ctx, &PutResourcePolicyInput{
 		ResourceARN: req.ResourceARN,
 		Policy:      req.Policy,
 	}); err != nil {
@@ -1384,7 +1433,7 @@ func (h *Handler) handlePutResourcePolicy(
 }
 
 func (h *Handler) handleGetResourcePolicy(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1393,7 +1442,7 @@ func (h *Handler) handleGetResourcePolicy(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.GetResourcePolicy(&GetResourcePolicyInput{
+	out, err := h.Backend.GetResourcePolicy(ctx, &GetResourcePolicyInput{
 		ResourceARN: req.ResourceARN,
 	})
 	if err != nil {
@@ -1404,7 +1453,7 @@ func (h *Handler) handleGetResourcePolicy(
 }
 
 func (h *Handler) handleDeleteResourcePolicy(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1413,7 +1462,7 @@ func (h *Handler) handleDeleteResourcePolicy(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.DeleteResourcePolicy(&DeleteResourcePolicyInput{
+	if err := h.Backend.DeleteResourcePolicy(ctx, &DeleteResourcePolicyInput{
 		ResourceARN: req.ResourceARN,
 	}); err != nil {
 		return nil, err
@@ -1423,7 +1472,7 @@ func (h *Handler) handleDeleteResourcePolicy(
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1433,13 +1482,15 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	streamName := streamNameFromARN(req.ResourceARN)
+	region := regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion())
+	regionCtx := contextWithRegion(ctx, region)
 
 	// Validate the stream exists before returning tags.
-	if _, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: streamName}); err != nil {
+	if _, err := h.Backend.DescribeStream(regionCtx, &DescribeStreamInput{StreamName: streamName}); err != nil {
 		return nil, err
 	}
 
-	tags := h.getTags(streamName)
+	tags := h.getTags(region, streamName)
 	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
@@ -1550,7 +1601,7 @@ func toJSONConsumer(c Consumer) jsonConsumer {
 }
 
 func (h *Handler) handleRegisterStreamConsumer(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1559,7 +1610,7 @@ func (h *Handler) handleRegisterStreamConsumer(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.RegisterStreamConsumer(&RegisterStreamConsumerInput{
+	out, err := h.Backend.RegisterStreamConsumer(ctx, &RegisterStreamConsumerInput{
 		StreamARN:    req.StreamARN,
 		ConsumerName: req.ConsumerName,
 	})
@@ -1571,7 +1622,7 @@ func (h *Handler) handleRegisterStreamConsumer(
 }
 
 func (h *Handler) handleDescribeStreamConsumer(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1580,7 +1631,7 @@ func (h *Handler) handleDescribeStreamConsumer(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStreamConsumer(&DescribeStreamConsumerInput{
+	out, err := h.Backend.DescribeStreamConsumer(ctx, &DescribeStreamConsumerInput{
 		StreamARN:    req.StreamARN,
 		ConsumerARN:  req.ConsumerARN,
 		ConsumerName: req.ConsumerName,
@@ -1593,14 +1644,14 @@ func (h *Handler) handleDescribeStreamConsumer(
 }
 
 func (h *Handler) handleListStreamConsumers(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
 	var req jsonListStreamConsumersReq
 	_ = json.Unmarshal(body, &req)
 
-	out, err := h.Backend.ListStreamConsumers(&ListStreamConsumersInput{
+	out, err := h.Backend.ListStreamConsumers(ctx, &ListStreamConsumersInput{
 		StreamARN:  req.StreamARN,
 		NextToken:  req.NextToken,
 		MaxResults: req.MaxResults,
@@ -1618,7 +1669,7 @@ func (h *Handler) handleListStreamConsumers(
 }
 
 func (h *Handler) handleDeregisterStreamConsumer(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1627,7 +1678,7 @@ func (h *Handler) handleDeregisterStreamConsumer(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.DeregisterStreamConsumer(&DeregisterStreamConsumerInput{
+	if err := h.Backend.DeregisterStreamConsumer(ctx, &DeregisterStreamConsumerInput{
 		StreamARN:    req.StreamARN,
 		ConsumerARN:  req.ConsumerARN,
 		ConsumerName: req.ConsumerName,
@@ -1639,7 +1690,7 @@ func (h *Handler) handleDeregisterStreamConsumer(
 }
 
 func (h *Handler) handleUpdateShardCount(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1648,7 +1699,7 @@ func (h *Handler) handleUpdateShardCount(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.UpdateShardCount(&UpdateShardCountInput{
+	out, err := h.Backend.UpdateShardCount(ctx, &UpdateShardCountInput{
 		StreamName:       req.StreamName,
 		TargetShardCount: req.TargetShardCount,
 		ScalingType:      req.ScalingType,
@@ -1665,7 +1716,7 @@ func (h *Handler) handleUpdateShardCount(
 }
 
 func (h *Handler) handleEnableEnhancedMonitoring(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1674,7 +1725,7 @@ func (h *Handler) handleEnableEnhancedMonitoring(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.EnableEnhancedMonitoring(&EnableEnhancedMonitoringInput{
+	out, err := h.Backend.EnableEnhancedMonitoring(ctx, &EnableEnhancedMonitoringInput{
 		StreamName:        req.StreamName,
 		ShardLevelMetrics: req.ShardLevelMetrics,
 	})
@@ -1690,7 +1741,7 @@ func (h *Handler) handleEnableEnhancedMonitoring(
 }
 
 func (h *Handler) handleDisableEnhancedMonitoring(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -1699,7 +1750,7 @@ func (h *Handler) handleDisableEnhancedMonitoring(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DisableEnhancedMonitoring(&DisableEnhancedMonitoringInput{
+	out, err := h.Backend.DisableEnhancedMonitoring(ctx, &DisableEnhancedMonitoringInput{
 		StreamName:        req.StreamName,
 		ShardLevelMetrics: req.ShardLevelMetrics,
 	})
@@ -1798,7 +1849,8 @@ const subscribeToShardMaxIdlePolls = 3
 // binary protocol. It keeps the response stream open for up to 5 minutes, pushing records as
 // they arrive via periodic polling with chunked flushing.
 func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
-	ctx := c.Request().Context()
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.defaultRegion())
+	ctx := contextWithRegion(c.Request().Context(), region)
 	log := logger.Load(ctx)
 
 	body, err := httputils.ReadBody(c.Request())
@@ -1824,7 +1876,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	}
 
 	// Validate consumer/shard before opening the stream.
-	if _, err = h.Backend.SubscribeToShard(&SubscribeToShardInput{
+	if _, err = h.Backend.SubscribeToShard(ctx, &SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: sp,
@@ -1866,7 +1918,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 				return nil
 			}
 
-			if stop, next := h.advanceShardCursor(req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+			if stop, next := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
 				return nil
 			} else if next != nil {
 				curSP = *next
@@ -1878,6 +1930,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 // advanceShardCursor calls pollSubscribeToShardTick and returns (stop=true, nil) when the
 // stream should close, or (false, nextSP) when it should continue (nextSP may be nil).
 func (h *Handler) advanceShardCursor(
+	ctx context.Context,
 	req jsonSubscribeToShardReq,
 	curSP StartingPosition,
 	w http.ResponseWriter,
@@ -1885,7 +1938,7 @@ func (h *Handler) advanceShardCursor(
 	canFlush bool,
 	idlePolls *int,
 ) (bool, *StartingPosition) {
-	done, next, tickErr := h.pollSubscribeToShardTick(req, curSP, w, flusher, canFlush, idlePolls)
+	done, next, tickErr := h.pollSubscribeToShardTick(ctx, req, curSP, w, flusher, canFlush, idlePolls)
 	if tickErr != nil || done {
 		return true, nil
 	}
@@ -1898,6 +1951,7 @@ func (h *Handler) advanceShardCursor(
 // (false, nextSP, nil) when records were delivered (nextSP non-nil means cursor advanced),
 // and (false, nil, err) on a write error.
 func (h *Handler) pollSubscribeToShardTick(
+	ctx context.Context,
 	req jsonSubscribeToShardReq,
 	curSP StartingPosition,
 	w http.ResponseWriter,
@@ -1905,7 +1959,7 @@ func (h *Handler) pollSubscribeToShardTick(
 	canFlush bool,
 	idlePolls *int,
 ) (bool, *StartingPosition, error) {
-	out, pollErr := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+	out, pollErr := h.Backend.SubscribeToShard(ctx, &SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: curSP,
@@ -1994,7 +2048,7 @@ func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	}
 }
 
-func (h *Handler) handleUpdateStreamMode(_ context.Context, _ *http.Request, body []byte) (any, error) {
+func (h *Handler) handleUpdateStreamMode(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req struct {
 		StreamModeDetails *jsonStreamModeDetails `json:"StreamModeDetails"`
 		StreamARN         string                 `json:"StreamARN"`
@@ -2006,7 +2060,7 @@ func (h *Handler) handleUpdateStreamMode(_ context.Context, _ *http.Request, bod
 		return nil, ErrInvalidArgument
 	}
 
-	return struct{}{}, h.Backend.UpdateStreamMode(&UpdateStreamModeInput{
+	return struct{}{}, h.Backend.UpdateStreamMode(ctx, &UpdateStreamModeInput{
 		StreamARN:         req.StreamARN,
 		StreamModeDetails: StreamModeDetails{StreamMode: req.StreamModeDetails.StreamMode},
 	})
@@ -2025,7 +2079,7 @@ type jsonUntagResourceReq struct {
 }
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -2038,7 +2092,7 @@ func (h *Handler) handleTagResource(
 		return nil, err
 	}
 
-	if err := h.Backend.TagResource(&TagResourceInput{
+	if err := h.Backend.TagResource(ctx, &TagResourceInput{
 		ResourceARN: req.ResourceARN,
 		Tags:        req.Tags,
 	}); err != nil {
@@ -2048,14 +2102,14 @@ func (h *Handler) handleTagResource(
 	// Mirror into the handler-level tag store for ListTagsForStream compatibility.
 	streamName := streamNameFromARN(req.ResourceARN)
 	if streamName != "" {
-		h.setTags(streamName, req.Tags)
+		h.setTags(regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion()), streamName, req.Tags)
 	}
 
 	return struct{}{}, nil
 }
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -2064,7 +2118,7 @@ func (h *Handler) handleUntagResource(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.UntagResource(&UntagResourceInput{
+	if err := h.Backend.UntagResource(ctx, &UntagResourceInput{
 		ResourceARN: req.ResourceARN,
 		TagKeys:     req.TagKeys,
 	}); err != nil {
@@ -2074,7 +2128,7 @@ func (h *Handler) handleUntagResource(
 	// Mirror removal into the handler-level tag store.
 	streamName := streamNameFromARN(req.ResourceARN)
 	if streamName != "" {
-		h.removeTags(streamName, req.TagKeys)
+		h.removeTags(regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion()), streamName, req.TagKeys)
 	}
 
 	return struct{}{}, nil
@@ -2085,7 +2139,7 @@ type jsonUpdateAccountSettingsReq struct {
 }
 
 func (h *Handler) handleUpdateAccountSettings(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -2094,7 +2148,7 @@ func (h *Handler) handleUpdateAccountSettings(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.UpdateAccountSettings(&UpdateAccountSettingsInput{
+	if err := h.Backend.UpdateAccountSettings(ctx, &UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: req.OnDemandStreamCountLimit,
 	}); err != nil {
 		return nil, err
@@ -2110,7 +2164,7 @@ type jsonUpdateMaxRecordSizeReq struct {
 }
 
 func (h *Handler) handleUpdateMaxRecordSize(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -2119,7 +2173,7 @@ func (h *Handler) handleUpdateMaxRecordSize(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.UpdateMaxRecordSize(&UpdateMaxRecordSizeInput{
+	if err := h.Backend.UpdateMaxRecordSize(ctx, &UpdateMaxRecordSizeInput{
 		StreamName:         req.StreamName,
 		StreamARN:          req.StreamARN,
 		MaxRecordSizeBytes: req.MaxRecordSizeBytes,
@@ -2138,7 +2192,7 @@ type jsonUpdateStreamWarmThroughputReq struct {
 }
 
 func (h *Handler) handleUpdateStreamWarmThroughput(
-	_ context.Context,
+	ctx context.Context,
 	_ *http.Request,
 	body []byte,
 ) (any, error) {
@@ -2147,7 +2201,7 @@ func (h *Handler) handleUpdateStreamWarmThroughput(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.UpdateStreamWarmThroughput(&UpdateStreamWarmThroughputInput{
+	if err := h.Backend.UpdateStreamWarmThroughput(ctx, &UpdateStreamWarmThroughputInput{
 		StreamName:         req.StreamName,
 		StreamARN:          req.StreamARN,
 		WriteCapacityUnits: req.WriteCapacityUnits,

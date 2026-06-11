@@ -48,15 +48,42 @@ func (h *Handler) ExecuteFISAction(ctx context.Context, action service.FISAction
 
 	prob := parseThrottlePercentage(action.Parameters["percentage"])
 
-	return b.activateThroughputFault(ctx, streamNamesFromARNs(action.Targets), action.Duration, prob)
+	return b.activateThroughputFault(ctx, regionStreamTargetsFromARNs(action.Targets), action.Duration, prob)
 }
 
-// activateThroughputFault enables the throughput exception on the named streams.
+// regionStreamTarget identifies a single stream in a single region for fault injection.
+type regionStreamTarget struct {
+	region string
+	name   string
+}
+
+// regionStreamTargetsFromARNs converts FIS target ARNs (or bare stream names)
+// into region/stream pairs. ARNs carry their own region; bare names get an empty
+// region, which activateThroughputFault resolves to the backend's default region.
+func regionStreamTargetsFromARNs(arns []string) []regionStreamTarget {
+	names := streamNamesFromARNs(arns)
+	targets := make([]regionStreamTarget, 0, len(arns))
+
+	for i, a := range arns {
+		if i >= len(names) {
+			break
+		}
+		targets = append(targets, regionStreamTarget{
+			region: regionFromARN(a),
+			name:   names[i],
+		})
+	}
+
+	return targets
+}
+
+// activateThroughputFault enables the throughput exception on the named streams,
+// keyed by each target's region so faults stay isolated per region.
 // It always registers a goroutine that clears the fault when ctx is cancelled
 // (experiment stopped), and also schedules time-based expiry when dur > 0.
 func (b *InMemoryBackend) activateThroughputFault(
 	ctx context.Context,
-	names []string,
+	targets []regionStreamTarget,
 	dur time.Duration,
 	prob float64,
 ) error {
@@ -67,8 +94,12 @@ func (b *InMemoryBackend) activateThroughputFault(
 
 	b.faultsMu.Lock("FISThroughputException")
 
-	for _, name := range names {
-		b.fisThroughputFaults[name] = &kinesisThrottleFault{
+	for _, t := range targets {
+		region := t.region
+		if region == "" {
+			region = b.region
+		}
+		b.faultsStore(region)[t.name] = &kinesisThrottleFault{
 			expiry:      expiry,
 			probability: prob,
 		}
@@ -78,7 +109,7 @@ func (b *InMemoryBackend) activateThroughputFault(
 
 	if dur > 0 {
 		// Time-limited: clear after duration or on cancellation.
-		go b.scheduleThroughputFaultCleanup(ctx, names, dur)
+		go b.scheduleThroughputFaultCleanup(ctx, targets, dur)
 	} else {
 		// Indefinite fault (dur==0): the goroutine blocks on ctx.Done().
 		// It terminates when StopExperiment cancels the experiment context,
@@ -91,8 +122,12 @@ func (b *InMemoryBackend) activateThroughputFault(
 			b.faultsMu.Lock("FISThroughputException-ctxcancel")
 			defer b.faultsMu.Unlock()
 
-			for _, name := range names {
-				delete(b.fisThroughputFaults, name)
+			for _, t := range targets {
+				region := t.region
+				if region == "" {
+					region = b.region
+				}
+				delete(b.faultsStore(region), t.name)
 			}
 		}()
 	}
@@ -104,7 +139,11 @@ func (b *InMemoryBackend) activateThroughputFault(
 // duration or when ctx is cancelled (whichever comes first).
 // On ctx cancellation, entries are removed unconditionally so that StopExperiment
 // always clears active faults regardless of remaining time.
-func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, names []string, dur time.Duration) {
+func (b *InMemoryBackend) scheduleThroughputFaultCleanup(
+	ctx context.Context,
+	targets []regionStreamTarget,
+	dur time.Duration,
+) {
 	ctxCancelled := false
 
 	timer := time.NewTimer(dur)
@@ -121,15 +160,20 @@ func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, na
 
 	now := time.Now()
 
-	for _, name := range names {
-		fault, exists := b.fisThroughputFaults[name]
+	for _, t := range targets {
+		region := t.region
+		if region == "" {
+			region = b.region
+		}
+		regionFaults := b.faultsStore(region)
+		fault, exists := regionFaults[t.name]
 		if !exists || fault == nil {
 			continue
 		}
 
 		// On ctx cancellation always remove; on timeout only remove if expired.
 		if ctxCancelled || (!fault.expiry.IsZero() && now.After(fault.expiry)) {
-			delete(b.fisThroughputFaults, name)
+			delete(regionFaults, t.name)
 		}
 	}
 }
