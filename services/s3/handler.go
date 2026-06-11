@@ -77,6 +77,11 @@ type S3Handler struct {
 	janitor         *Janitor
 	DefaultRegion   string
 	Endpoint        string
+	// PresignSecret, when non-empty, opts the handler into cryptographic
+	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
+	// by default so presigned URLs are accepted on structure/expiry alone,
+	// preserving backwards-compatible behaviour.
+	PresignSecret string
 	objectLambdaHandlerFields
 	notificationMu sync.RWMutex
 }
@@ -88,6 +93,19 @@ func NewHandler(backend StorageBackend) *S3Handler {
 		DefaultRegion:   config.DefaultRegion,
 		notificationCtx: context.Background(),
 	}
+}
+
+// WithPresignValidation enables cryptographic SigV4 verification of
+// presigned-URL signatures, checking each signature against the given secret.
+// A blank secret defaults to "test" (the conventional dummy credential). When
+// never called, presigned URLs are validated on structure and expiry only.
+func (h *S3Handler) WithPresignValidation(secret string) *S3Handler {
+	if secret == "" {
+		secret = "test"
+	}
+	h.PresignSecret = secret
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -369,6 +387,12 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		if key == "" {
 			h.handleBucketOperation(ctx, sw, requestWithCtx, bucketName)
 
+			return nil
+		}
+
+		// Requester-Pays: object requests against a Requester-Pays bucket must
+		// acknowledge charges via the x-amz-request-payer header.
+		if !h.enforceRequesterPays(ctx, sw, requestWithCtx, bucketName) {
 			return nil
 		}
 

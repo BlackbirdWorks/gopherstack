@@ -26,6 +26,7 @@ var (
 	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
 	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
 	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.

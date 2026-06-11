@@ -546,6 +546,14 @@ func (b *InMemoryBackend) createStackFromTemplate(
 		return
 	}
 
+	// Validate intrinsic references (Fn::GetAtt / Fn::Sub to undefined
+	// resources, unsupported resource types) before provisioning anything.
+	if intErr := validateIntrinsics(tmpl); intErr != nil {
+		b.failAndRollback(stack, intErr.Error())
+
+		return
+	}
+
 	// Validate that all Fn::ImportValue references can be satisfied before
 	// creating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
@@ -876,6 +884,13 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
 		b.updateFailAndRollback(stack, valErr.Error())
+
+		return false
+	}
+
+	// Validate intrinsic references before mutating any resource.
+	if intErr := validateIntrinsics(tmpl); intErr != nil {
+		b.updateFailAndRollback(stack, intErr.Error())
 
 		return false
 	}
