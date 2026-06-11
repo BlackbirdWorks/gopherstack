@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -20,6 +21,11 @@ const (
 	pathOriginEndpoints = "/origin_endpoints"
 	pathHarvestJobs     = "/harvest_jobs"
 	pathTags            = "/tags/"
+
+	// sigV4Service is the SigV4 signing name MediaPackage SDK clients use. The
+	// "/channels" REST path is shared with IoT Analytics and MediaTailor, so we
+	// disambiguate the shared path by the request's SigV4 service name.
+	sigV4Service = "mediapackage"
 
 	keyMessage = "Message"
 
@@ -96,9 +102,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathChannels ||
-			strings.HasPrefix(path, pathChannels+"/") ||
-			path == pathOriginEndpoints ||
+		// The "/channels" path (bare and sub-paths) is shared with IoT Analytics
+		// and MediaTailor, which register matchers at the same priority. Claim it
+		// only when the request is SigV4-signed for the mediapackage service so
+		// routing is deterministic regardless of service registration order.
+		if path == pathChannels || strings.HasPrefix(path, pathChannels+"/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == sigV4Service
+		}
+
+		return path == pathOriginEndpoints ||
 			strings.HasPrefix(path, pathOriginEndpoints+"/") ||
 			path == pathHarvestJobs ||
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||

@@ -582,14 +582,16 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		path string
-		want bool
+		name    string
+		path    string
+		service string
+		want    bool
 	}{
 		{name: "playbackConfiguration matches", path: "/playbackConfiguration", want: true},
 		{name: "playbackConfiguration sub matches", path: "/playbackConfiguration/my-cfg", want: true},
 		{name: "playbackConfigurations matches", path: "/playbackConfigurations", want: true},
-		{name: "channels matches", path: "/channels", want: true},
+		{name: "channels matches", path: "/channels", service: "mediatailor", want: true},
+		{name: "channels without mediatailor service does not match", path: "/channels", want: false},
 		{name: "channel sub matches", path: "/channel/ch1", want: true},
 		{name: "sourceLocations matches", path: "/sourceLocations", want: true},
 		{name: "sourceLocation sub matches", path: "/sourceLocation/sl1", want: true},
@@ -617,6 +619,14 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			h := newTestHandler(t)
 			matcher := h.RouteMatcher()
 			c := makeEchoContext(t, http.MethodGet, tt.path)
+
+			if tt.service != "" {
+				c.Request().Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-east-1/"+tt.service+"/aws4_request",
+				)
+			}
+
 			got := matcher(c)
 			assert.Equal(t, tt.want, got)
 		})

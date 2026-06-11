@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -27,6 +28,11 @@ const (
 	pathFunctions        = "/functions"
 	pathAlerts           = "/alerts"
 	pathConfigureLogs    = "/configureLogs/"
+
+	// sigV4Service is the SigV4 signing name MediaTailor SDK clients use. The
+	// bare "/channels" path is shared with MediaPackage and IoT Analytics, so we
+	// disambiguate it by the request's SigV4 service name.
+	sigV4Service = "mediatailor"
 
 	keyMessage            = "Message"
 	keyTags               = "Tags"
@@ -180,6 +186,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		// The bare "/channels" path is shared with MediaPackage and IoT Analytics,
+		// which register matchers at the same priority. Claim it only for
+		// SigV4-signed mediatailor requests so routing is deterministic regardless
+		// of service registration order.
+		if path == pathChannels {
+			return httputils.ExtractServiceFromRequest(c.Request()) == sigV4Service
+		}
+
 		return isMediaTailorPath(path)
 	}
 }
@@ -188,7 +202,6 @@ func isMediaTailorPath(path string) bool {
 	return path == pathPlaybackConfig ||
 		strings.HasPrefix(path, pathPlaybackConfig+"/") ||
 		path == pathPlaybackConfigs ||
-		path == pathChannels ||
 		strings.HasPrefix(path, pathChannel) ||
 		path == pathSourceLocations ||
 		strings.HasPrefix(path, pathSourceLocation) ||

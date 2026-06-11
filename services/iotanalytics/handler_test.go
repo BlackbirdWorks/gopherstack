@@ -297,14 +297,21 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		want    bool
 	}{
 		{
-			name: "channels",
-			path: "/channels",
-			want: true,
+			name:    "channels",
+			path:    "/channels",
+			service: "iotanalytics",
+			want:    true,
 		},
 		{
-			name: "channels_name",
-			path: "/channels/my-channel",
-			want: true,
+			name:    "channels_name",
+			path:    "/channels/my-channel",
+			service: "iotanalytics",
+			want:    true,
+		},
+		{
+			name: "channels_without_iotanalytics_service",
+			path: "/channels",
+			want: false,
 		},
 		{
 			name: "datastores",

@@ -306,8 +306,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		if strings.HasPrefix(path, pathChannels) ||
-			strings.HasPrefix(path, pathDatastores) ||
+		// The "/channels" path is shared with MediaPackage and MediaTailor, which
+		// register matchers at the same priority. Claim it only for SigV4-signed
+		// iotanalytics requests so routing is deterministic regardless of service
+		// registration order.
+		if strings.HasPrefix(path, pathChannels) {
+			return httputils.ExtractServiceFromRequest(c.Request()) == iotAnalyticsService
+		}
+
+		if strings.HasPrefix(path, pathDatastores) ||
 			strings.HasPrefix(path, pathDatasets) ||
 			strings.HasPrefix(path, pathPipelines) {
 			return true
