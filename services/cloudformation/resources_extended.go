@@ -1077,6 +1077,7 @@ func (rc *ResourceCreator) createSchedulerSchedule(
 	}
 
 	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
+		context.Background(),
 		name,
 		"",
 		scheduleExpression,
@@ -1100,7 +1101,7 @@ func (rc *ResourceCreator) deleteSchedulerSchedule(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.Scheduler.Backend.DeleteSchedule(name, "")
+	return rc.backends.Scheduler.Backend.DeleteSchedule(context.Background(), name, "")
 }
 
 // ---- helpers ----

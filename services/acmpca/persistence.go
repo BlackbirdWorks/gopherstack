@@ -52,14 +52,15 @@ func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
 	return ecKey, nil
 }
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	CAs          map[string]*caSnapshot        `json:"cas"`
-	Certs        map[string]*IssuedCertificate `json:"certs"`
-	Permissions  map[string]*Permission        `json:"permissions"`
-	AuditReports map[string]*AuditReport       `json:"auditReports"`
-	Policies     map[string]string             `json:"policies"`
-	AccountID    string                        `json:"accountID"`
-	Region       string                        `json:"region"`
+	CAs          map[string]map[string]*caSnapshot        `json:"cas"`
+	Certs        map[string]map[string]*IssuedCertificate `json:"certs"`
+	Permissions  map[string]map[string]*Permission        `json:"permissions"`
+	AuditReports map[string]map[string]*AuditReport       `json:"auditReports"`
+	Policies     map[string]map[string]string             `json:"policies"`
+	AccountID    string                                   `json:"accountID"`
+	Region       string                                   `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -67,15 +68,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	cas := make(map[string]*caSnapshot, len(b.cas))
-	for k, ca := range b.cas {
-		snap := &caSnapshot{CertificateAuthority: *ca}
-		snap.privKey = nil
-		pemStr, err := marshalPrivKey(ca.privKey)
-		if err == nil {
-			snap.PrivKeyPEM = pemStr
+	cas := make(map[string]map[string]*caSnapshot, len(b.cas))
+	for region, regionCAs := range b.cas {
+		regionMap := make(map[string]*caSnapshot, len(regionCAs))
+		for k, ca := range regionCAs {
+			snap := &caSnapshot{CertificateAuthority: *ca}
+			snap.privKey = nil
+			pemStr, err := marshalPrivKey(ca.privKey)
+			if err == nil {
+				snap.PrivKeyPEM = pemStr
+			}
+			regionMap[k] = snap
 		}
-		cas[k] = snap
+		cas[region] = regionMap
 	}
 
 	data, err := json.Marshal(backendSnapshot{
@@ -105,40 +110,40 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.CAs == nil {
-		snap.CAs = make(map[string]*caSnapshot)
-	}
-
 	if snap.Certs == nil {
-		snap.Certs = make(map[string]*IssuedCertificate)
+		snap.Certs = make(map[string]map[string]*IssuedCertificate)
 	}
 
 	if snap.Permissions == nil {
-		snap.Permissions = make(map[string]*Permission)
+		snap.Permissions = make(map[string]map[string]*Permission)
 	}
 
 	if snap.AuditReports == nil {
-		snap.AuditReports = make(map[string]*AuditReport)
+		snap.AuditReports = make(map[string]map[string]*AuditReport)
 	}
 
 	if snap.Policies == nil {
-		snap.Policies = make(map[string]string)
+		snap.Policies = make(map[string]map[string]string)
 	}
 
-	cas := make(map[string]*CertificateAuthority, len(snap.CAs))
-	for k, s := range snap.CAs {
-		ca := s.CertificateAuthority
+	cas := make(map[string]map[string]*CertificateAuthority, len(snap.CAs))
+	for region, regionCAs := range snap.CAs {
+		regionMap := make(map[string]*CertificateAuthority, len(regionCAs))
+		for k, s := range regionCAs {
+			ca := s.CertificateAuthority
 
-		if s.PrivKeyPEM != "" {
-			privKey, err := unmarshalPrivKey(s.PrivKeyPEM)
-			if err != nil {
-				return fmt.Errorf("restore CA %s private key: %w", k, err)
+			if s.PrivKeyPEM != "" {
+				privKey, err := unmarshalPrivKey(s.PrivKeyPEM)
+				if err != nil {
+					return fmt.Errorf("restore CA %s private key: %w", k, err)
+				}
+
+				ca.privKey = privKey
 			}
 
-			ca.privKey = privKey
+			regionMap[k] = &ca
 		}
-
-		cas[k] = &ca
+		cas[region] = regionMap
 	}
 
 	b.cas = cas
@@ -149,10 +154,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild certsByCASerial index from restored certificates.
-	b.certsByCASerial = make(map[string]string, len(b.certs))
-	for certARN, cert := range b.certs {
-		b.certsByCASerial[cert.CAARN+"#"+cert.Serial] = certARN
+	// Rebuild the per-region certsByCASerial index from restored certificates.
+	b.certsByCASerial = make(map[string]map[string]string, len(b.certs))
+	for region, regionCerts := range b.certs {
+		idx := make(map[string]string, len(regionCerts))
+		for certARN, cert := range regionCerts {
+			idx[cert.CAARN+"#"+cert.Serial] = certARN
+		}
+		b.certsByCASerial[region] = idx
 	}
 
 	return nil

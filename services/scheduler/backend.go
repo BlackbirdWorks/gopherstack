@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
@@ -13,6 +14,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 // ScheduleOption applies an optional field to a schedule during creation or update.
 type ScheduleOption func(*Schedule)
@@ -186,10 +199,12 @@ type ScheduleGroup struct {
 }
 
 type InMemoryBackend struct {
-	schedules             map[string]*Schedule
-	scheduleARNIndex      map[string]string // ARN → schedule name (group/name composite key)
-	scheduleGroups        map[string]*ScheduleGroup
-	scheduleGroupARNIndex map[string]string // ARN → schedule group name
+	// All resource maps are nested by region (outer key = region) so that
+	// same-named resources in different regions are fully isolated.
+	schedules             map[string]map[string]*Schedule // region → group/name key → schedule
+	scheduleARNIndex      map[string]map[string]string    // region → ARN → group/name key
+	scheduleGroups        map[string]map[string]*ScheduleGroup
+	scheduleGroupARNIndex map[string]map[string]string // region → ARN → schedule group name
 	mu                    *lockmetrics.RWMutex
 	accountID             string
 	region                string
@@ -197,24 +212,69 @@ type InMemoryBackend struct {
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		schedules:             make(map[string]*Schedule),
-		scheduleARNIndex:      make(map[string]string),
-		scheduleGroups:        make(map[string]*ScheduleGroup),
-		scheduleGroupARNIndex: make(map[string]string),
+		schedules:             make(map[string]map[string]*Schedule),
+		scheduleARNIndex:      make(map[string]map[string]string),
+		scheduleGroups:        make(map[string]map[string]*ScheduleGroup),
+		scheduleGroupARNIndex: make(map[string]map[string]string),
 		accountID:             accountID,
 		region:                region,
 		mu:                    lockmetrics.New("scheduler"),
 	}
-	b.seedDefaultGroup()
+	// Touch the default-region group store so the built-in "default" group is seeded.
+	b.scheduleGroupsStore(region)
 
 	return b
 }
 
-// seedDefaultGroup creates the built-in "default" schedule group.
-// Must be called without the mutex held.
-func (b *InMemoryBackend) seedDefaultGroup() {
+// schedulesStore returns the schedule map for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) schedulesStore(region string) map[string]*Schedule {
+	if b.schedules[region] == nil {
+		b.schedules[region] = make(map[string]*Schedule)
+	}
+
+	return b.schedules[region]
+}
+
+// scheduleARNStore returns the schedule ARN index for the given region, lazily creating it.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) scheduleARNStore(region string) map[string]string {
+	if b.scheduleARNIndex[region] == nil {
+		b.scheduleARNIndex[region] = make(map[string]string)
+	}
+
+	return b.scheduleARNIndex[region]
+}
+
+// scheduleGroupsStore returns the schedule group map for the given region, lazily creating
+// it and seeding the built-in "default" group (which exists in every AWS region).
+// Callers must hold b.mu.
+func (b *InMemoryBackend) scheduleGroupsStore(region string) map[string]*ScheduleGroup {
+	if b.scheduleGroups[region] == nil {
+		b.scheduleGroups[region] = make(map[string]*ScheduleGroup)
+		b.seedDefaultGroup(region)
+	}
+
+	return b.scheduleGroups[region]
+}
+
+// scheduleGroupARNStore returns the schedule group ARN index for the given region,
+// lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) scheduleGroupARNStore(region string) map[string]string {
+	if b.scheduleGroupARNIndex[region] == nil {
+		b.scheduleGroupARNIndex[region] = make(map[string]string)
+	}
+
+	return b.scheduleGroupARNIndex[region]
+}
+
+// seedDefaultGroup creates the built-in "default" schedule group in the given region.
+// It is invoked from scheduleGroupsStore the first time a region's group map is created
+// (and from Reset/Restore), so it writes directly into the region maps, which the caller
+// has already initialised. Callers must hold b.mu (or be in single-threaded setup).
+func (b *InMemoryBackend) seedDefaultGroup(region string) {
 	now := time.Now().UTC()
-	groupARN := arn.Build("scheduler", b.region, b.accountID, "schedule-group/"+defaultGroupName)
+	groupARN := arn.Build("scheduler", region, b.accountID, "schedule-group/"+defaultGroupName)
 	g := &ScheduleGroup{
 		Name:                 defaultGroupName,
 		ARN:                  groupARN,
@@ -223,8 +283,12 @@ func (b *InMemoryBackend) seedDefaultGroup() {
 		LastModificationDate: now,
 		Tags:                 tags.New("scheduler.schedulegroup." + defaultGroupName + ".tags"),
 	}
-	b.scheduleGroups[defaultGroupName] = g
-	b.scheduleGroupARNIndex[groupARN] = defaultGroupName
+	b.scheduleGroups[region][defaultGroupName] = g
+
+	if b.scheduleGroupARNIndex[region] == nil {
+		b.scheduleGroupARNIndex[region] = make(map[string]string)
+	}
+	b.scheduleGroupARNIndex[region][groupARN] = defaultGroupName
 }
 
 // scheduleKey returns the composite map key for a schedule: "groupName/name".
@@ -240,6 +304,7 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // CreateSchedule creates a new schedule in the named group.
 func (b *InMemoryBackend) CreateSchedule(
+	ctx context.Context,
 	name, groupName, expr, description, timezone string,
 	target Target,
 	state string,
@@ -282,19 +347,22 @@ func (b *InMemoryBackend) CreateSchedule(
 		groupName = defaultGroupName
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.scheduleGroups[groupName]; !ok {
+	if _, ok := b.scheduleGroupsStore(region)[groupName]; !ok {
 		return nil, fmt.Errorf("%w: schedule group %s not found", ErrNotFound, groupName)
 	}
 
+	schedules := b.schedulesStore(region)
 	key := scheduleKey(groupName, name)
-	if _, ok := b.schedules[key]; ok {
+	if _, ok := schedules[key]; ok {
 		return nil, fmt.Errorf("%w: schedule %s already exists in group %s", ErrAlreadyExists, name, groupName)
 	}
 
-	schedARN := arn.Build("scheduler", b.region, b.accountID, "schedule/"+groupName+"/"+name)
+	schedARN := arn.Build("scheduler", region, b.accountID, "schedule/"+groupName+"/"+name)
 	now := time.Now().UTC()
 	s := &Schedule{
 		Name:                       name,
@@ -307,28 +375,30 @@ func (b *InMemoryBackend) CreateSchedule(
 		State:                      state,
 		FlexibleTimeWindow:         ftw,
 		AccountID:                  b.accountID,
-		Region:                     b.region,
+		Region:                     region,
 		CreationDate:               now,
 		LastModificationDate:       now,
 		Tags:                       tags.New("scheduler.schedule." + groupName + "." + name + ".tags"),
 	}
 	applyScheduleOptions(opts, s)
-	b.schedules[key] = s
-	b.scheduleARNIndex[schedARN] = key
+	schedules[key] = s
+	b.scheduleARNStore(region)[schedARN] = key
 
 	return cloneSchedule(s), nil
 }
 
 // GetSchedule returns a schedule by name and group.
-func (b *InMemoryBackend) GetSchedule(name, groupName string) (*Schedule, error) {
+func (b *InMemoryBackend) GetSchedule(ctx context.Context, name, groupName string) (*Schedule, error) {
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetSchedule")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schedules[scheduleKey(groupName, name)]
+	s, ok := b.schedulesStore(region)[scheduleKey(groupName, name)]
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
@@ -340,15 +410,19 @@ func (b *InMemoryBackend) GetSchedule(name, groupName string) (*Schedule, error)
 // When maxResults > 0 and nextToken is non-empty it resumes after the token (last seen name).
 // Returns the page of schedules and the next continuation token (empty when no more results).
 func (b *InMemoryBackend) ListSchedules(
+	ctx context.Context,
 	groupName, namePrefix, state, nextToken string,
 	maxResults int,
 ) ([]*Schedule, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
 
-	list := make([]*Schedule, 0, len(b.schedules))
+	schedules := b.schedulesStore(region)
+	list := make([]*Schedule, 0, len(schedules))
 
-	for _, s := range b.schedules {
+	for _, s := range schedules {
 		if groupName != "" && s.GroupName != groupName {
 			continue
 		}
@@ -370,23 +444,26 @@ func (b *InMemoryBackend) ListSchedules(
 }
 
 // DeleteSchedule removes a schedule by name and group.
-func (b *InMemoryBackend) DeleteSchedule(name, groupName string) error {
+func (b *InMemoryBackend) DeleteSchedule(ctx context.Context, name, groupName string) error {
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 
 	key := scheduleKey(groupName, name)
 
-	s, ok := b.schedules[key]
+	schedules := b.schedulesStore(region)
+	s, ok := schedules[key]
 	if !ok {
 		return fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
 
-	delete(b.scheduleARNIndex, s.ARN)
-	delete(b.schedules, key)
+	delete(b.scheduleARNStore(region), s.ARN)
+	delete(schedules, key)
 	s.Tags.Close()
 
 	return nil
@@ -394,6 +471,7 @@ func (b *InMemoryBackend) DeleteSchedule(name, groupName string) error {
 
 // UpdateSchedule updates an existing schedule.
 func (b *InMemoryBackend) UpdateSchedule(
+	ctx context.Context,
 	name, groupName, expr, description, timezone string,
 	target Target,
 	state string,
@@ -420,10 +498,12 @@ func (b *InMemoryBackend) UpdateSchedule(
 		groupName = defaultGroupName
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateSchedule")
 	defer b.mu.Unlock()
 
-	s, ok := b.schedules[scheduleKey(groupName, name)]
+	s, ok := b.schedulesStore(region)[scheduleKey(groupName, name)]
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
@@ -440,18 +520,20 @@ func (b *InMemoryBackend) UpdateSchedule(
 	return cloneSchedule(s), nil
 }
 
-func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, kv map[string]string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
-		b.schedules[key].Tags.Merge(kv)
+	if key, ok := b.scheduleARNStore(region)[resourceARN]; ok {
+		b.schedulesStore(region)[key].Tags.Merge(kv)
 
 		return nil
 	}
 
-	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
-		b.scheduleGroups[name].Tags.Merge(kv)
+	if name, ok := b.scheduleGroupARNStore(region)[resourceARN]; ok {
+		b.scheduleGroupsStore(region)[name].Tags.Merge(kv)
 
 		return nil
 	}
@@ -459,18 +541,20 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
-		b.schedules[key].Tags.DeleteKeys(tagKeys)
+	if key, ok := b.scheduleARNStore(region)[resourceARN]; ok {
+		b.schedulesStore(region)[key].Tags.DeleteKeys(tagKeys)
 
 		return nil
 	}
 
-	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
-		b.scheduleGroups[name].Tags.DeleteKeys(tagKeys)
+	if name, ok := b.scheduleGroupARNStore(region)[resourceARN]; ok {
+		b.scheduleGroupsStore(region)[name].Tags.DeleteKeys(tagKeys)
 
 		return nil
 	}
@@ -478,47 +562,56 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if key, ok := b.scheduleARNIndex[resourceARN]; ok {
-		return b.schedules[key].Tags.Clone(), nil
+	if key, ok := b.scheduleARNStore(region)[resourceARN]; ok {
+		return b.schedulesStore(region)[key].Tags.Clone(), nil
 	}
 
-	if name, ok := b.scheduleGroupARNIndex[resourceARN]; ok {
-		return b.scheduleGroups[name].Tags.Clone(), nil
+	if name, ok := b.scheduleGroupARNStore(region)[resourceARN]; ok {
+		return b.scheduleGroupsStore(region)[name].Tags.Clone(), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
-// Reset clears all in-memory state and re-seeds the default schedule group.
+// Reset clears all in-memory state and re-seeds the default schedule group
+// in the backend's default region.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, s := range b.schedules {
-		if s.Tags != nil {
-			s.Tags.Close()
+	for _, regionSchedules := range b.schedules {
+		for _, s := range regionSchedules {
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
 		}
 	}
 
-	for _, g := range b.scheduleGroups {
-		if g.Tags != nil {
-			g.Tags.Close()
+	for _, regionGroups := range b.scheduleGroups {
+		for _, g := range regionGroups {
+			if g.Tags != nil {
+				g.Tags.Close()
+			}
 		}
 	}
 
-	b.schedules = make(map[string]*Schedule)
-	b.scheduleARNIndex = make(map[string]string)
-	b.scheduleGroups = make(map[string]*ScheduleGroup)
-	b.scheduleGroupARNIndex = make(map[string]string)
-	b.seedDefaultGroup()
+	b.schedules = make(map[string]map[string]*Schedule)
+	b.scheduleARNIndex = make(map[string]map[string]string)
+	b.scheduleGroups = make(map[string]map[string]*ScheduleGroup)
+	b.scheduleGroupARNIndex = make(map[string]map[string]string)
+	// Re-seed the built-in "default" group in the default region.
+	b.scheduleGroupsStore(b.region)
 }
 
 // CreateScheduleGroup creates a new schedule group with the given name and optional tags.
 func (b *InMemoryBackend) CreateScheduleGroup(
+	ctx context.Context,
 	name, description string,
 	initialTags map[string]string,
 ) (*ScheduleGroup, error) {
@@ -526,14 +619,17 @@ func (b *InMemoryBackend) CreateScheduleGroup(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateScheduleGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.scheduleGroups[name]; ok {
+	groups := b.scheduleGroupsStore(region)
+	if _, ok := groups[name]; ok {
 		return nil, fmt.Errorf("%w: schedule group %s already exists", ErrAlreadyExists, name)
 	}
 
-	groupARN := arn.Build("scheduler", b.region, b.accountID, "schedule-group/"+name)
+	groupARN := arn.Build("scheduler", region, b.accountID, "schedule-group/"+name)
 	now := time.Now().UTC()
 	g := &ScheduleGroup{
 		Name:                 name,
@@ -545,18 +641,20 @@ func (b *InMemoryBackend) CreateScheduleGroup(
 		Tags:                 tags.New("scheduler.schedulegroup." + name + ".tags"),
 	}
 	g.Tags.Merge(initialTags)
-	b.scheduleGroups[name] = g
-	b.scheduleGroupARNIndex[groupARN] = name
+	groups[name] = g
+	b.scheduleGroupARNStore(region)[groupARN] = name
 
 	return cloneScheduleGroup(g), nil
 }
 
 // GetScheduleGroup returns the schedule group with the given name.
-func (b *InMemoryBackend) GetScheduleGroup(name string) (*ScheduleGroup, error) {
+func (b *InMemoryBackend) GetScheduleGroup(ctx context.Context, name string) (*ScheduleGroup, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetScheduleGroup")
 	defer b.mu.RUnlock()
 
-	g, ok := b.scheduleGroups[name]
+	g, ok := b.scheduleGroupsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
 	}
@@ -567,32 +665,37 @@ func (b *InMemoryBackend) GetScheduleGroup(name string) (*ScheduleGroup, error) 
 // DeleteScheduleGroup removes the schedule group with the given name.
 // The built-in "default" group cannot be deleted.
 // All schedules within the group are also deleted.
-func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
+func (b *InMemoryBackend) DeleteScheduleGroup(ctx context.Context, name string) error {
 	if name == defaultGroupName {
 		return fmt.Errorf("%w: cannot delete the default schedule group", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteScheduleGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.scheduleGroups[name]
+	groups := b.scheduleGroupsStore(region)
+	g, ok := groups[name]
 	if !ok {
 		return fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
 	}
 
 	// Cascade-delete all schedules belonging to this group.
-	for key, s := range b.schedules {
+	schedules := b.schedulesStore(region)
+	arnIndex := b.scheduleARNStore(region)
+	for key, s := range schedules {
 		if s.GroupName == name {
-			delete(b.scheduleARNIndex, s.ARN)
-			delete(b.schedules, key)
+			delete(arnIndex, s.ARN)
+			delete(schedules, key)
 			if s.Tags != nil {
 				s.Tags.Close()
 			}
 		}
 	}
 
-	delete(b.scheduleGroupARNIndex, g.ARN)
-	delete(b.scheduleGroups, name)
+	delete(b.scheduleGroupARNStore(region), g.ARN)
+	delete(groups, name)
 	g.Tags.Close()
 
 	return nil
@@ -601,13 +704,18 @@ func (b *InMemoryBackend) DeleteScheduleGroup(name string) error {
 // ListScheduleGroups returns schedule groups optionally filtered by name prefix.
 // When maxResults > 0 and nextToken is non-empty it resumes after the token (last seen name).
 // Returns the page of groups and the next continuation token (empty when no more results).
-func (b *InMemoryBackend) ListScheduleGroups(namePrefix, nextToken string, maxResults int) ([]*ScheduleGroup, string) {
+func (b *InMemoryBackend) ListScheduleGroups(
+	ctx context.Context, namePrefix, nextToken string, maxResults int,
+) ([]*ScheduleGroup, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListScheduleGroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*ScheduleGroup, 0, len(b.scheduleGroups))
+	groups := b.scheduleGroupsStore(region)
+	list := make([]*ScheduleGroup, 0, len(groups))
 
-	for _, g := range b.scheduleGroups {
+	for _, g := range groups {
 		if namePrefix != "" && !strings.HasPrefix(g.Name, namePrefix) {
 			continue
 		}
@@ -661,9 +769,15 @@ func (b *InMemoryBackend) AddScheduleInternal(s *Schedule) {
 		s.Tags = tags.New("scheduler.schedule." + s.GroupName + "." + s.Name + ".tags")
 	}
 
+	region := s.Region
+	if region == "" {
+		region = b.region
+		s.Region = region
+	}
+
 	key := scheduleKey(s.GroupName, s.Name)
-	b.schedules[key] = s
-	b.scheduleARNIndex[s.ARN] = key
+	b.schedulesStore(region)[key] = s
+	b.scheduleARNStore(region)[s.ARN] = key
 }
 
 // AddScheduleGroupInternal inserts a schedule group directly for testing purposes.
@@ -676,8 +790,21 @@ func (b *InMemoryBackend) AddScheduleGroupInternal(g *ScheduleGroup) {
 		g.Tags = tags.New("scheduler.schedulegroup." + g.Name + ".tags")
 	}
 
-	b.scheduleGroups[g.Name] = g
-	b.scheduleGroupARNIndex[g.ARN] = g.Name
+	region := regionFromARN(g.ARN, b.region)
+	b.scheduleGroupsStore(region)[g.Name] = g
+	b.scheduleGroupARNStore(region)[g.ARN] = g.Name
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
 }
 
 // cloneSchedule returns a deep copy of a schedule (including a snapshot of its Tags).

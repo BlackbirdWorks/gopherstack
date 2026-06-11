@@ -13,6 +13,7 @@ package bench_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strconv"
 	"testing"
@@ -283,7 +284,7 @@ func BenchmarkSecretsManager_CreateSecret(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := range b.N {
-		_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+		_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         fmt.Sprintf("bench-secret-%d", i),
 			SecretString: `{"key":"value"}`,
 		})
@@ -293,7 +294,7 @@ func BenchmarkSecretsManager_CreateSecret(b *testing.B) {
 
 func BenchmarkSecretsManager_GetSecretValue(b *testing.B) {
 	backend := secretsmanager.NewInMemoryBackend()
-	_, setupErr := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, setupErr := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "bench-secret",
 		SecretString: `{"key":"value"}`,
 	})
@@ -303,7 +304,7 @@ func BenchmarkSecretsManager_GetSecretValue(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		_, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{
+		_, err := backend.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{
 			SecretID: "bench-secret",
 		})
 		require.NoError(b, err)

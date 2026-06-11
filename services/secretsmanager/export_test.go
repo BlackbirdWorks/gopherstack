@@ -2,28 +2,43 @@ package secretsmanager
 
 import "time"
 
-// SecretCount returns the number of secrets in the backend.
+// SecretCount returns the total number of secrets in the backend across all regions.
 func SecretCount(b *InMemoryBackend) int {
 	b.mu.RLock("SecretCount")
 	defer b.mu.RUnlock()
 
-	return len(b.secrets)
+	total := 0
+	for _, regionSecrets := range b.secrets {
+		total += len(regionSecrets)
+	}
+
+	return total
 }
 
-// ResourcePolicyCount returns the number of resource policies in the backend.
+// ResourcePolicyCount returns the total number of resource policies across all regions.
 func ResourcePolicyCount(b *InMemoryBackend) int {
 	b.mu.RLock("ResourcePolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.resourcePolicies)
+	total := 0
+	for _, regionPolicies := range b.resourcePolicies {
+		total += len(regionPolicies)
+	}
+
+	return total
 }
 
-// ReplicationConfigCount returns the number of replication configs in the backend.
+// ReplicationConfigCount returns the total number of replication configs across all regions.
 func ReplicationConfigCount(b *InMemoryBackend) int {
 	b.mu.RLock("ReplicationConfigCount")
 	defer b.mu.RUnlock()
 
-	return len(b.replicationConfigs)
+	total := 0
+	for _, regionConfigs := range b.replicationConfigs {
+		total += len(regionConfigs)
+	}
+
+	return total
 }
 
 // HandlerOpsLen returns the number of operations registered in the handler dispatch table.

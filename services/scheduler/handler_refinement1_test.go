@@ -1,6 +1,7 @@
 package scheduler_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +86,7 @@ func TestRefinement1_ScheduleGroupCount(t *testing.T) {
 	// Seeded with "default" group.
 	assert.Equal(t, 1, scheduler.ScheduleGroupCount(b))
 
-	_, err := b.CreateScheduleGroup("prod", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "prod", "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, scheduler.ScheduleGroupCount(b))
 }
@@ -104,7 +105,7 @@ func TestRefinement1_AddScheduleInternal(t *testing.T) {
 
 	assert.Equal(t, 1, scheduler.ScheduleCount(b))
 
-	s, err := b.GetSchedule("injected", "default")
+	s, err := b.GetSchedule(context.Background(), "injected", "default")
 	require.NoError(t, err)
 	assert.Equal(t, "injected", s.Name)
 }
@@ -121,7 +122,7 @@ func TestRefinement1_AddScheduleGroupInternal(t *testing.T) {
 
 	assert.Equal(t, 2, scheduler.ScheduleGroupCount(b))
 
-	g, err := b.GetScheduleGroup("injected-group")
+	g, err := b.GetScheduleGroup(context.Background(), "injected-group")
 	require.NoError(t, err)
 	assert.Equal(t, "injected-group", g.Name)
 }
@@ -289,9 +290,9 @@ func TestRefinement1_ListSchedulesFilterByGroupName(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup("g1", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "g1", "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateScheduleGroup("g2", "", nil)
+	_, err = b.CreateScheduleGroup(context.Background(), "g2", "", nil)
 	require.NoError(t, err)
 
 	createScheduleViaHandler(t, h, "in-g1", "g1", "rate(1 minute)")
@@ -380,9 +381,9 @@ func TestRefinement1_ListScheduleGroupsFilterByNamePrefix(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup("prod-group", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "prod-group", "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateScheduleGroup("dev-group", "", nil)
+	_, err = b.CreateScheduleGroup(context.Background(), "dev-group", "", nil)
 	require.NoError(t, err)
 
 	rec := doSchedulerRequest(t, h, "ListScheduleGroups", map[string]any{"NamePrefix": "prod-"})
@@ -402,9 +403,9 @@ func TestRefinement1_ListScheduleGroupsSorted(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup("zoo", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "zoo", "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateScheduleGroup("aardvark", "", nil)
+	_, err = b.CreateScheduleGroup(context.Background(), "aardvark", "", nil)
 	require.NoError(t, err)
 
 	rec := doSchedulerRequest(t, h, "ListScheduleGroups", map[string]any{})
@@ -433,7 +434,7 @@ func TestRefinement1_UpdateScheduleUpdatesLastModificationDate(t *testing.T) {
 
 	createScheduleViaHandler(t, h, "upd-sched", "", "rate(1 minute)")
 
-	s1, err := b.GetSchedule("upd-sched", "")
+	s1, err := b.GetSchedule(context.Background(), "upd-sched", "")
 	require.NoError(t, err)
 
 	// Advance time enough to guarantee LastModificationDate changes.
@@ -447,7 +448,7 @@ func TestRefinement1_UpdateScheduleUpdatesLastModificationDate(t *testing.T) {
 		"State":              "ENABLED",
 	})
 
-	s2, err := b.GetSchedule("upd-sched", "")
+	s2, err := b.GetSchedule(context.Background(), "upd-sched", "")
 	require.NoError(t, err)
 
 	assert.True(t, s2.LastModificationDate.After(s1.LastModificationDate),
@@ -508,7 +509,7 @@ func TestRefinement1_UntagResource(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	grp, err := b.CreateScheduleGroup("tag-grp", "", map[string]string{"k1": "v1", "k2": "v2"})
+	grp, err := b.CreateScheduleGroup(context.Background(), "tag-grp", "", map[string]string{"k1": "v1", "k2": "v2"})
 	require.NoError(t, err)
 
 	untagRec := doSchedulerRequest(t, h, "UntagResource", map[string]any{
@@ -533,7 +534,7 @@ func TestRefinement1_DeleteScheduleInCustomGroup(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup("custom", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "custom", "", nil)
 	require.NoError(t, err)
 
 	createScheduleViaHandler(t, h, "del-sched", "custom", "rate(1 minute)")
@@ -610,10 +611,11 @@ func TestRefinement1_PersistenceRoundTripWithGroupName(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateScheduleGroup("mygrp", "a description", map[string]string{"env": "test"})
+	_, err := b.CreateScheduleGroup(context.Background(), "mygrp", "a description", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	_, err = b.CreateSchedule(
+		context.Background(),
 		"grp-sched", "mygrp", "rate(5 minutes)", "desc", "UTC",
 		scheduler.Target{ARN: "arn:a", RoleARN: "arn:r"},
 		"ENABLED",
@@ -627,18 +629,18 @@ func TestRefinement1_PersistenceRoundTripWithGroupName(t *testing.T) {
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, fresh.Restore(snap))
 
-	s, err := fresh.GetSchedule("grp-sched", "mygrp")
+	s, err := fresh.GetSchedule(context.Background(), "grp-sched", "mygrp")
 	require.NoError(t, err)
 	assert.Equal(t, "mygrp", s.GroupName)
 	assert.Equal(t, "UTC", s.ScheduleExpressionTimezone)
 	assert.Equal(t, "desc", s.Description)
 
-	g, err := fresh.GetScheduleGroup("mygrp")
+	g, err := fresh.GetScheduleGroup(context.Background(), "mygrp")
 	require.NoError(t, err)
 	assert.Equal(t, "a description", g.Description)
 
 	// Verify tags were persisted for the group.
-	kv, err := fresh.ListTagsForResource(g.ARN)
+	kv, err := fresh.ListTagsForResource(context.Background(), g.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test", kv["env"])
 }
@@ -648,9 +650,9 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateScheduleGroup("grp", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "grp", "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateSchedule("s1", "grp", "rate(1 minute)", "", "",
+	_, err = b.CreateSchedule(context.Background(), "s1", "grp", "rate(1 minute)", "", "",
 		scheduler.Target{ARN: "arn:a", RoleARN: "arn:r"}, "ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"})
 	require.NoError(t, err)
 
@@ -782,7 +784,7 @@ func TestRefinement1_ListSchedulesIncludesGroupNameAndDates(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	b := h.Backend.(*scheduler.InMemoryBackend)
 
-	_, err := b.CreateScheduleGroup("custom-g", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "custom-g", "", nil)
 	require.NoError(t, err)
 
 	createScheduleViaHandler(t, h, "dated-sched", "custom-g", "rate(1 minute)")

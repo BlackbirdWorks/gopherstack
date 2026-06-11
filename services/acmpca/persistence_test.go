@@ -1,6 +1,7 @@
 package acmpca_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,9 +21,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "root_ca_round_trip",
 			setup: func(b *acmpca.InMemoryBackend) string {
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+					},
+				)
 				if err != nil {
 					return ""
 				}
@@ -32,7 +37,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acmpca.InMemoryBackend, id string) {
 				t.Helper()
 
-				ca, err := b.DescribeCertificateAuthority(id)
+				ca, err := b.DescribeCertificateAuthority(context.Background(), id)
 				require.NoError(t, err)
 				assert.Equal(t, "ACTIVE", ca.Status)
 				assert.Equal(t, "ROOT", ca.Type)
@@ -41,19 +46,23 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "issued_cert_round_trip",
 			setup: func(b *acmpca.InMemoryBackend) string {
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+					},
+				)
 				if err != nil {
 					return ""
 				}
 
-				csr, err := b.GetCertificateAuthorityCsr(ca.ARN)
+				csr, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 				if err != nil {
 					return ""
 				}
 
-				cert, err := b.IssueCertificate(ca.ARN, csr, 365)
+				cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 365)
 				if err != nil {
 					return ""
 				}
@@ -65,10 +74,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				// IssuedCertificate ARN contains the CA ARN as a prefix
 				// Find the cert by listing all CAs first
-				cas := b.ListCertificateAuthorities("", 0).Data
+				cas := b.ListCertificateAuthorities(context.Background(), "", 0).Data
 				require.NotEmpty(t, cas)
 
-				certs := b.ListCertificates(cas[0].ARN, "", 0).Data
+				certs := b.ListCertificates(context.Background(), cas[0].ARN, "", 0).Data
 				require.NotEmpty(t, certs, "issued certificate should be restored")
 			},
 		},
@@ -78,7 +87,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acmpca.InMemoryBackend, _ string) {
 				t.Helper()
 
-				cas := b.ListCertificateAuthorities("", 0).Data
+				cas := b.ListCertificateAuthorities(context.Background(), "", 0).Data
 				assert.Empty(t, cas)
 			},
 		},
@@ -127,23 +136,27 @@ func TestInMemoryBackend_GetCertificate(t *testing.T) {
 
 			b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csr, err := b.GetCertificateAuthorityCsr(ca.ARN)
+			csr, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 			require.NoError(t, err)
 
-			issuedCert, err := b.IssueCertificate(ca.ARN, csr, 365)
+			issuedCert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 365)
 			require.NoError(t, err)
 
 			if tt.wantErr {
-				_, err = b.GetCertificate(ca.ARN, "nonexistent-arn")
+				_, err = b.GetCertificate(context.Background(), ca.ARN, "nonexistent-arn")
 				require.Error(t, err)
 			} else {
 				var cert *acmpca.IssuedCertificate
-				cert, err = b.GetCertificate(ca.ARN, issuedCert.ARN)
+				cert, err = b.GetCertificate(context.Background(), ca.ARN, issuedCert.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, issuedCert.ARN, cert.ARN)
 				assert.Equal(t, ca.ARN, cert.CAARN)
@@ -170,15 +183,19 @@ func TestInMemoryBackend_RevokeCertificate(t *testing.T) {
 
 			b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csr, err := b.GetCertificateAuthorityCsr(ca.ARN)
+			csr, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 			require.NoError(t, err)
 
-			cert, err := b.IssueCertificate(ca.ARN, csr, 365)
+			cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 365)
 			require.NoError(t, err)
 
 			serial := tt.serial
@@ -186,7 +203,7 @@ func TestInMemoryBackend_RevokeCertificate(t *testing.T) {
 				serial = cert.Serial
 			}
 
-			err = b.RevokeCertificate(ca.ARN, serial, "KEY_COMPROMISE")
+			err = b.RevokeCertificate(context.Background(), ca.ARN, serial, "KEY_COMPROMISE")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -194,7 +211,7 @@ func TestInMemoryBackend_RevokeCertificate(t *testing.T) {
 				require.NoError(t, err)
 
 				var got *acmpca.IssuedCertificate
-				got, err = b.GetCertificate(ca.ARN, cert.ARN)
+				got, err = b.GetCertificate(context.Background(), ca.ARN, cert.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "REVOKED", got.Status)
 			}
@@ -207,22 +224,22 @@ func TestInMemoryBackend_ListCertificates(t *testing.T) {
 
 	b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 
-	ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+	ca, err := b.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
 		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
 	})
 	require.NoError(t, err)
 
-	csr, err := b.GetCertificateAuthorityCsr(ca.ARN)
+	csr, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 	require.NoError(t, err)
 
-	_, err = b.IssueCertificate(ca.ARN, csr, 365)
+	_, err = b.IssueCertificate(context.Background(), ca.ARN, csr, 365)
 	require.NoError(t, err)
 
-	certs := b.ListCertificates(ca.ARN, "", 0).Data
+	certs := b.ListCertificates(context.Background(), ca.ARN, "", 0).Data
 	assert.Len(t, certs, 1)
 
 	// Non-existent CA returns empty list.
-	empty := b.ListCertificates("nonexistent", "", 0).Data
+	empty := b.ListCertificates(context.Background(), "nonexistent", "", 0).Data
 	assert.Empty(t, empty)
 }
 
@@ -245,9 +262,13 @@ func TestInMemoryBackend_UpdateCertificateAuthority(t *testing.T) {
 
 			b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			caARN := tt.caARN
@@ -255,7 +276,7 @@ func TestInMemoryBackend_UpdateCertificateAuthority(t *testing.T) {
 				caARN = ca.ARN
 			}
 
-			err = b.UpdateCertificateAuthority(caARN, tt.status)
+			err = b.UpdateCertificateAuthority(context.Background(), caARN, tt.status)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -263,7 +284,7 @@ func TestInMemoryBackend_UpdateCertificateAuthority(t *testing.T) {
 				require.NoError(t, err)
 
 				var got *acmpca.CertificateAuthority
-				got, err = b.DescribeCertificateAuthority(caARN)
+				got, err = b.DescribeCertificateAuthority(context.Background(), caARN)
 				require.NoError(t, err)
 				assert.Equal(t, tt.status, got.Status)
 			}
@@ -277,12 +298,12 @@ func TestInMemoryBackend_ImportCertificateAuthorityCertificate(t *testing.T) {
 	b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 
 	// For a ROOT CA, self-sign is automatic. Test that GetCertificateAuthorityCertificate works.
-	ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+	ca, err := b.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
 		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
 	})
 	require.NoError(t, err)
 
-	certPEM, chainPEM, err := b.GetCertificateAuthorityCertificate(ca.ARN)
+	certPEM, chainPEM, err := b.GetCertificateAuthorityCertificate(context.Background(), ca.ARN)
 	require.NoError(t, err)
 	assert.NotEmpty(t, certPEM)
 	assert.Empty(t, chainPEM) // Root CA has no chain
@@ -301,7 +322,7 @@ func TestACMPCAHandler_Persistence(t *testing.T) {
 	backend := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 	h := acmpca.NewHandler(backend)
 
-	_, err := backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+	_, err := backend.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
 		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
 	})
 	require.NoError(t, err)
@@ -313,7 +334,7 @@ func TestACMPCAHandler_Persistence(t *testing.T) {
 	freshH := acmpca.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	cas := fresh.ListCertificateAuthorities("", 0).Data
+	cas := fresh.ListCertificateAuthorities(context.Background(), "", 0).Data
 	assert.Len(t, cas, 1)
 }
 
@@ -329,16 +350,16 @@ func TestInMemoryBackend_SnapshotRestore_AdditionalState(t *testing.T) {
 			verify: func(t *testing.T, b *acmpca.InMemoryBackend, caARN, reportID string) {
 				t.Helper()
 
-				perms, err := b.ListPermissions(caARN, "", 0)
+				perms, err := b.ListPermissions(context.Background(), caARN, "", 0)
 				require.NoError(t, err)
 				require.Len(t, perms.Data, 1)
 				assert.Equal(t, "acm.amazonaws.com", perms.Data[0].Principal)
 
-				policy, err := b.GetPolicy(caARN)
+				policy, err := b.GetPolicy(context.Background(), caARN)
 				require.NoError(t, err)
 				assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, policy)
 
-				report, err := b.DescribeCertificateAuthorityAuditReport(caARN, reportID)
+				report, err := b.DescribeCertificateAuthorityAuditReport(context.Background(), caARN, reportID)
 				require.NoError(t, err)
 				assert.Equal(t, "audit-bucket", report.S3BucketName)
 			},
@@ -350,16 +371,34 @@ func TestInMemoryBackend_SnapshotRestore_AdditionalState(t *testing.T) {
 			t.Parallel()
 
 			original := acmpca.NewInMemoryBackend(testAccountID, testRegion)
-			ca, err := original.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Persist CA"},
-			})
+			ca, err := original.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Persist CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			_, err = original.CreatePermission(ca.ARN, "acm.amazonaws.com", testAccountID, []string{"IssueCertificate"})
+			_, err = original.CreatePermission(
+				context.Background(),
+				ca.ARN,
+				"acm.amazonaws.com",
+				testAccountID,
+				[]string{"IssueCertificate"},
+			)
 			require.NoError(t, err)
-			require.NoError(t, original.PutPolicy(ca.ARN, `{"Version":"2012-10-17","Statement":[]}`))
+			require.NoError(
+				t,
+				original.PutPolicy(context.Background(), ca.ARN, `{"Version":"2012-10-17","Statement":[]}`),
+			)
 
-			report, err := original.CreateCertificateAuthorityAuditReport(ca.ARN, "audit-bucket", "JSON")
+			report, err := original.CreateCertificateAuthorityAuditReport(
+				context.Background(),
+				ca.ARN,
+				"audit-bucket",
+				"JSON",
+			)
 			require.NoError(t, err)
 
 			fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)

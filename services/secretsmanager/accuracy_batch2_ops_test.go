@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -30,9 +31,12 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret(t *testing.T) {
 			name: "backend_deleted_returns_error",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "grp-del", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "grp-del", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{SecretID: "grp-del"})
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "grp-del"})
 				require.NoError(t, err)
 			},
 			wantFn: func(t *testing.T, err error) {
@@ -44,7 +48,10 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret(t *testing.T) {
 			name: "backend_active_no_policy_returns_empty",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "grp-active", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "grp-active", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			wantFn: func(t *testing.T, err error) {
@@ -77,7 +84,7 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret(t *testing.T) {
 				"backend_not_found_returns_error":        "nonexistent",
 			}[tt.name]
 
-			_, err := b.GetResourcePolicy(&sm.GetResourcePolicyInput{SecretID: secretID})
+			_, err := b.GetResourcePolicy(context.Background(), &sm.GetResourcePolicyInput{SecretID: secretID})
 			tt.wantFn(t, err)
 		})
 	}
@@ -99,9 +106,12 @@ func TestBatch2Ops_GetResourcePolicy_DeletedSecret_HTTP(t *testing.T) {
 			name: "deleted_returns_400_InvalidRequestException",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "grp-http-del", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "grp-http-del", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{SecretID: "grp-http-del"})
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "grp-http-del"})
 				require.NoError(t, err)
 			},
 			body:           `{"SecretId":"grp-http-del"}`,
@@ -156,7 +166,10 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 			name: "only_current_version_appears",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				out, err := b.CreateSecret(&sm.CreateSecretInput{Name: "desc-stg-1", SecretString: "v1"})
+				out, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "desc-stg-1", SecretString: "v1"},
+				)
 				require.NoError(t, err)
 
 				return out.VersionID
@@ -172,14 +185,23 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 			name: "unlabeled_version_excluded",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "desc-stg-2", SecretString: "v1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "desc-stg-2", SecretString: "v1"},
+				)
 				require.NoError(t, err)
 				// Second PutSecretValue promotes v1 to AWSPREVIOUS, v2 to AWSCURRENT.
-				_, err = b.PutSecretValue(&sm.PutSecretValueInput{SecretID: "desc-stg-2", SecretString: "v2"})
+				_, err = b.PutSecretValue(
+					context.Background(),
+					&sm.PutSecretValueInput{SecretID: "desc-stg-2", SecretString: "v2"},
+				)
 				require.NoError(t, err)
 				// Third PutSecretValue: v1 loses AWSPREVIOUS (it had it from the prior rotate),
 				// v2 becomes AWSPREVIOUS, v3 becomes AWSCURRENT. v1 is now unlabeled.
-				out, err := b.PutSecretValue(&sm.PutSecretValueInput{SecretID: "desc-stg-2", SecretString: "v3"})
+				out, err := b.PutSecretValue(
+					context.Background(),
+					&sm.PutSecretValueInput{SecretID: "desc-stg-2", SecretString: "v3"},
+				)
 				require.NoError(t, err)
 
 				return out.VersionID
@@ -205,7 +227,7 @@ func TestBatch2Ops_DescribeSecret_VersionIDsToStages_ExcludesUnlabeled(t *testin
 			b := sm.NewInMemoryBackend()
 			versionID := tt.setup(t, b)
 
-			out, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: func() string {
+			out, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: func() string {
 				if tt.name == "only_current_version_appears" {
 					return "desc-stg-1"
 				}
@@ -238,10 +260,10 @@ func TestBatch2Ops_ListSecrets_IncludesRotationRules(t *testing.T) {
 			name: "rotation_rules_returned_in_list",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "ls-rot", SecretString: "v"})
+				_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{Name: "ls-rot", SecretString: "v"})
 				require.NoError(t, err)
 				days := int64(30)
-				_, err = b.RotateSecret(&sm.RotateSecretInput{
+				_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{
 					SecretID: "ls-rot",
 					RotationRules: &sm.RotationRulesType{
 						AutomaticallyAfterDays: &days,
@@ -263,7 +285,10 @@ func TestBatch2Ops_ListSecrets_IncludesRotationRules(t *testing.T) {
 			name: "no_rotation_rules_when_not_configured",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "ls-norot", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "ls-norot", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			checkFn: func(t *testing.T, out *sm.ListSecretsOutput) {
@@ -278,10 +303,13 @@ func TestBatch2Ops_ListSecrets_IncludesRotationRules(t *testing.T) {
 			name: "rotation_rules_in_http_response",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "ls-http-rot", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "ls-http-rot", SecretString: "v"},
+				)
 				require.NoError(t, err)
 				days := int64(7)
-				_, err = b.RotateSecret(&sm.RotateSecretInput{
+				_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{
 					SecretID: "ls-http-rot",
 					RotationRules: &sm.RotationRulesType{
 						AutomaticallyAfterDays: &days,
@@ -306,7 +334,7 @@ func TestBatch2Ops_ListSecrets_IncludesRotationRules(t *testing.T) {
 			b := sm.NewInMemoryBackend()
 			tt.setup(t, b)
 
-			out, err := b.ListSecrets(&sm.ListSecretsInput{})
+			out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{})
 			require.NoError(t, err)
 
 			tt.checkFn(t, out)
@@ -334,7 +362,10 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			name: "by_id_list_updates_accessed_date",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "bgv-acc-1", SecretString: "val"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "bgv-acc-1", SecretString: "val"},
+				)
 				require.NoError(t, err)
 			},
 			inputFn: func() *sm.BatchGetSecretValueInput {
@@ -342,7 +373,7 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			},
 			checkFn: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "bgv-acc-1"})
+				desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "bgv-acc-1"})
 				require.NoError(t, err)
 				assert.NotNil(t, desc.LastAccessedDate, "LastAccessedDate must be set after BatchGetSecretValue")
 			},
@@ -351,7 +382,10 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			name: "by_filter_updates_accessed_date",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "bgv-filt-1", SecretString: "val"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "bgv-filt-1", SecretString: "val"},
+				)
 				require.NoError(t, err)
 			},
 			inputFn: func() *sm.BatchGetSecretValueInput {
@@ -359,7 +393,7 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			},
 			checkFn: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "bgv-filt-1"})
+				desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "bgv-filt-1"})
 				require.NoError(t, err)
 				assert.NotNil(
 					t,
@@ -372,9 +406,12 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			name: "deleted_secret_in_id_list_does_not_update",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "bgv-del-1", SecretString: "val"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "bgv-del-1", SecretString: "val"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{SecretID: "bgv-del-1"})
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "bgv-del-1"})
 				require.NoError(t, err)
 			},
 			inputFn: func() *sm.BatchGetSecretValueInput {
@@ -382,7 +419,7 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			},
 			checkFn: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "bgv-del-1"})
+				desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "bgv-del-1"})
 				require.NoError(t, err)
 				assert.Nil(t, desc.LastAccessedDate, "deleted secret must not have LastAccessedDate updated")
 			},
@@ -396,7 +433,7 @@ func TestBatch2Ops_BatchGetSecretValue_UpdatesLastAccessedDate(t *testing.T) {
 			b := sm.NewInMemoryBackend()
 			tt.setup(t, b)
 
-			out, err := b.BatchGetSecretValue(tt.inputFn())
+			out, err := b.BatchGetSecretValue(context.Background(), tt.inputFn())
 			require.NoError(t, err)
 
 			// For the non-deleted cases, verify we got a successful result.

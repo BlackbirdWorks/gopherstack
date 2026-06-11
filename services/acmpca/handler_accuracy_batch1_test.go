@@ -1,6 +1,7 @@
 package acmpca_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -87,9 +88,13 @@ func TestACMPCA_Accuracy_GetCertificateAuthorityCertificate_NoCert(t *testing.T)
 			t.Parallel()
 
 			h := newACMPCAHandler()
-			ca, err := h.Backend.CreateCertificateAuthority(tt.caType, acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-			})
+			ca, err := h.Backend.CreateCertificateAuthority(
+				context.Background(),
+				tt.caType,
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			rec := doACMPCARequest(t, h, "GetCertificateAuthorityCertificate", map[string]any{
@@ -113,14 +118,22 @@ func TestACMPCA_Accuracy_GetCertificateAuthorityCertificate_AfterImport(t *testi
 	h := newACMPCAHandler()
 
 	// Use a ROOT CA (auto-signed, ACTIVE) to issue a cert for a SUBORDINATE CA.
-	rootCA, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
-	})
+	rootCA, err := h.Backend.CreateCertificateAuthority(
+		context.Background(),
+		"ROOT",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
+		},
+	)
 	require.NoError(t, err)
 
-	subCA, err := h.Backend.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
-	})
+	subCA, err := h.Backend.CreateCertificateAuthority(
+		context.Background(),
+		"SUBORDINATE",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "PENDING_CERTIFICATE", subCA.Status)
 
@@ -131,14 +144,14 @@ func TestACMPCA_Accuracy_GetCertificateAuthorityCertificate_AfterImport(t *testi
 	assert.Equal(t, http.StatusBadRequest, noCertRec.Code)
 
 	// Issue a cert for the subordinate CA from the root CA.
-	csrPEM, err := h.Backend.GetCertificateAuthorityCsr(subCA.ARN)
+	csrPEM, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 	require.NoError(t, err)
 
-	issuedCert, err := h.Backend.IssueCertificate(rootCA.ARN, csrPEM, 365)
+	issuedCert, err := h.Backend.IssueCertificate(context.Background(), rootCA.ARN, csrPEM, 365)
 	require.NoError(t, err)
 
 	// Get the cert PEM from the issued cert.
-	gotCert, err := h.Backend.GetCertificate(rootCA.ARN, issuedCert.ARN)
+	gotCert, err := h.Backend.GetCertificate(context.Background(), rootCA.ARN, issuedCert.ARN)
 	require.NoError(t, err)
 
 	// Import the cert to activate the subordinate CA.
@@ -191,25 +204,33 @@ func TestACMPCA_Accuracy_RevokeCertificate_DeletedCA(t *testing.T) {
 			b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 			h := acmpca.NewHandler(b)
 
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			subCA, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
-			})
+			subCA, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"SUBORDINATE",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csrPEM, err := b.GetCertificateAuthorityCsr(subCA.ARN)
+			csrPEM, err := b.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 			require.NoError(t, err)
 
-			issuedCert, err := b.IssueCertificate(ca.ARN, csrPEM, 365)
+			issuedCert, err := b.IssueCertificate(context.Background(), ca.ARN, csrPEM, 365)
 			require.NoError(t, err)
 
 			if tt.deleted {
-				require.NoError(t, b.UpdateCertificateAuthority(ca.ARN, "DISABLED"))
-				require.NoError(t, b.DeleteCertificateAuthority(ca.ARN, 0))
+				require.NoError(t, b.UpdateCertificateAuthority(context.Background(), ca.ARN, "DISABLED"))
+				require.NoError(t, b.DeleteCertificateAuthority(context.Background(), ca.ARN, 0))
 			}
 
 			rec := doACMPCARequest(t, h, "RevokeCertificate", map[string]any{
@@ -256,9 +277,13 @@ func TestACMPCA_Accuracy_CreateAuditReport_RequiresActiveCA(t *testing.T) {
 			t.Parallel()
 
 			h := newACMPCAHandler()
-			ca, err := h.Backend.CreateCertificateAuthority(tt.caType, acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-			})
+			ca, err := h.Backend.CreateCertificateAuthority(
+				context.Background(),
+				tt.caType,
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			rec := doACMPCARequest(t, h, "CreateCertificateAuthorityAuditReport", map[string]any{
@@ -299,17 +324,25 @@ func TestACMPCA_Accuracy_IssueCertificate_ValidityTypes(t *testing.T) {
 			b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
 			h := acmpca.NewHandler(b)
 
-			rootCA, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
-			})
+			rootCA, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			subCA, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
-			})
+			subCA, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"SUBORDINATE",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csrPEM, err := b.GetCertificateAuthorityCsr(subCA.ARN)
+			csrPEM, err := b.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 			require.NoError(t, err)
 
 			rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
@@ -365,13 +398,17 @@ func TestACMPCA_Accuracy_DeleteCA_StateMachine(t *testing.T) {
 			t.Parallel()
 
 			h := newACMPCAHandler()
-			ca, err := h.Backend.CreateCertificateAuthority(tt.caType, acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-			})
+			ca, err := h.Backend.CreateCertificateAuthority(
+				context.Background(),
+				tt.caType,
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			if tt.disableCA {
-				require.NoError(t, h.Backend.UpdateCertificateAuthority(ca.ARN, "DISABLED"))
+				require.NoError(t, h.Backend.UpdateCertificateAuthority(context.Background(), ca.ARN, "DISABLED"))
 			}
 
 			rec := doACMPCARequest(t, h, "DeleteCertificateAuthority", map[string]any{
@@ -394,13 +431,17 @@ func TestACMPCA_Accuracy_RestoreCA_AfterDelete(t *testing.T) {
 
 	h := newACMPCAHandler()
 
-	ca, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Restore CA"},
-	})
+	ca, err := h.Backend.CreateCertificateAuthority(
+		context.Background(),
+		"ROOT",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{CommonName: "Restore CA"},
+		},
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, h.Backend.UpdateCertificateAuthority(ca.ARN, "DISABLED"))
-	require.NoError(t, h.Backend.DeleteCertificateAuthority(ca.ARN, 0))
+	require.NoError(t, h.Backend.UpdateCertificateAuthority(context.Background(), ca.ARN, "DISABLED"))
+	require.NoError(t, h.Backend.DeleteCertificateAuthority(context.Background(), ca.ARN, 0))
 
 	rec := doACMPCARequest(t, h, "RestoreCertificateAuthority", map[string]any{
 		"CertificateAuthorityArn": ca.ARN,
@@ -450,12 +491,16 @@ func TestACMPCA_Accuracy_PermanentDeletionTimeInDays(t *testing.T) {
 			t.Parallel()
 
 			h := newACMPCAHandler()
-			ca, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-			})
+			ca, err := h.Backend.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			require.NoError(t, h.Backend.UpdateCertificateAuthority(ca.ARN, "DISABLED"))
+			require.NoError(t, h.Backend.UpdateCertificateAuthority(context.Background(), ca.ARN, "DISABLED"))
 
 			rec := doACMPCARequest(t, h, "DeleteCertificateAuthority", map[string]any{
 				"CertificateAuthorityArn":     ca.ARN,
@@ -480,9 +525,13 @@ func TestACMPCA_Accuracy_ListCertificateAuthorities_Pagination(t *testing.T) {
 
 	// Create 3 CAs.
 	for range 3 {
-		_, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-			Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-		})
+		_, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"ROOT",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+			},
+		)
 		require.NoError(t, err)
 	}
 

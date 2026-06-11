@@ -250,147 +250,147 @@ type smActionFn func(ctx context.Context, region string, body []byte) (any, erro
 
 func (h *Handler) smExtendedActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+		"GetResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input GetResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetResourcePolicy(&input)
+			return h.Backend.GetResourcePolicy(ctx, &input)
 		},
-		"PutResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+		"PutResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input PutResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutResourcePolicy(&input)
+			return h.Backend.PutResourcePolicy(ctx, &input)
 		},
-		"DeleteResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+		"DeleteResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DeleteResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteResourcePolicy(&input)
+			return h.Backend.DeleteResourcePolicy(ctx, &input)
 		},
-		"BatchGetSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
+		"BatchGetSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input BatchGetSecretValueInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.BatchGetSecretValue(&input)
+			return h.Backend.BatchGetSecretValue(ctx, &input)
 		},
-		"CancelRotateSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+		"CancelRotateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input CancelRotateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CancelRotateSecret(&input)
+			return h.Backend.CancelRotateSecret(ctx, &input)
 		},
-		"ReplicateSecretToRegions": func(_ context.Context, _ string, b []byte) (any, error) {
+		"ReplicateSecretToRegions": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ReplicateSecretToRegionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ReplicateSecretToRegions(&input)
+			return h.Backend.ReplicateSecretToRegions(ctx, &input)
 		},
-		"RemoveRegionsFromReplication": func(_ context.Context, _ string, b []byte) (any, error) {
+		"RemoveRegionsFromReplication": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input RemoveRegionsFromReplicationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RemoveRegionsFromReplication(&input)
+			return h.Backend.RemoveRegionsFromReplication(ctx, &input)
 		},
-		"StopReplicationToReplica": func(_ context.Context, _ string, b []byte) (any, error) {
+		"StopReplicationToReplica": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input StopReplicationToReplicaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.StopReplicationToReplica(&input)
+			return h.Backend.StopReplicationToReplica(ctx, &input)
 		},
-		"ValidateResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+		"ValidateResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ValidateResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ValidateResourcePolicy(&input)
+			return h.Backend.ValidateResourcePolicy(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) smCRUDActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"CreateSecret": func(_ context.Context, region string, b []byte) (any, error) {
+		"CreateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
 			var input CreateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			input.Region = region
 
-			return h.Backend.CreateSecret(&input)
+			return h.Backend.CreateSecret(ctx, &input)
 		},
-		"GetSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
+		"GetSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input GetSecretValueInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetSecretValue(&input)
+			return h.Backend.GetSecretValue(ctx, &input)
 		},
-		"PutSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
+		"PutSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input PutSecretValueInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.PutSecretValue(&input)
+			return h.Backend.PutSecretValue(ctx, &input)
 		},
-		"DeleteSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+		"DeleteSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DeleteSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeleteSecret(&input)
+			return h.Backend.DeleteSecret(ctx, &input)
 		},
-		"ListSecrets": func(_ context.Context, _ string, b []byte) (any, error) {
+		"ListSecrets": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListSecrets(&input)
+			return h.Backend.ListSecrets(ctx, &input)
 		},
-		"DescribeSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+		"DescribeSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DescribeSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeSecret(&input)
+			return h.Backend.DescribeSecret(ctx, &input)
 		},
-		"UpdateSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+		"UpdateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input UpdateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateSecret(&input)
+			return h.Backend.UpdateSecret(ctx, &input)
 		},
-		"RestoreSecret": func(_ context.Context, _ string, b []byte) (any, error) {
+		"RestoreSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input RestoreSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RestoreSecret(&input)
+			return h.Backend.RestoreSecret(ctx, &input)
 		},
 		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
 			var input RotateSecretInput
@@ -413,42 +413,42 @@ func (h *Handler) smCRUDActions() map[string]smActionFn {
 
 func (h *Handler) smTagActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"TagResource": func(_ context.Context, _ string, b []byte) (any, error) {
+		"TagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input TagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.TagResource(&input)
+			return struct{}{}, h.Backend.TagResource(ctx, &input)
 		},
-		"UntagResource": func(_ context.Context, _ string, b []byte) (any, error) {
+		"UntagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input UntagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.UntagResource(&input)
+			return struct{}{}, h.Backend.UntagResource(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) smVersionActions() map[string]smActionFn {
 	return map[string]smActionFn{
-		"ListSecretVersionIds": func(_ context.Context, _ string, b []byte) (any, error) {
+		"ListSecretVersionIds": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretVersionIDsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListSecretVersionIDs(&input)
+			return h.Backend.ListSecretVersionIDs(ctx, &input)
 		},
-		"UpdateSecretVersionStage": func(_ context.Context, _ string, b []byte) (any, error) {
+		"UpdateSecretVersionStage": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input UpdateSecretVersionStageInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.UpdateSecretVersionStage(&input)
+			return h.Backend.UpdateSecretVersionStage(ctx, &input)
 		},
 	}
 }
@@ -456,6 +456,8 @@ func (h *Handler) smVersionActions() map[string]smActionFn {
 // dispatch routes the operation to the appropriate backend method.
 func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	// Attach the resolved region to the context so backend operations are region-scoped.
+	ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 	fn, ok := h.ops[action]
 	if !ok {
@@ -541,7 +543,7 @@ func extractFunctionNameFromARN(arn string) string {
 // The backend creates a new AWSPENDING version; this function promotes it to AWSCURRENT
 // after all Lambda steps succeed (or immediately if no Lambda ARN is configured).
 func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
-	out, err := h.Backend.RotateSecret(input)
+	out, err := h.Backend.RotateSecret(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +560,7 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 
 	// Promote AWSPENDING → AWSCURRENT after all Lambda steps succeed.
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		if finishErr := b.FinishRotation(input.SecretID, out.VersionID); finishErr != nil {
+		if finishErr := b.FinishRotation(ctx, input.SecretID, out.VersionID); finishErr != nil {
 			return nil, finishErr
 		}
 	}
@@ -594,7 +596,7 @@ func (h *Handler) invokeLambdaRotationSteps(
 		)
 		if invokeErr != nil {
 			if b, ok := h.Backend.(*InMemoryBackend); ok {
-				_ = b.AbortRotation(input.SecretID, out.VersionID)
+				_ = b.AbortRotation(ctx, input.SecretID, out.VersionID)
 			}
 
 			return fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
