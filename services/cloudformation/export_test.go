@@ -10,6 +10,11 @@ func ParseDependsOn(v any) []string {
 	return parseDependsOn(v)
 }
 
+// GetResourceAttribute exposes getResourceAttribute for white-box GetAtt testing.
+func GetResourceAttribute(resType, physID, attrName, accountID, region string) string {
+	return getResourceAttribute(resType, physID, attrName, accountID, region)
+}
+
 // ForceStackStatus sets the status of a stack by name for test purposes.
 func (b *InMemoryBackend) ForceStackStatus(stackName, status string) {
 	b.mu.Lock("ForceStackStatus")

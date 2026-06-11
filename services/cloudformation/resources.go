@@ -596,6 +596,12 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
+	if physID, handled, err := rc.createPhase5Resource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, err
+	}
+
 	return rc.createMiscServiceResource(logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -1203,6 +1209,9 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 
 		return rc.deleteSchedulerSchedule(physicalID)
 	default:
+		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
+			return err
+		}
 
 		return rc.deleteNewServiceResource(physicalID, resourceType)
 	}
